@@ -11,7 +11,7 @@
 
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { expect, type Page, type Request } from '@playwright/test';
-import { LIMITS, type LimitKey } from './limits.ts';
+import { effectiveLimit, type LimitKey } from './limits.ts';
 
 export const STRESS_OUTPUT_DIR = 'test-result/stress';
 export const RECORDS_PATH = `${STRESS_OUTPUT_DIR}/records.jsonl`;
@@ -197,7 +197,7 @@ export async function measure(
 ): Promise<ActionRecord> {
   const tracker = trackApi(page);
   const timeoutMs = spec.timeoutMs ?? DEFAULT_RESPOND_TIMEOUT_MS;
-  const limit = LIMITS[spec.limit];
+  const limit = effectiveLimit(spec.limit);
   const callsBefore = tracker.calls.length;
   const notes: string[] = steps.note === undefined ? [] : [steps.note];
 
@@ -290,7 +290,7 @@ export async function measureRefresh(
   pathPart: string,
 ): Promise<ActionRecord> {
   trackApi(page);
-  const limit = LIMITS[spec.limit];
+  const limit = effectiveLimit(spec.limit);
   const notes: string[] = [];
   let responseMs = 0;
   let readyMs = 0;
