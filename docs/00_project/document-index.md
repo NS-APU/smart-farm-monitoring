@@ -48,3 +48,4 @@
 | | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行は実装済み。本番は TODO） |
 | [50_references](../50_references/) | （今後追加） | 外部資料・参考情報 |
 | [.license-check](../../.license-check/)（リポジトリ直下） | [license-report.md](../../.license-check/license-report.md) | 依存パッケージのライセンス確認（コピーレフトの検出と対応、全依存のライセンス別の件数と一覧、配布物に含まれるものの区別）。`docs/` の外に置く |
+| [.speccheck](../../.speccheck/)（リポジトリ直下） | UC-01〜UC-24 の整合性チェックレポート（例: [UC-01-view-dashboard.md](../../.speccheck/UC-01-view-dashboard.md)） | ユースケースごとの、要件（use-cases.md・FR・NFR）・設計・実装・テストの対応表と、不足・食い違いの記録（24 ファイル）。`docs/` の外に置く |
