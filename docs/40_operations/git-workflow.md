@@ -75,7 +75,15 @@
   - レビュアーに特に見てほしい点
 - PRは小さく保つ（目安: 差分400行以内）。大きくなる場合は分割する
 - 作業途中で共有する場合はDraft PRにする
-- CI（テスト・Lint・ビルド）がすべて成功していることをマージ条件とする
+- CI（`.github/workflows/ci.yml`）がすべて成功していることをマージ条件とする。マージ先ごとの必須のチェックは、次のとおり（ブランチ保護で必須に設定する）
+
+  | マージ先 | 必須のチェック（ジョブ名） | 内容 |
+  |----------|----------------------------|------|
+  | `develop` | `lint`・`typecheck`・`unit-test`・`build` | Lint（ESLint・oxlint）と整形（Prettier）、型検査、単体・結合テスト（カバレッジの閾値つき）、ビルド |
+  | `main`（`release/*`・`hotfix/*`） | 上記に加えて、`e2e`・`stress` | E2E テスト（約 45 分）と、負荷テスト（約 2 分） |
+
+  - `e2e`・`stress` は、`main` 宛ての PR で実行する。`develop` 宛ての PR でも、ラベル `ci:full` を付けると実行できる（長いため、必要なときだけ付ける）
+  - `e2e`・`stress` は、速いチェック（`lint`・`typecheck`・`unit-test`・`build`）が成功してから始まる
 - マージ方式: `feature/*` → `develop` は Squash merge、`release/*`・`hotfix/*` → `main` は Merge commit（履歴を保持）
 
 ## レビュー観点

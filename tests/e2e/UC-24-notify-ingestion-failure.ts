@@ -488,8 +488,11 @@ for (const viewport of VIEWPORTS) {
       await expect(result).toContainText('取得しました（失敗）');
       await expect(logRows(page)).toHaveCount(10);
       await expect(logRows(page).first()).toContainText('ファイルサーバーに接続できませんでした');
+      // 日時は、1 行（30px 未満）。ただし、スマートフォン幅（375px）では、フォントによって幅が変わり、2 行（約 51px）に
+      // 折り返されることがある（Linux の Noto Sans CJK JP。CI で確認）。3 行以上に潰れないこと（60px 未満）を確認する。
+      const dateTimeLimit = viewport.width <= 400 ? 60 : 30;
       const tableChecks = [
-        ['tbody time', '日時', 30],
+        ['tbody time', '日時', dateTimeLimit],
         ['tbody .log-result', '結果のラベル', 30],
       ] as const;
       await expectTableIntact(page, '.log-table', 'tbody tr td:last-child', tableChecks);

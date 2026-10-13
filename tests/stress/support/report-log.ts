@@ -4,7 +4,7 @@
  */
 
 import type { ActionRecord, Scenario } from './recorder.ts';
-import { LIMITS } from './limits.ts';
+import { LIMITS, LIMIT_FACTOR, effectiveLimit, type LimitKey } from './limits.ts';
 import type { SeedSummary } from './seed-data.ts';
 
 export interface EnvironmentInfo {
@@ -130,9 +130,19 @@ export function buildResultLog(input: ResultLogInput): string {
     `#   ブラウザ ${environment.browser}（Playwright ${environment.playwright}、ヘッドレス、画面 1280x720）/ フロントエンド ${environment.frontend} / バックエンド ${environment.backend}`,
     ...datasetLines(dataset),
     '# 許容時間（tests/stress/support/limits.ts。応答時間・次の操作が可能になるまでの時間の、どちらも許容時間以内なら OK）:',
-    ...Object.entries(LIMITS).map(
-      ([key, limit]) => `#   ${key}\t${String(limit.seconds)} 秒\t${limit.basis}`,
-    ),
+    ...(LIMIT_FACTOR === 1
+      ? []
+      : [
+          `#   ※ 許容時間の係数 ${String(LIMIT_FACTOR)}（環境変数 STRESS_LIMIT_FACTOR。実行環境の速さの揺れを吸収するため、NFR の値に、この倍率をかけた）`,
+        ]),
+    ...(Object.keys(LIMITS) as LimitKey[]).map((key) => {
+      const limit = effectiveLimit(key);
+      const factorNote =
+        LIMIT_FACTOR === 1
+          ? ''
+          : `（NFR の値 ${String(LIMITS[key].seconds)} 秒 × ${String(LIMIT_FACTOR)}）`;
+      return `#   ${key}\t${String(limit.seconds)} 秒${factorNote}\t${limit.basis}`;
+    }),
     '#',
     '# 列（タブ区切り）: No / シナリオ / UC / 操作 / 画面 / 利用者 / 応答(秒) / 次の操作可能(秒) / 許容(秒) / 判定 / 最も遅いAPI(ms) / そのAPI / 備考',
     [
