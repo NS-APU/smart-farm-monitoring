@@ -24,5 +24,10 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["vitest.config.ts", "playwright.config.ts", "dev-ports.ts"]
+  "include": [
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "playwright.stress.config.ts",
+    "dev-ports.ts"
+  ]
 }

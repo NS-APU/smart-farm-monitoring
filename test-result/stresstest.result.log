@@ -1,0 +1,479 @@
+# 負荷テスト結果ログ（pnpm test:stress）
+# 実行日時: 2026-10-12 23:25:49 JST 〜 2026-10-12 23:27:35 JST（106 秒）
+# 環境: OS Windows_NT 10.0.26200（win32 x64） / Node v25.9.0 / CPU Intel(R) Core(TM) Ultra 7 165U（14 論理コア）/ メモリ 31.5 GiB
+#   ブラウザ Chromium 156.0.8078.4（Playwright 1.64、ヘッドレス、画面 1280x720）/ フロントエンド Vite の本番ビルド（vite build）を vite preview で配信 / バックエンド Node + Hono（本番と同じアプリ。メモリ上のデータ・モックの外部サービス。1プロセス）
+# データ規模（テストの起動時に、合成データを生成して投入。実データ・個人情報は使わない）:
+#   設備: ハウス 3・ロボット 4・センサー 4（HOUSE-01（ロボット1台・センサー1台・15分間隔）、HOUSE-02（ロボット2台・センサー2台・60分間隔）、HOUSE-03（ロボット1台・センサー1台・60分間隔））
+#   観測値: 634,624 件（自動取り込み 613,200 件 + 手動入力 21,424 件）、期間 2025-10-12 23:25:39 JST 〜 2026-10-12 23:15:39 JST（365日）
+#   手動入力 5,000 件、通知 5,000 件（未読 3,548 件）、変更履歴 5,000 件、ステータスの変化の履歴 6,200 件
+#   ステータスコード 308 件、取り込みログ 5,000 件、取り込み済みファイルの記録 35,000 件、連携キュー 10,000 件、連携ログ 3,000 件、利用者 11 人
+#   投入に要した時間: 2.8 秒
+# 許容時間（tests/stress/support/limits.ts。応答時間・次の操作が可能になるまでの時間の、どちらも許容時間以内なら OK）:
+#   dashboardInitial	3 秒	NFR-3.4 ダッシュボードの初期表示 3秒以内
+#   trend	10 秒	NFR-3.5 期間を指定した推移の表示（1か月分）10秒以内
+#   refresh	10 秒	NFR-3.3 画面のデータを10秒程度の頻度で更新（更新が間隔内に完了すること）
+#   screen	3 秒	NFR に明示なし。画面の表示に最も近い NFR-3.4（画面の初期表示 3秒以内）
+#   operation	3 秒	NFR に明示なし。画面操作の応答に最も近い NFR-3.4（3秒以内）
+#   job	10 秒	NFR に明示なし。データの処理を伴う操作に最も近い NFR-3.5（10秒以内）。NFR-3.3 の更新間隔 10秒 とも整合
+#
+# 列（タブ区切り）: No / シナリオ / UC / 操作 / 画面 / 利用者 / 応答(秒) / 次の操作可能(秒) / 許容(秒) / 判定 / 最も遅いAPI(ms) / そのAPI / 備考
+No	シナリオ	UC	操作	画面	利用者	応答(秒)	次の操作可能(秒)	許容(秒)	判定	API最大(ms)	API	備考
+1	単独利用	UC-13	ログイン画面を開く	ログイン（SC-01）	stress-user-01	0.107	0.142	3	OK			
+2	単独利用	UC-13	ユーザーID・パスワードを入力して「ログイン」を押す	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-01	0.381	0.400	3	OK	54	GET /dashboard	
+3	単独利用	UC-01	ダッシュボードを開く（画面の再読み込み）	ダッシュボード（SC-02）	stress-user-01	0.089	0.097	3	OK	11	GET /equipment	
+4	単独利用	UC-01	対象の設備をハウス2（ロボット2台・センサー2台）に切り替える	ダッシュボード（SC-02）	stress-user-01	0.062	0.095	3	OK	30	GET /dashboard	
+5	単独利用	UC-01	対象の設備をハウス3に切り替える	ダッシュボード（SC-02）	stress-user-01	0.061	0.097	3	OK	19	GET /dashboard	
+6	単独利用	UC-01	対象の設備をロボット（7観点）に切り替える	ダッシュボード（SC-02）	stress-user-01	0.057	0.082	3	OK	28	GET /dashboard	
+7	単独利用	UC-01	対象の設備をセンサー（1観点）に切り替える	ダッシュボード（SC-02）	stress-user-01	0.062	0.080	3	OK	23	GET /dashboard	
+8	単独利用	UC-01	対象の設備をハウス1に切り替える	ダッシュボード（SC-02）	stress-user-01	0.027	0.062	3	OK	8	GET /dashboard	
+9	単独利用	UC-01	視点を「短期」に切り替える	ダッシュボード（SC-02）	stress-user-01	0.072	0.098	3	OK	9	GET /dashboard	
+10	単独利用	UC-01	視点を「長期」に戻す	ダッシュボード（SC-02）	stress-user-01	0.076	0.098	3	OK	10	GET /dashboard	
+11	単独利用	UC-01	長期の期間を「当日」に切り替える	ダッシュボード（SC-02）	stress-user-01	0.052	0.065	3	OK	6	GET /dashboard	
+12	単独利用	UC-01	長期の期間を「直近30日」に切り替える	ダッシュボード（SC-02）	stress-user-01	0.046	0.064	3	OK	6	GET /dashboard	
+13	単独利用	UC-01	長期の期間を「直近60日」に切り替える	ダッシュボード（SC-02）	stress-user-01	0.047	0.066	3	OK	6	GET /dashboard	
+14	単独利用	UC-01	長期の期間を「直近90日」に切り替える	ダッシュボード（SC-02）	stress-user-01	0.056	0.064	3	OK	7	GET /dashboard	
+15	単独利用	UC-01	長期の期間を「直近7日」に切り替える	ダッシュボード（SC-02）	stress-user-01	0.021	0.046	3	OK	5	GET /dashboard	
+16	単独利用	UC-01	画面の自動更新（約10秒ごと。ダッシュボードの再取得）	ダッシュボード（SC-02）	stress-user-01	0.012	0.027	10	OK	12	GET /dashboard	状態 304
+17	単独利用	UC-02	観点「収穫精度」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.142	0.174	3	OK	39	GET /viewpoints/harvestAccuracy	
+18	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.075	0.099	3	OK	13	GET /dashboard	
+19	単独利用	UC-02	観点「収穫速度」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.087	0.113	3	OK	31	GET /viewpoints/harvestSpeed/series	
+20	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.075	0.098	3	OK	9	GET /dashboard	
+21	単独利用	UC-02	観点「環境適応性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.138	0.148	3	OK	29	GET /viewpoints/environmentalAdaptability/series	
+22	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.082	0.094	3	OK	6	GET /dashboard	
+23	単独利用	UC-02	観点「操作性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.881	0.899	3	OK	535	GET /status-codes	
+24	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.087	0.098	3	OK	9	GET /dashboard	
+25	単独利用	UC-02	観点「メンテナンス性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.147	0.166	3	OK	29	GET /viewpoints/maintainability	
+26	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.082	0.096	3	OK	11	GET /dashboard	
+27	単独利用	UC-02	観点「コスト効率」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.145	0.167	3	OK	35	GET /viewpoints/costEfficiency/series	
+28	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.078	0.096	3	OK	10	GET /dashboard	
+29	単独利用	UC-02	観点「安全性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.140	0.148	3	OK	34	GET /viewpoints/safety/series	
+30	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.061	0.080	3	OK	5	GET /dashboard	
+31	単独利用	UC-02	観点「データ活用度合い」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.143	0.166	3	OK	33	GET /viewpoints/dataUtilization/series	
+32	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.058	0.081	3	OK	8	GET /dashboard	
+33	単独利用	UC-02	観点「耐久性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.146	0.165	3	OK	30	GET /viewpoints/durability/series	
+34	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.066	0.098	3	OK	14	GET /dashboard	
+35	単独利用	UC-04	注意・異常の観点の推奨アクションを確認する（カードの「詳細を見る」）	観点の詳細（SC-03）	stress-user-01	0.899	0.915	3	OK	328	GET /observations	
+36	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.080	0.097	3	OK	12	GET /dashboard	
+37	単独利用	UC-02	観点「環境適応性」の詳細を開く（推移の確認）	観点の詳細（SC-03）	stress-user-01	0.161	0.182	3	OK	24	GET /viewpoints/environmentalAdaptability	
+38	単独利用	UC-03	推移の期間を「直近30日」に切り替える	観点の詳細・推移（SC-03）	stress-user-01	0.130	0.147	10	OK	45	GET /viewpoints/environmentalAdaptability/series	
+39	単独利用	UC-03	推移の期間を「直近60日」に切り替える	観点の詳細・推移（SC-03）	stress-user-01	0.128	0.131	10	OK	70	GET /status-codes	
+40	単独利用	UC-03	推移の期間を「直近90日」に切り替える	観点の詳細・推移（SC-03）	stress-user-01	0.235	0.249	10	OK	83	GET /status-codes	
+41	単独利用	UC-03	推移の期間を「当日」に切り替える	観点の詳細・推移（SC-03）	stress-user-01	0.058	0.081	10	OK	25	GET /viewpoints/environmentalAdaptability/series	
+42	単独利用	UC-03	推移の期間を「直近7日」に切り替える	観点の詳細・推移（SC-03）	stress-user-01	0.109	0.114	10	OK	30	GET /viewpoints/environmentalAdaptability/series	
+43	単独利用	UC-03	視点を「短期」に切り替える（短期のフィードバック）	観点の詳細・推移（SC-03）	stress-user-01	0.102	0.115	10	OK	23	GET /viewpoints/environmentalAdaptability/series	
+44	単独利用	UC-03	視点を「長期」に戻す	観点の詳細・推移（SC-03）	stress-user-01	0.141	0.148	10	OK	28	GET /viewpoints/environmentalAdaptability/series	
+45	単独利用	UC-02	元データの表で、次のページを開く	観点の詳細・元データ（SC-03）	stress-user-01	0.061	0.082	3	OK	19	GET /observations	
+46	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.075	0.098	3	OK	11	GET /dashboard	
+47	単独利用	UC-01	対象の設備をロボット（7観点）に切り替える	ダッシュボード（SC-02）	stress-user-01	0.022	0.049	3	OK	6	GET /dashboard	
+48	単独利用	UC-02	ロボットの観点「耐久性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.082	0.097	3	OK	17	GET /viewpoints/durability/series	
+49	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.074	0.098	3	OK	7	GET /dashboard	
+50	単独利用	UC-01	対象の設備をセンサー（1観点）に切り替える	ダッシュボード（SC-02）	stress-user-01	0.022	0.047	3	OK	7	GET /dashboard	
+51	単独利用	UC-02	センサーの観点「環境適応性」の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.085	0.097	3	OK	17	GET /viewpoints/environmentalAdaptability/series	
+52	単独利用	UC-01	ダッシュボードへ戻る（パンくず）	ダッシュボード（SC-02）	stress-user-01	0.073	0.099	3	OK	9	GET /dashboard	
+53	単独利用	UC-01	対象の設備をハウス1に切り替える	ダッシュボード（SC-02）	stress-user-01	0.032	0.063	3	OK	7	GET /dashboard	
+54	単独利用	UC-21	ダッシュボードの「満足度」を選び、満足度の詳細を開く	満足度（SC-04）	stress-user-01	0.080	0.098	3	OK	10	GET /viewpoints/satisfaction	
+55	単独利用	UC-21	長期の期間を「直近30日」に切り替える	満足度（SC-04）	stress-user-01	0.048	0.060	3	OK	6	GET /viewpoints/satisfaction	
+56	単独利用	UC-21	長期の期間を「直近90日」に切り替える	満足度（SC-04）	stress-user-01	0.046	0.064	3	OK	4	GET /viewpoints/satisfaction	
+57	単独利用	UC-01	メニューから「ダッシュボード」を開く	ダッシュボード（SC-02）	stress-user-01	0.075	0.098	3	OK	10	GET /dashboard	
+58	単独利用	UC-20	メニューから「取り込み済みデータ」を開く	取り込み済みデータ（SC-09）	stress-user-01	0.061	0.083	3	OK	4	GET /status-codes	
+59	単独利用	UC-20	カテゴリ「環境情報」で絞り込む	取り込み済みデータ（SC-09）	stress-user-01	0.045	0.072	3	OK	6	GET /observations	
+60	単独利用	UC-20	取得元「手動入力」で絞り込む	取り込み済みデータ（SC-09）	stress-user-01	0.142	0.164	3	OK	8	GET /observations	
+61	単独利用	UC-20	取得元・カテゴリの絞り込みを解除する	取り込み済みデータ（SC-09）	stress-user-01	0.054	0.064	3	OK	5	GET /observations	
+62	単独利用	UC-20	設備「ハウス2」で絞り込む	取り込み済みデータ（SC-09）	stress-user-01	0.129	0.148	3	OK	7	GET /observations	
+63	単独利用	UC-20	設備の絞り込みを解除する	取り込み済みデータ（SC-09）	stress-user-01	0.041	0.064	3	OK	6	GET /observations	
+64	単独利用	UC-20	期間（直近30日）で絞り込む	取り込み済みデータ（SC-09）	stress-user-01	0.162	0.182	3	OK	5	GET /observations	
+65	単独利用	UC-20	期間の絞り込みを解除する	取り込み済みデータ（SC-09）	stress-user-01	0.057	0.065	3	OK	6	GET /observations	
+66	単独利用	UC-20	キーワード「温度」で検索する	取り込み済みデータ（SC-09）	stress-user-01	0.126	0.147	3	OK	7	GET /observations	
+67	単独利用	UC-20	キーワードを消して、検索を解除する	取り込み済みデータ（SC-09）	stress-user-01	0.027	0.047	3	OK	7	GET /observations	
+68	単独利用	UC-20	値の昇順で並べ替える	取り込み済みデータ（SC-09）	stress-user-01	0.241	0.247	3	OK	130	GET /observations	
+69	単独利用	UC-20	カテゴリ順に並べ替える	取り込み済みデータ（SC-09）	stress-user-01	0.226	0.232	3	OK	190	GET /observations	
+70	単独利用	UC-20	日時の新しい順に戻す	取り込み済みデータ（SC-09）	stress-user-01	0.055	0.065	3	OK	5	GET /observations	
+71	単独利用	UC-20	次のページを開く（2ページ目）	取り込み済みデータ（SC-09）	stress-user-01	0.083	0.099	3	OK	13	GET /observations	
+72	単独利用	UC-20	次のページを開く（3ページ目）	取り込み済みデータ（SC-09）	stress-user-01	0.079	0.098	3	OK	13	GET /observations	
+73	単独利用	UC-20	前のページへ戻る	取り込み済みデータ（SC-09）	stress-user-01	0.087	0.099	3	OK	10	GET /observations	
+74	単独利用	UC-06	メニューから「データ入力」を開く	データ入力（SC-06）	stress-user-01	0.390	0.414	3	OK			
+75	単独利用	UC-06	復旧対応の結果（故障回数・復旧時間・備考）を入力して「保存する」を押す	データ入力（SC-06）	stress-user-01	0.894	0.901	3	OK	432	POST /manual-entries	
+76	単独利用	UC-07	自動取得できない環境の値（温度・湿度）を入力して「保存する」を押す	データ入力（SC-06）	stress-user-01	0.367	0.378	3	OK	234	POST /manual-entries	
+77	単独利用	UC-10	異常な値（温度 40℃）を入力して保存し、評価の更新・通知を起こす	データ入力（SC-06）	stress-user-01	0.240	0.294	3	OK	204	POST /manual-entries	
+78	単独利用	UC-10	ヘッダーの未読件数から通知の一覧を開き、新しい異常の通知を確認する	通知（SC-05）	stress-user-01	0.111	0.129	3	OK	12	GET /notifications	
+79	単独利用	UC-10	評価の定期実行（JB-02）を起動し、ダッシュボードで結果を確認する	ダッシュボード（SC-02）	stress-user-01	0.729	0.763	10	OK	38	GET /dashboard	JB-02 の実行 597 ms
+80	単独利用	UC-10	通知の配信（JB-04）を起動し、通知の一覧で結果を確認する	通知（SC-05）	stress-user-01	0.077	0.097	10	OK	14	GET /notifications	JB-04 の実行 9 ms
+81	単独利用	UC-18	データ入力の画面から「入力済みデータの一覧へ」を開く	入力済みデータ（SC-07）	stress-user-01	0.421	0.445	3	OK	16	GET /manual-entries	
+82	単独利用	UC-18	キーワード「負荷試験」で検索する	入力済みデータ（SC-07）	stress-user-01	0.132	0.148	3	OK	22	GET /manual-entries	
+83	単独利用	UC-18	キーワードを消す	入力済みデータ（SC-07）	stress-user-01	0.047	0.067	3	OK	13	GET /manual-entries	
+84	単独利用	UC-18	カテゴリ「故障情報」で絞り込む	入力済みデータ（SC-07）	stress-user-01	0.133	0.147	3	OK	7	GET /manual-entries	
+85	単独利用	UC-18	カテゴリの絞り込みを解除する	入力済みデータ（SC-07）	stress-user-01	0.046	0.064	3	OK	16	GET /manual-entries	
+86	単独利用	UC-18	設備「ロボット」で絞り込む	入力済みデータ（SC-07）	stress-user-01	0.139	0.149	3	OK	9	GET /manual-entries	
+87	単独利用	UC-18	設備の絞り込みを解除する	入力済みデータ（SC-07）	stress-user-01	0.047	0.064	3	OK	13	GET /manual-entries	
+88	単独利用	UC-18	計測日時の期間（直近30日）で絞り込む	入力済みデータ（SC-07）	stress-user-01	0.059	0.081	3	OK	12	GET /manual-entries	
+89	単独利用	UC-18	期間の絞り込みを解除する	入力済みデータ（SC-07）	stress-user-01	0.056	0.082	3	OK	15	GET /manual-entries	
+90	単独利用	UC-18	カテゴリの昇順に並べ替える	入力済みデータ（SC-07）	stress-user-01	0.065	0.079	3	OK	16	GET /manual-entries	
+91	単独利用	UC-18	入力者の順に並べ替える	入力済みデータ（SC-07）	stress-user-01	0.046	0.065	3	OK	16	GET /manual-entries	
+92	単独利用	UC-18	計測日時の新しい順に戻す	入力済みデータ（SC-07）	stress-user-01	0.058	0.082	3	OK	14	GET /manual-entries	
+93	単独利用	UC-18	次のページを開く	入力済みデータ（SC-07）	stress-user-01	0.084	0.096	3	OK	14	GET /manual-entries	
+94	単独利用	UC-18	前のページへ戻る	入力済みデータ（SC-07）	stress-user-01	0.095	0.131	3	OK	13	GET /manual-entries	
+95	単独利用	UC-18	先頭の入力（異常な温度の入力）の「修正」を押す	入力済みデータ（SC-07）	stress-user-01	0.047	0.082	3	OK			
+96	単独利用	UC-18	温度を修正して「保存」を押す（評価の更新を含む）	入力済みデータ（SC-07）	stress-user-01	0.304	0.339	3	OK	205	PUT /manual-entries/3fd9667f-4da6-4ef8-8f55-fc19d567dbda	
+97	単独利用	UC-18	2番目の入力の「削除」を押し、確認で削除する	入力済みデータ（SC-07）	stress-user-01	0.337	0.349	3	OK	226	DELETE /manual-entries/caa5c659-bb2e-4b68-9455-5226919df260	
+98	単独利用	UC-18	「変更履歴を見る」から変更履歴（約5,000件）を開く	変更履歴（SC-08）	stress-user-01	0.373	0.396	3	OK	14	GET /audit-logs	
+99	単独利用	UC-18	操作種別「削除」で絞り込む	変更履歴（SC-08）	stress-user-01	0.123	0.128	3	OK	10	GET /audit-logs	
+100	単独利用	UC-18	変更者「stress-user-03」で絞り込む	変更履歴（SC-08）	stress-user-01	0.135	0.149	3	OK	14	GET /audit-logs	
+101	単独利用	UC-18	絞り込みを解除し、次のページを開く	変更履歴（SC-08）	stress-user-01	0.127	0.148	3	OK	13	GET /audit-logs	
+102	単独利用	UC-19	観点の詳細から「判断基準を編集」を開く	判断基準の編集（SC-13）	stress-user-01	0.357	0.387	3	OK	6	GET /viewpoints/environmentalAdaptability/criteria	
+103	単独利用	UC-19	温度の閾値を変更して「保存する」を押す（評価の更新を含む）	判断基準の編集（SC-13）	stress-user-01	0.873	0.889	3	OK	542	PUT /viewpoints/environmentalAdaptability/criteria	
+104	単独利用	UC-19	「既定値へ戻す」を押し、確認で戻す	判断基準の編集（SC-13）	stress-user-01	0.902	0.916	3	OK	526	POST /viewpoints/environmentalAdaptability/criteria/reset	
+105	単独利用	UC-16	メニューから「取り込み」を開く（取り込みのログ・連携の状況を表示）	取り込み設定・状況（SC-11）	stress-user-01	0.377	0.399	3	OK	22	GET /federation/logs	
+106	単独利用	UC-15	ロボットデータの取得間隔を5分に変更して「設定を保存」を押す	取り込み設定・状況（SC-11）	stress-user-01	0.060	0.104	3	OK	14	PUT /ingestion/settings	
+107	単独利用	UC-15	環境センサーデータの取得間隔を5分に変更して「設定を保存」を押す	取り込み設定・状況（SC-11）	stress-user-01	0.083	0.107	3	OK	13	PUT /ingestion/settings	
+108	単独利用	UC-15	ロボットデータの「接続テスト」を押す	取り込み設定・状況（SC-11）	stress-user-01	0.062	0.098	3	OK	17	POST /ingestion/robot/test	
+109	単独利用	UC-08	ロボットのデータ（5 ファイル・各 144 記録）を「即時取得」する	取り込み設定・状況（SC-11）	stress-user-01	0.895	0.905	10	OK	412	POST /ingestion/robot/run	
+110	単独利用	UC-09	環境センサーのデータ（5 ファイル・各 144 行）を「即時取得」する	取り込み設定・状況（SC-11）	stress-user-01	0.359	0.399	10	OK	323	POST /ingestion/environment-sensor/run	
+111	単独利用	UC-08	取り込んだデータを「取り込み済みデータ」で確認する	取り込み済みデータ（SC-09）	stress-user-01	0.148	0.165	3	OK	37	GET /observations	
+112	単独利用	UC-08	取り込みの結果が、ダッシュボードの評価に反映されている	ダッシュボード（SC-02）	stress-user-01	0.137	0.164	3	OK	39	GET /dashboard	
+113	単独利用	UC-08	定期取り込み（JB-01）を起動し、取り込みのログで結果を確認する	取り込み設定・状況（SC-11）	stress-user-01	1.124	1.138	10	OK	14	GET /federation/logs	JB-01 の実行 1055 ms
+114	単独利用	UC-16	取り込みのログを、取り込み元（ロボットデータ）で絞り込む	取り込み設定・状況（SC-11）	stress-user-01	0.022	0.046	3	OK	6	GET /ingestion/logs	
+115	単独利用	UC-16	取り込みのログの、次のページを開く	取り込み設定・状況（SC-11）	stress-user-01	0.093	0.098	3	OK	12	GET /ingestion/logs	
+116	単独利用	UC-16	取り込みのログの絞り込みを解除する	取り込み設定・状況（SC-11）	stress-user-01	0.054	0.065	3	OK	7	GET /ingestion/logs	
+117	単独利用	UC-16	連携の結果の、次のページを開く	取り込み設定・状況（SC-11）	stress-user-01	0.095	0.129	3	OK	13	GET /federation/logs	
+118	単独利用	UC-11	連携（JB-03）を起動し、連携の状況で結果を確認する	取り込み設定・状況（SC-11）	stress-user-01	0.047	0.081	10	OK	11	GET /federation/logs	JB-03 の実行 9 ms
+119	単独利用	UC-11	農業情報基盤の停止中に連携（JB-03）を起動し、保留を確認する	取り込み設定・状況（SC-11）	stress-user-01	0.039	0.072	10	OK	11	GET /ingestion/settings	JB-03 の実行 8 ms
+120	単独利用	UC-11	農業情報基盤の復旧後に連携（JB-03）を起動し、保留分の送信を確認する	取り込み設定・状況（SC-11）	stress-user-01	0.041	0.073	10	OK	13	GET /ingestion/settings	JB-03 の実行 8 ms
+121	単独利用	UC-24	ファイルサーバーの停止中に「即時取得」を押す（再試行のあと失敗）	取り込み設定・状況（SC-11）	stress-user-01	0.139	0.158	10	OK	52	POST /ingestion/robot/run	
+122	単独利用	UC-24	取り込み失敗の通知を、通知の一覧で確認する	通知（SC-05）	stress-user-01	0.087	0.120	3	OK	17	GET /notifications	
+123	単独利用	UC-22	種別「異常検知」で絞り込む	通知（SC-05）	stress-user-01	0.134	0.148	3	OK	15	GET /notifications	
+124	単独利用	UC-05	通知の「詳細を確認」を押し、異常の対象の観点の詳細を開く	観点の詳細（SC-03）	stress-user-01	0.159	0.180	3	OK	44	GET /status-codes	
+125	単独利用	UC-22	通知の一覧に戻る（メニュー）	通知（SC-05）	stress-user-01	0.081	0.097	3	OK	16	GET /notifications	
+126	単独利用	UC-22	種別「データ取得失敗」で絞り込む	通知（SC-05）	stress-user-01	0.136	0.148	3	OK	9	GET /notifications	
+127	単独利用	UC-05	通知の「取り込みの状況を確認」を押し、取り込みの状況を開く	取り込み設定・状況（SC-11）	stress-user-01	0.079	0.099	3	OK	15	GET /notifications/unread-count	
+128	単独利用	UC-22	既読状態「未読」で絞り込む	通知（SC-05）	stress-user-01	0.122	0.141	3	OK	14	GET /notifications	
+129	単独利用	UC-22	次のページを開く	通知（SC-05）	stress-user-01	0.061	0.097	3	OK	12	GET /notifications	
+130	単独利用	UC-22	前のページへ戻る	通知（SC-05）	stress-user-01	0.084	0.098	3	OK	15	GET /notifications	
+131	単独利用	UC-22	先頭の通知の「既読にする」を押す	通知（SC-05）	stress-user-01	0.066	0.094	3	OK	17	GET /notifications/unread-count	
+132	単独利用	UC-22	絞り込みの範囲（未読）を、まとめて既読にする	通知（SC-05）	stress-user-01	0.069	0.099	3	OK	10	POST /notifications/read-all	
+133	単独利用	UC-22	絞り込みを解除し、「すべての通知を既読にする」を押す	通知（SC-05）	stress-user-01	0.063	0.114	3	OK	21	GET /notifications	
+134	単独利用	UC-12	メニューから「設備」を開く	設備（SC-10）	stress-user-01	0.368	0.380	3	OK			
+135	単独利用	UC-12	ハウスを登録する（設備ID・名称を入力して「登録する」）	設備（SC-10）	stress-user-01	0.875	0.894	3	OK	683	POST /equipment	
+136	単独利用	UC-12	ロボットをハウスに紐づけて登録する	設備（SC-10）	stress-user-01	0.883	0.914	3	OK	793	POST /equipment	
+137	単独利用	UC-12	環境センサーをハウスに紐づけて登録する	設備（SC-10）	stress-user-01	0.914	0.928	3	OK	743	POST /equipment	
+138	単独利用	UC-12	追加したロボットの「修正」を押す	設備（SC-10）	stress-user-01	0.044	0.065	3	OK			
+139	単独利用	UC-12	ロボットの名称を変更して「保存」を押す	設備（SC-10）	stress-user-01	1.437	1.455	3	OK	947	PUT /equipment/ROBOT-ADDED	
+140	単独利用	UC-12	追加したハウス（配下のロボット・センサーを含む）の「削除」を押し、確認で削除する	設備（SC-10）	stress-user-01	0.924	0.945	3	OK	723	DELETE /equipment/HOUSE-ADDED	
+141	単独利用	UC-17	メニューから「ステータスコード」を開く	ステータスコード（SC-12）	stress-user-01	0.407	0.429	3	OK	6	GET /status-codes	
+142	単独利用	UC-17	ステータスコードを登録する（「登録する」）	ステータスコード（SC-12）	stress-user-01	1.334	1.351	3	OK	984	POST /status-codes	
+143	単独利用	UC-17	登録したコードの「修正」を押す	ステータスコード（SC-12）	stress-user-01	0.056	0.078	3	OK			
+144	単独利用	UC-17	名称・カテゴリを変更して「保存」を押す	ステータスコード（SC-12）	stress-user-01	1.345	1.363	3	OK	854	PUT /status-codes/STRESS_NEW_CODE	
+145	単独利用	UC-17	登録したコードの「削除」を押し、確認で削除する	ステータスコード（SC-12）	stress-user-01	1.413	1.431	3	OK	856	DELETE /status-codes/STRESS_NEW_CODE	
+146	単独利用	UC-14	メニューから「ユーザー」を開く（最終ログイン日時を確認）	ユーザー（SC-14）	stress-user-01	0.417	0.430	3	OK	5	GET /users	
+147	単独利用	UC-14	ユーザーを登録する（ユーザーID・ユーザー名・パスワードを入力して「登録する」）	ユーザー（SC-14）	stress-user-01	0.066	0.090	3	OK	31	POST /users	
+148	単独利用	UC-14	登録したユーザーの「修正」を押す	ユーザー（SC-14）	stress-user-01	0.041	0.064	3	OK			
+149	単独利用	UC-14	ユーザー名を変更して「保存」を押す	ユーザー（SC-14）	stress-user-01	0.077	0.089	3	OK	15	PUT /users/stress-added-user	
+150	単独利用	UC-14	登録したユーザーの「削除」を押し、確認で削除する	ユーザー（SC-14）	stress-user-01	0.115	0.131	3	OK	17	DELETE /users/stress-added-user	
+151	単独利用	UC-23	メニューから「通知の設定」を開く	通知の設定（SC-15）	stress-user-01	0.402	0.432	3	OK	5	GET /push-subscription	
+152	単独利用	UC-23	「有効にする」を押し、Web Push 通知を有効にする	通知の設定（SC-15）	stress-user-01	0.088	0.096	3	OK	11	PUT /push-subscription	
+153	単独利用	UC-23	「解除する」を押し、Web Push 通知を解除する	通知の設定（SC-15）	stress-user-01	0.083	0.098	3	OK	11	DELETE /push-subscription	
+154	単独利用	UC-13	ヘッダーの「ログアウト」を押す	ログイン（SC-01）	stress-user-01	0.077	0.097	3	OK	12	POST /auth/logout	
+155	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-07	0.974	0.999	3	OK	286	GET /equipment	
+156	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-08	0.976	1.002	3	OK	346	POST /auth/login	
+157	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-10	0.975	1.007	3	OK	390	POST /auth/login	
+158	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-05	0.975	1.009	3	OK	325	GET /equipment	
+159	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-02	0.977	1.014	3	OK	306	POST /auth/login	
+160	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-04	0.977	1.017	3	OK	249	GET /equipment	
+161	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-09	0.971	1.018	3	OK	436	POST /auth/login	
+162	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-11	0.978	1.021	3	OK	397	GET /equipment	
+163	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-06	0.981	1.030	3	OK	361	GET /equipment	
+164	同時接続	UC-13	ログインする（全員が同時）	ログイン（SC-01）→ ダッシュボード（SC-02）	stress-user-03	0.990	1.046	3	OK	256	POST /auth/login	
+165	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.401	0.427	3	OK	81	GET /dashboard	
+166	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.401	0.433	3	OK	62	GET /dashboard	
+167	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.402	0.436	3	OK	75	GET /dashboard	
+168	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.403	0.441	3	OK	55	GET /dashboard	
+169	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.407	0.445	3	OK	75	GET /dashboard	
+170	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.413	0.452	3	OK	74	GET /dashboard	
+171	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.406	0.451	3	OK	72	GET /dashboard	
+172	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.408	0.456	3	OK	74	GET /dashboard	
+173	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.408	0.456	3	OK	81	GET /dashboard	
+174	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.413	0.459	3	OK	60	GET /equipment	
+175	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.195	0.231	3	OK	72	GET /dashboard	
+176	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.198	0.235	3	OK	67	GET /dashboard	
+177	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.198	0.238	3	OK	57	GET /dashboard	
+178	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.208	0.240	3	OK	72	GET /dashboard	
+179	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.208	0.242	3	OK	69	GET /dashboard	
+180	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.200	0.249	3	OK	65	GET /dashboard	
+181	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.195	0.246	3	OK	59	GET /dashboard	
+182	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.211	0.253	3	OK	68	GET /dashboard	
+183	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.195	0.253	3	OK	67	GET /dashboard	
+184	同時接続	UC-01	対象の設備を負荷試験ハウス2に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.210	0.257	3	OK	68	GET /dashboard	
+185	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.159	0.172	3	OK	44	GET /dashboard	
+186	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.154	0.174	3	OK	63	GET /dashboard	
+187	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.156	0.177	3	OK	51	GET /dashboard	
+188	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.155	0.178	3	OK	32	GET /dashboard	
+189	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.154	0.183	3	OK	61	GET /dashboard	
+190	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.152	0.184	3	OK	66	GET /dashboard	
+191	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.157	0.185	3	OK	44	GET /dashboard	
+192	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.156	0.190	3	OK	40	GET /dashboard	
+193	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.157	0.192	3	OK	48	GET /dashboard	
+194	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.160	0.197	3	OK	36	GET /dashboard	
+195	同時接続	UC-02	観点「収穫速度」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-03	1.548	1.573	3	OK	708	GET /status-codes	
+196	同時接続	UC-02	観点「収穫精度」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-11	1.547	1.575	3	OK	695	GET /status-codes	
+197	同時接続	UC-02	観点「環境適応性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-04	1.547	1.574	3	OK	492	GET /status-codes	
+198	同時接続	UC-02	観点「操作性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-05	1.552	1.577	3	OK	888	GET /status-codes	
+199	同時接続	UC-02	観点「データ活用度合い」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-09	1.550	1.578	3	OK	704	GET /status-codes	
+200	同時接続	UC-02	観点「メンテナンス性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-06	1.550	1.582	3	OK	701	GET /status-codes	
+201	同時接続	UC-02	観点「耐久性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-10	1.549	1.581	3	OK	853	GET /status-codes	
+202	同時接続	UC-02	観点「収穫精度」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-02	1.547	1.582	3	OK	839	GET /status-codes	
+203	同時接続	UC-02	観点「コスト効率」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-07	1.549	1.585	3	OK	538	GET /viewpoints/costEfficiency/series	
+204	同時接続	UC-02	観点「安全性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-08	1.548	1.589	3	OK	846	GET /status-codes	
+205	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-02	0.952	0.978	10	OK	696	GET /status-codes	
+206	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-10	0.955	0.980	10	OK	614	GET /status-codes	
+207	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-05	0.957	0.983	10	OK	723	GET /viewpoints/operability/series	
+208	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-03	0.959	0.987	10	OK	584	GET /viewpoints/harvestSpeed/series	
+209	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-11	0.956	0.988	10	OK	526	GET /viewpoints/harvestAccuracy/series	
+210	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-09	0.958	0.989	10	OK	649	GET /viewpoints/dataUtilization/series	
+211	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-07	0.957	0.990	10	OK	446	GET /status-codes	
+212	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-04	0.956	0.993	10	OK	667	GET /status-codes	
+213	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-08	0.953	0.994	10	OK	667	GET /status-codes	
+214	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-06	0.953	0.996	10	OK	697	GET /observations	
+215	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-02	1.480	1.498	10	OK	1299	GET /status-codes	
+216	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-06	1.472	1.498	10	OK	1076	GET /viewpoints/maintainability/series	
+217	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-03	1.468	1.502	10	OK	836	GET /observations	
+218	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-08	1.477	1.505	10	OK	1306	GET /status-codes	
+219	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-09	1.473	1.508	10	OK	1311	GET /viewpoints/dataUtilization/series	
+220	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-05	1.469	1.512	10	OK	1298	GET /status-codes	
+221	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-07	1.482	1.513	10	OK	937	GET /viewpoints/costEfficiency/series	
+222	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-04	1.481	1.515	10	OK	847	GET /status-codes	
+223	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-10	1.480	1.519	10	OK	1305	GET /status-codes	
+224	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-11	1.478	1.520	10	OK	1195	GET /viewpoints/harvestAccuracy/series	
+225	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-03	0.174	0.189	3	OK	34	GET /observations	
+226	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-04	0.161	0.190	3	OK	60	GET /status-codes	
+227	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-09	0.167	0.194	3	OK	61	GET /status-codes	
+228	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-02	0.163	0.199	3	OK	42	GET /observations	
+229	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-05	0.164	0.199	3	OK	59	GET /status-codes	
+230	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-07	0.167	0.202	3	OK	66	GET /observations	
+231	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-08	0.175	0.206	3	OK	17	GET /status-codes	
+232	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-06	0.159	0.210	3	OK	57	GET /status-codes	
+233	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-10	0.157	0.211	3	OK	50	GET /status-codes	
+234	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-11	0.176	0.213	3	OK	27	GET /observations	
+235	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-07	0.943	0.953	3	OK	813	GET /observations	
+236	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-09	1.462	1.488	3	OK	984	GET /observations	
+237	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-05	1.462	1.491	3	OK	916	GET /observations	
+238	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-11	1.463	1.491	3	OK	1192	GET /observations	
+239	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-08	1.465	1.494	3	OK	1117	GET /observations	
+240	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-03	1.466	1.498	3	OK	1273	GET /observations	
+241	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-10	1.464	1.498	3	OK	1064	GET /observations	
+242	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-02	1.461	1.505	3	OK	1343	GET /observations	
+243	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-04	1.972	1.988	3	OK	1421	GET /observations	
+244	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-06	1.967	1.988	3	OK	1475	GET /observations	
+245	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-11	0.464	0.477	3	OK			
+246	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-07	0.461	0.484	3	OK			
+247	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-05	0.461	0.485	3	OK			
+248	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-03	0.462	0.487	3	OK			
+249	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-04	0.460	0.488	3	OK			
+250	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-09	0.464	0.493	3	OK			
+251	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-02	0.458	0.493	3	OK			
+252	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-10	0.459	0.495	3	OK			
+253	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-08	0.462	0.499	3	OK			
+254	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-06	0.459	0.500	3	OK			
+255	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-06	1.008	1.044	3	OK	565	POST /manual-entries	
+256	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-10	1.524	1.549	3	OK	972	POST /manual-entries	
+257	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-08	1.522	1.549	3	OK	970	POST /manual-entries	
+258	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-11	1.522	1.550	3	OK	972	POST /manual-entries	
+259	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-07	1.518	1.550	3	OK	970	POST /manual-entries	
+260	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-09	1.521	1.553	3	OK	960	POST /manual-entries	
+261	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-02	1.519	1.556	3	OK	969	POST /manual-entries	
+262	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-03	1.520	1.555	3	OK	926	POST /manual-entries	
+263	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-05	1.518	1.558	3	OK	972	POST /manual-entries	
+264	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-04	1.516	1.559	3	OK	926	POST /manual-entries	
+265	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-06	0.117	0.133	3	OK	37	GET /notifications	
+266	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-08	0.147	0.162	3	OK	54	GET /notifications	
+267	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-07	0.149	0.166	3	OK	26	GET /notifications	
+268	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-02	0.176	0.198	3	OK	45	GET /notifications	
+269	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-04	0.201	0.211	3	OK	69	GET /notifications	
+270	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-10	0.217	0.229	3	OK	96	GET /notifications	
+271	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-09	0.304	0.312	3	OK	168	GET /notifications	
+272	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-05	0.305	0.327	3	OK	145	GET /notifications	
+273	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-03	0.308	0.330	3	OK	187	GET /notifications	
+274	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-11	0.307	0.334	3	OK	124	GET /notifications	
+275	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-08	0.039	0.163	3	OK	41	GET /notifications	
+276	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-02	0.118	0.207	3	OK	68	GET /notifications	
+277	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-10	0.115	0.210	3	OK	37	GET /notifications	
+278	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-09	0.110	0.226	3	OK	86	GET /notifications	
+279	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-07	0.114	0.244	3	OK	95	GET /notifications	
+280	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-04	0.115	0.292	3	OK	152	GET /notifications	
+281	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-06	0.119	0.299	3	OK	122	GET /notifications	
+282	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-03	0.141	0.321	3	OK	147	POST /notifications/b4d40bef-7fc3-404a-8639-cad86d788680/read	
+283	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-05	0.155	0.339	3	OK	134	POST /notifications/b4d40bef-7fc3-404a-8639-cad86d788680/read	
+284	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-11	0.153	0.355	3	OK	134	POST /notifications/b4d40bef-7fc3-404a-8639-cad86d788680/read	
+285	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.187	0.214	3	OK	89	GET /dashboard	
+286	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.185	0.217	3	OK	56	GET /dashboard	
+287	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.184	0.218	3	OK	86	GET /dashboard	
+288	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.185	0.223	3	OK	50	GET /dashboard	
+289	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.186	0.226	3	OK	50	GET /dashboard	
+290	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.188	0.229	3	OK	47	GET /dashboard	
+291	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.187	0.233	3	OK	43	GET /dashboard	
+292	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.191	0.238	3	OK	87	GET /dashboard	
+293	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.183	0.238	3	OK	87	GET /dashboard	
+294	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.185	0.240	3	OK	83	GET /dashboard	
+295	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.362	0.390	3	OK	75	GET /notifications/unread-count	
+296	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.356	0.393	3	OK	62	GET /dashboard	
+297	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.363	0.402	3	OK	63	GET /dashboard	
+298	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.368	0.402	3	OK	74	GET /dashboard	
+299	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.371	0.406	3	OK	71	GET /dashboard	
+300	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.369	0.408	3	OK	80	GET /equipment	
+301	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.373	0.410	3	OK	79	GET /dashboard	
+302	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.369	0.418	3	OK	71	GET /dashboard	
+303	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.374	0.420	3	OK	64	GET /dashboard	
+304	同時接続	UC-01	ダッシュボードを開く（画面の再読み込み。全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.374	0.422	3	OK	59	GET /notifications/unread-count	
+305	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.163	0.187	3	OK	87	GET /dashboard	
+306	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.164	0.193	3	OK	97	GET /dashboard	
+307	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.164	0.195	3	OK	97	GET /dashboard	
+308	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.168	0.199	3	OK	77	GET /dashboard	
+309	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.166	0.200	3	OK	82	GET /dashboard	
+310	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.170	0.206	3	OK	76	GET /dashboard	
+311	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.171	0.211	3	OK	70	GET /dashboard	
+312	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.168	0.210	3	OK	73	GET /dashboard	
+313	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.167	0.210	3	OK	67	GET /dashboard	
+314	同時接続	UC-01	対象の設備を負荷試験ハウス3に切り替える（全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.167	0.213	3	OK	66	GET /dashboard	
+315	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.148	0.169	3	OK	36	GET /dashboard	
+316	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.143	0.169	3	OK	54	GET /dashboard	
+317	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.146	0.172	3	OK	52	GET /dashboard	
+318	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.141	0.179	3	OK	70	GET /dashboard	
+319	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.145	0.180	3	OK	40	GET /dashboard	
+320	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.145	0.186	3	OK	42	GET /dashboard	
+321	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.143	0.185	3	OK	32	GET /dashboard	
+322	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.145	0.186	3	OK	48	GET /dashboard	
+323	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.143	0.192	3	OK	49	GET /dashboard	
+324	同時接続	UC-01	対象の設備をハウス1に戻す（全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.141	0.195	3	OK	72	GET /dashboard	
+325	同時接続	UC-02	観点「収穫精度」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-10	1.017	1.033	3	OK	436	GET /status-codes	
+326	同時接続	UC-02	観点「安全性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-07	1.021	1.039	3	OK	432	GET /observations	
+327	同時接続	UC-02	観点「収穫速度」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-02	1.022	1.043	3	OK	391	GET /observations	
+328	同時接続	UC-02	観点「コスト効率」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-06	1.021	1.042	3	OK	436	GET /status-codes	
+329	同時接続	UC-02	観点「収穫速度」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-11	1.024	1.045	3	OK	435	GET /status-codes	
+330	同時接続	UC-02	観点「耐久性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-09	1.024	1.047	3	OK	383	GET /viewpoints/durability/series	
+331	同時接続	UC-02	観点「データ活用度合い」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-08	1.022	1.047	3	OK	435	GET /status-codes	
+332	同時接続	UC-02	観点「環境適応性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-03	1.499	1.518	3	OK	469	GET /viewpoints/environmentalAdaptability/series	
+333	同時接続	UC-02	観点「操作性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-04	1.501	1.525	3	OK	661	GET /observations	
+334	同時接続	UC-02	観点「メンテナンス性」の詳細を開く（全員が同時）	観点の詳細（SC-03）	stress-user-05	1.498	1.526	3	OK	608	GET /status-codes	
+335	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-07	0.975	0.990	10	OK	660	GET /status-codes	
+336	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-11	0.970	0.991	10	OK	470	GET /status-codes	
+337	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-02	0.968	0.994	10	OK	654	GET /status-codes	
+338	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-05	0.967	0.995	10	OK	531	GET /viewpoints/maintainability/series	
+339	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-09	0.976	0.998	10	OK	598	GET /viewpoints/durability/series	
+340	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-03	0.970	1.001	10	OK	665	GET /viewpoints/environmentalAdaptability/series	
+341	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-06	0.965	1.004	10	OK	464	GET /status-codes	
+342	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-08	0.975	1.007	10	OK	580	GET /status-codes	
+343	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-10	0.971	1.013	10	OK	580	GET /status-codes	
+344	同時接続	UC-03	推移の期間を「直近30日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-04	0.967	1.015	10	OK	580	GET /status-codes	
+345	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-10	1.985	2.015	10	OK	1134	GET /status-codes	
+346	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-07	1.990	2.022	10	OK	1262	GET /status-codes	
+347	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-05	1.989	2.021	10	OK	1263	GET /viewpoints/maintainability/series	
+348	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-02	1.987	2.025	10	OK	1372	GET /status-codes	
+349	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-09	1.987	2.026	10	OK	1157	GET /viewpoints/durability/series	
+350	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-03	1.990	2.028	10	OK	1009	GET /status-codes	
+351	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-11	1.995	2.032	10	OK	1372	GET /status-codes	
+352	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-06	1.991	2.031	10	OK	1372	GET /status-codes	
+353	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-08	1.988	2.034	10	OK	1384	GET /viewpoints/dataUtilization/series	
+354	同時接続	UC-03	推移の期間を「直近90日」に切り替える（全員が同時）	観点の詳細・推移（SC-03）	stress-user-04	1.987	2.036	10	OK	1019	GET /viewpoints/operability/series	
+355	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-07	0.152	0.177	3	OK	16	GET /status-codes	
+356	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-05	0.157	0.179	3	OK	8	GET /observations	
+357	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-10	0.156	0.184	3	OK	53	GET /observations	
+358	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-09	0.160	0.186	3	OK	51	GET /status-codes	
+359	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-02	0.154	0.191	3	OK	53	GET /status-codes	
+360	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-11	0.155	0.193	3	OK	37	GET /status-codes	
+361	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-06	0.154	0.194	3	OK	52	GET /observations	
+362	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-04	0.156	0.196	3	OK	45	GET /status-codes	
+363	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-08	0.158	0.199	3	OK	45	GET /status-codes	
+364	同時接続	UC-20	取り込み済みデータの一覧を開く（全員が同時。約60万件）	取り込み済みデータ（SC-09）	stress-user-03	0.153	0.202	3	OK	45	GET /status-codes	
+365	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-05	0.941	0.952	3	OK	763	GET /observations	
+366	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-11	0.937	0.966	3	OK	838	GET /observations	
+367	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-09	1.457	1.486	3	OK	909	GET /observations	
+368	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-02	1.455	1.488	3	OK	1196	GET /observations	
+369	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-04	1.455	1.491	3	OK	1044	GET /observations	
+370	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-07	1.460	1.498	3	OK	976	GET /observations	
+371	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-06	1.459	1.498	3	OK	1116	GET /observations	
+372	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-10	1.460	1.504	3	OK	1263	GET /observations	
+373	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-08	1.454	1.506	3	OK	1327	GET /observations	
+374	同時接続	UC-20	取り込み済みデータを、値の昇順に並べ替える（全員が同時）	取り込み済みデータ（SC-09）	stress-user-03	1.958	1.966	3	OK	1421	GET /observations	
+375	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-04	0.442	0.461	3	OK			
+376	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-07	0.445	0.465	3	OK			
+377	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-09	0.446	0.471	3	OK			
+378	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-08	0.442	0.471	3	OK			
+379	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-03	0.444	0.475	3	OK			
+380	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-06	0.441	0.482	3	OK			
+381	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-10	0.442	0.485	3	OK			
+382	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-02	0.446	0.491	3	OK			
+383	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-11	0.450	0.498	3	OK			
+384	同時接続	UC-06	メニューから「データ入力」を開く（全員が同時）	データ入力（SC-06）	stress-user-05	0.448	0.506	3	OK			
+385	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-06	0.950	0.961	3	OK	502	POST /manual-entries	
+386	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-04	1.475	1.497	3	OK	987	POST /manual-entries	
+387	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-05	1.478	1.495	3	OK	977	POST /manual-entries	
+388	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-09	1.481	1.502	3	OK	987	POST /manual-entries	
+389	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-10	1.464	1.503	3	OK	977	POST /manual-entries	
+390	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-02	1.471	1.505	3	OK	977	POST /manual-entries	
+391	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-08	1.469	1.507	3	OK	986	POST /manual-entries	
+392	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-07	1.478	1.516	3	OK	977	POST /manual-entries	
+393	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-11	1.481	1.513	3	OK	982	POST /manual-entries	
+394	同時接続	UC-06	復旧対応の結果を入力して「保存する」を押す（全員が同時）	データ入力（SC-06）	stress-user-03	1.479	1.523	3	OK	945	POST /manual-entries	
+395	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-09	0.098	0.108	3	OK	33	GET /notifications	
+396	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-11	0.137	0.155	3	OK	47	GET /notifications	
+397	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-03	0.139	0.157	3	OK	63	GET /notifications	
+398	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-06	0.151	0.165	3	OK	57	GET /notifications	
+399	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-10	0.141	0.166	3	OK	37	GET /notifications	
+400	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-04	0.206	0.225	3	OK	80	GET /notifications	
+401	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-07	0.202	0.226	3	OK	127	GET /notifications	
+402	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-05	0.206	0.241	3	OK	104	GET /notifications	
+403	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-02	0.311	0.322	3	OK	147	GET /notifications	
+404	同時接続	UC-22	ヘッダーの未読件数から通知の一覧を開く（全員が同時）	通知（SC-05）	stress-user-08	0.312	0.325	3	OK	164	GET /notifications	
+405	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-08	0.083	0.142	3	OK	28	GET /notifications	
+406	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-05	0.097	0.159	3	OK	38	GET /notifications	
+407	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-11	0.102	0.195	3	OK	64	GET /notifications	
+408	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-10	0.103	0.209	3	OK	86	GET /notifications	
+409	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-07	0.097	0.224	3	OK	109	GET /notifications	
+410	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-03	0.089	0.243	3	OK	124	GET /notifications	
+411	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-04	0.089	0.257	3	OK	137	GET /notifications	
+412	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-02	0.095	0.306	3	OK	152	GET /notifications	
+413	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-06	0.103	0.312	3	OK	170	GET /notifications	
+414	同時接続	UC-22	通知を「既読にする」（全員が同時）	通知（SC-05）	stress-user-09	0.104	0.328	3	OK	185	GET /notifications	
+415	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-03	0.145	0.179	3	OK	57	GET /dashboard	
+416	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-07	0.151	0.182	3	OK	54	GET /dashboard	
+417	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-04	0.146	0.183	3	OK	57	GET /dashboard	
+418	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-09	0.149	0.192	3	OK	56	GET /dashboard	
+419	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-11	0.171	0.197	3	OK	54	GET /dashboard	
+420	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-02	0.154	0.198	3	OK	43	GET /dashboard	
+421	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-06	0.202	0.208	3	OK	43	GET /dashboard	
+422	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-08	0.191	0.214	3	OK	57	GET /dashboard	
+423	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-10	0.179	0.216	3	OK	56	GET /dashboard	
+424	同時接続	UC-01	メニューから「ダッシュボード」を開く（全員が同時）	ダッシュボード（SC-02）	stress-user-05	0.179	0.219	3	OK	71	GET /dashboard	
+425	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-03	0.068	0.099	3	OK	24	POST /auth/logout	
+426	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-04	0.070	0.110	3	OK	26	POST /auth/logout	
+427	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-11	0.077	0.112	3	OK	18	POST /auth/logout	
+428	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-09	0.080	0.122	3	OK	22	POST /auth/logout	
+429	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-07	0.087	0.126	3	OK	19	POST /auth/logout	
+430	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-05	0.127	0.137	3	OK	14	POST /auth/logout	
+431	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-06	0.127	0.141	3	OK	15	POST /auth/logout	
+432	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-08	0.128	0.143	3	OK	15	POST /auth/logout	
+433	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-10	0.127	0.145	3	OK	13	POST /auth/logout	
+434	同時接続	UC-13	ログアウトする（全員が同時）	ログイン（SC-01）	stress-user-02	0.079	0.148	3	OK	22	POST /auth/logout	
+435	大量取り込み	UC-08	ロボットのデータ（150 ファイル・各 144 記録。形式違い 5 ファイルを含む）を「即時取得」する	取り込み設定・状況（SC-11）	stress-user-01	1.983	2.005	10	OK	1639	POST /ingestion/robot/run	
+436	大量取り込み	UC-09	環境センサーのデータ（150 ファイル・各 144 記録。形式違い 5 ファイルを含む）を「即時取得」する	取り込み設定・状況（SC-11）	stress-user-01	1.446	1.453	10	OK	1106	POST /ingestion/environment-sensor/run	
+437	大量取り込み	UC-08	取り込み済みの 150 ファイルがある状態で、もう一度「即時取得」する（新しいファイルなし）	取り込み設定・状況（SC-11）	stress-user-01	0.400	0.426	10	OK	263	POST /ingestion/robot/run	
+438	大量取り込み	UC-08	定期取り込み（JB-01）で、ロボット・センサー合わせて 300 ファイル（さらに 300）を処理し、取り込みのログで確認する	取り込み設定・状況（SC-11）	stress-user-01	3.572	3.582	10	OK	14	GET /federation/logs	JB-01 の実行 3493 ms
+439	大量取り込み	UC-11	大量の取り込みのあとに、連携（JB-03）を起動し、連携の状況で結果を確認する	取り込み設定・状況（SC-11）	stress-user-01	0.045	0.096	10	OK	13	GET /federation/logs	JB-03 の実行 8 ms
+440	大量取り込み	UC-10	大量の取り込みのあとに、評価の定期実行（JB-02）を起動し、ダッシュボードで確認する	ダッシュボード（SC-02）	stress-user-01	0.975	0.980	10	OK	69	GET /dashboard	JB-02 の実行 844 ms
+441	大量取り込み	UC-20	大量の取り込みのあとに、取り込み済みデータの一覧を開く	取り込み済みデータ（SC-09）	stress-user-01	0.370	0.395	3	OK	276	GET /status-codes	
+442	大量取り込み	UC-06	大量の取り込みのあとに、データ入力の画面を開く	データ入力（SC-06）	stress-user-01	0.361	0.380	3	OK			
+443	大量取り込み	UC-06	大量の取り込みのあとに、復旧対応の結果を入力して保存する	データ入力（SC-06）	stress-user-01	0.881	0.894	3	OK	449	POST /manual-entries	
+
+# 集計（応答時間・次の操作が可能になるまでの時間。秒。p50・p95 は順位法）
+全体	件数 443	OK 443	NG 0
+	応答時間(秒)	最大 3.572	p50 0.185	p95 1.547
+	次の操作可能まで(秒)	最大 3.582	p50 0.233	p95 1.575
+単独利用	件数 154	OK 154	NG 0
+	応答時間(秒)	最大 1.437	p50 0.084	p95 0.902
+	次の操作可能まで(秒)	最大 1.455	p50 0.099	p95 0.916
+同時接続	件数 280	OK 280	NG 0
+	応答時間(秒)	最大 1.995	p50 0.374	p95 1.550
+	次の操作可能まで(秒)	最大 2.036	p50 0.422	p95 1.585
+大量取り込み	件数 9	OK 9	NG 0
+	応答時間(秒)	最大 3.572	p50 0.881	p95 3.572
+	次の操作可能まで(秒)	最大 3.582	p50 0.894	p95 3.582
+
+# 判定: 全 443 操作が許容時間内（NG 0 件）

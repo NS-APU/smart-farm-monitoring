@@ -19,6 +19,8 @@ smart-farm-monitoring/
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts などの補助）
 ├── scripts/       # 補助スクリプト
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
+├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）
+├── .vscode/       # エディタ（VS Code）の設定（settings.json。cSpell の用語）
 ├── tests/
 │   ├── unit/          # 単体テスト（src/ と同じ階層構成: backend・frontend・shared）
 │   ├── integration/   # 結合テスト
