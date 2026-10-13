@@ -1,0 +1,102 @@
+name: バグ報告
+description: 期待と異なる動作・不具合を報告する
+title: '[Bug] '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不具合の報告ありがとうございます。再現できる情報が多いほど、早く直せます。
+
+        > **注意**: 秘密情報（API キー・パスワード・トークン）・個人情報・実データは、本文・ログ・スクリーンショットに含めないでください。含まれていた場合は、伏せ字にしてください。
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何が起きたかを 1〜2 文で書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: 他の人が同じ状態を再現できるように、操作を順に書いてください。
+      placeholder: |
+        1. ログインする
+        2. ダッシュボードで〇〇を開く
+        3. △△を押す
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する動作
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 実際の動作
+      description: 表示されたメッセージ、画面の状態などを書いてください。
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影響する領域
+      multiple: true
+      options:
+        - 画面（フロントエンド）
+        - API・バックエンド
+        - データの取り込み
+        - 健全性の評価
+        - 通知（Web Push）
+        - 認証・ユーザー管理
+        - データの保存・バックアップ
+        - ドキュメント
+        - その他・不明
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 影響度
+      description: 農作業者の運用への影響で選んでください。
+      options:
+        - 致命的（ロボット・ハウスの異常に気づけない、データが失われる）
+        - 高（主要な操作ができない。回避策がない）
+        - 中（一部の操作ができない。回避策がある）
+        - 低（表示の乱れなど、運用に支障はない）
+    validations:
+      required: true
+  - type: input
+    id: related
+    attributes:
+      label: 関連するユースケース・要件
+      description: 分かる範囲で。例 UC-06、FR-xx、SC-14
+  - type: textarea
+    id: environment
+    attributes:
+      label: 環境
+      description: 該当するものを書いてください。
+      placeholder: |
+        - 実行環境: ローカル / 本番
+        - ブラウザ・OS: Chrome 130 / Windows 11（スマートフォンの場合は機種）
+        - コミット・バージョン:
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ・スクリーンショット
+      description: エラーログや画面の画像を貼ってください（機密情報・実データは伏せる）。
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足
+      description: 原因の心当たり、回避策、いつから起きているかなど。
+    validations:
+      required: false
