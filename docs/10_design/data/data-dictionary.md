@@ -134,7 +134,7 @@ TODO: 入力できる項目は、ロボットから取得できない項目の�
 | 平均修復時間（MTTR） | `mttrHours` | 時間 | メンテナンス性、耐久性、コスト効率 |
 | 平均故障間隔（MTBF） | `mtbfHours` | 時間 | 耐久性、コスト効率 |
 | 稼働率 | `availabilityPercent` | % | 耐久性、コスト効率 |
-| EconomicProductivity | `economicProductivity` | 比（無次元） | コスト効率 |
+| 経済生産性（EconomicProductivity） | `economicProductivity` | 比（無次元） | コスト効率 |
 | 運用コスト | `operatingCostYen` | 円（TODO: 期間） | コスト効率 |
 | 緊急停止頻度 | `emergencyStopPerHour` | 回/時間 | 安全性 |
 | ヒヤリハット頻度 | `nearMissPerHour` | 回/時間 | 安全性 |

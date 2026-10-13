@@ -29,7 +29,8 @@ const METRIC_META: Readonly<Record<string, MetricMeta>> = {
   mtbfHours: { label: '平均故障間隔（MTBF）', unit: '時間', fractionDigits: 1 },
   availabilityPercent: { label: '稼働率', unit: '%', fractionDigits: 1 },
   harvestRatePerHour: { label: '収穫速度', unit: '個/時間', fractionDigits: 1 },
-  economicProductivity: { label: 'EconomicProductivity', unit: '', fractionDigits: 2 },
+  // 設計上の名称は EconomicProductivity（data-dictionary.md 6章）。画面には、日本語の表示名を使う
+  economicProductivity: { label: '経済生産性', unit: '', fractionDigits: 2 },
   operatingCostYen: { label: '運用コスト', unit: '円', fractionDigits: 0 },
   emergencyStopPerHour: { label: '緊急停止頻度', unit: '回/時間', fractionDigits: 3 },
   nearMissPerHour: { label: 'ヒヤリハット頻度', unit: '回/時間', fractionDigits: 3 },
