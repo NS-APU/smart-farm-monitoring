@@ -1,0 +1,412 @@
+/* 画面の基本スタイル。状態は色・アイコン・文字で示す（NFR-7.2）。タブレット幅でも使えるレスポンシブ（NFR-7.3）。 */
+:root {
+  --color-bg: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-text: #1d2939;
+  --color-muted: #475467;
+  --color-border: #d0d5dd;
+  --color-primary: #1a5fb4;
+  /* キーボードのフォーカス。白・ページの背景に対して、非テキストのコントラスト 3:1 以上（WCAG 1.4.11）。V-151 */
+  --color-focus: #b54708;
+  --color-primary-text: #ffffff;
+  --color-normal-bg: #e7f6ec;
+  --color-normal-fg: #14653a;
+  --color-caution-bg: #fff3d6;
+  --color-caution-fg: #7a4d00;
+  --color-error-bg: #fde8e7;
+  --color-error-fg: #a1241a;
+  --color-unknown-bg: #eceff3;
+  --color-unknown-fg: #3d4757;
+  --space: 16px;
+  font-family: 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', system-ui, sans-serif;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 var(--space);
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: var(--space) 0 8px;
+}
+
+h3 {
+  font-size: 1.05rem;
+  margin: 0 0 8px;
+}
+
+a {
+  color: var(--color-primary);
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button {
+  min-height: 40px;
+  padding: 4px 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: var(--color-primary-text);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+select,
+input:not([type='radio']) {
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+/* 2重の枠: 内側の白い縁取りが、濃い背景（ヘッダーなど）でも、フォーカスの位置を区別できるようにする */
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+
+.skip-link:focus {
+  left: var(--space);
+  top: var(--space);
+  z-index: 10;
+  background: var(--color-surface);
+  padding: 8px 12px;
+}
+
+/* ヘッダー・ナビゲーション */
+.app-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space);
+  padding: 12px var(--space);
+}
+
+.app-title {
+  font-weight: 700;
+  font-size: 1.15rem;
+  text-decoration: none;
+  color: var(--color-text);
+  margin-right: auto;
+}
+
+.header-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 設備名は最大 200 文字。選択欄が名称の長さまで広がってヘッダーを押し広げたり、ラベルが 1 文字幅へ潰れたりしない */
+.header-field > span {
+  flex: none;
+  white-space: nowrap;
+}
+
+.header-field select {
+  min-width: 0;
+  max-width: 28em;
+  text-overflow: ellipsis;
+}
+
+.header-unread {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 2px 12px;
+}
+
+.header-data-status {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.data-stale {
+  color: var(--color-caution-fg);
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space) 8px;
+}
+
+.app-nav a {
+  display: inline-block;
+  padding: 6px 4px;
+  text-decoration: none;
+}
+
+.app-nav a[aria-current='page'] {
+  font-weight: 700;
+  border-bottom: 3px solid var(--color-primary);
+}
+
+.app-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space);
+}
+
+/* 状態の表示 */
+.status-badge {
+  display: inline-flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.status-normal {
+  background: var(--color-normal-bg);
+  color: var(--color-normal-fg);
+}
+
+.status-caution {
+  background: var(--color-caution-bg);
+  color: var(--color-caution-fg);
+}
+
+.status-error {
+  background: var(--color-error-bg);
+  color: var(--color-error-fg);
+}
+
+.status-unknown {
+  background: var(--color-unknown-bg);
+  color: var(--color-unknown-fg);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0 0 var(--space);
+  padding: 0;
+}
+
+.summary li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.summary-count {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.viewpoint-cards {
+  display: grid;
+  /* 10観点が2列で割り切れ、最後の1枚が余る場合は、横いっぱいに広げる */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.viewpoint-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.viewpoint-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left-width: 8px;
+  border-radius: 8px;
+  padding: var(--space);
+}
+
+.status-border-normal {
+  border-left-color: var(--color-normal-fg);
+}
+
+.status-border-caution {
+  border-left-color: #b54708;
+}
+
+.status-border-error {
+  border-left-color: var(--color-error-fg);
+}
+
+.status-border-unknown {
+  border-left-color: var(--color-muted);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.metrics dt {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.metrics dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.diagnostic,
+.action {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.evaluated-period,
+.custom-criteria {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.horizon-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space);
+  margin-bottom: var(--space);
+}
+
+.horizon-controls fieldset {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 4px 12px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.horizon-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notice {
+  padding: 12px var(--space);
+  border-radius: 8px;
+  margin: 0 0 var(--space);
+}
+
+.notice-warning {
+  background: var(--color-caution-bg);
+  color: var(--color-caution-fg);
+}
+
+.notice-info {
+  background: var(--color-unknown-bg);
+  color: var(--color-unknown-fg);
+}
+
+.state-view {
+  padding: var(--space);
+}
+
+.state-error {
+  background: var(--color-error-bg);
+  color: var(--color-error-fg);
+  border-radius: 8px;
+}
+
+/* ログイン */
+.login-page {
+  max-width: 420px;
+  margin: 48px auto;
+  padding: 0 var(--space);
+}
+
+.login-form {
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.login-form h2 {
+  margin: 0;
+}
+
+.login-form label {
+  display: grid;
+  gap: 4px;
+}
+
+.form-error,
+.field-error {
+  margin: 0;
+  color: var(--color-error-fg);
+}
+
+@media (max-width: 720px) {
+  .app-header-row {
+    gap: 8px;
+  }
+
+  .viewpoint-cards {
+    grid-template-columns: 1fr;
+  }
+}
