@@ -1,0 +1,52 @@
+{
+  "name": "smart-farm-monitoring",
+  "version": "0.1.0",
+  "private": true,
+  "description": "イチゴ収穫ロボット・スマートハウス向け稼働モニタリング基盤",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.8.2",
+  "scripts": {
+    "dev:backend": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts",
+    "dev:frontend": "vite src/frontend",
+    "build": "vite build src/frontend",
+    "test": "vitest run --coverage && playwright test",
+    "test:unit": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "data:backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/data-backup-main.ts",
+    "test:stress": "playwright test -c playwright.stress.config.ts",
+    "lint": "eslint . && oxlint -c .oxlintrc.json src/frontend",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/shared/tsconfig.json && tsc -p src/backend/tsconfig.json && tsc -p src/frontend/tsconfig.json && tsc -p tests/tsconfig.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.64.0",
+    "@smart-farm/shared": "workspace:*",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^24.19.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.0",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^16.5.0",
+    "hono": "^4.13.13",
+    "jsdom": "^30.1.2",
+    "oxlint": "~1.84.0",
+    "prettier": "^3.9.9",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "~8.3.1",
+    "vitest": "^4.1.11",
+    "zod": "^4.6.5"
+  }
+}

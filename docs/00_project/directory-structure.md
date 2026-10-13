@@ -41,6 +41,7 @@ smart-farm-monitoring/
 | `AGENTS.md` | AIエージェント向けの作業ルール。詳細は `docs/` に書き、ここからは参照のみとする |
 | `.env.example` | 必要な環境変数の一覧（値はダミー） |
 | `.gitignore` | Git管理対象外のファイルの定義 |
+| `.gitattributes` | 行末の指定（LF に統一。Windows の `core.autocrlf` に依らず、チェックアウトを LF にする） |
 | `package.json`・`pnpm-workspace.yaml`・`pnpm-lock.yaml` | pnpm ワークスペース（ルートはツール類、`src/` 配下の3つがアプリのパッケージ）とスクリプト |
 | `tsconfig.json` | TypeScript の共通設定（各パッケージが継承） |
 | `eslint.config.js`・`.oxlintrc.json`・`.prettierrc`・`.prettierignore`・`.editorconfig` | Lint（ESLint と、アクセシビリティ用の oxlint）・フォーマットの設定 |
