@@ -82,7 +82,7 @@
 
 1. 機能仕様書 3.1 の「データが古い」の基準は TODO のまま（実装は dev_spec.md 4章の暫定値 45分）。食い違いではなく、未確定事項（FR-6.3）。
 2. use-cases.md UC-01 の代替フローの「TODO: 表示方法、欠損・遅延の扱い」は、実装で決めた表示（バナー・ヘッダー・「—」）が反映されていない。要件側の更新は、発注者の確認後。
-3. 画面の「コスト効率」カードのメトリクス名は「EconomicProductivity」と英語表記（`src/shared/constants/metrics.ts:30`）。robot-health.md・data-dictionary.md が同じ名称を使うため、コードは docs どおり。日本語名にするかは、確認が必要。
+3. （修正済み）画面の「コスト効率」カードのメトリクス名が、「EconomicProductivity」と英語表記だった（`src/shared/constants/metrics.ts`）。robot-health.md・data-dictionary.md が同じ名称を使っていたため、コードは docs どおりだったが、画面の文言を日本語にする方針と食い違うため、Issue #36（PR #55）で、表示名を「経済生産性」にし、設計書（data-dictionary.md・robot-health.md）と用語集も合わせた。
 4. カードは、同じ行で高さをそろえているため、内容の少ないカードでは、本文と「詳細を見る」の間に余白が出る（レイアウト検査は通る。目視で、許容範囲と判断した）。
 
 ## 6. 実行結果

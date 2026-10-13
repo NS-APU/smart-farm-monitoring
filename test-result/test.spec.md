@@ -30,16 +30,19 @@
 | E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         24 |        754 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
 | 単体: shared                               |          5 |         88 |
-| 単体: backend/domain                       |          6 |        222 |
-| 単体: backend/application                  |          1 |         14 |
-| 単体: backend/infrastructure               |          6 |        151 |
-| 単体: backend/runtime                      |          2 |         49 |
+| 単体: backend/domain                       |          6 |        223 |
+| 単体: backend/application                  |          1 |          6 |
+| 単体: backend/presentation                 |          1 |          3 |
+| 単体: backend/infrastructure               |          7 |        146 |
+| 単体: backend/runtime                      |          3 |         54 |
 | 単体: frontend                             |         19 |        371 |
-| 結合（`tests/integration/`）               |         14 |        616 |
-| 合計                                       |         84 |       2275 |
+| 結合（`tests/integration/`）               |         16 |        621 |
+| 合計                                       |         89 |       2276 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 895 件、結合 616 件（単体と結合の合計 1511 件。`vitest list` の件数。実行では 1513 件で、うち 2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
-これらは、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 891 件、結合 621 件（単体と結合の合計 1512 件。`vitest list` の件数。実行では 1514 件で、うち 2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
+この件数は、Sprint1 の取り込み（Issue #30〜#38）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの 1 件の追加で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
+
+取り込み後の実測値（Issue #38。コミット済みの内容を、一時ディレクトリに展開して、実行した）: `pnpm test:unit`（カバレッジの閾値つき）は、58 ファイル・1514 件（成功 1512・スキップ 2）で成功。カバレッジは、行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
 
 E2E のファイル別の件数:
 
@@ -2836,7 +2839,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 #### 関連する要求（use-cases.md の「関連する要求」）
 
 - RQ-005, RQ-019 / FR-2.1〜FR-2.6 / NFR-2.4
-- 関連する単体・結合テスト（各ファイルの「関連する UC」の記載による。4章）: `tests/unit/shared/shared.test.ts`、`tests/unit/backend/application/application-misc.test.ts`、`tests/unit/frontend/equipment-page.test.tsx`、`tests/integration/api.test.ts`、`tests/integration/ingestion.test.ts`、`tests/integration/management-api.test.ts`、`tests/integration/repository-contract.test.ts`
+- 関連する単体・結合テスト（各ファイルの「関連する UC」の記載による。4章）: `tests/unit/shared/shared.test.ts`、`tests/integration/application-services.test.ts`、`tests/unit/frontend/equipment-page.test.tsx`、`tests/integration/api.test.ts`、`tests/integration/ingestion.test.ts`、`tests/integration/management-api.test.ts`、`tests/integration/repository-contract.test.ts`
 
 #### 対応するテストファイル
 
@@ -3134,7 +3137,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 #### 関連する要求（use-cases.md の「関連する要求」）
 
 - 提案（発注者への確認が必要） / FR-9.1〜FR-9.3 / NFR-5.1
-- 関連する単体・結合テスト（各ファイルの「関連する UC」の記載による。4章）: `tests/unit/shared/shared.test.ts`、`tests/unit/backend/application/application-misc.test.ts`、`tests/unit/backend/infrastructure/adapters.test.ts`、`tests/unit/backend/runtime/config.test.ts`、`tests/unit/backend/runtime/runtime.test.ts`、`tests/unit/frontend/api-client.test.ts`、`tests/unit/frontend/app.test.tsx`、`tests/integration/api.test.ts`
+- 関連する単体・結合テスト（各ファイルの「関連する UC」の記載による。4章）: `tests/unit/shared/shared.test.ts`、`tests/unit/backend/application/auth.test.ts`、`tests/unit/backend/infrastructure/adapters.test.ts`、`tests/unit/backend/runtime/config.test.ts`、`tests/unit/backend/runtime/runtime.test.ts`、`tests/unit/frontend/api-client.test.ts`、`tests/unit/frontend/app.test.tsx`、`tests/integration/api.test.ts`
 
 #### 対応するテストファイル
 
@@ -3306,7 +3309,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 | ID      | テスト名（〇〇の部分）  | 値（next）                   | 期待結果                                                |
 | ------- | ----------------------- | ---------------------------- | ------------------------------------------------------- |
-| E13-021 | 別のサイト（https://…） | `https://evil.example/phish` | ダッシュボードへ移り、origin は `http://127.0.0.1:5173` |
+| E13-021 | 別のサイト（https://…） | `https://evil.example/phish` | ダッシュボードへ移り、origin は、設定の `baseURL`（既定では `http://127.0.0.1:5173`。`dev-ports.ts` で決まる） |
 | E13-022 | プロトコル相対（//…）   | `//evil.example/phish`       | 同上                                                    |
 | E13-023 | スキームなしの相対パス  | `evil`                       | 同上                                                    |
 | E13-024 | 空                      | `` （空文字）                | 同上                                                    |
@@ -4124,7 +4127,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 #### 関連する要求（use-cases.md の「関連する要求」）
 
 - 提案（発注者への確認が必要） / FR-3.1〜FR-3.4
-- 関連する単体・結合テスト（各ファイルの「関連する UC」の記載による。4章）: `tests/unit/backend/application/application-misc.test.ts`、`tests/unit/frontend/status-codes-page.test.tsx`、`tests/integration/api.test.ts`、`tests/integration/management-api.test.ts`、`tests/integration/repository-contract.test.ts`
+- 関連する単体・結合テスト（各ファイルの「関連する UC」の記載による。4章）: `tests/integration/application-services.test.ts`、`tests/unit/frontend/status-codes-page.test.tsx`、`tests/integration/api.test.ts`、`tests/integration/management-api.test.ts`、`tests/integration/repository-contract.test.ts`
 
 #### 対応するテストファイル
 
@@ -6672,12 +6675,15 @@ Vitest（`vitest.config.ts`）の2つのプロジェクトで実行する。`nod
 | backend/domain         | `tests/unit/backend/domain/measures.test.ts`              |   16 | UC-10                                                                                            |
 | backend/domain         | `tests/unit/backend/domain/series.test.ts`                |   16 | UC-03                                                                                            |
 | backend/domain         | `tests/unit/backend/domain/viewpoint-evaluation.test.ts`  |   81 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
-| backend/domain         | `tests/unit/backend/domain/viewpoint-definitions.test.ts`  |   21 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
-| backend/application    | `tests/unit/backend/application/application-misc.test.ts` |   14 | UC-12・UC-13・UC-17                                                                              |
+| backend/domain         | `tests/unit/backend/domain/viewpoint-definitions.test.ts`  |   22 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
+| backend/application    | `tests/unit/backend/application/auth.test.ts`             |    6 | UC-13・UC-14                                                                                     |
 | backend/infrastructure | `tests/unit/backend/infrastructure/adapters.test.ts`      |   66 | UC-08・UC-09・UC-11・UC-13・UC-14・UC-15・UC-22・UC-23・UC-24                                    |
 | backend/infrastructure | `tests/unit/backend/infrastructure/seeded-data.test.ts`   |    9 | UC-20                                                                                            |
+| backend/infrastructure | `tests/unit/backend/infrastructure/local-store.test.ts`   |    1 | （UC に直接対応しない基盤）                                                                      |
+| backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`          |    3 | （UC に直接対応しない基盤）                                                                      |
 | backend/runtime        | `tests/unit/backend/runtime/config.test.ts`               |   18 | UC-13・UC-14                                                                                     |
 | backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`              |   13 | UC-13                                                                                            |
+| backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`     |    5 | （UC に直接対応しない基盤）                                                                      |
 | frontend               | `tests/unit/frontend/api-client.test.ts`                  |   22 | UC-01・UC-13                                                                                     |
 | frontend               | `tests/unit/frontend/app.test.tsx`                        |   29 | UC-01・UC-13                                                                                     |
 | frontend               | `tests/unit/frontend/charts.test.tsx`                     |   47 | UC-03・UC-04                                                                                     |
@@ -6692,7 +6698,9 @@ Vitest（`vitest.config.ts`）の2つのプロジェクトで実行する。`nod
 | frontend               | `tests/unit/frontend/status-codes-page.test.tsx`          |   10 | UC-17                                                                                            |
 | frontend               | `tests/unit/frontend/users-page.test.tsx`                 |    8 | UC-14                                                                                            |
 | frontend               | `tests/unit/frontend/viewpoint-pages.test.tsx`            |   50 | UC-01・UC-02・UC-03・UC-04・UC-20・UC-21                                                         |
+| integration            | `tests/integration/access-log.test.ts`                    |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                           |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
+| integration            | `tests/integration/application-services.test.ts`          |    4 | UC-12・UC-17・UC-19                                                                              |
 | integration            | `tests/integration/dev-seed.test.ts`                      |   11 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/evaluation-notification.test.ts`       |   42 | UC-01・UC-04・UC-05・UC-10・UC-11・UC-22・UC-24                                                  |
 | integration            | `tests/integration/ingestion.test.ts`                     |   31 | UC-08・UC-09・UC-12・UC-15・UC-24                                                                |
@@ -6966,7 +6974,7 @@ UC-01（観点別の状態の確認。観点の定義）、UC-07（手動入力�
 #### 概要
 
 - ドメイン層の純粋関数（DB・時計・API を使わない）のうち、評価の下書きの生成・判断基準の既定値・ステータスコードの状態判定・通知の規則・取り込み値の品質判定を検証する単体テスト（Vitest `node`）。スタブ・テストコンテキストは使わない。
-- 共通の準備: `statusCodeMap()` は、初期のステータスコード定義 `INITIAL_STATUS_CODES`（STANDBY・RUNNING・HARVESTING が NORMAL、STOPPED・LOW_BATTERY が CAUTION、RUNNING_ERROR・HARVEST_ERROR・FALLEN が ERROR。すべて `isDeleted: false`）から作った Map。時計は使わず、`Date` を固定値（`2026-10-09T...Z`）で渡す。
+- 共通の準備: `statusCodeMap()` は、テスト用のステータスコード定義 `STATUS_CODE_FIXTURES`（アプリケーション層の `INITIAL_STATUS_CODES` と同じ内容。ドメインのテストが application に依存しないよう、`tests/support/builders.ts` に持つ。STANDBY・RUNNING・HARVESTING が NORMAL、STOPPED・LOW_BATTERY が CAUTION、RUNNING_ERROR・HARVEST_ERROR・FALLEN が ERROR。すべて `isDeleted: false`）から作った Map。時計は使わず、`Date` を固定値（`2026-10-09T...Z`）で渡す。
 - 判断基準の既定値の2つの `it.each` は、`VIEWPOINT_IDS`（収穫精度・収穫速度・環境適応性・操作性・メンテナンス性・コスト効率・安全性・データ活用度合い・耐久性・満足度の10観点）ごとに展開される。
 - 取り込み値の品質判定は、観測日時 `2026-10-09T02:00:00Z`・受信日時 `2026-10-09T02:05:00Z`（遅れ5分）・遅延の基準 `DEFAULT_LATE_AFTER_MINUTES`（60分）の共通の文脈で `classifyValue` を呼ぶ。
 
@@ -7387,7 +7395,7 @@ UC-02, UC-04, UC-10, UC-19, UC-21（根拠: UC-02 は診断結果と根拠のメ
 | U-viewpoint-evaluation-033 | メンテナンス性: ステータスが異常なら異常     | `MAINTAINABILITY_BASE`（故障2・復旧0分）、ステータス ERROR_STATUS。ステータスは ERROR  |
 | U-viewpoint-evaluation-034 | メンテナンス性: 故障回数が未取得なら不明     | 復旧0分のみ（故障回数のキーなし）、ステータス NORMAL_STATUS。ステータスは UNKNOWN      |
 
-##### コスト効率（EconomicProductivity = 可販果率×1時間あたり収穫数×稼働率÷運用コスト）
+##### コスト効率（EconomicProductivity = 可販果率×1時間あたり収穫数×稼働率÷運用コスト。画面の表示名は「経済生産性」）
 
 | ID                         | テスト名                                              | 検証内容（前提・操作・期待結果）                                                                                                               |
 | -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -7521,6 +7529,7 @@ UC-01〜UC-04・UC-19・UC-21（観点の定義は、評価・ダッシュボー
 | U-viewpoint-definitions-019 | durability: 算出するメトリクスのキーの並びが、定義どおりである | `computeMetrics({})` の戻り値のキーの並びが、一覧の値と一致する |
 | U-viewpoint-definitions-020 | satisfaction: 判定する指標・主要メトリクス・詳細のメトリクス・必須の入力が、順序を含めて定義どおりである | `judgedIndicators`・`dashboardMetrics`・`detailMetrics`・`requiredInputs` が、順序を含めて、一覧の値と一致する |
 | U-viewpoint-definitions-021 | satisfaction: 算出するメトリクスのキーの並びが、定義どおりである | `computeMetrics({})` の戻り値のキーの並びが、一覧の値と一致する |
+| U-viewpoint-definitions-022 | 画面に表示するメトリクス（判定の指標・ダッシュボード・詳細）の表示名は、すべて日本語を含む（英語の識別子名のまま表示しない） | 全観点の `judgedIndicators`・`dashboardMetrics`・`detailMetrics` の識別子を集め、`getMetricMeta(id).label` が、ひらがな・カタカナ・漢字のいずれも含まないものの一覧が、空である。以前は `economicProductivity`（表示名が英語の `EconomicProductivity`）だけが該当して失敗した。表示名は「経済生産性」（Issue #36。PR #55） |
 
 #### テスト名と検証内容の差
 
@@ -7530,31 +7539,23 @@ UC-01〜UC-04・UC-19・UC-21（観点の定義は、評価・ダッシュボー
 
 なし
 
-### tests/unit/backend/application/application-misc.test.ts
+### tests/unit/backend/application/auth.test.ts
 
 #### 対象のコード
 
 - `src/backend/application/auth/access-policy.ts`（認可の方針。ロール定義から権限を引く。`createAccessPolicy`、`DEFAULT_ROLE_CONFIG`）
 - `src/backend/application/auth/auth-service.ts`（認証サービス。認証のポートの応答を API の応答の形に変換する。`createAuthService`）
-- `src/backend/application/evaluation/criteria-service.ts`（判断基準の参照。変更後の値がなければ既定値を返す。`createCriteriaService`）
-- `src/backend/application/equipment/equipment-service.ts`（設備の階層の取得。`createEquipmentService().getTree`）
-- `src/backend/application/equipment/status-code-service.ts`（ステータスコードの一覧。`createStatusCodeService().list`）
-- `src/backend/application/seed/initial-data.ts`（ステータスコードの初期の定義の投入。`INITIAL_STATUS_CODES`、`seedInitialStatusCodes`）
-- `src/backend/infrastructure/local/local-store.ts`（ローカルのデータ保持。`createLocalStore().collection`）
-- `src/backend/presentation/errors.ts`（API の共通エラー形式。`buildErrorBody`、`handleError`、`handleNotFound`）
 
 #### 概要
 
-アプリケーション層の、小さな参照系・変換系の処理を、テーマごとに1ファイルにまとめた単体テスト（as-built.md の D-13 に、単体テストのファイルはテーマ別とある）。describe は5つ（認可の方針、認証サービス、判断基準・設備・ステータスコードの参照、ローカルのデータ保持、API のエラー処理）。
+認可の方針（ロール → 権限）と、認証サービスの単体テスト。認証のポートは、スタブにする（外側の層に依存しない）。describe は 2 つ（認可の方針、認証サービス）。もとは `application-misc.test.ts`（1 ファイルに、application・infrastructure・presentation のテストが混在していた）の一部で、Sprint1 の取り込み（Issue #33。PR #52）で、層ごとに分割した。テストの内容・期待値は変えていない（12章）。
 
-- 共通の準備: 参照のテストは、`createLocalRepositories()` のメモリ上のリポジトリを使う。設備のテストは `tests/support/builders.ts` の `equipmentSet()`（ハウス HOUSE-T1・ロボット ROBOT-T1・センサー SENSOR-T1。作成日時 2026-10-01T00:00:00.000Z）を使う。設備サービスとステータスコードサービスで使わない依存（変更履歴・評価・時計・ログ）は、`UNUSED_DEPS`（`vi.fn()` のスタブ、`createControllableClock()`、`NULL_LOGGER`）で渡す。
 - 認証サービスのテストは、認証のポート（`login`・`refresh`・`logout`・`verifyAccessToken`）を `vi.fn()` のスタブにする。アクセストークンの有効期限は 2026-10-09T03:30:00Z、リフレッシュトークンの有効期限は 2026-10-16T03:00:00Z、利用者は user-1（ロール viewer）。`verifyAccessToken` は、トークンが 'valid' のときだけ利用者を返し、それ以外は null を返す。
-- API のエラー処理のテストは、`Hono` アプリに `handleError`・`handleNotFound` を登録し、GET /x が与えたエラーを投げるアプリを作り、`app.request('/x')` で応答を確認する。
 - 時計の固定はない（時計を使う処理は検証しない）。
 
 #### 関連する UC
 
-UC-13、UC-12、UC-17（根拠: `.speccheck/UC-13-login-logout.md`・`UC-12-manage-equipment.md`・`UC-17-manage-status-codes.md` が、このファイルを、認証・設備サービス・ステータスコードのサービスと初期データの単体テストとして挙げている）。as-built.md の UC-13 の行にも、このファイルがある。ロール（認可の方針）は UC-14 のユーザーのロール、判断基準の参照（U-application-misc-007）は UC-19 の判断基準に関わる（機能上の関連。.speccheck がこのファイルを挙げているわけではない）。API のエラー処理（U-application-misc-012〜014）は（UC に直接対応しない基盤: API の共通エラー形式）、ローカルのデータ保持（U-application-misc-011）は（UC に直接対応しない基盤: ローカルのストア）。
+UC-13（根拠: `.speccheck/UC-13-login-logout.md`。認証サービス）。ロール（認可の方針）は、UC-14 のユーザーのロールの前提。
 
 #### テスト詳細
 
@@ -7562,40 +7563,17 @@ UC-13、UC-12、UC-17（根拠: `.speccheck/UC-13-login-logout.md`・`UC-12-mana
 
 | ID                     | テスト名                                  | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-application-misc-001 | ロールに割り当てた権限だけを持つ          | 前提: ロール admin（権限 user:manage・criteria:edit）と、viewer（権限なし）の方針。操作: `permissionsOf`・`can`・`roleIds` を呼ぶ。期待結果: `permissionsOf('admin')` は ['user:manage','criteria:edit']。`can('admin','user:manage')` は true。`can('admin','equipment:manage')`（割り当てていない権限）は false。`can('viewer','user:manage')` は false。`roleIds()` は ['admin','viewer']。 |
-| U-application-misc-002 | 未知のロールは、権限を持たない            | 前提: 同じ方針。操作: 'admin'・'unknown'・'toString' で `isKnownRole`、'unknown' で `permissionsOf`・`can` を呼ぶ。期待結果: `isKnownRole('admin')` は true。'unknown' は false。'toString'（Object のプロトタイプにある名前）も false。`permissionsOf('unknown')` は []。`can('unknown','user:manage')` は false。                                                                            |
-| U-application-misc-003 | 既定は、1ロール（農作業者）が全権限を持つ | 前提: `DEFAULT_ROLE_CONFIG` から方針を作る。操作: `roleIds`・`permissionsOf('worker')` を呼ぶ。期待結果: `roleIds()` は ['worker']。`permissionsOf('worker')` は `PERMISSIONS`（全権限の定数）と等しい。                                                                                                                                                                                       |
+| U-auth-001 | ロールに割り当てた権限だけを持つ          | 前提: ロール admin（権限 user:manage・criteria:edit）と、viewer（権限なし）の方針。操作: `permissionsOf`・`can`・`roleIds` を呼ぶ。期待結果: `permissionsOf('admin')` は ['user:manage','criteria:edit']。`can('admin','user:manage')` は true。`can('admin','equipment:manage')`（割り当てていない権限）は false。`can('viewer','user:manage')` は false。`roleIds()` は ['admin','viewer']。 |
+| U-auth-002 | 未知のロールは、権限を持たない            | 前提: 同じ方針。操作: 'admin'・'unknown'・'toString' で `isKnownRole`、'unknown' で `permissionsOf`・`can` を呼ぶ。期待結果: `isKnownRole('admin')` は true。'unknown' は false。'toString'（Object のプロトタイプにある名前）も false。`permissionsOf('unknown')` は []。`can('unknown','user:manage')` は false。                                                                            |
+| U-auth-003 | 既定は、1ロール（農作業者）が全権限を持つ | 前提: `DEFAULT_ROLE_CONFIG` から方針を作る。操作: `roleIds`・`permissionsOf('worker')` を呼ぶ。期待結果: `roleIds()` は ['worker']。`permissionsOf('worker')` は `PERMISSIONS`（全権限の定数）と等しい。                                                                                                                                                                                       |
 
 ##### 認証サービス
 
 | ID                     | テスト名                                                             | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ---------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| U-application-misc-004 | ログイン・更新の応答に、有効期限（ISO 8601）と、ロールの権限を含める | 前提: ロール viewer（権限 audit:read）の方針。ポートのスタブは、セッション（トークン 'a'・'r'）を返す。操作: `login('user-1','pw','client')` と `refresh('r')` を呼ぶ。期待結果: ログインの応答は、accessToken 'a'、refreshToken 'r'、accessTokenExpiresAt '2026-10-09T03:30:00.000Z'、refreshTokenExpiresAt '2026-10-16T03:00:00.000Z'（Date を ISO 8601 の文字列に変換）、user {userId 'user-1'、userName 'ユーザー'、role 'viewer'、permissions ['audit:read']} と等しい。更新の応答はログインの応答と等しい。ポートの `login` が `{userId:'user-1', password:'pw'}` と 'client' で呼ばれた。 |
-| U-application-misc-005 | 有効なトークンから、権限つきの利用者を返す。無効なトークンは null    | 前提: 同じ。操作: `authenticate('valid')` と `authenticate('invalid')` を呼ぶ。期待結果: 'valid' は、userId 'user-1'、permissions ['audit:read'] を含む。'invalid' は null。                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| U-application-misc-006 | ログアウトを、認証のポートへ伝える                                   | 前提: 同じ。操作: `logout('a')` を呼ぶ。期待結果: ポートの `logout` が引数 'a' で呼ばれた。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-
-##### 判断基準・設備・ステータスコードの参照
-
-| ID                     | テスト名                                                              | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ---------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-application-misc-007 | 判断基準は、変更後の値があればそれを、なければ既定値を返す            | 前提: メモリのリポジトリに、観点 safety の判断基準（既定値に isDefault false、version 'v2' を付けたもの）だけを保存する。操作: `getEffective('safety')`、`getEffective('harvestSpeed')`、`getAllEffective()` を呼ぶ。期待結果: safety は保存した値と等しい。harvestSpeed（保存なし）は `getDefaultCriteria('harvestSpeed')` と等しい。全件の Map は size 10 で、safety の version が 'v2'。                                                                    |
-| U-application-misc-008 | 設備の階層は、ハウスごとに配下を並べ、論理削除した設備を除く          | 前提: 次の5件を、この順で保存する。2番目のハウス HOUSE-T2（作成日時 2026-10-02）、センサー SENSOR-T1、ロボット ROBOT-T1（isDeleted true）、ハウス HOUSE-T1、センサー SENSOR-T0（SENSOR-T1 と同じ作成日時）。操作: `getTree()` を呼ぶ。期待結果: ハウスの並びは HOUSE-T1、HOUSE-T2（作成日時の順）。HOUSE-T1 の配下は SENSOR-T0、SENSOR-T1（作成日時が同じなので設備IDの順）。HOUSE-T2 の配下は []。全ハウスの配下のどれにも ROBOT-T1（論理削除）が含まれない。 |
-| U-application-misc-009 | ステータスコードは、コード値の順に返し、論理削除を除く                | 前提: コード 'B'・'A_X'・'A'（いずれもカテゴリ NORMAL、isDeleted false）と、'C'（isDeleted true）を、この順で保存する。操作: `list()` を呼ぶ。期待結果: items のコードは ['A','A_X','B']（コード値の昇順。論理削除の 'C' を含まない）。                                                                                                                                                                                                                        |
-| U-application-misc-010 | ステータスコードの初期の定義は、1件もなければ投入し、あれば何もしない | 前提: 空のメモリのリポジトリ。操作: `seedInitialStatusCodes` を2回呼ぶ。期待結果: 1回目の戻り値は `INITIAL_STATUS_CODES.length`（投入した件数）。2回目は 0。`INITIAL_STATUS_CODES` のコードは、STANDBY・RUNNING・HARVESTING・STOPPED・LOW_BATTERY・RUNNING_ERROR・HARVEST_ERROR・FALLEN の8件、この順。                                                                                                                                                        |
-
-##### ローカルのデータ保持（コレクション）
-
-| ID                     | テスト名                                                             | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-application-misc-011 | 値の追加・取得・削除ができ、件数を数える。存在しない値の削除は false | 前提: ファイルを持たない `createLocalStore()` に、キーを id とするコレクション 'items' を作る。操作: {id:'a'}・{id:'b'} を `put`。`get('a')`、`delete('a')` を2回、`values()`、`flush()`、`load()` を呼ぶ。期待結果: `size` は 2。`get('a')` は {id:'a'}。`delete('a')` は1回目 true、2回目 false。`values()` は [{id:'b'}]。ファイルを持たないストアでは `flush()`・`load()` の後も `size` は 1（何もしない）。 |
-
-##### API のエラー処理
-
-| ID                     | テスト名                                                                          | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                   |
-| ---------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-application-misc-012 | クライアント起因の HTTP エラー（4xx）は、入力不正（400）にする                    | 前提: GET /x が `HTTPException(404)` を投げるアプリ。操作: `app.request('/x')`。期待結果: 応答のステータスは 400。本文は `buildErrorBody('VALIDATION_ERROR','リクエストが正しくありません')` と等しい。                                                                                            |
-| U-application-misc-013 | サーバー起因の HTTP エラー（5xx）は、想定外のエラーとして扱い、内部情報を返さない | 前提: GET /x が `HTTPException(503, {message:'internal detail'})` を投げるアプリ。操作: `app.request('/x')`。期待結果: ステータスは 500。応答本文の JSON 文字列に 'internal detail' を含まない。                                                                                                   |
-| U-application-misc-014 | 項目ごとのエラーは、1件もなければ fields を含めない                               | 前提: なし（関数の直接呼び出し）。操作: `buildErrorBody('NOT_FOUND','なし')` と、`buildErrorBody('VALIDATION_ERROR','x',[{name:'a',message:'b'}])`。期待結果: 1つ目は {error:{code:'NOT_FOUND', message:'なし'}} と等しい（fields キーなし）。2つ目の `error.fields` は [{name:'a',message:'b'}]。 |
+| U-auth-004 | ログイン・更新の応答に、有効期限（ISO 8601）と、ロールの権限を含める | 前提: ロール viewer（権限 audit:read）の方針。ポートのスタブは、セッション（トークン 'a'・'r'）を返す。操作: `login('user-1','pw','client')` と `refresh('r')` を呼ぶ。期待結果: ログインの応答は、accessToken 'a'、refreshToken 'r'、accessTokenExpiresAt '2026-10-09T03:30:00.000Z'、refreshTokenExpiresAt '2026-10-16T03:00:00.000Z'（Date を ISO 8601 の文字列に変換）、user {userId 'user-1'、userName 'ユーザー'、role 'viewer'、permissions ['audit:read']} と等しい。更新の応答はログインの応答と等しい。ポートの `login` が `{userId:'user-1', password:'pw'}` と 'client' で呼ばれた。 |
+| U-auth-005 | 有効なトークンから、権限つきの利用者を返す。無効なトークンは null    | 前提: 同じ。操作: `authenticate('valid')` と `authenticate('invalid')` を呼ぶ。期待結果: 'valid' は、userId 'user-1'、permissions ['audit:read'] を含む。'invalid' は null。                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| U-auth-006 | ログアウトを、認証のポートへ伝える                                   | 前提: 同じ。操作: `logout('a')` を呼ぶ。期待結果: ポートの `logout` が引数 'a' で呼ばれた。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 #### テスト名と検証内容の差
 
@@ -7830,6 +7808,70 @@ UC-20（根拠: `observationMatchesKeyword` は、取り込み済みデータの
 
 なし
 
+### tests/unit/backend/infrastructure/local-store.test.ts
+
+#### 対象のコード
+
+- `src/backend/infrastructure/local/local-store.ts`（ローカルのデータ保持。`createLocalStore().collection`）
+
+#### 概要
+
+ローカルのデータ保持（コレクション）の単体テスト。ファイルを持たないストアを使う。もとは `application-misc.test.ts`（1 ファイルに、application・infrastructure・presentation のテストが混在していた）の一部で、Sprint1 の取り込み（Issue #33。PR #52）で、層ごとに分割した。テストの内容・期待値は変えていない（12章）。データファイルの版・破損・権限・書き込みの失敗とロガーは、`store-and-logging-hardening.test.ts`（8章）。
+
+#### 関連する UC
+
+（UC に直接対応しない基盤。ローカルの保存先は、すべてのユースケースの前提）
+
+#### テスト詳細
+
+##### ローカルのデータ保持（コレクション）
+
+| ID                     | テスト名                                                             | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| U-local-store-001 | 値の追加・取得・削除ができ、件数を数える。存在しない値の削除は false | 前提: ファイルを持たない `createLocalStore()` に、キーを id とするコレクション 'items' を作る。操作: {id:'a'}・{id:'b'} を `put`。`get('a')`、`delete('a')` を2回、`values()`、`flush()`、`load()` を呼ぶ。期待結果: `size` は 2。`get('a')` は {id:'a'}。`delete('a')` は1回目 true、2回目 false。`values()` は [{id:'b'}]。ファイルを持たないストアでは `flush()`・`load()` の後も `size` は 1（何もしない）。 |
+
+#### テスト名と検証内容の差
+
+なし
+
+#### 読み切れなかった範囲
+
+なし
+
+### tests/unit/backend/presentation/errors.test.ts
+
+#### 対象のコード
+
+- `src/backend/presentation/errors.ts`（API の共通エラー形式。`buildErrorBody`、`handleError`、`handleNotFound`）
+
+#### 概要
+
+API のエラー処理（共通のエラー応答）の単体テスト。もとは `application-misc.test.ts`（1 ファイルに、application・infrastructure・presentation のテストが混在していた）の一部で、Sprint1 の取り込み（Issue #33。PR #52）で、層ごとに分割した。テストの内容・期待値は変えていない（12章）。
+
+- API のエラー処理のテストは、`Hono` アプリに `handleError`・`handleNotFound` を登録し、GET /x が与えたエラーを投げるアプリを作り、`app.request('/x')` で応答を確認する。
+
+#### 関連する UC
+
+（UC に直接対応しない基盤。すべての API の、エラー応答の形）
+
+#### テスト詳細
+
+##### API のエラー処理
+
+| ID                     | テスト名                                                                          | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| U-errors-001 | クライアント起因の HTTP エラー（4xx）は、入力不正（400）にする                    | 前提: GET /x が `HTTPException(404)` を投げるアプリ。操作: `app.request('/x')`。期待結果: 応答のステータスは 400。本文は `buildErrorBody('VALIDATION_ERROR','リクエストが正しくありません')` と等しい。                                                                                            |
+| U-errors-002 | サーバー起因の HTTP エラー（5xx）は、想定外のエラーとして扱い、内部情報を返さない | 前提: GET /x が `HTTPException(503, {message:'internal detail'})` を投げるアプリ。操作: `app.request('/x')`。期待結果: ステータスは 500。応答本文の JSON 文字列に 'internal detail' を含まない。                                                                                                   |
+| U-errors-003 | 項目ごとのエラーは、1件もなければ fields を含めない                               | 前提: なし（関数の直接呼び出し）。操作: `buildErrorBody('NOT_FOUND','なし')` と、`buildErrorBody('VALIDATION_ERROR','x',[{name:'a',message:'b'}])`。期待結果: 1つ目は {error:{code:'NOT_FOUND', message:'なし'}} と等しい（fields キーなし）。2つ目の `error.fields` は [{name:'a',message:'b'}]。 |
+
+#### テスト名と検証内容の差
+
+なし
+
+#### 読み切れなかった範囲
+
+なし
+
 ### tests/unit/backend/runtime/config.test.ts
 
 #### 対象のコード
@@ -7916,7 +7958,7 @@ ROLE_DEFINITIONS_JSON が不正なケース（it.each）。共通の操作と期
 
 組み立て・永続化・初期データ・Node サーバー・Lambda ハンドラの、実行時の結合部分を、実際のコンテナ・HTTP・ファイルで確かめる単体テスト（as-built.md では、`runtime.test.ts`・`config.test.ts` が、組み立て・Node サーバー・Lambda ハンドラ・設定のテストとされている）。
 
-- 共通の環境変数 `ENV`: APP_MODE 'test'、LOG_LEVEL 'error'、PORT '0'（空いているポートを使う）、FILE_SERVER_DIR（一時ディレクトリ配下の smart-farm-runtime-test）、初期ユーザー（`tests/support/test-context.ts` の TEST_USER: ID 'test-user'、名前 'テストユーザー'、パスワード 'Dummy-Passw0rd-test'。ダミー値）。
+- 共通の環境変数 `ENV`: APP_MODE 'test'、LOG_LEVEL 'error'、PORT '0'（空いているポートを使う）、FILE_SERVER_DIR（一時ディレクトリ配下の smart-farm-runtime-test）、初期ユーザー（`tests/support/test-constants.ts` の TEST_USER: ID 'test-user'、名前 'テストユーザー'、パスワード 'Dummy-Passw0rd-test'。ダミー値）。
 - 時計の固定: 一部のテストで `createControllableClock(TEST_NOW)`（2026-10-09T03:00:00Z）。ログは `NULL_LOGGER`（スケジューラのテストだけ、`info` を記録するロガー）。ID は、デモデータのテストで `createSequentialIdGenerator()`。
 - ファイル永続化のテストは、`mkdtempSync` で作った一時ディレクトリの store.json に書き出す。
 - HTTP のテストは、実際のポート（PORT '0'）で `startNodeServer` し、`fetch` で呼び出す。
@@ -9222,6 +9264,44 @@ UC-13（認証）、UC-01（ダッシュボード）、UC-05・UC-22（通知）
 - I-api-014 のテスト名は「機能仕様書 4.1 の API（39件）」とあるが、アサーションは、ルート表が 40 件であること、`GET /push-subscription` を含むこと、PUBLIC が 2 件であることまで。仕様書との突き合わせは、コード上はない。
 - I-api-098〜I-api-101 の it.each の値 `equipmentId=%E6%97%A5%E6%9C%AC` は、URL エンコードされた「日本」。
 
+### tests/integration/application-services.test.ts
+
+#### 対象のコード
+
+- `src/backend/application/evaluation/criteria-service.ts`（判断基準の参照。変更後の値がなければ既定値を返す。`createCriteriaService`）
+- `src/backend/application/equipment/equipment-service.ts`（設備の階層の取得。`createEquipmentService().getTree`）
+- `src/backend/application/equipment/status-code-service.ts`（ステータスコードの一覧。`createStatusCodeService().list`）
+- `src/backend/application/seed/initial-data.ts`（ステータスコードの初期の定義の投入。`INITIAL_STATUS_CODES`、`seedInitialStatusCodes`）
+
+#### 概要
+
+判断基準・設備・ステータスコードの参照と、初期データの投入の結合テスト（サービス + ローカルの Repository。`dev_spec.md` 6章の結合テストの定義）。ローカルの Repository（infrastructure）を使うため、単体ではなく結合に置く。もとは `application-misc.test.ts`（1 ファイルに、application・infrastructure・presentation のテストが混在していた）の一部で、Sprint1 の取り込み（Issue #33。PR #52）で、層ごとに分割した。テストの内容・期待値は変えていない（12章）。
+
+- 共通の準備: 参照のテストは、`createLocalRepositories()` のメモリ上のリポジトリを使う。設備のテストは `tests/support/builders.ts` の `equipmentSet()`（ハウス HOUSE-T1・ロボット ROBOT-T1・センサー SENSOR-T1。作成日時 2026-10-01T00:00:00.000Z）を使う。設備サービスとステータスコードサービスで使わない依存（変更履歴・評価・時計・ログ）は、`UNUSED_DEPS`（`vi.fn()` のスタブ、`createControllableClock()`、`NULL_LOGGER`）で渡す。
+
+#### 関連する UC
+
+UC-12（設備の階層）・UC-17（ステータスコードの一覧と初期の定義）・UC-19（判断基準の参照）（根拠: `.speccheck/UC-12-manage-equipment.md`・`UC-17-manage-status-codes.md`）。
+
+#### テスト詳細
+
+##### 判断基準・設備・ステータスコードの参照
+
+| ID                     | テスト名                                                              | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| I-application-services-001 | 判断基準は、変更後の値があればそれを、なければ既定値を返す            | 前提: メモリのリポジトリに、観点 safety の判断基準（既定値に isDefault false、version 'v2' を付けたもの）だけを保存する。操作: `getEffective('safety')`、`getEffective('harvestSpeed')`、`getAllEffective()` を呼ぶ。期待結果: safety は保存した値と等しい。harvestSpeed（保存なし）は `getDefaultCriteria('harvestSpeed')` と等しい。全件の Map は size 10 で、safety の version が 'v2'。                                                                    |
+| I-application-services-002 | 設備の階層は、ハウスごとに配下を並べ、論理削除した設備を除く          | 前提: 次の5件を、この順で保存する。2番目のハウス HOUSE-T2（作成日時 2026-10-02）、センサー SENSOR-T1、ロボット ROBOT-T1（isDeleted true）、ハウス HOUSE-T1、センサー SENSOR-T0（SENSOR-T1 と同じ作成日時）。操作: `getTree()` を呼ぶ。期待結果: ハウスの並びは HOUSE-T1、HOUSE-T2（作成日時の順）。HOUSE-T1 の配下は SENSOR-T0、SENSOR-T1（作成日時が同じなので設備IDの順）。HOUSE-T2 の配下は []。全ハウスの配下のどれにも ROBOT-T1（論理削除）が含まれない。 |
+| I-application-services-003 | ステータスコードは、コード値の順に返し、論理削除を除く                | 前提: コード 'B'・'A_X'・'A'（いずれもカテゴリ NORMAL、isDeleted false）と、'C'（isDeleted true）を、この順で保存する。操作: `list()` を呼ぶ。期待結果: items のコードは ['A','A_X','B']（コード値の昇順。論理削除の 'C' を含まない）。                                                                                                                                                                                                                        |
+| I-application-services-004 | ステータスコードの初期の定義は、1件もなければ投入し、あれば何もしない | 前提: 空のメモリのリポジトリ。操作: `seedInitialStatusCodes` を2回呼ぶ。期待結果: 1回目の戻り値は `INITIAL_STATUS_CODES.length`（投入した件数）。2回目は 0。`INITIAL_STATUS_CODES` のコードは、STANDBY・RUNNING・HARVESTING・STOPPED・LOW_BATTERY・RUNNING_ERROR・HARVEST_ERROR・FALLEN の8件、この順。                                                                                                                                                        |
+
+#### テスト名と検証内容の差
+
+なし
+
+#### 読み切れなかった範囲
+
+なし
+
 ### tests/integration/dev-seed.test.ts
 
 #### 対象のコード
@@ -10426,7 +10506,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | `ROBOT_EXTERNAL_ID`              | 定数 | ロボットの、ファイルの中の識別子                                                                                                                                                                                                                                                                                                                              | `ROBOT-SAMPLE-01`                                                                                                                                                                                             |
 | `SENSOR_EXTERNAL_ID`             | 定数 | センサーの、ファイルの中の識別子                                                                                                                                                                                                                                                                                                                              | `SENSOR-SAMPLE-01`                                                                                                                                                                                            |
 | `equipmentSet(createdAt?)`       | 関数 | ハウス・ロボット・センサーの 3 設備（`Equipment[]`）を作る。引数 `createdAt` は作成日時（既定 `2026-10-01T00:00:00.000Z`）。                                                                                                                                                                                                                                  | 設備名: ハウス = `テストハウス`、ロボット = `テストロボット`、センサー = `テストセンサー`。ロボット・センサーは、`facilityId` = `HOUSE-T1`、`externalId` = 上の外部 ID。すべて `isDeleted: false`             |
-| `statusCodeMap()`                | 関数 | 初期データのステータスコード（`INITIAL_STATUS_CODES`、`src/backend/application/seed/initial-data.ts`）を、コード → 定義の `Map` にして返す。                                                                                                                                                                                                                  | 初期データの定義                                                                                                                                                                                              |
+| `statusCodeMap()`                | 関数 | テスト用のステータスコード定義（`STATUS_CODE_FIXTURES`。`src/backend/application/seed/initial-data.ts` の `INITIAL_STATUS_CODES` と同じ内容を、`builders.ts` に持つ。ドメインのテストが application に依存しないため）を、コード → 定義の `Map` にして返す。                                                                                                                                                                                                                  | 初期データの定義                                                                                                                                                                                              |
 | `ObservationOverrides`           | 型   | `observation()` の引数。`itemKey`・`value`（必須。値は数値・文字列・null）、`equipmentId`・`observedAt`・`receivedAt`・`source`・`quality`・`isDeleted`（省略可）。                                                                                                                                                                                           |                                                                                                                                                                                                               |
 | `observation(overrides)`         | 関数 | 観測値（`Observation`）を 1 件作る。カテゴリは、項目 `itemKey` から決める（`statusCode` は `STATUS`。それ以外は、カテゴリ `HARVEST`・`OPERATION`・`ENVIRONMENT`・`OPERABILITY`・`SAFETY`・`COST`・`FAILURE`・`SATISFACTION` の順に、項目カタログ `itemsOfCategory` から探す）。どのカテゴリにもなければ、`カタログにない項目です: <itemKey>` で例外を投げる。 | 既定値: 設備 = `ROBOT-T1`、`observedAt` = `2026-10-09T02:00:00.000Z`（日本時間 11:00。TEST_NOW の 1 時間前）、`source` = `AUTO_IMPORT`、`quality` = `VALID`、`receivedAt` = `observedAt`、`isDeleted` = false |
 | `observations(values, options?)` | 関数 | 項目キー → 値の組から、同じ時刻・同じ設定（`options`: `ObservationOverrides` から `itemKey`・`value` を除いたもの）の観測値の配列を作る。                                                                                                                                                                                                                     | 上と同じ既定値                                                                                                                                                                                                |
@@ -10436,9 +10516,8 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 
 | エクスポート                                                       | 種類       | 役割・主な引数                                                                                                                                                                                                                                                                        | 使う値                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TEST_USER`                                                        | 定数       | テスト用の初期ユーザー（ダミーの認証情報）                                                                                                                                                                                                                                            | `userId` = `test-user`、`userName` = `テストユーザー`、`password` = `Dummy-Passw0rd-test`                                                                                                                                                                                                                                                                                                           |
-| `TEST_NOW`                                                         | 定数       | 固定する現在時刻（日本時間 2026-10-09 12:00）                                                                                                                                                                                                                                         | `new Date('2026-10-09T03:00:00Z')`                                                                                                                                                                                                                                                                                                                                                                  |
-| `FIXTURES_DIRECTORY`                                               | 定数       | フィクスチャのディレクトリ（`tests/fixtures`）                                                                                                                                                                                                                                        | `tests/support/` から `../fixtures`                                                                                                                                                                                                                                                                                                                                                                 |
+| `TEST_USER`                                                        | 定数       | テスト用の初期ユーザー（ダミーの認証情報）。定義は `tests/support/test-constants.ts`。ここから再公開する                                                                                                                                                                                                                                            | `userId` = `test-user`、`userName` = `テストユーザー`、`password` = `Dummy-Passw0rd-test`                                                                                                                                                                                                                                                                                                           |
+| `TEST_NOW`                                                         | 定数       | 固定する現在時刻（日本時間 2026-10-09 12:00）。定義は `tests/support/test-constants.ts`。ここから再公開する                                                                                                                                                                                                                                         | `new Date('2026-10-09T03:00:00Z')`                                                                                                                                                                                                                                                                                                                                                                  |
 | `TestContext`                                                      | 型         | テスト用の組み立ての結果。`container`・`app`（Hono）・`clock`（`ControllableClock`）・`config`・`fileServerDirectory`・`login()`・`request()`・`placeFixture()`・`placeFile()` を持つ。                                                                                               |                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `TestContextOptions`                                               | 型         | `createTestContext` の引数。`env`（設定の上書き）・`now`（時計の初期値）・`logger`（ログの出力先。ログに秘密情報が含まれないことの検証用。省略時は何も出力しない）。                                                                                                                  |                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `createTestContext(options?)`                                      | 非同期関数 | 一時ディレクトリ（`os.tmpdir()` 配下の `smart-farm-test-*`）をモックのファイルサーバーとして作り、設定（`parseConfig`）・制御できる時計・連番の識別子・ロガーでコンテナ（`createContainer`）を作って初期化（`initialize()`）し、アプリ（`createApp`）を作って、`TestContext` を返す。 | 設定: `APP_MODE` = `test`、`PERSISTENCE` = `memory`、`FILE_SERVER_DIR` = 一時ディレクトリ、`INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` = `TEST_USER` の値、`INGESTION_RETRY_BASE_DELAY_MS` = `1000`（`options.env` で上書き可）。時計の初期値 = `options.now` または `TEST_NOW`。識別子 = `createSequentialIdGenerator('test')`。ロガー = `options.logger` または `NULL_LOGGER` |
@@ -10451,6 +10530,16 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | `errorOf(response)`                                                | 非同期関数 | エラー応答（共通形式）の本文を、スキーマで検証して取り出す（同上） |
 | `THREE_ROLES_JSON`                                                 | 定数       | 3 ロール（管理者・評価者・閲覧者）の設定の例（JSON 文字列。ロールの分け方は未確定（Q-017）のため、設定で切り替える）。                                                                                                                                                                | `admin`（管理者）: `equipment:manage`・`ingestion:configure`・`ingestion:run`・`status-code:manage`・`manual-entry:write`・`criteria:edit`・`user:manage`・`audit:read`。`evaluator`（評価者）: `manual-entry:write`・`criteria:edit`・`ingestion:run`・`audit:read`。`viewer`（閲覧者）: 権限なし                                                                                                  |
 
+
+#### tests/support/test-constants.ts・fixtures-path.ts（定数だけの補助）
+
+アプリ全体の組み立て（`test-context.ts`）に依存せずに使えるよう、定数だけを分けたファイル（Sprint1 の取り込みで切り出した。12章）。
+
+| ファイル | エクスポート | 役割 |
+| -------- | ------------ | ---- |
+| `tests/support/test-constants.ts` | `TEST_USER`（定数） | テスト用の初期ユーザー（userId `test-user`、名前、ダミーのパスワード） |
+| | `TEST_NOW`（定数） | 固定する現在時刻（日本時間 2026-10-09 12:00） |
+| `tests/support/fixtures-path.ts` | `FIXTURES_DIRECTORY`（定数） | フィクスチャ（合成データ）のディレクトリ（`tests/fixtures`） |
 #### tests/support/viewpoint-fixtures.ts（観点の詳細・推移・満足度・元データの画面のテスト用の応答データ。合成データ）
 
 内部の定数: `HOUSE` = 設備 ID `HOUSE-01`（ハウス）。
@@ -10598,12 +10687,12 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-09 | 環境センサーデータを自動で取り込む                 | `UC-09-import-sensor-data.ts`（27 件）       | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`integration/ingestion.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                        |
 | UC-10 | 異常・注意を検知して通知する                       | `UC-10-detect-and-notify.ts`（44 件）        | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/grading.test.ts`、`unit/backend/domain/measures.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`integration/evaluation-notification.test.ts`、`integration/management-api.test.ts`                                            |
 | UC-11 | 農業情報基盤へデータを連携する                     | `UC-11-federate-data.ts`（13 件）            | `unit/backend/infrastructure/adapters.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                      |
-| UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（29 件）         | `unit/shared/shared.test.ts`、`unit/backend/application/application-misc.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
-| UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（31 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/application-misc.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
+| UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（29 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
+| UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（31 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
 | UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（32 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
 | UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
 | UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（21 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
-| UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（29 件）      | `unit/backend/application/application-misc.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
+| UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（29 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
 | UC-18 | 入力済みデータを管理する（一覧・修正・削除・履歴） | `UC-18-manage-entries.ts`（52 件）           | `unit/shared/manual-entry.test.ts`、`unit/frontend/entry-pages.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                     |
 | UC-19 | 判断基準を編集する                                 | `UC-19-edit-criteria.ts`（43 件）            | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/criteria-edit-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`               |
 | UC-20 | 取り込み済みデータを一覧で確認する                 | `UC-20-view-observations.ts`（38 件）        | `unit/shared/criteria-text.test.ts`、`unit/backend/infrastructure/seeded-data.test.ts`、`unit/frontend/observations-page.test.tsx`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/repository-contract.test.ts`、`integration/viewpoint-queries.test.ts`                                              |
@@ -10724,7 +10813,9 @@ use-cases.md の各 UC の「関連する要求」に挙げられた FR・NFR �
 | `tests/integration/file-source-contract.test.ts`（契約は `tests/support/file-source-contract.ts`） | V-128 | FileSourcePort の契約テストを、ファイルサーバーのモックに適用 |
 | `tests/unit/backend/runtime/config.test.ts`・`runtime.test.ts` | V-001・V-002・V-007・V-011・V-041・V-133・V-143 | 開発用 API・信頼するプロキシの設定、初期ユーザーのロールの既定、Lambda の必須設定・初期化の再試行・接続元（sourceIp） |
 | `tests/unit/backend/infrastructure/adapters.test.ts` | V-005・V-006・V-009・V-019・V-020 | セッションの失効・世代・掃除、失敗の記録の上限、計測日時の解釈・構造の変更の検出 |
-| `tests/unit/backend/infrastructure/store-and-logging-hardening.test.ts` | V-048・V-065・V-069・V-099・V-142・V-194 | データファイルの版・破損、権限、書き込みの失敗の再試行、ロガーの堅牢化、プロセスの終了処理、アクセスログ |
+| `tests/unit/backend/infrastructure/store-and-logging-hardening.test.ts` | V-048・V-069・V-142・V-194 | データファイルの版・破損、権限、書き込みの失敗の再試行、ロガーの堅牢化（9 件。1 件は Windows でスキップ）。プロセスの終了処理とアクセスログは、層ごとに、次の 2 行のファイルへ分割した（12章） |
+| `tests/unit/backend/runtime/process-shutdown.test.ts` | V-047・V-065 | プロセスの終了処理（SIGINT・SIGTERM・未処理のエラー。5 件） |
+| `tests/integration/access-log.test.ts` | V-099 | アクセスログ（認証後の操作者・対象の設備。1 件） |
 | `tests/unit/backend/infrastructure/performance-structures.test.ts` | V-075・V-077・V-082・V-088・V-189・V-191 | 上位件数の選択が全件の並べ替えと同じ結果、索引・キャッシュ、日時の比較の境界、キーワード検索の判定の一致 |
 | `tests/unit/backend/infrastructure/data-backup.test.ts` | V-043 | バックアップ・復元・一覧・コマンド |
 | `tests/unit/shared/criteria-range.test.ts` | V-028 | 率（%）の閾値の範囲 |
@@ -10810,7 +10901,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | `tests/integration/evaluation-affected.test.ts`（新規） | `evaluateAffected`: ロボット指定でロボットとハウスだけを評価、ハウス指定、登録にない設備、重なった要求の設備のまとめ、全設備の要求が重なったときの全設備、手動入力の登録・修正（設備の変更）・削除での評価の対象 |
 | `tests/integration/observation-time-index.test.ts`（新規） | 計測日時の順の索引: 降順・昇順の順序（同じ日時は一意キーの昇順）とページ分割が全件の並べ替えと同じ、索引ができたあとの保存（新しい一意キー・上書き・重複）の反映、多数の保存（併合）、設備・期間の絞り込みと先のページ、全消去、不正なカーソル |
 | `tests/integration/management-api.test.ts`・`ingestion.test.ts` | 「評価が失敗しても、保存・取り込みの結果は成功する」の2件が、失敗させる対象のメソッドを、`evaluateAll` から `evaluateAffected`（保存後に呼ぶようになったメソッド）に変更（期待値・検証は同じ） |
-| `tests/integration/ingestion.test.ts`・`ingestion-reliability.test.ts`・`evaluation-notification.test.ts`、`tests/unit/backend/application/application-misc.test.ts` | 評価サービスのスタブに `evaluateAffected` を追加（入力のみの変更） |
+| `tests/integration/ingestion.test.ts`・`ingestion-reliability.test.ts`・`evaluation-notification.test.ts`、`tests/integration/application-services.test.ts`（もとは `application-misc.test.ts`。12章） | 評価サービスのスタブに `evaluateAffected` を追加（入力のみの変更） |
 
 ## 11. 最終テスト（手順11。2026-10-12）で追加・変更したテスト
 
@@ -10839,3 +10930,17 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
+## 12. Sprint1 の取り込み（Issue #30〜#38）で変更したテスト
+
+ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動と、1 件の追加、ポートの直書きの修正のみ）。
+
+| 変更 | 内容 | 件数への影響 |
+| ---- | ---- | ------------ |
+| `application-misc.test.ts`（14 件）の、層ごとの分割（Issue #33。PR #52） | 認可・認証 6 件 → `tests/unit/backend/application/auth.test.ts`、参照 4 件 → `tests/integration/application-services.test.ts`（サービス + ローカルの Repository のため結合）、ローカルのデータ保持 1 件 → `tests/unit/backend/infrastructure/local-store.test.ts`、API のエラー処理 3 件 → `tests/unit/backend/presentation/errors.test.ts` | 合計は変わらない（application 14→6、infrastructure +1、presentation +3、integration +4） |
+| `store-and-logging-hardening.test.ts`（15 件）の、層ごとの分割（Issue #32。PR #51） | インフラの 9 件は、そのファイルに残す。プロセスの終了処理 5 件 → `tests/unit/backend/runtime/process-shutdown.test.ts`、アクセスログ 1 件 → `tests/integration/access-log.test.ts` | 合計は変わらない（infrastructure −6、runtime +5、integration +1） |
+| 定数だけの補助の切り出し（Issue #32・#33） | `FIXTURES_DIRECTORY` → `tests/support/fixtures-path.ts`、`TEST_NOW`・`TEST_USER` → `tests/support/test-constants.ts`（`test-context.ts` から再公開）。infrastructure・runtime のテストが、presentation・runtime を使う `test-context.ts` に依存しないようにするため | なし |
+| ドメインのテストの補助 `builders.ts` の、application への依存の解消（Issue #30。PR #49） | `statusCodeMap()` が、application の `INITIAL_STATUS_CODES` を使っていたのを、同じ内容のテスト用の定義 `STATUS_CODE_FIXTURES` に変えた | なし |
+| メトリクスの表示名のテストの追加（Issue #36。PR #55） | `viewpoint-definitions.test.ts` に U-viewpoint-definitions-022 を追加。先に書き、`economicProductivity` で失敗することを確認してから、表示名を「経済生産性」に修正した | domain +1 |
+| UC-13 のポートの直書きの修正（Issue #37。PR #56） | 外部への戻り先を拒否したあとの確認（E13-021〜E13-024）が、origin を `http://127.0.0.1:5173` と直書きしていたのを、Playwright の `baseURL` と比べる形に直した。テスト名・検証の内容は変えていない | なし |
+
+取り込み後の件数と実測値は、1.2 節。

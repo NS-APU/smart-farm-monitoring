@@ -79,7 +79,7 @@
 
 1. use-cases.md UC-02 の代替フローの「TODO: 欠損時の扱い」は、実装で決めた表示（「データ不足のため評価できません。未取得の項目: …」、値「—」、案内と導線）が反映されていない。要件側の更新は、発注者の確認後。
 2. 診断メッセージ・推奨アクションの文言は暫定（Q-010。dev_spec.md 4.1 No.16）。
-3. 画面の「コスト効率」のメトリクス名は「EconomicProductivity」と英語表記（`src/shared/constants/metrics.ts`）。robot-health.md・data-dictionary.md が同じ名称のため、コードは docs どおり。UC-01 のレポートにも記載。
+3. （修正済み）画面の「コスト効率」のメトリクス名が、「EconomicProductivity」と英語表記だった（`src/shared/constants/metrics.ts`）。Issue #36（PR #55）で、表示名を「経済生産性」に修正した（UC-01 のレポートにも記載）。
 4. 設備で評価しない観点を開いたとき（例: センサーで収穫精度）、見出しとパンくずが「ダッシュボード」になる（観点名を出していない。`viewpoint-detail-page.tsx:123`）。メッセージ「この設備では評価しない観点です」は表示される。仕様（functional-specification.md 3.2）に規定がなく、テストが現状の表示を前提にしていないが、変更の範囲外と判断し、そのままにした。観点名を出す改善の要否は、確認が必要。
 5. `pnpm format:check` は、`.speccheck/*.md`（調査レポート）の整形が Prettier の基準に合わないと失敗する（`.prettierignore` は `docs/`・`README.md` のみ Markdown を除外）。レポートは Prettier で整形した（UC-01 のレポートも、整形のみ行った）。今後のレポートも同様に整形が必要。または、`.prettierignore` に `.speccheck/` を追加する（設定ファイルの変更のため、確認が必要）。
 
