@@ -1,0 +1,15 @@
+node_modules/
+dist/
+test-result/
+.local-data/
+work/
+pnpm-lock.yaml
+coverage/
+# ドキュメントは Prettier の対象外（表の整形で差分が大きくなるため）
+docs/
+README.md
+AGENTS.md
+CLAUDE.md
+
+# テストの合成データ（意図的に不正な形式のファイルを含む）
+tests/fixtures/
