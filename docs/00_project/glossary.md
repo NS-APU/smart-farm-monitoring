@@ -19,4 +19,5 @@
 | 短期視点・長期視点 | - | 観点の評価の2つの見方。短期は直近値、長期は選んだ期間（当日〜直近90日）の集計値にもとづく | [evaluation.md](../10_design/viewpoint/evaluation.md) |
 | 平均故障間隔 | MTBF | 故障から次の故障までの平均時間。ロボット運用の信頼性を示す指標 | [project-overview.md](./project-overview.md) |
 | 平均修復時間 | MTTR | 故障から復旧までにかかる平均時間。復旧のしやすさを示す指標 | [project-overview.md](./project-overview.md) |
+| 経済生産性 | EconomicProductivity | 運用コストに対する収穫の成果の比（無次元）。（収穫成功率 × 収穫速度 × 可用率）÷ 運用コスト。コスト効率の観点の判定に使う | [robot-health.md](../10_design/viewpoint/robot-health.md) |
 | 設計判断の記録 | ADR | 重要な技術選定・設計判断と、その理由を残した記録 | [documentation-guidelines.md](./documentation-guidelines.md) |

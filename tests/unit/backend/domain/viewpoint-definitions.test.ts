@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { getMetricMeta } from '@smart-farm/shared/constants/metrics';
 import { VIEWPOINT_DEFINITIONS } from '../../../../src/backend/domain/evaluation/viewpoints/registry.ts';
 
 const EXPECTED = [
@@ -224,4 +225,25 @@ describe('観点の定義の内容', () => {
       expect(Object.keys(definition?.computeMetrics({}) ?? {})).toEqual(expected.metricKeys);
     });
   }
+});
+
+/** ひらがな・カタカナ・漢字のいずれかを含む。 */
+const JAPANESE = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
+
+describe('メトリクスの表示名', () => {
+  it('画面に表示するメトリクス（判定の指標・ダッシュボード・詳細）の表示名は、すべて日本語を含む（英語の識別子名のまま表示しない）', () => {
+    const metricIds = new Set(
+      VIEWPOINT_DEFINITIONS.flatMap((definition) => [
+        ...definition.judgedIndicators,
+        ...definition.dashboardMetrics,
+        ...definition.detailMetrics,
+      ]),
+    );
+
+    const englishOnly = [...metricIds].filter(
+      (metricId) => !JAPANESE.test(getMetricMeta(metricId).label),
+    );
+
+    expect(englishOnly).toEqual([]);
+  });
 });
