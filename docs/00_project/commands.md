@@ -98,6 +98,7 @@ pnpm test:stress     # 大量データの状態で、全ユースケースの操
 
 - バックエンド（起動時に、約63万件の観測値などの合成データを投入）と、フロントエンド（本番ビルドを `vite preview` で配信）を起動して実行する。ポートは E2E と同じ（5173・8787）のため、`pnpm test:e2e` と同時に実行しない
 - 許容時間は `tests/stress/support/limits.ts`（NFR-3.x）。超えた操作があると、テストは失敗する
+- 許容時間の倍率: 環境変数 `STRESS_LIMIT_FACTOR`（1 以上 3 以下。既定 1 = NFR の値のまま。範囲外・数値でない値はエラー）。実行環境の速さが揺れるとき（CI）のために設けた。例: `STRESS_LIMIT_FACTOR=1.5 pnpm test:stress`（操作は 3 秒 → 4.5 秒）。倍率は、結果ログに記録される。**手元の実行・NFR の確認は、既定の 1 で行う**
 - 出力: `./test-result/stresstest.result.log`（操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計。Git 管理）、`./test-result/stress/`（スクリーンショット・HTML レポート。Git 管理外）。報告は `./test-result/stresstest.report.md`
 - 構成の詳細は dev_spec.md 6.5
 
@@ -116,6 +117,8 @@ pnpm test:stress     # 大量データの状態で、全ユースケースの操
 
 - 実行環境は、ubuntu-latest・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、`pnpm exec playwright install --with-deps chromium` でブラウザを入れてから実行する
 - 手元（Windows）では実行しないファイル権限のテスト（2 件）は、CI（Linux）で実行される
+- CI の `stress` ジョブは、`STRESS_LIMIT_FACTOR=1.5`（許容時間を 1.5 倍）で実行する。GitHub のランナーは、CPU の速さが実行のたびに違い、同時 10 人の保存（UC-06）が、許容 3 秒付近（約 2〜3.5 秒）で、超えたり超えなかったりしたため（PR #58）。NFR の値そのものは、変えていない
+- 画面のレイアウトの検査（E2E・負荷テスト）は、フォントに依存するため、`e2e`・`stress` のジョブで、日本語のフォント（`fonts-noto-cjk`）を入れる
 - 失敗したときの E2E の動画・レポートと、負荷テストの結果ログは、Actions の成果物（Artifacts）から取得できる
 
 ## 環境変数
