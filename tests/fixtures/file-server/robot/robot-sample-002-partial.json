@@ -1,0 +1,27 @@
+{
+  "robotId": "ROBOT-SAMPLE-01",
+  "records": [
+    {
+      "timestamp": "2026-10-09T01:30:00Z",
+      "harvestCount": 10,
+      "operatingHours": 0.25,
+      "harvestOperatingHours": 0.15,
+      "travelStoppedHours": 0.003,
+      "statusCode": "HARVESTING"
+    },
+    {
+      "timestamp": "2026-10-09T01:45:00Z",
+      "harvestCount": -3,
+      "operatingHours": 0.25,
+      "statusCode": "UNDEFINED_CODE"
+    },
+    {
+      "timestamp": "2026-10-09T02:00:00Z",
+      "harvestCount": null,
+      "operatingHours": 0.25
+    },
+    {
+      "harvestCount": 5
+    }
+  ]
+}
