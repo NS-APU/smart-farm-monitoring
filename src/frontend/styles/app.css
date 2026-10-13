@@ -18,7 +18,10 @@
   --color-unknown-bg: #eceff3;
   --color-unknown-fg: #3d4757;
   --space: 16px;
-  font-family: 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', system-ui, sans-serif;
+  /* Mac・Windows のフォントを先に、Linux・Android の Noto Sans CJK を次に指定する（どの環境でも、日本語の幅が近くなる） */
+  font-family:
+    'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', 'Noto Sans CJK JP', 'Noto Sans JP', system-ui,
+    sans-serif;
   line-height: 1.6;
   color: var(--color-text);
   background: var(--color-bg);
