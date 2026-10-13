@@ -317,6 +317,95 @@ describe('API クライアント', () => {
 
       expect(session.current).toBeNull();
     });
+
+    /**
+     * 不具合（Issue #60）: 期限切れで、複数の読み込みが同時に 401 になるとき、更新が終わったあとに、遅れて 401 が届くと、
+     * 更新が済んでいることを確認せず、もう一度更新していた。サーバーは、更新のたびに、古いトークンを無効にするため、
+     * 1 回目の更新で発行したトークンで再試行していた要求が、401 のまま失敗した。
+     * サーバーの模型: 更新のたびに、古いアクセストークンを無効にし、新しい組を発行する（local-auth の refresh と同じ）。
+     * 要求 X の再試行は、サーバーに、遅れて届く（要求 Y の 401 のあとに処理される）ものとして、止めておく。
+     */
+    it('更新が済んでいたら、遅れて届いた 401 では、もう一度更新せず、現在のトークンで再試行する（直前のトークンを無効にしない）', async () => {
+      const gate = <Value>() => {
+        let release!: (value: Value) => void;
+        const promise = new Promise<Value>((resolve) => {
+          release = resolve;
+        });
+        return { promise, release };
+      };
+      const yFirstResponse = gate<undefined>();
+      const xRetryArrives = gate<undefined>();
+      let generation = 1;
+      let currentRefreshToken = 'refresh-token-1';
+      // 最初のアクセストークン（access-token-1）は、期限切れ。リフレッシュトークンは、有効
+      let validAccessTokens = new Set<string>();
+      let refreshCount = 0;
+      let xRetrySent = false;
+      let yRetrySent = false;
+      const sent = { x: 0, y: 0 };
+
+      const fetchFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+          'http://localhost',
+        );
+        const path = url.pathname.replace(/^\/api\/v1/, '');
+        const authorization = new Headers(init?.headers).get('authorization');
+        if (path === '/auth/refresh') {
+          refreshCount += 1;
+          const body = JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as {
+            refreshToken?: string;
+          };
+          if (body.refreshToken !== currentRefreshToken) {
+            return errorResponse(401, 'UNAUTHENTICATED', '無効なリフレッシュトークン');
+          }
+          generation += 1;
+          currentRefreshToken = `refresh-token-${String(generation)}`;
+          const accessToken = `access-token-${String(generation)}`;
+          validAccessTokens = new Set([accessToken]);
+          return jsonResponse({ ...WORKER_LOGIN, accessToken, refreshToken: currentRefreshToken });
+        }
+        const who = url.searchParams.get('who') === 'x' ? 'x' : 'y';
+        sent[who] += 1;
+        const isRetry = sent[who] > 1;
+        if (who === 'y' && !isRetry) {
+          await yFirstResponse.promise;
+        }
+        if (who === 'x' && isRetry) {
+          xRetrySent = true;
+          await xRetryArrives.promise;
+        }
+        if (who === 'y' && isRetry) {
+          yRetrySent = true;
+        }
+        // 要求が、サーバーに届いた時点で、トークンが有効かを調べる
+        const token = authorization?.replace(/^Bearer /, '') ?? '';
+        return validAccessTokens.has(token)
+          ? jsonResponse({ value: who === 'x' ? 1 : 2 })
+          : errorResponse(401, 'UNAUTHENTICATED', '期限切れ');
+      };
+      const session = createMemorySession(WORKER_LOGIN);
+      const api = createApiClient({ fetchFn, session, onSessionExpired: vi.fn() });
+
+      const x = api.request('/items', { schema: ItemSchema, query: { who: 'x' } });
+      const y = api.request('/items', { schema: ItemSchema, query: { who: 'y' } });
+      // X が更新を終え、新しいトークンで再試行を送る（サーバーには、まだ届いていない）
+      await vi.waitFor(() => {
+        expect(xRetrySent).toBe(true);
+      });
+      // Y の 401 が、更新のあとに、遅れて届く
+      yFirstResponse.release(undefined);
+      await vi.waitFor(() => {
+        expect(yRetrySent).toBe(true);
+      });
+      // X の再試行が、サーバーに届く
+      xRetryArrives.release(undefined);
+
+      await expect(x).resolves.toEqual({ value: 1 });
+      await expect(y).resolves.toEqual({ value: 2 });
+      expect(refreshCount).toBe(1);
+      expect(session.current?.accessToken).toBe('access-token-2');
+    });
   });
 });
 
