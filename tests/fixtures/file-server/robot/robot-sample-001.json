@@ -1,0 +1,25 @@
+{
+  "robotId": "ROBOT-SAMPLE-01",
+  "records": [
+    {
+      "timestamp": "2026-10-09T01:00:00Z",
+      "harvestCount": 12,
+      "harvestSecondsPerFruit": 45.0,
+      "operatingHours": 0.25,
+      "standbyHours": 0.02,
+      "harvestOperatingHours": 0.15,
+      "travelStoppedHours": 0.003,
+      "statusCode": "HARVESTING"
+    },
+    {
+      "timestamp": "2026-10-09T01:15:00Z",
+      "harvestCount": 11,
+      "harvestSecondsPerFruit": 47.5,
+      "operatingHours": 0.25,
+      "standbyHours": 0.03,
+      "harvestOperatingHours": 0.14,
+      "travelStoppedHours": 0.004,
+      "statusCode": "RUNNING"
+    }
+  ]
+}
