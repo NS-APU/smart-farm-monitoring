@@ -1,0 +1,19 @@
+{
+  "profileId": "environment-sensor-csv",
+  "version": "0.1.0",
+  "status": "PROVISIONAL",
+  "format": "CSV",
+  "basis": "環境センサーの機種・取得方式が未確定（Q-004）のため、一般的な環境センサーのログを想定した仮決め。先頭行を見出しとする、カンマ区切りの CSV（1行が1時刻の計測）。温度・湿度・照度・CO2濃度の4項目（構想時の項目）。タイムゾーンのない日時は、日本時間（+09:00）と推察した（utcOffsetMinutes）。",
+  "utcOffsetMinutes": 540,
+  "layout": {
+    "delimiter": ",",
+    "equipmentIdColumn": "sensor_id",
+    "timestampColumn": "timestamp"
+  },
+  "fields": [
+    { "source": "temperature_c", "itemKey": "temperatureCelsius" },
+    { "source": "humidity_pct", "itemKey": "humidityPercent" },
+    { "source": "illuminance_lx", "itemKey": "illuminanceLux" },
+    { "source": "co2_ppm", "itemKey": "co2Ppm" }
+  ]
+}

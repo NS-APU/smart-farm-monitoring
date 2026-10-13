@@ -1,0 +1,22 @@
+{
+  "profileId": "robot-json",
+  "version": "0.1.0",
+  "status": "PROVISIONAL",
+  "format": "JSON",
+  "basis": "ロボットのインターフェース仕様が未提供（Q-001）のため、構想時の項目（収穫数・稼働時間・ステータスコードなど）から推察した仮決め。ファイルは1機体・複数時刻の記録を持つ JSON とし、各記録の数値は、その記録の時間帯の発生量（稼働時間は時間）と推察した。タイムゾーンのない日時は、日本時間（+09:00）と推察した（utcOffsetMinutes）。",
+  "utcOffsetMinutes": 540,
+  "layout": {
+    "recordsPath": "records",
+    "equipmentIdPath": "robotId",
+    "timestampField": "timestamp"
+  },
+  "fields": [
+    { "source": "harvestCount", "itemKey": "harvestCount" },
+    { "source": "harvestSecondsPerFruit", "itemKey": "harvestSecondsPerFruit" },
+    { "source": "operatingHours", "itemKey": "operatingHours" },
+    { "source": "standbyHours", "itemKey": "standbyHours" },
+    { "source": "harvestOperatingHours", "itemKey": "harvestOperatingHours" },
+    { "source": "travelStoppedHours", "itemKey": "travelStoppedHours" },
+    { "source": "statusCode", "itemKey": "statusCode" }
+  ]
+}
