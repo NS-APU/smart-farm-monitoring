@@ -111,17 +111,23 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # 画面のレイアウトの検査（幅・高さ）は、フォントに依存する。CSS（app.css）の 'Noto Sans CJK JP' を、
+      # Linux のランナーでも使えるようにして、Windows・Mac に近い幅にする。
+      - name: 日本語のフォントを入れる
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
       # ポート 5173・8787 を使う（dev-ports.ts）。ジョブは別のランナーで動くため、負荷テストと衝突しない。
       - run: pnpm test:e2e
-      # 失敗の調査用。動画・スクリーンショット・トレース・レポートは、失敗したときだけ保存する。
+      # 失敗の調査用。失敗したテストのスクリーンショット・トレース・エラーの文脈だけを保存する
+      # （動画は、全テストで撮影するため、大きく（約 900MB）、保存しない）。
       - name: 失敗時の成果物を保存
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-failure
           path: |
-            test-result/e2e
-            test-result/playwright-report
+            test-result/e2e/**/test-failed-*.png
+            test-result/e2e/**/error-context.md
+            test-result/e2e/**/trace.zip
           retention-days: 7
           if-no-files-found: ignore
 
@@ -143,6 +149,9 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # E2E と同じフォントにする（モバイル幅の表示の確認があるため）。
+      - name: 日本語のフォントを入れる
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
       # 許容時間（tests/stress/support/limits.ts）を超える操作があると失敗する。
       - run: pnpm test:stress
       # 結果ログは、成功・失敗にかかわらず保存する（応答時間の記録）。
