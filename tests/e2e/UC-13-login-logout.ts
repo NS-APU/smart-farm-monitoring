@@ -317,13 +317,17 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
   ];
 
   for (const item of unsafe) {
-    test(`戻り先が${item.name}の場合は、外部へ誘導せず、ダッシュボードへ移る`, async ({ page }) => {
+    test(`戻り先が${item.name}の場合は、外部へ誘導せず、ダッシュボードへ移る`, async ({
+      page,
+      baseURL,
+    }) => {
       await page.goto(`/login?next=${encodeURIComponent(item.next)}`);
 
       await loginViaUi(page);
 
       await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
-      expect(new URL(page.url()).origin).toBe('http://127.0.0.1:5173');
+      // 同じサイトにとどまっていること。サイトの origin は、設定（dev-ports.ts）から決まる baseURL を使う
+      expect(new URL(page.url()).origin).toBe(baseURL);
     });
   }
 
