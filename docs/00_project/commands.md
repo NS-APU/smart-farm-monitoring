@@ -101,6 +101,23 @@ pnpm test:stress     # 大量データの状態で、全ユースケースの操
 - 出力: `./test-result/stresstest.result.log`（操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計。Git 管理）、`./test-result/stress/`（スクリーンショット・HTML レポート。Git 管理外）。報告は `./test-result/stresstest.report.md`
 - 構成の詳細は dev_spec.md 6.5
 
+## CI（GitHub Actions）
+
+`.github/workflows/ci.yml`。PR ごとに、次のコマンドを実行する（手元で同じコマンドを実行して、事前に確認できる）。マージ先ごとの必須のチェックは [git-workflow.md](../40_operations/git-workflow.md)「PRの作り方」を参照する。
+
+| ジョブ | 実行するコマンド | 実行する PR |
+|--------|------------------|-------------|
+| `lint` | `pnpm lint`・`pnpm format:check` | `develop`・`main` 宛て |
+| `typecheck` | `pnpm typecheck` | 同上 |
+| `unit-test` | `pnpm test:unit` | 同上 |
+| `build` | `pnpm build` | 同上 |
+| `e2e` | `pnpm test:e2e` | `main` 宛て、またはラベル `ci:full` |
+| `stress` | `pnpm test:stress` | 同上 |
+
+- 実行環境は、ubuntu-latest・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、`pnpm exec playwright install --with-deps chromium` でブラウザを入れてから実行する
+- 手元（Windows）では実行しないファイル権限のテスト（2 件）は、CI（Linux）で実行される
+- 失敗したときの E2E の動画・レポートと、負荷テストの結果ログは、Actions の成果物（Artifacts）から取得できる
+
 ## 環境変数
 
 必要な環境変数は、リポジトリ直下の `.env.example` に変数名とダミー値を記載する。実際の値は `.env` に記載し、Git管理には含めない（詳細は [security.md](../20_development/security.md)を参照）。各変数の意味は dev_spec.md 3.3。
