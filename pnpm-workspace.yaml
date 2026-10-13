@@ -1,0 +1,16 @@
+# pnpm ワークスペース。ルートはツール類（開発用）、src/ 配下の3つがアプリのパッケージ。
+packages:
+  - src/shared
+  - src/backend
+  - src/frontend
+
+# ライセンス対応（.license-check/license-report.md）:
+# lightningcss（MPL-2.0。弱いコピーレフト）は、Vite 8 が必須の依存として宣言しているが、
+# CSS の最小化を esbuild にする（src/frontend/vite.config.ts の build.cssMinify）ことで使わないため、導入しない。
+overrides:
+  lightningcss: '-'
+
+# esbuild のインストール時スクリプト（postinstall）は実行しない。
+# プラットフォーム別のバイナリ（@esbuild/*）は、スクリプトなしで使える。
+allowBuilds:
+  esbuild: false
