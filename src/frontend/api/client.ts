@@ -186,7 +186,12 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       requestOptions.anonymous === true ? undefined : options.session.get()?.accessToken;
     let response = await send(path, requestOptions, accessToken, cachedFor?.(accessToken));
     if (response.status === 401 && requestOptions.anonymous !== true && accessToken !== undefined) {
-      if (await refreshSessionOnce()) {
+      // ほかの要求が、すでにセッションを更新していたら（現在のトークンが、この要求に使ったトークンと違う）、更新しない。
+      // 更新を重ねると、サーバーが、直前に発行したトークンを無効にし、そのトークンで再試行している要求が、401 になる。
+      // 更新が終わったあとに、遅れて 401 が届く場合に起きる（Issue #60）。
+      const latestToken = options.session.get()?.accessToken;
+      const alreadyRefreshed = latestToken !== undefined && latestToken !== accessToken;
+      if (alreadyRefreshed || (await refreshSessionOnce())) {
         const refreshedToken = options.session.get()?.accessToken;
         response = await send(path, requestOptions, refreshedToken, cachedFor?.(refreshedToken));
       } else {

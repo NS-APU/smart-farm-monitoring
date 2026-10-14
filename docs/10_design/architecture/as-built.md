@@ -1061,7 +1061,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 ### API クライアントとポーリング
 
 - `createApiClient`: Bearer トークンを付けて `/api/v1` を呼ぶ。応答は、Zod のスキーマで検証し、不一致は `INVALID_RESPONSE` にする。エラー応答は `ApiError`（`status`・`code`・`fields`）に変換し、通信失敗は `NETWORK_ERROR`
-- 401 のときは、リフレッシュトークンでセッションを更新して、**1 度だけ**再試行する。更新は、同時に 1 つだけ実行する（`refreshSessionOnce`。複数の読み込みが同時に 401 になっても、使用済みのトークンで失敗しない）。更新に失敗すると、セッションを消し、`onSessionExpired`（`setUser(null)`）でログイン画面へ戻す
+- 401 のときは、リフレッシュトークンでセッションを更新して、**1 度だけ**再試行する。更新は、同時に 1 つだけ実行する（`refreshSessionOnce`。複数の読み込みが同時に 401 になっても、使用済みのトークンで失敗しない）。さらに、**更新が終わったあとに、遅れて届いた 401** のとき、現在のトークンが、その要求に使ったトークンと違えば（ほかの要求が、すでに更新した）、更新せず、現在のトークンで再試行する（更新を重ねると、サーバーが、直前に発行したトークンを無効にし、そのトークンで再試行している要求が 401 になるため。Issue #60）。更新に失敗すると、セッションを消し、`onSessionExpired`（`setUser(null)`）でログイン画面へ戻す
 - GET は、応答の `ETag` を、URL ごとに記憶し（同じアクセストークンのときだけ使う）、次の同じ GET に `If-None-Match` を付ける。304 なら前回の本文を使う（実際に `ETag` を返すのは `GET /dashboard` のみ）
 - `usePolling(fetcher, intervalMs = 10_000)`: 最初に 1 回取得し、その後は、タブが表示されているとき（`document.visibilityState === 'visible'`）だけ、10 秒ごとに取得する。取得関数が変わると、読み込み中に戻して取得し直す。ほとんどの画面（ダッシュボード・観点の詳細・一覧・通知・ユーザー管理・ヘッダーの未読件数など）がこれを使う。例外は、判断基準の編集（SC-13。間隔が 24 時間で、実質的に読み直さない）と、ステータスコードの名称の取得（取り込み済みデータの表。60 秒）
 
@@ -1220,7 +1220,7 @@ sequenceDiagram
   APP->>LA: verifyAccessToken
   LA-->>APP: null 期限切れ
   APP-->>API: 401 UNAUTHENTICATED
-  API->>API: refreshSessionOnce 同時に 1<br>つだけ実行
+  API->>API: refreshSessionOnce 同時に 1<br>つだけ実行。更新済みなら省略
   API->>APP: POST /auth/refresh<br>にリフレッシュトークンを送る PUBLIC
   APP->>LA: refresh(refreshToken)
   alt 有効
