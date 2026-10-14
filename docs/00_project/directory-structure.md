@@ -6,7 +6,7 @@
 
 ```text
 smart-farm-monitoring/
-├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート）
+├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml））
 ├── docs/          # ドキュメント
 ├── src/
 │   ├── backend/   # バックエンド（Hono）

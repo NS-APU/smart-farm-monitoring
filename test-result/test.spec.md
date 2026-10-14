@@ -6665,48 +6665,71 @@ Vitest（`vitest.config.ts`）の2つのプロジェクトで実行する。`nod
 
 ### 4.0 ファイルの一覧
 
-| 区分                   | テストファイル                                            | 件数 | 関連する UC（各節の「関連する UC」の最初の記載）                                                 |
-| ---------------------- | --------------------------------------------------------- | ---: | ------------------------------------------------------------------------------------------------ |
-| shared                 | `tests/unit/shared/criteria-text.test.ts`                 |   18 | UC-02・UC-03・UC-19・UC-20・UC-21                                                                |
-| shared                 | `tests/unit/shared/manual-entry.test.ts`                  |   11 | UC-07・UC-18                                                                                     |
-| shared                 | `tests/unit/shared/shared.test.ts`                        |   50 | UC-01・UC-07・UC-12・UC-13・UC-14・UC-19・UC-21                                                  |
-| backend/domain         | `tests/unit/backend/domain/domain-rules.test.ts`          |   59 | UC-08・UC-09・UC-10・UC-19・UC-24                                                                |
-| backend/domain         | `tests/unit/backend/domain/grading.test.ts`               |   29 | UC-10                                                                                            |
-| backend/domain         | `tests/unit/backend/domain/measures.test.ts`              |   16 | UC-10                                                                                            |
-| backend/domain         | `tests/unit/backend/domain/series.test.ts`                |   16 | UC-03                                                                                            |
-| backend/domain         | `tests/unit/backend/domain/viewpoint-evaluation.test.ts`  |   81 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
-| backend/domain         | `tests/unit/backend/domain/viewpoint-definitions.test.ts`  |   22 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
-| backend/application    | `tests/unit/backend/application/auth.test.ts`             |    6 | UC-13・UC-14                                                                                     |
-| backend/infrastructure | `tests/unit/backend/infrastructure/adapters.test.ts`      |   66 | UC-08・UC-09・UC-11・UC-13・UC-14・UC-15・UC-22・UC-23・UC-24                                    |
-| backend/infrastructure | `tests/unit/backend/infrastructure/seeded-data.test.ts`   |    9 | UC-20                                                                                            |
-| backend/infrastructure | `tests/unit/backend/infrastructure/local-store.test.ts`   |    1 | （UC に直接対応しない基盤）                                                                      |
-| backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`          |    3 | （UC に直接対応しない基盤）                                                                      |
-| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`               |   18 | UC-13・UC-14                                                                                     |
-| backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`              |   13 | UC-13                                                                                            |
-| backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`     |    5 | （UC に直接対応しない基盤）                                                                      |
-| frontend               | `tests/unit/frontend/api-client.test.ts`                  |   23 | UC-01・UC-13                                                                                     |
-| frontend               | `tests/unit/frontend/app.test.tsx`                        |   29 | UC-01・UC-13                                                                                     |
-| frontend               | `tests/unit/frontend/charts.test.tsx`                     |   47 | UC-03・UC-04                                                                                     |
-| frontend               | `tests/unit/frontend/criteria-edit-page.test.tsx`         |   11 | UC-19                                                                                            |
-| frontend               | `tests/unit/frontend/entry-pages.test.tsx`                |   37 | UC-06・UC-18                                                                                     |
-| frontend               | `tests/unit/frontend/equipment-page.test.tsx`             |   13 | UC-12                                                                                            |
-| frontend               | `tests/unit/frontend/ingestion-page.test.tsx`             |   20 | UC-15・UC-16                                                                                     |
-| frontend               | `tests/unit/frontend/notifications-page.test.tsx`         |   17 | UC-05・UC-22                                                                                     |
-| frontend               | `tests/unit/frontend/observations-page.test.tsx`          |    6 | UC-20                                                                                            |
-| frontend               | `tests/unit/frontend/push.test.tsx`                       |   24 | UC-23                                                                                            |
-| frontend               | `tests/unit/frontend/router-polling.test.tsx`             |   27 | （UC に直接対応しない基盤）                                                                      |
-| frontend               | `tests/unit/frontend/status-codes-page.test.tsx`          |   10 | UC-17                                                                                            |
-| frontend               | `tests/unit/frontend/users-page.test.tsx`                 |    8 | UC-14                                                                                            |
-| frontend               | `tests/unit/frontend/viewpoint-pages.test.tsx`            |   50 | UC-01・UC-02・UC-03・UC-04・UC-20・UC-21                                                         |
-| integration            | `tests/integration/access-log.test.ts`                    |    1 | （UC に直接対応しない基盤）                                                                      |
-| integration            | `tests/integration/api.test.ts`                           |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
-| integration            | `tests/integration/application-services.test.ts`          |    4 | UC-12・UC-17・UC-19                                                                              |
-| integration            | `tests/integration/dev-seed.test.ts`                      |   11 | （UC に直接対応しない基盤）                                                                      |
-| integration            | `tests/integration/evaluation-notification.test.ts`       |   42 | UC-01・UC-04・UC-05・UC-10・UC-11・UC-22・UC-24                                                  |
-| integration            | `tests/integration/ingestion.test.ts`                     |   31 | UC-08・UC-09・UC-12・UC-15・UC-24                                                                |
-| integration            | `tests/integration/management-api.test.ts`                |  153 | UC-06・UC-07・UC-10・UC-12・UC-14・UC-15・UC-16・UC-17・UC-18・UC-19・UC-23                      |
-| integration            | `tests/integration/repository-contract.test.ts`           |   82 | UC-05・UC-07・UC-08・UC-09・UC-11・UC-12・UC-14・UC-16・UC-17・UC-18・UC-19・UC-20・UC-22・UC-23 |
-| integration            | `tests/integration/viewpoint-queries.test.ts`             |   95 | UC-01・UC-02・UC-03・UC-04・UC-20・UC-21                                                         |
+| 区分                   | テストファイル                                                          | 件数 | 関連する UC（各節の「関連する UC」の最初の記載）                                                 |
+| ---------------------- | ----------------------------------------------------------------------- | ---: | ------------------------------------------------------------------------------------------------ |
+| shared                 | `tests/unit/shared/criteria-text.test.ts`                               |   18 | UC-02・UC-03・UC-19・UC-20・UC-21                                                                |
+| shared                 | `tests/unit/shared/manual-entry.test.ts`                                |   11 | UC-07・UC-18                                                                                     |
+| shared                 | `tests/unit/shared/shared.test.ts`                                      |   50 | UC-01・UC-07・UC-12・UC-13・UC-14・UC-19・UC-21                                                  |
+| shared                 | `tests/unit/shared/criteria-range.test.ts`                              |    5 | （個別の節なし。8 章で説明）                                                                     |
+| shared                 | `tests/unit/shared/stress-observed-at.test.ts`                          |    4 | （個別の節なし。10 章で説明）                                                                    |
+| shared                 | `tests/unit/shared/stress-limits.test.ts`                               |   14 | （個別の節なし。9 章・12 章で説明）                                                              |
+| backend/domain         | `tests/unit/backend/domain/domain-rules.test.ts`                        |   59 | UC-08・UC-09・UC-10・UC-19・UC-24                                                                |
+| backend/domain         | `tests/unit/backend/domain/grading.test.ts`                             |   29 | UC-10                                                                                            |
+| backend/domain         | `tests/unit/backend/domain/measures.test.ts`                            |   16 | UC-10                                                                                            |
+| backend/domain         | `tests/unit/backend/domain/series.test.ts`                              |   16 | UC-03                                                                                            |
+| backend/domain         | `tests/unit/backend/domain/viewpoint-evaluation.test.ts`                |   81 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
+| backend/domain         | `tests/unit/backend/domain/viewpoint-definitions.test.ts`               |   22 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
+| backend/application    | `tests/unit/backend/application/auth.test.ts`                           |    6 | UC-13・UC-14                                                                                     |
+| backend/infrastructure | `tests/unit/backend/infrastructure/adapters.test.ts`                    |   89 | UC-08・UC-09・UC-11・UC-13・UC-14・UC-15・UC-22・UC-23・UC-24                                    |
+| backend/infrastructure | `tests/unit/backend/infrastructure/seeded-data.test.ts`                 |    9 | UC-20                                                                                            |
+| backend/infrastructure | `tests/unit/backend/infrastructure/local-store.test.ts`                 |    1 | （UC に直接対応しない基盤）                                                                      |
+| backend/infrastructure | `tests/unit/backend/infrastructure/csv-parsing.test.ts`                 |    8 | （個別の節なし。8 章で説明）                                                                     |
+| backend/infrastructure | `tests/unit/backend/infrastructure/data-backup.test.ts`                 |    9 | （個別の節なし。8 章で説明）                                                                     |
+| backend/infrastructure | `tests/unit/backend/infrastructure/performance-structures.test.ts`      |   23 | （個別の節なし。8 章で説明）                                                                     |
+| backend/infrastructure | `tests/unit/backend/infrastructure/store-and-logging-hardening.test.ts` |    9 | （個別の節なし。8 章で説明）                                                                     |
+| backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`                        |    3 | （UC に直接対応しない基盤）                                                                      |
+| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   28 | UC-13・UC-14                                                                                     |
+| backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`                            |   21 | UC-13                                                                                            |
+| backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`                   |    5 | （UC に直接対応しない基盤）                                                                      |
+| frontend               | `tests/unit/frontend/api-client.test.ts`                                |   23 | UC-01・UC-13                                                                                     |
+| frontend               | `tests/unit/frontend/app.test.tsx`                                      |   29 | UC-01・UC-13                                                                                     |
+| frontend               | `tests/unit/frontend/charts.test.tsx`                                   |   47 | UC-03・UC-04                                                                                     |
+| frontend               | `tests/unit/frontend/criteria-edit-page.test.tsx`                       |   11 | UC-19                                                                                            |
+| frontend               | `tests/unit/frontend/entry-pages.test.tsx`                              |   37 | UC-06・UC-18                                                                                     |
+| frontend               | `tests/unit/frontend/equipment-page.test.tsx`                           |   13 | UC-12                                                                                            |
+| frontend               | `tests/unit/frontend/ingestion-page.test.tsx`                           |   20 | UC-15・UC-16                                                                                     |
+| frontend               | `tests/unit/frontend/notifications-page.test.tsx`                       |   17 | UC-05・UC-22                                                                                     |
+| frontend               | `tests/unit/frontend/observations-page.test.tsx`                        |    6 | UC-20                                                                                            |
+| frontend               | `tests/unit/frontend/push.test.tsx`                                     |   24 | UC-23                                                                                            |
+| frontend               | `tests/unit/frontend/router-polling.test.tsx`                           |   27 | （UC に直接対応しない基盤）                                                                      |
+| frontend               | `tests/unit/frontend/status-codes-page.test.tsx`                        |   10 | UC-17                                                                                            |
+| frontend               | `tests/unit/frontend/users-page.test.tsx`                               |    8 | UC-14                                                                                            |
+| frontend               | `tests/unit/frontend/viewpoint-pages.test.tsx`                          |   50 | UC-01・UC-02・UC-03・UC-04・UC-20・UC-21                                                         |
+| frontend               | `tests/unit/frontend/accessibility.test.tsx`                            |   11 | （個別の節なし。8 章で説明）                                                                     |
+| frontend               | `tests/unit/frontend/input-assist.test.tsx`                             |   12 | （個別の節なし。8 章で説明）                                                                     |
+| frontend               | `tests/unit/frontend/resilience.test.tsx`                               |   16 | （個別の節なし。8 章で説明）                                                                     |
+| frontend               | `tests/unit/frontend/service-worker.test.ts`                            |    7 | （個別の節なし。8 章で説明）                                                                     |
+| frontend               | `tests/unit/frontend/ui-refinements.test.tsx`                           |    4 | （個別の節なし。8 章で説明）                                                                     |
+| integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
+| integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
+| integration            | `tests/integration/application-services.test.ts`                        |    4 | UC-12・UC-17・UC-19                                                                              |
+| integration            | `tests/integration/dev-seed.test.ts`                                    |   11 | （UC に直接対応しない基盤）                                                                      |
+| integration            | `tests/integration/evaluation-notification.test.ts`                     |   42 | UC-01・UC-04・UC-05・UC-10・UC-11・UC-22・UC-24                                                  |
+| integration            | `tests/integration/ingestion.test.ts`                                   |   31 | UC-08・UC-09・UC-12・UC-15・UC-24                                                                |
+| integration            | `tests/integration/management-api.test.ts`                              |  153 | UC-06・UC-07・UC-10・UC-12・UC-14・UC-15・UC-16・UC-17・UC-18・UC-19・UC-23                      |
+| integration            | `tests/integration/repository-contract.test.ts`                         |   84 | UC-05・UC-07・UC-08・UC-09・UC-11・UC-12・UC-14・UC-16・UC-17・UC-18・UC-19・UC-20・UC-22・UC-23 |
+| integration            | `tests/integration/viewpoint-queries.test.ts`                           |   95 | UC-01・UC-02・UC-03・UC-04・UC-20・UC-21                                                         |
+| integration            | `tests/integration/api-hardening.test.ts`                               |   16 | （個別の節なし。8 章で説明）                                                                     |
+| integration            | `tests/integration/evaluation-affected.test.ts`                         |    7 | （個別の節なし。10 章で説明）                                                                    |
+| integration            | `tests/integration/file-source-contract.test.ts`                        |    5 | （個別の節なし。8 章で説明）                                                                     |
+| integration            | `tests/integration/ingestion-reliability.test.ts`                       |   17 | （個別の節なし。8 章で説明）                                                                     |
+| integration            | `tests/integration/observation-time-index.test.ts`                      |    6 | （個別の節なし。10 章で説明）                                                                    |
+| integration            | `tests/integration/runtime-resilience.test.ts`                          |   12 | （個別の節なし。8 章で説明）                                                                     |
+| integration            | `tests/integration/security-hardening.test.ts`                          |   13 | （個別の節なし。8 章で説明）                                                                     |
+
+件数は、定義されているテストの数（実測。Sprint1 の取り込み後。合計 59 ファイル・1529 件）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
+
+「関連する UC」が「個別の節なし」のファイル（19 ファイル）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
 
 ### tests/unit/shared/criteria-text.test.ts
 
@@ -10819,6 +10842,7 @@ use-cases.md の各 UC の「関連する要求」に挙げられた FR・NFR �
 | `tests/integration/access-log.test.ts` | V-099 | アクセスログ（認証後の操作者・対象の設備。1 件） |
 | `tests/unit/backend/infrastructure/performance-structures.test.ts` | V-075・V-077・V-082・V-088・V-189・V-191 | 上位件数の選択が全件の並べ替えと同じ結果、索引・キャッシュ、日時の比較の境界、キーワード検索の判定の一致 |
 | `tests/unit/backend/infrastructure/data-backup.test.ts` | V-043 | バックアップ・復元・一覧・コマンド |
+| `tests/unit/backend/infrastructure/csv-parsing.test.ts` | V-196 | CSV の読み取り: `splitCsvLine` の引用符つきの値（6 ケース）、UTF-8 の BOM つきの環境センサーの CSV の見出し、引用符で囲んだ値（区切り文字を含む）の行で列の数がずれないこと（計 8 件） |
 | `tests/unit/shared/criteria-range.test.ts` | V-028 | 率（%）の閾値の範囲 |
 | `tests/unit/frontend/service-worker.test.ts` | V-064・V-127 | sw.js の push の本文の読み取り（失敗でも通知を表示） |
 | `tests/unit/frontend/resilience.test.tsx` | V-059〜V-061・V-063・V-116・V-167 | API クライアントの JSON でない応答・タイムアウト、ポーリングの一時的な失敗の保持、タブの再表示、エラーバウンダリ、権限の表示の更新、ダッシュボードの古い内容の帯 |

@@ -61,6 +61,27 @@
 - 秘密情報・個人情報・実データは、本文・ログ・画像に含めない
 - ブランチ名・PR の関連 Issue には、Issue 番号を使う（例: `feature/123-sensor-dashboard`、`Closes #123`）
 
+## Projects（Sprint）の使い方
+
+作業の管理は、GitHub Projects（NS-APU 組織の [Projects #2](https://github.com/orgs/NS-APU/projects/2)）で行う。Sprint は 1 週間ごと（Sprint 1 は 2026-10-12 開始）。
+
+- Issue を起票したら、Projects に追加し、**Sprint・Assignee・Status** を設定する。取り組む Sprint の Issue は、Status を Ready にする
+- Status の進め方:
+
+  | Status | 意味 | 変える時期 |
+  |--------|------|------------|
+  | Backlog | まだ Sprint に入れていない | 起票時（Sprint 未定） |
+  | Ready | 着手できる（前提のタスクがない・内容が決まっている） | Sprint に入れたとき |
+  | In progress | 作業中（ブランチを切った後） | 着手時 |
+  | In review | PR を作成し、レビュー・CI・マージを待っている | PR の作成時 |
+  | Done | マージして、Issue を閉じた | Issue のクローズ時（自動で変わる） |
+
+- Issue の「作業内容」「完了条件」のチェックリストは、次のとおり更新する
+  - PR を作成したときに、達成した項目にチェックを付ける（PR のマージを条件とする項目は除く）
+  - マージされたことを確認してから、「PR をマージした」の項目にチェックを付け、Issue を閉じる（PR の本文に `Closes #123` があれば、マージで自動的に閉じる。`Refs #123` の場合は、手で閉じる）
+- ラベルは、`task`・`bug`（Issue の種別）と、`ci:full`（PR に付けて、E2E・負荷テストを実行する。上の「PRの作り方」）。PR には、Issue と同じ Assignee を設定する
+- Sprint の終わりに、Sprint の振り返り（レトロスペクティブ）を行い、見つかった課題・ルールの見直しを、次の Sprint に反映する
+
 ## PRの作り方
 
 - PR は `.github/pull_request_template.md` のテンプレートに沿って書く（下記の記載事項と、チェックリストを含む）
