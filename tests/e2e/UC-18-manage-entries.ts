@@ -120,7 +120,9 @@ test.describe('基本フロー: 入力済みデータの一覧を開く', () => 
       '操作',
     ]);
     // 新しい順: ハウス（1時間前）→ センサー（2時間前）→ ロボット（3時間前）
-    expect(await column(rows(page), 1)).toEqual(['ハウス1', '環境センサー1', '収穫ロボット1']);
+    await expect
+      .poll(() => column(rows(page), 1))
+      .toEqual(['ハウス1', '環境センサー1', '収穫ロボット1']);
     await expect(rows(page).nth(2)).toContainText('故障情報');
     await expect(rows(page).nth(2)).toContainText('故障回数: 2回');
     await expect(rows(page).nth(2)).toContainText('復旧に要した時間: 90分');
@@ -173,7 +175,7 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
       await page.getByLabel('キーワード').fill(item.keyword);
 
       await expect(rows(page)).toHaveCount(item.expected.length);
-      expect(await column(rows(page), 1)).toEqual(item.expected);
+      await expect.poll(() => column(rows(page), 1)).toEqual(item.expected);
       if (item.expected.length === 0) {
         await expect(page.getByTestId('entries-empty')).toHaveText('該当するデータがありません');
       }
