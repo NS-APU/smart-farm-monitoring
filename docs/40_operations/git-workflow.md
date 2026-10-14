@@ -96,7 +96,7 @@
 | 直接 push（PR を経由しない変更） | 禁止（PR 必須） | 禁止（PR 必須） |
 | 強制 push・ブランチの削除 | 禁止 | 禁止 |
 | 必須のステータスチェック | `lint`・`typecheck`・`unit-test`・`build` | 左に加えて、`e2e`・`stress` |
-| 許可するマージ方式 | Squash merge のみ | Merge commit のみ |
+| 許可するマージ方式 | Squash merge と Merge commit（通常の PR は Squash。Merge commit は、`release/*`・`hotfix/*` を戻すときだけ使う） | Merge commit のみ |
 | 必須のレビューの承認数 | 0 人 | 0 人 |
 | マージ前に、ブランチを最新にする要求 | しない | しない |
 | 管理者のバイパス | なし | なし |
@@ -105,6 +105,7 @@
 - 「ブランチを最新にする」を要求しないのは、取り込みのように、順にマージする運用で、毎回の更新と再実行（E2E は約 20 分）が必要になるため。CI が成功していれば、マージできる
 - 管理者にも適用する。緊急時は、ルールを一時的に無効にして対応する（変更の履歴が残る）
 - 必須のチェックの名前は、`.github/workflows/ci.yml` のジョブ名と同じにする。ジョブ名を変えたら、Rulesets の設定も合わせて変える
+- `develop` で Merge commit を許可するのは、`release/*`・`hotfix/*` を `main` にマージしたあと、`develop` へ戻すため（`main` のマージ履歴を取り込む。git-flow）。通常の `feature/*` の PR は、Squash merge にする（これは設定では強制せず、運用で守る）
 - マージ後のブランチは、自動で削除される（リポジトリの設定 `delete_branch_on_merge`）
 
 ## レビュー観点
