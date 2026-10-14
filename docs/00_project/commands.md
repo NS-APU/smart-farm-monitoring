@@ -115,7 +115,7 @@ pnpm test:stress     # 大量データの状態で、全ユースケースの操
 | `e2e` | `pnpm test:e2e` | `main` 宛て、またはラベル `ci:full` |
 | `stress` | `pnpm test:stress` | 同上 |
 
-- 実行環境は、ubuntu-latest・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、`pnpm exec playwright install --with-deps chromium` でブラウザを入れてから実行する
+- 実行環境は、ubuntu-24.04（GitHub Actions のランナー。`ubuntu-latest` は、Ubuntu 26 へ移行するため、固定している）・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、`pnpm exec playwright install --with-deps chromium` でブラウザを入れてから実行する
 - 手元（Windows）では実行しないファイル権限のテスト（2 件）は、CI（Linux）で実行される
 - CI の `stress` ジョブは、`STRESS_LIMIT_FACTOR=1.5`（許容時間を 1.5 倍）で実行する。GitHub のランナーは、CPU の速さが実行のたびに違い、同時 10 人の保存（UC-06）が、許容 3 秒付近（約 2〜3.5 秒）で、超えたり超えなかったりしたため（PR #58）。NFR の値そのものは、変えていない
 - 画面のレイアウトの検査（E2E・負荷テスト）は、フォントに依存するため、`e2e`・`stress` のジョブで、日本語のフォント（`fonts-noto-cjk`）を入れる
