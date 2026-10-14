@@ -1,0 +1,75 @@
+name: タスク
+description: 開発タスク（リファクタリング・テスト・ドキュメント・CI・依存更新など）を起票する
+title: '[Task] '
+labels: ['task']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        機能追加・バグ以外の作業を起票するためのテンプレートです。
+
+        > **注意**: 秘密情報・個人情報・実データは含めないでください。
+  - type: dropdown
+    id: type
+    attributes:
+      label: 種別
+      options:
+        - refactor（リファクタリング）
+        - perf（性能改善）
+        - test（テストの追加・修正）
+        - docs（ドキュメント）
+        - build / ci（ビルド・CI 設定）
+        - chore（依存更新・その他）
+    validations:
+      required: true
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 目的・背景
+      description: なぜこの作業が必要か。放置するとどうなるか。
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 作業内容
+      description: やることを、チェックリストで書いてください。大きい場合は分割してください（PR の目安は差分 400 行以内）。
+      placeholder: |
+        - [ ] 〇〇を△△に置き換える
+        - [ ] 関連するテストを更新する
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: やらないこと
+      description: 範囲を限定するために、対象外のことがあれば書いてください。
+    validations:
+      required: false
+  - type: textarea
+    id: done
+    attributes:
+      label: 完了条件
+      description: 何が確認できれば完了か。
+      placeholder: |
+        - [ ] `pnpm lint` / `pnpm typecheck` / `pnpm test:unit` が成功する
+        - [ ] 関連ドキュメントを更新した
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 事前確認が必要な作業を含むか
+      description: 該当する場合は、着手前に関係者の確認を取ってください。
+      options:
+        - label: 依存パッケージの追加・更新・削除を含む
+        - label: データスキーマの変更・マイグレーションを含む
+        - label: 設定ファイル（CI・認証・インフラ）の変更を含む
+        - label: ファイル・ディレクトリの削除を含む
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足・関連資料
+      description: 関連する Issue・PR・ドキュメントへのリンクなど。
+    validations:
+      required: false

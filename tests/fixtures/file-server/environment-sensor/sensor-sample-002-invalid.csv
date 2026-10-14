@@ -1,0 +1,4 @@
+sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm
+SENSOR-SAMPLE-01,2026-10-09T01:45:00Z,abc,120,30000,880
+SENSOR-SAMPLE-01,2026-10-09T02:00:00Z,22.0
+SENSOR-UNKNOWN-99,2026-10-09T02:00:00Z,22.0,50,30000,880

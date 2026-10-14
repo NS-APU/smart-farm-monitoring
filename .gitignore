@@ -1,0 +1,37 @@
+# ワークディレクトリ
+work/
+
+# 環境変数（.env.example のみ管理対象）
+.env
+.env.*
+!.env.example
+
+# 鍵・証明書
+*.pem
+*.key
+*.p12
+*.pfx
+
+# 認証情報ファイル（クラウドのサービスアカウントキー等）
+*credentials*.json
+
+# ログ・ダンプ・実データのエクスポート
+*.log
+logs/
+*.dump
+
+
+# 依存パッケージ・ビルド成果物
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ローカル実行のデータ（ファイル永続化・ファイルサーバーのモック）
+.local-data/
+
+# テストの出力（カバレッジ・Playwright の動画・スクリーンショット・トレース・HTML レポート）。
+# 動画・トレースなど容量の大きい成果物を、リポジトリに含めない。ドキュメントと負荷テストの結果のみ管理する
+/test-result/*
+!/test-result/test.spec.md
+!/test-result/stresstest.report.md
+!/test-result/stresstest.result.log

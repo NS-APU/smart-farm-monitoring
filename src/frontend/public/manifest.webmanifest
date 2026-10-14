@@ -1,0 +1,10 @@
+{
+  "name": "稼働モニタリング",
+  "short_name": "稼働モニタリング",
+  "description": "収穫ロボット・スマートハウスの稼働状況を確認し、異常に早く気づくための画面",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#1a5fb4",
+  "lang": "ja"
+}
