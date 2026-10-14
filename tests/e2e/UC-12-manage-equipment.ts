@@ -169,6 +169,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       name: 'A収穫ロボット',
       externalId: 'ROBOT-A-FILE',
     });
+    await expect(rowOf(page, 'ROBOT-A')).toBeVisible();
     await addChild(page, {
       type: 'SENSOR',
       facility: 'HOUSE-A',
@@ -213,19 +214,24 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     await prepareApp(request, { equipment: false });
     await openEquipment(page);
     await addFacility(page, 'HOUSE-A', 'Aハウス');
+    // 登録の完了（入力欄が空に戻り、一覧に行が出る）を待ってから、次の登録を入力する（遅い環境で、入力が消えるため）
+    await expect(rowOf(page, 'HOUSE-A')).toBeVisible();
     await addFacility(page, 'HOUSE-B', 'Bハウス');
+    await expect(rowOf(page, 'HOUSE-B')).toBeVisible();
     await addChild(page, {
       type: 'ROBOT',
       facility: 'HOUSE-A',
       id: 'ROBOT-A1',
       name: 'A1ロボット',
     });
+    await expect(rowOf(page, 'ROBOT-A1')).toBeVisible();
     await addChild(page, {
       type: 'ROBOT',
       facility: 'HOUSE-A',
       id: 'ROBOT-A2',
       name: 'A2ロボット',
     });
+    await expect(rowOf(page, 'ROBOT-A2')).toBeVisible();
     await addChild(page, {
       type: 'SENSOR',
       facility: 'HOUSE-B',

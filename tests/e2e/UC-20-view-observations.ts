@@ -121,47 +121,53 @@ test.describe('基本フロー: データの一覧を開き、日時・設備・
       '状態',
     ]);
     // 新しい順: 満足度（1時間前）→ 故障（2時間前）→ … → 収穫（9時間前）
-    expect(await column(page, 3)).toEqual([
-      '満足度（安全性）',
-      '故障回数',
-      'メンテナンス費',
-      '緊急停止回数',
-      '操作時間',
-      '照度',
-      '温度',
-      'ステータスコード',
-      '稼働時間',
-      '収穫数',
-    ]);
+    await expect
+      .poll(() => column(page, 3))
+      .toEqual([
+        '満足度（安全性）',
+        '故障回数',
+        'メンテナンス費',
+        '緊急停止回数',
+        '操作時間',
+        '照度',
+        '温度',
+        'ステータスコード',
+        '稼働時間',
+        '収穫数',
+      ]);
     // 日時・状態の列: 新しい順の先頭は 1 時間前（2026/10/09 11:00:00）。すべて「有効」
     expect((await column(page, 0))[0]).toBe('2026/10/09 11:00:00');
-    expect(await column(page, 6)).toEqual(Array.from({ length: 10 }, () => '有効'));
+    await expect.poll(() => column(page, 6)).toEqual(Array.from({ length: 10 }, () => '有効'));
     // 値の表示: 単位・桁区切り・ステータスコードの名称
-    expect(await column(page, 4)).toEqual([
-      '4スター',
-      '2回',
-      '1,500円',
-      '1回',
-      '8分',
-      '30,000lx',
-      '22℃',
-      '収穫中',
-      '0.5時間',
-      '10個',
-    ]);
+    await expect
+      .poll(() => column(page, 4))
+      .toEqual([
+        '4スター',
+        '2回',
+        '1,500円',
+        '1回',
+        '8分',
+        '30,000lx',
+        '22℃',
+        '収穫中',
+        '0.5時間',
+        '10個',
+      ]);
     // 取得元
-    expect(await column(page, 5)).toEqual([
-      '手動入力',
-      '手動入力',
-      '手動入力',
-      '手動入力',
-      '手動入力',
-      '手動入力',
-      '自動取り込み',
-      '自動取り込み',
-      '自動取り込み',
-      '自動取り込み',
-    ]);
+    await expect
+      .poll(() => column(page, 5))
+      .toEqual([
+        '手動入力',
+        '手動入力',
+        '手動入力',
+        '手動入力',
+        '手動入力',
+        '手動入力',
+        '自動取り込み',
+        '自動取り込み',
+        '自動取り込み',
+        '自動取り込み',
+      ]);
     // 設備・カテゴリ
     await expect(rows(page).nth(0)).toContainText('ハウス1');
     await expect(rows(page).nth(0)).toContainText('満足度情報');
@@ -217,7 +223,7 @@ test.describe('基本フロー 3: カテゴリ・日時の期間・取得元・�
       await page.getByLabel('カテゴリ').selectOption(category.value);
 
       await expect(rows(page)).toHaveCount(category.items.length);
-      expect(await column(page, 3)).toEqual(category.items);
+      await expect.poll(() => column(page, 3)).toEqual(category.items);
       for (const text of await column(page, 2)) {
         expect(text).toBe(category.label);
       }
@@ -287,12 +293,12 @@ test.describe('基本フロー 3: カテゴリ・日時の期間・取得元・�
     await expect(rows(page)).toHaveCount(3);
 
     await page.getByLabel('期間（開始日）').fill('2026-10-09');
-    expect(await column(page, 4)).toEqual(['3個', '2個']);
+    await expect.poll(() => column(page, 4)).toEqual(['3個', '2個']);
     await page.getByLabel('期間（終了日）').fill('2026-10-08');
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByTestId('observations-empty')).toHaveText('該当するデータはありません');
     await page.getByLabel('期間（開始日）').fill('2026-10-08');
-    expect(await column(page, 4)).toEqual(['1個']);
+    await expect.poll(() => column(page, 4)).toEqual(['1個']);
     await page.getByLabel('期間（終了日）').fill('2026-10-09');
     await expect(rows(page)).toHaveCount(3);
     await page.getByLabel('期間（開始日）').fill('');
@@ -405,31 +411,35 @@ test.describe('基本フロー 3: 並べ替え（日時・カテゴリ・値）�
 
     await page.getByLabel('並べ替え', { exact: true }).selectOption('category');
     await page.getByLabel('並べ替えの向き').selectOption('asc');
-    expect(await column(page, 2)).toEqual([
-      'コスト情報',
-      '環境情報',
-      '環境情報',
-      '故障情報',
-      '収穫情報',
-      '操作情報',
-      '稼働情報',
-      '安全情報',
-      '満足度情報',
-      'ステータス',
-    ]);
+    await expect
+      .poll(() => column(page, 2))
+      .toEqual([
+        'コスト情報',
+        '環境情報',
+        '環境情報',
+        '故障情報',
+        '収穫情報',
+        '操作情報',
+        '稼働情報',
+        '安全情報',
+        '満足度情報',
+        'ステータス',
+      ]);
     await page.getByLabel('並べ替えの向き').selectOption('desc');
-    expect(await column(page, 2)).toEqual([
-      'ステータス',
-      '満足度情報',
-      '安全情報',
-      '稼働情報',
-      '操作情報',
-      '収穫情報',
-      '故障情報',
-      '環境情報',
-      '環境情報',
-      'コスト情報',
-    ]);
+    await expect
+      .poll(() => column(page, 2))
+      .toEqual([
+        'ステータス',
+        '満足度情報',
+        '安全情報',
+        '稼働情報',
+        '操作情報',
+        '収穫情報',
+        '故障情報',
+        '環境情報',
+        '環境情報',
+        'コスト情報',
+      ]);
     // 同じカテゴリ（環境情報）は、どちらの向きでも、日時の新しい順（照度 → 温度）
     expect((await column(page, 3)).slice(7, 9)).toEqual(['照度', '温度']);
   });
@@ -508,8 +518,8 @@ test.describe('データの状態（有効・遅延・欠損・不正）の表�
 
     await openObservations(page);
 
-    expect(await column(page, 6)).toEqual(['有効', '欠損', '不正', '遅延']);
-    expect(await column(page, 4)).toEqual(['22℃', '—', '99,999ppm', '60%']);
+    await expect.poll(() => column(page, 6)).toEqual(['有効', '欠損', '不正', '遅延']);
+    await expect.poll(() => column(page, 4)).toEqual(['22℃', '—', '99,999ppm', '60%']);
     await expect(rows(page).nth(1).locator('.quality-missing')).toBeVisible();
     await expect(rows(page).nth(2).locator('.quality-invalid')).toBeVisible();
     await shot(page, testInfo, 'uc20-quality');
