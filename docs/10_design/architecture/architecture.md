@@ -598,7 +598,7 @@ flowchart TB
 |------|----------|---------------------|-----------|
 | 言語 | TypeScript（Node.js） | Python | Node.js 24（LTS。Lambda のランタイムも同じ）。Node.js 26 が LTS になった後に、更新を検討する。TypeScript は最新の安定版（6系または7系。周辺ツールの対応を確認して、実装の開始時に決める） |
 | バックエンドのフレームワーク | **Hono**（軽量なHTTPフレームワーク。Lambda の関数のURLに適合する） | Fastify、FastAPI | 最新の安定版（実装の開始時に確認） |
-| フロントエンド | React + Vite の SPA（PWA。Web Push の受信にサービスワーカーを使う）。グラフのライブラリは、設計時に選定する | Vue、サーバー側の画面生成 | React 19.2系、Vite 8系（実装の開始時に確認） |
+| フロントエンド | React + Vite の SPA（PWA。Web Push の受信にサービスワーカーを使う）。グラフのライブラリは、設計時に選定する | Vue、サーバー側の画面生成 | React 19.3系、Vite 8系（実装で確認した版。当初は 19.2系と記載していたが、実装は 19.3系） |
 | DB | **DynamoDB**（Repository のポートの裏に置く） | SQLite（代替の1台の構成でのみ）、PostgreSQL | - |
 | インフラ/ホスティング | AWS: **サーバーレス**（Amplify Hosting + Lambda + DynamoDB + Cognito + EventBridge）。11章、[ADR-0002](../adr/0002-deployment-serverless.md)。IAM権限・接続元IP制限の確認が前提条件 | Lightsail 1台、EC2 最小 1台（前提が満たされない場合の代替）、ECS on Fargate（規模が増えた場合の移行先） | - |
 | IaC・CI/CD | **Amplify Gen 2**（CDK ベース）。Amplify が IAM で許されない場合は、AWS CDK（TypeScript） | Terraform、CloudFormation、手順書 | aws-cdk-lib 2系の最新（実装の開始時に確認） |
@@ -606,9 +606,11 @@ flowchart TB
 | コンテナ | Docker（ローカルの開発・テスト用のエミュレータの実行。代替の1台の構成では、本番にも使う） | - | 最新の安定版 |
 | リバースプロキシ | 代替の1台の構成でのみ（Caddy または nginx）。基本構成では不要 | - | - |
 | パッケージ管理 | pnpm | npm、pip/uv | 最新の安定版（実装の開始時に確認。メジャーバージョンの更新では、互換性を確認する） |
-| テスト | 単体・結合: Vitest。E2E: Playwright。詳細は [test-policy.md](../../30_quality/test-policy.md) | pytest | Vitest 4系、Playwright 最新の安定版（実装の開始時に確認） |
-| Formatter / Linter | Prettier、ESLint（flat config + typescript-eslint）。詳細は [coding-standards.md](../../20_development/coding-standards.md) | Biome | 最新の安定版（実装の開始時に確認） |
+| テスト | 単体・結合: Vitest。画面の単体テスト: Testing Library（`@testing-library/react`・`@testing-library/dom`）+ jsdom（Vitest の `frontend` プロジェクト）。E2E: Playwright。詳細は [test-policy.md](../../30_quality/test-policy.md) | pytest | Vitest 4系、Testing Library は react 16系・dom 10系、jsdom 30系、Playwright 最新の安定版（実装の開始時に確認） |
+| 入力・応答の検証 | **Zod**（`src/shared/` のスキーマを、API の境界・フロントエンドの応答の検証・フォームの検証で共有する。coding-standards.md の、外部入力を境界で検証する規約） | - | Zod 4系 |
+| Formatter / Linter | Prettier、ESLint（flat config + typescript-eslint）、oxlint（フロントエンドのアクセシビリティ（jsx-a11y）の検査のみ。`eslint-plugin-jsx-a11y` の代わり。ライセンスの確認の結果）。詳細は [coding-standards.md](../../20_development/coding-standards.md) | Biome | 最新の安定版（実装の開始時に確認）。oxlint は 1.84系 |
 
+- 実装で使っている依存と版は、[as-built.md](as-built.md) の「技術スタックの実際の版」を参照する（この表は、技術選定の記録。実装との差は、as-built.md の「設計との差分」に記録する）
 - バージョンの情報は、第三者の記事にもとづく。実装の開始時に、各パッケージの公式のレジストリで確認し、ロックファイルで固定する
 - 定期的に、脆弱性の診断（`npm audit` や Dependabot など。[security.md](../../20_development/security.md)）とバージョンの更新を行う
 
