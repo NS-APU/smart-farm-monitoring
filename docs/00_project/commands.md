@@ -7,6 +7,7 @@
 - Node.js 24 以上（`engines: >=24`）、pnpm（`packageManager: pnpm@12.8.2`）。pnpm は `npm install -g pnpm` で導入できる
 - pnpm のスクリプトの中から、さらに `pnpm` を呼び出す書き方は、この環境では解決に失敗したため、使わない（スクリプトは、`vitest`・`playwright`・`vite` などを直接呼ぶ）
 - Windows では、カレントディレクトリのドライブ文字の大文字・小文字が、モジュールの読み込みとカバレッジの計測に影響する。Git Bash から `node node_modules/vitest/vitest.mjs` を直接呼ぶ（`c:` の小文字になる）と、同じファイルが二重に読み込まれ、カバレッジが 0% になることがある。テストは、`pnpm`（`pnpm test:unit`・`pnpm exec vitest ...`）経由で実行する
+- Windows の Git Bash では、`node -e "..."` の文字列の中のバックスラッシュ（正規表現の `\p`・`\x00` など）が落ちて、意図と違う動きになる。スクリプトは、ファイル（`.mjs`）に書いて `node ファイル.mjs` で実行する。また、git の `リビジョン:パス`（例: `HEAD:src/a.ts`）は、パスが変換されるため、`MSYS_NO_PATHCONV=1` を付けて実行する
 - E2E は、ポート 5173（Vite）・8787（バックエンド）を使う。空いていること（別の E2E・開発サーバーが動いていないこと）を確認してから実行する。全 E2E の所要時間は、約 45 分
 
 ```bash
