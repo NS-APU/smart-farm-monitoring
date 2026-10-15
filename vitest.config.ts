@@ -20,6 +20,8 @@ export default defineConfig({
             'tests/unit/backend/**/*.test.ts',
             'tests/integration/**/*.test.ts',
           ],
+          // DynamoDB アダプタのテストが使う、DynamoDB Local（Java）の用意（tests/support/dynamodb-local-global-setup.ts）
+          globalSetup: ['tests/support/dynamodb-local-global-setup.ts'],
         },
       },
       {
