@@ -18,7 +18,7 @@
 2. **画面は、S3（非公開。CloudFront の OAC からだけ読める）+ CloudFront** で配信する。**API は、Lambda の関数の URL** とし、CloudFront の `/api/*` と `/health` を、API へ向ける。画面と API が同じオリジンになるため、CORS が不要で、画面の `/api/v1` の相対パスのまま動く
 3. **関数の URL は、認証なし（NONE）にする**。API の認証は、アプリ側（Issue #74 の Cognito）で行う。CloudFront の OAC で関数の URL を保護すると、POST・PUT の本文のハッシュ計算（`x-amz-content-sha256`）が必要になり、画面からの POST と合わない
 4. **SPA の深いパス（`/viewpoints/xxx` など）は、CloudFront Function（viewer-request）で `index.html` に書き換える**。CloudFront のエラー応答（403・404 → index.html）は使わない。API の 403・404 まで書き換え、API のエラー形式が壊れるため
-5. **デプロイは、GitHub Actions から、OIDC の一時的な認証**で行う（長期のアクセスキーを使わない）。ロールは、CDK のデプロイ用ロール（`cdk bootstrap` が作る `cdk-<識別子>-*`）を引き受けることだけができ、引き受けられるのは、GitHub の Environment `evaluation` のジョブだけ。最初は、手動実行（workflow_dispatch）のみで、自動のトリガは、Issue #78 の方針が決まった後に追加する
+5. **デプロイは、GitHub Actions から、OIDC の一時的な認証**で行う（長期のアクセスキーを使わない）。ロールは、CDK のデプロイ用ロール（`cdk bootstrap` が作る `cdk-<識別子>-*`）を引き受けることだけができ、引き受けられるのは、GitHub の Environment `evaluation` のジョブだけ。信頼条件の `sub` は、GitHub の不変の ID の形式（組織・リポジトリの ID を含む。Issue #87 で、旧形式から修正）。最初は、手動実行（workflow_dispatch）のみで、自動のトリガは、Issue #78 の方針が決まった後に追加する
 6. **AWS 側の初回の設定は、ユーザーが手元から 1 回行う**（`cdk bootstrap`、OIDC のプロバイダーとロールのスタック）。以降は、GitHub Actions から、評価環境のスタックを更新する
 7. **独自のサブドメインは、環境変数（`SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`）で指定する**。指定しなければ、cloudfront.net の URL を使う。ドメイン名・アカウント ID は、リポジトリに書かない。CloudFront 用の証明書（ACM）は、us-east-1 に別のスタックで作り、DNS 検証は、Route 53 に自動でレコードを作る
 8. **Lambda のコードは、esbuild の JS API で、1 ファイルにまとめる**（`infra/lib/bundle-lambda.ts`）。CDK の `NodejsFunction` は、pnpm のプロジェクトで `pnpm exec esbuild` をシェル経由で呼び、Windows で失敗するため

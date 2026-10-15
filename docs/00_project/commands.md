@@ -74,10 +74,24 @@ pnpm format:check    # 整形の確認のみ
 
 1. **認証**: 上のとおり、`AWS_PROFILE` を指定し、`aws sts get-caller-identity` で、大学のアカウントであることを確認する
 2. **bootstrap**: `pnpm --filter @smart-farm/infra run bootstrap`。アカウントに、`CDKToolkit` のスタック（デプロイ用のロール・S3 バケットなど）を作る。既定の実行ポリシーは `AdministratorAccess` のため、IAM の権限で拒否されたら、`cdk bootstrap` の `--cloudformation-execution-policies` で、権限を絞ったポリシーを指定する（Issue #80 で、絞り込みを検討する）。独自ドメインを使うときは、`bootstrap:certificate` も実行する（証明書は us-east-1）
-3. **GitHub Actions 用のロール**: `pnpm --filter @smart-farm/infra run deploy:oidc`。GitHub の OIDC プロバイダーと、`sfm-github-actions-deploy` のロールを作る。出力の `DeployRoleArn` を控える。アカウントに、GitHub の OIDC プロバイダーが、すでにある場合は、環境変数 `SFM_GITHUB_OIDC_PROVIDER_ARN` に、その ARN を指定して実行する（1 つのアカウントに 1 つしか作れない）
+3. **GitHub Actions 用のロール**: `pnpm --filter @smart-farm/infra run deploy:oidc`。GitHub の OIDC プロバイダーと、`sfm-github-actions-deploy` のロールを作る。出力の `DeployRoleArn` を控える。ロールを引き受けられる条件（信頼ポリシーの `sub`）は、このリポジトリの GitHub のトークンの形式（不変の ID の形式。`infra/lib/config.ts` の `GITHUB_SUBJECT_PREFIX`）で書かれている。**すでに作成済みのときは、同じコマンドを実行すると、信頼ポリシーが更新される**（スタックの更新）。アカウントに、GitHub の OIDC プロバイダーが、すでにある場合は、環境変数 `SFM_GITHUB_OIDC_PROVIDER_ARN` に、その ARN を指定して実行する（1 つのアカウントに 1 つしか作れない）
 4. **GitHub の設定**（リポジトリの Settings → Environments）: Environment `evaluation` を作り、デプロイできるブランチ（案: `develop`）と、必要なら承認者を設定する。Environment のシークレット `AWS_DEPLOY_ROLE_ARN` に、手順 3 の `DeployRoleArn` を設定する（ARN にアカウント ID が含まれるため、シークレットにする）。独自ドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME` を設定する
 5. **デプロイ**: GitHub の Actions → 「Deploy evaluation」→ Run workflow（手動実行。自動のトリガは、Issue #78 の方針が決まった後に追加する）。ログに出力される `SiteUrl` が、評価環境の URL
 6. **確認**: `<SiteUrl>/health` が、`{"status":"ok","time":"…"}` を返す。ブラウザで `<SiteUrl>` を開くと、ログイン画面が表示される（API はまだ `/health` のみのため、ログインはできない。Issue #75 で、バックエンド本体に置き換える）
+
+### トラブルシューティング（GitHub Actions の「AWS の認証（OIDC）」の失敗）
+
+`Could not assume role with OIDC` / `Not authorized to perform sts:AssumeRoleWithWebIdentity` で失敗するときは、AWS のロールの信頼ポリシーの条件（`aud`・`sub`）が、GitHub のトークンと合っていない。失敗したジョブには、「OIDC トークンのクレームの表示」のステップが出て、トークンの `aud`・`sub` などを表示する（トークン自体は表示しない）。次を、見比べる。
+
+| 項目 | 期待する値 |
+|------|------------|
+| `aud` | `sts.amazonaws.com` |
+| `sub` | `<GITHUB_SUBJECT_PREFIX>:environment:evaluation`（例: `repo:NS-APU@<組織の ID>/smart-farm-monitoring@<リポジトリの ID>:environment:evaluation`） |
+| `environment` | `evaluation` |
+
+- **`sub` が、リポジトリの名前だけの形式（`repo:NS-APU/smart-farm-monitoring:…`）か、ID を含む形式かは、リポジトリの設定（`use_immutable_subject`）で決まる**。このリポジトリは、ID を含む形式（GitHub の新しい既定）。確認: `gh api repos/NS-APU/smart-farm-monitoring/actions/oidc/customization/sub`（`sub_claim_prefix` が、接頭辞）。接頭辞が変わったときは、`infra/lib/config.ts` の `GITHUB_SUBJECT_PREFIX` を直し、`deploy:oidc` を再実行する（Issue #87）
+- `sub` が、期待と同じなのに失敗する: ロールの ARN（シークレット `AWS_DEPLOY_ROLE_ARN`）が、別のロール・古いロールのものになっていないか、AWS の CloudTrail（イベント履歴）で `AssumeRoleWithWebIdentity` の失敗の詳細を確認する
+- `sub` が、`environment:evaluation` で終わらない: ワークフローが、Environment `evaluation` で動いていない（ジョブの `environment:` と、デプロイできるブランチの設定を確認する）
 
 手元からデプロイする場合（検証用）: `AWS_PROFILE` を指定して、`pnpm build` → `pnpm --filter @smart-farm/infra run deploy`。Windows・Linux のどちらでも動く（Lambda のコードは、esbuild の JS API でまとめる）。
 
