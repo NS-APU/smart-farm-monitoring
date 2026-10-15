@@ -60,12 +60,33 @@ export function compareIso(left: string, right: string): number {
   return COLLATOR.compare(left, right);
 }
 
+/** 一意キーを決める 4 つの値（設備・項目・計測日時・取得元）。計測日時の順は、これだけで決まる。 */
+export type ObservationOrderKey = Pick<
+  Observation,
+  'equipmentId' | 'itemKey' | 'observedAt' | 'source'
+>;
+
+/**
+ * 計測日時の順の比較（昇順・降順）。同じ計測日時のものは、方向にかかわらず、一意キーの昇順。
+ * DynamoDB の実装は、パーティションごとの結果を併合するときと、カーソルの位置の判定に、同じ比較を使う。
+ */
+export function compareByObservedAt(
+  direction: SortDirection,
+): (left: ObservationOrderKey, right: ObservationOrderKey) => number {
+  const sign = direction === 'asc' ? 1 : -1;
+  return (left, right) =>
+    sign * compareIso(left.observedAt, right.observedAt) ||
+    COLLATOR.compare(observationKey(left), observationKey(right));
+}
+
 export function compareObservations(
   key: ObservationSortKey,
   direction: SortDirection,
 ): (left: Observation, right: Observation) => number {
+  if (key === 'observedAt') {
+    return compareByObservedAt(direction);
+  }
   const sign = direction === 'asc' ? 1 : -1;
-  const isTimestampKey = key === 'observedAt';
   return (left, right) => {
     let result: number;
     if (key === 'value') {
@@ -73,9 +94,7 @@ export function compareObservations(
       const rightValue = typeof right.value === 'number' ? right.value : Number.NEGATIVE_INFINITY;
       result = leftValue === rightValue ? 0 : leftValue < rightValue ? -1 : 1;
     } else {
-      result = isTimestampKey
-        ? compareIso(left[key], right[key])
-        : COLLATOR.compare(left[key], right[key]);
+      result = COLLATOR.compare(left[key], right[key]);
     }
     // 同じ値のときは、計測日時 → 一意キーの順で並べ、ページ分割の結果を安定させる
     return (

@@ -11,6 +11,13 @@ export function encodeCursor(offset: number): string {
   return Buffer.from(String(offset), 'utf8').toString('base64url');
 }
 
+/** 不正なカーソルの入力不正（VALIDATION_ERROR）。 */
+export function invalidCursorError(): AppError {
+  return new AppError('VALIDATION_ERROR', 'cursor が不正です', {
+    fields: [{ name: 'cursor', message: 'cursor が不正です' }],
+  });
+}
+
 export function decodeCursor(cursor: string | undefined): number {
   if (cursor === undefined) {
     return 0;
@@ -18,9 +25,7 @@ export function decodeCursor(cursor: string | undefined): number {
   const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
   const offset = Number(decoded);
   if (!/^\d+$/.test(decoded) || !Number.isSafeInteger(offset)) {
-    throw new AppError('VALIDATION_ERROR', 'cursor が不正です', {
-      fields: [{ name: 'cursor', message: 'cursor が不正です' }],
-    });
+    throw invalidCursorError();
   }
   return offset;
 }
