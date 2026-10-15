@@ -33,6 +33,12 @@ export interface GithubOidcStackProps extends StackProps {
   readonly existingProviderArn?: string;
   /** `cdk bootstrap` の識別子。 */
   readonly bootstrapQualifier?: string;
+  /**
+   * GitHub の OIDC トークンの `sub` の接頭辞。GitHub の新しい既定（不変の ID の形式）では、
+   * `repo:<組織>@<組織の ID>/<リポジトリ>@<リポジトリの ID>` になる（リポジトリの設定 `use_immutable_subject`）。
+   * 指定しなければ、旧形式の `repo:<repository>`（名前だけ）を使う。実際の値の確認方法は、config.ts の GITHUB_SUBJECT_PREFIX。
+   */
+  readonly subjectPrefix?: string;
 }
 
 export class GithubOidcStack extends Stack {
@@ -41,6 +47,7 @@ export class GithubOidcStack extends Stack {
   constructor(scope: Construct, id: string, props: GithubOidcStackProps) {
     super(scope, id, props);
     const qualifier = props.bootstrapQualifier ?? DEFAULT_BOOTSTRAP_QUALIFIER;
+    const subjectPrefix = props.subjectPrefix ?? `repo:${props.repository}`;
     const providerArn =
       props.existingProviderArn ??
       new OidcProviderNative(this, 'GithubProvider', {
@@ -56,7 +63,7 @@ export class GithubOidcStack extends Stack {
       assumedBy: new WebIdentityPrincipal(providerArn, {
         StringEquals: {
           [`${GITHUB_OIDC_HOST}:aud`]: 'sts.amazonaws.com',
-          [`${GITHUB_OIDC_HOST}:sub`]: `repo:${props.repository}:environment:${props.environmentName}`,
+          [`${GITHUB_OIDC_HOST}:sub`]: `${subjectPrefix}:environment:${props.environmentName}`,
         },
       }),
       inlinePolicies: {

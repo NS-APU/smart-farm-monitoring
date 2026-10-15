@@ -36,14 +36,14 @@
 | 単体: backend/infrastructure               |          7 |        146 |
 | 単体: backend/runtime                      |          3 |         54 |
 | 単体: frontend                             |         19 |        372 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |         33 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |         35 |
 | 結合（`tests/integration/`）               |         16 |        621 |
-| 合計                                       |         96 |       2324 |
+| 合計                                       |         96 |       2326 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 939 件、結合 621 件（単体と結合の合計 1560 件。`vitest list` の件数。実行では 1562 件で、うち 2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
-この件数は、Sprint1 の取り込み（Issue #30〜#39・#60・#62・#71）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 33 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 941 件、結合 621 件（単体と結合の合計 1562 件。`vitest list` の件数。実行では 1564 件で、うち 2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
+この件数は、Sprint1 の取り込み（Issue #30〜#39・#60・#62・#71・#87）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
-取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1562 件（成功 1560・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71 で、IaC のテスト 33 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
+取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
 
 E2E のファイル別の件数:
 
@@ -6712,11 +6712,11 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | frontend               | `tests/unit/frontend/service-worker.test.ts`                            |    7 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/ui-refinements.test.tsx`                           |    4 | （個別の節なし。8 章で説明）                                                                     |
 | infra                  | `infra/test/api-handler.test.ts`                                        |    3 | （個別の節なし。12 章で説明）                                                                    |
-| infra                  | `infra/test/apps.test.ts`                                               |    6 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/apps.test.ts`                                               |    7 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/bundle-lambda.test.ts`                                      |    1 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/evaluation-stack.test.ts`                                   |   12 | （個別の節なし。12 章で説明）                                                                    |
-| infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    6 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
 | integration            | `tests/integration/application-services.test.ts`                        |    4 | UC-12・UC-17・UC-19                                                                              |
@@ -6734,7 +6734,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/runtime-resilience.test.ts`                          |   12 | （個別の節なし。8 章で説明）                                                                     |
 | integration            | `tests/integration/security-hardening.test.ts`                          |   13 | （個別の節なし。8 章で説明）                                                                     |
 
-件数は、定義されているテストの数（実測。Sprint1 の取り込み後。合計 65 ファイル・1562 件）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
+件数は、定義されているテストの数（実測。Sprint1 の取り込み後。合計 65 ファイル・1564 件）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
 
 「関連する UC」が「個別の節なし」のファイル（25 ファイル。`infra/test/` の 6 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 6 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
 
@@ -10962,7 +10962,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC（Issue #71）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC（Issue #71・#87）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。
 
@@ -10978,6 +10978,6 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | CI の負荷テストの許容時間の倍率の追加（Issue #39。PR #58） | 環境変数 `STRESS_LIMIT_FACTOR`（1 以上 3 以下。既定 1）で、許容時間に倍率をかけられるようにした（`tests/stress/support/limits.ts`）。CI の `stress` ジョブだけ 1.5。GitHub のランナーの速さの揺れで、同時 10 人の保存（UC-06）が、許容 3 秒付近（約 2〜3.5 秒）で判定が変わったため。NFR の値は変えていない。先に単体テスト `tests/unit/shared/stress-limits.test.ts`（14 件）を書き、失敗を確認してから実装した | shared +14（1 ファイル） |
 | セッション更新の重なりの不具合の修正（Issue #60。PR #61） | 期限切れで複数の読み込みが同時に 401 になるとき、更新が済んだあとに遅れて届いた 401 で、もう一度更新し、直前に発行したトークンを無効にしていた（E2E の複数ユーザーのシナリオが、ときどき失敗した原因）。先に、再現する単体テスト U-api-client-023 を書き、失敗を確認してから、`client.ts` を修正した。既存のテストの期待値は変えていない | frontend +1 |
 | CI の E2E で、ときどき失敗するテストの、タイミング依存の修正（Issue #62） | UC-12（`複数のハウス・ロボット・センサーを追加できる` など、登録が連続するテスト）は、登録した行が表示されるまで待ってから、次の登録を入力する（登録の成功で入力欄が空に戻るため）。UC-18（2 か所）・UC-20（11 か所）は、表の列を 1 回だけ読んで比べていたのを、再試行つきの `expect.poll` にした。**期待値・検証内容は変えていない**（文字列の期待値は、変更の前後で同じ）。タイミング依存のため、先に再現するテストは書けない。CI（`ci:full`）の E2E の複数回の実行で確認する | なし |
-| IaC（AWS CDK）のテストの追加（Issue #71） | `infra/test/` に、6 ファイル・33 件を追加した（Vitest の `infra` プロジェクト）。CDK の assertions で、合成したテンプレートを検証し、AWS には接続しない。`evaluation-stack.test.ts`（12 件）: S3 の非公開・OAC・SSL 強制・削除時の中身ごとの削除、CloudFront の HTTPS 転送・セキュリティヘッダー・SPA のパスの書き換え（エラー応答は使わない）、`/api/*`・`/health` の API への振り分け、関数の URL（認証なし）と公開に必要な 2 つの権限、独自ドメイン（別名・証明書・TLS 1.2 以上・A と AAAA のレコード）、設定の誤りのエラー。`github-oidc-stack.test.ts`（6 件）: OIDC プロバイダー・ロールの信頼条件（リポジトリと Environment）・権限（CDK のロールを引き受けることだけ）。`apps.test.ts`（6 件）・`config.test.ts`（5 件）: アプリの組み立て・環境変数の検証。`api-handler.test.ts`（3 件）: 最小の API。`bundle-lambda.test.ts`（1 件）: esbuild でのバンドル。既存のテストの期待値は変えていない。`vitest.config.ts` に、`infra` プロジェクトと、カバレッジの対象（`infra/lib/`・`infra/lambda/`）を追加した | infra +33（6 ファイル） |
+| IaC（AWS CDK）のテストの追加（Issue #71） | `infra/test/` に、6 ファイル・35 件を追加した（うち 2 件は、Issue #87 の不具合の再現と回帰のテスト）（Vitest の `infra` プロジェクト）。CDK の assertions で、合成したテンプレートを検証し、AWS には接続しない。`evaluation-stack.test.ts`（12 件）: S3 の非公開・OAC・SSL 強制・削除時の中身ごとの削除、CloudFront の HTTPS 転送・セキュリティヘッダー・SPA のパスの書き換え（エラー応答は使わない）、`/api/*`・`/health` の API への振り分け、関数の URL（認証なし）と公開に必要な 2 つの権限、独自ドメイン（別名・証明書・TLS 1.2 以上・A と AAAA のレコード）、設定の誤りのエラー。`github-oidc-stack.test.ts`（7 件）: OIDC プロバイダー・ロールの信頼条件（リポジトリと Environment。GitHub のトークンの sub の、不変の ID の形式を含む）・権限（CDK のロールを引き受けることだけ）。`apps.test.ts`（7 件）・`config.test.ts`（5 件）: アプリの組み立て・環境変数の検証・このリポジトリのロールの信頼条件。`api-handler.test.ts`（3 件）: 最小の API。`bundle-lambda.test.ts`（1 件）: esbuild でのバンドル。既存のテストの期待値は変えていない。`vitest.config.ts` に、`infra` プロジェクトと、カバレッジの対象（`infra/lib/`・`infra/lambda/`）を追加した | infra +35（6 ファイル） |
 
 取り込み後の件数と実測値は、1.2 節。

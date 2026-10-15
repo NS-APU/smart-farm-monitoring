@@ -9,6 +9,14 @@ export const REGION = 'ap-northeast-1';
 /** CloudFront の証明書は、us-east-1 でしか作れない。 */
 export const CERTIFICATE_REGION = 'us-east-1';
 export const GITHUB_REPOSITORY = 'NS-APU/smart-farm-monitoring';
+/**
+ * GitHub の OIDC トークンの `sub` の接頭辞（不変の ID の形式。Issue #87）。
+ * このリポジトリは、GitHub の新しい既定（`use_immutable_subject: true`）で、`sub` が、名前ではなく、組織・リポジトリの
+ * ID を含む形（`<この接頭辞>:environment:<Environment 名>`）になる。リポジトリの名前変更・移管による、なりすましを防げる。
+ * 組織・リポジトリの ID は、公開の情報（秘密ではない）。確認方法:
+ *   gh api repos/NS-APU/smart-farm-monitoring/actions/oidc/customization/sub --jq .sub_claim_prefix
+ */
+export const GITHUB_SUBJECT_PREFIX = 'repo:NS-APU@117165122/smart-farm-monitoring@1408451825';
 export const DEPLOY_ENVIRONMENT_NAME = 'evaluation';
 
 export interface InfraConfig {
