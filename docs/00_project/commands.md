@@ -51,7 +51,7 @@ pnpm format:check    # 整形の確認のみ
 
 ## 評価環境（IaC。`infra/`）
 
-**状態**: `synth`・単体テストまでを確認した。**AWS への実際のデプロイ・削除・再作成は、ユーザーの実行後に、結果を踏まえて、この節を確定する**（Issue #71）。
+**状態**: 確認済み（2026-10-15。Issue #71・#87）。大学の AWS アカウント（東京リージョン）で、この節の手順（bootstrap・OIDC のロールの作成・GitHub の設定・GitHub Actions からのデプロイ・動作確認・削除と再作成）を実行し、すべて成功した。自動のトリガ（`develop` へのマージなど）は、まだない（手動実行のみ。方針は Issue #78 で決め、追加する）。
 
 顧客評価環境（サーバーレス構成。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）を、AWS CDK で作る。リージョンは東京（ap-northeast-1）。画面（S3 + CloudFront）と、最小の API（`/health` だけに答える Lambda。関数の URL）が、CloudFront の同じオリジンで配信される。
 
