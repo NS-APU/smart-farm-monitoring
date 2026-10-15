@@ -49,6 +49,44 @@ pnpm format          # 整形して書き込む
 pnpm format:check    # 整形の確認のみ
 ```
 
+## 評価環境（IaC。`infra/`）
+
+**状態**: `synth`・単体テストまでを確認した。**AWS への実際のデプロイ・削除・再作成は、ユーザーの実行後に、結果を踏まえて、この節を確定する**（Issue #71）。
+
+顧客評価環境（サーバーレス構成。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）を、AWS CDK で作る。リージョンは東京（ap-northeast-1）。画面（S3 + CloudFront）と、最小の API（`/health` だけに答える Lambda。関数の URL）が、CloudFront の同じオリジンで配信される。
+
+| 目的 | コマンド（リポジトリのルートで実行） | AWS への接続 |
+|------|--------------------------------------|--------------|
+| 画面のビルド（デプロイの前に必要） | `pnpm build` | なし |
+| テンプレートの生成（検証） | `pnpm --filter @smart-farm/infra run synth` | なし（独自ドメインを指定しないとき） |
+| 差分の確認 | `pnpm --filter @smart-farm/infra run diff` | あり |
+| デプロイ（作成・更新） | `pnpm --filter @smart-farm/infra run deploy` | あり |
+| 削除 | `pnpm --filter @smart-farm/infra run destroy` | あり |
+| 初回の bootstrap（東京） | `pnpm --filter @smart-farm/infra run bootstrap` | あり |
+| 初回の bootstrap（us-east-1。独自ドメインのときだけ） | `pnpm --filter @smart-farm/infra run bootstrap:certificate` | あり |
+| GitHub Actions 用のロールの作成・削除 | `pnpm --filter @smart-farm/infra run deploy:oidc` ・ `destroy:oidc` | あり |
+
+- **AWS に接続するコマンドは、ユーザーが実行する**（AGENTS.md 12 章。AI エージェントは、AWS への適用をしない）。実行の前に、**対象の AWS アカウントのプロファイルを指定**する（別のアカウントに作らないため。ほかの用途のプロファイルでは、実行しない）。PowerShell: `$env:AWS_PROFILE = '<プロファイル名>'`、Git Bash: `export AWS_PROFILE=<プロファイル名>`。確認: `aws sts get-caller-identity`（出力のアカウント ID は、チャット・Issue・PR に貼らない）
+- アカウント ID・ドメイン名・ホストゾーン名は、リポジトリに書かない。アカウントは、認証から自動で決まる。独自のサブドメインは、環境変数 `SFM_DOMAIN_NAME`（例: `evaluation.<ドメイン>`）・`SFM_HOSTED_ZONE_NAME`（例: `<ドメイン>`）の**両方**で指定する（未指定なら、cloudfront.net の URL）
+- テスト（CDK の assertions）は、`pnpm test:unit` に含まれる（`infra/test/`）。`cdk synth` の結果（`infra/cdk.out/`）と、検索結果のキャッシュ（`infra/cdk.context.json`）は、Git 管理外
+
+### 初回の設定（1 回だけ。ユーザーが手元から行う）
+
+1. **認証**: 上のとおり、`AWS_PROFILE` を指定し、`aws sts get-caller-identity` で、大学のアカウントであることを確認する
+2. **bootstrap**: `pnpm --filter @smart-farm/infra run bootstrap`。アカウントに、`CDKToolkit` のスタック（デプロイ用のロール・S3 バケットなど）を作る。既定の実行ポリシーは `AdministratorAccess` のため、IAM の権限で拒否されたら、`cdk bootstrap` の `--cloudformation-execution-policies` で、権限を絞ったポリシーを指定する（Issue #80 で、絞り込みを検討する）。独自ドメインを使うときは、`bootstrap:certificate` も実行する（証明書は us-east-1）
+3. **GitHub Actions 用のロール**: `pnpm --filter @smart-farm/infra run deploy:oidc`。GitHub の OIDC プロバイダーと、`sfm-github-actions-deploy` のロールを作る。出力の `DeployRoleArn` を控える。アカウントに、GitHub の OIDC プロバイダーが、すでにある場合は、環境変数 `SFM_GITHUB_OIDC_PROVIDER_ARN` に、その ARN を指定して実行する（1 つのアカウントに 1 つしか作れない）
+4. **GitHub の設定**（リポジトリの Settings → Environments）: Environment `evaluation` を作り、デプロイできるブランチ（案: `develop`）と、必要なら承認者を設定する。Environment のシークレット `AWS_DEPLOY_ROLE_ARN` に、手順 3 の `DeployRoleArn` を設定する（ARN にアカウント ID が含まれるため、シークレットにする）。独自ドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME` を設定する
+5. **デプロイ**: GitHub の Actions → 「Deploy evaluation」→ Run workflow（手動実行。自動のトリガは、Issue #78 の方針が決まった後に追加する）。ログに出力される `SiteUrl` が、評価環境の URL
+6. **確認**: `<SiteUrl>/health` が、`{"status":"ok","time":"…"}` を返す。ブラウザで `<SiteUrl>` を開くと、ログイン画面が表示される（API はまだ `/health` のみのため、ログインはできない。Issue #75 で、バックエンド本体に置き換える）
+
+手元からデプロイする場合（検証用）: `AWS_PROFILE` を指定して、`pnpm build` → `pnpm --filter @smart-farm/infra run deploy`。Windows・Linux のどちらでも動く（Lambda のコードは、esbuild の JS API でまとめる）。
+
+### 削除と再作成
+
+- 削除: `pnpm --filter @smart-farm/infra run destroy`。評価環境のスタック（S3 のバケット・CloudFront・Lambda・ログ。独自ドメインのとき、証明書・DNS のレコードも）を、中身ごと削除する。**bootstrap と OIDC のロールは、残る**（共通の基盤）
+- 再作成: 同じ手順（`deploy`、または GitHub Actions の「Deploy evaluation」）。削除前と同じ構成が、コードから作られる
+- OIDC のロールまで削除する: `pnpm --filter @smart-farm/infra run destroy:oidc`（GitHub Actions からデプロイできなくなる）。bootstrap（`CDKToolkit` のスタック）の削除は、通常は不要
+
 ## 実行結果（2026-10-14。Sprint1 の取り込み後。`develop` のコミット 5223b02）
 
 `develop` の内容を、一時ディレクトリに展開して、手元（Windows）で実行した値。E2E は、GitHub Actions（`ubuntu-24.04`）の値を併記する。
@@ -107,6 +145,8 @@ pnpm test:stress     # 大量データの状態で、全ユースケースの操
 - 構成の詳細は dev_spec.md 6.5
 
 ## CI（GitHub Actions）
+
+評価環境のデプロイは、`.github/workflows/deploy-evaluation.yml`（手動実行のみ。OIDC で AWS に入る。手順は「評価環境（IaC）」）。以下は、PR の CI（`ci.yml`）。
 
 `.github/workflows/ci.yml`。PR ごとに、次のコマンドを実行する（手元で同じコマンドを実行して、事前に確認できる）。マージ先ごとの必須のチェックは [git-workflow.md](../40_operations/git-workflow.md)「PRの作り方」を参照する。
 

@@ -35,3 +35,7 @@ dist/
 !/test-result/test.spec.md
 !/test-result/stresstest.report.md
 !/test-result/stresstest.result.log
+
+# IaC（AWS CDK）の生成物。cdk.context.json は、アカウント ID・ホストゾーン ID などの検索結果を含むため、管理しない
+infra/cdk.out/
+infra/cdk.context.json

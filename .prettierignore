@@ -5,6 +5,7 @@ test-result/
 work/
 pnpm-lock.yaml
 coverage/
+infra/cdk.out/
 # ドキュメントは Prettier の対象外（表の整形で差分が大きくなるため）
 docs/
 README.md

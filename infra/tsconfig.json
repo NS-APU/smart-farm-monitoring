@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // AWS CDK のライブラリの型が、exactOptionalPropertyTypes と合わない（Bucket が IBucket に代入できない）ため、
+    // infra/ だけ、この設定を外す。ほかの設定（strict など）は、リポジトリ共通のまま
+    "exactOptionalPropertyTypes": false
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["./cdk.out"]
+}

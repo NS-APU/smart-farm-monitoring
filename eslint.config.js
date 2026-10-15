@@ -42,6 +42,7 @@ export default tseslint.config(
       'coverage/**',
       '.local-data/**',
       'work/**',
+      'infra/cdk.out/**',
       'docs/**',
       // ブラウザへそのまま配信する静的ファイル（サービスワーカー）。TypeScript の対象外
       'src/frontend/public/**',

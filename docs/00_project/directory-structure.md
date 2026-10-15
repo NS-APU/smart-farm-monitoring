@@ -6,7 +6,7 @@
 
 ```text
 smart-farm-monitoring/
-├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml））
+├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml）と評価環境のデプロイ（deploy-evaluation.yml））
 ├── docs/          # ドキュメント
 ├── src/
 │   ├── backend/   # バックエンド（Hono）
@@ -17,6 +17,7 @@ smart-farm-monitoring/
 │   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts などの補助）
+├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック・lambda/ の最小の API・test/ のテスト。ADR-0006）
 ├── scripts/       # 補助スクリプト
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
 ├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）
@@ -44,7 +45,7 @@ smart-farm-monitoring/
 | `.env.example` | 必要な環境変数の一覧（値はダミー） |
 | `.gitignore` | Git管理対象外のファイルの定義 |
 | `.gitattributes` | 行末の指定（LF に統一。Windows の `core.autocrlf` に依らず、チェックアウトを LF にする） |
-| `package.json`・`pnpm-workspace.yaml`・`pnpm-lock.yaml` | pnpm ワークスペース（ルートはツール類、`src/` 配下の3つがアプリのパッケージ）とスクリプト |
+| `package.json`・`pnpm-workspace.yaml`・`pnpm-lock.yaml` | pnpm ワークスペース（ルートはツール類、`src/` 配下の3つがアプリのパッケージ、`infra/` が IaC のパッケージ）とスクリプト |
 | `tsconfig.json` | TypeScript の共通設定（各パッケージが継承） |
 | `eslint.config.js`・`.oxlintrc.json`・`.prettierrc`・`.prettierignore`・`.editorconfig` | Lint（ESLint と、アクセシビリティ用の oxlint）・フォーマットの設定 |
 | `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）の設定 |

@@ -455,6 +455,7 @@ AWS Well-Architected フレームワークのコスト最適化の考え方（�
 | **採用不可**: AWS App Runner | - | - | **2026-04-30 から新規の利用者を受け付けていない**（メンテナンスモード）。移行先として、ECS Express Mode が案内されている |
 
 - いずれの案でも、論理構成（3章）・ポートとアダプタは同じ。違いは、インフラ層（DB、スケジューラの起動、認証、配信）に閉じる（[ADR-0001](../adr/0001-modular-monolith-ports-and-adapters.md)）
+- **IaC・画面の配信の実装（ADR-0006）**: IaC は AWS CDK（Amplify Gen 2 ではなく、ADR-0002 の「または CDK」）、画面は S3 + CloudFront（Amplify Hosting ではなく、同「または S3 + CloudFront」）で実装した。画面と API（Lambda の関数の URL）を、CloudFront の同じオリジンで配信する。次の「Amplify の位置づけ」は、採用しなかった場合の記述として読む
 - **Amplify の位置づけ**: 画面のホスティングとCI/CD、認証（Cognito）、IaC に使う。ドメイン・評価のロジックは、Amplify のデータ層（AppSync等）に依存させず、ポートとアダプタの外側に置く（ロックインを避ける。ADR-0001）。Amplify は、IAMで多数のサービスの作成権限を要求するため、権限が許さない場合は、S3 + CloudFront と CDK（または手順書）で同じ構成を作る
 - **認証**: 案1では、Cognito（無料枠 10,000 MAU。利用者10名は無料枠に収まる）を AuthPort のアダプタとして使う。認証の安全性の確保・パスワード管理を、マネージドサービスに任せられる（security.md）。案2・3では、アプリ内の認証（9章）
 - **選定の結果**: **案1（サーバーレス）を基本とする**。コストが最小であり、同じ発注者での実績がある（ADR-0002）。コスト比較は 11.5 と ADR-0002 に示す
@@ -609,7 +610,7 @@ flowchart TB
 | フロントエンド | React + Vite の SPA（PWA。Web Push の受信にサービスワーカーを使う）。グラフのライブラリは、設計時に選定する | Vue、サーバー側の画面生成 | React 19.3系、Vite 8系（実装で確認した版。当初は 19.2系と記載していたが、実装は 19.3系） |
 | DB | **DynamoDB**（Repository のポートの裏に置く） | SQLite（代替の1台の構成でのみ）、PostgreSQL | - |
 | インフラ/ホスティング | AWS: **サーバーレス**（Amplify Hosting + Lambda + DynamoDB + Cognito + EventBridge）。11章、[ADR-0002](../adr/0002-deployment-serverless.md)。IAM権限・接続元IP制限の確認が前提条件 | Lightsail 1台、EC2 最小 1台（前提が満たされない場合の代替）、ECS on Fargate（規模が増えた場合の移行先） | - |
-| IaC・CI/CD | **Amplify Gen 2**（CDK ベース）。Amplify が IAM で許されない場合は、AWS CDK（TypeScript） | Terraform、CloudFormation、手順書 | aws-cdk-lib 2系の最新（実装の開始時に確認） |
+| IaC・CI/CD | **AWS CDK（TypeScript）**（[ADR-0006](../adr/0006-iac-cdk-and-same-origin-delivery.md)。`infra/`）。デプロイは GitHub Actions + OIDC（手動実行から）。画面は S3 + CloudFront、API は Lambda の関数の URL を、CloudFront の同じオリジンで配信する | Amplify Gen 2、Terraform、CloudFormation、手順書 | aws-cdk-lib 2.273系・aws-cdk（CLI）2.1145系（実装で確認した版） |
 | 認証 | Amazon Cognito（AuthPort のアダプタ） | アプリ内の認証（代替の1台の構成） | - |
 | コンテナ | Docker（ローカルの開発・テスト用のエミュレータの実行。代替の1台の構成では、本番にも使う） | - | 最新の安定版 |
 | リバースプロキシ | 代替の1台の構成でのみ（Caddy または nginx）。基本構成では不要 | - | - |

@@ -45,6 +45,18 @@
 - Web Push の購読の宛先は、https のドメイン名のみ（localhost・IP アドレスは不可）
 - データファイル（ローカル）は、所有者のみが読み書きできる権限（0600）で作る。バックアップ・復元は [backup-restore.md](../40_operations/backup-restore.md)
 
+## AWS へのデプロイの認証・設定
+
+顧客評価環境のデプロイ（`infra/`。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）には、次の決まりを適用する。
+
+- **長期のアクセスキーを、GitHub にも、リポジトリにも、CI の設定にも置かない**。GitHub Actions は、OIDC の一時的な認証で、AWS のロール（`sfm-github-actions-deploy`）を引き受ける（セッションは 1 時間）
+- ロールを引き受けられるのは、**このリポジトリの、GitHub の Environment `evaluation` のジョブだけ**（信頼ポリシーの条件）。Environment で、デプロイできるブランチ・承認者を、さらに制限できる
+- ロールの権限は、**CDK のデプロイ用ロール（`cdk-<識別子>-*`）を引き受けることだけ**。リソースの作成・変更は、CDK のデプロイ用ロールの権限で行う
+- ロールの ARN にはアカウント ID が含まれるため、GitHub の **Environment のシークレット**（`AWS_DEPLOY_ROLE_ARN`）に設定する。リポジトリ（公開）には、アカウント ID・ドメイン名・ホストゾーン名を書かない（環境変数・GitHub の変数で渡す）。`cdk.context.json`（検索結果のキャッシュ）は、Git 管理外にする
+- AWS に接続するコマンド（`cdk bootstrap`・`deploy`・`destroy` など）は、**ユーザーが、対象のアカウントのプロファイルを指定して実行する**。AI エージェントは、AWS への適用をしない（AGENTS.md 12 章）。実行ログ・出力のアカウント ID・ARN は、チャット・Issue・PR に貼らない
+- API の Lambda の関数の URL は、認証なし（NONE）で公開される（CloudFront を経由しなくても呼べる）。**認証・認可は、アプリ側で必ず行い、認証なしで公開するのは、`/health` のような、安全な範囲に限る**
+- cloudfront.net の既定の証明書は、最低の TLS のバージョンが固定される（TLS 1.0）。独自のサブドメイン（独自の証明書）にすると、TLS 1.2 以上にできる。顧客の評価は、独自のサブドメインで行う
+
 ## AIエージェントの権限管理
 
   - 対象例: `.env`, `.env.*`（`.env.example` を除く）、`**/*.pem`, `**/*.key`, `**/*credentials*`, 実データの格納ディレクトリ
