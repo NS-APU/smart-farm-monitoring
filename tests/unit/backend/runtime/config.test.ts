@@ -7,6 +7,11 @@ const INITIAL_USER = {
   INITIAL_USER_PASSWORD: 'Dummy-Passw0rd-1',
 };
 
+const DYNAMODB_TABLES = {
+  DYNAMODB_OBSERVATIONS_TABLE: 'dummy-observations',
+  DYNAMODB_MAIN_TABLE: 'dummy-main',
+};
+
 describe('実行設定（環境変数）', () => {
   it('何も指定しなければ、ローカルの既定値になる（メモリ上のデータ、初期ユーザーなし、スケジューラ無効）', () => {
     const config = parseConfig({});
@@ -26,6 +31,46 @@ describe('実行設定（環境変数）', () => {
     });
     expect(config.initialUser).toBeUndefined();
     expect(Object.keys(config.roles)).toEqual(['worker']);
+  });
+
+  it('PERSISTENCE=dynamodb: テーブル名・接続先・リージョンを読み込む（メモリ・ファイルでは、持たない）', () => {
+    const local = parseConfig({
+      PERSISTENCE: 'dynamodb',
+      ...DYNAMODB_TABLES,
+      DYNAMODB_ENDPOINT: 'http://127.0.0.1:18000',
+      AWS_REGION: 'ap-northeast-1',
+    });
+    const aws = parseConfig({ PERSISTENCE: 'dynamodb', ...DYNAMODB_TABLES });
+
+    expect(local.dynamodb).toEqual({
+      observationsTable: 'dummy-observations',
+      mainTable: 'dummy-main',
+      endpoint: 'http://127.0.0.1:18000',
+      region: 'ap-northeast-1',
+    });
+    expect(aws.dynamodb).toEqual({
+      observationsTable: 'dummy-observations',
+      mainTable: 'dummy-main',
+      endpoint: undefined,
+      region: undefined,
+    });
+    expect(parseConfig({ ...DYNAMODB_TABLES }).dynamodb).toBeUndefined();
+  });
+
+  it('PERSISTENCE=dynamodb: テーブル名の指定がなければ、設定エラーにする', () => {
+    expect(() => parseConfig({ PERSISTENCE: 'dynamodb' })).toThrow(ConfigError);
+    expect(() =>
+      parseConfig({ PERSISTENCE: 'dynamodb', DYNAMODB_MAIN_TABLE: 'dummy-main' }),
+    ).toThrow('DYNAMODB_OBSERVATIONS_TABLE');
+    expect(() =>
+      parseConfig({ PERSISTENCE: 'dynamodb', DYNAMODB_OBSERVATIONS_TABLE: 'dummy-observations' }),
+    ).toThrow('DYNAMODB_MAIN_TABLE');
+  });
+
+  it('PERSISTENCE=dynamodb: 開発用 API（リセットで、全データを消す）とは、同時に使えない', () => {
+    expect(() =>
+      parseConfig({ PERSISTENCE: 'dynamodb', ...DYNAMODB_TABLES, DEV_API_ENABLED: 'true' }),
+    ).toThrow('DEV_API_ENABLED');
   });
 
   it('指定した値を読み込む', () => {

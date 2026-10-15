@@ -18,7 +18,7 @@ import { namedErrorClass } from '../application/named-error.ts';
 export const APP_MODES = ['local', 'test', 'production'] as const;
 export type AppMode = (typeof APP_MODES)[number];
 
-/** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: 未実装。 */
+/** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: DynamoDB（ADR-0007）。 */
 export const PERSISTENCE_MODES = ['memory', 'file', 'dynamodb'] as const;
 export type PersistenceMode = (typeof PERSISTENCE_MODES)[number];
 
@@ -38,6 +38,13 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().min(0).max(65_535).default(8787),
   PERSISTENCE: z.enum(PERSISTENCE_MODES).default('memory'),
   DATA_FILE: z.string().min(1).default('.local-data/store.json'),
+  /** DynamoDB のテーブル名（PERSISTENCE=dynamodb で必須）。AWS のテーブルは、IaC（infra/）が作る。 */
+  DYNAMODB_OBSERVATIONS_TABLE: z.string().min(1).optional(),
+  DYNAMODB_MAIN_TABLE: z.string().min(1).optional(),
+  /** DynamoDB の接続先（DynamoDB Local など、ローカルの開発用）。指定すると、起動時にテーブルを作る。AWS では指定しない。 */
+  DYNAMODB_ENDPOINT: z.url().optional(),
+  /** AWS のリージョン（Lambda では、実行環境が設定する）。 */
+  AWS_REGION: z.string().min(1).optional(),
   /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
   FILE_SERVER_DIR: z.string().min(1).default('.local-data/file-server'),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
@@ -71,6 +78,15 @@ const EnvSchema = z.object({
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(MAX_TRUSTED_PROXY_HOPS).default(0),
 });
 
+/** DynamoDB の接続の設定（PERSISTENCE=dynamodb のとき）。 */
+export interface DynamoDbConfig {
+  readonly observationsTable: string;
+  readonly mainTable: string;
+  /** 別の接続先（DynamoDB Local など）。AWS では undefined。 */
+  readonly endpoint: string | undefined;
+  readonly region: string | undefined;
+}
+
 export interface InitialUserConfig {
   readonly userId: string;
   readonly userName: string;
@@ -84,6 +100,8 @@ export interface AppConfig {
   readonly port: number;
   readonly persistence: PersistenceMode;
   readonly dataFile: string;
+  /** PERSISTENCE=dynamodb のときだけ。 */
+  readonly dynamodb: DynamoDbConfig | undefined;
   readonly fileServerDirectory: string;
   readonly seedMode: SeedMode;
   readonly initialUser: InitialUserConfig | undefined;
@@ -151,6 +169,30 @@ function parseInitialUser(
   return { userId, userName, password, role };
 }
 
+function parseDynamoDb(parsed: z.infer<typeof EnvSchema>): DynamoDbConfig | undefined {
+  if (parsed.PERSISTENCE !== 'dynamodb') {
+    return undefined;
+  }
+  if (
+    parsed.DYNAMODB_OBSERVATIONS_TABLE === undefined ||
+    parsed.DYNAMODB_MAIN_TABLE === undefined
+  ) {
+    throw new ConfigError(
+      'PERSISTENCE=dynamodb では、DYNAMODB_OBSERVATIONS_TABLE と DYNAMODB_MAIN_TABLE の指定が必要です',
+    );
+  }
+  if (parsed.DEV_API_ENABLED) {
+    // 開発用 API のリセットは、全データを消す。DynamoDB のデータを、消さないようにする
+    throw new ConfigError('PERSISTENCE=dynamodb では、DEV_API_ENABLED は使えません');
+  }
+  return {
+    observationsTable: parsed.DYNAMODB_OBSERVATIONS_TABLE,
+    mainTable: parsed.DYNAMODB_MAIN_TABLE,
+    endpoint: parsed.DYNAMODB_ENDPOINT,
+    region: parsed.AWS_REGION,
+  };
+}
+
 export function parseConfig(env: Readonly<Record<string, string | undefined>>): AppConfig {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
@@ -165,6 +207,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     port: parsed.PORT,
     persistence: parsed.PERSISTENCE,
     dataFile: parsed.DATA_FILE,
+    dynamodb: parseDynamoDb(parsed),
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     seedMode: parsed.SEED_MODE,
     initialUser: parseInitialUser(parsed, roles),

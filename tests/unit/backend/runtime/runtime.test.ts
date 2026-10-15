@@ -25,11 +25,9 @@ const ENV = {
 };
 
 describe('組み立て（コンポジションルート）', () => {
-  it('本番用のアダプタ（DynamoDB・Cognito・実ファイルサーバー）は未実装のため、本番設定では組み立てを拒否する', () => {
+  it('本番用のアダプタ（Cognito・実ファイルサーバー）は未実装のため、本番設定では組み立てを拒否する', () => {
     expect(() => createContainer(parseConfig({ APP_MODE: 'production' }))).toThrow(ConfigError);
-    expect(() =>
-      createContainer(parseConfig({ APP_MODE: 'local', PERSISTENCE: 'dynamodb' })),
-    ).toThrow('未実装');
+    expect(() => createContainer(parseConfig({ APP_MODE: 'production' }))).toThrow('未実装');
   });
 
   it('初期化すると、ステータスコードの初期の定義と、最初のユーザーを用意する（冪等）', async () => {
