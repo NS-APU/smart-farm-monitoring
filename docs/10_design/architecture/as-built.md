@@ -62,7 +62,7 @@
 | ---- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | D-01 | DB                         | DynamoDB（architecture.md 13.1。ADR-0005）                                                                                                                | `PERSISTENCE=memory\|file` のみ（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション）。`dynamodb` を指定すると `createContainer` が `ConfigError`                                                | 未実装                           |
 | D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）のみ。`AuthPort` の Cognito 実装はない                                                                                                         | 未実装                           |
-| D-03 | ホスティング・ジョブ起動   | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章）                                                                                              | Lambda ハンドラ（`runtime/lambda.ts`）はあるが、組み立てが本番モードで失敗するため動かせない。EventBridge の連携コード・IaC はない（`scripts/` は空）。フロントエンドは `vite build` で `dist/frontend` へ出力するのみ        | 未実装                           |
+| D-03 | ホスティング・ジョブ起動   | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章）                                                                                              | Lambda ハンドラ（`runtime/lambda.ts`）はあるが、組み立てが本番モードで失敗するため動かせない。EventBridge の連携コードはない。IaC（`infra/`。AWS CDK）に、画面（S3 + CloudFront）と最小の API（`/health` だけに答える Lambda）の評価環境がある（ADR-0006。Issue #71）。フロントエンドは `vite build` で `dist/frontend` へ出力する        | 一部実装（画面の配信と最小の API のみ。Issue #71）                           |
 | D-04 | ファイルサーバー           | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定）                                                                                      | ディレクトリを見立てたモック（`mock-file-server.ts`）のみ。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない   | 未実装                           |
 | D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信はダミー（`dummy-web-push.ts`。記録のみ）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は実装済み。VAPID の秘密鍵・送信ライブラリはない                                                                           | 未実装                           |
 | D-06 | 農業情報基盤との連携       | 連携方式は Q-005 で未確定（architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）のみ                                                                                                                                                                         | 未実装（仕様も未確定）           |
@@ -80,6 +80,7 @@
 | D-18 | 古いコメント               | -                                                                                                                                                         | `application/evaluation/criteria-service.ts` の冒頭コメントは「判断基準の編集（UC-19）は次の手順で、同じサービスに追加する」とあるが、編集は `criteria-admin-service.ts` に実装済み                                           | コードのコメントが古い           |
 | D-19 | 提示層とインフラ層の依存   | `api-deps.ts` の冒頭コメント: 「提示層は、インフラ層（アダプタ）を知らない」。ESLint は、domain・application・shared・frontend にのみ import の制限を課す | 開発用 API のために、`presentation/api-deps.ts`・`dev-routes.ts` が `infrastructure/local/` の型・定数・合成データ生成を import している（ESLint の制限対象外）。本番の経路（`handlers`）は、アプリケーション層のみに依存する | コードのコメントと実装が食い違う |
 | D-20 | 技術スタックの追加（ライセンス対応） | architecture.md 13.1: Formatter / Linter は Prettier・ESLint（flat config + typescript-eslint）。ビルドは Vite | ライセンス（コピーレフトの除外）の確認の結果（[.license-check/license-report.md](../../../.license-check/license-report.md)）、アクセシビリティの検査に oxlint を追加し（`eslint-plugin-jsx-a11y` を削除。axe-core が MPL-2.0）、Vite の CSS の最小化に esbuild を追加した（`build.cssMinify: 'esbuild'`。Vite 8 が必須とする lightningcss が MPL-2.0 のため、`pnpm-workspace.yaml` の `overrides` で導入しない）。architecture.md 13.1 には、Issue #40 で、Zod・oxlint・Testing Library・jsdom と、React 19.3 系を反映した | 追加（architecture.md に反映済み） |
+| D-21 | IaC・画面の配信 | architecture.md 11.2・13.1: IaC は Amplify Gen 2（または CDK）、画面は Amplify Hosting（または S3 + CloudFront）（ADR-0002） | CDK・S3 + CloudFront を採用。画面と API を CloudFront の同じオリジンで配信し、GitHub Actions + OIDC で手動デプロイする（ADR-0006。Issue #71）。architecture.md 13.1 に反映した | 追加（architecture.md に反映済み） |
 
 ## 解析で気づいた課題
 
@@ -228,9 +229,10 @@
 | 静的解析       | ESLint・typescript-eslint・各プラグイン | `^9.39.5`・`^8.71.1`            | 9.39.5・8.71.1                                |
 |                | oxlint（jsx-a11y の検査のみ）           | `~1.84.0`                       | 1.84.0                                        |
 | ビルド         | esbuild（CSS の最小化）                 | `^0.28.0`                       | 0.28.2                                        |
+| IaC（infra/） | aws-cdk-lib・constructs・aws-cdk（CLI） | `^2.273.0`・`^10.8.1`・`^2.1145.0` | 2.273.0・10.8.1・2.1145.0 |
 |                | Prettier                                | `^3.9.9`                        | 3.9.9                                         |
 
-データベース・認証・インフラの SDK（`@aws-sdk/*` など）は、依存に含まれていない。TypeScript の厳格な設定（`strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`・`verbatimModuleSyntax`・`erasableSyntaxOnly` など）は、ルートの `tsconfig.json` にあり、各パッケージが継承する。TypeScript をそのまま実行するため、バックエンドは `node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts` で起動する（ビルドなし）。
+データベース・認証・インフラの SDK（`@aws-sdk/*` など）は、依存に含まれていない（IaC のライブラリ `aws-cdk-lib` は、`infra/` の依存）。TypeScript の厳格な設定（`strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`・`verbatimModuleSyntax`・`erasableSyntaxOnly` など）は、ルートの `tsconfig.json` にあり、各パッケージが継承する。TypeScript をそのまま実行するため、バックエンドは `node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts` で起動する（ビルドなし）。
 
 ## 起動の仕方（ローカル）
 
@@ -259,7 +261,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
 | Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
 | 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
-| ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | なし（`scripts/` は空）                                                                                                             |
+| ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront + 関数の URL の最小の Lambda）と、GitHub の OIDC のスタック。デプロイは `deploy-evaluation.yml`（手動実行）。Amplify は使わない（ADR-0006）。DynamoDB・Cognito・EventBridge は未追加 |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
 
 差の詳細は、「設計との差分」（D-01〜D-19）を参照する。
@@ -1009,7 +1011,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   USER["利用者のブラウザ"]
-  HOST["Amplify Hosting<br>フロントエンドの配信<br>未実装"]
+  HOST["S3 + CloudFront<br>フロントエンドの配信<br>infra/ に実装済み（API は最小のみ）"]
   LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ"]
   EB["EventBridge<br>ジョブの起動<br>未実装"]
   DDB["DynamoDB<br>未実装"]
@@ -1026,7 +1028,7 @@ flowchart LR
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。`APP_MODE=production` では、`createContainer` が `ConfigError` を投げるため、呼び出しがエラーになる
-- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分（EventBridge からのジョブ起動、DynamoDB、Cognito、Amplify Hosting）は、コードも IaC もない
+- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分（EventBridge からのジョブ起動、DynamoDB、Cognito）は、コードも IaC もない。画面の配信は、IaC（`infra/`）に S3 + CloudFront と最小の API があるが、この図の Lambda ハンドラ（`runtime/lambda.ts`）とは、まだつながっていない（Issue #75）
 
 ## フロントエンドの構成
 
