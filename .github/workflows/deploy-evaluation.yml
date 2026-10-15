@@ -39,10 +39,24 @@ jobs:
       - name: 画面のビルド（dist/frontend）
         run: pnpm build
       - name: AWS の認証（OIDC）
+        id: aws-auth
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-northeast-1
+      # 認証に失敗したときだけ、GitHub が発行する OIDC トークンのクレームを表示する（診断用。Issue #87）。
+      # AWS のロールの信頼ポリシー（infra/lib/github-oidc-stack.ts）の条件（aud・sub）と、見比べる。トークン自体は表示しない。
+      - name: OIDC トークンのクレームの表示（認証の失敗時のみ）
+        if: failure() && steps.aws-auth.outcome == 'failure'
+        run: |
+          response=$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")
+          RESPONSE="${response}" node -e "
+          const token = JSON.parse(process.env.RESPONSE).value;
+          const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+          for (const key of ['iss', 'aud', 'sub', 'repository', 'repository_id', 'repository_owner_id', 'environment', 'ref', 'job_workflow_ref']) {
+            console.log(key + ': ' + String(claims[key]));
+          }
+          "
       - name: デプロイ（CDK）
         env:
           SFM_DOMAIN_NAME: ${{ vars.SFM_DOMAIN_NAME }}
