@@ -16,9 +16,7 @@ import {
   deleteTables,
 } from '../../src/backend/infrastructure/dynamodb/table-admin.ts';
 import type { TableNames } from '../../src/backend/infrastructure/dynamodb/table-schema.ts';
-
-const DUMMY_CREDENTIALS = { accessKeyId: 'localdummykey', secretAccessKey: 'localdummysecret' };
-const REGION = 'ap-northeast-1';
+import { DYNAMODB_LOCAL_CREDENTIALS, DYNAMODB_LOCAL_REGION } from './dynamodb-local-settings.ts';
 
 export interface DynamoTestDatabase {
   readonly client: ReturnType<typeof createDocumentClient>;
@@ -36,7 +34,7 @@ export function dynamoTestClientOptions(): DocumentClientOptions {
       'DynamoDB Local の接続先がありません。環境変数 DYNAMODB_ENDPOINT（起動済みの接続先）または DYNAMODB_LOCAL_DIR（DynamoDBLocal.jar のディレクトリ）を設定してください（docs/00_project/commands.md）',
     );
   }
-  return { region: REGION, endpoint, credentials: DUMMY_CREDENTIALS };
+  return { region: DYNAMODB_LOCAL_REGION, endpoint, credentials: DYNAMODB_LOCAL_CREDENTIALS };
 }
 
 /** 新しい（空の）テーブルの組を作る。作成は、非同期に進む（ready）。 */

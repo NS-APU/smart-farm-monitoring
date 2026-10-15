@@ -16,6 +16,13 @@ import { createServer, connect } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { TestProject } from 'vitest/node';
+import { createDocumentClient } from '../../src/backend/infrastructure/dynamodb/client.ts';
+import { createDynamoRepositories } from '../../src/backend/infrastructure/dynamodb/dynamodb-repositories.ts';
+import {
+  createTables,
+  deleteTables,
+} from '../../src/backend/infrastructure/dynamodb/table-admin.ts';
+import { DYNAMODB_LOCAL_CREDENTIALS, DYNAMODB_LOCAL_REGION } from './dynamodb-local-settings.ts';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -68,12 +75,38 @@ async function waitForPort(port: number, host: string, isAlive: () => boolean): 
   throw new Error('DynamoDB Local の起動を待ちきれませんでした');
 }
 
+/**
+ * 起動したばかりの DynamoDB Local（Java）は、最初のリクエストが遅い。テストの開始前に、テーブルの作成・書き込み・読み取り・削除を
+ * 1 回行って、慣らす（ほかのテストが並列で動いているときに、最初のテストが、タイムアウトしないようにする）。
+ */
+async function warmUp(endpoint: string): Promise<void> {
+  const options = {
+    region: DYNAMODB_LOCAL_REGION,
+    endpoint,
+    credentials: DYNAMODB_LOCAL_CREDENTIALS,
+  };
+  const tables = { observations: 'warmupobservations', main: 'warmupmain' };
+  await createTables(options, tables);
+  try {
+    const repositories = createDynamoRepositories({
+      client: createDocumentClient(options),
+      tables,
+    });
+    await repositories.settings.set('warm-up', true);
+    await repositories.settings.get('warm-up');
+    await repositories.observations.query({}, { limit: 1 });
+  } finally {
+    await deleteTables(options, [tables]);
+  }
+}
+
 export default async function setup(project: TestProject): Promise<(() => void) | undefined> {
   const configured = process.env.DYNAMODB_ENDPOINT;
   if (configured !== undefined && configured !== '') {
     // 起動したばかり（CI の service container など）でも、接続できるまで待つ
     const url = new URL(configured);
     await waitForPort(Number(url.port || 80), url.hostname, () => true);
+    await warmUp(configured);
     project.provide('dynamodbEndpoint', configured);
     return undefined;
   }
@@ -111,7 +144,9 @@ export default async function setup(project: TestProject): Promise<(() => void) 
     child.kill();
     throw error;
   }
-  project.provide('dynamodbEndpoint', `http://127.0.0.1:${port}`);
+  const endpoint = `http://127.0.0.1:${port}`;
+  await warmUp(endpoint);
+  project.provide('dynamodbEndpoint', endpoint);
   return () => {
     child.kill();
   };
