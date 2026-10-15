@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { type App } from 'aws-cdk-lib';
 import { describe, expect, it } from 'vitest';
 import { createEvaluationApp, createGithubOidcApp } from '../lib/apps.ts';
+import { GITHUB_SUBJECT_PREFIX } from '../lib/config.ts';
 
 function assets(): string {
   const dir = mkdtempSync(join(tmpdir(), 'sfm-infra-apps-'));
@@ -65,6 +66,31 @@ describe('CDK アプリの組み立て', () => {
     expect(Object.values(template.Resources).some((r) => r.Type === 'AWS::IAM::OIDCProvider')).toBe(
       false,
     );
+  });
+
+  it('GitHub の OIDC: このリポジトリの GitHub のトークンの sub（不変の ID の形式）を、ロールの信頼条件にする（Issue #87）', () => {
+    const app = createGithubOidcApp({});
+    const template = app.synth().getStackByName('SfmGithubOidc').template as {
+      Resources: Record<
+        string,
+        {
+          Type: string;
+          Properties: {
+            AssumeRolePolicyDocument?: {
+              Statement: { Condition: { StringEquals: Record<string, string> } }[];
+            };
+          };
+        }
+      >;
+    };
+    const role = Object.values(template.Resources).find((r) => r.Type === 'AWS::IAM::Role');
+    const sub =
+      role?.Properties.AssumeRolePolicyDocument?.Statement[0]?.Condition.StringEquals[
+        'token.actions.githubusercontent.com:sub'
+      ];
+    expect(sub).toBe(`${GITHUB_SUBJECT_PREFIX}:environment:evaluation`);
+    // 不変の ID の形式: repo:<組織>@<組織の ID>/<リポジトリ>@<リポジトリの ID>
+    expect(sub).toMatch(/^repo:[^@/]+@\d+\/[^@/]+@\d+:environment:evaluation$/);
   });
 
   it('全スタックに、コスト配分用のタグ（Project・Environment・ManagedBy）が付く', () => {

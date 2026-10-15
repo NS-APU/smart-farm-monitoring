@@ -6,7 +6,7 @@ import { DEPLOY_ROLE_NAME, GithubOidcStack } from '../lib/github-oidc-stack.ts';
 const ENV = { account: '111111111111', region: 'ap-northeast-1' } as const;
 
 function build(
-  props: { existingProviderArn?: string; bootstrapQualifier?: string } = {},
+  props: { existingProviderArn?: string; bootstrapQualifier?: string; subjectPrefix?: string } = {},
 ): Template {
   const stack = new GithubOidcStack(new App(), 'Oidc', {
     env: ENV,
@@ -64,6 +64,28 @@ describe('GitHub Actions の OIDC のスタック', () => {
         ],
       },
     });
+  });
+
+  it('主体（sub）の接頭辞を指定すると、不変の ID の形式（組織・リポジトリの ID を含む）を条件にできる', () => {
+    // GitHub の新しい既定では、トークンの sub は、リポジトリの名前ではなく、ID を含む形になる（Issue #87）
+    build({ subjectPrefix: 'repo:example-org@111/example-repo@222' }).hasResourceProperties(
+      'AWS::IAM::Role',
+      {
+        AssumeRolePolicyDocument: {
+          Statement: [
+            Match.objectLike({
+              Condition: {
+                StringEquals: {
+                  'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+                  'token.actions.githubusercontent.com:sub':
+                    'repo:example-org@111/example-repo@222:environment:evaluation',
+                },
+              },
+            }),
+          ],
+        },
+      },
+    );
   });
 
   it('ロールの権限は、CDK のデプロイ用ロールを引き受けることだけ（既定の識別子）', () => {

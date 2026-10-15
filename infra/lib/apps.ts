@@ -10,6 +10,7 @@ import {
   CERTIFICATE_REGION,
   DEPLOY_ENVIRONMENT_NAME,
   GITHUB_REPOSITORY,
+  GITHUB_SUBJECT_PREFIX,
   REGION,
   readConfig,
 } from './config.ts';
@@ -62,6 +63,7 @@ export function createGithubOidcApp(env: Env): App {
   new GithubOidcStack(app, 'SfmGithubOidc', {
     ...(config.account === undefined ? {} : { env: { account: config.account, region: REGION } }),
     repository: GITHUB_REPOSITORY,
+    subjectPrefix: GITHUB_SUBJECT_PREFIX,
     environmentName: DEPLOY_ENVIRONMENT_NAME,
     ...(config.existingOidcProviderArn === undefined
       ? {}
