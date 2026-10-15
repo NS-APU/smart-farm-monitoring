@@ -61,6 +61,14 @@ jobs:
     name: unit-test
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # DynamoDB アダプタの契約テストが使う、DynamoDB Local（AWS の公式のイメージ 3.3.1）。
+    # タグではなく、ダイジェスト（内容のハッシュ）で固定する（タグは、あとから別のイメージに付け替えられるため）。
+    # 更新するときは、`public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local` の、新しいタグのダイジェストに差し替える。
+    services:
+      dynamodb:
+        image: public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab # 3.3.1
+        ports:
+          - 8000:8000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,7 +81,10 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
       # 単体・結合のテスト。カバレッジの閾値（行・分岐・関数・文が 95% 以上）を下回ると失敗する。
+      # DYNAMODB_ENDPOINT: 上の DynamoDB Local。契約テストを、DynamoDB のアダプタにも適用する（接続できるまで待つ）。
       - run: pnpm test:unit
+        env:
+          DYNAMODB_ENDPOINT: http://localhost:8000
 
   build:
     name: build
