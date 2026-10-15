@@ -37,6 +37,7 @@
 | | [0004-federation-outbox-standalone.md](../10_design/adr/0004-federation-outbox-standalone.md) | ADR-0004 農業情報基盤との連携を連携キューによる非同期方式にする（提案） |
 | | [0005-tech-stack.md](../10_design/adr/0005-tech-stack.md) | ADR-0005 技術スタックを TypeScript・Hono・React・DynamoDB 等で確定する（承認） |
 | | [0006-iac-cdk-and-same-origin-delivery.md](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md) | ADR-0006 IaC に AWS CDK を使い、画面と API を CloudFront の同じオリジンで配信する（承認） |
+| | [0007-dynamodb-table-design.md](../10_design/adr/0007-dynamodb-table-design.md) | ADR-0007 DynamoDB のテーブルを、観測値の専用テーブルと、そのほかの集約テーブルに分ける（承認） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |
