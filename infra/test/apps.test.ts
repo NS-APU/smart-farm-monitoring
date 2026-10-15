@@ -17,14 +17,14 @@ function stackNames(app: App): string[] {
 }
 
 describe('CDK アプリの組み立て', () => {
-  it('評価環境: 設定がなければ、評価環境のスタックだけを作る（アカウントに依存しない）', () => {
+  it('評価環境: 設定がなければ、データと評価環境のスタックだけを作る（アカウントに依存しない）', () => {
     const app = createEvaluationApp({}, assets());
-    expect(stackNames(app)).toEqual(['SfmEvaluation']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
   });
 
   it('評価環境: アカウントだけを指定しても、証明書のスタックは作らない', () => {
     const app = createEvaluationApp({ CDK_DEFAULT_ACCOUNT: '111111111111' }, assets());
-    expect(stackNames(app)).toEqual(['SfmEvaluation']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
   });
 
   it('評価環境: 独自ドメインを指定すると、証明書（us-east-1）のスタックも作る', () => {
@@ -36,11 +36,12 @@ describe('CDK アプリの組み立て', () => {
       },
       assets(),
     );
-    expect(stackNames(app)).toEqual(['SfmEvaluation', 'SfmEvaluationCertificate']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmEvaluationCertificate']);
     const regions = app
       .synth()
       .stacks.map((stack) => `${stack.stackName}:${stack.environment.region}`);
     expect(regions.sort()).toEqual([
+      'SfmData:ap-northeast-1',
       'SfmEvaluation:ap-northeast-1',
       'SfmEvaluationCertificate:us-east-1',
     ]);

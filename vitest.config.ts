@@ -20,6 +20,10 @@ export default defineConfig({
             'tests/unit/backend/**/*.test.ts',
             'tests/integration/**/*.test.ts',
           ],
+          // DynamoDB アダプタのテストが使う、DynamoDB Local（Java）の用意（tests/support/dynamodb-local-global-setup.ts）
+          globalSetup: ['tests/support/dynamodb-local-global-setup.ts'],
+          // ほかのプロジェクト（CDK のバンドル・jsdom）と並列に動くとき、DynamoDB への往復が遅れることがある
+          testTimeout: 20_000,
         },
       },
       {

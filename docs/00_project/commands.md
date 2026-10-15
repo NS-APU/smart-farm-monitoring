@@ -8,6 +8,7 @@
 - pnpm のスクリプトの中から、さらに `pnpm` を呼び出す書き方は、この環境では解決に失敗したため、使わない（スクリプトは、`vitest`・`playwright`・`vite` などを直接呼ぶ）
 - Windows では、カレントディレクトリのドライブ文字の大文字・小文字が、モジュールの読み込みとカバレッジの計測に影響する。Git Bash から `node node_modules/vitest/vitest.mjs` を直接呼ぶ（`c:` の小文字になる）と、同じファイルが二重に読み込まれ、カバレッジが 0% になることがある。テストは、`pnpm`（`pnpm test:unit`・`pnpm exec vitest ...`）経由で実行する
 - Windows の Git Bash では、`node -e "..."` の文字列の中のバックスラッシュ（正規表現の `\p`・`\x00` など）が落ちて、意図と違う動きになる。スクリプトは、ファイル（`.mjs`）に書いて `node ファイル.mjs` で実行する。また、git の `リビジョン:パス`（例: `HEAD:src/a.ts`）は、パスが変換されるため、`MSYS_NO_PATHCONV=1` を付けて実行する
+- 単体・結合のテスト（`pnpm test:unit`）は、DynamoDB アダプタの契約テストのため、**DynamoDB Local（AWS の公式の配布物。Java で動く）が必要**。次のどちらかを、環境変数で指定する（どちらもなければ、DynamoDB のテストが、設定を促すエラーで失敗する。スキップはしない）。手順は、「DynamoDB Local」の節
 - E2E は、ポート 5173（Vite）・8787（バックエンド）を使う。空いていること（別の E2E・開発サーバーが動いていないこと）を確認してから実行する。全 E2E の所要時間は、約 45 分
 
 ```bash
@@ -49,11 +50,34 @@ pnpm format          # 整形して書き込む
 pnpm format:check    # 整形の確認のみ
 ```
 
+## DynamoDB Local（DynamoDB アダプタのテスト・ローカルの開発）
+
+DynamoDB アダプタ（`src/backend/infrastructure/dynamodb/`。[ADR-0007](../10_design/adr/0007-dynamodb-table-design.md)）の契約テストは、DynamoDB Local で実行する。Java 17 以上が必要（確認: `java -version`）。
+
+1. **DynamoDB Local の入手（1 回）**: `https://d1ni2b6xgvw0s0.cloudfront.net/v2.x/dynamodb_local_latest.zip` をダウンロードし、同じ場所の `.sha256` の値と、ファイルの SHA-256 が一致することを確認して、リポジトリの外のディレクトリに展開する（`DynamoDBLocal.jar` と `DynamoDBLocal_lib/` ができる）。バージョンを固定した URL はなく、`latest` は更新されるため、CI は、ダイジェストで固定したコンテナのイメージを使う（`.github/workflows/ci.yml`）。**DynamoDB Local は、オープンソースではなく、AWS の独自のライセンス**（社内の業務の目的での利用は可。再配布・組み込みは不可。AWS のアカウントが有効であること）。リポジトリには含めない（詳細は `.license-check/license-report.md`）
+2. **テストの実行**（どちらか）:
+   - **自動で起動する**: 環境変数 `DYNAMODB_LOCAL_DIR` に、1. のディレクトリを指定する。テストの開始時に、空きポートで起動し、終了時に止める（vitest の globalSetup。`tests/support/dynamodb-local-global-setup.ts`）。例: `DYNAMODB_LOCAL_DIR=<ディレクトリ> pnpm test:unit`
+   - **起動済みのものを使う**: `java -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -inMemory -sharedDb -port 18000` で起動し、`DYNAMODB_ENDPOINT=http://127.0.0.1:18000 pnpm test:unit`。CI は、これ（service container）
+3. テストは、テストごとに、名前が重複しないテーブルを作り、終了時に消す。認証情報は、ダミーの値（DynamoDB Local は、検証しない。**英数字だけ**にする。ハイフンを含むと拒否される）
+
+アプリ全体を、DynamoDB Local で動かす（ローカルの確認用）:
+
+```bash
+# DynamoDB Local を起動したうえで（上の手順。ポートは、ほかの開発サーバーと重ならないものにする）
+PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVATIONS_TABLE=dev-observations DYNAMODB_MAIN_TABLE=dev-main   SEED_MODE=DEMO pnpm dev:backend
+```
+
+- `DYNAMODB_ENDPOINT` を指定すると、起動時にテーブルを作る（すでにあれば、そのまま使う）。AWS では、指定しない（テーブルは、IaC で作る。Lambda の実行ロールの認証情報を使う）
+- `DEV_API_ENABLED`（リセットで全データを消す開発用 API）は、`PERSISTENCE=dynamodb` では使えない。`APP_MODE=production` は、まだ使えない（Cognito などが未実装。Issue #74・#75）
+- 2026-10-15 に、この構成（デモデータの投入・評価・通知・ログイン・観測値の一覧）が動くことを確認した（DynamoDB Local 3.3.1）
+
 ## 評価環境（IaC。`infra/`）
 
 **状態**: 確認済み（2026-10-15。Issue #71・#87）。大学の AWS アカウント（東京リージョン）で、この節の手順（bootstrap・OIDC のロールの作成・GitHub の設定・GitHub Actions からのデプロイ・動作確認・削除と再作成）を実行し、すべて成功した。自動のトリガ（`develop` へのマージなど）は、まだない（手動実行のみ。方針は Issue #78 で決め、追加する）。
 
 顧客評価環境（サーバーレス構成。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）を、AWS CDK で作る。リージョンは東京（ap-northeast-1）。画面（S3 + CloudFront）と、最小の API（`/health` だけに答える Lambda。関数の URL）が、CloudFront の同じオリジンで配信される。
+
+データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73。`deploy` に含まれる）。テーブル名は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`）で参照する。**このスタックの AWS への適用は、まだ実行していない**（コードと CDK のテストのみ。適用は、ユーザーが行う。Lambda への接続は、Issue #75）。
 
 | 目的 | コマンド（リポジトリのルートで実行） | AWS への接続 |
 |------|--------------------------------------|--------------|
@@ -61,7 +85,8 @@ pnpm format:check    # 整形の確認のみ
 | テンプレートの生成（検証） | `pnpm --filter @smart-farm/infra run synth` | なし（独自ドメインを指定しないとき） |
 | 差分の確認 | `pnpm --filter @smart-farm/infra run diff` | あり |
 | デプロイ（作成・更新） | `pnpm --filter @smart-farm/infra run deploy` | あり |
-| 削除 | `pnpm --filter @smart-farm/infra run destroy` | あり |
+| 削除（評価環境のみ。データは残す） | `pnpm --filter @smart-farm/infra run destroy` | あり |
+| 削除（データのスタック。データを失う） | `pnpm --filter @smart-farm/infra run destroy:data` | あり |
 | 初回の bootstrap（東京） | `pnpm --filter @smart-farm/infra run bootstrap` | あり |
 | 初回の bootstrap（us-east-1。独自ドメインのときだけ） | `pnpm --filter @smart-farm/infra run bootstrap:certificate` | あり |
 | GitHub Actions 用のロールの作成・削除 | `pnpm --filter @smart-farm/infra run deploy:oidc` ・ `destroy:oidc` | あり |
@@ -97,8 +122,9 @@ pnpm format:check    # 整形の確認のみ
 
 ### 削除と再作成
 
-- 削除: `pnpm --filter @smart-farm/infra run destroy`。評価環境のスタック（S3 のバケット・CloudFront・Lambda・ログ。独自ドメインのとき、証明書・DNS のレコードも）を、中身ごと削除する。**bootstrap と OIDC のロールは、残る**（共通の基盤）
+- 削除: `pnpm --filter @smart-farm/infra run destroy`。評価環境のスタック（`SfmEvaluation*`。S3 のバケット・CloudFront・Lambda・ログ。独自ドメインのとき、証明書・DNS のレコードも）を、中身ごと削除する。**データのスタック（`SfmData`。DynamoDB のテーブル）、bootstrap、OIDC のロールは、残る**（評価環境を、削除・再作成しても、データを失わない）
 - 再作成: 同じ手順（`deploy`、または GitHub Actions の「Deploy evaluation」）。削除前と同じ構成が、コードから作られる
+- **データ（DynamoDB のテーブル）の削除**（Issue #73。AWS では、まだ実行して確認していない）: `SfmData` のスタックは、誤って消さないよう、スタックの削除の保護と、テーブルの削除の保護を有効にし、スタックを削除してもテーブルを残す設定（RETAIN）にしている。データまで消すときだけ、次の順に行う。(1) テーブル名を控える（`SfmData` の出力 `ObservationsTableName`・`MainTableName`）。(2) `aws cloudformation update-termination-protection --no-enable-termination-protection --stack-name SfmData`。(3) `pnpm --filter @smart-farm/infra run destroy:data`。(4) テーブルごとに、`aws dynamodb update-table --table-name <名前> --no-deletion-protection-enabled` のあと、`aws dynamodb delete-table --table-name <名前>`。**データは、元に戻せない**（ポイントインタイムリカバリは、テーブルを削除すると使えなくなる）。実行の前に、必要なら、オンデマンドのバックアップを取る
 - OIDC のロールまで削除する: `pnpm --filter @smart-farm/infra run destroy:oidc`（GitHub Actions からデプロイできなくなる）。bootstrap（`CDKToolkit` のスタック）の削除は、通常は不要
 
 ## 実行結果（2026-10-14。Sprint1 の取り込み後。`develop` のコミット 5223b02）

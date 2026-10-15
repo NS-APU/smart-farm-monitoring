@@ -11,7 +11,7 @@
  * - SPA の深いパス（/viewpoints/xxx など）は、CloudFront Function で index.html へ書き換える。
  *   CloudFront のエラー応答（403・404 → index.html）は、API の 403・404 まで書き換えるため、使わない
  * - 評価環境は、いつでも削除・再作成できる（バケットは、削除時に中身ごと削除する。データは、まだ持たない）
- * - DynamoDB・Cognito・EventBridge は、Issue #73・#74・#76 で、このスタックに追加する
+ * - DynamoDB のテーブルは、別のスタック（data-stack.ts。Issue #73）。Cognito・EventBridge は、Issue #74・#76 で追加する
  */
 
 import { join } from 'node:path';

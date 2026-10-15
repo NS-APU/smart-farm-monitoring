@@ -75,6 +75,9 @@ import { createViewpointQuery, type ViewpointQuery } from '../application/query/
 import { seedInitialStatusCodes } from '../application/seed/initial-data.ts';
 import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
+import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
+import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
+import { createTables } from '../infrastructure/dynamodb/table-admin.ts';
 import { createDefaultFormatProfileRegistry } from '../infrastructure/format-profiles/declarative-profile.ts';
 import {
   createControllableClock,
@@ -87,6 +90,7 @@ import { createUuidGenerator } from '../infrastructure/local/ids.ts';
 import { ensureInitialUser } from '../infrastructure/local/initial-user.ts';
 import { createLocalAuth } from '../infrastructure/local/local-auth.ts';
 import { createLocalRepositories } from '../infrastructure/local/local-repositories.ts';
+import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
@@ -100,7 +104,7 @@ import {
 import { createJsonLogger, STDOUT_SINK } from '../infrastructure/logging/json-logger.ts';
 import type { DevApiDeps } from '../presentation/api-deps.ts';
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
-import { ConfigError, type AppConfig } from './config.ts';
+import { ConfigError, type AppConfig, type DynamoDbConfig } from './config.ts';
 
 const DEMO_DAYS = 3;
 const DEMO_SEED = 20_261_009;
@@ -165,8 +169,40 @@ function buildSettings(config: AppConfig, overrides: ContainerOverrides): AppSet
   };
 }
 
-/** ローカル・テスト用のアダプタ: Repository、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、認証。 */
-function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
+/** DynamoDB Local など、別の接続先（ローカルの開発用）に使う、明らかにダミーの認証情報。 */
+const LOCAL_DYNAMODB_CREDENTIALS = {
+  accessKeyId: 'localdummykey',
+  secretAccessKey: 'localdummysecret',
+};
+const LOCAL_DYNAMODB_REGION = 'ap-northeast-1';
+
+/** データの保持（Repository）。メモリ・ファイルは、ローカルの実装。store は、ローカルの実装だけが持つ。 */
+interface Storage {
+  readonly repositories: Repositories;
+  readonly store: LocalStore | undefined;
+  /** 使う前の準備（DynamoDB Local のテーブルの作成など）。 */
+  readonly prepare: () => Promise<void>;
+}
+
+function buildDynamoStorage(dynamodb: DynamoDbConfig): Storage {
+  // 別の接続先（DynamoDB Local）のときだけ、ダミーの認証情報を使う。AWS では、実行ロールの認証情報
+  const options = {
+    region:
+      dynamodb.region ?? (dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_REGION),
+    endpoint: dynamodb.endpoint,
+    credentials: dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_CREDENTIALS,
+  };
+  const tables = { observations: dynamodb.observationsTable, main: dynamodb.mainTable };
+  return {
+    repositories: createDynamoRepositories({ client: createDocumentClient(options), tables }),
+    store: undefined,
+    // AWS のテーブルは、IaC で作る。ローカルの接続先のときだけ、作る（すでにあれば、そのまま使う）
+    prepare: () =>
+      dynamodb.endpoint === undefined ? Promise.resolve() : createTables(options, tables),
+  };
+}
+
+function buildLocalStorage(config: AppConfig, logger: Logger): Storage {
   const { repositories, store } = createLocalRepositories(
     config.persistence === 'file'
       ? {
@@ -180,6 +216,15 @@ function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
       : {},
   );
   store.load();
+  return { repositories, store, prepare: () => Promise.resolve() };
+}
+
+/** ローカル・テスト用のアダプタ: Repository、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、認証。 */
+function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
+  const { repositories, store, prepare } =
+    config.dynamodb === undefined
+      ? buildLocalStorage(config, logger)
+      : buildDynamoStorage(config.dynamodb);
 
   const faults = {
     fileServer: createFaultController(),
@@ -199,7 +244,7 @@ function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
   const auth = createLocalAuth({ users: repositories.users, clock });
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
-  return { repositories, store, faults, mocks, fileSource, policy, auth, profiles };
+  return { repositories, store, prepare, faults, mocks, fileSource, policy, auth, profiles };
 }
 
 type Adapters = ReturnType<typeof buildAdapters>;
@@ -393,7 +438,7 @@ function buildDevControls(
     faults,
     mocks,
     async reset(seedMode) {
-      store.clear();
+      store?.clear();
       scheduler.reset();
       mocks.federation.reset();
       mocks.webPush.reset();
@@ -420,8 +465,8 @@ function buildDevControls(
 }
 
 export function createContainer(config: AppConfig, overrides: ContainerOverrides = {}): Container {
-  if (config.mode === 'production' || config.persistence === 'dynamodb') {
-    throw new ConfigError('本番用のアダプタ（DynamoDB・Cognito・実ファイルサーバー）は未実装です');
+  if (config.mode === 'production') {
+    throw new ConfigError('本番用のアダプタ（Cognito・実ファイルサーバー）は未実装です');
   }
 
   const logger =
@@ -438,6 +483,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
   const { repositories, store, policy } = adapters;
 
   async function initialize(seedMode: SeedMode = config.seedMode): Promise<void> {
+    await adapters.prepare();
     await seedInitialStatusCodes(repositories.statusCodes);
     if (config.initialUser !== undefined) {
       const created = await ensureInitialUser(repositories.users, config.initialUser, clock.now());
@@ -502,7 +548,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     initialize: () => initialize(),
     close() {
       services.scheduler.stop();
-      store.flush();
+      store?.flush();
     },
   };
 }
