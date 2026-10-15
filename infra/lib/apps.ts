@@ -1,6 +1,6 @@
 /**
  * CDK のアプリの組み立て。`bin/` のエントリは、環境変数を渡して呼ぶだけにする（テストできるように、ここに置く）。
- * - 評価環境のアプリ（bin/infra.ts）: 評価環境のスタック（独自ドメインがあれば、証明書のスタックも）
+ * - 評価環境のアプリ（bin/infra.ts）: データのスタック（DynamoDB）と、評価環境のスタック（独自ドメインがあれば、証明書のスタックも）
  * - GitHub の OIDC のアプリ（bin/github-oidc.ts）: ユーザーが 1 回だけ、手元から実行する
  */
 
@@ -14,6 +14,7 @@ import {
   REGION,
   readConfig,
 } from './config.ts';
+import { DataStack } from './data-stack.ts';
 import { EvaluationStack } from './evaluation-stack.ts';
 import { GithubOidcStack } from './github-oidc-stack.ts';
 
@@ -32,6 +33,8 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
   addTags(app);
   const stackEnv =
     config.account === undefined ? undefined : { account: config.account, region: REGION };
+  // データは、評価環境と別のスタックにする（評価環境を削除・再作成しても、データを失わない）
+  new DataStack(app, 'SfmData', stackEnv === undefined ? {} : { env: stackEnv });
   const { domainName, hostedZoneName } = config;
   if (domainName === undefined || hostedZoneName === undefined || config.account === undefined) {
     new EvaluationStack(app, 'SfmEvaluation', {
