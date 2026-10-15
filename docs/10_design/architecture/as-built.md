@@ -48,7 +48,7 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタはすべて未実装**: DynamoDB・Cognito・実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続。`APP_MODE=production` は起動時に `ConfigError`。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）のみ
+- **本番のアダプタは、DynamoDB の Repository を除き、未実装**: Cognito・実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続。`APP_MODE=production` は起動時に `ConfigError`。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。AWS のテーブルへの接続は、未確認）
 - 評価は、設計の「影響を受ける設備・観点に絞る」ではなく、**契機を問わず、全設備・全観点・全期間を毎回評価**する
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
@@ -254,7 +254,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 | 項目                     | 設計（本番の想定）                        | 実装の状態                                                                                                                          |
 | ------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| データベース             | DynamoDB                                  | 未実装（`dynamodb` の指定は `ConfigError`）。ローカルは、メモリ＋ JSON ファイル                                                     |
+| データベース             | DynamoDB                                  | **Repository のアダプタを実装**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS では未確認）。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
 | 認証                     | Cognito                                   | 未実装。アプリ内の認証（`createLocalAuth`）                                                                                         |
 | 実行                     | Lambda＋ EventBridge                      | `createLambdaHandler`（`@hono/aws-lambda` の `handle`）はあるが、本番モードの組み立てが失敗する。EventBridge からの起動コードはない |
 | ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ）                                                                                                              |
@@ -958,7 +958,7 @@ flowchart LR
 
 | ポート                                     | 定義                            | 実装済みのアダプタ                                                                                                                                              | 本番の想定（未実装）                          |
 | ------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Repository（13 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）                                                                                           | DynamoDB                                      |
+| Repository（13 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）、`dynamodb/dynamodb-repositories.ts`（DynamoDB。ADR-0007）                                | DynamoDB（実装済み。契約テストは共通）        |
 | `AuthPort`                                 | `ports/auth-port.ts`            | `local/local-auth.ts`（`createLocalAuth`）                                                                                                                      | Cognito                                       |
 | `PasswordHasherPort`                       | `ports/password-hasher-port.ts` | `local/password-hasher.ts`（scrypt）                                                                                                                            | Cognito が持つため不要                        |
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
@@ -1014,7 +1014,7 @@ flowchart LR
   HOST["S3 + CloudFront<br>フロントエンドの配信<br>infra/ に実装済み（API は最小のみ）"]
   LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ"]
   EB["EventBridge<br>ジョブの起動<br>未実装"]
-  DDB["DynamoDB<br>未実装"]
+  DDB["DynamoDB<br>アダプタ実装済み（Lambda とは未接続）"]
   COG["Cognito<br>未実装"]
 
   USER --> HOST
@@ -1028,7 +1028,7 @@ flowchart LR
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。`APP_MODE=production` では、`createContainer` が `ConfigError` を投げるため、呼び出しがエラーになる
-- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分（EventBridge からのジョブ起動、DynamoDB、Cognito）は、コードも IaC もない。画面の配信は、IaC（`infra/`）に S3 + CloudFront と最小の API があるが、この図の Lambda ハンドラ（`runtime/lambda.ts`）とは、まだつながっていない（Issue #75）
+- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分のうち、DynamoDB は、アダプタ（`infrastructure/dynamodb/`）と IaC（`SfmData`）がある（Lambda ハンドラとは、まだ接続していない。Issue #75）。EventBridge からのジョブ起動、Cognito は、コードも IaC もない。画面の配信は、IaC（`infra/`）に S3 + CloudFront と最小の API があるが、この図の Lambda ハンドラ（`runtime/lambda.ts`）とは、まだつながっていない（Issue #75）
 
 ## フロントエンドの構成
 
@@ -1116,7 +1116,9 @@ flowchart LR
 | --------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `APP_MODE`                                                      | `local`                   | `local`／`test`／`production`。`production` は起動できない（アダプタ未実装）。`production` 以外は、開発用 API が有効                            |
 | `HOST`・`PORT`                                                  | `127.0.0.1`・`8787`       | 待ち受け                                                                                                                                        |
-| `PERSISTENCE`                                                   | `memory`                  | `memory`／`file`／`dynamodb`（未実装で、指定すると `ConfigError`）                                                                              |
+| `PERSISTENCE`                                                   | `memory`                  | `memory`／`file`／`dynamodb`（Repository を DynamoDB にする。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須）                                                                              |
+| `DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`            | なし                      | `PERSISTENCE=dynamodb` のとき必須（なければ `ConfigError`）。DynamoDB のテーブル名（テーブルは IaC の `SfmData` が作る） |
+| `DYNAMODB_ENDPOINT`・`AWS_REGION`                               | なし                      | DynamoDB の接続先（DynamoDB Local など。ローカルの確認用。指定すると、起動時にテーブルを作り、ダミーの認証情報を使う。AWS では指定しない）、リージョン（Lambda では実行環境が設定）。`PERSISTENCE=dynamodb` では、`DEV_API_ENABLED` は使えない |
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
 | `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
@@ -2484,7 +2486,7 @@ flowchart LR
 | シードデータ            | `SEED_MODE=DEMO`: デモの設備（ハウス 1・収穫ロボット 1・環境センサー 1）と、3 日分の合成データ（温度の基準 26℃で「注意」になる）、手動入力、評価。`reset(EQUIPMENT)`: 設備のみ                                                                                                    | `runtime/container.ts`（`seedDemoData`）・`synthetic-data.ts`                                 |
 | ダミーの認証情報        | 結合テスト: `test-user`／`Dummy-Passw0rd-test`、E2E: `e2e-user`／`Dummy-Passw0rd-e2e`。いずれも、明らかにダミーとわかる値                                                                                                                                                         | `tests/support/test-context.ts`・`tests/e2e/support/e2e-user.ts`                              |
 | 画面の単体テストの補助  | `createFakeFetch(handler)`（呼び出しの記録つきの `fetch` のスタブ。`METHOD /path` → 応答）、`createMemorySession`、`management-frontend.ts` の `App` の描画（全権限・権限なしのログイン）                                                                                         | `tests/support/frontend.ts`・`management-frontend.ts`                                         |
-| Repository の契約テスト | `describe.each` で、メモリとファイル永続化の 2 実装に、同じテストを適用する（DynamoDB の実装を追加する際に、同じテストを適用する前提）                                                                                                                                            | `tests/integration/repository-contract.test.ts`                                               |
+| Repository の契約テスト | `describe.each` で、メモリ・ファイル永続化・DynamoDB（DynamoDB Local）の 3 実装に、同じテスト（実装ごとに 39 件）を適用する。DynamoDB 固有の振る舞い（時刻の正規化・併合順・カウンター・読み取りの上限・再送）は、`tests/integration/dynamodb-adapter.test.ts`                                                                                                                                            | `tests/integration/repository-contract.test.ts`                                               |
 
 結合テストの組み立て（`createTestContext`）は、一時ディレクトリをファイルサーバーのモックのルートとし、`parseConfig`（`APP_MODE=test`・`PERSISTENCE=memory`）→ `createContainer`（固定した時計・連番の ID）→ `createApp` を作り、`login()`・`request()`・`placeFixture()`・`placeFile()` を提供する。
 

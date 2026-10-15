@@ -110,7 +110,7 @@ smart-farm-monitoring/
 |----|--------------|------|
 | ドメイン | `src/backend/domain/` | `evaluation/`（観点の定義、メトリクスの算出、判定、集計、診断メッセージ、評価の単位ごとの評価）、`notification-rules.ts`、`observation-quality.ts`、`status-code.ts`。**純粋関数**。時刻・乱数・DB・ネットワークを使わない |
 | アプリケーション | `src/backend/application/` | ユースケース（サービス）、ポートの定義（`ports/`）、ジョブ、スケジューラ、動作設定（`settings.ts`）、初期データ |
-| インフラ | `src/backend/infrastructure/` | ポートの実装。`local/`（ローカルのアダプタ）、`format-profiles/`、`logging/`。本番のアダプタ（DynamoDB・Cognito・実ファイルサーバー等）は、同じポートの実装として、ここに追加する |
+| インフラ | `src/backend/infrastructure/` | ポートの実装。`common/`（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割。ローカルと DynamoDB が共有）、`local/`（ローカルのアダプタ）、`dynamodb/`（DynamoDB の Repository。ADR-0007）、`format-profiles/`、`logging/`。そのほかの本番のアダプタ（Cognito・実ファイルサーバー等）は、同じポートの実装として、ここに追加する |
 | 提示 | `src/backend/presentation/` | Hono アプリ、ルート一覧、領域ごとのハンドラ（`handlers.ts`・`viewpoint-handlers.ts`・`manual-entry-handlers.ts`、設定・管理は `admin-handlers.ts` が、`equipment-`・`status-code-`・`criteria-`・`user-`・`ingestion-`・`push-subscription-handlers.ts` をまとめる）、ミドルウェア（`middleware.ts`）、認証・認可の補助（`auth-guards.ts`）、本文・クエリの読み取り（`request-parsing.ts`）、ETag（`etag.ts`）、共通のエラー形式、開発用 API（`dev-routes.ts`）。本番の経路は、インフラ層に依存しない（ESLint で強制。開発用 API の `dev-routes.ts`・`api-deps.ts` を除く） |
 | 実行形態 | `src/backend/runtime/` | 環境変数の検証（`config.ts`）、組み立て（`container.ts`）、Node サーバー、Lambda ハンドラ、起動のエントリ |
 
@@ -136,7 +136,7 @@ smart-farm-monitoring/
 |--------|------|----------------------------|------------------|
 | `FileSourcePort` | ファイルの一覧・読み取り・接続テスト（読み取り専用） | `mock-file-server.ts`: ローカルのディレクトリ（`<ルート>/<取り込み元>/`）。停止・遅延を再現 | SFTP・S3・HTTPS 等（Q-002）。モックと同じ契約テストを適用 |
 | `FormatProfile` / `FormatProfileRegistry` | ファイルの解釈（レイアウトと項目の対応づけ。版と状態） | `format-profiles/declarative-profile.ts`: 宣言的な設定（JSON）で、ロボット JSON・環境センサー CSV を読む | 確定仕様の FormatProfile を追加・差し替え（FR-1.12） |
-| `Repository`（13種） | 永続化。`Repositories` にまとめる | `local/local-repositories.ts`（組み立て）と `local/repositories/`（集約ごとの実装）: メモリ + JSON ファイル（3.4） | DynamoDB（物理設計は [data-model.md](../data/data-model.md) 2章。対応は 4.3） |
+| `Repository`（13種） | 永続化。`Repositories` にまとめる | `local/local-repositories.ts`（組み立て）と `local/repositories/`（集約ごとの実装）: メモリ + JSON ファイル（3.4） | `dynamodb/dynamodb-repositories.ts`（組み立て）と、集約ごとの実装: DynamoDB（物理設計は [data-model.md](../data/data-model.md) 2章・[ADR-0007](../adr/0007-dynamodb-table-design.md)。対応は 4.3） |
 | `NotifierPort` | Web Push の配信（画面内の通知は、通知の保存そのもの） | `dummy-web-push.ts`: 配信を記録。成功・失敗・購読無効を再現 | Web Push の配信サービス。メール等の追加 |
 | `FederationPort` | 農業情報基盤への送信 | `mock-federation.ts`: 受け取りを記録。成功・停止・遅延・拒否を再現 | 農業情報基盤のアダプタ（Q-005） |
 | `AuthPort` | 認証（誰か）。ロールから権限への変換は、アプリケーション層の `AccessPolicy` | `local-auth.ts`: アプリ内のユーザーID・パスワード、セッション、試行回数の制限（3.6） | Amazon Cognito |
@@ -201,7 +201,7 @@ flowchart LR
 |------|------|------|
 | `APP_MODE` | `local` | `local`／`test`／`production`。`production` は、アダプタが未実装のため、起動できない。開発用 API は、`DEV_API_ENABLED=true` と明示した場合だけ有効（`production` では、指定にかかわらず無効） |
 | `HOST`・`PORT` | `127.0.0.1`・`8787` | Node サーバーの待ち受け（`PORT=0` で空きポート） |
-| `PERSISTENCE` | `memory` | `memory`（メモリのみ）／`file`（`DATA_FILE` の JSON ファイル）／`dynamodb`（未実装） |
+| `PERSISTENCE` | `memory` | `memory`（メモリのみ）／`file`（`DATA_FILE` の JSON ファイル）／`dynamodb`（DynamoDB。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須。ローカルの確認用に、`DYNAMODB_ENDPOINT`（DynamoDB Local）。`DEV_API_ENABLED` とは併用不可） |
 | `DATA_FILE` | `.local-data/store.json` | ファイル永続化の保存先（Git 管理外） |
 | `FILE_SERVER_DIR` | `.local-data/file-server` | ファイルサーバーのモックのルート。`<ルート>/robot/`・`<ルート>/environment-sensor/` に合成データのファイルを置く |
 | `SEED_MODE` | `NONE` | `DEMO`: デモの設備・合成データ（3日分）・手動入力・評価・通知を投入（設備が1件もないときのみ） |
@@ -221,8 +221,8 @@ flowchart LR
 
 - `infrastructure/local/local-store.ts`: コレクション（キー → 値の Map）を持ち、変更を一定時間（既定 300 ms）まとめて、JSON ファイルへ書く（一時ファイルに書いてから置き換える）。読み込み時に、**各値をスキーマで検証**する（壊れたデータを内部に渡さない）。`PERSISTENCE=memory` ではファイルを使わない
 - `infrastructure/local/local-repositories.ts`: 13種の Repository を組み立てる。集約ごとの実装は `infrastructure/local/repositories/`（観測値・通知・取り込みと連携・設備などのマスタ・評価・手動入力と変更履歴・ユーザーと購読）にあり、コレクションの上に実装する。観測値は、設備ごとの索引と、計測日時の順の索引（一意キーと計測日時。保存した新しい一意キーは、次の参照でまとめて加える。読み込みの直後に作る）を持ち、一覧の既定の並べ替え（計測日時）は、全件を並べ替えず、索引をたどって先頭のページだけを取り出す。一覧は、サーバー側で絞り込み・並べ替え・ページ分割する（カーソルは、位置を符号化した不透明な文字列。不正なカーソルは入力不正）
-- DynamoDB の実装は、**同じ `Repositories` の別実装**として追加できる。DynamoDB ローカル等の追加パッケージは使わない。**契約テスト**（`tests/integration/repository-contract.test.ts`）を、メモリ・ファイルの両方に適用している。DynamoDB の実装にも、同じテストを適用する
-- 既知の差（DynamoDB 実装時に対応）: 観測値の保存と連携キューへの追加は、本番ではトランザクション書き込みで同時に行う（ADR-0004）。ローカルは別々の呼び出し
+- DynamoDB の実装（`infrastructure/dynamodb/`。Issue #73）は、**同じ `Repositories` の別実装**。AWS SDK（`@aws-sdk/client-dynamodb`・`@aws-sdk/lib-dynamodb`）は、このアダプタだけが使う。**契約テスト**（`tests/integration/repository-contract.test.ts`）を、メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 つに適用している（手順は [commands.md](../../00_project/commands.md)）。DynamoDB 固有の振る舞いは、`tests/integration/dynamodb-adapter.test.ts`
+- 既知の差: 観測値の保存と連携キューへの追加は、本番ではトランザクション書き込みで同時に行う（ADR-0004）。ローカルは別々の呼び出し。DynamoDB のアダプタ（Issue #73）も、Repository ごとの呼び出しのため、別々（同時に書く対応は、取り込みの組み立てを AWS に合わせるときに行う）
 
 ### 3.5 モックの外部サービス
 
@@ -293,7 +293,7 @@ rfp.md 7章の方針（推察して仮決め、根拠を記録、確定後に差
 | 19 | Web Push の購読・配信 | 購読は、利用者・端末ごと（エンドポイントごと）。状態（有効・無効）は端末ごとに確認する（`GET /push-subscription?endpoint=`）。通知を作ると、Web Push の配信（待機）を持ち、購読者全員へ配信する。購読がなければ、配信は完了とする（画面内の通知のみ）。失敗は、最大3回（初回を含む）まで、JB-04 で再送する。購読が無効なら、購読を無効にする | FR-7.2・FR-7.7（再送の方法は未定） | Q-011 | `application/notification/notification-service.ts`、`application/settings.ts` |
 | 20 | ステータスコードの状態判定 | 走行: `RUNNING`・`HARVESTING`、それ以外は停止。姿勢異常: `FALLEN`。故障・異常: カテゴリが異常。定義にない・削除済みのコード値は、不正な値 | FR-3.3（コード仕様が未提供） | Q-001、Q-003 | `domain/status-code.ts` |
 | 21 | 取り込み後・手動入力後の評価 | 取り込みの保存後に、評価を更新する（評価の失敗は、取り込みの結果に影響させない）。手動入力の登録・修正・削除後の評価・通知は、通常の規則（保存後に再評価。状態変化で通知）で扱う。**取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけを評価する**（`evaluateAffected`。ほかの設備の評価の更新は、定期の評価 JB-02 が行う。手順10の負荷テストで、全設備の評価が、同時接続の保存の応答を遅くしたため）。設備・ステータスコードの変更後、判断基準の変更後は、全設備を再評価する（失敗しても、変更の結果に影響させない）。評価は、設備ごとの区切りで、イベントループへ制御を戻し、実行の開始の直前に届いた要求は、同じ回にまとめる | FR-5.4、UC-18 の TODO | UC-18（要件側 TODO） | `application/ingestion/ingestion-service.ts`、`application/manual-entry/manual-entry-service.ts` |
-| 22 | 保存期間 | メモリ・ファイルのローカル実装は、無期限（1年分の蓄積に対応）。TTL は、DynamoDB の実装時に設定 | NFR-3.6（保存期間は未確認） | rfp.md 6章（番号なし） | （DynamoDB 実装時） |
+| 22 | 保存期間 | メモリ・ファイルのローカル実装は、無期限（1年分の蓄積に対応）。TTL は、保存期間が決まったら設定（DynamoDB の実装は、TTL の属性を用意するだけで、期間は未設定。ADR-0007） | NFR-3.6（保存期間は未確認） | rfp.md 6章（番号なし） | （保存期間の確定後） |
 | 23 | セッションのブラウザでの保持 | アクセス・リフレッシュトークンを、`sessionStorage` に保持（タブを閉じると消える）。`dangerouslySetInnerHTML` は使わない。Cognito への移行時に、Cookie（HttpOnly）方式も含めて見直す | 基礎部分の簡素な方式 | Q-017 | `src/frontend/api/session-storage.ts` |
 | 24 | 設備の削除・識別子 | **ハウスを削除すると、配下のロボット・センサーも論理削除**する（変更履歴には、各設備を記録）。過去の観測値は残し、評価・取り込み・表示の対象から外す。ハウスは親を持てず、ロボット・センサーは親のハウス（削除されていないもの）が必須。**データ上の識別子（`externalId`）は、同じ種別の中で一意**（重複は 409） | FR-2。画面で、配下を含む削除を、確認のダイアログで明示する | FR-2（要件側の TODO） | `application/equipment/equipment-service.ts` |
 | 25 | ステータスコードの再登録 | **論理削除したコード値と同じコード値は、再び登録できる**（削除を取り消し、新しい内容で有効にする）。有効なコード値との重複は 409。コード値は変更できない（名称・説明・カテゴリのみ） | FR-3.2（再利用の扱いは未定） | FR-3 | `application/equipment/status-code-service.ts` |
@@ -524,7 +524,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 - **手順9（後半）の確認待ち**: レビュー指摘のうち、発注者・ユーザーの判断が先に必要なもの・本番のスコープ外のものは、`work/.current-session/work/review.md` の各項目の「状態」に、理由と提案を記載している
 - **負荷テスト**（`pnpm test:stress`）は実装済み（6.5。結果と報告は `./test-result/stresstest.result.log`・`stresstest.report.md`）。ローカルのメモリ実装・1台での計測であり、本番（DynamoDB・Lambda 等）の性能は、本番のアダプタの実装後に、同じテストで確認する
 - **E2E のカバレッジ**は、Vitest（単体・結合）の計測のみ。E2E（ブラウザ・別プロセスのサーバー）の計測の統合は未実施（6.2）
-- **本番のアダプタ**（DynamoDB・Cognito・実ファイルサーバー・実際の Web Push の配信・農業情報基盤）は未実装。ポートの契約テストを、実装時に同じものを適用する
+- **本番のアダプタ**のうち、DynamoDB の Repository は実装済み（Issue #73。DynamoDB Local で、契約テストを通した。AWS では未確認）。Cognito・実ファイルサーバー・実際の Web Push の配信・農業情報基盤は未実装。ポートの契約テストを、実装時に同じものを適用する
 - **未使用のコード**: `frontend/pages/placeholder-page.tsx`（全画面を実装したため、どの画面からも使っていない。削除の候補）
 - **テスト方針との差**: カバレッジの目標は 95%（test-policy.md の 90% より厳しい）、E2E のファイル名は `UC-NN-*.ts`・`scenario-*.ts`（test-policy.md の接尾辞 `.test.ts` と異なる）。いずれも 6章に理由を記載
 - **既知の制約**: 固定した時計の同一の瞬間に作った、ステータスの履歴・変更履歴は、同じキーの上書き・順序の不定が起こる。E2E は、時計を進めてから次の操作を行う
