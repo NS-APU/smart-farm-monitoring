@@ -75,8 +75,11 @@ import { createViewpointQuery, type ViewpointQuery } from '../application/query/
 import { seedInitialStatusCodes } from '../application/seed/initial-data.ts';
 import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
+import { createLoginThrottle } from '../infrastructure/dynamodb/login-throttle.ts';
 import { createTables } from '../infrastructure/dynamodb/table-admin.ts';
 import { createDefaultFormatProfileRegistry } from '../infrastructure/format-profiles/declarative-profile.ts';
 import {
@@ -88,7 +91,9 @@ import { createDummyWebPush } from '../infrastructure/local/dummy-web-push.ts';
 import { createFaultController } from '../infrastructure/local/faults.ts';
 import { createUuidGenerator } from '../infrastructure/local/ids.ts';
 import { ensureInitialUser } from '../infrastructure/local/initial-user.ts';
+import { createInMemoryLoginThrottle } from '../infrastructure/local/in-memory-login-throttle.ts';
 import { createLocalAuth } from '../infrastructure/local/local-auth.ts';
+import { createLocalCredentials } from '../infrastructure/local/local-credentials.ts';
 import { createLocalRepositories } from '../infrastructure/local/local-repositories.ts';
 import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
@@ -104,7 +109,10 @@ import {
 import { createJsonLogger, STDOUT_SINK } from '../infrastructure/logging/json-logger.ts';
 import type { DevApiDeps } from '../presentation/api-deps.ts';
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
-import { ConfigError, type AppConfig, type DynamoDbConfig } from './config.ts';
+import { ConfigError, type AppConfig, type CognitoConfig, type DynamoDbConfig } from './config.ts';
+import type { AuthPort } from '../application/ports/auth-port.ts';
+import type { CredentialPort } from '../application/ports/credential-port.ts';
+import type { LoginThrottlePort } from '../application/ports/login-throttle-port.ts';
 
 const DEMO_DAYS = 3;
 const DEMO_SEED = 20_261_009;
@@ -116,6 +124,8 @@ export interface Container {
   readonly logger: Logger;
   readonly clock: ClockPort;
   readonly repositories: Repositories;
+  /** 資格情報（パスワード）の管理。最初のユーザーを作るコマンドが使う。 */
+  readonly credentials: CredentialPort;
   readonly policy: AccessPolicy;
   readonly authService: AuthService;
   readonly equipmentService: EquipmentService;
@@ -150,6 +160,8 @@ export interface ContainerOverrides {
   readonly clock?: ControllableClock;
   readonly ids?: IdGeneratorPort;
   readonly settings?: Partial<AppSettings>;
+  /** Cognito のクライアント（テストで、偽のクライアントに差し替える）。 */
+  readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -182,9 +194,11 @@ interface Storage {
   readonly store: LocalStore | undefined;
   /** 使う前の準備（DynamoDB Local のテーブルの作成など）。 */
   readonly prepare: () => Promise<void>;
+  /** ログインの試行回数の制限。複数の実行環境で共有する必要がある DynamoDB は、DynamoDB に持つ。 */
+  readonly loginThrottle: LoginThrottlePort;
 }
 
-function buildDynamoStorage(dynamodb: DynamoDbConfig): Storage {
+function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage {
   // 別の接続先（DynamoDB Local）のときだけ、ダミーの認証情報を使う。AWS では、実行ロールの認証情報
   const options = {
     region:
@@ -193,8 +207,10 @@ function buildDynamoStorage(dynamodb: DynamoDbConfig): Storage {
     credentials: dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_CREDENTIALS,
   };
   const tables = { observations: dynamodb.observationsTable, main: dynamodb.mainTable };
+  const client = createDocumentClient(options);
   return {
-    repositories: createDynamoRepositories({ client: createDocumentClient(options), tables }),
+    repositories: createDynamoRepositories({ client, tables }),
+    loginThrottle: createLoginThrottle({ client, tables }, clock),
     store: undefined,
     // AWS のテーブルは、IaC で作る。ローカルの接続先のときだけ、作る（すでにあれば、そのまま使う）
     prepare: () =>
@@ -202,7 +218,7 @@ function buildDynamoStorage(dynamodb: DynamoDbConfig): Storage {
   };
 }
 
-function buildLocalStorage(config: AppConfig, logger: Logger): Storage {
+function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort): Storage {
   const { repositories, store } = createLocalRepositories(
     config.persistence === 'file'
       ? {
@@ -216,15 +232,52 @@ function buildLocalStorage(config: AppConfig, logger: Logger): Storage {
       : {},
   );
   store.load();
-  return { repositories, store, prepare: () => Promise.resolve() };
+  return {
+    repositories,
+    store,
+    prepare: () => Promise.resolve(),
+    loginThrottle: createInMemoryLoginThrottle(clock),
+  };
+}
+
+/** 認証（誰か）と、資格情報（パスワード）の管理。ローカルは、アプリ内の認証、Cognito は、Amazon Cognito（ADR-0008）。 */
+interface Identity {
+  readonly auth: AuthPort;
+  readonly credentials: CredentialPort;
+}
+
+function buildCognitoIdentity(
+  cognito: CognitoConfig,
+  storage: Storage,
+  clock: ClockPort,
+  overrides: ContainerOverrides,
+): Identity {
+  return createCognitoIdentity({
+    client:
+      overrides.cognitoClient ??
+      new CognitoIdentityProviderClient(
+        cognito.region === undefined ? {} : { region: cognito.region },
+      ),
+    userPoolId: cognito.userPoolId,
+    clientId: cognito.clientId,
+    users: storage.repositories.users,
+    clock,
+    throttle: storage.loginThrottle,
+  });
 }
 
 /** ローカル・テスト用のアダプタ: Repository、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、認証。 */
-function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
-  const { repositories, store, prepare } =
+function buildAdapters(
+  config: AppConfig,
+  clock: ClockPort,
+  logger: Logger,
+  overrides: ContainerOverrides,
+) {
+  const storage =
     config.dynamodb === undefined
-      ? buildLocalStorage(config, logger)
-      : buildDynamoStorage(config.dynamodb);
+      ? buildLocalStorage(config, logger, clock)
+      : buildDynamoStorage(config.dynamodb, clock);
+  const { repositories, store, prepare } = storage;
 
   const faults = {
     fileServer: createFaultController(),
@@ -241,10 +294,27 @@ function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
     clock,
   });
   const policy = createAccessPolicy(config.roles);
-  const auth = createLocalAuth({ users: repositories.users, clock });
+  const { auth, credentials }: Identity =
+    config.cognito === undefined
+      ? {
+          auth: createLocalAuth({ users: repositories.users, clock }),
+          credentials: createLocalCredentials({ hash: hashPassword }),
+        }
+      : buildCognitoIdentity(config.cognito, storage, clock, overrides);
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
-  return { repositories, store, prepare, faults, mocks, fileSource, policy, auth, profiles };
+  return {
+    repositories,
+    store,
+    prepare,
+    faults,
+    mocks,
+    fileSource,
+    policy,
+    auth,
+    credentials,
+    profiles,
+  };
 }
 
 type Adapters = ReturnType<typeof buildAdapters>;
@@ -260,7 +330,7 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, mocks, fileSource, policy, auth, profiles } = adapters;
+  const { repositories, mocks, fileSource, policy, auth, credentials, profiles } = adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
@@ -341,7 +411,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const userService = createUserService({
     users: repositories.users,
     policy,
-    hasher: { hash: hashPassword },
+    credentials,
     audit: auditService,
     clock,
     sessions: auth,
@@ -478,7 +548,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
   const ids = overrides.ids ?? createUuidGenerator();
   const settings = buildSettings(config, overrides);
 
-  const adapters = buildAdapters(config, clock, logger);
+  const adapters = buildAdapters(config, clock, logger, overrides);
   const services = buildServices({ config, settings, adapters, logger, clock, ids });
   const { repositories, store, policy } = adapters;
 
@@ -486,7 +556,12 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     await adapters.prepare();
     await seedInitialStatusCodes(repositories.statusCodes);
     if (config.initialUser !== undefined) {
-      const created = await ensureInitialUser(repositories.users, config.initialUser, clock.now());
+      const created = await ensureInitialUser(
+        repositories.users,
+        config.initialUser,
+        clock.now(),
+        adapters.credentials,
+      );
       if (created) {
         logger.info('最初のユーザーを作成しました', { userId: config.initialUser.userId });
       }
@@ -514,6 +589,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     logger,
     clock,
     repositories,
+    credentials: adapters.credentials,
     policy,
     authService: services.authService,
     equipmentService: services.equipmentService,

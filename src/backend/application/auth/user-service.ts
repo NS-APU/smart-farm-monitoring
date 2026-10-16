@@ -1,6 +1,9 @@
 /**
  * ユーザー管理のユースケース（UC-14。FR-9.4）。ユーザーID・ユーザー名・パスワード・ロール。
- * パスワードは、ハッシュ化して保存し、応答・ログ・変更履歴に含めない（FR-9.2）。
+ * パスワードは、資格情報のポート（CredentialPort）に預け、応答・ログ・変更履歴に含めない（FR-9.2）。
+ * 預け先は、ローカルならユーザーの記録のハッシュ、Cognito なら Cognito（ADR-0008）。
+ * 預け先と、ユーザーの記録（名前・ロール）は、別々に書くため、途中で失敗しても、ログインできる状態や、
+ * 残った資格情報で別のユーザーが作られる状態にならない順序で書く（作成: 資格情報 → 記録、削除: 資格情報 → 記録）。
  * ログイン中のユーザー自身は削除できない（誰もログインできなくなることを防ぐ）。
  * ユーザーを削除したら、そのユーザーのセッションと Web Push の購読も削除し、パスワードを再設定したら、
  * そのユーザーのセッションを失効する（削除後も通知が届き続ける・削除前のトークンが再登録で復活する、ことを防ぐ）。
@@ -19,7 +22,7 @@ import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { AuthPort } from '../ports/auth-port.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
-import type { PasswordHasherPort } from '../ports/password-hasher-port.ts';
+import type { CredentialPort } from '../ports/credential-port.ts';
 import type { UserRecord } from '../ports/records.ts';
 import type { PushSubscriptionRepository, UserRepository } from '../ports/repositories.ts';
 import type { AccessPolicy } from './access-policy.ts';
@@ -45,7 +48,8 @@ export interface UserService {
 export interface UserServiceDeps {
   readonly users: UserRepository;
   readonly policy: AccessPolicy;
-  readonly hasher: PasswordHasherPort;
+  /** パスワードの預け先。 */
+  readonly credentials: CredentialPort;
   readonly audit: AuditService;
   readonly clock: ClockPort;
   /** セッションの失効（AuthPort の一部）。 */
@@ -64,7 +68,7 @@ function toPublicUser(user: UserRecord): PublicUser {
 }
 
 export function createUserService(deps: UserServiceDeps): UserService {
-  const { users, policy, hasher, audit, clock, sessions, pushSubscriptions } = deps;
+  const { users, policy, credentials, audit, clock, sessions, pushSubscriptions } = deps;
 
   function assertKnownRole(role: string): void {
     if (!policy.isKnownRole(role)) {
@@ -112,14 +116,21 @@ export function createUserService(deps: UserServiceDeps): UserService {
       if ((await users.get(input.userId)) !== undefined) {
         throw conflictError('userId', '同じユーザーIDがすでに登録されています');
       }
+      const stored = await credentials.register(input.userId, input.password);
       const created: UserRecord = {
         userId: input.userId,
         userName: input.userName,
         role: input.role,
-        passwordHash: hasher.hash(input.password),
+        ...stored,
         createdAt: clock.now().toISOString(),
       };
-      await users.save(created);
+      try {
+        await users.save(created);
+      } catch (error) {
+        // 記録を書けなかったら、預けた資格情報を戻す（記録のない資格情報を、残さない）。戻せなくても、元のエラーを返す
+        await credentials.remove(created.userId).catch(() => undefined);
+        throw error;
+      }
       await audit.record({
         operation: 'CREATE',
         targetType: USER_TARGET_TYPE,
@@ -134,11 +145,13 @@ export function createUserService(deps: UserServiceDeps): UserService {
       const before = await findUser(userId);
       assertKnownRole(input.role);
       await assertUserManagerRemains(userId, input.role);
+      const stored =
+        input.password === undefined ? {} : await credentials.reset(userId, input.password);
       const updated: UserRecord = {
         ...before,
         userName: input.userName,
         role: input.role,
-        ...(input.password === undefined ? {} : { passwordHash: hasher.hash(input.password) }),
+        ...stored,
       };
       await users.save(updated);
       if (input.password !== undefined) {
@@ -165,6 +178,8 @@ export function createUserService(deps: UserServiceDeps): UserService {
       if (userId === actor) {
         throw new AppError('CONFLICT', 'ログイン中のユーザー自身は削除できません');
       }
+      // 資格情報を先に消す（記録だけが消え、資格情報が残る状態にしない。失敗したら、記録は残り、やり直せる）
+      await credentials.remove(userId);
       await users.delete(userId);
       await sessions.revokeSessionsOf(userId);
       await pushSubscriptions.deleteByUser(userId);

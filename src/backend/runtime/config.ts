@@ -22,6 +22,10 @@ export type AppMode = (typeof APP_MODES)[number];
 export const PERSISTENCE_MODES = ['memory', 'file', 'dynamodb'] as const;
 export type PersistenceMode = (typeof PERSISTENCE_MODES)[number];
 
+/** 認証の方式。local: アプリ内のユーザーID・パスワード／cognito: Amazon Cognito（ADR-0008）。 */
+export const AUTH_PROVIDERS = ['local', 'cognito'] as const;
+export type AuthProvider = (typeof AUTH_PROVIDERS)[number];
+
 const BooleanFromString = z.enum(['true', 'false']).transform((value) => value === 'true');
 
 const RoleDefinitionsSchema = z.record(
@@ -43,6 +47,11 @@ const EnvSchema = z.object({
   DYNAMODB_MAIN_TABLE: z.string().min(1).optional(),
   /** DynamoDB の接続先（DynamoDB Local など、ローカルの開発用）。指定すると、起動時にテーブルを作る。AWS では指定しない。 */
   DYNAMODB_ENDPOINT: z.url().optional(),
+  /** 認証の方式。cognito は、PERSISTENCE=dynamodb が必要（ユーザーのロールを DynamoDB に持つ）。 */
+  AUTH_PROVIDER: z.enum(AUTH_PROVIDERS).default('local'),
+  /** Cognito のユーザープール・アプリクライアントの ID（AUTH_PROVIDER=cognito で必須。IaC の SfmData の出力）。 */
+  COGNITO_USER_POOL_ID: z.string().min(1).optional(),
+  COGNITO_CLIENT_ID: z.string().min(1).optional(),
   /** AWS のリージョン（Lambda では、実行環境が設定する）。 */
   AWS_REGION: z.string().min(1).optional(),
   /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
@@ -87,6 +96,13 @@ export interface DynamoDbConfig {
   readonly region: string | undefined;
 }
 
+/** Cognito の接続の設定（AUTH_PROVIDER=cognito のとき）。 */
+export interface CognitoConfig {
+  readonly userPoolId: string;
+  readonly clientId: string;
+  readonly region: string | undefined;
+}
+
 export interface InitialUserConfig {
   readonly userId: string;
   readonly userName: string;
@@ -102,6 +118,8 @@ export interface AppConfig {
   readonly dataFile: string;
   /** PERSISTENCE=dynamodb のときだけ。 */
   readonly dynamodb: DynamoDbConfig | undefined;
+  /** AUTH_PROVIDER=cognito のときだけ。 */
+  readonly cognito: CognitoConfig | undefined;
   readonly fileServerDirectory: string;
   readonly seedMode: SeedMode;
   readonly initialUser: InitialUserConfig | undefined;
@@ -193,13 +211,58 @@ function parseDynamoDb(parsed: z.infer<typeof EnvSchema>): DynamoDbConfig | unde
   };
 }
 
-export function parseConfig(env: Readonly<Record<string, string | undefined>>): AppConfig {
+function parseCognito(parsed: z.infer<typeof EnvSchema>): CognitoConfig | undefined {
+  if (parsed.AUTH_PROVIDER !== 'cognito') {
+    return undefined;
+  }
+  if (parsed.COGNITO_USER_POOL_ID === undefined || parsed.COGNITO_CLIENT_ID === undefined) {
+    throw new ConfigError(
+      'AUTH_PROVIDER=cognito では、COGNITO_USER_POOL_ID と COGNITO_CLIENT_ID の指定が必要です',
+    );
+  }
+  if (parsed.PERSISTENCE !== 'dynamodb') {
+    // ユーザーのロール・最終ログインは、DynamoDB の USER に持つ。ログインの試行回数の制限も、DynamoDB で共有する
+    throw new ConfigError('AUTH_PROVIDER=cognito では、PERSISTENCE=dynamodb が必要です');
+  }
+  if (
+    parsed.INITIAL_USER_ID !== undefined ||
+    parsed.INITIAL_USER_NAME !== undefined ||
+    parsed.INITIAL_USER_PASSWORD !== undefined
+  ) {
+    // 最初のユーザーは、起動のたびではなく、手元のスクリプトで 1 回だけ作る（パスワードを、環境変数・設定に残さない）
+    throw new ConfigError(
+      'AUTH_PROVIDER=cognito では、INITIAL_USER_* は使えません。最初のユーザーは、スクリプトで作ります（docs/00_project/commands.md）',
+    );
+  }
+  return {
+    userPoolId: parsed.COGNITO_USER_POOL_ID,
+    clientId: parsed.COGNITO_CLIENT_ID,
+    region: parsed.AWS_REGION,
+  };
+}
+
+function parseEnv(env: Readonly<Record<string, string | undefined>>): z.infer<typeof EnvSchema> {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
     const names = [...new Set(result.error.issues.map((issue) => String(issue.path[0] ?? 'ENV')))];
     throw new ConfigError(`環境変数の設定が正しくありません: ${names.join(', ')}`);
   }
-  const parsed = result.data;
+  return result.data;
+}
+
+/**
+ * 環境変数の INITIAL_USER_* だけを読む（最初のユーザーを作るコマンド用。ほかの設定の検証は、parseConfig が行う）。
+ * 指定がなければ undefined。
+ */
+export function parseInitialUserEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  roles: RoleConfig,
+): InitialUserConfig | undefined {
+  return parseInitialUser(parseEnv(env), roles);
+}
+
+export function parseConfig(env: Readonly<Record<string, string | undefined>>): AppConfig {
+  const parsed = parseEnv(env);
   const roles = parseRoles(parsed.ROLE_DEFINITIONS_JSON);
   return {
     mode: parsed.APP_MODE,
@@ -208,6 +271,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     persistence: parsed.PERSISTENCE,
     dataFile: parsed.DATA_FILE,
     dynamodb: parseDynamoDb(parsed),
+    cognito: parseCognito(parsed),
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     seedMode: parsed.SEED_MODE,
     initialUser: parseInitialUser(parsed, roles),

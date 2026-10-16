@@ -17,8 +17,11 @@ export const UserRecordSchema = z.object({
   userId: UserIdSchema,
   userName: z.string().min(1).max(200),
   role: z.string().min(1),
-  /** パスワードのハッシュ（形式: scrypt$<salt>$<hash>）。平文は保持しない。 */
-  passwordHash: z.string().min(1),
+  /**
+   * パスワードのハッシュ（形式: scrypt$<salt>$<hash>）。平文は保持しない。
+   * パスワードを Cognito が持つ構成（ADR-0008）では、持たない。
+   */
+  passwordHash: z.string().min(1).optional(),
   lastLoginAt: IsoDateTimeSchema.optional(),
   createdAt: IsoDateTimeSchema,
 });
