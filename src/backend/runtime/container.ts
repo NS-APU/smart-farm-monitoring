@@ -1,6 +1,7 @@
 /**
  * 組み立て（コンポジションルート）。設定に応じて、ポートの実装（アダプタ）を選び、サービスを組み立てる。
- * 本番は、DynamoDB・Cognito・実ファイルサーバー等のアダプタを、ここで差し替える（後で追加する）。
+ * 本番（production）は、DynamoDB の Repository・Cognito の認証を使う（設定で必須。ADR-0009）。ファイルサーバー・農業情報基盤・
+ * Web Push は、評価環境では、モックのまま（実ファイルサーバーなどは未実装。ファイルサーバーのモックの S3 版は Issue #77）。
  * ローカル（local）・テスト（test）では、メモリ／ファイルの Repository、ファイルサーバーと農業情報基盤の
  * モック、Web Push のダミー、アプリ内の認証、操作できる時計を使う（AWS なしで E2E・負荷テストを動かす）。
  */
@@ -109,7 +110,7 @@ import {
 import { createJsonLogger, STDOUT_SINK } from '../infrastructure/logging/json-logger.ts';
 import type { DevApiDeps } from '../presentation/api-deps.ts';
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
-import { ConfigError, type AppConfig, type CognitoConfig, type DynamoDbConfig } from './config.ts';
+import type { AppConfig, CognitoConfig, DynamoDbConfig } from './config.ts';
 import type { AuthPort } from '../application/ports/auth-port.ts';
 import type { CredentialPort } from '../application/ports/credential-port.ts';
 import type { LoginThrottlePort } from '../application/ports/login-throttle-port.ts';
@@ -535,10 +536,6 @@ function buildDevControls(
 }
 
 export function createContainer(config: AppConfig, overrides: ContainerOverrides = {}): Container {
-  if (config.mode === 'production') {
-    throw new ConfigError('本番用のアダプタ（Cognito・実ファイルサーバー）は未実装です');
-  }
-
   const logger =
     overrides.logger ?? createJsonLogger({ sink: STDOUT_SINK, minimumLevel: config.logLevel });
   // 時刻を操作できる時計は、開発用 API が有効なときだけ作る（無効なときは、システム時計。V-143）

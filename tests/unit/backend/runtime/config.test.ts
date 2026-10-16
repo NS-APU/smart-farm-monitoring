@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, parseConfig } from '../../../../src/backend/runtime/config.ts';
+import {
+  ConfigError,
+  parseConfig,
+  parseLambdaConfig,
+} from '../../../../src/backend/runtime/config.ts';
 
 const INITIAL_USER = {
   INITIAL_USER_ID: 'first-user',
@@ -10,6 +14,15 @@ const INITIAL_USER = {
 const DYNAMODB_TABLES = {
   DYNAMODB_OBSERVATIONS_TABLE: 'dummy-observations',
   DYNAMODB_MAIN_TABLE: 'dummy-main',
+};
+
+// 本番（APP_MODE=production）に必要な、DynamoDB・Cognito の設定（ダミー値）
+const PRODUCTION_ADAPTERS = {
+  PERSISTENCE: 'dynamodb',
+  ...DYNAMODB_TABLES,
+  AUTH_PROVIDER: 'cognito',
+  COGNITO_USER_POOL_ID: 'dummy-pool',
+  COGNITO_CLIENT_ID: 'dummy-client',
 };
 
 describe('実行設定（環境変数）', () => {
@@ -169,7 +182,48 @@ describe('実行設定（環境変数）', () => {
   });
 
   it('本番では、開発用 API を無効にする', () => {
-    expect(parseConfig({ APP_MODE: 'production' }).devApiEnabled).toBe(false);
+    expect(parseConfig({ APP_MODE: 'production', ...PRODUCTION_ADAPTERS }).devApiEnabled).toBe(
+      false,
+    );
+  });
+
+  describe('本番（APP_MODE=production）の必須の設定（ADR-0009）', () => {
+    it('DynamoDB と Cognito がそろっていれば、読み込める', () => {
+      const config = parseConfig({ APP_MODE: 'production', ...PRODUCTION_ADAPTERS });
+
+      expect(config).toMatchObject({ mode: 'production', persistence: 'dynamodb' });
+      expect(config.dynamodb).toBeDefined();
+      expect(config.cognito).toBeDefined();
+    });
+
+    it.each([
+      ['何も指定しない', {}],
+      ['認証が Cognito でない', { ...PRODUCTION_ADAPTERS, AUTH_PROVIDER: 'local' }],
+      ['データが DynamoDB でない', { ...PRODUCTION_ADAPTERS, PERSISTENCE: 'memory' }],
+    ])('%s場合は、設定エラーにする', (_name, adapters) => {
+      expect(() => parseConfig({ APP_MODE: 'production', ...adapters })).toThrow(ConfigError);
+    });
+  });
+
+  describe('Lambda の設定', () => {
+    const lambdaEnv = { APP_MODE: 'production', ...PRODUCTION_ADAPTERS };
+
+    it('開発用 API・スケジューラを、指定があっても使えなくする', () => {
+      // DynamoDB の設定は、DEV_API_ENABLED そのものを拒否する。上書きは、メモリの設定で確かめる
+      const config = parseLambdaConfig({
+        APP_MODE: 'test',
+        PERSISTENCE: 'memory',
+        DEV_API_ENABLED: 'true',
+        SCHEDULER_ENABLED: 'true',
+      });
+
+      expect(config.devApiEnabled).toBe(false);
+      expect(config.schedulerEnabled).toBe(false);
+    });
+
+    it('SEED_MODE の指定は、起動のたびにデモデータを投入してしまうため、設定エラーにする', () => {
+      expect(() => parseLambdaConfig({ ...lambdaEnv, SEED_MODE: 'DEMO' })).toThrow('SEED_MODE');
+    });
   });
 
   describe('開発用 API の有効化（V-001）', () => {
@@ -181,10 +235,10 @@ describe('実行設定（環境変数）', () => {
       expect(parseConfig({ APP_MODE: 'test', DEV_API_ENABLED: 'false' }).devApiEnabled).toBe(false);
     });
 
-    it('本番では、DEV_API_ENABLED=true でも、強制的に無効にする', () => {
-      expect(parseConfig({ APP_MODE: 'production', DEV_API_ENABLED: 'true' }).devApiEnabled).toBe(
-        false,
-      );
+    it('本番では、DEV_API_ENABLED=true を、設定エラーにする（本番は DynamoDB 必須で、開発用 API を使えない）', () => {
+      expect(() =>
+        parseConfig({ APP_MODE: 'production', ...PRODUCTION_ADAPTERS, DEV_API_ENABLED: 'true' }),
+      ).toThrow('DEV_API_ENABLED');
     });
 
     it('真偽値でない指定は、設定エラーにする', () => {
