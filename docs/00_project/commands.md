@@ -80,7 +80,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 
 顧客評価環境（サーバーレス構成。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）を、AWS CDK で作る。リージョンは東京（ap-northeast-1）。画面（S3 + CloudFront）と、最小の API（`/health` だけに答える Lambda。関数の URL）が、CloudFront の同じオリジンで配信される。
 
-データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`。**Cognito のユーザープールとアプリクライアント**。Issue #74）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73・#74。`deploy` に含まれる）。テーブル名・ユーザープールの ID は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`・`UserPoolId`・`UserPoolClientId`）で参照する（確認: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"`）。**このスタックの AWS への適用は、まだ実行していない**（コードと CDK のテストのみ。適用は、ユーザーが行う。Lambda への接続は、Issue #75）。
+データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`。**Cognito のユーザープールとアプリクライアント**。Issue #74）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73・#74。`deploy` に含まれる）。テーブル名・ユーザープールの ID は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`・`UserPoolId`・`UserPoolClientId`）で参照する（確認: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"`）。**このスタックは、2026-10-16 に、ユーザーが AWS に適用し、動作を確認した**（下の「最初のユーザー（Cognito）」と「AWS に、手元のバックエンドを向けて確認する」）。データを消す手順（`destroy:data`）は、まだ実行していない。Lambda への接続は、Issue #75。
 
 | 目的 | コマンド（リポジトリのルートで実行） | AWS への接続 |
 |------|--------------------------------------|--------------|
@@ -147,13 +147,35 @@ $env:INITIAL_USER_ID = '<ユーザーID>'
 $env:INITIAL_USER_NAME = '<ユーザー名>'
 $env:INITIAL_USER_PASSWORD = '<パスワード（8 文字以上。英大文字・英小文字・数字を含む）>'
 pnpm initial-user
-Remove-Item Env:INITIAL_USER_PASSWORD   # パスワードを、環境変数に残さない
+Remove-Item Env:INITIAL_USER_ID, Env:INITIAL_USER_NAME, Env:INITIAL_USER_PASSWORD, Env:INITIAL_USER_ROLE -ErrorAction SilentlyContinue   # すべて消す（パスワードを残さない。ほかが残ると、同じターミナルで起動するバックエンドが、設定エラーになる）
 ```
 
 - パスワードは、保存・出力されない。AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）。エラーの原因は、AWS のコンソール（CloudTrail）で、確認する
 - ロール（`INITIAL_USER_ROLE`）の既定は、ユーザー管理の権限を持つ最初のロール。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない（ローカル開発用の設定が、混ざらないように）
 - 使う AWS のプロファイルに必要な権限: Cognito のユーザープールへの `AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`（途中の失敗の後始末）・`AdminUserGlobalSignOut`、DynamoDB の `Main` テーブルへの読み書き
-- **状態: AWS では、まだ実行して確認していない**（偽の Cognito と DynamoDB Local での、テストのみ）。AWS での確認の項目は、ADR-0008 の「検証」。Lambda を Cognito につなぐのは、Issue #75
+- **状態: AWS で確認済み**（2026-10-16。最初のユーザーを作成できた。結果は、ADR-0008 の「検証」）。Lambda を Cognito につなぐのは、Issue #75
+
+### AWS に、手元のバックエンドを向けて確認する（Cognito・DynamoDB。Issue #74）
+
+Lambda を AWS につなぐ前（Issue #75 の前）に、**手元のバックエンドを、実際の Cognito と DynamoDB に向けて起動し、API を直接呼ぶ**ことで、認証とデータの接続を確認できる（2026-10-16 に、この方法で確認した。結果は、ADR-0008 の「検証」）。AWS に接続するため、**ユーザーが実行する**（AI エージェントは、実行しない）。
+
+1. **`SfmData` を適用する**: `pnpm build` のあと、`pnpm --filter @smart-farm/infra exec cdk deploy SfmData --require-approval never`（先に `cdk diff SfmData` で、変更を確認する）。`AWS_PROFILE` を指定する
+2. **出力を、環境変数に入れる**（バックエンドを起動するターミナルで）: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"` の `UserPoolId`・`UserPoolClientId`・`ObservationsTableName`・`MainTableName` を、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` に。`AWS_REGION=ap-northeast-1`、`AUTH_PROVIDER=cognito`、`PERSISTENCE=dynamodb`
+3. **最初のユーザーを作る**（上の「最初のユーザー（Cognito）」）。**終わったら、`INITIAL_USER_*` を、すべて消す**
+4. **バックエンドを起動する**: `PORT` を、ほかの開発サーバーと重ならない値（例: 18787）にして、`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`。**`pnpm dev:backend` は使わない**（`.env` を読み込み、`INITIAL_USER_*` などが混ざる）。**コードを更新したら、再起動する**（起動済みのプロセスには、反映されない。`Too big: …<=256 characters` のように、修正前のメッセージが出たら、再起動し忘れ）。起動時に、ステータスコードの初期データが、DynamoDB に書き込まれる（想定どおり）
+5. **別のターミナルで、API を呼ぶ**。PowerShell の例（`Call` は、エラーを表示せず、文字列を返すだけなので、結果は、変数を表示して見る）:
+   ```powershell
+   $base = 'http://127.0.0.1:18787/api/v1'
+   function Call($method, $path, $body = $null, $token = $null) {
+     $p = @{ Method = $method; Uri = "$base$path"; ContentType = 'application/json' }
+     if ($token) { $p.Headers = @{ Authorization = "Bearer $token" } }
+     if ($null -ne $body) { $p.Body = ($body | ConvertTo-Json) }
+     try { Invoke-RestMethod @p } catch { "HTTP $($_.Exception.Response.StatusCode.value__): $($_.ErrorDetails.Message)" }
+   }
+   ```
+   確認する項目: ログイン（`POST /auth/login`）、誤ったパスワード・存在しないユーザー（同じ 401）、`GET /users`、更新（`POST /auth/refresh`）、ユーザーの作成（`POST /users`）、パスワードの再設定（`PUT /users/{id}`。古いトークンが、すぐ 401）、削除（`DELETE /users/{id}`）、ログアウト（`POST /auth/logout`。同じユーザーの別のトークンも 401）、応答時間
+6. **接続元の制限（失敗 5 回 → 429）は、最後に確認する**。この制限は、手元のマシン全体にかかり、Cognito 自身のロックも重なるため、**約 15 分は、ログインできなくなる**
+7. **後始末**: 確認用のバックエンドを止める（自分で起動したものだけ）。確認用のユーザーは、検証用のパスワードのため、評価に使う前に、削除するか、パスワードを変える。`SfmData` は、削除しない（削除の保護がある）
 
 ## 実行結果（2026-10-14。Sprint1 の取り込み後。`develop` のコミット 5223b02）
 
