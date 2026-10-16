@@ -162,4 +162,4 @@ DynamoDB Local 3.3.1（AWS の公式の配布物。SHA-256 を確認）で、観
 
 ### CI での DynamoDB Local（ユーザーの判断 5 の具体化）
 
-判断 5 は、「固定の URL・SHA-256 で取得する」だった。確認したところ、**バージョンを固定した URL はなく**（`dynamodb_local_latest.zip` のみ。最新に更新される）、SHA-256 を固定すると、AWS の更新のたびに CI が失敗する。そのため、同じ目的（変更されない配布物を、検証して使う）を、**AWS の公式のコンテナイメージ（`public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local`。3.3.1）を、ダイジェスト（`sha256:ff89bd48…`）で固定した service container**で実現した（ECR Public と Docker Hub で、同じダイジェストを確認）。ローカルでは、手順（commands.md）のとおり、zip を入手して使う。**CI での動作は、この PR の CI で確認する**（ローカルに Docker がないため、service container は、手元では未確認）。
+判断 5 は、「固定の URL・SHA-256 で取得する」だった。確認したところ、**バージョンを固定した URL はなく**（`dynamodb_local_latest.zip` のみ。最新に更新される）、SHA-256 を固定すると、AWS の更新のたびに CI が失敗する。そのため、同じ目的（変更されない配布物を、検証して使う）を、**AWS の公式のコンテナイメージ（`public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local`。3.3.1）を、ダイジェスト（`sha256:ff89bd48…`）で固定してコンテナで起動する**ことで実現した（ECR Public・Docker Hub・mirror.gcr.io で、同じダイジェストを確認）。**取得先は、複数を順に試す**（Issue #95 の PR で、ECR Public の匿名の取得が、共有の IP からの取得量の上限（`toomanyrequests: Data limit exceeded`）で失敗し、service container の方式をやめた。同じダイジェストのため、どの取得先でも、同じ内容）。ローカルでは、手順（commands.md）のとおり、zip を入手して使う。CI での動作は、PR の CI で確認した（ローカルには Docker がない）。

@@ -2,7 +2,7 @@
  * DynamoDB Local の用意（vitest の globalSetup）。DynamoDB アダプタのテストが、接続先を `inject('dynamodbEndpoint')` で受ける。
  *
  * 接続先は、次の順に決める:
- * 1. 環境変数 `DYNAMODB_ENDPOINT`（起動済みの DynamoDB Local。CI の service container など）。接続できるまで待つ
+ * 1. 環境変数 `DYNAMODB_ENDPOINT`（起動済みの DynamoDB Local。CI のコンテナなど）。接続できるまで待つ
  * 2. 環境変数 `DYNAMODB_LOCAL_DIR`（DynamoDBLocal.jar を展開したディレクトリ）: 空きポートで起動し、テストの後に止める
  * 3. どちらもなければ、未設定（DynamoDB のテストが、設定を促すエラーで失敗する。スキップはしない）
  *
@@ -103,7 +103,7 @@ async function warmUp(endpoint: string): Promise<void> {
 export default async function setup(project: TestProject): Promise<(() => void) | undefined> {
   const configured = process.env.DYNAMODB_ENDPOINT;
   if (configured !== undefined && configured !== '') {
-    // 起動したばかり（CI の service container など）でも、接続できるまで待つ
+    // 起動したばかり（CI のコンテナなど）でも、接続できるまで待つ
     const url = new URL(configured);
     await waitForPort(Number(url.port || 80), url.hostname, () => true);
     await warmUp(configured);
