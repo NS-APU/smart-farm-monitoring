@@ -11,6 +11,7 @@ import {
   LOGIN_FAILURE_LIMIT,
   LOGIN_FAILURE_WINDOW_MINUTES,
 } from '../../src/backend/infrastructure/common/auth-policy.ts';
+import { createApp } from '../../src/backend/presentation/create-app.ts';
 import { parseConfig } from '../../src/backend/runtime/config.ts';
 import { createContainer } from '../../src/backend/runtime/container.ts';
 import { runInitialUserCli } from '../../src/backend/runtime/initial-user-cli.ts';
@@ -179,6 +180,46 @@ describe('Cognito の認証の組み立てと、最初のユーザーを作る�
       expect(container.dev).toBeUndefined();
       await container.authService.logout(login.accessToken);
       expect(await container.authService.authenticate(login.accessToken)).toBeNull();
+    } finally {
+      container.close();
+    }
+  });
+
+  it('実際の Cognito に近い長さのトークンで、API のログイン・更新・認証つきの呼び出しができる（Issue #95）', async () => {
+    const { env, ready } = environment();
+    await ready;
+    const fake = fakeCognito();
+    await runInitialUserCli({ ...env, ...initialUserEnv() }, output(), { cognitoClient: fake });
+    const container = createContainer(parseConfig(env), { cognitoClient: fake });
+    try {
+      const app = createApp(container);
+      const request = (path: string, token: string | undefined, body?: unknown) =>
+        app.request(`/api/v1${path}`, {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+
+      const login = await request('/auth/login', undefined, {
+        userId: 'first-user',
+        password: PASSWORD,
+      });
+      const session = (await login.json()) as { accessToken: string; refreshToken: string };
+      const refreshed = await request('/auth/refresh', undefined, {
+        refreshToken: session.refreshToken,
+      });
+      const renewed = (await refreshed.json()) as { accessToken: string };
+      const users = await request('/users', renewed.accessToken);
+
+      // 実際の Cognito に近い長さ（短いトークンでは、入力の長さの上限の不具合を、見つけられない）
+      expect(session.refreshToken.length).toBeGreaterThan(1000);
+      expect(session.accessToken.length).toBeGreaterThan(900);
+      expect(login.status).toBe(200);
+      expect(refreshed.status).toBe(200);
+      expect(users.status).toBe(200);
     } finally {
       container.close();
     }

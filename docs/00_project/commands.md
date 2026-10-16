@@ -60,7 +60,7 @@ DynamoDB アダプタ（`src/backend/infrastructure/dynamodb/`。[ADR-0007](../1
 1. **DynamoDB Local の入手（1 回）**: `https://d1ni2b6xgvw0s0.cloudfront.net/v2.x/dynamodb_local_latest.zip` をダウンロードし、同じ場所の `.sha256` の値と、ファイルの SHA-256 が一致することを確認して、リポジトリの外のディレクトリに展開する（`DynamoDBLocal.jar` と `DynamoDBLocal_lib/` ができる）。バージョンを固定した URL はなく、`latest` は更新されるため、CI は、ダイジェストで固定したコンテナのイメージを使う（`.github/workflows/ci.yml`）。**DynamoDB Local は、オープンソースではなく、AWS の独自のライセンス**（社内の業務の目的での利用は可。再配布・組み込みは不可。AWS のアカウントが有効であること）。リポジトリには含めない（詳細は `.license-check/license-report.md`）
 2. **テストの実行**（どちらか）:
    - **自動で起動する**: 環境変数 `DYNAMODB_LOCAL_DIR` に、1. のディレクトリを指定する。テストの開始時に、空きポートで起動し、終了時に止める（vitest の globalSetup。`tests/support/dynamodb-local-global-setup.ts`）。例: `DYNAMODB_LOCAL_DIR=<ディレクトリ> pnpm test:unit`
-   - **起動済みのものを使う**: `java -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -inMemory -sharedDb -port 18000` で起動し、`DYNAMODB_ENDPOINT=http://127.0.0.1:18000 pnpm test:unit`。CI は、これ（service container）
+   - **起動済みのものを使う**: `java -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -inMemory -sharedDb -port 18000` で起動し、`DYNAMODB_ENDPOINT=http://127.0.0.1:18000 pnpm test:unit`。CI は、同じダイジェストのコンテナのイメージを、取得して起動する（`.github/workflows/ci.yml` の「DynamoDB Local を起動する」。取得先は、ECR Public → mirror.gcr.io → Docker Hub の順）
 3. テストは、テストごとに、名前が重複しないテーブルを作り、終了時に消す。認証情報は、ダミーの値（DynamoDB Local は、検証しない。**英数字だけ**にする。ハイフンを含むと拒否される）
 
 アプリ全体を、DynamoDB Local で動かす（ローカルの確認用）:
