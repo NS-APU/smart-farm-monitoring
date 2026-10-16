@@ -611,7 +611,7 @@ flowchart TB
 | DB | **DynamoDB**（Repository のポートの裏に置く） | SQLite（代替の1台の構成でのみ）、PostgreSQL | - |
 | インフラ/ホスティング | AWS: **サーバーレス**（Amplify Hosting + Lambda + DynamoDB + Cognito + EventBridge）。11章、[ADR-0002](../adr/0002-deployment-serverless.md)。IAM権限・接続元IP制限の確認が前提条件 | Lightsail 1台、EC2 最小 1台（前提が満たされない場合の代替）、ECS on Fargate（規模が増えた場合の移行先） | - |
 | IaC・CI/CD | **AWS CDK（TypeScript）**（[ADR-0006](../adr/0006-iac-cdk-and-same-origin-delivery.md)。`infra/`）。デプロイは GitHub Actions + OIDC（手動実行から）。画面は S3 + CloudFront、API は Lambda の関数の URL を、CloudFront の同じオリジンで配信する | Amplify Gen 2、Terraform、CloudFormation、手順書 | aws-cdk-lib 2.273系・aws-cdk（CLI）2.1145系（実装で確認した版） |
-| 認証 | Amazon Cognito（AuthPort のアダプタ。[ADR-0008](../adr/0008-cognito-authentication.md)。実装済み。実際の Cognito は未確認） | アプリ内の認証（代替の1台の構成） | - |
+| 認証 | Amazon Cognito（AuthPort のアダプタ。[ADR-0008](../adr/0008-cognito-authentication.md)。実装済み。実際の Cognito で、手元のバックエンドから確認済み。Lambda からは未確認） | アプリ内の認証（代替の1台の構成） | - |
 | コンテナ | Docker（ローカルの開発・テスト用のエミュレータの実行。代替の1台の構成では、本番にも使う） | - | 最新の安定版 |
 | リバースプロキシ | 代替の1台の構成でのみ（Caddy または nginx）。基本構成では不要 | - | - |
 | パッケージ管理 | pnpm | npm、pip/uv | 最新の安定版（実装の開始時に確認。メジャーバージョンの更新では、互換性を確認する） |

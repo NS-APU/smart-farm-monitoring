@@ -135,7 +135,7 @@ DynamoDB Local 3.3.1（AWS の公式の配布物。SHA-256 を確認）で、観
 
 ## 実装（Issue #73。2026-10-15）
 
-実装は、`src/backend/infrastructure/dynamodb/`（Repository 13 種）と、`infra/lib/data-stack.ts`（テーブル。スタック `SfmData`）。契約テスト（`tests/integration/repository-contract.test.ts`）の 39 件（実装ごと）が、ローカルの 2 実装と同じく DynamoDB（DynamoDB Local 3.3.1）でも成功し、DynamoDB 固有の振る舞いは `tests/integration/dynamodb-adapter.test.ts` で確かめた。バックエンドを `PERSISTENCE=dynamodb`（デモデータ）で起動し、ログイン・ダッシュボード・通知・観測値の一覧（時刻順・値順）・設備が動くことも確認した。**AWS 上（Lambda から）は、未確認**（Issue #79）。
+実装は、`src/backend/infrastructure/dynamodb/`（Repository 13 種）と、`infra/lib/data-stack.ts`（テーブル。スタック `SfmData`）。契約テスト（`tests/integration/repository-contract.test.ts`）の 39 件（実装ごと）が、ローカルの 2 実装と同じく DynamoDB（DynamoDB Local 3.3.1）でも成功し、DynamoDB 固有の振る舞いは `tests/integration/dynamodb-adapter.test.ts` で確かめた。バックエンドを `PERSISTENCE=dynamodb`（デモデータ）で起動し、ログイン・ダッシュボード・通知・観測値の一覧（時刻順・値順）・設備が動くことも確認した。**AWS 上（Lambda から）は、未確認**（Issue #79）。手元のバックエンドから、実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数の記録・ステータスコードの初期データ）への読み書きは、2026-10-16 に確認した（ADR-0008 の「検証」）。観測値のテーブル・一覧・評価の読み取りは、未確認。
 
 ### 設計を具体化した点・変えた点
 
