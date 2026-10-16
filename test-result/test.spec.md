@@ -37,10 +37,10 @@
 | 単体: backend/runtime                      |          3 |         62 |
 | 単体: frontend                             |         19 |        372 |
 | 単体: infra（`infra/test/`。IaC）          |          7 |         44 |
-| 結合（`tests/integration/`）               |         19 |        736 |
-| 合計                                       |        105 |       2521 |
+| 結合（`tests/integration/`）               |         19 |        738 |
+| 合計                                       |        105 |       2523 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1021 件、結合 736 件（単体と結合の合計 1757 件。`vitest list` の件数。Issue #73・#74 の実装後の加算値。実測（DynamoDB Local あり）は、74 ファイル・1759 件で、1757 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1021 件、結合 738 件（単体と結合の合計 1759 件。`vitest list` の件数。Issue #73・#74・#95 の実装後の加算値。実測（DynamoDB Local あり）は、74 ファイル・1761 件で、1759 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
 この件数は、Sprint1 の取り込み（Issue #30〜#39・#60・#62・#71・#87）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -6738,12 +6738,12 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/ingestion-reliability.test.ts`                       |   17 | （個別の節なし。8 章で説明）                                                                     |
 | integration            | `tests/integration/observation-time-index.test.ts`                      |    6 | （個別の節なし。10 章で説明）                                                                    |
 | integration            | `tests/integration/runtime-resilience.test.ts`                          |   12 | （個別の節なし。8 章で説明）                                                                     |
-| integration            | `tests/integration/security-hardening.test.ts`                          |   13 | （個別の節なし。8 章で説明）                                                                     |
+| integration            | `tests/integration/security-hardening.test.ts`                          |   14 | （個別の節なし。8 章で説明）                                                                     |
 | integration            | `tests/integration/dynamodb-adapter.test.ts`                            |   34 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/auth-contract.test.ts`                               |   33 | （個別の節なし。12 章で説明）           |
-| integration            | `tests/integration/cognito-wiring.test.ts`                              |    9 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/cognito-wiring.test.ts`                              |   10 | （個別の節なし。12 章で説明）           |
 
-件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 74 ファイル・1759 件。DynamoDB Local あり。Issue #73・#74 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
+件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 74 ファイル・1761 件。DynamoDB Local あり。Issue #73・#74・#95 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
 
 「関連する UC」が「個別の節なし」のファイル（33 ファイル。`infra/test/` の 7 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
 
@@ -10972,7 +10972,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito（Issue #71・#73・#74・#87）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito（Issue #71・#73・#74・#87・#95）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -10998,5 +10998,8 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | ユーザー管理サービスの、資格情報の預け先のテストの追加（Issue #74） | `tests/unit/backend/application/user-service.test.ts`（6 件）: 作成は、資格情報を預けてから記録を書く（記録にハッシュを持たない）。記録を書けなかったら、預けた資格情報を戻し（戻せなくても、元のエラー）、削除は、資格情報を先に消す（消せなければ、記録を残す） | 単体 +6 |
 | Cognito の組み立て・最初のユーザーのコマンド・試行回数の制限（DynamoDB）のテストの追加（Issue #74） | `tests/integration/cognito-wiring.test.ts`（9 件。DynamoDB Local + 偽の Cognito）: DynamoDB の試行回数の制限（制限・時間の経過・リセット・記録の上限）、`pnpm initial-user` のコマンド（作成・2 回目は何もしない・指定の不足と不正な設定・AWS のエラーは名前だけを出力・Error でない値）、組み立てた container で、ログイン・更新・ユーザー管理・ログアウト | 結合 +9 |
 | 設定・IaC のテストの追加（Issue #74） | `config.test.ts` に 5 件（`AUTH_PROVIDER=cognito` の設定の読み込み・ID の必須・`PERSISTENCE=dynamodb` の必須・`INITIAL_USER_*` との併用不可・不正な値）、`infra/test/data-stack.test.ts` に 5 件（ユーザープールの設定・パスワードの条件・削除の保護と RETAIN・アプリクライアントの設定と有効期限・出力と TTL）を追加。**期待値の変更は、なし** | 単体 +5（config）・+5（infra） |
+| **期待値の変更**: `security-hardening.test.ts`（Issue #95） | 「パスワード・リフレッシュトークン・ユーザーIDが長すぎる場合は、検証せずに 400 にする」の、リフレッシュトークンの長さを、257 文字から **4097 文字**に変えた。リフレッシュトークンの長さの上限を、256 から **4096** に引き上げたため（Cognito のリフレッシュトークンは、1,000 文字を超え、256 文字では、更新が必ず入力不正になった。ユーザーの確認済み）。パスワード・ユーザーID の期待は、そのまま | 件数は変わらない |
+| リフレッシュトークンの長さの境界のテストの追加（Issue #95） | `security-hardening.test.ts` に 1 件: 4096 文字は、検証を通って、無効なトークンとして 401、4097 文字は、検証せずに 400 | 結合 +1 |
+| 実際の長さのトークンでの、Cognito の API のテストの追加（Issue #95） | `cognito-wiring.test.ts` に 1 件: 実際の Cognito に近い長さ（リフレッシュ 約 1,500 文字・アクセス 約 1,000 文字）のトークンで、API のログイン・更新・認証つきの呼び出しが成功する。**修正の前に書き、更新が 400 になることを確認してから、修正した**。偽の Cognito（`fake-cognito.ts`）のトークンの長さも、実際に近い長さに変えた（短いトークンでは、入力の長さの上限の不具合を、見つけられなかった） | 結合 +1 |
 
 取り込み後の件数と実測値は、1.2 節。
