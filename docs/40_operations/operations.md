@@ -10,11 +10,12 @@
 |------|----------------------|------|
 | `APP_MODE` | `production`（本番）。Lambda は、**必ず明示する**（未設定は起動エラー） | 既定の `local` は、開発用の設定 |
 | `PERSISTENCE` | `dynamodb`（本番。Repository は実装済み。Lambda への接続は Issue #75。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` に、`SfmData` のスタックの出力のテーブル名を指定する。`DYNAMODB_ENDPOINT` は、本番・共有環境では指定しない）。Lambda は **必ず明示する**。Lambda で `file` は使えない（読み取り専用のファイルシステム・複数の実行環境） | メモリのみ・ローカルのファイルは、データが失われる・分裂する |
+| `AUTH_PROVIDER` | `cognito`（Amazon Cognito。ADR-0008）。`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` に、`SfmData` のスタックの出力を指定する。`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない。ローカル・テストは、既定の `local` | 本番の Lambda は、パスワードを Cognito に預ける（アプリ内の認証は、セッションをメモリに持つため、Lambda では使えない） |
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールの分け方は発注者の判断待ち（Q-017） |
 | `TRUSTED_PROXY_HOPS` | 経路（API Gateway・Function URL・CloudFront）が確定してから、プロキシの段数を指定する。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
-| `INITIAL_USER_*` | 初回のみ。初回のログイン後に、パスワードを変更する（ユーザー管理）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
+| `INITIAL_USER_*` | ローカルのみ（`AUTH_PROVIDER=cognito` では、使えない。最初のユーザーは、手元で `pnpm initial-user` を 1 回だけ実行して作る。commands.md）。初回のみ。初回のログイン後に、パスワードを変更する（ユーザー管理）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
 
 起動時のログに、警告（「開発用 API が有効です」「既定のロール…で動作しています」）が出ていないことを確認する。
 

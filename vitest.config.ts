@@ -51,7 +51,7 @@ export default defineConfig({
       include: ['src/**/*.{ts,tsx}', 'infra/lib/**/*.ts', 'infra/lambda/**/*.ts'],
       // 計測の対象外（理由）:
       // - *.d.ts: 型定義のみ
-      // - main.tsx / runtime/main.ts / runtime/data-backup-main.ts: 起動のみでロジックを持たないエントリ（結線は node-server.ts・app.tsx・data-backup.ts のテストで検証する）
+      // - main.tsx / runtime/main.ts / runtime/data-backup-main.ts / runtime/initial-user-main.ts: 起動のみでロジックを持たないエントリ（結線は node-server.ts・app.tsx・data-backup.ts のテストで検証する）
       // - vite.config.ts: ビルド・開発サーバーの設定ファイル
       // （infra/bin/ は、環境変数を渡して lib/ を呼ぶだけのエントリのため、include に含めない）
       exclude: [
@@ -59,6 +59,7 @@ export default defineConfig({
         'src/frontend/main.tsx',
         'src/backend/runtime/main.ts',
         'src/backend/runtime/data-backup-main.ts',
+        'src/backend/runtime/initial-user-main.ts',
         'src/frontend/vite.config.ts',
       ],
       thresholds: { lines: 95, branches: 95, functions: 95, statements: 95 },

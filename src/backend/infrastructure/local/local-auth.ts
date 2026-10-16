@@ -21,17 +21,26 @@ import type { AuthPort, AuthPrincipal, AuthSession } from '../../application/por
 import type { ClockPort } from '../../application/ports/clock-port.ts';
 import type { UserRecord } from '../../application/ports/records.ts';
 import type { UserRepository } from '../../application/ports/repositories.ts';
+import {
+  ACCESS_TOKEN_TTL_MINUTES,
+  LOGIN_FAILED_MESSAGE,
+  LOGIN_FAILURE_LIMIT,
+  LOGIN_FAILURE_WINDOW_MINUTES,
+  LOGIN_LOCKED_MESSAGE,
+  REFRESH_TOKEN_TTL_DAYS,
+  SESSION_INVALID_MESSAGE,
+} from '../common/auth-policy.ts';
 import { hashPassword, verifyPassword } from './password-hasher.ts';
 
-export const ACCESS_TOKEN_TTL_MINUTES = 30;
-export const REFRESH_TOKEN_TTL_DAYS = 7;
-export const LOGIN_FAILURE_LIMIT = 5;
-export const LOGIN_FAILURE_WINDOW_MINUTES = 15;
+export {
+  ACCESS_TOKEN_TTL_MINUTES,
+  LOGIN_FAILURE_LIMIT,
+  LOGIN_FAILURE_WINDOW_MINUTES,
+  REFRESH_TOKEN_TTL_DAYS,
+};
 /** 失敗の記録を保持する接続元の数の上限。超えたら、古い順に捨てる（キーの偽装によるメモリの消費を防ぐ。V-009）。 */
 export const DEFAULT_MAX_TRACKED_CLIENTS = 10_000;
 
-const LOGIN_FAILED_MESSAGE = 'ユーザーIDまたはパスワードが正しくありません';
-const SESSION_INVALID_MESSAGE = 'セッションが無効です。もう一度ログインしてください';
 const TOKEN_BYTES = 32;
 
 interface Session {
@@ -145,10 +154,7 @@ export function createLocalAuth(deps: LocalAuthDeps): AuthPort {
   return {
     async login(credentials, clientKey) {
       if (recentFailures(clientKey).length >= LOGIN_FAILURE_LIMIT) {
-        throw new AppError(
-          'RATE_LIMITED',
-          'ログインの試行回数が上限を超えました。しばらくしてからやり直してください',
-        );
+        throw new AppError('RATE_LIMITED', LOGIN_LOCKED_MESSAGE);
       }
       const parsedUserId = UserIdSchema.safeParse(credentials.userId);
       const user = parsedUserId.success ? await users.get(parsedUserId.data) : undefined;

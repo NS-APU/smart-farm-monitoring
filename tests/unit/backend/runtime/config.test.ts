@@ -73,6 +73,69 @@ describe('実行設定（環境変数）', () => {
     ).toThrow('DEV_API_ENABLED');
   });
 
+  it('AUTH_PROVIDER=cognito: ユーザープール・クライアントの ID とリージョンを読み込む。既定は local（Cognito の設定は、持たない）', () => {
+    const cognito = parseConfig({
+      PERSISTENCE: 'dynamodb',
+      ...DYNAMODB_TABLES,
+      AUTH_PROVIDER: 'cognito',
+      COGNITO_USER_POOL_ID: 'dummy-pool',
+      COGNITO_CLIENT_ID: 'dummy-client',
+      AWS_REGION: 'ap-northeast-1',
+    });
+
+    expect(cognito.cognito).toEqual({
+      userPoolId: 'dummy-pool',
+      clientId: 'dummy-client',
+      region: 'ap-northeast-1',
+    });
+    expect(parseConfig({}).cognito).toBeUndefined();
+    expect(
+      parseConfig({ COGNITO_USER_POOL_ID: 'dummy-pool', COGNITO_CLIENT_ID: 'dummy-client' })
+        .cognito,
+    ).toBeUndefined();
+  });
+
+  it('AUTH_PROVIDER=cognito: ID の指定がなければ、設定エラーにする', () => {
+    const base = { PERSISTENCE: 'dynamodb', ...DYNAMODB_TABLES, AUTH_PROVIDER: 'cognito' };
+
+    expect(() => parseConfig(base)).toThrow('COGNITO_USER_POOL_ID');
+    expect(() => parseConfig({ ...base, COGNITO_USER_POOL_ID: 'dummy-pool' })).toThrow(
+      'COGNITO_CLIENT_ID',
+    );
+    expect(() => parseConfig({ ...base, COGNITO_CLIENT_ID: 'dummy-client' })).toThrow(
+      'COGNITO_USER_POOL_ID',
+    );
+  });
+
+  it('AUTH_PROVIDER=cognito: PERSISTENCE=dynamodb が必要（ユーザーのロールと、ログインの試行回数の制限を、DynamoDB に持つ）', () => {
+    expect(() =>
+      parseConfig({
+        AUTH_PROVIDER: 'cognito',
+        COGNITO_USER_POOL_ID: 'dummy-pool',
+        COGNITO_CLIENT_ID: 'dummy-client',
+      }),
+    ).toThrow('PERSISTENCE=dynamodb');
+  });
+
+  it('AUTH_PROVIDER=cognito: INITIAL_USER_*（環境変数の初期ユーザー）は、使えない', () => {
+    for (const name of ['INITIAL_USER_ID', 'INITIAL_USER_NAME', 'INITIAL_USER_PASSWORD']) {
+      expect(() =>
+        parseConfig({
+          PERSISTENCE: 'dynamodb',
+          ...DYNAMODB_TABLES,
+          AUTH_PROVIDER: 'cognito',
+          COGNITO_USER_POOL_ID: 'dummy-pool',
+          COGNITO_CLIENT_ID: 'dummy-client',
+          [name]: 'dummy',
+        }),
+      ).toThrow('INITIAL_USER_*');
+    }
+  });
+
+  it('不正な AUTH_PROVIDER は、設定エラーにする', () => {
+    expect(() => parseConfig({ AUTH_PROVIDER: 'ldap' })).toThrow('AUTH_PROVIDER');
+  });
+
   it('指定した値を読み込む', () => {
     const config = parseConfig({
       APP_MODE: 'test',

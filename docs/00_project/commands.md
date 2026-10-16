@@ -43,6 +43,9 @@ pnpm data:backup backup [--keep N]
 pnpm data:backup list
 pnpm data:backup restore store-<日時>.json
 
+# 最初のユーザー（管理者）の作成（Cognito。手元で 1 回だけ。環境変数と手順は「最初のユーザー（Cognito）」の節）
+pnpm initial-user
+
 # Lint / 型検査 / フォーマット
 pnpm lint            # ESLint（eslint .）→ oxlint（jsx-a11y。.oxlintrc.json）
 pnpm typecheck
@@ -68,7 +71,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 ```
 
 - `DYNAMODB_ENDPOINT` を指定すると、起動時にテーブルを作る（すでにあれば、そのまま使う）。AWS では、指定しない（テーブルは、IaC で作る。Lambda の実行ロールの認証情報を使う）
-- `DEV_API_ENABLED`（リセットで全データを消す開発用 API）は、`PERSISTENCE=dynamodb` では使えない。`APP_MODE=production` は、まだ使えない（Cognito などが未実装。Issue #74・#75）
+- `DEV_API_ENABLED`（リセットで全データを消す開発用 API）は、`PERSISTENCE=dynamodb` では使えない。`APP_MODE=production` は、まだ使えない（実ファイルサーバーなどが未実装。Issue #75）
 - 2026-10-15 に、この構成（デモデータの投入・評価・通知・ログイン・観測値の一覧）が動くことを確認した（DynamoDB Local 3.3.1）
 
 ## 評価環境（IaC。`infra/`）
@@ -77,7 +80,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 
 顧客評価環境（サーバーレス構成。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）を、AWS CDK で作る。リージョンは東京（ap-northeast-1）。画面（S3 + CloudFront）と、最小の API（`/health` だけに答える Lambda。関数の URL）が、CloudFront の同じオリジンで配信される。
 
-データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73。`deploy` に含まれる）。テーブル名は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`）で参照する。**このスタックの AWS への適用は、まだ実行していない**（コードと CDK のテストのみ。適用は、ユーザーが行う。Lambda への接続は、Issue #75）。
+データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`。**Cognito のユーザープールとアプリクライアント**。Issue #74）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73・#74。`deploy` に含まれる）。テーブル名・ユーザープールの ID は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`・`UserPoolId`・`UserPoolClientId`）で参照する（確認: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"`）。**このスタックの AWS への適用は、まだ実行していない**（コードと CDK のテストのみ。適用は、ユーザーが行う。Lambda への接続は、Issue #75）。
 
 | 目的 | コマンド（リポジトリのルートで実行） | AWS への接続 |
 |------|--------------------------------------|--------------|
@@ -124,8 +127,33 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 
 - 削除: `pnpm --filter @smart-farm/infra run destroy`。評価環境のスタック（`SfmEvaluation*`。S3 のバケット・CloudFront・Lambda・ログ。独自ドメインのとき、証明書・DNS のレコードも）を、中身ごと削除する。**データのスタック（`SfmData`。DynamoDB のテーブル）、bootstrap、OIDC のロールは、残る**（評価環境を、削除・再作成しても、データを失わない）
 - 再作成: 同じ手順（`deploy`、または GitHub Actions の「Deploy evaluation」）。削除前と同じ構成が、コードから作られる
-- **データ（DynamoDB のテーブル）の削除**（Issue #73。AWS では、まだ実行して確認していない）: `SfmData` のスタックは、誤って消さないよう、スタックの削除の保護と、テーブルの削除の保護を有効にし、スタックを削除してもテーブルを残す設定（RETAIN）にしている。データまで消すときだけ、次の順に行う。(1) テーブル名を控える（`SfmData` の出力 `ObservationsTableName`・`MainTableName`）。(2) `aws cloudformation update-termination-protection --no-enable-termination-protection --stack-name SfmData`。(3) `pnpm --filter @smart-farm/infra run destroy:data`。(4) テーブルごとに、`aws dynamodb update-table --table-name <名前> --no-deletion-protection-enabled` のあと、`aws dynamodb delete-table --table-name <名前>`。**データは、元に戻せない**（ポイントインタイムリカバリは、テーブルを削除すると使えなくなる）。実行の前に、必要なら、オンデマンドのバックアップを取る
+- **データ（DynamoDB のテーブル）の削除**（Issue #73。AWS では、まだ実行して確認していない）: `SfmData` のスタックは、誤って消さないよう、スタックの削除の保護と、テーブルの削除の保護を有効にし、スタックを削除してもテーブルを残す設定（RETAIN）にしている。データまで消すときだけ、次の順に行う。(1) テーブル名を控える（`SfmData` の出力 `ObservationsTableName`・`MainTableName`）。(2) `aws cloudformation update-termination-protection --no-enable-termination-protection --stack-name SfmData`。(3) `pnpm --filter @smart-farm/infra run destroy:data`。(4) テーブルごとに、`aws dynamodb update-table --table-name <名前> --no-deletion-protection-enabled` のあと、`aws dynamodb delete-table --table-name <名前>`。(5) Cognito のユーザープール: AWS のコンソール（Cognito）で、削除の保護を無効にして、削除する（CLI の `update-user-pool` は、指定しない設定を既定値に戻すため、使わない）。**データ（ユーザーを含む）は、元に戻せない**（ポイントインタイムリカバリは、テーブルを削除すると使えなくなる）。実行の前に、必要なら、オンデマンドのバックアップを取る
 - OIDC のロールまで削除する: `pnpm --filter @smart-farm/infra run destroy:oidc`（GitHub Actions からデプロイできなくなる）。bootstrap（`CDKToolkit` のスタック）の削除は、通常は不要
+
+### 最初のユーザー（Cognito。Issue #74。ADR-0008）
+
+Cognito を使う構成（`AUTH_PROVIDER=cognito`）では、Lambda は、環境変数の初期ユーザー（`INITIAL_USER_*`）を読まない。`SfmData` を適用したあと、**ユーザーが、AWS のプロファイルを指定して、手元で、1 回だけ**、最初のユーザー（管理者）を作る。Cognito のユーザー（パスワードつき）と、DynamoDB のユーザーの記録（名前・ロール）を、同時に作る。ユーザーが 1 人でもいれば、何もしない（何度実行しても、既存のユーザーを上書きしない）。
+
+```powershell
+# PowerShell の例（値は、SfmData の出力。<…> を、置き換える）
+$env:AWS_PROFILE = '<プロファイル名>'
+$env:AUTH_PROVIDER = 'cognito'
+$env:PERSISTENCE = 'dynamodb'
+$env:COGNITO_USER_POOL_ID = '<UserPoolId>'
+$env:COGNITO_CLIENT_ID = '<UserPoolClientId>'
+$env:DYNAMODB_OBSERVATIONS_TABLE = '<ObservationsTableName>'
+$env:DYNAMODB_MAIN_TABLE = '<MainTableName>'
+$env:INITIAL_USER_ID = '<ユーザーID>'
+$env:INITIAL_USER_NAME = '<ユーザー名>'
+$env:INITIAL_USER_PASSWORD = '<パスワード（8 文字以上。英大文字・英小文字・数字を含む）>'
+pnpm initial-user
+Remove-Item Env:INITIAL_USER_PASSWORD   # パスワードを、環境変数に残さない
+```
+
+- パスワードは、保存・出力されない。AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）。エラーの原因は、AWS のコンソール（CloudTrail）で、確認する
+- ロール（`INITIAL_USER_ROLE`）の既定は、ユーザー管理の権限を持つ最初のロール。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない（ローカル開発用の設定が、混ざらないように）
+- 使う AWS のプロファイルに必要な権限: Cognito のユーザープールへの `AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`（途中の失敗の後始末）・`AdminUserGlobalSignOut`、DynamoDB の `Main` テーブルへの読み書き
+- **状態: AWS では、まだ実行して確認していない**（偽の Cognito と DynamoDB Local での、テストのみ）。AWS での確認の項目は、ADR-0008 の「検証」。Lambda を Cognito につなぐのは、Issue #75
 
 ## 実行結果（2026-10-14。Sprint1 の取り込み後。`develop` のコミット 5223b02）
 

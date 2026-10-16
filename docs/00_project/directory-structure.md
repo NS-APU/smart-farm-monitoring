@@ -12,7 +12,7 @@ smart-farm-monitoring/
 │   ├── backend/   # バックエンド（Hono）
 │   │   ├── domain/          # ドメイン層（評価エンジン・通知の規則など。純粋なロジック）
 │   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）
-│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・format-profiles/・logging/）
+│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・format-profiles/・logging/）
 │   │   ├── presentation/    # 提示層（Hono アプリ・ルート・領域ごとのハンドラ・認証認可・共通エラー）
 │   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）
@@ -28,7 +28,7 @@ smart-farm-monitoring/
 │   ├── e2e/           # E2E テスト（Playwright。UC-NN-<英語の概略名>.ts と scenario-<英語の概略名>.ts。補助は support/）
 │   ├── stress/        # 負荷テスト（Playwright。stress-NN-<英語の概略名>.ts。補助は support/: データ規模 scale.ts・データ投入 seed-data.ts・サーバー起動 stress-server.ts・許容時間 limits.ts・計測 recorder.ts・結果ログ report-log.ts・手動入力の計測日時 observed-at.ts など）
 │   ├── fixtures/      # テストデータ（合成データ。ファイルサーバーのモック用のファイル）
-│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts）
+│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
 ├── test-result/   # テストの出力（Git 管理外。カバレッジ・動画・レポート）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
 ├── dist/          # ビルドの出力（Git 管理外）
 └── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化・ファイルサーバーのモック）
