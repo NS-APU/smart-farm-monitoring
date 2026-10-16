@@ -6,6 +6,8 @@
  * 再現している範囲: 管理者の操作（ユーザーの作成・パスワードの設定・削除・全端末のログアウト）、パスワードでの認証、
  * リフレッシュトークンでの更新、アクセストークンでのユーザーの取得とログアウト。再現していないもの:
  * ユーザーごとの一時的なロック、チャレンジ（追加の認証）、トークンの回転。
+ * トークンの長さは、実際の Cognito に近い（アクセストークン 約 1,000 文字、リフレッシュトークン 約 1,500 文字）。
+ * 短いトークンでは、入力の長さの上限（API の検証）の不具合を、見つけられない（Issue #95）。
  * AWS SDK は、`src/backend` の依存で、`tests/` からは読み込めないため、コマンドは、クラス名で見分ける。
  */
 
@@ -44,8 +46,12 @@ class FakeCognitoError extends Error {
   }
 }
 
-function newToken(): string {
-  return randomBytes(24).toString('base64url');
+/** 実際の Cognito に近い長さ（base64url で、約 1,000 文字・約 1,500 文字）。 */
+const ACCESS_TOKEN_BYTES = 750;
+const REFRESH_TOKEN_BYTES = 1125;
+
+function newToken(bytes: number): string {
+  return randomBytes(bytes).toString('base64url');
 }
 
 function satisfiesPolicy(password: string): boolean {
@@ -104,7 +110,7 @@ export function createFakeCognito(options: FakeCognitoOptions): FakeCognito {
   }
 
   function issueAccessToken(username: string): string {
-    const token = newToken();
+    const token = newToken(ACCESS_TOKEN_BYTES);
     accessTokens.set(token, {
       username,
       expiresAt: nowMs() + ACCESS_TOKEN_SECONDS * 1000,
@@ -139,7 +145,7 @@ export function createFakeCognito(options: FakeCognitoOptions): FakeCognito {
         if (user?.password === undefined || user.password !== parameters.PASSWORD) {
           throw new FakeCognitoError('NotAuthorizedException', 'Incorrect username or password.');
         }
-        const refreshToken = newToken();
+        const refreshToken = newToken(REFRESH_TOKEN_BYTES);
         refreshTokens.set(refreshToken, {
           username,
           expiresAt: nowMs() + REFRESH_TOKEN_SECONDS * 1000,

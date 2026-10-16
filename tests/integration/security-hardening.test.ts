@@ -220,12 +220,29 @@ describe('入力の長さの上限（V-009）', () => {
     const longRefresh = await context.app.request('/api/v1/auth/refresh', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ refreshToken: 'x'.repeat(257) }),
+      body: JSON.stringify({ refreshToken: 'x'.repeat(4097) }),
     });
 
     expect(longPassword.status).toBe(400);
     expect(longUserId.status).toBe(400);
     expect(longRefresh.status).toBe(400);
+  });
+
+  it('リフレッシュトークンは、4096 文字まで、検証に進む（Cognito のトークンは、1,000 文字を超える。Issue #95）', async () => {
+    const context = await createTestContext();
+    const refresh = (refreshToken: string) =>
+      context.app.request('/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ refreshToken }),
+      });
+
+    const atLimit = await refresh('x'.repeat(4096));
+    const overLimit = await refresh('x'.repeat(4097));
+
+    // 上限の内側は、入力の検証を通り、無効なトークンとして拒否される（401）。外側は、検証せずに拒否される（400）
+    expect(atLimit.status).toBe(401);
+    expect(overLimit.status).toBe(400);
   });
 
   it('ユーザー登録・再設定のパスワードにも上限がある', async () => {

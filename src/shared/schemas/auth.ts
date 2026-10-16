@@ -8,8 +8,11 @@ import { IsoDateTimeSchema, UserIdSchema } from './common.ts';
 export const PASSWORD_MIN_LENGTH = 8;
 /** 長すぎる入力で、ハッシュの計算・メモリを消費させないための上限（V-009）。 */
 export const PASSWORD_MAX_LENGTH = 128;
-/** リフレッシュトークンの上限（発行するトークンは、43文字程度）。 */
-export const REFRESH_TOKEN_MAX_LENGTH = 256;
+/**
+ * リフレッシュトークンの上限（V-009。巨大な入力を、検証せずに拒否する）。ローカル認証のトークンは 43 文字程度だが、
+ * Cognito のリフレッシュトークンは 1,000 文字を超える（長さは固定ではない）ため、余裕を持たせる（Issue #95）。
+ */
+export const REFRESH_TOKEN_MAX_LENGTH = 4096;
 
 export function findPasswordPolicyViolation(password: string): string | null {
   if (password.length < PASSWORD_MIN_LENGTH) {
