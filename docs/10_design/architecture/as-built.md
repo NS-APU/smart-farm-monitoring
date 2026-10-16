@@ -48,7 +48,7 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタは、DynamoDB の Repository を除き、未実装**: Cognito・実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続。`APP_MODE=production` は起動時に `ConfigError`。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。AWS のテーブルへの接続は、未確認）
+- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続。`APP_MODE=production` は起動時に `ConfigError`。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。AWS のテーブルへの接続は、未確認）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストのみ。**実際の Cognito は、未確認**。ADR-0008）
 - 評価は、設計の「影響を受ける設備・観点に絞る」ではなく、**契機を問わず、全設備・全観点・全期間を毎回評価**する
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
@@ -61,7 +61,7 @@
 | No.  | 項目                       | 設計・docs の記述                                                                                                                                         | 実装（コード）                                                                                                                                                                                                                | 区分                             |
 | ---- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | D-01 | DB                         | DynamoDB（architecture.md 13.1。ADR-0005）                                                                                                                | `PERSISTENCE=memory\|file` のみ（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション）。`dynamodb` を指定すると `createContainer` が `ConfigError`                                                | 未実装                           |
-| D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）のみ。`AuthPort` の Cognito 実装はない                                                                                                         | 未実装                           |
+| D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito は未確認） | 実装済み（AWS では未確認） |
 | D-03 | ホスティング・ジョブ起動   | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章）                                                                                              | Lambda ハンドラ（`runtime/lambda.ts`）はあるが、組み立てが本番モードで失敗するため動かせない。EventBridge の連携コードはない。IaC（`infra/`。AWS CDK）に、画面（S3 + CloudFront）と最小の API（`/health` だけに答える Lambda）の評価環境がある（ADR-0006。Issue #71）。フロントエンドは `vite build` で `dist/frontend` へ出力する        | 一部実装（画面の配信と最小の API のみ。Issue #71）                           |
 | D-04 | ファイルサーバー           | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定）                                                                                      | ディレクトリを見立てたモック（`mock-file-server.ts`）のみ。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない   | 未実装                           |
 | D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信はダミー（`dummy-web-push.ts`。記録のみ）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は実装済み。VAPID の秘密鍵・送信ライブラリはない                                                                           | 未実装                           |
@@ -255,7 +255,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | 項目                     | 設計（本番の想定）                        | 実装の状態                                                                                                                          |
 | ------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | データベース             | DynamoDB                                  | **Repository のアダプタを実装**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS では未確認）。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
-| 認証                     | Cognito                                   | 未実装。アプリ内の認証（`createLocalAuth`）                                                                                         |
+| 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。実際の Cognito は未確認）。IaC は `SfmData`（ユーザープール・クライアント）。既定は、アプリ内の認証（`createLocalAuth`） |
 | 実行                     | Lambda＋ EventBridge                      | `createLambdaHandler`（`@hono/aws-lambda` の `handle`）はあるが、本番モードの組み立てが失敗する。EventBridge からの起動コードはない |
 | ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ）                                                                                                              |
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
@@ -729,7 +729,7 @@ classDiagram
     +UserId userId
     +string userName
     +string role
-    +string passwordHash
+    +string passwordHash? ローカルのみ。Cognito では持たない
     +IsoDateTime lastLoginAt?
     +IsoDateTime createdAt
   }
@@ -959,8 +959,8 @@ flowchart LR
 | ポート                                     | 定義                            | 実装済みのアダプタ                                                                                                                                              | 本番の想定（未実装）                          |
 | ------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
 | Repository（13 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）、`dynamodb/dynamodb-repositories.ts`（DynamoDB。ADR-0007）                                | DynamoDB（実装済み。契約テストは共通）        |
-| `AuthPort`                                 | `ports/auth-port.ts`            | `local/local-auth.ts`（`createLocalAuth`）                                                                                                                      | Cognito                                       |
-| `PasswordHasherPort`                       | `ports/password-hasher-port.ts` | `local/password-hasher.ts`（scrypt）                                                                                                                            | Cognito が持つため不要                        |
+| `AuthPort`                                 | `ports/auth-port.ts`            | `local/local-auth.ts`（`createLocalAuth`）、`cognito/cognito-identity.ts`（`createCognitoIdentity`。ADR-0008）                                                  | Cognito（実装済み。契約テストは共通）         |
+| `PasswordHasherPort`                       | `ports/password-hasher-port.ts` | `local/password-hasher.ts`（scrypt）。資格情報の管理は、`CredentialPort`（`local/local-credentials.ts`・`cognito/cognito-identity.ts`）が担う                    | Cognito が持つため、記録には持たない          |
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
@@ -1015,7 +1015,7 @@ flowchart LR
   LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ"]
   EB["EventBridge<br>ジョブの起動<br>未実装"]
   DDB["DynamoDB<br>アダプタ実装済み（Lambda とは未接続）"]
-  COG["Cognito<br>未実装"]
+  COG["Cognito<br>アダプタ実装済み（Lambda とは未接続）"]
 
   USER --> HOST
   USER --> LAM
@@ -1028,7 +1028,7 @@ flowchart LR
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。`APP_MODE=production` では、`createContainer` が `ConfigError` を投げるため、呼び出しがエラーになる
-- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分のうち、DynamoDB は、アダプタ（`infrastructure/dynamodb/`）と IaC（`SfmData`）がある（Lambda ハンドラとは、まだ接続していない。Issue #75）。EventBridge からのジョブ起動、Cognito は、コードも IaC もない。画面の配信は、IaC（`infra/`）に S3 + CloudFront と最小の API があるが、この図の Lambda ハンドラ（`runtime/lambda.ts`）とは、まだつながっていない（Issue #75）
+- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分のうち、DynamoDB は、アダプタ（`infrastructure/dynamodb/`）と IaC（`SfmData`）がある（Lambda ハンドラとは、まだ接続していない。Issue #75）。Cognito は、アダプタ（`infrastructure/cognito/`）と IaC（`SfmData` のユーザープール）がある（Lambda ハンドラとは、まだ接続していない。Issue #75）。EventBridge からのジョブ起動は、コードも IaC もない。画面の配信は、IaC（`infra/`）に S3 + CloudFront と最小の API があるが、この図の Lambda ハンドラ（`runtime/lambda.ts`）とは、まだつながっていない（Issue #75）
 
 ## フロントエンドの構成
 
@@ -1119,6 +1119,7 @@ flowchart LR
 | `PERSISTENCE`                                                   | `memory`                  | `memory`／`file`／`dynamodb`（Repository を DynamoDB にする。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須）                                                                              |
 | `DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`            | なし                      | `PERSISTENCE=dynamodb` のとき必須（なければ `ConfigError`）。DynamoDB のテーブル名（テーブルは IaC の `SfmData` が作る） |
 | `DYNAMODB_ENDPOINT`・`AWS_REGION`                               | なし                      | DynamoDB の接続先（DynamoDB Local など。ローカルの確認用。指定すると、起動時にテーブルを作り、ダミーの認証情報を使う。AWS では指定しない）、リージョン（Lambda では実行環境が設定）。`PERSISTENCE=dynamodb` では、`DEV_API_ENABLED` は使えない |
+| `AUTH_PROVIDER`                                                 | `local`                   | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない（最初のユーザーは、`pnpm initial-user` で作る） |
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
 | `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
@@ -1693,7 +1694,7 @@ sequenceDiagram
     APP->>US: create(input, actor) 権限<br>user:manage
     US->>US: assertKnownRole<br>定義されていないロールは<br>VALIDATION_ERROR
     US->>UR: get(userId) 重複は CONFLICT 409
-    US->>UR: save passwordHash は<br>hashPassword で scrypt
+    US->>UR: save（パスワードは CredentialPort に預ける。<br>ローカルは scrypt のハッシュを記録に、<br>Cognito は Cognito に持つ）
     US->>AU: record CREATE after は<br>PublicUser
   else ユーザーの修正 PUT /users/ID
     APP->>US: update(userId, input, actor)
