@@ -39,4 +39,4 @@
 - cloudfront.net の既定の証明書は、最低の TLS のバージョンが AWS の既定（TLS 1.0）で固定される。**独自のサブドメイン（独自の証明書）にすると、TLS 1.2 以上にできる**。顧客の評価は、独自のサブドメインで行うことを想定する
 - Amplify の自動ブランチデプロイ・プレビュー環境は、使わない。評価環境は、1 つの環境（`evaluation`）で、GitHub Actions から更新する
 - 評価環境は、いつでも、削除・再作成できる（バケット・ログは、削除時に、中身ごと削除する）。データを持つ DynamoDB（Issue #73）を追加するときに、削除時の扱い（保持・バックアップ）を、改めて決める
-- DynamoDB・Cognito・EventBridge は、このスタックに、Issue #73・#74・#76 で追加する。API の Lambda は、Issue #75 で、バックエンド本体のハンドラに置き換える
+- DynamoDB・Cognito・EventBridge は、このスタックに、Issue #73・#74・#76 で追加する。API の Lambda は、Issue #75 で、バックエンド本体のハンドラに置き換えた（[ADR-0009](./0009-lambda-production-assembly.md)）
