@@ -34,13 +34,13 @@
 | 単体: backend/application                  |          2 |         12 |
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         11 |        203 |
-| 単体: backend/runtime                      |          3 |         62 |
+| 単体: backend/runtime                      |          3 |         68 |
 | 単体: frontend                             |         19 |        372 |
-| 単体: infra（`infra/test/`。IaC）          |          7 |         44 |
-| 結合（`tests/integration/`）               |         19 |        738 |
-| 合計                                       |        105 |       2523 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |         45 |
+| 結合（`tests/integration/`）               |         20 |        741 |
+| 合計                                       |        105 |       2533 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1021 件、結合 738 件（単体と結合の合計 1759 件。`vitest list` の件数。Issue #73・#74・#95 の実装後の加算値。実測（DynamoDB Local あり）は、74 ファイル・1761 件で、1759 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1028 件、結合 741 件（単体と結合の合計 1769 件。`vitest list` の件数。Issue #73・#74・#75・#95 の実装後の加算値。実測（DynamoDB Local あり）は、74 ファイル・1771 件で、1769 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
 この件数は、Sprint1 の取り込み（Issue #30〜#39・#60・#62・#71・#87）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -6694,7 +6694,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | backend/infrastructure | `tests/unit/backend/infrastructure/dynamodb/operations.test.ts`         |   12 | （個別の節なし。12 章で説明）           |
 | backend/infrastructure | `tests/unit/backend/infrastructure/cognito-identity.test.ts`            |   21 | （個別の節なし。12 章で説明）           |
 | backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`                        |    3 | （UC に直接対応しない基盤）                                                                      |
-| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   36 | UC-13・UC-14                                                                                     |
+| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   42 | UC-13・UC-14                                                                                     |
 | backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`                            |   21 | UC-13                                                                                            |
 | backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`                   |    5 | （UC に直接対応しない基盤）                                                                      |
 | frontend               | `tests/unit/frontend/api-client.test.ts`                                |   23 | UC-01・UC-13                                                                                     |
@@ -6716,12 +6716,11 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | frontend               | `tests/unit/frontend/resilience.test.tsx`                               |   16 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/service-worker.test.ts`                            |    7 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/ui-refinements.test.tsx`                           |    4 | （個別の節なし。8 章で説明）                                                                     |
-| infra                  | `infra/test/api-handler.test.ts`                                        |    3 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/apps.test.ts`                                               |    7 | （個別の節なし。12 章で説明）                                                                    |
-| infra                  | `infra/test/bundle-lambda.test.ts`                                      |    1 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/bundle-lambda.test.ts`                                      |    2 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
-| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   12 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   15 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
@@ -6742,10 +6741,11 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/dynamodb-adapter.test.ts`                            |   34 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/auth-contract.test.ts`                               |   33 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/cognito-wiring.test.ts`                              |   10 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/lambda-production.test.ts`                           |    3 | （個別の節なし。12 章で説明）           |
 
-件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 74 ファイル・1761 件。DynamoDB Local あり。Issue #73・#74・#95 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
+件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 74 ファイル・1771 件。DynamoDB Local あり。Issue #73・#74・#75・#95 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
 
-「関連する UC」が「個別の節なし」のファイル（33 ファイル。`infra/test/` の 7 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
+「関連する UC」が「個別の節なし」のファイル（33 ファイル。`infra/test/` の 6 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
 
 ### tests/unit/shared/criteria-text.test.ts
 
@@ -7934,7 +7934,7 @@ UC-13、UC-14（根拠: `.speccheck/UC-13-login-logout.md` が、このファイ
 | ------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | U-config-001 | 何も指定しなければ、ローカルの既定値になる（メモリ上のデータ、初期ユーザーなし、スケジューラ無効） | 前提: 環境変数なし（`{}`）。操作: `parseConfig({})`。期待結果: mode 'local'、host '127.0.0.1'、port 8787、persistence 'memory'、seedMode 'NONE'、schedulerEnabled false、defaultIngestionIntervalMinutes 15、staleAfterIntervals 3、logLevel 'info'、devApiEnabled true を含む。`initialUser` は undefined。`roles` のキーは ['worker']（既定の1ロール）。                                                                                                                                                                                                                                                                                                 |
 | U-config-002 | 指定した値を読み込む                                                                               | 前提: APP_MODE 'test'、PORT '9000'、PERSISTENCE 'file'、DATA_FILE 'x/store.json'、FILE_SERVER_DIR 'x/fs'、SEED_MODE 'DEMO'、SCHEDULER_ENABLED 'true'、SCHEDULER_TICK_SECONDS '5'、LOG_LEVEL 'debug'、DEFAULT_INGESTION_INTERVAL_MINUTES '30'、STALE_AFTER_INTERVALS '2'、INGESTION_RETRY_BASE_DELAY_MS '0'。操作: `parseConfig`。期待結果: mode 'test'、port 9000（数値）、persistence 'file'、dataFile 'x/store.json'、fileServerDirectory 'x/fs'、seedMode 'DEMO'、schedulerEnabled true（真偽値）、schedulerTickSeconds 5、logLevel 'debug'、defaultIngestionIntervalMinutes 30、staleAfterIntervals 2、ingestionRetryBaseDelayMs 0（境界: 下限の 0）。 |
-| U-config-003 | 本番では、開発用 API を無効にする                                                                  | 前提: APP_MODE 'production' のみ。操作: `parseConfig`。期待結果: `devApiEnabled` は false。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| U-config-003 | 本番では、開発用 API を無効にする | 前提: APP_MODE 'production' と、本番に必須の設定（`AUTH_PROVIDER=cognito`・`PERSISTENCE=dynamodb`・テーブル名・Cognito の ID。ダミー値）。操作: `parseConfig`。期待結果: `devApiEnabled` は false。**（Issue #75 で、前提に、本番に必須の設定を追加した。期待結果は、そのまま）** |
 
 ##### 実行設定（環境変数）: 不正な値（it.each）
 
@@ -7988,7 +7988,7 @@ ROLE_DEFINITIONS_JSON が不正なケース（it.each）。共通の操作と期
 
 #### 対象のコード
 
-- `src/backend/runtime/container.ts`（組み立て（コンポジションルート）。`createContainer`、`initialize`、`close`。本番用のアダプタは未実装のため `ConfigError` を投げる）
+- `src/backend/runtime/container.ts`（組み立て（コンポジションルート）。`createContainer`、`initialize`、`close`。本番用のアダプタ（Cognito・DynamoDB）は実装済み。本番設定の必須の構成は、config.ts で検証する。Issue #75）
 - `src/backend/runtime/config.ts`（`parseConfig`、`ConfigError`）
 - `src/backend/runtime/node-server.ts`（Node サーバー。`startNodeServer`。ローカル・E2E・負荷テストで、同じ Hono アプリを HTTP で提供し、スケジューラを動かす）
 - `src/backend/runtime/lambda.ts`（Lambda のハンドラ。`createLambdaHandler`。関数の URL のイベントを処理し、組み立ては最初の呼び出しで1度だけ行う）
@@ -8012,7 +8012,7 @@ UC-13（根拠: `.speccheck/UC-13-login-logout.md` が、U-runtime-002 を「起
 
 | ID            | テスト名                                                                                                | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                              |
 | ------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-runtime-001 | 本番用のアダプタ（DynamoDB・Cognito・実ファイルサーバー）は未実装のため、本番設定では組み立てを拒否する | 前提: (a) APP_MODE 'production'。(b) APP_MODE 'local' かつ PERSISTENCE 'dynamodb'。操作: `createContainer(parseConfig(...))`。期待結果: (a) `ConfigError` を投げる。(b) '未実装' を含むエラーを投げる。                                                                                                                                                                                       |
+| U-runtime-001 | **（削除。Issue #75）** 本番用のアダプタは未実装のため、本番設定では組み立てを拒否する | 本番（Cognito・DynamoDB）を実装したため、削除した。代わりの検証: 本番に必須の構成（`config.test.ts`）、Lambda の本番設定（U-runtime-013・`lambda-production.test.ts`） | — |
 | U-runtime-002 | 初期化すると、ステータスコードの初期の定義と、最初のユーザーを用意する（冪等）                          | 前提: `ENV`（初期ユーザーあり）、ログは NULL_LOGGER。操作: `container.initialize()` を2回呼ぶ。期待結果: ステータスコードのリポジトリの `list()` は 8 件。ユーザーのリポジトリの `list()` は 1 件（2回呼んでも増えない）。                                                                                                                                                                    |
 | U-runtime-003 | 初期ユーザーの指定がなければ、ユーザーを作らない                                                        | 前提: APP_MODE 'test' のみ（初期ユーザーなし）。操作: `initialize()`。期待結果: ユーザーの `list()` は []。                                                                                                                                                                                                                                                                                   |
 | U-runtime-004 | デモデータ（SEED_MODE=DEMO）で、設備・観測値・評価・通知を用意する。2回目は重複させない                 | 前提: `ENV` に SEED_MODE 'DEMO'、時計を TEST_NOW に固定、連番の ID 生成。操作: `initialize()` を2回呼び、先頭の設備で `dashboardQuery.get`（horizon 'LONG'、periodDays 7）を呼ぶ。期待結果: 設備の `list()` は 3 件（2回目で増えない）。ダッシュボードの summary の NORMAL・CAUTION・UNKNOWN が、いずれも 0 より大きい（正常・注意・不明が混在）。TEST_USER の未読通知の件数が 0 より大きい。 |
@@ -8036,7 +8036,7 @@ UC-13（根拠: `.speccheck/UC-13-login-logout.md` が、U-runtime-002 を「起
 | ID            | テスト名                                                                 | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                  |
 | ------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | U-runtime-012 | 同じアプリを、Lambda のイベントとして処理する（組み立ては最初の1回だけ） | 前提: `createLambdaHandler({...ENV, APP_MODE:'local'})`。操作: GET /health、POST /api/v1/auth/login（TEST_USER の userId と誤ったパスワード 'wrong'）、再び GET /health を、同じハンドラで呼ぶ。期待結果: 1回目の /health は statusCode 200 で、本文の JSON は status 'ok' を含む。ログインは statusCode 401。2回目の /health は statusCode 200。 |
-| U-runtime-013 | 本番のアダプタが未実装の間は、呼び出しがエラーになる                     | 前提: `createLambdaHandler({APP_MODE:'production'})`。操作: GET /health のイベントを渡す。期待結果: `ConfigError` で reject される。                                                                                                                                                                                                              |
+| U-runtime-013 | 本番（APP_MODE=production）で、Cognito の設定がなければ、設定エラーにする | 前提: `createLambdaHandler({APP_MODE:'production', PERSISTENCE:'dynamodb'})`。操作: GET /health のイベントを渡す。期待結果: `ConfigError` で reject される。**（Issue #75 で、テスト名と理由を変更した。期待結果は、そのまま。`production` では、Cognito の設定が、必須になったため）** |
 
 #### テスト名と検証内容の差
 
@@ -10972,7 +10972,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito（Issue #71・#73・#74・#87・#95）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda（Issue #71・#73・#74・#75・#87・#95）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -11002,5 +11002,13 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | リフレッシュトークンの長さの境界のテストの追加（Issue #95） | `security-hardening.test.ts` に 1 件: 4096 文字は、検証を通って、無効なトークンとして 401、4097 文字は、検証せずに 400 | 結合 +1 |
 | 実際の長さのトークンでの、Cognito の API のテストの追加（Issue #95） | `cognito-wiring.test.ts` に 1 件: 実際の Cognito に近い長さ（リフレッシュ 約 1,500 文字・アクセス 約 1,000 文字）のトークンで、API のログイン・更新・認証つきの呼び出しが成功する。**修正の前に書き、更新が 400 になることを確認してから、修正した**。偽の Cognito（`fake-cognito.ts`）のトークンの長さも、実際に近い長さに変えた（短いトークンでは、入力の長さの上限の不具合を、見つけられなかった） | 結合 +1 |
 | **時刻に依存するテストの修正**（Issue #95 の PR。期待値は、緩めていない） | `dev-seed.test.ts` の「観測値（個別）と系列…を保存し、評価を更新する」が、**2026-10-16 02:00 UTC を過ぎてから、毎回失敗**した。`/dev/reset` が時計を実際の現在時刻に戻すのに、観測値の日時は固定（TEST_NOW = 2026-10-09）で、評価の対象の期間（7 日）の外に出て、`UNKNOWN` になるため。ヘルパー `withEquipment`（リセットのあと）で、時計を TEST_NOW に固定した（期待値の `CAUTION` は、そのまま）。同じ型の問題が、ほかにないか、システム時刻を約 2 か月後・約 1 年後にして、全テスト（`tests/unit/shared`・`tests/unit/backend`・`tests/integration`）を流して確かめた（見つかったのは、この 1 件のみ。ほかに失敗した 1 件は、時計の実時間の進みを確かめるテストで、確認の方法が前提を壊したためで、問題ではない） | 件数は変わらない |
+| **期待値の変更 1**: `runtime.test.ts`（Issue #75） | 「本番用のアダプタ（Cognito・実ファイルサーバー）は未実装のため、本番設定では組み立てを拒否する」を**削除した**（`createContainer(parseConfig({ APP_MODE: 'production' }))` が `ConfigError`（'未実装'）になる期待）。本番（Cognito・DynamoDB）を実装し、組み立てを拒否しなくなったため（Issue #75 の作業内容）。代わりに、本番に必須の構成（`config.test.ts`）と、本番の設定での Lambda の動作（`lambda-production.test.ts`）を検証する。「本番のアダプタが未実装の間は、呼び出しがエラーになる」は、テスト名を「本番（APP_MODE=production）で、Cognito の設定がなければ、設定エラーにする」に改めた（期待の `ConfigError` は、そのまま） | 件数は、-1 +1（SEED_MODE のテストを追加） |
+| **期待値の変更 2**: `config.test.ts`（Issue #75） | 「本番では、開発用 API を無効にする」「本番では、DEV_API_ENABLED=true でも、強制的に無効にする」の、前提に、本番に必須の設定（Cognito・DynamoDB のダミー値）を追加した（必須になったため。1 件目の期待結果は、そのまま）。**2 件目は、期待結果を変えた**: `devApiEnabled` が false になる期待から、**`ConfigError`（'DEV_API_ENABLED'）になる期待**に変えた。本番は DynamoDB が必須で、`PERSISTENCE=dynamodb` は、もともと `DEV_API_ENABLED=true` を拒否する（全データを消す API を、DynamoDB に使わないため。Issue #73）ため、「本番で DEV_API_ENABLED=true を、強制的に無効にする」動作には、到達できなくなった（より厳しい動作になった）。強制的に無効にする動作は、Lambda の設定のテスト（メモリの設定）で、引き続き検証する | 件数は変わらない |
+| **期待値の変更 3**: `infra/test/evaluation-stack.test.ts`（Issue #75） | 「関数は、Node.js 24・ARM・10 秒で、ログの保持期間を絞る」の、タイムアウトを 10 秒から **29 秒**、メモリを 256 MB から **1024 MB** に変えた（テスト名も改めた）。API の Lambda を、最小の実装から、バックエンド本体に置き換えたため（Issue #75。メモリは CPU に比例するため、タイムアウトは CloudFront の応答の上限 30 秒の内側。実測による調整は Issue #79）。ランタイム・アーキテクチャ・ハンドラ・ログの保持期間の期待は、そのまま | 件数は変わらない |
+| **削除**: `infra/test/api-handler.test.ts`（Issue #75。ユーザーの承認済み） | 仮の API（`infra/lambda/api.ts`。`/health` だけに答える）の 3 件のテストを、仮の API ごと**削除した**。バックエンド本体に置き換えたため。`/health` への応答は、`bundle-lambda.test.ts`（まとめたハンドラを、別のプロセスで呼ぶ）と、`lambda-production.test.ts` が検証する | infra -3 |
+| Lambda の本番の組み立ての単体テストの追加（Issue #75） | `config.test.ts` に 6 件（本番に必須の設定がそろっていれば読み込める、必須の設定が不足している 3 通り（何も指定しない・認証が Cognito でない・データが DynamoDB でない）は設定エラー、Lambda の設定は開発用 API・スケジューラを使えなくする、`SEED_MODE` は設定エラー）。`runtime.test.ts` に 1 件（Lambda は `SEED_MODE` を使えない） | 単体 +7 |
+| IaC（API の Lambda）のテストの追加（Issue #75） | `evaluation-stack.test.ts` に 3 件: 環境変数（本番・DynamoDB・Cognito。ID・テーブル名は、`SfmData` の出力を参照）、秘密情報・開発用 API・デモデータ・初期ユーザーの環境変数がない、IAM は最小権限（DynamoDB は 2 テーブルとインデックスへの必要な 8 操作で `Scan` なし、Cognito はユーザープールへの 5 操作、API の Lambda のロールにワイルドカードのリソースなし）。`bundle-lambda.test.ts` に 1 件: バックエンド本体のハンドラを、AWS SDK を含めて 1 ファイルにまとめ（大きさ 8 MB 未満）、別のプロセスで、`/health` に 200 で答える。`vitest.config.ts` のカバレッジの対象から `infra/lambda/` を外した | infra +4 |
+| Lambda の本番設定の結合テストの追加（Issue #75） | `tests/integration/lambda-production.test.ts`（3 件。DynamoDB Local + 偽の Cognito）: 本番設定で、`/health`・ログイン・認証つきの呼び出し・更新・ログアウトができる、開発用 API は 404・デモデータは投入されない、ログインの試行回数の制限は、`X-Forwarded-For` の末尾から 2 番目（利用者の IP）ごとで、先頭に偽の値を付けても回避できない（`TRUSTED_PROXY_HOPS=2`） | 結合 +3 |
 
+**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
 取り込み後の件数と実測値は、1.2 節。
