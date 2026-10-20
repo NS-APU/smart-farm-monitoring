@@ -3,8 +3,8 @@
  * 組み立ては、最初の呼び出しで1度だけ行い、再利用する（ハンドラの中で毎回生成しない）。
  * 初期化が失敗した場合は、失敗を保持せず、次の呼び出しで再試行する（一時的な失敗で、
  * そのコンテナが以後すべてのリクエストに失敗し続けることを防ぐ。NFR-4.3）。
- * 設定は、`APP_MODE`・`PERSISTENCE` の明示を必須にし、開発用 API を常に無効にする（config.ts の parseLambdaConfig）。
- * 本番のアダプタ（DynamoDB・Cognito 等）は未実装のため、APP_MODE=production では、呼び出しがエラーになる。
+ * 設定は、`APP_MODE`・`PERSISTENCE` の明示を必須にし、開発用 API・スケジューラ・デモデータの投入を使えなくする
+ * （config.ts の parseLambdaConfig）。本番（APP_MODE=production）は、DynamoDB・Cognito が必須（ADR-0009）。
  */
 
 import { handle } from '@hono/aws-lambda';

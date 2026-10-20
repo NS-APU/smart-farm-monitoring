@@ -71,7 +71,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 ```
 
 - `DYNAMODB_ENDPOINT` を指定すると、起動時にテーブルを作る（すでにあれば、そのまま使う）。AWS では、指定しない（テーブルは、IaC で作る。Lambda の実行ロールの認証情報を使う）
-- `DEV_API_ENABLED`（リセットで全データを消す開発用 API）は、`PERSISTENCE=dynamodb` では使えない。`APP_MODE=production` は、まだ使えない（実ファイルサーバーなどが未実装。Issue #75）
+- `DEV_API_ENABLED`（リセットで全データを消す開発用 API）は、`PERSISTENCE=dynamodb` では使えない。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb`（と、それぞれの設定）が必須で、Lambda の設定は、`SEED_MODE` も使えない（[ADR-0009](../10_design/adr/0009-lambda-production-assembly.md)）
 - 2026-10-15 に、この構成（デモデータの投入・評価・通知・ログイン・観測値の一覧）が動くことを確認した（DynamoDB Local 3.3.1）
 
 ## 評価環境（IaC。`infra/`）
@@ -80,7 +80,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 
 顧客評価環境（サーバーレス構成。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）を、AWS CDK で作る。リージョンは東京（ap-northeast-1）。画面（S3 + CloudFront）と、最小の API（`/health` だけに答える Lambda。関数の URL）が、CloudFront の同じオリジンで配信される。
 
-データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`。**Cognito のユーザープールとアプリクライアント**。Issue #74）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73・#74。`deploy` に含まれる）。テーブル名・ユーザープールの ID は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`・`UserPoolId`・`UserPoolClientId`）で参照する（確認: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"`）。**このスタックは、2026-10-16 に、ユーザーが AWS に適用し、動作を確認した**（下の「最初のユーザー（Cognito）」と「AWS に、手元のバックエンドを向けて確認する」）。データを消す手順（`destroy:data`）は、まだ実行していない。Lambda への接続は、Issue #75。
+データ（DynamoDB のテーブル。観測値の `Observations` と、そのほかの `Main`。**Cognito のユーザープールとアプリクライアント**。Issue #74）は、評価環境とは**別のスタック（`SfmData`）**で作る（Issue #73・#74。`deploy` に含まれる）。テーブル名・ユーザープールの ID は、CloudFormation が生成し、スタックの出力（`ObservationsTableName`・`MainTableName`・`UserPoolId`・`UserPoolClientId`）で参照する（確認: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"`）。**このスタックは、2026-10-16 に、ユーザーが AWS に適用し、動作を確認した**（下の「最初のユーザー（Cognito）」と「AWS に、手元のバックエンドを向けて確認する」）。データを消す手順（`destroy:data`）は、まだ実行していない。API の Lambda は、このスタックの出力（ID・テーブル名）を、環境変数に取り込む（Issue #75。ADR-0009）ため、**`SfmData` を更新（出力の追加）してから、評価環境をデプロイする**。
 
 | 目的 | コマンド（リポジトリのルートで実行） | AWS への接続 |
 |------|--------------------------------------|--------------|
@@ -105,7 +105,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 3. **GitHub Actions 用のロール**: `pnpm --filter @smart-farm/infra run deploy:oidc`。GitHub の OIDC プロバイダーと、`sfm-github-actions-deploy` のロールを作る。出力の `DeployRoleArn` を控える。ロールを引き受けられる条件（信頼ポリシーの `sub`）は、このリポジトリの GitHub のトークンの形式（不変の ID の形式。`infra/lib/config.ts` の `GITHUB_SUBJECT_PREFIX`）で書かれている。**すでに作成済みのときは、同じコマンドを実行すると、信頼ポリシーが更新される**（スタックの更新）。アカウントに、GitHub の OIDC プロバイダーが、すでにある場合は、環境変数 `SFM_GITHUB_OIDC_PROVIDER_ARN` に、その ARN を指定して実行する（1 つのアカウントに 1 つしか作れない）
 4. **GitHub の設定**（リポジトリの Settings → Environments）: Environment `evaluation` を作り、デプロイできるブランチ（案: `develop`）と、必要なら承認者を設定する。Environment のシークレット `AWS_DEPLOY_ROLE_ARN` に、手順 3 の `DeployRoleArn` を設定する（ARN にアカウント ID が含まれるため、シークレットにする）。独自ドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME` を設定する
 5. **デプロイ**: GitHub の Actions → 「Deploy evaluation」→ Run workflow（手動実行。自動のトリガは、Issue #78 の方針が決まった後に追加する）。ログに出力される `SiteUrl` が、評価環境の URL
-6. **確認**: `<SiteUrl>/health` が、`{"status":"ok","time":"…"}` を返す。ブラウザで `<SiteUrl>` を開くと、ログイン画面が表示される（API はまだ `/health` のみのため、ログインはできない。Issue #75 で、バックエンド本体に置き換える）
+6. **確認**: `<SiteUrl>/health` が、`{"status":"ok","time":"…"}` を返す。ブラウザで `<SiteUrl>` を開くと、ログイン画面が表示される。API は、バックエンド本体の Lambda（Issue #75。ADR-0009）のため、「最初のユーザー（Cognito）」の手順で作ったユーザーで、ログインできる。ログインの確認のあと、CloudWatch Logs の API の Lambda のロググループで、ログインのログ（`auth.login.succeeded`）の `clientKey` が、**自分の IP になっている**ことを確認する（`TRUSTED_PROXY_HOPS=2` の確認。違えば、CloudFront の IP になっている。ADR-0009 の「6」）
 
 ### トラブルシューティング（GitHub Actions の「AWS の認証（OIDC）」の失敗）
 
@@ -153,11 +153,11 @@ Remove-Item Env:INITIAL_USER_ID, Env:INITIAL_USER_NAME, Env:INITIAL_USER_PASSWOR
 - パスワードは、保存・出力されない。AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）。エラーの原因は、AWS のコンソール（CloudTrail）で、確認する
 - ロール（`INITIAL_USER_ROLE`）の既定は、ユーザー管理の権限を持つ最初のロール。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない（ローカル開発用の設定が、混ざらないように）
 - 使う AWS のプロファイルに必要な権限: Cognito のユーザープールへの `AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`（途中の失敗の後始末）・`AdminUserGlobalSignOut`、DynamoDB の `Main` テーブルへの読み書き
-- **状態: AWS で確認済み**（2026-10-16。最初のユーザーを作成できた。結果は、ADR-0008 の「検証」）。Lambda を Cognito につなぐのは、Issue #75
+- **状態: AWS で確認済み**（2026-10-16。最初のユーザーを作成できた。結果は、ADR-0008 の「検証」）。Lambda から Cognito・DynamoDB を使うのは、Issue #75（ADR-0009。AWS での確認は、「デプロイ」の手順 6）
 
 ### AWS に、手元のバックエンドを向けて確認する（Cognito・DynamoDB。Issue #74）
 
-Lambda を AWS につなぐ前（Issue #75 の前）に、**手元のバックエンドを、実際の Cognito と DynamoDB に向けて起動し、API を直接呼ぶ**ことで、認証とデータの接続を確認できる（2026-10-16 に、この方法で確認した。結果は、ADR-0008 の「検証」）。AWS に接続するため、**ユーザーが実行する**（AI エージェントは、実行しない）。
+Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として、**手元のバックエンドを、実際の Cognito と DynamoDB に向けて起動し、API を直接呼ぶ**ことで、認証とデータの接続を確認できる（2026-10-16 に、この方法で確認した。結果は、ADR-0008 の「検証」）。AWS に接続するため、**ユーザーが実行する**（AI エージェントは、実行しない）。
 
 1. **`SfmData` を適用する**: `pnpm build` のあと、`pnpm --filter @smart-farm/infra exec cdk deploy SfmData --require-approval never`（先に `cdk diff SfmData` で、変更を確認する）。`AWS_PROFILE` を指定する
 2. **出力を、環境変数に入れる**（バックエンドを起動するターミナルで）: `aws cloudformation describe-stacks --stack-name SfmData --query "Stacks[0].Outputs"` の `UserPoolId`・`UserPoolClientId`・`ObservationsTableName`・`MainTableName` を、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` に。`AWS_REGION=ap-northeast-1`、`AUTH_PROVIDER=cognito`、`PERSISTENCE=dynamodb`

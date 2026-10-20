@@ -48,7 +48,7 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: './test-result/coverage',
       reporter: ['text-summary', 'html', 'lcov', 'json-summary'],
-      include: ['src/**/*.{ts,tsx}', 'infra/lib/**/*.ts', 'infra/lambda/**/*.ts'],
+      include: ['src/**/*.{ts,tsx}', 'infra/lib/**/*.ts'],
       // 計測の対象外（理由）:
       // - *.d.ts: 型定義のみ
       // - main.tsx / runtime/main.ts / runtime/data-backup-main.ts / runtime/initial-user-main.ts: 起動のみでロジックを持たないエントリ（結線は node-server.ts・app.tsx・data-backup.ts のテストで検証する）

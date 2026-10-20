@@ -34,12 +34,13 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
   const stackEnv =
     config.account === undefined ? undefined : { account: config.account, region: REGION };
   // データは、評価環境と別のスタックにする（評価環境を削除・再作成しても、データを失わない）
-  new DataStack(app, 'SfmData', stackEnv === undefined ? {} : { env: stackEnv });
+  const data = new DataStack(app, 'SfmData', stackEnv === undefined ? {} : { env: stackEnv });
   const { domainName, hostedZoneName } = config;
   if (domainName === undefined || hostedZoneName === undefined || config.account === undefined) {
     new EvaluationStack(app, 'SfmEvaluation', {
       ...(stackEnv === undefined ? {} : { env: stackEnv }),
       frontendAssetPath,
+      data,
     });
     return app;
   }
@@ -52,6 +53,7 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
     env: { account: config.account, region: REGION },
     crossRegionReferences: true,
     frontendAssetPath,
+    data,
     domainName,
     hostedZoneName,
     certificate: certificateStack.certificate,

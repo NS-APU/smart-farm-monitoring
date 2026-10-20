@@ -17,7 +17,7 @@ smart-farm-monitoring/
 │   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts などの補助）
-├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・lambda/ の最小の API・test/ のテスト。ADR-0006・ADR-0007）
+├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・test/ のテスト。API の Lambda は、バックエンド本体 `src/backend/runtime/lambda.ts` を、esbuild でまとめて配る。ADR-0006・ADR-0007・ADR-0009）
 ├── scripts/       # 補助スクリプト
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
 ├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）

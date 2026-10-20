@@ -48,7 +48,7 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続。`APP_MODE=production` は起動時に `ConfigError`。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からは未確認。Issue #75）。ADR-0008）
+- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続（評価環境では、ファイルサーバー・農業情報基盤・Web Push は、モックのまま）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からの確認は、Issue #75 の PR の後）。ADR-0008）
 - 評価は、設計の「影響を受ける設備・観点に絞る」ではなく、**契機を問わず、全設備・全観点・全期間を毎回評価**する
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
@@ -1011,24 +1011,24 @@ flowchart LR
 ```mermaid
 flowchart LR
   USER["利用者のブラウザ"]
-  HOST["S3 + CloudFront<br>フロントエンドの配信<br>infra/ に実装済み（API は最小のみ）"]
-  LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ"]
-  EB["EventBridge<br>ジョブの起動<br>未実装"]
-  DDB["DynamoDB<br>アダプタ実装済み（Lambda とは未接続）"]
-  COG["Cognito<br>アダプタ実装済み（Lambda とは未接続）"]
+  HOST["S3 + CloudFront<br>フロントエンドの配信と、/api/*・/health の転送<br>infra/ に実装済み"]
+  LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ（APP_MODE=production）"]
+  EB["EventBridge<br>ジョブの起動<br>未実装（Issue #76）"]
+  DDB["DynamoDB<br>infrastructure/dynamodb/"]
+  COG["Cognito<br>infrastructure/cognito/"]
 
   USER --> HOST
-  USER --> LAM
+  HOST --> LAM
   EB -.-> LAM
-  LAM -.-> DDB
-  LAM -.-> COG
+  LAM --> DDB
+  LAM --> COG
 
   classDef todo stroke-dasharray: 5 5
-  class HOST,EB,DDB,COG todo
+  class EB todo
 ```
 
-- `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。`APP_MODE=production` では、`createContainer` が `ConfigError` を投げるため、呼び出しがエラーになる
-- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分のうち、DynamoDB は、アダプタ（`infrastructure/dynamodb/`）と IaC（`SfmData`）がある（Lambda ハンドラとは、まだ接続していない。Issue #75）。Cognito は、アダプタ（`infrastructure/cognito/`）と IaC（`SfmData` のユーザープール）がある（Lambda ハンドラとは、まだ接続していない。Issue #75）。EventBridge からのジョブ起動は、コードも IaC もない。画面の配信は、IaC（`infra/`）に S3 + CloudFront と最小の API があるが、この図の Lambda ハンドラ（`runtime/lambda.ts`）とは、まだつながっていない（Issue #75）
+- `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。設定は `parseLambdaConfig`（`APP_MODE`・`PERSISTENCE` の明示が必須。`SEED_MODE` は使えない。開発用 API・スケジューラは常に無効）。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009）
+- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS 上での確認は、PR の後**）。点線の EventBridge からのジョブ起動は、コードも IaC もない（Issue #76）。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
 
 ## フロントエンドの構成
 
@@ -1114,7 +1114,7 @@ flowchart LR
 
 | 変数                                                            | 既定                      | 内容                                                                                                                                            |
 | --------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_MODE`                                                      | `local`                   | `local`／`test`／`production`。`production` は起動できない（アダプタ未実装）。`production` 以外は、開発用 API が有効                            |
+| `APP_MODE`                                                      | `local`                   | `local`／`test`／`production`。`production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須（ADR-0009）。`production` では、開発用 API は使えない                            |
 | `HOST`・`PORT`                                                  | `127.0.0.1`・`8787`       | 待ち受け                                                                                                                                        |
 | `PERSISTENCE`                                                   | `memory`                  | `memory`／`file`／`dynamodb`（Repository を DynamoDB にする。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須）                                                                              |
 | `DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`            | なし                      | `PERSISTENCE=dynamodb` のとき必須（なければ `ConfigError`）。DynamoDB のテーブル名（テーブルは IaC の `SfmData` が作る） |

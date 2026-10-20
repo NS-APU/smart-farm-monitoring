@@ -33,7 +33,7 @@
 - **ログインの試行回数の制限**（同じ接続元から 15 分あたり 5 回まで。FR-9.2。ユーザーの判断。推奨案）: ローカルと同じ振る舞いを、Lambda の複数の実行環境でも保つため、**DynamoDB のカウンター**（`Main` の `LOGINFAIL`。接続元は、ハッシュにして保存。TTL で自動削除）で持つ。Cognito 自身の、ユーザーごとの一時的なロック（失敗が続いたとき。回数・時間は変えられない）と、二重の防御になる。Cognito の呼び出しの上限（スロットリング）は、失敗として数えず、`RATE_LIMITED` にする
 - **最初のユーザー**（ユーザーの判断。推奨案）: Lambda は、環境変数の初期ユーザー（`INITIAL_USER_*`）を、**読まない**（設定すると、起動時の検証が拒否する）。運用者が、AWS のプロファイルを指定して、手元で、**1 回だけ**、コマンド（`pnpm initial-user`）を実行する。Cognito のユーザー（パスワードつき）と、DynamoDB の記録を、同時に作る。ユーザーが 1 人でもいれば、何もしない。パスワードは、実行時の環境変数で渡し、保存・出力しない。AWS のエラーは、名前だけを出力する（メッセージに、アカウント ID・ARN が含まれるため）
 - **IaC**（`infra/lib/data-stack.ts`。`SfmData`）: ユーザープールも、状態（ユーザー）を持つため、データのスタックに置く（削除の保護・RETAIN）。管理者だけがユーザーを作る（自己登録・メール・SMS・MFA・パスワードの回復なし）。ユーザー名は、大文字・小文字を区別する（ローカルと同じ）。アプリクライアントは、シークレットなし、`ALLOW_ADMIN_USER_PASSWORD_AUTH` と `ALLOW_REFRESH_TOKEN_AUTH` だけ、ユーザーの存在を推測させない設定（`PreventUserExistenceErrors`）、トークンの失効を有効にする。機能のプランは、Essentials（10,000 MAU まで無料。architecture.md 11 章）。出力: `UserPoolId`・`UserPoolClientId`
-- **Lambda に必要な IAM の権限**（Issue #75 で、ユーザープールの ARN に限って、付ける）: `cognito-idp:AdminInitiateAuth`・`AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`・`AdminUserGlobalSignOut`。`GetUser`・`GlobalSignOut` は、アクセストークンで認可される API のため、IAM の権限は、不要
+- **Lambda に必要な IAM の権限**（Issue #75 で、ユーザープールの ARN に限って付けた。[ADR-0009](./0009-lambda-production-assembly.md)）: `cognito-idp:AdminInitiateAuth`・`AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`・`AdminUserGlobalSignOut`。`GetUser`・`GlobalSignOut` は、アクセストークンで認可される API のため、IAM の権限は、不要
 
 ### 3. 暫定の代替（リスク対応）
 
@@ -91,4 +91,4 @@ Cognito が使えない（IAM の権限が足りない・振る舞いが想定�
 | 応答時間（手元の PC → 東京。`GET /users`。5 回） | 225・233・265・288・308 ミリ秒（中央値 265）。比較の `/health`（AWS を呼ばない）は 19 ミリ秒。`GetUser`・ユーザーの記録の取得・一覧の取得の **3 往復**（1 往復あたり 70〜100 ミリ秒）。同じリージョンの Lambda からは、小さくなる見込み（Issue #79 で計測） |
 
 - この確認で、DynamoDB の `Main` テーブルの、ユーザー・ログインの試行回数の記録・ステータスコードの初期データへの読み書きも、実際の AWS で、動作した（観測値のテーブル・一覧・評価の読み取りは、未確認。Issue #79）
-- **未確認**: (1) **Lambda からの呼び出し**（Lambda の IAM の権限。Issue #75）。(2) 画面（SC-14）での操作（同じ処理を、API で確認した）。(3) Cognito 自身の、ユーザーごとのロックの挙動。(4) ログインの試行回数の記録（`ttl`）の、**TTL による自動削除**（`ttl` の属性が書かれることは、確認した。DynamoDB の TTL は、期限の後、最長 48 時間で削除する。期限切れの記録は、アプリが数えないため、動作に影響しない）
+- **未確認**: (1) **Lambda からの呼び出し**（Lambda の IAM の権限。Issue #75 で実装。AWS での確認は、Issue #75 の PR の後）。(2) 画面（SC-14）での操作（同じ処理を、API で確認した）。(3) Cognito 自身の、ユーザーごとのロックの挙動。(4) ログインの試行回数の記録（`ttl`）の、**TTL による自動削除**（`ttl` の属性が書かれることは、確認した。DynamoDB の TTL は、期限の後、最長 48 時間で削除する。期限切れの記録は、アプリが数えないため、動作に影響しない）

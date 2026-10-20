@@ -261,17 +261,39 @@ export function parseInitialUserEnv(
   return parseInitialUser(parseEnv(env), roles);
 }
 
+/**
+ * 本番（APP_MODE=production）の必須の設定（ADR-0009）。本番では、ユーザー・データを失う・分裂する構成（アプリ内の認証・
+ * メモリ・ファイル）を使わない。認証は Cognito、データは DynamoDB。
+ */
+function assertProductionAdapters(
+  mode: AppMode,
+  cognito: CognitoConfig | undefined,
+  dynamodb: DynamoDbConfig | undefined,
+): void {
+  if (mode !== 'production') {
+    return;
+  }
+  if (cognito === undefined || dynamodb === undefined) {
+    throw new ConfigError(
+      'APP_MODE=production では、AUTH_PROVIDER=cognito と PERSISTENCE=dynamodb（と、それぞれの設定）が必要です',
+    );
+  }
+}
+
 export function parseConfig(env: Readonly<Record<string, string | undefined>>): AppConfig {
   const parsed = parseEnv(env);
   const roles = parseRoles(parsed.ROLE_DEFINITIONS_JSON);
+  const dynamodb = parseDynamoDb(parsed);
+  const cognito = parseCognito(parsed);
+  assertProductionAdapters(parsed.APP_MODE, cognito, dynamodb);
   return {
     mode: parsed.APP_MODE,
     host: parsed.HOST,
     port: parsed.PORT,
     persistence: parsed.PERSISTENCE,
     dataFile: parsed.DATA_FILE,
-    dynamodb: parseDynamoDb(parsed),
-    cognito: parseCognito(parsed),
+    dynamodb,
+    cognito,
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     seedMode: parsed.SEED_MODE,
     initialUser: parseInitialUser(parsed, roles),
@@ -313,5 +335,12 @@ export function parseLambdaConfig(env: Readonly<Record<string, string | undefine
       '本番の Lambda では、PERSISTENCE=memory は使えません（データが失われるため）',
     );
   }
-  return { ...config, devApiEnabled: false };
+  if (config.seedMode !== 'NONE') {
+    // 起動のたび（コールドスタートのたび）に、デモデータを投入しない。評価環境のデモデータは、別の入口で投入する（Issue #77）
+    throw new ConfigError(
+      'Lambda では、SEED_MODE は使えません（デモデータは、別の入口で投入します）',
+    );
+  }
+  // ジョブは、EventBridge から起動する（Issue #76）。Lambda の中で、タイマーによるスケジューラを動かさない
+  return { ...config, devApiEnabled: false, schedulerEnabled: false };
 }
