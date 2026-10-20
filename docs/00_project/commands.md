@@ -156,6 +156,35 @@ Remove-Item Env:INITIAL_USER_ID, Env:INITIAL_USER_NAME, Env:INITIAL_USER_PASSWOR
 - 使う AWS のプロファイルに必要な権限: Cognito のユーザープールへの `AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`（途中の失敗の後始末）・`AdminUserGlobalSignOut`、DynamoDB の `Main` テーブルへの読み書き
 - **状態: AWS で確認済み**（2026-10-16。最初のユーザーを作成できた。結果は、ADR-0008 の「検証」）。Lambda から Cognito・DynamoDB を使うこと（Issue #75。ADR-0009）も、**AWS で確認済み**（2026-10-20。ログイン・認証つきの呼び出し・画面）
 
+### デモデータの投入とリセット（評価環境。Issue #77。ADR-0012）
+
+評価環境（AWS）の画面に、デモの設備・合成データ・評価を用意する（本番の組み立ては、`SEED_MODE`・開発用 API を使えないため、**ユーザーが、AWS のプロファイルを指定して、手元で実行する**。AI エージェントは、実行しない）。**`reset` は、データを消す（元に戻せない）**。
+
+```powershell
+# PowerShell の例。値は、スタックの出力（<…> を、置き換える）
+$env:AWS_PROFILE = '<プロファイル名>'
+$env:PERSISTENCE = 'dynamodb'
+$data = aws cloudformation describe-stacks --stack-name SfmData --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
+$evaluation = aws cloudformation describe-stacks --stack-name SfmEvaluation --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
+$env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'ObservationsTableName' }).OutputValue
+$env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
+$env:FILE_SERVER_S3_BUCKET = ($evaluation | Where-Object { $_.OutputKey -eq 'FileServerBucketName' }).OutputValue
+
+pnpm demo-data seed          # 投入する（設備がすでにあれば、何もしない）
+pnpm demo-data reset         # 何も消さず、消す対象の件数を示す
+pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す。S3 のファイルも消す）
+
+# 終わったら、必ず消す（同じターミナルで、手元のバックエンドを起動したとき、AWS に向いてしまうため）
+Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:FILE_SERVER_S3_BUCKET -ErrorAction SilentlyContinue
+```
+
+- 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`FILE_SERVER_S3_BUCKET` は、`reset` で S3 のファイルも消すときに指定する（指定しなければ、DynamoDB だけ）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
+- `seed` は、設備がすでにあれば、何もしない。投入し直すときは、`reset --yes` のあとに、`seed`
+- `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目、S3 のファイル。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
+- AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
+- 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除、（S3 のファイルも消すとき）バケットの一覧と、オブジェクトの削除
+- **状態: 未確認**（コマンドは、テストで確認済み。実際の AWS での確認は、デプロイの後に、ユーザーが行う。operations.md 7.5）
+
 ### AWS に、手元のバックエンドを向けて確認する（Cognito・DynamoDB。Issue #74）
 
 Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として、**手元のバックエンドを、実際の Cognito と DynamoDB に向けて起動し、API を直接呼ぶ**ことで、認証とデータの接続を確認できる（2026-10-16 に、この方法で確認した。結果は、ADR-0008 の「検証」）。AWS に接続するため、**ユーザーが実行する**（AI エージェントは、実行しない）。
