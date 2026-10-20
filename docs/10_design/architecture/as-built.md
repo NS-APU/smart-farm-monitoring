@@ -967,7 +967,7 @@ flowchart LR
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
-| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
+| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）・`s3/s3-file-source.ts`（S3 のモック。Lambda 用。`FILE_SERVER_S3_BUCKET` を指定したときに使う。Issue #77。ADR-0012）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON・CSV の FormatProfile）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | 農業情報基盤用（Q-005）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
@@ -986,7 +986,7 @@ flowchart LR
   NODE["Node サーバー 127.0.0.1:8787<br>serve と Hono アプリ<br>runtime/main.ts"]
   CT["Container<br>コンポジションルート"]
   REPO["LocalRepositories<br>メモリと store.json"]
-  FS["ファイルサーバーのモック<br>FILE_SERVER_DIR 配下"]
+  FS["ファイルサーバーのモック<br>FILE_SERVER_DIR 配下（Lambda は S3）"]
   FD["農業情報基盤のモック"]
   WP["Web Push のダミー"]
   CK["操作できる時計"]
@@ -1123,6 +1123,7 @@ flowchart LR
 | `DYNAMODB_ENDPOINT`・`AWS_REGION`                               | なし                      | DynamoDB の接続先（DynamoDB Local など。ローカルの確認用。指定すると、起動時にテーブルを作り、ダミーの認証情報を使う。AWS では指定しない）、リージョン（Lambda では実行環境が設定）。`PERSISTENCE=dynamodb` では、`DEV_API_ENABLED` は使えない |
 | `AUTH_PROVIDER`                                                 | `local`                   | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない（最初のユーザーは、`pnpm initial-user` で作る） |
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
+| `FILE_SERVER_S3_BUCKET`                                         | なし                      | ファイルサーバーのモックの S3 のバケット名。指定すると、`FILE_SERVER_DIR` ではなく、S3 の `<バケット>/<取り込み元>/` を使う（評価環境の Lambda。Issue #77。ADR-0012）                                                                                                       |
 | `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |

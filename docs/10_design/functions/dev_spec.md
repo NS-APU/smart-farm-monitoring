@@ -207,6 +207,7 @@ flowchart LR
 | `AUTH_PROVIDER` | `local` | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用不可 |
 | `PERSISTENCE` | `memory` | `memory`（メモリのみ）／`file`（`DATA_FILE` の JSON ファイル）／`dynamodb`（DynamoDB。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須。ローカルの確認用に、`DYNAMODB_ENDPOINT`（DynamoDB Local）。`DEV_API_ENABLED` とは併用不可） |
 | `DATA_FILE` | `.local-data/store.json` | ファイル永続化の保存先（Git 管理外） |
+| `FILE_SERVER_S3_BUCKET` | なし | ファイルサーバーのモックの S3 のバケット名。指定すると、`FILE_SERVER_DIR` ではなく、S3 の `<バケット>/<取り込み元>/` を使う（評価環境の Lambda。Issue #77。ADR-0012）。S3 版には、停止・遅延の再現がない |
 | `FILE_SERVER_DIR` | `.local-data/file-server` | ファイルサーバーのモックのルート。`<ルート>/robot/`・`<ルート>/environment-sensor/` に合成データのファイルを置く |
 | `SEED_MODE` | `NONE` | `DEMO`: デモの設備・合成データ（3日分）・手動入力・評価・通知を投入（設備が1件もないときのみ） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし | 最初のユーザー（4章 No.2）。3つそろえて指定する。パスワードは、パスワードの条件（FR-9.2）を満たす |
