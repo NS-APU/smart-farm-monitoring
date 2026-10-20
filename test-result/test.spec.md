@@ -6720,7 +6720,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | infra                  | `infra/test/bundle-lambda.test.ts`                                      |    2 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
-| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   16 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   17 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
@@ -11013,6 +11013,10 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | **期待値の変更 5**: `infra/test/evaluation-stack.test.ts`（Issue #100） | 「環境変数」の `TRUSTED_PROXY_HOPS: '2'` の期待を、`CLIENT_IP_HEADER: 'x-sfm-viewer-ip'` と、`TRUSTED_PROXY_HOPS` を持たないことに変えた。「API の振る舞いは、関数の関連付けなし」（`FunctionAssociations: Match.absent()`）を、「viewer-request の関数の関連付けあり」に変えた（利用者の IP をヘッダーに入れる CloudFront の Function を付けたため）。それ以外の期待は、そのまま | 件数は変わらない |
 | 接続元のヘッダーのテストの追加（Issue #100） | `security-hardening.test.ts` に 2 件（`CLIENT_IP_HEADER` のヘッダーの IP を接続元にし、`X-Forwarded-For` が変わっても回避できない・IPv6 も別の接続元になる／IP でない値は使わず、ユーザーID単位に切り替える）。`config.test.ts` に 4 件（既定は指定なし・小文字にして読み込む／ヘッダー名として不正な値 3 通りは設定エラー） | 結合 +2・単体 +4 |
 | IaC（利用者の IP のヘッダー）のテストの追加（Issue #100） | `evaluation-stack.test.ts` に 1 件: API の入口の CloudFront Function が、利用者の IP を、専用のヘッダーに**上書き**で入れる（利用者が同名のヘッダーを付けても無効。ほかのヘッダーは、そのまま。IPv6 も可）。Function のコードを `node:vm` で実行して確かめる | infra +1 |
+| **期待値の変更 6**: `infra/test/data-stack.test.ts`（Issue #80） | 「データを守る」の、ポイントインタイムリカバリの期待を、「有効である」から、**「有効で、復元できる期間が 35 日である」**（`PointInTimeRecoveryEnabled: true` と `RecoveryPeriodInDays: 35`）に、**厳しくした**（緩めてはいない）。IaC が、期間を指定せず、AWS の既定（35 日）に任せていたため、期間を明示し、backup-restore.md の記述（35 日）を、コードで確認できるようにした（Issue #80。ユーザーの承認済み） | 件数は変わらない |
+| IaC（ログの保持期間）のテストの追加（Issue #80） | `evaluation-stack.test.ts` に 1 件: ロググループは 2 つ（API・画面の配置の補助の Lambda）で、どちらも保持期間 30 日・スタックを消すと一緒に消える。画面の配置の補助の Lambda のログが、CDK の既定（731 日・残る）になっていたため、期間を絞った（`cdk synth` で確認） | infra +1 |
 
 **Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
 取り込み後の件数と実測値は、1.2 節。
+
+**Issue #80 では、上の「期待値の変更 6」のとおり、IaC のテストの期待を、厳しくした**（緩めたのではなく、期間を明示するため）。

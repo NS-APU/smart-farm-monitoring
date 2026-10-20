@@ -206,6 +206,21 @@ describe('評価環境のスタック: API（Lambda の関数の URL）', () => 
     template.hasResource('AWS::Logs::LogGroup', { DeletionPolicy: 'Delete' });
   });
 
+  it('ログは、すべてのロググループで、30 日で自動削除し、スタックを消すと一緒に消す（画面の配置の補助の Lambda を含む。Issue #80）', () => {
+    const { template } = plainStack();
+    const logGroups = Object.values(template.findResources('AWS::Logs::LogGroup')) as {
+      DeletionPolicy?: string;
+      Properties: { RetentionInDays?: number };
+    }[];
+
+    // API・画面の配置（BucketDeployment）の補助の 2 つ。増えたときは、保持期間を絞り忘れていないか確認する
+    expect(logGroups).toHaveLength(2);
+    for (const logGroup of logGroups) {
+      expect(logGroup.Properties.RetentionInDays).toBe(30);
+      expect(logGroup.DeletionPolicy).toBe('Delete');
+    }
+  });
+
   it('関数の URL は認証なし（認証はアプリ側）。公開に必要な 2 つの権限がある', () => {
     const { template } = plainStack();
     template.hasResourceProperties('AWS::Lambda::Url', { AuthType: 'NONE' });

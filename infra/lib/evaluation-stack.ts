@@ -240,13 +240,18 @@ export class EvaluationStack extends Stack {
           }),
     });
 
-    // 画面のファイルを配置し、CloudFront のキャッシュを無効化する（デプロイのたびに、最新の画面になる）
+    // 画面のファイルを配置し、CloudFront のキャッシュを無効化する（デプロイのたびに、最新の画面になる）。
+    // 配置の補助の Lambda のログも、保持期間を絞り、スタックを消すと一緒に消す（CDK の既定は 731 日・残る。Issue #80）
     new BucketDeployment(this, 'SiteDeployment', {
       sources: [Source.asset(props.frontendAssetPath)],
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],
       prune: true,
+      logGroup: new LogGroup(this, 'SiteDeploymentLogGroup', {
+        retention: RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
     });
 
     if (domainName !== undefined && hostedZoneName !== undefined) {

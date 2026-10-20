@@ -49,8 +49,8 @@
 | | [stresstest.report.md](../../test-result/stresstest.report.md)（`test-result/` に置く） | 負荷試験の報告（結果のサマリ、採用した許容時間と根拠、データ規模、環境、対応で行ったこと（修正前後の値）、制約・限界） |
 | | [stresstest.result.log](../../test-result/stresstest.result.log)（`test-result/` に置く） | 負荷試験の結果ログ（`pnpm test:stress` の最新の実行。操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計） |
 | [40_operations](../40_operations/) | [git-workflow.md](../40_operations/git-workflow.md) | Git・ブランチ・PR運用 |
-| | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。本番のデプロイ・ロールバックは TODO） |
-| | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行は実装済み。本番は TODO） |
+| | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。評価環境（AWS）のデプロイ・ロールバック・初期ユーザー・データの初期化・障害時の確認） |
+| | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行・評価環境の DynamoDB（PITR・オンデマンド・復元）） |
 | [50_references](../50_references/) | （今後追加） | 外部資料・参考情報 |
 | [.license-check](../../.license-check/)（リポジトリ直下） | [license-report.md](../../.license-check/license-report.md) | 依存パッケージのライセンス確認（コピーレフトの検出と対応、全依存のライセンス別の件数と一覧、配布物に含まれるものの区別）。`docs/` の外に置く |
 | [.speccheck](../../.speccheck/)（リポジトリ直下） | UC-01〜UC-24 の整合性チェックレポート（例: [UC-01-view-dashboard.md](../../.speccheck/UC-01-view-dashboard.md)） | ユースケースごとの、要件（use-cases.md・FR・NFR）・設計・実装・テストの対応表と、不足・食い違いの記録（24 ファイル）。`docs/` の外に置く |

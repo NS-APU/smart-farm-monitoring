@@ -1,6 +1,6 @@
 # 運用手順（起動・設定・障害対応の骨子）
 
-目的: アプリの起動・設定の確認・日々の運用・障害対応の手順の骨子を示す（NFR-6.1・NFR-6.2）。ローカル実行の手順は、現在の実装に基づく。本番（AWS）のデプロイ・ロールバック・IaC は、AWS 環境の確定（NFR-1.2）と本番アダプタの実装（as-built.md）の後に、追記する（各節の TODO）。バックアップ・復元は [backup-restore.md](./backup-restore.md)。
+目的: アプリの起動・設定の確認・日々の運用・障害対応の手順の骨子を示す（NFR-6.1・NFR-6.2）。ローカル実行の手順は、現在の実装に基づく。評価環境（AWS）のデプロイ・ロールバック・初期化・障害時の確認は、7 章（Issue #80。実機の確認の状況は、7 章の表）。バックアップ・復元は [backup-restore.md](./backup-restore.md)。
 
 ## 1. 環境ごとの設定（必須の確認）
 
@@ -28,7 +28,7 @@
 
 ## 3. ログの見方
 
-構造化ログ（JSON。1行1イベント）を標準出力へ出す。主な項目: `time`・`level`・`message`・`requestId`・`userId`・`equipmentId`。パスワード・トークンなどの秘密情報は、値がマスクされる。
+構造化ログ（JSON。1行1イベント）を標準出力へ出す（AWS では、CloudWatch Logs に入る。見方は 7.6）。主な項目: `time`・`level`・`message`・`requestId`・`userId`・`equipmentId`。パスワード・トークンなどの秘密情報は、値がマスクされる。
 
 | 事象 | ログのメッセージ・`event` | 対応 |
 |------|----------------------------|------|
@@ -54,7 +54,6 @@
 | 復元の試験 | 月次 | 同上 |
 | ログ・通知の確認 | 随時 | 上記 3・4 |
 | 依存パッケージの更新・脆弱性の確認 | 月次 | `pnpm audit`（TODO: 自動化。CI の整備後） |
-| 費用の確認 | 月次 | TODO: AWS の費用の監視（NFR-1.5）。構成の確定後に定める |
 
 ## 6. 配信（画面）の前提（本番のデプロイ時に反映する）
 
@@ -66,10 +65,92 @@
 - API（`/api/v1/*`）は、同じオリジンから配信する（CloudFront で、Lambda へ振り分ける）か、API のオリジンを許可する CORS・API の接続先の設定を追加する（TODO: 配信構成の確定。V-136）
 - セキュリティヘッダー（HSTS・CSP・`frame-ancestors`・`Referrer-Policy`）を、配信側にも設定する。API の応答には、バックエンドが付けている（V-015）
 
-## 7. デプロイ・ロールバック・IaC（TODO）
+## 7. 評価環境（AWS）のデプロイ・ロールバック・初期化・障害時の確認
 
-AWS 環境・IaC（NFR-6.6）の確定後に、次を記載する。
+顧客評価環境（サーバーレス構成。ADR-0006）の最小の運用手順（Issue #80）。環境の作り方（初回の設定・bootstrap・OIDC のロール）は [commands.md](../00_project/commands.md) の「評価環境（IaC）」。
 
-- デプロイの手順（フロントエンドのビルド `pnpm build`、バックエンドのバンドル、関数・DynamoDB・EventBridge の構成）
-- ロールバックの手順（前の版への切り戻し）と、判断の基準
-- 障害時の連絡先・エスカレーション（運用体制 NFR-6.8）
+**確認状況**: 手順は、コード（`infra/`・`.github/workflows/`）と AWS の公式ドキュメントから書いた。**実機（AWS）での確認の状況は、下の表**（2026-10-20 に、ユーザーが、手元から実行して確認した）。AWS に接続する操作は、ユーザーが実行する（AGENTS.md 12 章）。
+
+| 手順 | 実機の確認 |
+|------|------------|
+| 7.2 デプロイ | 手元からのデプロイ（`diff` → `deploy`）は、**確認済み**（2026-10-20）。GitHub Actions 経由は、Issue #71 で、初回のデプロイを確認済み（Issue #75 の API の Lambda では、未実施。この PR のマージ後に確認する） |
+| 7.3 ロールバック | **確認済み**（2026-10-20）。手元で、前の版（`origin/develop`）を別の場所（git worktree）に置いてデプロイし、`/health` を確認し、現在の版に戻した。失敗時の自動ロールバック、`git revert` の PR 経由は、未実施 |
+| 7.4 初期ユーザーの作成 | 確認済み（2026-10-16。Issue #74） |
+| 7.5 データの初期化 | 未確認（Issue #77 で、デモデータの再投入と合わせて確認する） |
+| 7.6 障害時の確認（ログの見方） | **確認済み**（2026-10-20）。ロググループの特定、`aws logs tail`、Logs Insights のクエリ |
+| [backup-restore.md](./backup-restore.md) の復元（PITR。復元 A）・同名での置き換えの機構（復元 B。一時テーブルで試験）・設定値（ログ 30 日・PITR 35 日） | **確認済み**（2026-10-20）。本番のテーブルを置き換える操作そのものは、実施していない |
+
+### 7.1 構成（スタック）
+
+| スタック | 中身 | 備考 |
+|----------|------|------|
+| `SfmData` | DynamoDB のテーブル 2 つ・Cognito のユーザープール | 状態を持つ。削除の保護あり。評価環境の更新・削除では、消えない |
+| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName` |
+| `SfmGithubOidc` | GitHub Actions 用のロール | 初回に 1 回だけ作る |
+
+`deploy` は、`SfmData` → `SfmEvaluation` の順に更新する（Lambda が、`SfmData` の出力を使うため）。
+
+### 7.2 デプロイ
+
+1. 変更が、PR の CI（`ci.yml`）を通り、レビューを受けて、`develop` にマージされていることを確認する
+2. データの構造に関わる変更（`SfmData`・テーブルのキー・インデックス）を含む場合は、先に、DynamoDB のオンデマンドバックアップを取る（[backup-restore.md](./backup-restore.md)）
+3. GitHub の Actions → 「Deploy evaluation」→ Run workflow（ブランチ: `develop`）。画面のビルド（`pnpm build`）のあと、`cdk deploy --all` が動く。実行中のデプロイは、止めない（CloudFormation の更新が、途中で止まるため）
+4. 確認: ワークフローのログの `SiteUrl` を開く。`<SiteUrl>/health` が `{"status":"ok",…}` を返す。ログインできる。API のログに、起動時の警告（1 章）が出ていない（7.6）
+
+手元から行う場合（検証用）と、差分の確認は、[commands.md](../00_project/commands.md) の「評価環境（IaC）」。
+
+### 7.3 ロールバック
+
+| 状況 | 対応 |
+|------|------|
+| **デプロイが失敗した**（ワークフローが失敗） | CloudFormation が、直前の状態へ自動で戻す。AWS のコンソール（CloudFormation）で、スタックの状態が `UPDATE_ROLLBACK_COMPLETE` であることを確認する。`UPDATE_ROLLBACK_FAILED` の場合は、失敗したリソースの原因を直し、`aws cloudformation continue-update-rollback --stack-name <スタック名>` を実行する。原因を直してから、7.2 を再実行する |
+| **デプロイは成功したが、不具合がある** | 不具合の原因のコミットを、`git revert` で取り消す PR を作り、`develop` にマージして、7.2 を実行する（前の版が、コードから、再び作られる）。急ぐ場合は、手元で、前の正常なコミットをチェックアウトし、`pnpm build` → `pnpm --filter @smart-farm/infra run deploy`（`AWS_PROFILE` を指定）で戻し、あとで、Git にも反映する（revert の PR） |
+
+- **戻すと判断する基準**: `/health` が応答しない、ログインできない、想定外のエラー（3 章）が続く、のいずれか。軽微な不具合は、戻さず、修正して前に進める
+- **ロールバックで戻らないもの**: `SfmData` のデータ（観測値・設定・ユーザー）。Cognito のユーザーの追加・パスワードの変更。データを前の時点に戻すときは、[backup-restore.md](./backup-restore.md)
+- **Issue #80 より前の版へ戻す場合の注意**: 画面の配置の補助の Lambda の旧いロググループ（`/aws/lambda/` で始まり `CustomCDKBucketDeployment` を含む名前）が残っていると、旧い版の IaC が、同じ名前のグループを作ろうとして失敗する見込み（失敗すれば、CloudFormation が、自動で元に戻す）。先に、そのグループを削除する（デプロイのときのログだけが入っている。[backup-restore.md](./backup-restore.md)）。今後の版どうしの切り戻しでは、起きない
+- 画面だけの不具合でも、ロールバックは、スタック全体の更新になる（画面・API は、同時に更新される）
+
+### 7.4 初期ユーザーの作成
+
+評価環境（`AUTH_PROVIDER=cognito`）の最初のユーザー（管理者）は、**ユーザーが、手元で、1 回だけ**作る。手順は、[commands.md](../00_project/commands.md) の「最初のユーザー（Cognito）」。要点:
+
+- `SfmData` の出力（`UserPoolId`・`UserPoolClientId`・`ObservationsTableName`・`MainTableName`）を、環境変数に入れ、`pnpm initial-user` を実行する
+- ユーザーが 1 人でもいれば、何もしない（既存のユーザーを上書きしない）
+- 実行したら、`INITIAL_USER_*`（特にパスワード）を、すべて消す。初回のログイン後に、パスワードを変更する
+- 2 人目以降は、画面の「ユーザー管理」で作る
+
+### 7.5 データの初期化
+
+- **評価環境のデータを、すべて消して、空から作り直す**（ユーザーを含む。元に戻せない）: 実行の前に、オンデマンドバックアップを取る（必要なら）。[commands.md](../00_project/commands.md) の「削除と再作成」の「データ（DynamoDB のテーブル）の削除」で、`SfmData` を削除し、テーブル・ユーザープールを削除する。続けて、7.2 のデプロイで、`SfmData`・`SfmEvaluation` を作り直す（テーブル名・ユーザープールの ID は、新しくなるが、Lambda は、デプロイで、新しい値を受け取る）。そのあと、7.4 で、最初のユーザーを作る
+- **デモデータの再投入**: TODO（Issue #77）。本番の組み立て（`APP_MODE=production`）は、`SEED_MODE` を使えない（ADR-0009）。デモデータの投入の方法は、#77 で定め、ここに追記する
+
+### 7.6 障害時の確認（ログの見方）
+
+1. **画面が開くか**: `SiteUrl`。開かない場合は、CloudFront（`DistributionId`）の状態と、`SfmEvaluation` のスタックの状態（CloudFormation）を確認する
+2. **API が動くか**: `<SiteUrl>/health`。応答しない・5xx の場合は、次の API のログを見る
+3. **API のログ**（CloudWatch Logs。保持期間 30 日）:
+   - ロググループの名前: `aws lambda get-function-configuration --function-name <ApiFunctionName> --query LoggingConfig.LogGroup --output text`（`ApiFunctionName` は、`SfmEvaluation` の出力）。コンソールでは、Lambda → API の関数 → モニタリング → CloudWatch のログを表示
+   - CloudWatch の Logs Insights で、そのロググループを選び、期間を指定して、次のようなクエリで探す（ログは、1 行 1 イベントの JSON で、項目は、そのまま使える。形式は 3 章）
+
+   ```
+   # 想定外のエラー・警告（新しい順）
+   fields @timestamp, level, message, path, errorName, errorMessage, requestId
+   | filter level = "error" or level = "warn"
+   | sort @timestamp desc
+   | limit 50
+
+   # ログインの失敗・制限（接続元ごとの件数）
+   fields @timestamp, event, userId, clientKey
+   | filter event = "auth.login.failed" or event = "auth.login.locked"
+   | stats count() by clientKey, event
+   ```
+4. 症状ごとの見方:
+
+| 症状 | 確認すること |
+|------|--------------|
+| ログインできない | `auth.login.failed`・`auth.login.locked`（3 章）。Cognito のユーザーが存在するか（AWS のコンソール） |
+| API が遅い・タイムアウトする | Lambda のタイムアウトは 29 秒（CloudFront の上限 30 秒の内側）。ログの `OperationTimeoutError`。DynamoDB の調整（スロットリング）のエラー |
+| デプロイの直後から、おかしい | 7.3 のロールバック |
+
+- 障害時の連絡先・エスカレーション（運用体制）: TODO（NFR-6.8。体制が決まったら）
