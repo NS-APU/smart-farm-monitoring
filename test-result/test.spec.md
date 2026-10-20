@@ -6720,7 +6720,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | infra                  | `infra/test/bundle-lambda.test.ts`                                      |    2 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
-| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   15 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   16 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
@@ -11009,6 +11009,10 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | Lambda の本番の組み立ての単体テストの追加（Issue #75） | `config.test.ts` に 6 件（本番に必須の設定がそろっていれば読み込める、必須の設定が不足している 3 通り（何も指定しない・認証が Cognito でない・データが DynamoDB でない）は設定エラー、Lambda の設定は開発用 API・スケジューラを使えなくする、`SEED_MODE` は設定エラー）。`runtime.test.ts` に 1 件（Lambda は `SEED_MODE` を使えない） | 単体 +7 |
 | IaC（API の Lambda）のテストの追加（Issue #75） | `evaluation-stack.test.ts` に 3 件: 環境変数（本番・DynamoDB・Cognito。ID・テーブル名は、`SfmData` の出力を参照）、秘密情報・開発用 API・デモデータ・初期ユーザーの環境変数がない、IAM は最小権限（DynamoDB は 2 テーブルとインデックスへの必要な 8 操作で `Scan` なし、Cognito はユーザープールへの 5 操作、API の Lambda のロールにワイルドカードのリソースなし）。`bundle-lambda.test.ts` に 1 件: バックエンド本体のハンドラを、AWS SDK を含めて 1 ファイルにまとめ（大きさ 8 MB 未満）、別のプロセスで、`/health` に 200 で答える。`vitest.config.ts` のカバレッジの対象から `infra/lambda/` を外した | infra +4 |
 | Lambda の本番設定の結合テストの追加（Issue #75） | `tests/integration/lambda-production.test.ts`（3 件。DynamoDB Local + 偽の Cognito）: 本番設定で、`/health`・ログイン・認証つきの呼び出し・更新・ログアウトができる、開発用 API は 404・デモデータは投入されない、ログインの試行回数の制限は、`X-Forwarded-For` の末尾から 2 番目（利用者の IP）ごとで、先頭に偽の値を付けても回避できない（`TRUSTED_PROXY_HOPS=2`） | 結合 +3 |
+| **期待値の変更 4**: `infra/test/data-stack.test.ts`（Issue #80） | 「データを守る」の、ポイントインタイムリカバリの期待を、「有効である」から、**「有効で、復元できる期間が 35 日である」**（`PointInTimeRecoveryEnabled: true` と `RecoveryPeriodInDays: 35`）に、**厳しくした**（緩めてはいない）。IaC が、期間を指定せず、AWS の既定（35 日）に任せていたため、期間を明示し、backup-restore.md の記述（35 日）を、コードで確認できるようにした（Issue #80。ユーザーの承認済み） | 件数は変わらない |
+| IaC（ログの保持期間）のテストの追加（Issue #80） | `evaluation-stack.test.ts` に 1 件: ロググループは 2 つ（API・画面の配置の補助の Lambda）で、どちらも保持期間 30 日・スタックを消すと一緒に消える。画面の配置の補助の Lambda のログが、CDK の既定（731 日・残る）になっていたため、期間を絞った（`cdk synth` で確認） | infra +1 |
 
 **Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
 取り込み後の件数と実測値は、1.2 節。
+
+**Issue #80 では、上の「期待値の変更 4」のとおり、IaC のテストの期待を、厳しくした**（緩めたのではなく、期間を明示するため）。
