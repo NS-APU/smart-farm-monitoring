@@ -246,6 +246,22 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('利用者の IP のヘッダー（CLIENT_IP_HEADER。Issue #100）', () => {
+    it('既定は指定なし。指定したヘッダー名は、小文字にして読み込む', () => {
+      expect(parseConfig({}).clientIpHeader).toBeUndefined();
+      expect(parseConfig({ CLIENT_IP_HEADER: 'X-Sfm-Viewer-Ip' }).clientIpHeader).toBe(
+        'x-sfm-viewer-ip',
+      );
+    });
+
+    it.each(['x sfm', 'x-sfm:ip', 'x-sfm\nip'])(
+      'ヘッダー名として不正な値（%j）は、設定エラーにする',
+      (value) => {
+        expect(() => parseConfig({ CLIENT_IP_HEADER: value })).toThrow('CLIENT_IP_HEADER');
+      },
+    );
+  });
+
   describe('信頼するプロキシの段数（V-007）', () => {
     it('既定は 0（X-Forwarded-For を信頼しない）。指定した段数を読み込む', () => {
       expect(parseConfig({}).trustedProxyHops).toBe(0);

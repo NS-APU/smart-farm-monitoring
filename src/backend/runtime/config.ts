@@ -85,6 +85,17 @@ const EnvSchema = z.object({
    * N なら、X-Forwarded-For の末尾から N 番目（信頼するプロキシが付けた値）を、接続元とみなす（V-007）。
    */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(MAX_TRUSTED_PROXY_HOPS).default(0),
+  /**
+   * 利用者の IP が入っているヘッダーの名前（小文字にして使う）。指定すると、そのヘッダーの値（IP として正しいときだけ）を、
+   * 接続元とみなす。CloudFront の Function が入れる（関数の URL は、X-Forwarded-For を切り詰めるため、段数では識別できない。
+   * Issue #100）。CloudFront を経由しない呼び出しでは、利用者が値を付けられる。
+   */
+  CLIENT_IP_HEADER: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'ヘッダー名（英数字とハイフン）で指定してください')
+    .optional(),
 });
 
 /** DynamoDB の接続の設定（PERSISTENCE=dynamodb のとき）。 */
@@ -137,6 +148,8 @@ export interface AppConfig {
   readonly devApiEnabled: boolean;
   /** 信頼するプロキシの段数（接続元の識別。0 なら X-Forwarded-For を信頼しない）。 */
   readonly trustedProxyHops: number;
+  /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
+  readonly clientIpHeader: string | undefined;
 }
 
 export class ConfigError extends namedErrorClass('ConfigError') {}
@@ -309,6 +322,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
+    clientIpHeader: parsed.CLIENT_IP_HEADER,
   };
 }
 

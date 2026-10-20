@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
@@ -9,9 +10,10 @@ import { DataStack } from '../lib/data-stack.ts';
 import {
   COGNITO_ACTIONS,
   DYNAMODB_ACTIONS,
+  CLIENT_IP_HEADER,
   EvaluationStack,
   SPA_REWRITE_CODE,
-  TRUSTED_PROXY_HOPS,
+  VIEWER_IP_CODE,
 } from '../lib/evaluation-stack.ts';
 
 const ENV = { account: '111111111111', region: 'ap-northeast-1' } as const;
@@ -133,6 +135,29 @@ describe('評価環境のスタック: 画面の配信（S3 + CloudFront）', ()
     expect(SPA_REWRITE_CODE).toContain("indexOf('.') === -1");
   });
 
+  it('API の入口で、利用者の IP を、専用のヘッダーに上書きで入れる（利用者が同名のヘッダーを付けても、無効）（Issue #100）', () => {
+    const { template } = plainStack();
+    template.hasResourceProperties('AWS::CloudFront::Function', {
+      FunctionCode: VIEWER_IP_CODE,
+      FunctionConfig: Match.objectLike({ Runtime: 'cloudfront-js-2.0' }),
+    });
+
+    const handler = runInNewContext(`${VIEWER_IP_CODE}\nhandler;`) as (event: unknown) => {
+      headers: Record<string, { value: string }>;
+    };
+    const forged = handler({
+      request: {
+        headers: { [CLIENT_IP_HEADER]: { value: '192.0.2.1' }, host: { value: 'example' } },
+      },
+      viewer: { ip: '2001:db8::5' },
+    });
+    const none = handler({ request: { headers: {} }, viewer: { ip: '203.0.113.5' } });
+
+    expect(forged.headers[CLIENT_IP_HEADER]).toEqual({ value: '2001:db8::5' });
+    expect(forged.headers.host).toEqual({ value: 'example' });
+    expect(none.headers[CLIENT_IP_HEADER]).toEqual({ value: '203.0.113.5' });
+  });
+
   it('CloudFront のエラー応答（403・404 → index.html）は、使わない（API のエラーまで書き換えるため）', () => {
     const { template } = plainStack();
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
@@ -155,7 +180,8 @@ describe('評価環境のスタック: API（Lambda の関数の URL）', () => 
     const apiBehavior = {
       ViewerProtocolPolicy: 'https-only',
       AllowedMethods: ['GET', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'POST', 'DELETE'],
-      FunctionAssociations: Match.absent(),
+      // 利用者の IP を、ヘッダーに入れる（Issue #100）
+      FunctionAssociations: [Match.objectLike({ EventType: 'viewer-request' })],
     };
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: Match.objectLike({
@@ -235,9 +261,12 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
       APP_MODE: 'production',
       PERSISTENCE: 'dynamodb',
       AUTH_PROVIDER: 'cognito',
-      TRUSTED_PROXY_HOPS,
+      CLIENT_IP_HEADER: 'x-sfm-viewer-ip',
       LOG_LEVEL: 'info',
     });
+    // 関数の URL は、X-Forwarded-For を切り詰めるため、段数による識別は、使わない（Issue #100）
+    expect(environment).not.toHaveProperty('TRUSTED_PROXY_HOPS');
+    expect(CLIENT_IP_HEADER).toBe('x-sfm-viewer-ip');
     for (const name of [
       'COGNITO_USER_POOL_ID',
       'COGNITO_CLIENT_ID',
