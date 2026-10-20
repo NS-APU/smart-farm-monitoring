@@ -36,6 +36,7 @@ export function createFakeS3(options: FakeS3Options) {
   const objects = new Map<string, FakeObject>();
   const calls: RecordedS3Call[] = [];
   let down = false;
+  let failDelete = false;
 
   function assertBucket(input: Record<string, unknown>): void {
     if (input.Bucket !== options.bucket) {
@@ -46,14 +47,16 @@ export function createFakeS3(options: FakeS3Options) {
   function list(input: Record<string, unknown>) {
     const prefix = typeof input.Prefix === 'string' ? input.Prefix : '';
     const maxKeys = typeof input.MaxKeys === 'number' ? input.MaxKeys : pageSize;
-    const start = typeof input.ContinuationToken === 'string' ? Number(input.ContinuationToken) : 0;
+    // 続きの取得の印は、実際の S3 と同じく、「直前の最後のキー」（その次から返す）。位置で数えると、削除しながら一覧したとき、取りこぼす
+    const after = typeof input.ContinuationToken === 'string' ? input.ContinuationToken : undefined;
     const keys = [...objects.keys()]
       .filter((key) => key.startsWith(prefix))
       // 区切り文字（/）を指定したときは、接頭辞の直下のオブジェクトだけを返す（それより深いものは、まとめられる）
       .filter((key) => input.Delimiter !== '/' || !key.slice(prefix.length).includes('/'))
       .sort();
-    const page = keys.slice(start, start + Math.min(maxKeys, pageSize));
-    const next = start + page.length;
+    const remaining = after === undefined ? keys : keys.filter((key) => key > after);
+    const page = remaining.slice(0, Math.min(maxKeys, pageSize));
+    const truncated = remaining.length > page.length;
     return {
       Contents: page.map((key) => {
         const object = objects.get(key);
@@ -63,8 +66,8 @@ export function createFakeS3(options: FakeS3Options) {
           Size: Buffer.byteLength(object?.content ?? ''),
         };
       }),
-      IsTruncated: next < keys.length,
-      ...(next < keys.length ? { NextContinuationToken: String(next) } : {}),
+      IsTruncated: truncated,
+      ...(truncated ? { NextContinuationToken: page[page.length - 1] } : {}),
     };
   }
 
@@ -76,8 +79,27 @@ export function createFakeS3(options: FakeS3Options) {
     return { Body: { transformToString: () => Promise.resolve(object.content) } };
   }
 
+  function deleteObjects(input: Record<string, unknown>) {
+    const targets = (input.Delete as { Objects: { Key: string }[] }).Objects;
+    if (failDelete) {
+      return { Errors: targets.map((target) => ({ Key: target.Key, Code: 'AccessDenied' })) };
+    }
+    for (const target of targets) {
+      objects.delete(target.Key);
+    }
+    return {};
+  }
+
   return {
     calls,
+    /** 保存されているオブジェクトのキー（古い順ではなく、並べ替えて返す）。 */
+    keys(): string[] {
+      return [...objects.keys()].sort();
+    },
+    /** 一括削除を、失敗（一部のオブジェクトを消せない）にする。 */
+    failDeletes(): void {
+      failDelete = true;
+    },
     /** オブジェクトを置く（キーは、`<取り込み元>/<ファイル>`）。 */
     putObject(key: string, content: string, modifiedAt: Date): void {
       objects.set(key, { content, modifiedAt });
@@ -103,6 +125,8 @@ export function createFakeS3(options: FakeS3Options) {
             return Promise.resolve(list(input));
           case 'GetObjectCommand':
             return Promise.resolve(get(input));
+          case 'DeleteObjectsCommand':
+            return Promise.resolve(deleteObjects(input));
           default:
             return Promise.reject(new FakeS3Error('NotImplemented', 501));
         }

@@ -212,14 +212,21 @@ interface Storage {
   readonly jobLock: JobLockPort;
 }
 
-function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage {
-  // 別の接続先（DynamoDB Local）のときだけ、ダミーの認証情報を使う。AWS では、実行ロールの認証情報
-  const options = {
+/**
+ * DynamoDB の接続のオプション。別の接続先（DynamoDB Local）のときだけ、ダミーの認証情報を使う。
+ * AWS では、実行ロール（手元のコマンドでは、プロファイル）の認証情報。デモデータのコマンド（demo-data-cli.ts）も使う。
+ */
+export function dynamoClientOptions(dynamodb: DynamoDbConfig) {
+  return {
     region:
       dynamodb.region ?? (dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_REGION),
     endpoint: dynamodb.endpoint,
     credentials: dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_CREDENTIALS,
   };
+}
+
+function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage {
+  const options = dynamoClientOptions(dynamodb);
   const tables = { observations: dynamodb.observationsTable, main: dynamodb.mainTable };
   const client = createDocumentClient(options);
   return {

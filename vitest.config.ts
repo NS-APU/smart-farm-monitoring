@@ -31,8 +31,11 @@ export default defineConfig({
           name: 'infra',
           environment: 'node',
           include: ['infra/test/**/*.test.ts'],
-          // CDK の合成（synth）は、数秒かかることがある
+          // CDK の合成（synth）は、数秒かかる（1 つの Lambda のコードのまとめを含む合成で、単独でも約 4〜12 秒）。
+          // ほかのプロジェクト（DynamoDB Local を使うテストなど）と同時に動くと、CPU を取り合い、30 秒を超えることがあった。
+          // 時間の上限は緩めず、infra のプロジェクトは、ほかのプロジェクトが終わってから動かす（groupOrder）
           testTimeout: 30_000,
+          sequence: { groupOrder: 1 },
         },
       },
       {
@@ -51,7 +54,7 @@ export default defineConfig({
       include: ['src/**/*.{ts,tsx}', 'infra/lib/**/*.ts'],
       // 計測の対象外（理由）:
       // - *.d.ts: 型定義のみ
-      // - main.tsx / runtime/main.ts / runtime/data-backup-main.ts / runtime/initial-user-main.ts: 起動のみでロジックを持たないエントリ（結線は node-server.ts・app.tsx・data-backup.ts のテストで検証する）
+      // - main.tsx / runtime/main.ts / runtime/data-backup-main.ts / runtime/initial-user-main.ts / runtime/demo-data-main.ts: 起動のみでロジックを持たないエントリ（結線は node-server.ts・app.tsx・data-backup.ts のテストで検証する）
       // - vite.config.ts: ビルド・開発サーバーの設定ファイル
       // （infra/bin/ は、環境変数を渡して lib/ を呼ぶだけのエントリのため、include に含めない）
       exclude: [
@@ -60,6 +63,7 @@ export default defineConfig({
         'src/backend/runtime/main.ts',
         'src/backend/runtime/data-backup-main.ts',
         'src/backend/runtime/initial-user-main.ts',
+        'src/backend/runtime/demo-data-main.ts',
         'src/frontend/vite.config.ts',
       ],
       thresholds: { lines: 95, branches: 95, functions: 95, statements: 95 },

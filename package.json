@@ -16,6 +16,7 @@
     "test:unit": "vitest run --coverage",
     "test:e2e": "playwright test",
     "initial-user": "node --disable-warning=ExperimentalWarning src/backend/runtime/initial-user-main.ts",
+    "demo-data": "node --disable-warning=ExperimentalWarning src/backend/runtime/demo-data-main.ts",
     "data:backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/data-backup-main.ts",
     "test:stress": "playwright test -c playwright.stress.config.ts",
     "lint": "eslint . && oxlint -c .oxlintrc.json src/frontend",
