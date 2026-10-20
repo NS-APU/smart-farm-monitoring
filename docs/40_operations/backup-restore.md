@@ -7,7 +7,7 @@
 | 構成 | 保存先 | バックアップ | 状態 |
 |------|--------|--------------|------|
 | ローカル実行（`PERSISTENCE=file`） | `DATA_FILE`（既定 `.local-data/store.json`）の JSON ファイル | `pnpm data:backup`（下記） | 実装済み |
-| 本番（DynamoDB。ADR-0002） | DynamoDB のテーブル | DynamoDB のバックアップ（ポイントインタイムリカバリ（PITR）・オンデマンド） | 設定は IaC に実装済み。手順は、下の「本番（DynamoDB。評価環境）」（実機の確認は未了） |
+| 本番（DynamoDB。ADR-0002） | DynamoDB のテーブル | DynamoDB のバックアップ（ポイントインタイムリカバリ（PITR）・オンデマンド） | 設定は IaC に実装済み。手順は、下の「本番（DynamoDB。評価環境）」（実機の確認は、2026-10-20 に実施。詳細は下） |
 
 - 頻度・保持期間: NFR-4.2 の暫定は「日次」「プロジェクト終了後1年以上の保持」。世代数・保持期間は発注者の確認が必要（TODO: NFR-3.6・NFR-4.2）
 - データファイルは、パスワードのハッシュを含む。バックアップも、所有者のみが読み書きできる権限（0600）で作る（Windows では OS の制約で無効）。保管先のディスク・バックアップの暗号化・アクセス制限は、運用で決める（TODO: 運用体制 NFR-6.8）
@@ -50,7 +50,7 @@ pnpm data:backup list                # バックアップの一覧（新しい�
 
 ## 本番（DynamoDB。評価環境）のバックアップ・復元
 
-Issue #80。**手順は、コードと AWS の公式ドキュメントから書いた。実機（AWS）での確認は、まだ**（確認したら、日付と結果を、ここに書く）。AWS に接続する操作は、ユーザーが実行する（AGENTS.md 12 章）。テーブル名は、`SfmData` の出力（`ObservationsTableName`・`MainTableName`）。ロールバック・初期化は [operations.md](./operations.md) 7 章。
+Issue #80。**手順は、コードと AWS の公式ドキュメントから書いた。実機（AWS）での確認（2026-10-20。ユーザーが実行）: 設定値（PITR 35 日・ログ 30 日）、オンデマンドバックアップ、復元 A、復元 B の機構（一時テーブルでの、バックアップ経由の同名の復元と、設定の付け直し）は、確認済み。本番のテーブルを置き換える操作（復元 B の本番での実行）は、未実施**。AWS に接続する操作は、ユーザーが実行する（AGENTS.md 12 章）。テーブル名は、`SfmData` の出力（`ObservationsTableName`・`MainTableName`）。ロールバック・初期化は [operations.md](./operations.md) 7 章。
 
 ### 設定（IaC。`infra/lib/data-stack.ts`）
 
