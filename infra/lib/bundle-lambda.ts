@@ -9,7 +9,7 @@
  *   infrastructure など）だけが変わったとき、デプロイしても、Lambda のコードが更新されない）
  */
 
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { AssetHashType, DockerImage } from 'aws-cdk-lib';
 import { Code } from 'aws-cdk-lib/aws-lambda';
 import { buildSync } from 'esbuild';
@@ -21,6 +21,10 @@ export function bundledLambdaCode(entry: string): Code {
     bundling: {
       // ローカルでバンドルできるため、Docker のイメージは使わない（型の要求を満たすための指定）
       image: DockerImage.fromRegistry('public.ecr.aws/docker/library/node:24'),
+      // 入口のファイル名を、まとめのオプションに入れる。CDK は、同じディレクトリ・同じオプションのまとめを、使い回す
+      // （`tryBundle` の関数は、同じかどうかの判定に含まれない）。入れないと、2 つ目以降の Lambda が、1 つ目のコードで動く
+      // （ジョブの Lambda が、API のコードで動いた。Issue #107）。この値は、まとめの中身には使われない
+      environment: { SFM_BUNDLE_ENTRY: basename(entry) },
       local: {
         tryBundle(outputDir: string): boolean {
           buildSync({
