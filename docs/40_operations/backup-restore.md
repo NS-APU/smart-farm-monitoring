@@ -58,7 +58,7 @@ Issue #80。**手順は、コードと AWS の公式ドキュメントから書�
 |------|------|
 | ポイントインタイムリカバリ（PITR） | 2 つのテーブルとも有効。**直近 35 日**の、任意の時点に戻せる（連続バックアップ。日次の要件 NFR-4.2 を満たす）。35 日より古い分は、自動で失効する（追加の削除作業は、不要）。IaC が、期間（35 日）を明示する。実機では、`describe-continuous-backups` の `RecoveryPeriodInDays` で確認する |
 | オンデマンドバックアップ | 自動では取らない。**期限を設定できず、自動では削除されない**（保持している間、保存の費用がかかる）。**デプロイ前・大きな変更の前に取り、不要になったら、手動で削除する**。AWS Backup（期限・世代の自動管理）は、追加のサービスになるため、使わない |
-| 削除したテーブル | PITR が有効なテーブルを削除すると、削除の直前の状態の「システムバックアップ」（`<テーブル名>$DeletedTableBackup`）が、自動で作られ、35 日、残る（AWS のドキュメントによる。実機では未確認） |
+| 削除したテーブル | PITR が有効なテーブルを削除すると、削除の直前の状態の「システムバックアップ」（`<テーブル名>$DeletedTableBackup`）が、自動で作られ、35 日、残る（AWS のドキュメントによる。実機では未確認）。**一覧には、`--backup-type ALL`（または `SYSTEM`）が要る**（`list-backups` の既定は、自分で取った分だけ）: `aws dynamodb list-backups --table-name <テーブル名> --backup-type ALL` |
 | ログ | API のログは、30 日で自動削除（`infra/lib/evaluation-stack.ts`。operations.md 7.6）。画面の配置（`BucketDeployment`）の補助の Lambda のログも、30 日で自動削除（Issue #80 で、CDK の既定の 731 日から、絞った）。**この変更より前のデプロイで作られた旧いロググループ**（名前は `/aws/lambda/` で始まり、`CustomCDKBucketDeployment` を含む。保持 731 日・スタックを消しても残る）は、**残る**。デプロイのときにしか書かれず、少量のため、放置してよいが、気になる場合は、保持期間を絞るか、削除する |
 
 - **Cognito のユーザー（パスワード）は、DynamoDB のバックアップに含まれない**。DynamoDB には、ユーザーの名前・ロールの記録だけがある。データを前の時点に戻すと、そのあとに作成・削除したユーザーは、Cognito と DynamoDB で食い違う（画面のユーザー管理で、合わせる）
@@ -68,7 +68,7 @@ Issue #80。**手順は、コードと AWS の公式ドキュメントから書�
 
 ```bash
 aws dynamodb create-backup --table-name <テーブル名> --backup-name <テーブル名>-<日付>   # 取得（2 つのテーブルとも）
-aws dynamodb list-backups --table-name <テーブル名>                                       # 一覧（BackupStatus が AVAILABLE になれば完了）
+aws dynamodb list-backups --table-name <テーブル名>                                       # 一覧（BackupStatus が AVAILABLE になれば完了）。自分で取った分だけが出る
 aws dynamodb delete-backup --backup-arn <ARN>                                            # 不要になったら削除
 ```
 
@@ -78,7 +78,7 @@ PITR の復元は、**必ず、新しいテーブルを作る**（元のテー�
 
 1. 戻せる範囲を確認する: `aws dynamodb describe-continuous-backups --table-name <テーブル名>`（`EarliestRestorableDateTime`〜`LatestRestorableDateTime`）
 2. 復元する: `aws dynamodb restore-table-to-point-in-time --source-table-name <テーブル名> --target-table-name <テーブル名>-restore --use-latest-restorable-time`（時点を指定するときは、`--no-use-latest-restorable-time --restore-date-time <時刻>`）
-3. `aws dynamodb describe-table --table-name <テーブル名>-restore` で、`TableStatus` が `ACTIVE` になるまで待つ（所要時間は、データの量・インデックスの数による。保証はない）。評価環境の規模での所要時間は、**未測定**
+3. `aws dynamodb describe-table --table-name <テーブル名>-restore` で、`TableStatus` が `ACTIVE` になるまで待つ（所要時間は、データの量・インデックスの数による。保証はない）。評価環境の規模での所要時間は、**未測定**（2026-10-20 の確認では、計測していない）
 4. 内容を確認する（AWS のコンソールの「項目の探索」など）。必要なデータは、ここから取り出す
 5. 確認が済んだら、復元したテーブルを削除する: `aws dynamodb delete-table --table-name <テーブル名>-restore`
 
