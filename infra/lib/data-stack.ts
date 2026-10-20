@@ -50,7 +50,11 @@ export class DataStack extends Stack {
       partitionKey: KEY,
       sortKey: SORT_KEY,
       billingMode: BillingMode.PAY_PER_REQUEST,
-      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      // 期間は、AWS の既定（35 日）に任せず、明示する（backup-restore.md が、この値を前提にする）
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true,
+        recoveryPeriodInDays: 35,
+      },
       deletionProtection: true,
       removalPolicy: RemovalPolicy.RETAIN,
     } as const;

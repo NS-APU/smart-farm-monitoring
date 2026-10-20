@@ -15,7 +15,10 @@ interface TableResource {
     readonly TableName?: unknown;
     readonly BillingMode?: string;
     readonly DeletionProtectionEnabled?: boolean;
-    readonly PointInTimeRecoverySpecification?: { PointInTimeRecoveryEnabled?: boolean };
+    readonly PointInTimeRecoverySpecification?: {
+      PointInTimeRecoveryEnabled?: boolean;
+      RecoveryPeriodInDays?: number;
+    };
     readonly KeySchema: { AttributeName: string; KeyType: string }[];
     readonly AttributeDefinitions: { AttributeName: string; AttributeType: string }[];
     readonly GlobalSecondaryIndexes?: {
@@ -102,9 +105,10 @@ describe('データ（DynamoDB）のスタック', () => {
       expect(table.Properties.DeletionProtectionEnabled).toBe(true);
       expect(table.DeletionPolicy).toBe('Retain');
       expect(table.UpdateReplacePolicy).toBe('Retain');
-      expect(table.Properties.PointInTimeRecoverySpecification?.PointInTimeRecoveryEnabled).toBe(
-        true,
-      );
+      expect(table.Properties.PointInTimeRecoverySpecification).toEqual({
+        PointInTimeRecoveryEnabled: true,
+        RecoveryPeriodInDays: 35,
+      });
     }
     expect(stack.terminationProtection).toBe(true);
   });
