@@ -16,6 +16,8 @@ import {
   COGNITO_ACTIONS,
   DYNAMODB_ACTIONS,
   CLIENT_IP_HEADER,
+  FILE_SERVER_RETENTION_DAYS,
+  S3_READ_ACTIONS,
   EvaluationStack,
   SPA_REWRITE_CODE,
   VIEWER_IP_CODE,
@@ -85,7 +87,8 @@ describe('評価環境のスタック: 画面の配信（S3 + CloudFront）', ()
       },
     });
     template.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Delete' });
-    template.resourceCountIs('Custom::S3AutoDeleteObjects', 1);
+    // 画面のバケットと、ファイルサーバーのモックのバケット（Issue #77）の 2 つが、中身ごと削除される
+    template.resourceCountIs('Custom::S3AutoDeleteObjects', 2);
     template.hasResourceProperties('AWS::S3::BucketPolicy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
@@ -450,16 +453,20 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
     ).toHaveLength(DEFAULT_SCHEDULE.length);
   });
 
-  it('IAM は最小権限: DynamoDB の 2 テーブル（インデックスを含む）への、必要な操作だけ。Cognito の権限・ワイルドカードのリソースはない', () => {
+  it('IAM は最小権限: DynamoDB の 2 テーブル（インデックスを含む）への、必要な操作と、ファイルサーバーのモックの読み取りだけ。Cognito の権限・ワイルドカードのリソースはない', () => {
     const { template } = plainStack();
     const statements = roleStatements(template, 'JobFunction');
     const actions = statements.flatMap((statement) => [statement.Action].flat());
+    const dynamodb = statements.filter((statement) =>
+      [statement.Action].flat().some((action) => action.startsWith('dynamodb:')),
+    );
 
-    expect(actions.sort()).toEqual([...DYNAMODB_ACTIONS].sort());
-    expect(actions.filter((action) => action.startsWith('cognito-idp:'))).toEqual([]);
+    // 許可する操作は、DynamoDB の必要な操作と、ファイルサーバーのモックの読み取りだけ（Cognito・書き込み・削除はない）
+    expect(actions.sort()).toEqual([...DYNAMODB_ACTIONS, ...S3_READ_ACTIONS].sort());
     expect(actions).not.toContain('dynamodb:Scan');
-    expect(statements).toHaveLength(1);
-    expect(statements[0]?.Resource).toHaveLength(4);
+    expect(statements).toHaveLength(3);
+    expect(dynamodb).toHaveLength(1);
+    expect(dynamodb[0]?.Resource).toHaveLength(4);
     for (const statement of statements) {
       expect(statement.Resource).not.toBe('*');
     }
@@ -468,6 +475,84 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
   it('ジョブの Lambda の関数名を出力する（動作の確認で、ログを探すため）', () => {
     const { template } = plainStack();
     template.hasOutput('JobFunctionName', {});
+  });
+});
+
+describe('評価環境のスタック: ファイルサーバーのモックの S3（Issue #77。ADR-0012）', () => {
+  interface BucketJson {
+    Properties: {
+      PublicAccessBlockConfiguration?: Record<string, boolean>;
+      BucketEncryption?: unknown;
+      LifecycleConfiguration?: { Rules: { ExpirationInDays?: number; Status: string }[] };
+    };
+    DeletionPolicy?: string;
+  }
+
+  function fileServerBucket(template: Template): BucketJson {
+    const buckets = template.findResources('AWS::S3::Bucket') as Record<string, BucketJson>;
+    const entry = Object.entries(buckets).find(([logicalId]) =>
+      logicalId.startsWith('FileServerBucket'),
+    );
+    if (entry === undefined) {
+      throw new Error('ファイルサーバーのモックのバケットがありません');
+    }
+    return entry[1];
+  }
+
+  it('バケットは、非公開・暗号化・SSL 強制で、ファイルを一定の日数で自動で消し、評価環境と一緒に消える', () => {
+    const { template } = plainStack();
+    const bucket = fileServerBucket(template);
+
+    expect(bucket.Properties.PublicAccessBlockConfiguration).toEqual({
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    });
+    expect(bucket.Properties.BucketEncryption).toBeDefined();
+    expect(bucket.Properties.LifecycleConfiguration?.Rules).toEqual([
+      { ExpirationInDays: FILE_SERVER_RETENTION_DAYS, Status: 'Enabled' },
+    ]);
+    expect(bucket.DeletionPolicy).toBe('Delete');
+    // SSL を強制するバケットポリシー（FileServerBucket 用）がある
+    const policies = JSON.stringify(template.findResources('AWS::S3::BucketPolicy'));
+    expect(policies).toContain('aws:SecureTransport');
+  });
+
+  it('API・ジョブの Lambda は、このバケットだけを、読み取りだけできる（書き込み・削除・ワイルドカードの権限はない）。バケット名は、環境変数で渡す', () => {
+    const { template } = plainStack();
+
+    for (const functionId of ['ApiFunction', 'JobFunction']) {
+      const statements = roleStatements(template, functionId).filter((statement) =>
+        [statement.Action].flat().some((action) => action.startsWith('s3:')),
+      );
+      expect(statements.map((statement) => [statement.Action].flat())).toEqual([
+        ['s3:ListBucket'],
+        ['s3:GetObject'],
+      ]);
+      for (const statement of statements) {
+        expect(JSON.stringify(statement.Resource)).toContain('FileServerBucket');
+        expect(statement.Resource).not.toBe('*');
+      }
+    }
+    const resources = template.toJSON().Resources as Record<
+      string,
+      { Type: string; Properties: { Environment?: { Variables: Record<string, unknown> } } }
+    >;
+    const withBucket = Object.values(resources).filter(
+      (resource) =>
+        resource.Type === 'AWS::Lambda::Function' &&
+        JSON.stringify(
+          resource.Properties.Environment?.Variables.FILE_SERVER_S3_BUCKET ?? '',
+        ).includes('FileServerBucket'),
+    );
+    // API とジョブの 2 つの関数
+    expect(withBucket).toHaveLength(2);
+  });
+
+  it('バケット名を出力する（デモデータの確認・手順で、探すため）', () => {
+    const { template } = plainStack();
+    template.hasOutput('FileServerBucketName', {});
   });
 });
 
