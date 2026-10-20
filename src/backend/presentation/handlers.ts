@@ -37,7 +37,8 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
       const body = await parseJsonBody(c, LoginRequestSchema);
       // 接続元を取得できない環境では、ユーザーID単位で数える（1人の失敗が、全員のログインを止めない）
       const clientKey =
-        clientAddressOf(c, deps.trustedProxyHops) ?? `user-without-address:${body.userId}`;
+        clientAddressOf(c, deps.trustedProxyHops, deps.clientIpHeader) ??
+        `user-without-address:${body.userId}`;
       return c.json(await deps.authService.login(body.userId, body.password, clientKey));
     },
 

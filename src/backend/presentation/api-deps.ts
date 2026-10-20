@@ -69,6 +69,8 @@ export interface ApiDeps {
   readonly dev: DevApiDeps | undefined;
   /** 信頼するプロキシの段数（接続元の識別。0 なら X-Forwarded-For を信頼しない）。 */
   readonly trustedProxyHops: number;
+  /** 利用者の IP が入っているヘッダーの名前（接続元の識別。未指定なら使わない）。 */
+  readonly clientIpHeader: string | undefined;
 }
 
 /** Hono のコンテキストの変数。 */

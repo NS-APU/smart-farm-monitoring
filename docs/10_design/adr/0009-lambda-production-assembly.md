@@ -1,6 +1,6 @@
 # ADR-0009 API の Lambda で、本番モード（DynamoDB・Cognito）の組み立てを動かす
 
-- ステータス: 承認（2026-10-16。ユーザーの判断。Issue #75）
+- ステータス: 承認（2026-10-16。ユーザーの判断。Issue #75）。ただし、「6. 利用者の接続元の識別」は、AWS での確認で想定が誤っていたため、[ADR-0010](./0010-client-ip-from-cloudfront-function.md) で置換した（2026-10-20）
 - 日付: 2026-10-16
 - 関連: [ADR-0002](./0002-deployment-serverless.md)、[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0008](./0008-cognito-authentication.md)、[architecture.md](../architecture/architecture.md) 11 章・13 章、[security.md](../../20_development/security.md)
 
@@ -51,7 +51,7 @@ CloudFront → 関数の URL（認証 `NONE`。同じオリジンの `/api/*`・
 - **CDK の資産のハッシュは、まとめた出力で決める**（`AssetHashType.OUTPUT`）。既定の、ソースのディレクトリ（`src/backend/runtime/`）のハッシュでは、ディレクトリの外のコード（`application`・`infrastructure` など）だけが変わったとき、デプロイしても、Lambda のコードが、更新されない。
 - ログの保持期間は、1 か月のまま（費用。NFR-1.5・NFR-6.3）。
 
-### 6. 利用者の接続元の識別（V-007）
+### 6. 利用者の接続元の識別（V-007）— **置換済み。[ADR-0010](./0010-client-ip-from-cloudfront-function.md) を参照**（以下は、当時の決定。関数の URL は、`X-Forwarded-For` を切り詰めるため、この方式は機能しなかった）
 
 ログインの試行回数の制限（接続元ごと。ADR-0008）は、接続元を、`X-Forwarded-For` から取る。CloudFront は、利用者の IP を付け、関数の URL は、受け取った接続元（CloudFront の IP）を、末尾に付ける。
 
