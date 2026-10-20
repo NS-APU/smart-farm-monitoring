@@ -1030,7 +1030,7 @@ flowchart LR
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。設定は `parseLambdaConfig`（`APP_MODE`・`PERSISTENCE` の明示が必須。`SEED_MODE` は使えない。開発用 API・スケジューラは常に無効）。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009）
-- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS での確認は、デプロイ後**。ADR-0011）。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
+- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS で確認済み**（2026-10-20。4 つのルールが周期どおりに起動し、ジョブが `EXECUTED` で終わる。ADR-0011 の「検証」））。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
 
 ## フロントエンドの構成
 
