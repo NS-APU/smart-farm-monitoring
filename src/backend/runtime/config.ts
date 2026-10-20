@@ -56,6 +56,11 @@ const EnvSchema = z.object({
   AWS_REGION: z.string().min(1).optional(),
   /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
   FILE_SERVER_DIR: z.string().min(1).default('.local-data/file-server'),
+  /**
+   * ファイルサーバーのモックの S3 のバケット名（Issue #77。ADR-0012）。指定すると、ローカルのディレクトリ（FILE_SERVER_DIR）ではなく、
+   * S3 の `<バケット>/<取り込み元>/` を使う。Lambda には、ローカルのディレクトリがないため、評価環境は、これを指定する。
+   */
+  FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
   INITIAL_USER_ID: z.string().min(1).optional(),
   INITIAL_USER_NAME: z.string().min(1).optional(),
@@ -132,6 +137,8 @@ export interface AppConfig {
   /** AUTH_PROVIDER=cognito のときだけ。 */
   readonly cognito: CognitoConfig | undefined;
   readonly fileServerDirectory: string;
+  /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
+  readonly fileServerBucket: string | undefined;
   readonly seedMode: SeedMode;
   readonly initialUser: InitialUserConfig | undefined;
   readonly roles: RoleConfig;
@@ -308,6 +315,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     dynamodb,
     cognito,
     fileServerDirectory: parsed.FILE_SERVER_DIR,
+    fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
     seedMode: parsed.SEED_MODE,
     initialUser: parseInitialUser(parsed, roles),
     roles,
