@@ -193,6 +193,7 @@ flowchart LR
 |------|------|------|
 | Node サーバー | `runtime/main.ts`（`pnpm dev:backend`）。`startNodeServer()`（`runtime/node-server.ts`） | ローカル開発、E2E、負荷テスト |
 | Lambda ハンドラ | `runtime/lambda.ts`（`handler`）。`@hono/aws-lambda` の `handle` | 本番（関数の URL）。組み立ては最初の呼び出しで1回。`APP_MODE`・`PERSISTENCE` の明示が必須（未設定は `ConfigError`。`PERSISTENCE=file` は拒否。開発用 API・スケジューラは、指定にかかわらず無効。`SEED_MODE` は `ConfigError`）。初期化に失敗しても、失敗を保持せず、次の呼び出しで再試行する。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009） |
+| ジョブの Lambda ハンドラ | `runtime/job-lambda.ts`（`handler`） | EventBridge の入力 `{ jobId }` で、JB-01〜JB-04 を実行する（Issue #76。ADR-0011）。組み立ては、API の Lambda と同じ（`parseLambdaConfig`）。実行の前に、`job:{jobId}` のロック（DynamoDB のリース式。期限 360 秒）を取り、取れなければ、実行しない（`SKIPPED`）。失敗は例外を投げる（再試行しない）。入力が不正なときは、内容を出さずに拒否する |
 | 組み立て | `runtime/container.ts`（`createContainer(config, overrides)`） | 設定に応じて、アダプタを選び、サービスを組み立てる。テストは、時計・識別子・ログ・動作設定を差し替えて使う |
 
 ### 3.3 環境変数
@@ -254,7 +255,7 @@ flowchart LR
 
 ### 3.8 スケジューラ・ジョブ・開発用 API
 
-- ジョブは `JobRunner`（`application/jobs/job-runner.ts`）が、識別子（JB-01〜JB-04）から実行する。EventBridge・ローカルのスケジューラ・テスト・開発用 API が、同じ入口を使う
+- ジョブは `JobRunner`（`application/jobs/job-runner.ts`）が、識別子（JB-01〜JB-04）から実行する。EventBridge（ジョブの Lambda。ロックで重複を防ぐ。ADR-0011）・ローカルのスケジューラ・テスト・開発用 API が、同じ入口を使う
 - スケジューラ（`application/jobs/scheduler.ts`）は、時計に基づいて、前回の実行から間隔が過ぎたジョブを実行する。`tick()` を**手動・テストから呼び出せる**。サーバー内の定期実行は `SCHEDULER_ENABLED=true`（実時間の間隔で `tick()` を繰り返す）。既定の間隔: JB-01（取り込み。取り込み元ごとの取得間隔は、ジョブの中で判定）1分、JB-02（評価。データ途絶の確認）5分、JB-03（連携）5分、JB-04（通知の配信）1分。1つのジョブの失敗は、他のジョブに影響しない
 - **開発用 API**（`/api/v1/dev/*`。`DEV_API_ENABLED=true` のときだけ登録する（既定は無効。`production`・Lambda では常に無効）。ログインが必要で、権限は設けない）:
 

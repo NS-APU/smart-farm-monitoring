@@ -37,6 +37,7 @@
 - 外部入力（API・画面・センサーからのデータ）は必ず検証し、SQLインジェクション・XSS等を防ぐ（クエリはプレースホルダを使い、文字列結合で組み立てない）
 - エラーメッセージに内部情報（スタックトレース、パス、SQL、設定値）を含めない
 - 依存パッケージは信頼できるものを選び、脆弱性診断（例: `npm audit`、Dependabot）で定期的に確認する
+- ジョブの Lambda（EventBridge から起動。公開の URL を持たない。ADR-0011）の IAM は、DynamoDB の 2 テーブルへの必要な操作だけ（Cognito の権限は、付けない）。入力（`jobId`）は検証し、想定外の入力は、内容を出さずに拒否する。環境変数に、秘密情報を持たない
 - 開発用 API（全データの消去・時計の操作・ジョブの強制実行）は、環境変数 `DEV_API_ENABLED=true` と明示したときだけ有効にする（既定は無効）。本番（`APP_MODE=production`）は、DynamoDB が必須で、`DEV_API_ENABLED=true` は設定エラー。Lambda では、指定にかかわらず無効。E2E・負荷テストの設定でのみ、明示的に有効にする
 - Lambda では、`APP_MODE`・`PERSISTENCE` を必ず明示する（既定の `local`・メモリで動かさない）
 - ログインの試行回数の制限の接続元は、クライアントが付ける `X-Forwarded-For` を信頼しない。信頼するプロキシの段数（`TRUSTED_PROXY_HOPS`）を設定したときだけ、末尾から数えた値を使う。評価環境（CloudFront → 関数の URL）は、関数の URL が `X-Forwarded-For` を最初の 1 つ（クライアントが付けられる値）に切り詰めるため、段数では識別できない。CloudFront の Function が、利用者の IP を、ヘッダー `x-sfm-viewer-ip` に上書きで入れ、Lambda が、設定 `CLIENT_IP_HEADER` で読む（IP として正しい値だけ使う。ADR-0010）。関数の URL を、直接呼ぶ場合は、このヘッダーを、クライアントが偽装でき、この制限を回避できる（ADR-0006・ADR-0010）。認証のログには、接続元の IP が出る（`clientKey`。ログの保持は 1 か月）

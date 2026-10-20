@@ -31,16 +31,16 @@
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
 | 単体: shared                               |          6 |        102 |
 | 単体: backend/domain                       |          6 |        223 |
-| 単体: backend/application                  |          2 |         12 |
+| 単体: backend/application                  |          3 |         17 |
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         11 |        203 |
 | 単体: backend/runtime                      |          3 |         72 |
 | 単体: frontend                             |         19 |        372 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |         46 |
-| 結合（`tests/integration/`）               |         20 |        743 |
-| 合計                                       |        105 |       2540 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |         53 |
+| 結合（`tests/integration/`）               |         22 |        764 |
+| 合計                                       |        108 |       2573 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1033 件、結合 743 件（単体と結合の合計 1776 件。`vitest list` の件数。Issue #73・#74・#75・#95・#100 の実装後の加算値。実測（DynamoDB Local あり）は、74 ファイル・1778 件で、1776 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1045 件、結合 764 件（単体と結合の合計 1809 件。`vitest list` の件数。Issue #73・#74・#75・#76・#95・#100 の実装後の加算値。実測（DynamoDB Local あり）は、77 ファイル・1811 件で、1809 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
 この件数は、Sprint1 の取り込み（Issue #30〜#39・#60・#62・#71・#87）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -6682,6 +6682,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | backend/domain         | `tests/unit/backend/domain/viewpoint-definitions.test.ts`               |   22 | UC-02・UC-04・UC-10・UC-19・UC-21                                                                |
 | backend/application    | `tests/unit/backend/application/auth.test.ts`                           |    6 | UC-13・UC-14                                                                                     |
 | backend/application    | `tests/unit/backend/application/user-service.test.ts`                   |    6 | （個別の節なし。12 章で説明）           |
+| backend/application    | `tests/unit/backend/application/job-execution.test.ts`                  |    5 | （個別の節なし。12 章で説明）           |
 | backend/infrastructure | `tests/unit/backend/infrastructure/adapters.test.ts`                    |   89 | UC-08・UC-09・UC-11・UC-13・UC-14・UC-15・UC-22・UC-23・UC-24                                    |
 | backend/infrastructure | `tests/unit/backend/infrastructure/seeded-data.test.ts`                 |    9 | UC-20                                                                                            |
 | backend/infrastructure | `tests/unit/backend/infrastructure/local-store.test.ts`                 |    1 | （UC に直接対応しない基盤）                                                                      |
@@ -6717,10 +6718,10 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | frontend               | `tests/unit/frontend/service-worker.test.ts`                            |    7 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/ui-refinements.test.tsx`                           |    4 | （個別の節なし。8 章で説明）                                                                     |
 | infra                  | `infra/test/apps.test.ts`                                               |    7 | （個別の節なし。12 章で説明）                                                                    |
-| infra                  | `infra/test/bundle-lambda.test.ts`                                      |    2 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/bundle-lambda.test.ts`                                      |    3 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
-| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   17 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   22 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
@@ -6742,10 +6743,12 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/auth-contract.test.ts`                               |   33 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/cognito-wiring.test.ts`                              |   10 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/lambda-production.test.ts`                           |    3 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/job-lock-contract.test.ts`                           |   10 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/job-lambda.test.ts`                                  |   11 | （個別の節なし。12 章で説明）           |
 
-件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 74 ファイル・1778 件。DynamoDB Local あり。Issue #73・#74・#75・#95・#100 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
+件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 77 ファイル・1811 件。DynamoDB Local あり。Issue #73・#74・#75・#76・#95・#100 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
 
-「関連する UC」が「個別の節なし」のファイル（33 ファイル。`infra/test/` の 6 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
+「関連する UC」が「個別の節なし」のファイル（35 ファイル。`infra/test/` の 6 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
 
 ### tests/unit/shared/criteria-text.test.ts
 
@@ -10972,7 +10975,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda（Issue #71・#73・#74・#75・#87・#95・#100）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ（Issue #71・#73・#74・#75・#76・#87・#95・#100）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -11015,8 +11018,13 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | IaC（利用者の IP のヘッダー）のテストの追加（Issue #100） | `evaluation-stack.test.ts` に 1 件: API の入口の CloudFront Function が、利用者の IP を、専用のヘッダーに**上書き**で入れる（利用者が同名のヘッダーを付けても無効。ほかのヘッダーは、そのまま。IPv6 も可）。Function のコードを `node:vm` で実行して確かめる | infra +1 |
 | **期待値の変更 6**: `infra/test/data-stack.test.ts`（Issue #80） | 「データを守る」の、ポイントインタイムリカバリの期待を、「有効である」から、**「有効で、復元できる期間が 35 日である」**（`PointInTimeRecoveryEnabled: true` と `RecoveryPeriodInDays: 35`）に、**厳しくした**（緩めてはいない）。IaC が、期間を指定せず、AWS の既定（35 日）に任せていたため、期間を明示し、backup-restore.md の記述（35 日）を、コードで確認できるようにした（Issue #80。ユーザーの承認済み） | 件数は変わらない |
 | IaC（ログの保持期間）のテストの追加（Issue #80） | `evaluation-stack.test.ts` に 1 件: ロググループは 2 つ（API・画面の配置の補助の Lambda）で、どちらも保持期間 30 日・スタックを消すと一緒に消える。画面の配置の補助の Lambda のログが、CDK の既定（731 日・残る）になっていたため、期間を絞った（`cdk synth` で確認） | infra +1 |
+| **期待値の変更 7**: `infra/test/evaluation-stack.test.ts`（Issue #76） | 「ログは、すべてのロググループで、30 日で自動削除し、スタックを消すと一緒に消す」の、ロググループの数の期待を、**2 つから 3 つ**に変えた（API・画面の配置の補助の Lambda に、ジョブの Lambda（Issue #76）のロググループが増えたため）。各ロググループが、30 日・削除（`Delete`）である期待は、そのまま | 件数は変わらない |
+| ジョブの排他の追加（Issue #76） | `tests/integration/job-lock-contract.test.ts`（10 件）: ジョブの排他のポート（`JobLockPort`）の契約を、メモリの実装と DynamoDB の実装（DynamoDB Local）に、同じシナリオで適用する（各 5 件: 取得・同じ名前は取れない・別の名前は独立／解放して取り直せる・二重の解放はエラーにしない／期限の前は取れず、期限が過ぎれば取れる／期限が過ぎて別の実行に取られたあと、古い実行の解放は、新しいロックを消さない／同時に 10 個が取りに来ても 1 つだけ） | 結合 +10 |
+| ジョブの排他の実行の単体テストの追加（Issue #76） | `tests/unit/backend/application/job-execution.test.ts`（5 件）: ロックが取れたら実行して終了時に解放する／同じジョブが実行中なら実行せず `SKIPPED`・別のジョブは実行できる／ジョブが失敗してもロックを解放し、エラーを伝える／解放の失敗は、結果（成功）を隠さず警告を残す／解放の失敗で、ジョブの失敗を置き換えない | 単体 +5 |
+| ジョブの Lambda の結合テストの追加（Issue #76） | `tests/integration/job-lambda.test.ts`（11 件。DynamoDB Local + 偽の Cognito。本番の設定）: EventBridge の入力（`jobId`）で 4 種のジョブを実行できる（データが空でも成功）／不正な入力 5 通りを、内容を出さずに拒否／同じジョブが実行中なら、次の起動は実行せず終わり、別のジョブは実行でき、終われば、また実行できる／別の実行環境（別の Lambda）が実行中でも、実行しない（ロックは、DynamoDB で共有）／ジョブが失敗したら、エラーを投げ、ロックは解放される／初期化の失敗は保持せず、次の起動で再試行／`SEED_MODE` は設定エラー | 結合 +11 |
+| IaC（ジョブの Lambda と EventBridge）のテストの追加（Issue #76） | `evaluation-stack.test.ts` に 5 件: ジョブの Lambda は、Node.js 24・ARM・1024 MB・タイムアウトはロックの期限より短く、Lambda の自動の再試行は 0／環境変数は API と同じ本番の構成で、秘密情報・利用者の IP のヘッダー・開発用 API の設定がない／EventBridge のルールが `DEFAULT_SCHEDULE` の 4 種の間隔ごとで、入力は `jobId`、再試行 0・古いイベントは 1 分で捨てる、呼び出しの権限がルールごとにある／IAM は DynamoDB の 2 テーブルへの必要な操作だけ（Cognito の権限・ワイルドカードなし）／関数名の出力。`bundle-lambda.test.ts` に 1 件: ジョブの Lambda を、AWS SDK を含む 1 ファイルにまとめ、別のプロセスで、JB-04 を実行できる | infra +6 |
 
-**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
+**Issue #76 では、上の「期待値の変更 7」のとおり、IaC の仕様の変更（ロググループの増加）に伴う期待値の変更が 1 件ある**（各ロググループの保持期間・削除の期待は、そのまま）。**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
 取り込み後の件数と実測値は、1.2 節。
 
 **Issue #80 では、上の「期待値の変更 6」のとおり、IaC のテストの期待を、厳しくした**（緩めたのではなく、期間を明示するため）。

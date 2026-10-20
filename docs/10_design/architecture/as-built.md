@@ -196,7 +196,7 @@
 
 ### ジョブ（JB-01〜JB-04）
 
-ジョブは `application/jobs/job-runner.ts`（`createJobRunner`）の同じ入口から実行する。スケジューラ（`scheduler.ts`）、開発用 API、テストのどれからも同じ呼び出しになる。
+ジョブは `application/jobs/job-runner.ts`（`createJobRunner`）の同じ入口から実行する。スケジューラ（`scheduler.ts`）、開発用 API、テスト、ジョブの Lambda（EventBridge。`runtime/job-lambda.ts`）のどれからも同じ呼び出しになる。
 
 | ID    | ジョブ     | 呼び出す処理                                                                   | 既定の実行間隔（`DEFAULT_SCHEDULE`） |
 | ----- | ---------- | ------------------------------------------------------------------------------ | ------------------------------------ |
@@ -204,6 +204,9 @@
 | JB-02 | 評価       | `EvaluationService.evaluateAll('SCHEDULED')`                                   | 5 分                                 |
 | JB-03 | 連携       | `FederationService.runPending()`                                               | 5 分                                 |
 | JB-04 | 通知の配信 | `NotificationService.deliverPending()`                                         | 1 分                                 |
+
+
+**Lambda での実行（Issue #76。ADR-0011）**: ジョブ専用の Lambda（`runtime/job-lambda.ts`。1 つ）を、EventBridge の 4 つのルール（`DEFAULT_SCHEDULE` と同じ間隔: JB-01 は 1 分・JB-02 は 5 分・JB-03 は 5 分・JB-04 は 1 分）が、入力 `{ "jobId": "JB-01" }` で起動する。実行の前に、DynamoDB のリース式ロック（`Main` の `JOBLOCK` / `job:{jobId}`。期限 360 秒）を取り、取れなければ、何もせずに終わる（`SKIPPED`）。失敗は例外を投げ、再試行はしない（次の周期で、再び実行される）。ローカルのスケジューラは、変えていない（ロックは、メモリの実装）。
 
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
 
@@ -256,7 +259,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | ------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | データベース             | DynamoDB                                  | **Repository のアダプタを実装**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS では、`Main` テーブルの一部のみ確認済み（2026-10-16。手元のバックエンドから））。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
 | 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。実際の Cognito でも、手元のバックエンドから確認済み。Lambda からは未確認）。IaC は `SfmData`（ユーザープール・クライアント）。既定は、アプリ内の認証（`createLocalAuth`） |
-| 実行                     | Lambda＋ EventBridge                      | `createLambdaHandler`（`@hono/aws-lambda` の `handle`）はあるが、本番モードの組み立てが失敗する。EventBridge からの起動コードはない |
+| 実行                     | Lambda＋ EventBridge                      | API の Lambda（`createLambdaHandler`。`@hono/aws-lambda` の `handle`。ADR-0009）と、ジョブの Lambda（`createJobLambdaHandler`。EventBridge の 4 つのルールが起動する。Issue #76。ADR-0011） |
 | ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ）                                                                                                              |
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
 | Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
@@ -1013,22 +1016,21 @@ flowchart LR
   USER["利用者のブラウザ"]
   HOST["S3 + CloudFront<br>フロントエンドの配信と、/api/*・/health の転送<br>infra/ に実装済み"]
   LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ（APP_MODE=production）"]
-  EB["EventBridge<br>ジョブの起動<br>未実装（Issue #76）"]
+  EB["EventBridge<br>4 つのルール（1・5・5・1 分）"]
+  JOB["Lambda（ジョブ）<br>runtime/job-lambda.ts の handler<br>JobRunner の同じ入口"]
   DDB["DynamoDB<br>infrastructure/dynamodb/"]
   COG["Cognito<br>infrastructure/cognito/"]
 
   USER --> HOST
   HOST --> LAM
-  EB -.-> LAM
+  EB --> JOB
   LAM --> DDB
   LAM --> COG
-
-  classDef todo stroke-dasharray: 5 5
-  class EB todo
+  JOB --> DDB
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。設定は `parseLambdaConfig`（`APP_MODE`・`PERSISTENCE` の明示が必須。`SEED_MODE` は使えない。開発用 API・スケジューラは常に無効）。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009）
-- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。点線の EventBridge からのジョブ起動は、コードも IaC もない（Issue #76）。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
+- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS での確認は、デプロイ後**。ADR-0011）。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
 
 ## フロントエンドの構成
 
