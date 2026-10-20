@@ -19,8 +19,8 @@ import {
 afterAll(dropDynamoTestTables);
 
 const PASSWORD = 'Dummy-Passw0rd-1';
-// インフラ（evaluation-stack.ts の TRUSTED_PROXY_HOPS）と同じ値
-const PRODUCTION_PROXY_HOPS = '2';
+// インフラ（evaluation-stack.ts の CLIENT_IP_HEADER）と同じ値。CloudFront Function が、利用者の IP を入れる
+const CLIENT_IP_HEADER = 'x-sfm-viewer-ip';
 
 interface LambdaResponse {
   readonly statusCode: number;
@@ -30,7 +30,13 @@ interface LambdaResponse {
 function functionUrlEvent(
   method: string,
   path: string,
-  options: { body?: unknown; token?: string; forwardedFor?: string; sourceIp?: string } = {},
+  options: {
+    body?: unknown;
+    token?: string;
+    forwardedFor?: string;
+    headers?: Record<string, string>;
+    sourceIp?: string;
+  } = {},
 ) {
   return {
     version: '2.0',
@@ -42,6 +48,7 @@ function functionUrlEvent(
       'content-type': 'application/json',
       ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
       ...(options.forwardedFor === undefined ? {} : { 'x-forwarded-for': options.forwardedFor }),
+      ...options.headers,
     },
     requestContext: {
       accountId: 'anonymous',
@@ -85,7 +92,7 @@ async function productionHandler() {
     DYNAMODB_MAIN_TABLE: database.tables.main,
     COGNITO_USER_POOL_ID: 'pool-1',
     COGNITO_CLIENT_ID: 'client-1',
-    TRUSTED_PROXY_HOPS: PRODUCTION_PROXY_HOPS,
+    CLIENT_IP_HEADER,
     LOG_LEVEL: 'error',
   };
   // 最初のユーザーは、Lambda ではなく、手元で `pnpm initial-user` を実行して作る（ADR-0008）
@@ -154,22 +161,22 @@ describe('Lambda のハンドラ（本番の設定: DynamoDB・Cognito）', () =
     expect(JSON.parse(equipment.body)).toMatchObject({ facilities: [] });
   });
 
-  it('ログインの試行回数の制限は、利用者の IP（X-Forwarded-For の末尾から 2 番目）ごと。先頭に偽の値を付けても、回避できない', async () => {
+  it('ログインの試行回数の制限は、利用者の IP（CloudFront Function が入れるヘッダー）ごと。関数の URL が切り詰める X-Forwarded-For・エッジごとに変わる接続元には、よらない（Issue #100）', async () => {
     const { call } = await productionHandler();
-    // CloudFront が、利用者の IP を付け、関数の URL が、CloudFront の IP を付ける: 「（偽の値…）, 利用者, CloudFront」
-    const login = (password: string, viewerIp: string, forged: string) =>
+    // 関数の URL は、X-Forwarded-For を、最初の 1 つ（利用者が付けられる値）に切り詰める。接続元（sourceIp）は、CloudFront のエッジの IP で、リクエストごとに変わる
+    const login = (password: string, viewerIp: string, edgeIp: string) =>
       call('POST', '/api/v1/auth/login', {
         body: { userId: 'first-user', password },
-        forwardedFor: `${forged}, ${viewerIp}, 203.0.113.250`,
-        // 関数の URL の接続元は、CloudFront。利用者ごとの制限に、使わない
-        sourceIp: '203.0.113.250',
+        forwardedFor: `192.0.2.${edgeIp}`,
+        headers: { [CLIENT_IP_HEADER]: viewerIp },
+        sourceIp: `203.0.113.${edgeIp}`,
       });
     for (let count = 0; count < LOGIN_FAILURE_LIMIT; count += 1) {
-      await login('wrong', '198.51.100.10', `192.0.2.${String(count)}`);
+      await login('wrong', '198.51.100.10', String(count + 1));
     }
 
-    const blocked = await login(PASSWORD, '198.51.100.10', '192.0.2.200');
-    const otherViewer = await login(PASSWORD, '198.51.100.11', '192.0.2.200');
+    const blocked = await login(PASSWORD, '198.51.100.10', '200');
+    const otherViewer = await login(PASSWORD, '198.51.100.11', '200');
 
     expect(blocked.statusCode).toBe(429);
     expect(otherViewer.statusCode).toBe(200);

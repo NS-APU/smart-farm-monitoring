@@ -94,11 +94,21 @@ export const COGNITO_ACTIONS = [
 ] as const;
 
 /**
- * CloudFront と関数の URL を経由したとき、`X-Forwarded-For` の末尾から数えて、何番目が利用者の IP か（V-007）。
- * 末尾は、関数の URL が付ける、CloudFront の IP。その 1 つ前が、CloudFront が付ける、利用者の IP。
- * **仮の値。AWS で、CloudWatch のログインのログの接続元が、利用者の IP になることを確認する**（Issue #75）。
+ * 利用者の IP を入れるヘッダーの名前（小文字。API の Lambda の `CLIENT_IP_HEADER`）。関数の URL は、`X-Forwarded-For` を、
+ * 最初の 1 つ（クライアントが付けられる値）に切り詰めるため、段数（`TRUSTED_PROXY_HOPS`）では、利用者の IP を識別できない
+ * （Issue #100。ADR-0010）。
  */
-export const TRUSTED_PROXY_HOPS = '2';
+export const CLIENT_IP_HEADER = 'x-sfm-viewer-ip';
+
+/**
+ * API への、CloudFront の viewer-request の Function。利用者の IP を、専用のヘッダーに、**上書き**で入れる
+ * （利用者が同名のヘッダーを付けても、無効。CloudFront は、ヘッダー名を小文字にして渡す）。
+ */
+export const VIEWER_IP_CODE = `function handler(event) {
+  var request = event.request;
+  request.headers['${CLIENT_IP_HEADER}'] = { value: event.viewer.ip };
+  return request;
+}`;
 
 export interface EvaluationStackProps extends StackProps {
   /** API が使う、データのリソース（DynamoDB・Cognito）。 */
@@ -161,7 +171,7 @@ export class EvaluationStack extends Stack {
         COGNITO_CLIENT_ID: data.userPoolClient.userPoolClientId,
         DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
         DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
-        TRUSTED_PROXY_HOPS,
+        CLIENT_IP_HEADER,
         LOG_LEVEL: 'info',
       },
       logGroup: new LogGroup(this, 'ApiLogGroup', {
@@ -191,8 +201,13 @@ export class EvaluationStack extends Stack {
       code: FunctionCode.fromInline(SPA_REWRITE_CODE),
       runtime: FunctionRuntime.JS_2_0,
     });
+    const viewerIp = new CloudFrontFunction(this, 'ViewerIp', {
+      code: FunctionCode.fromInline(VIEWER_IP_CODE),
+      runtime: FunctionRuntime.JS_2_0,
+    });
     const apiBehavior = {
       origin: new FunctionUrlOrigin(apiUrl),
+      functionAssociations: [{ function: viewerIp, eventType: FunctionEventType.VIEWER_REQUEST }],
       viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
       allowedMethods: AllowedMethods.ALLOW_ALL,
       cachePolicy: CachePolicy.CACHING_DISABLED,

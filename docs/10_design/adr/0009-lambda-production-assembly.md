@@ -1,6 +1,6 @@
 # ADR-0009 API の Lambda で、本番モード（DynamoDB・Cognito）の組み立てを動かす
 
-- ステータス: 承認（2026-10-16。ユーザーの判断。Issue #75）
+- ステータス: 承認（2026-10-16。ユーザーの判断。Issue #75）。ただし、「6. 利用者の接続元の識別」は、AWS での確認で想定が誤っていたため、[ADR-0010](./0010-client-ip-from-cloudfront-function.md) で置換した（2026-10-20）
 - 日付: 2026-10-16
 - 関連: [ADR-0002](./0002-deployment-serverless.md)、[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0008](./0008-cognito-authentication.md)、[architecture.md](../architecture/architecture.md) 11 章・13 章、[security.md](../../20_development/security.md)
 
@@ -51,7 +51,7 @@ CloudFront → 関数の URL（認証 `NONE`。同じオリジンの `/api/*`・
 - **CDK の資産のハッシュは、まとめた出力で決める**（`AssetHashType.OUTPUT`）。既定の、ソースのディレクトリ（`src/backend/runtime/`）のハッシュでは、ディレクトリの外のコード（`application`・`infrastructure` など）だけが変わったとき、デプロイしても、Lambda のコードが、更新されない。
 - ログの保持期間は、1 か月のまま（費用。NFR-1.5・NFR-6.3）。
 
-### 6. 利用者の接続元の識別（V-007）
+### 6. 利用者の接続元の識別（V-007）— **置換済み。[ADR-0010](./0010-client-ip-from-cloudfront-function.md) を参照**（以下は、当時の決定。関数の URL は、`X-Forwarded-For` を切り詰めるため、この方式は機能しなかった）
 
 ログインの試行回数の制限（接続元ごと。ADR-0008）は、接続元を、`X-Forwarded-For` から取る。CloudFront は、利用者の IP を付け、関数の URL は、受け取った接続元（CloudFront の IP）を、末尾に付ける。
 
@@ -76,3 +76,22 @@ CloudFront → 関数の URL（認証 `NONE`。同じオリジンの `/api/*`・
 - **モックの範囲が残る**: ファイルサーバー・農業情報基盤・Web Push は、モック。取り込みの実行は、Issue #77 までは、動かない。ジョブの定期起動は、Issue #76。
 - **初回のデプロイは、`SfmData` の更新（出力の追加）が先に必要**（スタック間の参照のため）。`pnpm initial-user` で、最初のユーザーを作ってから、ログインを確認する。
 - 評価環境の最初の呼び出し（コールドスタート）は、遅くなる（SDK を含む 1 ファイルの読み込み・DynamoDB・Cognito の接続）。実測と調整は、Issue #79。
+
+## 検証（AWS。2026-10-20。ユーザーが実行）
+
+評価環境（`SfmData` の更新 + `SfmEvaluation` のデプロイ。GitHub Actions）で、次を確認した。
+
+| 項目 | 結果 |
+|------|------|
+| デプロイ | 成功（`SfmData` の出力の追加と、API の Lambda の置き換え） |
+| 最初のユーザー | `pnpm initial-user` で作成できた（手元から。Cognito と DynamoDB） |
+| `/health` | `ok` |
+| ログイン（API・画面） | 成功。ユーザー情報が返る |
+| 認証つきの呼び出し | `GET /users` が、自分 1 人の一覧を返す |
+| トークンなし | 401 |
+| 画面 | ログイン・ユーザー管理（自分が表示）・ログアウトができる。デモデータがないため、設備は空（想定どおり。Issue #77） |
+| 初回のリクエスト（コールドスタート） | 体感で 1 秒以内（実測ではない。計測は Issue #79） |
+| IAM（最小権限） | ログイン（AdminInitiateAuth）・GetUser・DynamoDB の読み書き（ユーザー・ログインの試行回数の記録）が成功した。ユーザーの作成・削除・パスワードの再設定・ログアウト（AdminCreateUser など）の権限は、画面での操作を確認していないため、未確認 |
+| 接続元の識別 | **想定が誤っていた**（「6」）。[ADR-0010](./0010-client-ip-from-cloudfront-function.md) で置換し、修正後に確認した |
+
+- **未確認**: メモリ 1024 MB・タイムアウト 29 秒が適切か（Issue #79 で実測する）、観測値テーブルを使う操作（一覧・評価。Issue #77・#79）。

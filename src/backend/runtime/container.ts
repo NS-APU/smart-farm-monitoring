@@ -150,6 +150,8 @@ export interface Container {
   readonly dev: DevApiDeps | undefined;
   /** 信頼するプロキシの段数（接続元の識別）。 */
   readonly trustedProxyHops: number;
+  /** 利用者の IP が入っているヘッダーの名前（接続元の識別）。 */
+  readonly clientIpHeader: string | undefined;
   /** 初期データ・最初のユーザー・（指定なら）デモデータを用意する。起動時に1度呼ぶ。 */
   initialize(): Promise<void>;
   /** 未保存のデータを書き出し、スケジューラを止める。 */
@@ -618,6 +620,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,
+    clientIpHeader: config.clientIpHeader,
     initialize: () => initialize(),
     close() {
       services.scheduler.stop();
