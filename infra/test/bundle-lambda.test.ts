@@ -7,15 +7,16 @@ import { describe, expect, it } from 'vitest';
 import { bundledLambdaCode } from '../lib/bundle-lambda.ts';
 
 const BACKEND_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/lambda.ts');
+const JOB_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/job-lambda.ts');
 
 /** バックエンド本体のハンドラを、まとめて、まとめた index.js のパスを返す。 */
-function bundleBackendHandler(): string {
+function bundleBackendHandler(entry = BACKEND_HANDLER): string {
   const app = new App();
   const stack = new Stack(app, 'Bundle');
   new LambdaFunction(stack, 'Api', {
     runtime: Runtime.NODEJS_24_X,
     handler: 'index.handler',
-    code: bundledLambdaCode(BACKEND_HANDLER),
+    code: bundledLambdaCode(entry),
   });
   const assembly = app.synth();
   const assetDirs = readdirSync(assembly.directory)
@@ -89,5 +90,43 @@ describe('バックエンド本体の Lambda のハンドラ（まとめた結�
     const result = JSON.parse(output) as { statusCode: number; body: string };
     expect(result.statusCode).toBe(200);
     expect(JSON.parse(result.body)).toMatchObject({ status: 'ok' });
+  });
+});
+
+describe('ジョブの Lambda のハンドラ（まとめた結果。Issue #76）', () => {
+  it('AWS SDK を含む 1 ファイルになり、そのまま実行できる（EventBridge の入力で、ジョブを実行する）', () => {
+    const bundlePath = bundleBackendHandler(JOB_HANDLER);
+    const bundled = readFileSync(bundlePath, 'utf8');
+
+    expect(bundled).toContain('BatchWriteItem');
+    expect(statSync(bundlePath).size).toBeLessThan(8 * 1024 * 1024);
+
+    // まとめた結果を、別のプロセスで読み込み、ハンドラを呼ぶ（まとめた結果の、解決できない import などを検出する）。
+    // AWS には接続しない設定（テストモード・メモリ）で、通知の配信のジョブ（JB-04）だけを呼ぶ
+    const script = [
+      `const { handler } = require(${JSON.stringify(bundlePath)});`,
+      "handler({ jobId: 'JB-04' }).then((result) => {",
+      '  process.stdout.write(JSON.stringify(result));',
+      '});',
+    ].join('\n');
+    const output = execFileSync(process.execPath, ['-e', script], {
+      env: {
+        ...process.env,
+        APP_MODE: 'test',
+        PERSISTENCE: 'memory',
+        AUTH_PROVIDER: 'local',
+        LOG_LEVEL: 'error',
+      },
+      encoding: 'utf8',
+    });
+
+    expect(JSON.parse(output)).toEqual({
+      jobId: 'JB-04',
+      outcome: 'EXECUTED',
+      result: {
+        jobId: 'JB-04',
+        summary: { notificationsProcessed: 0, delivered: 0, failed: 0 },
+      },
+    });
   });
 });

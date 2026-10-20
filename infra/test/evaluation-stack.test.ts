@@ -6,6 +6,11 @@ import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_SCHEDULE,
+  JOB_LAMBDA_TIMEOUT_SECONDS,
+  JOB_LEASE_MS,
+} from '../../src/backend/application/jobs/job-schedule.ts';
 import { DataStack } from '../lib/data-stack.ts';
 import {
   COGNITO_ACTIONS,
@@ -213,8 +218,8 @@ describe('評価環境のスタック: API（Lambda の関数の URL）', () => 
       Properties: { RetentionInDays?: number };
     }[];
 
-    // API・画面の配置（BucketDeployment）の補助の 2 つ。増えたときは、保持期間を絞り忘れていないか確認する
-    expect(logGroups).toHaveLength(2);
+    // API・ジョブ（Issue #76）・画面の配置（BucketDeployment）の補助の 3 つ。増えたときは、保持期間を絞り忘れていないか確認する
+    expect(logGroups).toHaveLength(3);
     for (const logGroup of logGroups) {
       expect(logGroup.Properties.RetentionInDays).toBe(30);
       expect(logGroup.DeletionPolicy).toBe('Delete');
@@ -243,14 +248,14 @@ interface PolicyStatementJson {
   readonly Resource: unknown;
 }
 
-/** API の Lambda のロールに付く、インラインのポリシーの文（画面の配置など、ほかのロールは、含めない）。 */
-function apiRoleStatements(template: Template): PolicyStatementJson[] {
+/** 指定した Lambda のロールに付く、インラインのポリシーの文（画面の配置など、ほかのロールは、含めない）。 */
+function roleStatements(template: Template, functionId = 'ApiFunction'): PolicyStatementJson[] {
   const policies = template.findResources('AWS::IAM::Policy') as Record<
     string,
     { Properties: { PolicyDocument: { Statement: PolicyStatementJson[] } } }
   >;
   return Object.entries(policies)
-    .filter(([logicalId]) => logicalId.startsWith('ApiFunctionServiceRoleDefaultPolicy'))
+    .filter(([logicalId]) => logicalId.startsWith(`${functionId}ServiceRoleDefaultPolicy`))
     .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement);
 }
 
@@ -305,7 +310,7 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
 
   it('IAM は最小権限: DynamoDB は、2 つのテーブル（インデックスを含む）への、必要な操作だけ（Scan なし）。Cognito は、ユーザープールへの管理の 5 操作だけ', () => {
     const { template } = plainStack();
-    const statements = apiRoleStatements(template);
+    const statements = roleStatements(template);
     const actionsOf = (statement: PolicyStatementJson): string[] => [statement.Action].flat();
     const dynamodb = statements.filter((statement) =>
       actionsOf(statement).some((action) => action.startsWith('dynamodb:')),
@@ -330,6 +335,139 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     for (const statement of statements) {
       expect(statement.Resource).not.toBe('*');
     }
+  });
+});
+
+describe('評価環境のスタック: ジョブを EventBridge から Lambda で実行する（Issue #76。ADR-0011）', () => {
+  interface FunctionJson {
+    Type: string;
+    Properties: {
+      Handler?: string;
+      Environment?: { Variables: Record<string, unknown> };
+    };
+  }
+
+  function jobFunctionOf(template: Template): FunctionJson {
+    const resources = template.findResources('AWS::Lambda::Function') as Record<
+      string,
+      FunctionJson
+    >;
+    const entry = Object.entries(resources).find(([logicalId]) =>
+      logicalId.startsWith('JobFunction'),
+    );
+    if (entry === undefined) {
+      throw new Error('ジョブの Lambda がありません');
+    }
+    return entry[1];
+  }
+
+  it('ジョブの Lambda は、Node.js 24・ARM・1024 MB で、タイムアウトはロックの期限より短い。Lambda の自動の再試行はしない', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs24.x',
+      Architectures: ['arm64'],
+      MemorySize: 1024,
+      Timeout: JOB_LAMBDA_TIMEOUT_SECONDS,
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({ APP_MODE: 'production', PERSISTENCE: 'dynamodb' }),
+      }),
+    });
+    // ロックの期限は、タイムアウトより長い（実行中に、期限が切れて、次の実行が始まらない）
+    expect(JOB_LEASE_MS).toBeGreaterThan(JOB_LAMBDA_TIMEOUT_SECONDS * 1000);
+    template.hasResourceProperties('AWS::Lambda::EventInvokeConfig', {
+      MaximumRetryAttempts: 0,
+    });
+  });
+
+  it('環境変数は、API と同じ本番の構成（ID・テーブル名は、データのスタックの出力）。秘密情報・開発用 API・利用者の IP のヘッダーはない', () => {
+    const { template } = plainStack();
+    const variables = jobFunctionOf(template).Properties.Environment?.Variables ?? {};
+
+    expect(variables).toMatchObject({
+      APP_MODE: 'production',
+      PERSISTENCE: 'dynamodb',
+      AUTH_PROVIDER: 'cognito',
+      LOG_LEVEL: 'info',
+    });
+    for (const name of [
+      'COGNITO_USER_POOL_ID',
+      'DYNAMODB_OBSERVATIONS_TABLE',
+      'DYNAMODB_MAIN_TABLE',
+    ]) {
+      expect(JSON.stringify(variables[name])).toContain('Fn::ImportValue');
+    }
+    const names = Object.keys(variables);
+    expect(names.filter((name) => /SECRET|PASSWORD|TOKEN|KEY/i.test(name))).toEqual([]);
+    for (const name of ['CLIENT_IP_HEADER', 'DEV_API_ENABLED', 'SEED_MODE', 'SCHEDULER_ENABLED']) {
+      expect(names).not.toContain(name);
+    }
+  });
+
+  it('EventBridge のルールは、既定の実行間隔（4 種）ごと。入力は、jobId。再試行はせず、古いイベントは捨てる', () => {
+    const { template } = plainStack();
+    const rules = Object.values(template.findResources('AWS::Events::Rule')) as {
+      Properties: {
+        ScheduleExpression: string;
+        State: string;
+        Targets: {
+          Input: string;
+          RetryPolicy: { MaximumRetryAttempts: number; MaximumEventAgeInSeconds: number };
+        }[];
+      };
+    }[];
+
+    expect(rules).toHaveLength(DEFAULT_SCHEDULE.length);
+    for (const plan of DEFAULT_SCHEDULE) {
+      const expression =
+        plan.intervalMinutes === 1
+          ? 'rate(1 minute)'
+          : `rate(${String(plan.intervalMinutes)} minutes)`;
+      const matched = rules.filter(
+        (rule) =>
+          rule.Properties.ScheduleExpression === expression &&
+          rule.Properties.Targets.some(
+            (target) => target.Input === JSON.stringify({ jobId: plan.jobId }),
+          ),
+      );
+      expect(matched, plan.jobId).toHaveLength(1);
+      expect(matched[0]?.Properties.State).toBe('ENABLED');
+      expect(matched[0]?.Properties.Targets[0]?.RetryPolicy).toEqual({
+        MaximumRetryAttempts: 0,
+        MaximumEventAgeInSeconds: 60,
+      });
+    }
+    // EventBridge が、ジョブの Lambda を呼び出す権限（ルールごと）
+    const permissions = Object.values(template.findResources('AWS::Lambda::Permission')) as {
+      Properties: { Principal: string; Action: string };
+    }[];
+    expect(
+      permissions.filter(
+        (permission) =>
+          permission.Properties.Principal === 'events.amazonaws.com' &&
+          permission.Properties.Action === 'lambda:InvokeFunction',
+      ),
+    ).toHaveLength(DEFAULT_SCHEDULE.length);
+  });
+
+  it('IAM は最小権限: DynamoDB の 2 テーブル（インデックスを含む）への、必要な操作だけ。Cognito の権限・ワイルドカードのリソースはない', () => {
+    const { template } = plainStack();
+    const statements = roleStatements(template, 'JobFunction');
+    const actions = statements.flatMap((statement) => [statement.Action].flat());
+
+    expect(actions.sort()).toEqual([...DYNAMODB_ACTIONS].sort());
+    expect(actions.filter((action) => action.startsWith('cognito-idp:'))).toEqual([]);
+    expect(actions).not.toContain('dynamodb:Scan');
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.Resource).toHaveLength(4);
+    for (const statement of statements) {
+      expect(statement.Resource).not.toBe('*');
+    }
+  });
+
+  it('ジョブの Lambda の関数名を出力する（動作の確認で、ログを探すため）', () => {
+    const { template } = plainStack();
+    template.hasOutput('JobFunctionName', {});
   });
 });
 
