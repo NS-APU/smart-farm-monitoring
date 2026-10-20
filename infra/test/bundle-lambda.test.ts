@@ -8,6 +8,16 @@ import { bundledLambdaCode } from '../lib/bundle-lambda.ts';
 
 const BACKEND_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/lambda.ts');
 const JOB_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/job-lambda.ts');
+// それぞれの入口だけが持つ文言（まとめた結果から、どちらのコードかを見分ける）
+const JOB_ONLY_MESSAGE = 'ジョブの識別子（jobId）が不正です';
+const API_ONLY_MESSAGE = '/health';
+
+/** esbuild は、日本語を \uXXXX にして出力する。文言で探せるように、元の文字に戻す。 */
+function decodeUnicodeEscapes(code: string): string {
+  return code.replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+}
 
 /** バックエンド本体のハンドラを、まとめて、まとめた index.js のパスを返す。 */
 function bundleBackendHandler(entry = BACKEND_HANDLER): string {
@@ -128,5 +138,38 @@ describe('ジョブの Lambda のハンドラ（まとめた結果。Issue #76�
         summary: { notificationsProcessed: 0, delivered: 0, failed: 0 },
       },
     });
+  });
+});
+
+describe('API とジョブの Lambda を、1 つの合成に入れたとき（Issue #107）', () => {
+  it('それぞれが、別のコードにまとめられる（CDK がまとめを使い回して、ジョブの Lambda が API のコードで動かない）', () => {
+    const app = new App();
+    const stack = new Stack(app, 'Bundle');
+    new LambdaFunction(stack, 'Api', {
+      runtime: Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: bundledLambdaCode(BACKEND_HANDLER),
+    });
+    new LambdaFunction(stack, 'Job', {
+      runtime: Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: bundledLambdaCode(JOB_HANDLER),
+    });
+    const assembly = app.synth();
+    const bundles = readdirSync(assembly.directory)
+      .filter((name) => name.startsWith('asset.'))
+      .map((name) => join(assembly.directory, name))
+      .filter((dir) => existsSync(join(dir, 'index.js')))
+      .map((dir) => decodeUnicodeEscapes(readFileSync(join(dir, 'index.js'), 'utf8')));
+
+    // 入口が違えば、まとめも別（共有すると、1 つしかできない）
+    expect(bundles).toHaveLength(2);
+    // ジョブの入口だけが持つ文言（入力の検証のエラー）。ジョブのコードは 1 つだけで、API のコードには、ない
+    const jobBundles = bundles.filter((bundle) => bundle.includes(JOB_ONLY_MESSAGE));
+    expect(jobBundles).toHaveLength(1);
+    // API のコードだけが持つ文言（ヘルスチェックの応答）。ジョブのコードには、ない
+    const apiBundles = bundles.filter((bundle) => bundle.includes(API_ONLY_MESSAGE));
+    expect(apiBundles).toHaveLength(1);
+    expect(jobBundles[0]).not.toContain(API_ONLY_MESSAGE);
   });
 });
