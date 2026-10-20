@@ -14,6 +14,8 @@ export interface FakeS3Options {
 interface FakeObject {
   readonly content: string;
   readonly modifiedAt: Date;
+  /** PutObject で指定された、内容の種類。 */
+  readonly contentType?: string | undefined;
 }
 
 export interface RecordedS3Call {
@@ -79,6 +81,15 @@ export function createFakeS3(options: FakeS3Options) {
     return { Body: { transformToString: () => Promise.resolve(object.content) } };
   }
 
+  function putObjectCommand(input: Record<string, unknown>) {
+    objects.set(String(input.Key), {
+      content: String(input.Body),
+      modifiedAt: new Date(),
+      contentType: typeof input.ContentType === 'string' ? input.ContentType : undefined,
+    });
+    return {};
+  }
+
   function deleteObjects(input: Record<string, unknown>) {
     const targets = (input.Delete as { Objects: { Key: string }[] }).Objects;
     if (failDelete) {
@@ -92,6 +103,14 @@ export function createFakeS3(options: FakeS3Options) {
 
   return {
     calls,
+    /** オブジェクトの内容（なければ、undefined）。 */
+    contentOf(key: string): string | undefined {
+      return objects.get(key)?.content;
+    },
+    /** オブジェクトの内容の種類（PutObject で指定されたもの）。 */
+    contentTypeOf(key: string): string | undefined {
+      return objects.get(key)?.contentType;
+    },
     /** 保存されているオブジェクトのキー（古い順ではなく、並べ替えて返す）。 */
     keys(): string[] {
       return [...objects.keys()].sort();
@@ -127,6 +146,8 @@ export function createFakeS3(options: FakeS3Options) {
             return Promise.resolve(get(input));
           case 'DeleteObjectsCommand':
             return Promise.resolve(deleteObjects(input));
+          case 'PutObjectCommand':
+            return Promise.resolve(putObjectCommand(input));
           default:
             return Promise.reject(new FakeS3Error('NotImplemented', 501));
         }

@@ -15,8 +15,8 @@ const DEMO_FACILITY_ID = toEquipmentId('HOUSE-01');
 export const DEMO_ROBOT_ID = toEquipmentId('ROBOT-01');
 export const DEMO_SENSOR_ID = toEquipmentId('SENSOR-01');
 /** ファイルの中の設備の識別子（モックのファイルサーバーの合成データと対応する）。 */
-const DEMO_ROBOT_EXTERNAL_ID = 'ROBOT-SAMPLE-01';
-const DEMO_SENSOR_EXTERNAL_ID = 'SENSOR-SAMPLE-01';
+export const DEMO_ROBOT_EXTERNAL_ID = 'ROBOT-SAMPLE-01';
+export const DEMO_SENSOR_EXTERNAL_ID = 'SENSOR-SAMPLE-01';
 
 export function buildDemoEquipment(createdAt: Date): Equipment[] {
   const timestamp = createdAt.toISOString();
@@ -126,28 +126,71 @@ function round(value: number, digits: number): number {
   return Math.round(value * factor) / factor;
 }
 
+/** 1 つの時刻の、ロボット・環境センサーの合成データの値（正常な範囲）。 */
+export interface AutoSample {
+  readonly harvestCount: number;
+  readonly operatingHours: number;
+  readonly harvestOperatingHours: number;
+  readonly travelStoppedHours: number;
+  readonly standbyHours: number;
+  readonly statusCode: 'HARVESTING' | 'RUNNING';
+  readonly temperatureCelsius: number;
+  readonly humidityPercent: number;
+  readonly illuminanceLux: number;
+  readonly co2Ppm: number;
+}
+
+/**
+ * 1 つの時刻の合成データの値を作る。**乱数を消費する順序は、変えない**（同じ種で、同じデータになる）。
+ * 観測値の生成（generateAutoObservations）と、ファイルの生成（demo-feed-files.ts）が、同じ規則を使う。
+ */
+export function generateAutoSample(
+  random: () => number,
+  intervalMinutes: number,
+  temperatureBaseCelsius: number,
+): AutoSample {
+  const hoursPerStep = intervalMinutes / 60;
+  const harvestHours = round(hoursPerStep * (0.55 + random() * 0.1), 4);
+  const harvestCount = 10 + Math.floor(random() * 5);
+  const statusCode = random() < 0.8 ? 'HARVESTING' : 'RUNNING';
+  const temperatureCelsius = round(temperatureBaseCelsius + random() * 4, 1);
+  const humidityPercent = round(55 + random() * 10, 1);
+  const illuminanceLux = Math.round(28_000 + random() * 6_000);
+  const co2Ppm = Math.round(850 + random() * 100);
+  return {
+    harvestCount,
+    operatingHours: round(hoursPerStep, 4),
+    harvestOperatingHours: harvestHours,
+    travelStoppedHours: round(harvestHours * 0.02, 5),
+    standbyHours: round(hoursPerStep * 0.1, 4),
+    statusCode,
+    temperatureCelsius,
+    humidityPercent,
+    illuminanceLux,
+    co2Ppm,
+  };
+}
+
 /** ロボット・環境センサーの自動取り込み相当の合成データ（正常な範囲）。 */
 export function generateAutoObservations(options: SyntheticOptions): Observation[] {
   const random = createRandom(options.seed);
   const result: Observation[] = [];
   const stepMs = options.intervalMinutes * MS_PER_MINUTE;
-  const hoursPerStep = options.intervalMinutes / 60;
   const temperatureBase = options.temperatureBaseCelsius ?? 20;
   for (let at = options.from.getTime(); at <= options.to.getTime(); at += stepMs) {
     const time = new Date(at);
-    const harvestHours = round(hoursPerStep * (0.55 + random() * 0.1), 4);
-    // 値の生成の順序（乱数の消費順）を保つ。同じ種で、同じデータになる
+    const sample = generateAutoSample(random, options.intervalMinutes, temperatureBase);
     const rows: readonly (readonly [EquipmentId, string, number | string])[] = [
-      [options.robotId, 'harvestCount', 10 + Math.floor(random() * 5)],
-      [options.robotId, 'operatingHours', round(hoursPerStep, 4)],
-      [options.robotId, 'harvestOperatingHours', harvestHours],
-      [options.robotId, 'travelStoppedHours', round(harvestHours * 0.02, 5)],
-      [options.robotId, 'standbyHours', round(hoursPerStep * 0.1, 4)],
-      [options.robotId, STATUS_CODE_ITEM_KEY, random() < 0.8 ? 'HARVESTING' : 'RUNNING'],
-      [options.sensorId, 'temperatureCelsius', round(temperatureBase + random() * 4, 1)],
-      [options.sensorId, 'humidityPercent', round(55 + random() * 10, 1)],
-      [options.sensorId, 'illuminanceLux', Math.round(28_000 + random() * 6_000)],
-      [options.sensorId, 'co2Ppm', Math.round(850 + random() * 100)],
+      [options.robotId, 'harvestCount', sample.harvestCount],
+      [options.robotId, 'operatingHours', sample.operatingHours],
+      [options.robotId, 'harvestOperatingHours', sample.harvestOperatingHours],
+      [options.robotId, 'travelStoppedHours', sample.travelStoppedHours],
+      [options.robotId, 'standbyHours', sample.standbyHours],
+      [options.robotId, STATUS_CODE_ITEM_KEY, sample.statusCode],
+      [options.sensorId, 'temperatureCelsius', sample.temperatureCelsius],
+      [options.sensorId, 'humidityPercent', sample.humidityPercent],
+      [options.sensorId, 'illuminanceLux', sample.illuminanceLux],
+      [options.sensorId, 'co2Ppm', sample.co2Ppm],
     ];
     for (const [equipmentId, itemKey, value] of rows) {
       result.push(observation(equipmentId, itemKey, time, value, 'AUTO_IMPORT'));
