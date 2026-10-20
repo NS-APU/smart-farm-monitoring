@@ -2,9 +2,19 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type App } from 'aws-cdk-lib';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createEvaluationApp, createGithubOidcApp } from '../lib/apps.ts';
 import { GITHUB_SUBJECT_PREFIX } from '../lib/config.ts';
+
+// スタックの名前だけを確かめるテスト。Lambda のコードのまとめ（esbuild）は、スタックを作るたびに走り、CPU を使う。
+// まとめの確認は、bundle-lambda.test.ts で行うため、ここでは省く（CDK のコンテキストを、環境変数で渡す）。
+// 重いテストが、ほかのテストと並列に動くとき、時間の上限を超えることを避ける（上限は、緩めない）
+beforeAll(() => {
+  process.env.CDK_CONTEXT_JSON = JSON.stringify({ 'aws:cdk:bundling-stacks': [] });
+});
+afterAll(() => {
+  delete process.env.CDK_CONTEXT_JSON;
+});
 
 function assets(): string {
   const dir = mkdtempSync(join(tmpdir(), 'sfm-infra-apps-'));

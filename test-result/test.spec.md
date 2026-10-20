@@ -34,13 +34,13 @@
 | 単体: backend/application                  |          3 |         17 |
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         11 |        203 |
-| 単体: backend/runtime                      |          3 |         72 |
+| 単体: backend/runtime                      |          3 |         74 |
 | 単体: frontend                             |         19 |        372 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |         54 |
-| 結合（`tests/integration/`）               |         22 |        764 |
-| 合計                                       |        108 |       2574 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |         57 |
+| 結合（`tests/integration/`）               |         24 |        787 |
+| 合計                                       |        110 |       2602 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1046 件、結合 764 件（単体と結合の合計 1810 件。`vitest list` の件数。Issue #73・#74・#75・#76・#95・#100・#107 の実装後の加算値。実測（DynamoDB Local あり）は、77 ファイル・1812 件で、1810 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1051 件、結合 787 件（単体と結合の合計 1838 件。`vitest list` の件数。Issue #73・#74・#75・#76・#77・#95・#100・#107 の実装後の加算値。実測（DynamoDB Local あり）は、79 ファイル・1840 件で、1838 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする）。
 この件数は、Sprint1 の取り込み（Issue #30〜#39・#60・#62・#71・#87）の時点の値。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -6695,7 +6695,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | backend/infrastructure | `tests/unit/backend/infrastructure/dynamodb/operations.test.ts`         |   12 | （個別の節なし。12 章で説明）           |
 | backend/infrastructure | `tests/unit/backend/infrastructure/cognito-identity.test.ts`            |   21 | （個別の節なし。12 章で説明）           |
 | backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`                        |    3 | （UC に直接対応しない基盤）                                                                      |
-| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   46 | UC-13・UC-14                                                                                     |
+| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   48 | UC-13・UC-14                                                                                     |
 | backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`                            |   21 | UC-13                                                                                            |
 | backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`                   |    5 | （UC に直接対応しない基盤）                                                                      |
 | frontend               | `tests/unit/frontend/api-client.test.ts`                                |   23 | UC-01・UC-13                                                                                     |
@@ -6721,7 +6721,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | infra                  | `infra/test/bundle-lambda.test.ts`                                      |    4 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
-| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   22 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   25 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
@@ -6745,10 +6745,12 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/lambda-production.test.ts`                           |    3 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/job-lock-contract.test.ts`                           |   10 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/job-lambda.test.ts`                                  |   11 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/s3-file-source.test.ts`                              |   20 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/s3-ingestion.test.ts`                                |    3 | （個別の節なし。12 章で説明）           |
 
-件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 77 ファイル・1812 件。DynamoDB Local あり。Issue #73・#74・#75・#76・#95・#100・#107 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
+件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 79 ファイル・1840 件。DynamoDB Local あり。Issue #73・#74・#75・#76・#77・#95・#100・#107 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
 
-「関連する UC」が「個別の節なし」のファイル（35 ファイル。`infra/test/` の 6 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
+「関連する UC」が「個別の節なし」のファイル（37 ファイル。`infra/test/` の 6 ファイルを含む）は、このあとの個別の節（4 章）を持たない。レビュー指摘への対応（8 章）・負荷テスト（9・10 章）・取り込み後の変更（12 章。`infra/test/` の 7 ファイルと、Issue #73 の DynamoDB アダプタのテスト 4 ファイルと、Issue #74 の Cognito・認証のテスト 4 ファイルは、12 章に内容を示す）で追加したテストで、各章の表に、対応する検証項目（V-nnn）と内容を示す。UC には直接対応しないため、6 章の対応表には載せない。
 
 ### tests/unit/shared/criteria-text.test.ts
 
@@ -10975,7 +10977,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ（Issue #71・#73・#74・#75・#76・#87・#95・#100・#107）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#87・#95・#100・#107）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -11024,8 +11026,12 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | ジョブの Lambda の結合テストの追加（Issue #76） | `tests/integration/job-lambda.test.ts`（11 件。DynamoDB Local + 偽の Cognito。本番の設定）: EventBridge の入力（`jobId`）で 4 種のジョブを実行できる（データが空でも成功）／不正な入力 5 通りを、内容を出さずに拒否／同じジョブが実行中なら、次の起動は実行せず終わり、別のジョブは実行でき、終われば、また実行できる／別の実行環境（別の Lambda）が実行中でも、実行しない（ロックは、DynamoDB で共有）／ジョブが失敗したら、エラーを投げ、ロックは解放される／初期化の失敗は保持せず、次の起動で再試行／`SEED_MODE` は設定エラー | 結合 +11 |
 | IaC（ジョブの Lambda と EventBridge）のテストの追加（Issue #76） | `evaluation-stack.test.ts` に 5 件: ジョブの Lambda は、Node.js 24・ARM・1024 MB・タイムアウトはロックの期限より短く、Lambda の自動の再試行は 0／環境変数は API と同じ本番の構成で、秘密情報・利用者の IP のヘッダー・開発用 API の設定がない／EventBridge のルールが `DEFAULT_SCHEDULE` の 4 種の間隔ごとで、入力は `jobId`、再試行 0・古いイベントは 1 分で捨てる、呼び出しの権限がルールごとにある／IAM は DynamoDB の 2 テーブルへの必要な操作だけ（Cognito の権限・ワイルドカードなし）／関数名の出力。`bundle-lambda.test.ts` に 1 件: ジョブの Lambda を、AWS SDK を含む 1 ファイルにまとめ、別のプロセスで、JB-04 を実行できる | infra +6 |
 | IaC（Lambda のコードのまとめの共有）のテストの追加（Issue #107。バグ修正） | `bundle-lambda.test.ts` に 1 件: API とジョブの 2 つの Lambda を、まとめ（バンドル）を有効にして、1 つの合成に入れ、それぞれが、別のコードにまとめられる（ジョブのコードにだけ、入力の検証の文言がある・API のコードにだけ、ヘルスチェックの経路がある）。**CDK が、同じディレクトリ・同じオプションのまとめを使い回し、ジョブの Lambda が、API のコードで動いた不具合の、再現と回帰のテスト。先に書き、修正の前は失敗する（まとめが 1 つしかできない）ことを確認した。既存のテストの期待値は、変えていない** | infra +1 |
+| **期待値の変更 8**: `infra/test/evaluation-stack.test.ts`（Issue #77） | ① 「バケットは、公開せず、SSL を強制し、暗号化し、削除のときは中身ごと削除する」の、**自動削除のカスタムリソース（`Custom::S3AutoDeleteObjects`）の数を、1 つから 2 つ**に変えた（画面のバケットに、ファイルサーバーのモックのバケットが増えたため）。バケットの公開のブロック・暗号化・SSL の強制・削除の期待は、そのまま。② 「ジョブの Lambda の IAM は最小権限」の、**許可する操作の期待を、DynamoDB の必要な操作だけから、DynamoDB の必要な操作と、S3 の読み取り（`s3:ListBucket`・`s3:GetObject`）に**変え、**文の数を 1 つから 3 つ**にした（ファイルサーバーのモックの読み取りが増えたため）。Cognito の権限・ワイルドカードのリソースがない期待は、そのまま | 件数は変わらない |
+| S3 のファイルサーバーのモックの追加（Issue #77） | `tests/integration/s3-file-source.test.ts`（20 件）: `FileSourcePort` の契約テスト（5 件。ローカルのモックと同じ。偽の S3 に適用）と、S3 固有の振る舞い（続きの取得・直下のファイルだけ・「ディレクトリ」を表すオブジェクトの除外・ファイルがない取り込み元・AWS のエラー（バケットなし）の扱い・ファイルなし／本文なし・取り込み元の外へ出る識別子の拒否（5 + 5 通り））。`tests/integration/s3-ingestion.test.ts`（3 件）: 組み立てが、`FILE_SERVER_S3_BUCKET` で S3 版を選び、JB-01 が S3 のファイルから、観測値を保存して評価を更新する／同じファイルを、もう一度取り込んでも、増えない／接続テスト（成功・バケットなしで失敗）。`tests/support/fake-s3.ts`（偽の S3）を追加 | 結合 +23 |
+| IaC（S3 のバケットと権限）・設定のテストの追加（Issue #77） | `evaluation-stack.test.ts` に 3 件: バケットは非公開・暗号化・SSL 強制・ファイルを 3 日で自動削除・評価環境と一緒に削除／API・ジョブの Lambda は、このバケットの読み取りだけ（`s3:ListBucket`・`s3:GetObject`。書き込み・削除・ワイルドカードなし）で、バケット名を環境変数で受ける／バケット名の出力。`config.test.ts` に 2 件: `FILE_SERVER_S3_BUCKET`（既定は指定なし・読み込める・空は設定エラー） | infra +3・単体 +2 |
+| **テストの準備の変更**（期待値は、変えていない）: `infra/test/apps.test.ts`（Issue #77） | スタックの名前だけを確かめるテストが、スタックを作るたびに、Lambda のコードのまとめ（esbuild）を実行していた（3 件 × 2 つ）。まとめの確認は、`bundle-lambda.test.ts` で行うため、`apps.test.ts` では、CDK のコンテキスト（`aws:cdk:bundling-stacks` を空）を環境変数で渡して、省いた。CPU の負荷を下げ、全体を並列で流したときの、30 秒の時間切れ（最初のテストが 8.8 秒かかり、負荷で 30 秒を超えた）を直した。**時間の上限（30 秒）は、緩めていない**。最初のテストは、8.8 秒から 0.3 秒になった | 件数は変わらない |
 
-**Issue #76 では、上の「期待値の変更 7」のとおり、IaC の仕様の変更（ロググループの増加）に伴う期待値の変更が 1 件ある**（各ロググループの保持期間・削除の期待は、そのまま）。**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
+**Issue #77 では、上の「期待値の変更 8」のとおり、IaC の仕様の変更（S3 のバケットと権限の追加）に伴う期待値の変更が、2 か所ある**（それ以外の期待は、そのまま）。**Issue #76 では、上の「期待値の変更 7」のとおり、IaC の仕様の変更（ロググループの増加）に伴う期待値の変更が 1 件ある**（各ロググループの保持期間・削除の期待は、そのまま）。**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
 取り込み後の件数と実測値は、1.2 節。
 
 **Issue #80 では、上の「期待値の変更 6」のとおり、IaC のテストの期待を、厳しくした**（緩めたのではなく、期間を明示するため）。

@@ -99,6 +99,12 @@ export const COGNITO_ACTIONS = [
   'cognito-idp:AdminUserGlobalSignOut',
 ] as const;
 
+/** ファイルサーバーのモックのバケットの、ファイルの保持日数（合成データのファイル。古いファイルは、取り込みの対象に、残さない）。 */
+export const FILE_SERVER_RETENTION_DAYS = 3;
+
+/** API・ジョブの Lambda が、ファイルサーバーのモックの S3 に使う操作（読み取りのみ。書き込み・削除は、しない）。 */
+export const S3_READ_ACTIONS = ['s3:ListBucket', 's3:GetObject'] as const;
+
 /**
  * 利用者の IP を入れるヘッダーの名前（小文字。API の Lambda の `CLIENT_IP_HEADER`）。関数の URL は、`X-Forwarded-For` を、
  * 最初の 1 つ（クライアントが付けられる値）に切り詰めるため、段数（`TRUSTED_PROXY_HOPS`）では、利用者の IP を識別できない
@@ -157,6 +163,18 @@ export class EvaluationStack extends Stack {
       autoDeleteObjects: true,
     });
 
+    // ファイルサーバーのモック（Issue #77。ADR-0012）のバケット。Lambda には、ローカルのディレクトリがないため、S3 に置く。
+    // 構成は、ローカルのモックと同じ `<取り込み元の識別子>/<ファイル>`。置くのは、合成データだけ（実データ・個人情報は置かない）。
+    // 評価環境と一緒に消す（状態を持たない）。ファイルは、一定の日数で自動で消す
+    const fileServerBucket = new Bucket(this, 'FileServerBucket', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      lifecycleRules: [{ expiration: Duration.days(FILE_SERVER_RETENTION_DAYS) }],
+    });
+
     // API（バックエンド本体。Issue #75）。ログの保持期間を絞る（費用。NFR-1.5・NFR-6.3）。
     // メモリ・タイムアウトは、初期値（Issue #79 の実測で調整する）: CPU はメモリに比例するため 1024 MB、
     // タイムアウトは、CloudFront のオリジンの応答の上限（30 秒）の内側
@@ -171,6 +189,7 @@ export class EvaluationStack extends Stack {
       COGNITO_CLIENT_ID: data.userPoolClient.userPoolClientId,
       DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
       DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
+      FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName,
       LOG_LEVEL: 'info',
     };
     // 最小権限: 2 つのテーブル（インデックスを含む）への、必要な操作だけ
@@ -182,6 +201,17 @@ export class EvaluationStack extends Stack {
           `${table.tableArn}/index/*`,
         ]),
       });
+    // ファイルサーバーのモックの読み取り（取り込み元の一覧・ファイルの内容）。最小権限: このバケットだけ・読み取りだけ
+    const fileServerReadPolicies = (): PolicyStatement[] => [
+      new PolicyStatement({
+        actions: [S3_READ_ACTIONS[0]],
+        resources: [fileServerBucket.bucketArn],
+      }),
+      new PolicyStatement({
+        actions: [S3_READ_ACTIONS[1]],
+        resources: [fileServerBucket.arnForObjects('*')],
+      }),
+    ];
     const apiFunction = new LambdaFunction(this, 'ApiFunction', {
       code: bundledLambdaCode(join(import.meta.dirname, '../../src/backend/runtime/lambda.ts')),
       handler: 'index.handler',
@@ -197,6 +227,9 @@ export class EvaluationStack extends Stack {
     });
     // Cognito は、ユーザープールに限る
     apiFunction.addToRolePolicy(dataTablesPolicy());
+    for (const statement of fileServerReadPolicies()) {
+      apiFunction.addToRolePolicy(statement);
+    }
     apiFunction.addToRolePolicy(
       new PolicyStatement({
         actions: [...COGNITO_ACTIONS],
@@ -223,6 +256,9 @@ export class EvaluationStack extends Stack {
       retryAttempts: 0,
     });
     jobFunction.addToRolePolicy(dataTablesPolicy());
+    for (const statement of fileServerReadPolicies()) {
+      jobFunction.addToRolePolicy(statement);
+    }
     for (const plan of DEFAULT_SCHEDULE) {
       new Rule(this, `Schedule${plan.jobId.replace('-', '')}`, {
         description: `ジョブ ${plan.jobId} を ${String(plan.intervalMinutes)} 分ごとに起動する`,
@@ -307,5 +343,9 @@ export class EvaluationStack extends Stack {
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
     new CfnOutput(this, 'ApiFunctionName', { value: apiFunction.functionName });
     new CfnOutput(this, 'JobFunctionName', { value: jobFunction.functionName });
+    new CfnOutput(this, 'FileServerBucketName', {
+      value: fileServerBucket.bucketName,
+      description: 'ファイルサーバーのモック（合成データ）のバケット',
+    });
   }
 }

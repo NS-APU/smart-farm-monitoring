@@ -246,6 +246,19 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('ファイルサーバーのモックの S3 のバケット（FILE_SERVER_S3_BUCKET。Issue #77）', () => {
+    it('既定は、指定なし（ローカルのディレクトリ）。指定すれば、読み込む', () => {
+      expect(parseConfig({}).fileServerBucket).toBeUndefined();
+      expect(parseConfig({ FILE_SERVER_S3_BUCKET: 'dummy-file-server' }).fileServerBucket).toBe(
+        'dummy-file-server',
+      );
+    });
+
+    it('空の指定は、設定エラーにする', () => {
+      expect(() => parseConfig({ FILE_SERVER_S3_BUCKET: '' })).toThrow('FILE_SERVER_S3_BUCKET');
+    });
+  });
+
   describe('利用者の IP のヘッダー（CLIENT_IP_HEADER。Issue #100）', () => {
     it('既定は指定なし。指定したヘッダー名は、小文字にして読み込む', () => {
       expect(parseConfig({}).clientIpHeader).toBeUndefined();

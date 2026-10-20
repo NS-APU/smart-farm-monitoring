@@ -11,6 +11,7 @@
 | `APP_MODE` | `production`（本番）。Lambda は、**必ず明示する**（未設定は起動エラー） | 既定の `local` は、開発用の設定 |
 | `PERSISTENCE` | `dynamodb`（本番。Lambda は、`SfmData` の出力から、環境変数を設定する。Issue #75。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` に、`SfmData` のスタックの出力のテーブル名を指定する。`DYNAMODB_ENDPOINT` は、本番・共有環境では指定しない）。Lambda は **必ず明示する**。Lambda で `file` は使えない（読み取り専用のファイルシステム・複数の実行環境） | メモリのみ・ローカルのファイルは、データが失われる・分裂する |
 | `AUTH_PROVIDER` | `cognito`（Amazon Cognito。ADR-0008）。`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` に、`SfmData` のスタックの出力を指定する。`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない。ローカル・テストは、既定の `local` | 本番の Lambda は、パスワードを Cognito に預ける（アプリ内の認証は、セッションをメモリに持つため、Lambda では使えない） |
+| `FILE_SERVER_S3_BUCKET` | 評価環境の Lambda は、IaC が、ファイルサーバーのモックのバケットを指定する（Issue #77）。取り込み元ごとに `<バケット>/<取り込み元の識別子>/` にファイルを置く。**置くのは、合成データだけ**（実データ・個人情報は置かない） | Lambda には、ローカルのディレクトリがない。未指定の `FILE_SERVER_DIR` は、ローカル用 |
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールの分け方は発注者の判断待ち（Q-017） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
@@ -86,7 +87,7 @@
 | スタック | 中身 | 備考 |
 |----------|------|------|
 | `SfmData` | DynamoDB のテーブル 2 つ・Cognito のユーザープール | 状態を持つ。削除の保護あり。評価環境の更新・削除では、消えない |
-| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName` |
+| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName`・`JobFunctionName`・`FileServerBucketName` |
 | `SfmGithubOidc` | GitHub Actions 用のロール | 初回に 1 回だけ作る |
 
 `deploy` は、`SfmData` → `SfmEvaluation` の順に更新する（Lambda が、`SfmData` の出力を使うため）。

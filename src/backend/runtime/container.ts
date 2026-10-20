@@ -77,6 +77,7 @@ import { seedInitialStatusCodes } from '../application/seed/initial-data.ts';
 import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { S3Client } from '@aws-sdk/client-s3';
 import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
@@ -101,6 +102,7 @@ import { createLocalRepositories } from '../infrastructure/local/local-repositor
 import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
+import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
 import {
   DEMO_ROBOT_ID,
@@ -170,6 +172,8 @@ export interface ContainerOverrides {
   readonly settings?: Partial<AppSettings>;
   /** Cognito のクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
+  /** S3 のクライアント（テストで、偽のクライアントに差し替える）。 */
+  readonly s3Client?: Pick<S3Client, 'send'>;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -300,11 +304,19 @@ function buildAdapters(
     federation: createMockFederation({ faults: faults.federation, clock }),
     webPush: createDummyWebPush({ faults: faults.webPush }),
   };
-  const fileSource = createDirectoryFileSource({
-    rootDirectory: config.fileServerDirectory,
-    faults: faults.fileServer,
-    clock,
-  });
+  // ファイルサーバーのモック: S3 のバケットを指定したとき（Lambda）は S3、そうでなければ、ローカルのディレクトリ。
+  // S3 版には、停止・遅延の再現（faults）は、ない（開発用 API は、本番で無効）
+  const fileSource =
+    config.fileServerBucket === undefined
+      ? createDirectoryFileSource({
+          rootDirectory: config.fileServerDirectory,
+          faults: faults.fileServer,
+          clock,
+        })
+      : createS3FileSource({
+          client: overrides.s3Client ?? new S3Client({}),
+          bucket: config.fileServerBucket,
+        });
   const policy = createAccessPolicy(config.roles);
   const { auth, credentials }: Identity =
     config.cognito === undefined
