@@ -80,6 +80,7 @@ import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-
 import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
+import { createJobLock } from '../infrastructure/dynamodb/job-lock.ts';
 import { createLoginThrottle } from '../infrastructure/dynamodb/login-throttle.ts';
 import { createTables } from '../infrastructure/dynamodb/table-admin.ts';
 import { createDefaultFormatProfileRegistry } from '../infrastructure/format-profiles/declarative-profile.ts';
@@ -92,6 +93,7 @@ import { createDummyWebPush } from '../infrastructure/local/dummy-web-push.ts';
 import { createFaultController } from '../infrastructure/local/faults.ts';
 import { createUuidGenerator } from '../infrastructure/local/ids.ts';
 import { ensureInitialUser } from '../infrastructure/local/initial-user.ts';
+import { createInMemoryJobLock } from '../infrastructure/local/in-memory-job-lock.ts';
 import { createInMemoryLoginThrottle } from '../infrastructure/local/in-memory-login-throttle.ts';
 import { createLocalAuth } from '../infrastructure/local/local-auth.ts';
 import { createLocalCredentials } from '../infrastructure/local/local-credentials.ts';
@@ -113,6 +115,7 @@ import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
 import type { AppConfig, CognitoConfig, DynamoDbConfig } from './config.ts';
 import type { AuthPort } from '../application/ports/auth-port.ts';
 import type { CredentialPort } from '../application/ports/credential-port.ts';
+import type { JobLockPort } from '../application/ports/job-lock-port.ts';
 import type { LoginThrottlePort } from '../application/ports/login-throttle-port.ts';
 
 const DEMO_DAYS = 3;
@@ -145,6 +148,8 @@ export interface Container {
   readonly ingestionService: IngestionService;
   readonly ingestionSettings: IngestionSettings;
   readonly jobRunner: JobRunner;
+  /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
+  readonly jobLock: JobLockPort;
   readonly scheduler: Scheduler;
   /** 開発用の操作（時計・モック・リセット）。環境変数 DEV_API_ENABLED で明示した場合だけ有効（既定・本番では undefined）。 */
   readonly dev: DevApiDeps | undefined;
@@ -199,6 +204,8 @@ interface Storage {
   readonly prepare: () => Promise<void>;
   /** ログインの試行回数の制限。複数の実行環境で共有する必要がある DynamoDB は、DynamoDB に持つ。 */
   readonly loginThrottle: LoginThrottlePort;
+  /** ジョブの排他（リース式ロック）。複数の実行環境が、同じジョブを起動しうる DynamoDB は、DynamoDB に持つ。 */
+  readonly jobLock: JobLockPort;
 }
 
 function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage {
@@ -214,6 +221,7 @@ function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage
   return {
     repositories: createDynamoRepositories({ client, tables }),
     loginThrottle: createLoginThrottle({ client, tables }, clock),
+    jobLock: createJobLock({ client, tables }, clock),
     store: undefined,
     // AWS のテーブルは、IaC で作る。ローカルの接続先のときだけ、作る（すでにあれば、そのまま使う）
     prepare: () =>
@@ -240,6 +248,7 @@ function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort):
     store,
     prepare: () => Promise.resolve(),
     loginThrottle: createInMemoryLoginThrottle(clock),
+    jobLock: createInMemoryJobLock(clock),
   };
 }
 
@@ -310,6 +319,7 @@ function buildAdapters(
     repositories,
     store,
     prepare,
+    jobLock: storage.jobLock,
     faults,
     mocks,
     fileSource,
@@ -617,6 +627,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     ingestionService: services.ingestionService,
     ingestionSettings: services.ingestionSettings,
     jobRunner: services.jobRunner,
+    jobLock: adapters.jobLock,
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,

@@ -21,6 +21,8 @@ import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-
 import { type ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { type IUserPool, type IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { type ITable } from 'aws-cdk-lib/aws-dynamodb';
+import { Rule, RuleTargetInput, Schedule } from 'aws-cdk-lib/aws-events';
+import { LambdaFunction as LambdaFunctionTarget } from 'aws-cdk-lib/aws-events-targets';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import {
   AllowedMethods,
@@ -50,6 +52,10 @@ import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
 import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
+import {
+  DEFAULT_SCHEDULE,
+  JOB_LAMBDA_TIMEOUT_SECONDS,
+} from '../../src/backend/application/jobs/job-schedule.ts';
 import { bundledLambdaCode } from './bundle-lambda.ts';
 
 /** ファイルの拡張子がないパス（SPA の画面のパス）を、index.html に書き換える。API のパスには、付けない。 */
@@ -155,6 +161,27 @@ export class EvaluationStack extends Stack {
     // メモリ・タイムアウトは、初期値（Issue #79 の実測で調整する）: CPU はメモリに比例するため 1024 MB、
     // タイムアウトは、CloudFront のオリジンの応答の上限（30 秒）の内側
     const { data } = props;
+    // API とジョブの Lambda が共有する、バックエンドの環境変数。秘密情報ではない（ID・テーブル名）。
+    // 値は、データのスタックの出力から取る（リポジトリに ID を書かない）
+    const backendEnvironment = {
+      APP_MODE: 'production',
+      PERSISTENCE: 'dynamodb',
+      AUTH_PROVIDER: 'cognito',
+      COGNITO_USER_POOL_ID: data.userPool.userPoolId,
+      COGNITO_CLIENT_ID: data.userPoolClient.userPoolClientId,
+      DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
+      DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
+      LOG_LEVEL: 'info',
+    };
+    // 最小権限: 2 つのテーブル（インデックスを含む）への、必要な操作だけ
+    const dataTablesPolicy = (): PolicyStatement =>
+      new PolicyStatement({
+        actions: [...DYNAMODB_ACTIONS],
+        resources: [data.observationsTable, data.mainTable].flatMap((table) => [
+          table.tableArn,
+          `${table.tableArn}/index/*`,
+        ]),
+      });
     const apiFunction = new LambdaFunction(this, 'ApiFunction', {
       code: bundledLambdaCode(join(import.meta.dirname, '../../src/backend/runtime/lambda.ts')),
       handler: 'index.handler',
@@ -162,33 +189,14 @@ export class EvaluationStack extends Stack {
       architecture: Architecture.ARM_64,
       memorySize: 1024,
       timeout: Duration.seconds(29),
-      environment: {
-        APP_MODE: 'production',
-        PERSISTENCE: 'dynamodb',
-        AUTH_PROVIDER: 'cognito',
-        // 秘密情報ではない（ID・テーブル名）。値は、データのスタックの出力から取る（リポジトリに ID を書かない）
-        COGNITO_USER_POOL_ID: data.userPool.userPoolId,
-        COGNITO_CLIENT_ID: data.userPoolClient.userPoolClientId,
-        DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
-        DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
-        CLIENT_IP_HEADER,
-        LOG_LEVEL: 'info',
-      },
+      environment: { ...backendEnvironment, CLIENT_IP_HEADER },
       logGroup: new LogGroup(this, 'ApiLogGroup', {
         retention: RetentionDays.ONE_MONTH,
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
-    // 最小権限: 2 つのテーブル（インデックスを含む）への、必要な操作だけ。Cognito は、ユーザープールに限る
-    apiFunction.addToRolePolicy(
-      new PolicyStatement({
-        actions: [...DYNAMODB_ACTIONS],
-        resources: [data.observationsTable, data.mainTable].flatMap((table) => [
-          table.tableArn,
-          `${table.tableArn}/index/*`,
-        ]),
-      }),
-    );
+    // Cognito は、ユーザープールに限る
+    apiFunction.addToRolePolicy(dataTablesPolicy());
     apiFunction.addToRolePolicy(
       new PolicyStatement({
         actions: [...COGNITO_ACTIONS],
@@ -196,6 +204,39 @@ export class EvaluationStack extends Stack {
       }),
     );
     const apiUrl = apiFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
+
+    // ジョブ（JB-01〜JB-04）の Lambda（Issue #76。ADR-0011）。EventBridge の 4 つのルールが、入力 { jobId } で起動する。
+    // 認証は使わないため、Cognito の IAM は付けない。同じジョブの重複（前回の実行が終わる前の次の起動）は、
+    // DynamoDB のリース式ロックで防ぐ。Lambda の自動の再試行は、しない（失敗は、次の周期で、再び実行される。二重の配信を避ける）
+    const jobFunction = new LambdaFunction(this, 'JobFunction', {
+      code: bundledLambdaCode(join(import.meta.dirname, '../../src/backend/runtime/job-lambda.ts')),
+      handler: 'index.handler',
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 1024,
+      timeout: Duration.seconds(JOB_LAMBDA_TIMEOUT_SECONDS),
+      environment: backendEnvironment,
+      logGroup: new LogGroup(this, 'JobLogGroup', {
+        retention: RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      retryAttempts: 0,
+    });
+    jobFunction.addToRolePolicy(dataTablesPolicy());
+    for (const plan of DEFAULT_SCHEDULE) {
+      new Rule(this, `Schedule${plan.jobId.replace('-', '')}`, {
+        description: `ジョブ ${plan.jobId} を ${String(plan.intervalMinutes)} 分ごとに起動する`,
+        schedule: Schedule.rate(Duration.minutes(plan.intervalMinutes)),
+        targets: [
+          new LambdaFunctionTarget(jobFunction, {
+            event: RuleTargetInput.fromObject({ jobId: plan.jobId }),
+            // 配信の再試行もしない。起動の時刻から 1 分を過ぎたイベントは、捨てる（次の周期が、すぐ来る）
+            retryAttempts: 0,
+            maxEventAge: Duration.minutes(1),
+          }),
+        ],
+      });
+    }
 
     const spaRewrite = new CloudFrontFunction(this, 'SpaRewrite', {
       code: FunctionCode.fromInline(SPA_REWRITE_CODE),
@@ -265,5 +306,6 @@ export class EvaluationStack extends Stack {
     new CfnOutput(this, 'SiteUrl', { value: this.siteUrl, description: '評価環境の URL' });
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
     new CfnOutput(this, 'ApiFunctionName', { value: apiFunction.functionName });
+    new CfnOutput(this, 'JobFunctionName', { value: jobFunction.functionName });
   }
 }

@@ -41,6 +41,7 @@
 | | [0008-cognito-authentication.md](../10_design/adr/0008-cognito-authentication.md) | ADR-0008 認証に Amazon Cognito を使い、資格情報は Cognito、ロールは DynamoDB に持つ（承認） |
 | | [0009-lambda-production-assembly.md](../10_design/adr/0009-lambda-production-assembly.md) | ADR-0009 API の Lambda で、本番モード（DynamoDB・Cognito）の組み立てを動かす（承認。6 章は ADR-0010 で置換） |
 | | [0010-client-ip-from-cloudfront-function.md](../10_design/adr/0010-client-ip-from-cloudfront-function.md) | ADR-0010 利用者の IP は、CloudFront の Function でヘッダーに入れて、Lambda が読む（承認） |
+| | [0011-jobs-eventbridge-lambda.md](../10_design/adr/0011-jobs-eventbridge-lambda.md) | ADR-0011 ジョブ（JB-01〜JB-04）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ（承認） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |
