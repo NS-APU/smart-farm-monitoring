@@ -53,6 +53,11 @@ import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3'
 import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
 import {
+  DEMO_FEED_INTERVAL_MINUTES,
+  DEMO_FEED_SOURCE_IDS,
+  DEMO_FEED_TIMEOUT_SECONDS,
+} from '../../src/backend/application/demo/demo-feed-schedule.ts';
+import {
   DEFAULT_SCHEDULE,
   JOB_LAMBDA_TIMEOUT_SECONDS,
 } from '../../src/backend/application/jobs/job-schedule.ts';
@@ -104,6 +109,9 @@ export const FILE_SERVER_RETENTION_DAYS = 3;
 
 /** API・ジョブの Lambda が、ファイルサーバーのモックの S3 に使う操作（読み取りのみ。書き込み・削除は、しない）。 */
 export const S3_READ_ACTIONS = ['s3:ListBucket', 's3:GetObject'] as const;
+
+/** 合成データを生成する Lambda が、ファイルサーバーのモックの S3 に使う操作（書き込みのみ。取り込み元の下だけ。読み取り・削除は、しない）。 */
+export const S3_WRITE_ACTION = 's3:PutObject';
 
 /**
  * 利用者の IP を入れるヘッダーの名前（小文字。API の Lambda の `CLIENT_IP_HEADER`）。関数の URL は、`X-Forwarded-For` を、
@@ -274,6 +282,45 @@ export class EvaluationStack extends Stack {
       });
     }
 
+    // 合成データを定期的に生成する Lambda（擬似のロボット・環境センサー。Issue #77。ADR-0012）。EventBridge が 15 分ごとに起動し、
+    // ファイルサーバーのモックの S3 に、新しい合成データのファイルを置く。取り込み（JB-01）が、それを読む。
+    // ジョブ（JB-01〜JB-04）とは別の関数・別の権限: **S3 への書き込みだけ**（取り込み元の下だけ）。DynamoDB・Cognito は使わない。
+    // 失敗は、次の周期で、再び置く（再試行しない）
+    const demoFeedFunction = new LambdaFunction(this, 'DemoFeedFunction', {
+      code: bundledLambdaCode(
+        join(import.meta.dirname, '../../src/backend/runtime/demo-feed-lambda.ts'),
+      ),
+      handler: 'index.handler',
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(DEMO_FEED_TIMEOUT_SECONDS),
+      environment: { FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName },
+      logGroup: new LogGroup(this, 'DemoFeedLogGroup', {
+        retention: RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      retryAttempts: 0,
+    });
+    demoFeedFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [S3_WRITE_ACTION],
+        resources: DEMO_FEED_SOURCE_IDS.map((sourceId) =>
+          fileServerBucket.arnForObjects(`${sourceId}/*`),
+        ),
+      }),
+    );
+    new Rule(this, 'ScheduleDemoFeed', {
+      description: `合成データのファイルを ${String(DEMO_FEED_INTERVAL_MINUTES)} 分ごとに置く（デモ）`,
+      schedule: Schedule.rate(Duration.minutes(DEMO_FEED_INTERVAL_MINUTES)),
+      targets: [
+        new LambdaFunctionTarget(demoFeedFunction, {
+          retryAttempts: 0,
+          maxEventAge: Duration.minutes(1),
+        }),
+      ],
+    });
+
     const spaRewrite = new CloudFrontFunction(this, 'SpaRewrite', {
       code: FunctionCode.fromInline(SPA_REWRITE_CODE),
       runtime: FunctionRuntime.JS_2_0,
@@ -343,6 +390,7 @@ export class EvaluationStack extends Stack {
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
     new CfnOutput(this, 'ApiFunctionName', { value: apiFunction.functionName });
     new CfnOutput(this, 'JobFunctionName', { value: jobFunction.functionName });
+    new CfnOutput(this, 'DemoFeedFunctionName', { value: demoFeedFunction.functionName });
     new CfnOutput(this, 'FileServerBucketName', {
       value: fileServerBucket.bucketName,
       description: 'ファイルサーバーのモック（合成データ）のバケット',
