@@ -208,6 +208,8 @@
 
 **Lambda での実行（Issue #76。ADR-0011）**: ジョブ専用の Lambda（`runtime/job-lambda.ts`。1 つ）を、EventBridge の 4 つのルール（`DEFAULT_SCHEDULE` と同じ間隔: JB-01 は 1 分・JB-02 は 5 分・JB-03 は 5 分・JB-04 は 1 分）が、入力 `{ "jobId": "JB-01" }` で起動する。実行の前に、DynamoDB のリース式ロック（`Main` の `JOBLOCK` / `job:{jobId}`。期限 360 秒）を取り、取れなければ、何もせずに終わる（`SKIPPED`）。失敗は例外を投げ、再試行はしない（次の周期で、再び実行される）。ローカルのスケジューラは、変えていない（ロックは、メモリの実装）。
 
+**デモのための合成データの生成（Issue #77。ADR-0012）**: ジョブ（JB-01〜JB-04）とは別に、擬似のロボット・環境センサーの Lambda（`runtime/demo-feed-lambda.ts`）を、EventBridge の 1 つのルールが 15 分ごとに起動し、ファイルサーバーのモックの S3（`robot/`・`environment-sensor/`）に、合成データのファイル（直近 4 区間の分。同じ区間は同じ内容）を置く。取り込み（JB-01）が、それを読む。S3 への書き込みだけの権限（DynamoDB・Cognito は使わない）。ファイルは、バケットの設定で、3 日で消える。
+
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
 
 ## 技術スタックの実際の版

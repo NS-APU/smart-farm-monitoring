@@ -7,6 +7,11 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { describe, expect, it } from 'vitest';
 import {
+  DEMO_FEED_INTERVAL_MINUTES,
+  DEMO_FEED_SOURCE_IDS,
+  DEMO_FEED_TIMEOUT_SECONDS,
+} from '../../src/backend/application/demo/demo-feed-schedule.ts';
+import {
   DEFAULT_SCHEDULE,
   JOB_LAMBDA_TIMEOUT_SECONDS,
   JOB_LEASE_MS,
@@ -18,6 +23,7 @@ import {
   CLIENT_IP_HEADER,
   FILE_SERVER_RETENTION_DAYS,
   S3_READ_ACTIONS,
+  S3_WRITE_ACTION,
   EvaluationStack,
   SPA_REWRITE_CODE,
   VIEWER_IP_CODE,
@@ -221,8 +227,8 @@ describe('評価環境のスタック: API（Lambda の関数の URL）', () => 
       Properties: { RetentionInDays?: number };
     }[];
 
-    // API・ジョブ（Issue #76）・画面の配置（BucketDeployment）の補助の 3 つ。増えたときは、保持期間を絞り忘れていないか確認する
-    expect(logGroups).toHaveLength(3);
+    // API・ジョブ（Issue #76）・合成データの生成（Issue #77）・画面の配置（BucketDeployment）の補助の 4 つ。増えたときは、保持期間を絞り忘れていないか確認する
+    expect(logGroups).toHaveLength(4);
     for (const logGroup of logGroups) {
       expect(logGroup.Properties.RetentionInDays).toBe(30);
       expect(logGroup.DeletionPolicy).toBe('Delete');
@@ -414,19 +420,23 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
         ScheduleExpression: string;
         State: string;
         Targets: {
-          Input: string;
+          Input?: string;
           RetryPolicy: { MaximumRetryAttempts: number; MaximumEventAgeInSeconds: number };
         }[];
       };
     }[];
 
-    expect(rules).toHaveLength(DEFAULT_SCHEDULE.length);
+    // ジョブのルール（入力に jobId を持つ）の数。合成データの生成のルール（入力なし）は、別のテストで確かめる
+    const jobRules = rules.filter((rule) =>
+      rule.Properties.Targets.some((target) => target.Input !== undefined),
+    );
+    expect(jobRules).toHaveLength(DEFAULT_SCHEDULE.length);
     for (const plan of DEFAULT_SCHEDULE) {
       const expression =
         plan.intervalMinutes === 1
           ? 'rate(1 minute)'
           : `rate(${String(plan.intervalMinutes)} minutes)`;
-      const matched = rules.filter(
+      const matched = jobRules.filter(
         (rule) =>
           rule.Properties.ScheduleExpression === expression &&
           rule.Properties.Targets.some(
@@ -440,15 +450,16 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
         MaximumEventAgeInSeconds: 60,
       });
     }
-    // EventBridge が、ジョブの Lambda を呼び出す権限（ルールごと）
+    // EventBridge が、ジョブの Lambda を呼び出す権限（ルールごと。合成データを生成する Lambda の権限は、含めない）
     const permissions = Object.values(template.findResources('AWS::Lambda::Permission')) as {
-      Properties: { Principal: string; Action: string };
+      Properties: { Principal: string; Action: string; FunctionName: unknown };
     }[];
     expect(
       permissions.filter(
         (permission) =>
           permission.Properties.Principal === 'events.amazonaws.com' &&
-          permission.Properties.Action === 'lambda:InvokeFunction',
+          permission.Properties.Action === 'lambda:InvokeFunction' &&
+          JSON.stringify(permission.Properties.FunctionName).includes('JobFunction'),
       ),
     ).toHaveLength(DEFAULT_SCHEDULE.length);
   });
@@ -546,13 +557,93 @@ describe('評価環境のスタック: ファイルサーバーのモックの S
           resource.Properties.Environment?.Variables.FILE_SERVER_S3_BUCKET ?? '',
         ).includes('FileServerBucket'),
     );
-    // API とジョブの 2 つの関数
-    expect(withBucket).toHaveLength(2);
+    // API・ジョブ・合成データを生成する 3 つの関数
+    expect(withBucket).toHaveLength(3);
+  });
+
+  it('API・ジョブの Lambda の、S3 の権限は、読み取りだけ（合成データを生成する Lambda の書き込みと、混ざらない）', () => {
+    const { template } = plainStack();
+
+    for (const functionId of ['ApiFunction', 'JobFunction']) {
+      const actions = roleStatements(template, functionId).flatMap((statement) =>
+        [statement.Action].flat(),
+      );
+      expect(actions).not.toContain(S3_WRITE_ACTION);
+    }
   });
 
   it('バケット名を出力する（デモデータの確認・手順で、探すため）', () => {
     const { template } = plainStack();
     template.hasOutput('FileServerBucketName', {});
+  });
+});
+
+describe('評価環境のスタック: 合成データを定期的に生成する（擬似のロボット・環境センサー。Issue #77。ADR-0012）', () => {
+  interface FunctionJson {
+    Properties: { Environment?: { Variables: Record<string, unknown> } };
+  }
+
+  function demoFeedFunction(template: Template): FunctionJson {
+    const resources = template.findResources('AWS::Lambda::Function') as Record<
+      string,
+      FunctionJson
+    >;
+    const entry = Object.entries(resources).find(([logicalId]) =>
+      logicalId.startsWith('DemoFeedFunction'),
+    );
+    if (entry === undefined) {
+      throw new Error('合成データを生成する Lambda がありません');
+    }
+    return entry[1];
+  }
+
+  it('関数は、Node.js 24・ARM・小さいメモリで、タイムアウトは短い。Lambda の自動の再試行はしない。環境変数は、バケット名だけ', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs24.x',
+      Architectures: ['arm64'],
+      MemorySize: 256,
+      Timeout: DEMO_FEED_TIMEOUT_SECONDS,
+      Environment: { Variables: { FILE_SERVER_S3_BUCKET: Match.anyValue() } },
+    });
+    const variables = demoFeedFunction(template).Properties.Environment?.Variables ?? {};
+    // DynamoDB・Cognito・本番の組み立てに使う設定は、持たない（S3 への書き込みだけ）
+    expect(Object.keys(variables)).toEqual(['FILE_SERVER_S3_BUCKET']);
+    expect(JSON.stringify(variables.FILE_SERVER_S3_BUCKET)).toContain('FileServerBucket');
+  });
+
+  it('IAM は最小権限: ファイルサーバーのモックの取り込み元の下（robot・environment-sensor）への、書き込みだけ。読み取り・削除・DynamoDB・ワイルドカードはない', () => {
+    const { template } = plainStack();
+    const statements = roleStatements(template, 'DemoFeedFunction');
+
+    expect(statements).toHaveLength(1);
+    expect([statements[0]?.Action].flat()).toEqual([S3_WRITE_ACTION]);
+    expect(statements[0]?.Resource).toHaveLength(DEMO_FEED_SOURCE_IDS.length);
+    for (const sourceId of DEMO_FEED_SOURCE_IDS) {
+      expect(JSON.stringify(statements[0]?.Resource)).toContain(`/${sourceId}/*`);
+    }
+    expect(statements[0]?.Resource).not.toBe('*');
+  });
+
+  it('EventBridge のルールは、15 分ごと。入力なし。再試行はせず、古いイベントは捨てる。呼び出しの権限がある', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::Events::Rule', {
+      ScheduleExpression: `rate(${String(DEMO_FEED_INTERVAL_MINUTES)} minutes)`,
+      State: 'ENABLED',
+      Targets: [
+        Match.objectLike({
+          Input: Match.absent(),
+          RetryPolicy: { MaximumRetryAttempts: 0, MaximumEventAgeInSeconds: 60 },
+        }),
+      ],
+    });
+  });
+
+  it('関数名を出力する（動作の確認で、ログを探すため）', () => {
+    const { template } = plainStack();
+    template.hasOutput('DemoFeedFunctionName', {});
   });
 });
 

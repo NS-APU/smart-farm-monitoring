@@ -8,6 +8,7 @@ import { bundledLambdaCode } from '../lib/bundle-lambda.ts';
 
 const BACKEND_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/lambda.ts');
 const JOB_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/job-lambda.ts');
+const FEED_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/demo-feed-lambda.ts');
 // それぞれの入口だけが持つ文言（まとめた結果から、どちらのコードかを見分ける）
 const JOB_ONLY_MESSAGE = 'ジョブの識別子（jobId）が不正です';
 const API_ONLY_MESSAGE = '/health';
@@ -155,6 +156,11 @@ describe('API とジョブの Lambda を、1 つの合成に入れたとき（Is
       handler: 'index.handler',
       code: bundledLambdaCode(JOB_HANDLER),
     });
+    new LambdaFunction(stack, 'Feed', {
+      runtime: Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: bundledLambdaCode(FEED_HANDLER),
+    });
     const assembly = app.synth();
     const bundles = readdirSync(assembly.directory)
       .filter((name) => name.startsWith('asset.'))
@@ -162,8 +168,8 @@ describe('API とジョブの Lambda を、1 つの合成に入れたとき（Is
       .filter((dir) => existsSync(join(dir, 'index.js')))
       .map((dir) => decodeUnicodeEscapes(readFileSync(join(dir, 'index.js'), 'utf8')));
 
-    // 入口が違えば、まとめも別（共有すると、1 つしかできない）
-    expect(bundles).toHaveLength(2);
+    // 入口が違えば、まとめも別（共有すると、1 つしかできない）。API・ジョブ・合成データの生成の 3 つ
+    expect(bundles).toHaveLength(3);
     // ジョブの入口だけが持つ文言（入力の検証のエラー）。ジョブのコードは 1 つだけで、API のコードには、ない
     const jobBundles = bundles.filter((bundle) => bundle.includes(JOB_ONLY_MESSAGE));
     expect(jobBundles).toHaveLength(1);
