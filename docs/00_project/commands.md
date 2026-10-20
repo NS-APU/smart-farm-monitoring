@@ -107,7 +107,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 5. **デプロイ**: GitHub の Actions → 「Deploy evaluation」→ Run workflow（手動実行。自動のトリガは、Issue #78 の方針が決まった後に追加する）。ログに出力される `SiteUrl` が、評価環境の URL
 6. **確認**（ジョブは、7）: `<SiteUrl>/health` が、`{"status":"ok","time":"…"}` を返す。ブラウザで `<SiteUrl>` を開くと、ログイン画面が表示される。API は、バックエンド本体の Lambda（Issue #75。ADR-0009）のため、「最初のユーザー（Cognito）」の手順で作ったユーザーで、ログインできる。ログインの確認のあと、CloudWatch Logs の API の Lambda のロググループで、ログインのログ（`auth.login.succeeded`）の `clientKey` が、**自分の IP になっている**ことを確認する（CloudFront の Function が入れるヘッダー `x-sfm-viewer-ip` の確認。違えば、CloudFront のエッジの IP になっている。ADR-0010。Issue #100。**2026-10-20 に、確認済み**。自分の IP と一致した）
 7. **ジョブ（EventBridge。Issue #76。ADR-0011）の確認**（**確認済み**。2026-10-20。結果は、ADR-0011 の「検証」）: スタックの出力 `JobFunctionName` の関数のロググループ（`aws lambda get-function-configuration --function-name <JobFunctionName> --query LoggingConfig.LogGroup`）で、`ジョブを終了しました`（`jobId`・`outcome`・`durationMs`）が、周期どおり（JB-01・JB-04 は 1 分、JB-02・JB-03 は 5 分）に出ること、`ジョブの実行に失敗しました` がないこと、IAM の不足（`AccessDeniedException`）がないことを確認する。**検索の文字列は、英数字だけにする**（Windows の PowerShell は、AWS CLI に渡す日本語を文字化けさせることがある。例: `--filter-pattern 'EXECUTED'`・`'level error'`）。`filter-log-events` に `--query "length(events)"` を付けると、改ページごとの件数が並ぶ（合計は足す）。取り込み元がまだない間は、JB-01 は、何も取り込まない（Issue #77 で、デモデータと S3 のファイルのモックを追加する）
-8. **合成データの生成（デモ。Issue #77。ADR-0012）の確認**（**未確認**。デプロイ後に、ユーザーが行う）: スタックの出力 `DemoFeedFunctionName` の関数のロググループで、`合成データのファイルを置きました`（`files`: 8）が 15 分ごとに出ること、失敗（`level error`）がないこと。`aws s3 ls s3://<FileServerBucketName>/ --recursive` で、`robot/robot-<時刻>.json`・`environment-sensor/sensor-<時刻>.csv` が増えること（直近の区間の分。3 日で自動で消える）。`pnpm demo-data seed` でデモの設備を入れた状態で、取り込み（JB-01）が、置いたファイルを読み、画面のダッシュボードの「最終のデータ取得」が新しくなること。**検索の文字列は、英数字だけにする**（`EXECUTED`・`level error` など）
+8. **合成データの生成（デモ。Issue #77。ADR-0012）の確認**（**確認済み**。2026-10-20。結果は、ADR-0012 の「検証」）: スタックの出力 `DemoFeedFunctionName` の関数のロググループで、`合成データのファイルを置きました`（`files`: 8）が 15 分ごとに出ること、失敗（`level error`）がないこと。`aws s3 ls s3://<FileServerBucketName>/ --recursive` で、`robot/robot-<時刻>.json`・`environment-sensor/sensor-<時刻>.csv` が増えること（直近の区間の分。3 日で自動で消える）。`pnpm demo-data seed` でデモの設備を入れた状態で、取り込み（JB-01）が、置いたファイルを読み、画面のダッシュボードの「最終のデータ取得」が新しくなること。**検索の文字列は、英数字だけにする**（`EXECUTED`・`level error` など）
 
 ### トラブルシューティング（GitHub Actions の「AWS の認証（OIDC）」の失敗）
 
@@ -184,7 +184,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 - `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目、S3 のファイル。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
 - AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
 - 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除、（S3 のファイルも消すとき）バケットの一覧と、オブジェクトの削除
-- **状態: 確認済み**（2026-10-20。`seed`・`reset`（`--yes` なし・あり）・ユーザーが残ること・投入し直し。結果は、ADR-0012 の「検証」）。S3 のファイルがある状態での `reset --yes` は、未確認（生成の Lambda のあとに確認する）。operations.md 7.5
+- **状態: 確認済み**（2026-10-20。`seed`・`reset`（`--yes` なし・あり）・ユーザーが残ること・投入し直し。結果は、ADR-0012 の「検証」）。S3 のファイルがある状態での `reset --yes` も、確認済み（生成の Lambda のあと。2026-10-20）。operations.md 7.5
 
 ### AWS に、手元のバックエンドを向けて確認する（Cognito・DynamoDB。Issue #74）
 
