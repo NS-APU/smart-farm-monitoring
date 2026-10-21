@@ -52,6 +52,7 @@
 | | [test.spec.md](../../test-result/test.spec.md)（`test-result/` に置く） | テスト仕様書（E2E・単体・結合・負荷テストの、対応する UC・概要・詳細。UC・FR・NFR との対応） |
 | | [stresstest.report.md](../../test-result/stresstest.report.md)（`test-result/` に置く） | 負荷試験の報告（結果のサマリ、採用した許容時間と根拠、データ規模、環境、対応で行ったこと（修正前後の値）、制約・限界） |
 | | [stresstest.result.log](../../test-result/stresstest.result.log)（`test-result/` に置く） | 負荷試験の結果ログ（`pnpm test:stress` の最新の実行。操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計） |
+| | [smoketest.result.log](../../test-result/smoketest.result.log)（`test-result/` に置く） | サーバーレス環境（AWS の評価環境）のスモークテスト・性能の実測の結果ログ（`pnpm test:smoke`。2026-10-21 の、30 日分のデータ・`EVALUATION_ON_WRITE=deferred` での実行。Issue #79・#123。環境の URL・ユーザーは載せない） |
 | [40_operations](../40_operations/) | [git-workflow.md](../40_operations/git-workflow.md) | Git・ブランチ・PR運用 |
 | | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。評価環境（AWS）のデプロイ・ロールバック・初期ユーザー・データの初期化・障害時の確認） |
 | | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行・評価環境の DynamoDB（PITR・オンデマンド・復元）） |
