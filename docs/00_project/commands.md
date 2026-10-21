@@ -291,7 +291,7 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 - 出力: `./test-result/smoketest.result.log`（操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計、取り込みの実行時間。環境の URL・ユーザーは、載せない）、`./test-result/smoke/`（HTML レポート。Git 管理外）。時間は、**端末のブラウザから見た時間**（端末と環境の間の通信を含む）
 - 許容時間は `tests/stress/support/limits.ts`（負荷テストと同じ。NFR-3.x）。超えた操作があると、テストは失敗する。倍率の環境変数 `STRESS_LIMIT_FACTOR` も、同じように使える（NFR の確認は、既定の 1）
 - 構成の詳細は dev_spec.md 6.6
-- **状態: 実行済み**（2026-10-21。AWS の評価環境。スモークテスト・初期表示・自動更新・推移・取り込みの実行時間。結果は test.spec.md 13.3・`test-result/smoketest.result.log`）。**コールドスタート（`smoke-03`）は、未実施**
+- **状態: 実行済み**（2026-10-21。AWS の評価環境。スモークテスト・初期表示・自動更新・推移・取り込みの実行時間。結果は test.spec.md 13.3・`test-result/smoketest.result.log`）。コールドスタート（`smoke-03`）も、実行済み（2026-10-21。コールドは、次の操作可能まで 3.21 秒で、許容 3 秒を約 0.2 秒超過。**既知の制約として許容**。test.spec.md 13.3）
 
 ## CI（GitHub Actions）
 
