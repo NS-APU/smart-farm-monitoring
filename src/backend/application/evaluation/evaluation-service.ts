@@ -167,9 +167,9 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     });
 
     const results = drafts.map((draft) => toResult(draft, equipment, now));
-    for (const result of results) {
-      await repositories.evaluations.saveLatest(result);
-    }
+    // 結果は、観点・期間ごとに別のキーで、互いに独立のため、並列に保存する（1件ずつ待つと、DynamoDB への往復が、
+    // 結果の数だけ直列になり、手動入力・取り込みの保存の応答が遅くなる。Issue #79）
+    await Promise.all(results.map((result) => repositories.evaluations.saveLatest(result)));
     return results;
   }
 
@@ -188,17 +188,21 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     const defaultLongResults = results.filter(
       (result) => result.horizon === 'LONG' && result.periodDays === DEFAULT_PERIOD_DAYS,
     );
-    for (const longResult of defaultLongResults) {
+    // 観点ごとの、直前のステータスの変化は、互いに独立のため、先に、まとめて並列に読む（Issue #79）。
+    // 変化の記録・連携・通知は、観点の順に、1件ずつ行う（通知・連携の順序と重複の抑制を、変えない）
+    const previousChanges = await Promise.all(
+      defaultLongResults.map((longResult) =>
+        repositories.evaluations.getLastStatusChange(equipment.equipmentId, longResult.viewpointId),
+      ),
+    );
+    for (const [index, longResult] of defaultLongResults.entries()) {
       const viewpointId = longResult.viewpointId;
       const shortResult = results.find(
         (result) => result.viewpointId === viewpointId && result.horizon === 'SHORT',
       );
       // 通知・連携の基準は、短期視点と長期視点（既定の期間）のうち「不明」を除いた悪い方
       const status = combineHorizonStatuses(shortResult?.status ?? null, longResult.status);
-      const previous = await repositories.evaluations.getLastStatusChange(
-        equipment.equipmentId,
-        viewpointId,
-      );
+      const previous = previousChanges[index];
       if (previous?.status === status) {
         continue;
       }

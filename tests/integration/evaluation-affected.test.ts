@@ -3,7 +3,8 @@
  * 実行中に重なった要求は、設備をまとめて1回にする（全設備の要求が重なったら、全設備）。
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import { equipmentSet, FACILITY_ID, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
 import { createTestContext, TEST_NOW, untilEvaluationStarted } from '../support/test-context.ts';
@@ -123,5 +124,68 @@ describe('保存後の評価の対象', () => {
 
     expect(await savedCount(context, ROBOT_ID)).toBe(40);
     expect(await savedCount(context, SENSOR_ID)).toBe(0);
+  });
+});
+
+describe('保存の応答を遅くしないため、DynamoDB への往復を直列にしない（Issue #79）', () => {
+  const ACTOR = toUserId('test-actor');
+
+  /** 呼び出しの重なりの最大数を数える（重なりを確かめるため、各呼び出しを、少し遅らせる）。 */
+  function observeConcurrency<Args extends unknown[], Result>(
+    target: (...args: Args) => Promise<Result>,
+  ) {
+    let inFlight = 0;
+    let max = 0;
+    return {
+      wrapped: async (...args: Args): Promise<Result> => {
+        inFlight += 1;
+        max = Math.max(max, inFlight);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          return await target(...args);
+        } finally {
+          inFlight -= 1;
+        }
+      },
+      maxInFlight: () => max,
+    };
+  }
+
+  it('評価結果の保存と、直前の状態の変化の読み出しを、並列に行う。保存される結果の数は、変わらない', async () => {
+    const context = await setup();
+    const { evaluations } = context.container.repositories;
+    const save = observeConcurrency(evaluations.saveLatest.bind(evaluations));
+    const read = observeConcurrency(evaluations.getLastStatusChange.bind(evaluations));
+    vi.spyOn(evaluations, 'saveLatest').mockImplementation(save.wrapped);
+    vi.spyOn(evaluations, 'getLastStatusChange').mockImplementation(read.wrapped);
+
+    await context.container.evaluationService.evaluateAffected('MANUAL_ENTRY', [ROBOT_ID]);
+
+    expect(save.maxInFlight()).toBeGreaterThan(1);
+    expect(read.maxInFlight()).toBeGreaterThan(1);
+    expect(await savedCount(context, ROBOT_ID)).toBe(40);
+    expect(await savedCount(context, FACILITY_ID)).toBe(56);
+  });
+
+  it('手動入力の保存後の、関連する観点の最新の結果の読み出しを、並列に行う。観点の順は、変わらない', async () => {
+    const context = await setup();
+    const { evaluations } = context.container.repositories;
+    const read = observeConcurrency(evaluations.getLatest.bind(evaluations));
+    vi.spyOn(evaluations, 'getLatest').mockImplementation(read.wrapped);
+
+    const { viewpointStatuses } = await context.container.manualEntryService.create(
+      {
+        equipmentId: ROBOT_ID,
+        category: 'FAILURE',
+        observedAt: new Date(TEST_NOW.getTime() - 3_600_000).toISOString(),
+        items: { failureCount: 1, recoveryMinutes: 30 },
+      },
+      ACTOR,
+    );
+
+    const ids = viewpointStatuses.map((status) => status.viewpointId);
+    expect(read.maxInFlight()).toBeGreaterThan(1);
+    expect(ids.length).toBeGreaterThan(1);
+    expect(ids).toEqual(VIEWPOINT_IDS.filter((id) => ids.includes(id)));
   });
 });
