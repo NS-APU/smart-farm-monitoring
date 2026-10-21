@@ -413,6 +413,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     repositories,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     federation,
     clock,
     ids,

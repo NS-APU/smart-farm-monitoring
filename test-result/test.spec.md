@@ -6698,14 +6698,14 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | backend/infrastructure | `tests/unit/backend/infrastructure/clear-bucket.test.ts`                |    5 | （個別の節なし。12 章で説明）           |
 | backend/infrastructure | `tests/unit/backend/infrastructure/cognito-identity.test.ts`            |   21 | （個別の節なし。12 章で説明）           |
 | backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`                        |    3 | （UC に直接対応しない基盤）                                                                      |
-| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   49 | UC-13・UC-14                                                                                     |
+| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   50 | UC-13・UC-14                                                                                     |
 | backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`                            |   21 | UC-13                                                                                            |
 | backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`                   |    5 | （UC に直接対応しない基盤）                                                                      |
 | frontend               | `tests/unit/frontend/api-client.test.ts`                                |   23 | UC-01・UC-13                                                                                     |
 | frontend               | `tests/unit/frontend/app.test.tsx`                                      |   29 | UC-01・UC-13                                                                                     |
 | frontend               | `tests/unit/frontend/charts.test.tsx`                                   |   47 | UC-03・UC-04                                                                                     |
 | frontend               | `tests/unit/frontend/criteria-edit-page.test.tsx`                       |   11 | UC-19                                                                                            |
-| frontend               | `tests/unit/frontend/entry-pages.test.tsx`                              |   37 | UC-06・UC-18                                                                                     |
+| frontend               | `tests/unit/frontend/entry-pages.test.tsx`                              |   40 | UC-06・UC-18                                                                                     |
 | frontend               | `tests/unit/frontend/equipment-page.test.tsx`                           |   13 | UC-12                                                                                            |
 | frontend               | `tests/unit/frontend/ingestion-page.test.tsx`                           |   20 | UC-15・UC-16                                                                                     |
 | frontend               | `tests/unit/frontend/notifications-page.test.tsx`                       |   17 | UC-05・UC-22                                                                                     |
@@ -6724,7 +6724,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | infra                  | `infra/test/bundle-lambda.test.ts`                                      |    4 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
-| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   30 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/evaluation-stack.test.ts`                                   |   31 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
@@ -6737,6 +6737,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/viewpoint-queries.test.ts`                           |   95 | UC-01・UC-02・UC-03・UC-04・UC-20・UC-21                                                         |
 | integration            | `tests/integration/api-hardening.test.ts`                               |   16 | （個別の節なし。8 章で説明）                                                                     |
 | integration            | `tests/integration/evaluation-affected.test.ts`                         |    9 | （個別の節なし。10 章で説明）                                                                    |
+| integration            | `tests/integration/manual-entry-deferred-evaluation.test.ts`            |    6 | （個別の節なし。12 章で説明）                                                                 |
 | integration            | `tests/integration/file-source-contract.test.ts`                        |    5 | （個別の節なし。8 章で説明）                                                                     |
 | integration            | `tests/integration/ingestion-reliability.test.ts`                       |   17 | （個別の節なし。8 章で説明）                                                                     |
 | integration            | `tests/integration/observation-time-index.test.ts`                      |    6 | （個別の節なし。10 章で説明）                                                                    |
@@ -10982,7 +10983,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#79・#87・#95・#100・#107）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#79・#87・#95・#100・#107・#123）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -11042,6 +11043,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | デモデータの日数の指定のテストの追加（Issue #79） | `config.test.ts` に 1 件（`DEMO_SEED_DAYS` は 1〜31 の整数で、既定 3・範囲外・小数は設定エラー）。`tests/integration/demo-data-cli.test.ts` に 5 件（8 件 → 13 件。DynamoDB Local + 偽の S3）: `seed --days 2` が、2 日前から始まる合成データを作る（3 日分ではない）／`--days` の値がない・数字でない・0・32 のときは、何も投入せずに、`--days には、1〜31 の整数を指定してください` で終了コード 1。**既存のテストの期待値は、変えていない**（`--days` を付けない `seed` は、これまでどおり、直近 3 日分） | node +6（単体 +1、結合 +5） |
 | スモークテスト用の部品の単体テストの追加（Issue #79） | `tests/unit/shared/smoke-env.test.ts`（11 件）: URL・ユーザーID・パスワードを読む（URL は、末尾のスラッシュを除いた origin）／ローカルの確認用に限り、http の localhost を許す／3 つの変数が未指定・空なら、その名前を示すエラー／URL でない・平文の http・パス・クエリ・フラグメントがある URL はエラー／エラーにパスワードを含めない。`tests/unit/shared/smoke-report.test.ts`（5 件）: 取り込みの実行時間の行（件数・最大・p50・上限に対する割合・記録なし）／結果ログの組み立て（実行日時・端末の環境・許容時間・操作ごとの結果・集計・判定・NG の一覧）／すべて OK の判定・取り込みの実行時間がなければ節を出さない／環境の URL・認証情報に関わる項目を載せない | node +16 |
 | 評価結果の保存・読み出しの並列化のテストの追加（Issue #79。サーバーレス環境の実測で、手動入力の保存・削除が許容時間を超えたことへの対応） | `tests/integration/evaluation-affected.test.ts` に 2 件（7 件 → 9 件）: `evaluateAffected` が、評価結果の保存（`saveLatest`）と、直前の状態の変化の読み出し（`getLastStatusChange`）を並列に行い、保存される結果の数（ロボット 40・ハウス 56）は変わらない／手動入力の保存後の、関連する観点の最新の結果の読み出し（`getLatest`）を並列に行い、観点の順は変わらない。**修正前のコードでは、この 2 件が失敗することを確認した**（重なりの最大数が 1）。**既存のテストの期待値は、変えていない** | node +2 |
+| 手動入力の保存後の評価の遅延のテストの追加（Issue #123。ADR-0014） | `tests/integration/manual-entry-deferred-evaluation.test.ts`（6 件）: `sync`（既定）では、保存・修正・削除のたびに影響する設備の評価を実行し（設備の変更を伴う修正は、変更前と変更後）、応答の `evaluation` は `DONE`／`deferred` では、評価を実行せず、応答は `DEFERRED`・評価の結果は増えない／入力そのもの（手動入力・観測値）は保存される／関連する観点のステータスは、前回の評価の値（評価がなければ空）／定期の評価（`evaluateAll`）が、保存した入力を反映する／API の応答に `evaluation: DEFERRED` が含まれ、共有のスキーマで読める。`config.test.ts` に 1 件（`EVALUATION_ON_WRITE` は `sync`・`deferred`、それ以外は設定エラー。既定の確認に `evaluationOnWrite: sync` を追加）、`entry-pages.test.tsx` に 3 件（保存後の説明が、評価の状態 `DEFERRED`・`DONE`・なしに合う。`DEFERRED` は、数分かかる旨と、前回のステータスであることを示す）、`infra/test/evaluation-stack.test.ts` に 1 件（API の環境変数 `EVALUATION_ON_WRITE` は `deferred`。ジョブの Lambda には持たない）。**既存のテストの期待値は、変えていない**（既存の「環境変数」のテストは、追加した設定の影響を受けない） | node +5、frontend +3、infra +1 |
 | 負荷テストの部品の変更（Issue #79。テストの期待値は、変えていない） | `tests/stress/support/recorder.ts` の記録の出力先を、環境変数 `MEASURE_OUTPUT_DIR`（既定 `test-result/stress`）で切り替えられるようにした（サーバーレス環境のスモークテストが、同じ計測の部品を、別の出力先で使うため）。負荷テストの動作・出力先は、変わらない | なし |
 
 **Issue #77 では、上の「期待値の変更 8・9」のとおり、IaC の仕様の変更（S3 のバケットと権限、合成データを生成する Lambda の追加）に伴う期待値の変更が、6 か所ある**（それ以外の期待は、そのまま）。**Issue #76 では、上の「期待値の変更 7」のとおり、IaC の仕様の変更（ロググループの増加）に伴う期待値の変更が 1 件ある**（各ロググループの保持期間・削除の期待は、そのまま）。**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。

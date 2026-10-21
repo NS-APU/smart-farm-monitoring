@@ -306,6 +306,26 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     }
   });
 
+  it('API の環境変数 EVALUATION_ON_WRITE は deferred（手動入力の保存・削除の応答の前に、評価しない。Issue #123。ADR-0014）。ジョブの Lambda には、持たない', () => {
+    const { template } = plainStack();
+    const environment = environmentOf(template);
+    const withSetting = Object.values(
+      template.findResources('AWS::Lambda::Function') as Record<
+        string,
+        { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+      >,
+    ).filter(
+      (resource) => resource.Properties.Environment?.Variables.EVALUATION_ON_WRITE !== undefined,
+    );
+
+    expect(environment.EVALUATION_ON_WRITE).toBe('deferred');
+    // 設定を持つのは、API（利用者の IP のヘッダーを持つ関数）だけ
+    expect(withSetting).toHaveLength(1);
+    expect(withSetting[0]?.Properties.Environment?.Variables.CLIENT_IP_HEADER).toBe(
+      CLIENT_IP_HEADER,
+    );
+  });
+
   it('秘密情報（パスワード・トークン・キー・シークレット）を、環境変数に持たない。開発用 API・デモデータ・初期ユーザーの設定もない', () => {
     const { template } = plainStack();
     const names = Object.keys(environmentOf(template));

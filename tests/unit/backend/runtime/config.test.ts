@@ -36,6 +36,7 @@ describe('実行設定（環境変数）', () => {
       persistence: 'memory',
       seedMode: 'NONE',
       demoSeedDays: 3,
+      evaluationOnWrite: 'sync',
       schedulerEnabled: false,
       defaultIngestionIntervalMinutes: 15,
       staleAfterIntervals: 3,
@@ -180,6 +181,12 @@ describe('実行設定（環境変数）', () => {
       staleAfterIntervals: 2,
       ingestionRetryBaseDelayMs: 0,
     });
+  });
+
+  it('手動入力の保存の後の評価（EVALUATION_ON_WRITE）は、sync（既定）か deferred。それ以外は設定エラー', () => {
+    expect(parseConfig({ EVALUATION_ON_WRITE: 'deferred' }).evaluationOnWrite).toBe('deferred');
+    expect(parseConfig({ EVALUATION_ON_WRITE: 'sync' }).evaluationOnWrite).toBe('sync');
+    expect(() => parseConfig({ EVALUATION_ON_WRITE: 'async' })).toThrow('EVALUATION_ON_WRITE');
   });
 
   it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {

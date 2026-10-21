@@ -33,6 +33,7 @@ import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/sour
 import type { AuditService } from '../audit/audit-service.ts';
 import { requireActiveEquipment } from '../equipment/require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
+import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
@@ -69,6 +70,8 @@ export interface ManualEntryServiceDeps {
   >;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
+  /** 保存・修正・削除の応答の前に、評価を再計算するか（ADR-0014）。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   readonly federation: FederationService;
   readonly clock: ClockPort;
   readonly ids: IdGeneratorPort;
@@ -114,7 +117,10 @@ function entryMatchesKeyword(
 }
 
 export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEntryService {
-  const { repositories, audit, evaluation, federation, clock, ids, logger } = deps;
+  const { repositories, audit, evaluation, evaluationOnWrite, federation, clock, ids, logger } =
+    deps;
+  /** 応答に付ける、評価の状態。`deferred` では、評価は、定期の評価（JB-02）が更新する。 */
+  const evaluationState = evaluationOnWrite === 'sync' ? 'DONE' : 'DEFERRED';
 
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);
@@ -168,15 +174,20 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     });
   }
 
-  /** 評価の更新。失敗しても、入力の保存の結果には影響させない。 */
+  /**
+   * 評価の更新。失敗しても、入力の保存の結果には影響させない。
+   * `deferred` では、何もしない（データが増えると、評価の読み出しで、応答が遅くなるため。定期の評価が更新する。ADR-0014）。
+   */
   const reevaluate = (affected: readonly EquipmentId[]): Promise<void> =>
-    reevaluateSafely(
-      evaluation,
-      logger,
-      'MANUAL_ENTRY',
-      '手動入力の後の評価に失敗しました',
-      affected,
-    );
+    evaluationOnWrite === 'deferred'
+      ? Promise.resolve()
+      : reevaluateSafely(
+          evaluation,
+          logger,
+          'MANUAL_ENTRY',
+          '手動入力の後の評価に失敗しました',
+          affected,
+        );
 
   /** 入力した項目に関係する観点の、最新のステータス（ハウス単位。短期・長期の悪い方）。 */
   async function relatedStatuses(entry: ManualEntry): Promise<ManualEntryViewpointStatus[]> {
@@ -246,7 +257,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         after: entry,
       });
       await reevaluate([entry.equipmentId]);
-      return { entry, viewpointStatuses: await relatedStatuses(entry) };
+      return {
+        entry,
+        viewpointStatuses: await relatedStatuses(entry),
+        evaluation: evaluationState,
+      };
     },
 
     async update(entryId, input, actor) {
@@ -278,7 +293,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       });
       // 設備を変更した修正は、変更前の設備も評価し直す
       await reevaluate([before.equipmentId, entry.equipmentId]);
-      return { entry, viewpointStatuses: await relatedStatuses(entry) };
+      return {
+        entry,
+        viewpointStatuses: await relatedStatuses(entry),
+        evaluation: evaluationState,
+      };
     },
 
     async delete(entryId, actor) {

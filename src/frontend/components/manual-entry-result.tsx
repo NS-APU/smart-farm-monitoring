@@ -19,7 +19,11 @@ export function ManualEntryResult(props: {
       data-testid="entry-result"
     >
       <h2 id="entry-result-heading">{props.title}</h2>
-      <p>{MESSAGES.entry.savedLead}</p>
+      <p data-testid="entry-lead">
+        {response.evaluation === 'DEFERRED'
+          ? MESSAGES.entry.savedLeadDeferred
+          : MESSAGES.entry.savedLead}
+      </p>
       {response.viewpointStatuses.length === 0 ? (
         <p className="muted">{MESSAGES.entry.noRelated}</p>
       ) : (
