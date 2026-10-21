@@ -183,32 +183,31 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     const equipment = await repositories.equipment.get(entry.equipmentId);
     const facilityId = equipment?.facilityId ?? entry.equipmentId;
     const itemKeys = Object.keys(entry.items);
-    const statuses: ManualEntryViewpointStatus[] = [];
-    for (const viewpointId of VIEWPOINT_IDS) {
-      const definition = getViewpointDefinition(viewpointId);
-      const sourceKeys = viewpointSourceItemKeys(definition);
-      if (sourceKeys !== null && !sourceKeys.some((key) => itemKeys.includes(key))) {
-        continue;
-      }
-      const long = await repositories.evaluations.getLatest(
-        facilityId,
-        viewpointId,
-        'LONG',
-        DEFAULT_PERIOD_DAYS,
-      );
-      if (long === undefined) {
-        continue;
-      }
-      const short = definition.hasShortHorizon
-        ? await repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
-        : undefined;
-      statuses.push({
-        viewpointId,
-        name: findViewpointMeta(viewpointId)?.name ?? viewpointId,
-        status: combineHorizonStatuses(short?.status ?? null, long.status),
-      });
-    }
-    return statuses;
+    // 観点ごとの、最新の結果の読み出しは、互いに独立のため、並列に行う（観点の順は、保つ。Issue #79）
+    const found = await Promise.all(
+      VIEWPOINT_IDS.map(async (viewpointId): Promise<ManualEntryViewpointStatus | undefined> => {
+        const definition = getViewpointDefinition(viewpointId);
+        const sourceKeys = viewpointSourceItemKeys(definition);
+        if (sourceKeys !== null && !sourceKeys.some((key) => itemKeys.includes(key))) {
+          return undefined;
+        }
+        const [long, short] = await Promise.all([
+          repositories.evaluations.getLatest(facilityId, viewpointId, 'LONG', DEFAULT_PERIOD_DAYS),
+          definition.hasShortHorizon
+            ? repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
+            : Promise.resolve(undefined),
+        ]);
+        if (long === undefined) {
+          return undefined;
+        }
+        return {
+          viewpointId,
+          name: findViewpointMeta(viewpointId)?.name ?? viewpointId,
+          status: combineHorizonStatuses(short?.status ?? null, long.status),
+        };
+      }),
+    );
+    return found.filter((status): status is ManualEntryViewpointStatus => status !== undefined);
   }
 
   async function findEntry(entryId: string): Promise<ManualEntry> {

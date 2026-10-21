@@ -1285,7 +1285,7 @@ sequenceDiagram
   MS->>AU: record CREATE manual-entry after<br>に entry
   AU->>REP: auditLogs.add
   MS->>EV: evaluateAll MANUAL_ENTRY 4.3
-  MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス
+  MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス 観点ごとに並列 Issue 79
   MS-->>MH: entry と viewpointStatuses
   MH-->>API: 201 JSON
   API-->>FORM: ManualEntrySaveResponse
@@ -1315,10 +1315,10 @@ sequenceDiagram
     EV->>REP: observations.findForEvaluation(ids,<br>now マイナス 90 日, now)
     EV->>DOM: evaluateScope 観点 × 窓ごとに<br>aggregateMeasures と<br>evaluateHorizon
     DOM-->>EV: EvaluationDraft の配列
-    EV->>REP: evaluations.saveLatest<br>各結果を上書き
+    EV->>REP: evaluations.saveLatest<br>各結果を並列に上書き Issue 79
+    EV->>REP: evaluations.getLastStatusChange<br>観点ごとの直前の変化を並列に読む Issue 79
     loop 観点ごと 長期 7 日を基準
       EV->>EV: combineHorizonStatuses(短期,<br>長期) で最終ステータス
-      EV->>REP: evaluations.getLastStatusChange
       alt 前回と同じ
         Note over EV: 何もしない
       else 変わった
