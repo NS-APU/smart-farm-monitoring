@@ -36,6 +36,9 @@ const RoleDefinitionsSchema = z.record(
 /** 信頼するプロキシの段数の上限（これを超える段数は、設定の誤りとみなす）。 */
 const MAX_TRUSTED_PROXY_HOPS = 10;
 
+/** デモデータの合成データの日数の上限（約 1 か月。DynamoDB への書き込みの量を、限る）。 */
+export const MAX_DEMO_SEED_DAYS = 31;
+
 const EnvSchema = z.object({
   APP_MODE: z.enum(APP_MODES).default('local'),
   HOST: z.string().min(1).default('127.0.0.1'),
@@ -62,6 +65,11 @@ const EnvSchema = z.object({
    */
   FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
+  /**
+   * デモデータ（SEED_MODE=DEMO）の、合成データの日数（Issue #79）。既定は 3 日。1 か月分の推移の表示（NFR-3.5）を
+   * 測るときは、`pnpm demo-data seed --days 30` で指定する（このコマンドが、この設定を渡す）。
+   */
+  DEMO_SEED_DAYS: z.coerce.number().int().min(1).max(MAX_DEMO_SEED_DAYS).default(3),
   INITIAL_USER_ID: z.string().min(1).optional(),
   INITIAL_USER_NAME: z.string().min(1).optional(),
   INITIAL_USER_PASSWORD: z.string().min(1).optional(),
@@ -140,6 +148,8 @@ export interface AppConfig {
   /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
   readonly fileServerBucket: string | undefined;
   readonly seedMode: SeedMode;
+  /** デモデータの合成データの日数（SEED_MODE=DEMO のとき）。 */
+  readonly demoSeedDays: number;
   readonly initialUser: InitialUserConfig | undefined;
   readonly roles: RoleConfig;
   readonly schedulerEnabled: boolean;
@@ -317,6 +327,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
     seedMode: parsed.SEED_MODE,
+    demoSeedDays: parsed.DEMO_SEED_DAYS,
     initialUser: parseInitialUser(parsed, roles),
     roles,
     schedulerEnabled: parsed.SCHEDULER_ENABLED,

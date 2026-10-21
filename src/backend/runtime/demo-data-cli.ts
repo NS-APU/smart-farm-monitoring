@@ -3,8 +3,9 @@
  * 本番の組み立て（Lambda）は、`SEED_MODE`・開発用 API を使えない（ADR-0009）。代わりに、運用者が、AWS のプロファイルを指定して、
  * 手元で実行する（`pnpm initial-user` と同じ方式。公開の URL からは、呼べない）。
  *
- * - `seed`: デモの設備（ハウス 1・ロボット 1・環境センサー 1）・直近 3 日分の合成データ・手入力の例を作り、評価する。
- *   ローカルの `SEED_MODE=DEMO` と同じ内容。設備がすでにあれば、何もしない（何度実行しても、既存のデータを上書きしない）
+ * - `seed [--days N]`: デモの設備（ハウス 1・ロボット 1・環境センサー 1）・直近 N 日分（既定 3 日。1〜31）の合成データ・手入力の例を作り、評価する。
+ *   ローカルの `SEED_MODE=DEMO` と同じ内容。設備がすでにあれば、何もしない（何度実行しても、既存のデータを上書きしない）。
+ *   `--days 30` は、1 か月分の推移の表示の実測用（Issue #79。実測のあとは、reset のあと、既定の日数で投入し直せる）
  * - `reset`: ユーザー・ログインの試行回数の記録・ジョブのロック以外の、すべてのデータ（DynamoDB の観測値・設備・評価・通知・設定など）と、
  *   ファイルサーバーのモックの S3 のファイルを、消す。**元に戻せない**ため、`--yes` を付けないと、何も消さずに、対象の件数を示す
  * - AWS のエラーは、名前だけを出力する（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
@@ -18,7 +19,7 @@ import { AppError } from '@smart-farm/shared/errors';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { KEPT_PARTITIONS, resetData } from '../infrastructure/dynamodb/data-reset.ts';
 import { clearBucket } from '../infrastructure/s3/clear-bucket.ts';
-import { ConfigError, parseConfig, type AppConfig } from './config.ts';
+import { ConfigError, MAX_DEMO_SEED_DAYS, parseConfig, type AppConfig } from './config.ts';
 import { createContainer, dynamoClientOptions, type ContainerOverrides } from './container.ts';
 
 export interface CommandOutput {
@@ -33,7 +34,7 @@ const INITIAL_USER_KEYS = [
   'INITIAL_USER_PASSWORD',
   'INITIAL_USER_ROLE',
 ] as const;
-const USAGE = '使い方: pnpm demo-data seed ／ pnpm demo-data reset [--yes]';
+const USAGE = '使い方: pnpm demo-data seed [--days 日数] ／ pnpm demo-data reset [--yes]';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -67,8 +68,33 @@ function loadConfig(
   return { ...config, dynamodb: config.dynamodb };
 }
 
-async function seed(env: Env, output: CommandOutput, overrides: ContainerOverrides): Promise<void> {
-  const container = createContainer(loadConfig(env, 'DEMO'), overrides);
+/** `--days N` の値（指定がなければ、undefined）。不正な値は、黙って無視せず、エラーにする。 */
+function parseDays(args: readonly string[]): string | undefined {
+  const index = args.indexOf('--days');
+  if (index < 0) {
+    return undefined;
+  }
+  const value = args[index + 1];
+  if (
+    value === undefined ||
+    !/^\d+$/.test(value) ||
+    Number(value) < 1 ||
+    Number(value) > MAX_DEMO_SEED_DAYS
+  ) {
+    throw new ConfigError(`--days には、1〜${String(MAX_DEMO_SEED_DAYS)} の整数を指定してください`);
+  }
+  return value;
+}
+
+async function seed(
+  args: readonly string[],
+  env: Env,
+  output: CommandOutput,
+  overrides: ContainerOverrides,
+): Promise<void> {
+  const days = parseDays(args);
+  const config = loadConfig(days === undefined ? env : { ...env, DEMO_SEED_DAYS: days }, 'DEMO');
+  const container = createContainer(config, overrides);
   try {
     const before = (await container.repositories.equipment.list({ includeDeleted: true })).length;
     // 初期データ（ステータスコード）と、デモデータ（設備がなければ）を用意する
@@ -77,7 +103,7 @@ async function seed(env: Env, output: CommandOutput, overrides: ContainerOverrid
     output.info(
       before > 0
         ? `設備がすでに ${String(before)} 件あるため、デモデータは、投入しませんでした（消して、投入し直すときは、reset のあと、seed）`
-        : `デモデータを投入しました（設備 ${String(after)} 件・直近 3 日分の合成データ・評価）`,
+        : `デモデータを投入しました（設備 ${String(after)} 件・直近 ${String(config.demoSeedDays)} 日分の合成データ・評価）`,
     );
   } finally {
     container.close();
@@ -144,7 +170,7 @@ export async function runDemoDataCli(
   }
   try {
     if (command === 'seed') {
-      await seed(env, output, overrides);
+      await seed(args, env, output, overrides);
     } else {
       await reset(args, env, output, overrides);
     }

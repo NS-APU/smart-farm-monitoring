@@ -35,6 +35,7 @@ describe('実行設定（環境変数）', () => {
       port: 8787,
       persistence: 'memory',
       seedMode: 'NONE',
+      demoSeedDays: 3,
       schedulerEnabled: false,
       defaultIngestionIntervalMinutes: 15,
       staleAfterIntervals: 3,
@@ -179,6 +180,15 @@ describe('実行設定（環境変数）', () => {
       staleAfterIntervals: 2,
       ingestionRetryBaseDelayMs: 0,
     });
+  });
+
+  it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {
+    expect(parseConfig({ DEMO_SEED_DAYS: '30' }).demoSeedDays).toBe(30);
+    expect(parseConfig({ DEMO_SEED_DAYS: '1' }).demoSeedDays).toBe(1);
+    expect(parseConfig({ DEMO_SEED_DAYS: '31' }).demoSeedDays).toBe(31);
+    expect(() => parseConfig({ DEMO_SEED_DAYS: '0' })).toThrow('DEMO_SEED_DAYS');
+    expect(() => parseConfig({ DEMO_SEED_DAYS: '32' })).toThrow('DEMO_SEED_DAYS');
+    expect(() => parseConfig({ DEMO_SEED_DAYS: '1.5' })).toThrow('DEMO_SEED_DAYS');
   });
 
   it('本番では、開発用 API を無効にする', () => {

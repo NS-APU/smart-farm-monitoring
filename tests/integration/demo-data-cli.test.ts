@@ -5,6 +5,7 @@
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
+import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { KEPT_PARTITIONS } from '../../src/backend/infrastructure/dynamodb/data-reset.ts';
 import { createJobLock } from '../../src/backend/infrastructure/dynamodb/job-lock.ts';
 import { createLoginThrottle } from '../../src/backend/infrastructure/dynamodb/login-throttle.ts';
@@ -81,6 +82,42 @@ describe('pnpm demo-data seed', () => {
     // デモのハウスの評価が、できている
     const latest = await container.repositories.evaluations.listLatest(toEquipmentId('HOUSE-01'));
     expect(latest.length).toBeGreaterThan(0);
+  });
+
+  it('--days で、合成データの日数を指定できる（実測用。既定は 3 日）', async () => {
+    const { run, container } = await setup();
+    const startedAt = Date.now();
+
+    const result = await run(['seed', '--days', '2']);
+
+    expect(result).toEqual({
+      exitCode: 0,
+      lines: ['info: デモデータを投入しました（設備 3 件・直近 2 日分の合成データ・評価）'],
+    });
+    const observations = await container.repositories.observations.findForEvaluation(
+      [toEquipmentId('ROBOT-01')],
+      new Date(startedAt - 10 * MS_PER_DAY),
+      new Date(),
+    );
+    const earliest = Math.min(...observations.map((item) => Date.parse(item.observedAt)));
+    // 2 日前から始まる（3 日前ではない）
+    expect(earliest).toBeGreaterThan(startedAt - 2 * MS_PER_DAY - 60 * 60_000);
+    expect(earliest).toBeLessThan(startedAt - 1.5 * MS_PER_DAY);
+  });
+
+  it.each([
+    [['seed', '--days'], '--days には、1〜31 の整数を指定してください'],
+    [['seed', '--days', 'abc'], '--days には、1〜31 の整数を指定してください'],
+    [['seed', '--days', '0'], '--days には、1〜31 の整数を指定してください'],
+    [['seed', '--days', '32'], '--days には、1〜31 の整数を指定してください'],
+  ])('--days の値が不正なら、何も投入せず、エラー（終了コード 1）: %j', async (args, message) => {
+    const { run, counts } = await setup();
+
+    const result = await run(args);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]).toContain(message);
+    expect((await counts()).equipment).toBe(0);
   });
 
   it('PERSISTENCE=dynamodb でなければ、設定エラー（終了コード 1）。コマンドの指定がなければ、使い方を示す', async () => {
