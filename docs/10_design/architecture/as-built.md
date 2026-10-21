@@ -268,6 +268,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
 | ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront + 関数の URL の最小の Lambda）と、GitHub の OIDC のスタック。デプロイは `deploy-evaluation.yml`（手動実行）。Amplify は使わない（ADR-0006）。DynamoDB・Cognito・EventBridge は未追加 |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
+| スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79） |
 
 差の詳細は、「設計との差分」（D-01〜D-19）を参照する。
 
@@ -1128,6 +1129,7 @@ flowchart LR
 | `FILE_SERVER_S3_BUCKET`                                         | なし                      | ファイルサーバーのモックの S3 のバケット名。指定すると、`FILE_SERVER_DIR` ではなく、S3 の `<バケット>/<取り込み元>/` を使う（評価環境の Lambda。Issue #77。ADR-0012）                                                                                                       |
 | `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
+| `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE`                    | なし（1 ロール `worker`） | ロールと権限の定義、初期ユーザーのロール                                                                                                        |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
@@ -2592,6 +2594,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `pnpm test:unit`                    | `vitest run --coverage`（単体・結合。カバレッジの計測としきい値の検査つき）                        |
 | `pnpm test:e2e`                     | `playwright test`                                                                                  |
 | `pnpm test:stress`                  | `playwright test -c playwright.stress.config.ts`（負荷テスト。`pnpm test` には含めない）           |
+| `pnpm test:smoke`                   | `playwright test -c playwright.smoke.config.ts`（評価環境（AWS）に対する、スモークテスト・性能の実測。手動実行。`pnpm test` には含めない） |
 | `pnpm lint`                         | `eslint .`（依存の向きの検査を含む）                                                               |
 | `pnpm typecheck`                    | ルート・shared・backend・frontend・tests の `tsc`                                                  |
 | `pnpm format` / `pnpm format:check` | Prettier（`docs/`・`README.md`・`AGENTS.md`・`tests/fixtures/` などは `.prettierignore` で対象外） |

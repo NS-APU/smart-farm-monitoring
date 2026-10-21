@@ -171,7 +171,8 @@ $env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'Obs
 $env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
 $env:FILE_SERVER_S3_BUCKET = ($evaluation | Where-Object { $_.OutputKey -eq 'FileServerBucketName' }).OutputValue
 
-pnpm demo-data seed          # 投入する（設備がすでにあれば、何もしない）
+pnpm demo-data seed          # 投入する（設備がすでにあれば、何もしない）。合成データは直近 3 日分
+pnpm demo-data seed --days 30   # 合成データを 30 日分にする（1 か月分の推移の実測用。1〜31。既定は 3）
 pnpm demo-data reset         # 何も消さず、消す対象の件数を示す
 pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す。S3 のファイルも消す）
 
@@ -181,6 +182,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 
 - 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`FILE_SERVER_S3_BUCKET` は、`reset` で S3 のファイルも消すときに指定する（指定しなければ、DynamoDB だけ）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
 - `seed` は、設備がすでにあれば、何もしない。投入し直すときは、`reset --yes` のあとに、`seed`
+- `seed --days N`（1〜31。既定 3。範囲外・数値でない値は、何も投入せずエラー）は、合成データの日数を指定する（Issue #79）。1 か月分のデータが要る実測（推移の表示。NFR-3.5）のときに使う。30 日分は、観測値で約 3 万件を、DynamoDB に書く。測ったあとは、`reset --yes` → `seed`（既定の 3 日分）で、元に戻せる
 - `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目、S3 のファイル。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
 - AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
 - 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除、（S3 のファイルも消すとき）バケットの一覧と、オブジェクトの削除
@@ -264,6 +266,31 @@ pnpm test:stress     # 大量データの状態で、全ユースケースの操
 - 許容時間の倍率: 環境変数 `STRESS_LIMIT_FACTOR`（1 以上 3 以下。既定 1 = NFR の値のまま。範囲外・数値でない値はエラー）。実行環境の速さが揺れるとき（CI）のために設けた。例: `STRESS_LIMIT_FACTOR=1.5 pnpm test:stress`（操作は 3 秒 → 4.5 秒）。倍率は、結果ログに記録される。**手元の実行・NFR の確認は、既定の 1 で行う**
 - 出力: `./test-result/stresstest.result.log`（操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計。Git 管理）、`./test-result/stress/`（スクリーンショット・HTML レポート。Git 管理外）。報告は `./test-result/stresstest.report.md`
 - 構成の詳細は dev_spec.md 6.5
+
+## サーバーレス環境のスモークテスト・性能の実測（評価環境。Issue #79）
+
+評価環境（AWS）に対して、Playwright で、ログイン → ダッシュボード → 手動入力 → 通知 → ログアウトの流れを確かめ（スモークテスト）、主要な操作の時間を、許容時間（NFR。負荷テストと同じ）と比べる。**手動で実行する**（CI には載せない）。環境に、手動入力の保存・削除の書き込みをするため、**ユーザーが実行する**（AI エージェントは、評価環境に対して実行しない。AGENTS.md 12 章）。
+
+```powershell
+# PowerShell の例。値は、評価環境の URL（`SfmEvaluation` のスタックの出力 `SiteUrl`）と、評価環境のユーザー（初期ユーザー）
+$env:SMOKE_BASE_URL = '<SiteUrl>'
+$env:SMOKE_USER_ID = '<ユーザーID>'
+$env:SMOKE_PASSWORD = (Read-Host 'パスワード' -MaskInput)   # 履歴に残さない
+
+pnpm test:smoke                 # スモークテスト + 初期表示・推移・自動更新の実測 + 定期の取り込みの実行時間
+$env:SMOKE_COLD_START = '1'; pnpm test:smoke smoke-03   # コールドスタートの実測（60 分以上、アクセスがない状態で）
+
+# 終わったら、必ず消す
+Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE_COLD_START -ErrorAction SilentlyContinue
+```
+
+- 環境変数: `SMOKE_BASE_URL`（`https://` で始まる URL。パス・末尾のスラッシュは付けない）・`SMOKE_USER_ID`・`SMOKE_PASSWORD`（すべて必須。足りなければ、実行の最初にエラー。エラーに、パスワードは出ない）。値は、コード・ログ・結果に残らない。動画・トレースも取らない（パスワードが残るため）
+- テスト（`tests/smoke/`）: `smoke-01-flow.ts`（流れの確認。環境の**センサー（`SENSOR-01`）に、正常の範囲の値（温度 23℃・湿度 60%）の手動入力を 1 件保存し、終わりに削除する**。論理削除で、変更履歴には残る。途中で失敗して残ったときは、入力済みデータで「スモークテスト」を検索して削除する）、`smoke-02-performance.ts`（初期表示 5 回・自動更新 3 回・推移 3 回・取り込みの実行時間）、`smoke-03-cold-start.ts`（`SMOKE_COLD_START=1` のときだけ動く）。デモデータ（`ROBOT-01`・`SENSOR-01`）がある環境が前提
+- **推移の実測（NFR-3.5）には、1 か月分のデータが要る**。測る前に、`pnpm demo-data reset --yes` → `pnpm demo-data seed --days 30`（上の「デモデータの投入とリセット」）で、30 日分にする。測ったあとは、`reset --yes` → `seed` で、既定（3 日分）に戻す。評価する人が使っている間は、行わない
+- コールドスタートの実測は、API の Lambda が停止した状態が要る。**60 分以上、環境にアクセスしない**状態にしてから、`smoke-03` だけを実行する（ほかのテストを先に実行すると、温まる）。Lambda の停止の時期は、AWS が決めるため、確実ではない。Lambda 側の起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7）
+- 出力: `./test-result/smoketest.result.log`（操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計、取り込みの実行時間。環境の URL・ユーザーは、載せない）、`./test-result/smoke/`（HTML レポート。Git 管理外）。時間は、**端末のブラウザから見た時間**（端末と環境の間の通信を含む）
+- 許容時間は `tests/stress/support/limits.ts`（負荷テストと同じ。NFR-3.x）。超えた操作があると、テストは失敗する。倍率の環境変数 `STRESS_LIMIT_FACTOR` も、同じように使える（NFR の確認は、既定の 1）
+- 構成の詳細は dev_spec.md 6.6
 
 ## CI（GitHub Actions）
 

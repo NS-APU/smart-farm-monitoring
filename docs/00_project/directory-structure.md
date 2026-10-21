@@ -27,6 +27,7 @@ smart-farm-monitoring/
 │   ├── integration/   # 結合テスト
 │   ├── e2e/           # E2E テスト（Playwright。UC-NN-<英語の概略名>.ts と scenario-<英語の概略名>.ts。補助は support/）
 │   ├── stress/        # 負荷テスト（Playwright。stress-NN-<英語の概略名>.ts。補助は support/: データ規模 scale.ts・データ投入 seed-data.ts・サーバー起動 stress-server.ts・許容時間 limits.ts・計測 recorder.ts・結果ログ report-log.ts・手動入力の計測日時 observed-at.ts など）
+│   ├── smoke/         # サーバーレス環境（評価環境）のスモークテスト・性能の実測（Playwright。smoke-NN-<英語の概略名>.ts。補助は support/: 接続先・認証情報 smoke-env.ts・画面操作 smoke-ui.ts・結果ログ smoke-report.ts など。計測と許容時間は、tests/stress/support/ を共有）
 │   ├── fixtures/      # テストデータ（合成データ。ファイルサーバーのモック用のファイル）
 │   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
 ├── test-result/   # テストの出力（Git 管理外。カバレッジ・動画・レポート）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
@@ -48,7 +49,7 @@ smart-farm-monitoring/
 | `package.json`・`pnpm-workspace.yaml`・`pnpm-lock.yaml` | pnpm ワークスペース（ルートはツール類、`src/` 配下の3つがアプリのパッケージ、`infra/` が IaC のパッケージ）とスクリプト |
 | `tsconfig.json` | TypeScript の共通設定（各パッケージが継承） |
 | `eslint.config.js`・`.oxlintrc.json`・`.prettierrc`・`.prettierignore`・`.editorconfig` | Lint（ESLint と、アクセシビリティ用の oxlint）・フォーマットの設定 |
-| `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）の設定 |
+| `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts`・`playwright.smoke.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）の設定 |
 | `dev-ports.ts` | 開発サーバーのポート（Vite 5173・バックエンド 8787）。`playwright.config.ts` と `src/frontend/vite.config.ts` が共有する |
 
 ## docs/ の構成

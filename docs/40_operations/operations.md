@@ -173,6 +173,29 @@
 
 - 障害時の連絡先・エスカレーション（運用体制）: TODO（NFR-6.8。体制が決まったら）
 
+### 7.7 性能の確認（Lambda の起動時間・実行時間。Issue #79）
+
+画面の操作の時間は、`pnpm test:smoke`（commands.md）で測る。**Lambda 側**の、実行時間と、起動の時間（コールドスタートの Init Duration）は、CloudWatch Logs の Logs Insights で、API・ジョブの Lambda のロググループ（7.6 の 3。ジョブは `JobFunctionName`）に、次のクエリを実行して見る（Lambda が出す `REPORT` 行を使う）。
+
+```
+# 実行時間と起動の時間（期間を指定する。1 時間ごと）
+filter @type = "REPORT"
+| stats count() as invocations, count(@initDuration) as coldStarts,
+        avg(@initDuration) as avgInitMs, max(@initDuration) as maxInitMs,
+        avg(@duration) as avgDurationMs, pct(@duration, 95) as p95DurationMs, max(@duration) as maxDurationMs,
+        max(@maxMemoryUsed / 1000 / 1000) as maxMemoryUsedMB
+  by bin(1h)
+
+# コールドスタートだけ（起動の時間の長い順）
+filter @type = "REPORT" and ispresent(@initDuration)
+| fields @timestamp, @initDuration, @duration, @maxMemoryUsed / 1000 / 1000 as memoryUsedMB
+| sort @initDuration desc
+| limit 20
+```
+
+- 見方: `maxDurationMs` は、Lambda のタイムアウト（API は 29 秒、ジョブは 300 秒。7.6）に対する余裕を見る。`maxMemoryUsedMB` は、設定したメモリ（1024 MB）に対する余裕を見る。`@initDuration` は、コールドスタートのときだけ出る
+- 画面の初期表示の許容時間（NFR-3.4）は 3 秒。コールドスタートの起動の時間が長く、超える場合は、メモリの設定・処理の分割・キャッシュなどで対応する（対応は別の Issue にする）
+
 ## 8. 開発サイトと本番サイト（評価環境の運用方針）
 
 決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割・設備の割り当て・本番サイトは、まだ実装されていない**（Issue #115・#116・#117）。

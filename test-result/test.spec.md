@@ -11,7 +11,7 @@
 ### 1.1 目的と対象
 
 - 目的: 収穫ロボット・スマートハウス向け稼働モニタリング基盤の、すべてのテストの仕様（何を、どの前提・操作で、何を期待して検証しているか）を、ユースケース（[use-cases.md](../docs/10_design/requirements/use-cases.md)）との対応つきで示す。
-- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の24ファイルと `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。
+- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の24ファイルと `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。`pnpm test:smoke`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
 - 方針の出典: [test-policy.md](../docs/30_quality/test-policy.md)（種類と役割・配置・カバレッジ目標）、[dev_spec.md](../docs/10_design/functions/dev_spec.md) 5章（UC と画面・API・ジョブの対応）・6章（テスト構成）、[as-built.md](../docs/10_design/architecture/as-built.md) の「テストアーキテクチャ」。
 - テストの種類の役割（test-policy.md・dev_spec.md 6.1）:
 
@@ -6674,6 +6674,8 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | shared                 | `tests/unit/shared/criteria-range.test.ts`                              |    5 | （個別の節なし。8 章で説明）                                                                     |
 | shared                 | `tests/unit/shared/stress-observed-at.test.ts`                          |    4 | （個別の節なし。10 章で説明）                                                                    |
 | shared                 | `tests/unit/shared/stress-limits.test.ts`                               |   14 | （個別の節なし。9 章・12 章で説明）                                                              |
+| shared                 | `tests/unit/shared/smoke-env.test.ts`                                   |   11 | （個別の節なし。12 章・13 章で説明）                                          |
+| shared                 | `tests/unit/shared/smoke-report.test.ts`                                |    5 | （個別の節なし。12 章・13 章で説明）                                          |
 | backend/domain         | `tests/unit/backend/domain/domain-rules.test.ts`                        |   59 | UC-08・UC-09・UC-10・UC-19・UC-24                                                                |
 | backend/domain         | `tests/unit/backend/domain/grading.test.ts`                             |   29 | UC-10                                                                                            |
 | backend/domain         | `tests/unit/backend/domain/measures.test.ts`                            |   16 | UC-10                                                                                            |
@@ -6696,7 +6698,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | backend/infrastructure | `tests/unit/backend/infrastructure/clear-bucket.test.ts`                |    5 | （個別の節なし。12 章で説明）           |
 | backend/infrastructure | `tests/unit/backend/infrastructure/cognito-identity.test.ts`            |   21 | （個別の節なし。12 章で説明）           |
 | backend/presentation   | `tests/unit/backend/presentation/errors.test.ts`                        |    3 | （UC に直接対応しない基盤）                                                                      |
-| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   48 | UC-13・UC-14                                                                                     |
+| backend/runtime        | `tests/unit/backend/runtime/config.test.ts`                             |   49 | UC-13・UC-14                                                                                     |
 | backend/runtime        | `tests/unit/backend/runtime/runtime.test.ts`                            |   21 | UC-13                                                                                            |
 | backend/runtime        | `tests/unit/backend/runtime/process-shutdown.test.ts`                   |    5 | （UC に直接対応しない基盤）                                                                      |
 | frontend               | `tests/unit/frontend/api-client.test.ts`                                |   23 | UC-01・UC-13                                                                                     |
@@ -6748,7 +6750,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/job-lambda.test.ts`                                  |   11 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/s3-file-source.test.ts`                              |   20 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/s3-ingestion.test.ts`                                |    3 | （個別の節なし。12 章で説明）           |
-| integration            | `tests/integration/demo-data-cli.test.ts`                               |    8 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/demo-data-cli.test.ts`                               |    13 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/demo-feed.test.ts`                                   |    8 | （個別の節なし。12 章で説明）           |
 
 件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 82 ファイル・1866 件。DynamoDB Local あり。Issue #73・#74・#75・#76・#77・#95・#100・#107 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
@@ -10980,7 +10982,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#87・#95・#100・#107）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#79・#87・#95・#100・#107）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -11037,8 +11039,42 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | **テストの実行順の変更**（期待値は、変えていない）: `vitest.config.ts`（Issue #77） | infra のプロジェクト（CDK の合成。単独でも 1 つのテストが約 4〜12 秒）が、DynamoDB Local を使うほかのテストと同時に動くと、CPU を取り合い、30 秒の時間切れになることがあった（全体の実行で、`bundle-lambda.test.ts` の最初のテスト・`apps.test.ts` の最初のテストが失敗）。**時間の上限（30 秒）は緩めず**、infra のプロジェクトを、ほかのプロジェクトが終わってから動かす（`sequence.groupOrder: 1`）。全体の実行時間は、約 75 秒から約 95 秒に増えた | 件数は変わらない |
 | **期待値の変更 9**: `infra/test/evaluation-stack.test.ts`（Issue #77） | 合成データを生成する Lambda・ルール・ロググループが増えたことに伴う変更。① 「ログは、すべてのロググループで、30 日で自動削除し…」の、**ロググループの数を、3 つから 4 つ**に変えた（各ロググループが 30 日・削除である期待は、そのまま）。② 「EventBridge のルールは、既定の実行間隔（4 種）ごと…」は、ルールの数を数える対象を、**入力に jobId を持つルール（ジョブのルール）だけ**に絞った（合成データの生成のルールは、入力を持たない別のルールで、別のテストで確かめる）。ジョブのルールの数（4 つ）・間隔・入力・再試行・古いイベントを捨てる期待は、そのまま。③ 同じテストの「呼び出しの権限」は、**関数がジョブの Lambda のものだけ**を数えるようにした（期待の数 4 は、そのまま）。④ 「API・ジョブの Lambda は、このバケットだけを、読み取りだけできる…。バケット名は、環境変数で渡す」の、**バケット名を環境変数で受ける関数の数を、2 つから 3 つ**に変えた（合成データを生成する Lambda が加わったため）。権限の期待（読み取りだけ）は、そのまま | 件数は変わらない |
 | 合成データの定期生成のテストの追加（Issue #77。ADR-0012） | `tests/integration/demo-feed.test.ts`（8 件。偽の S3・メモリ）: ファイルの生成（直近 4 区間・ロボットの JSON と環境センサーの CSV・名前の形式／内容が区間の時刻から決まる（同じ区間は同じ内容・区間が変われば値も変わる）／FormatProfile が読める形）、ハンドラ（取り込み元ごとの場所に置く・内容の種類を指定する／もう一度実行しても同じ名前・同じ内容／バケットの指定がなければ設定エラー・S3 のエラーは、そのまま投げる）、置いたファイルの取り込み（JB-01 が、観測値を保存する（4 区間 × ロボット 6 項目・センサー 4 項目）／同じファイルは、増えない）。`evaluation-stack.test.ts` に 5 件: 生成の Lambda（Node.js 24・ARM・256 MB・短いタイムアウト・環境変数はバケット名だけ）・IAM（取り込み元の下への書き込みだけ）・15 分ごとのルール（入力なし・再試行 0）・関数名の出力／API・ジョブの Lambda に書き込みの権限がない。`bundle-lambda.test.ts` は、Issue #107 の回帰のテストに、生成の Lambda を加え、3 つの Lambda が、別のコードにまとめられることを確かめる。合成データの値の生成を共通の関数（`generateAutoSample`）に取り出したが、既存のテスト（デモデータ・評価・通知・取り込み）の期待値は、変えていない（乱数を消費する順序を保った） | 結合 +8・infra +5 |
+| デモデータの日数の指定のテストの追加（Issue #79） | `config.test.ts` に 1 件（`DEMO_SEED_DAYS` は 1〜31 の整数で、既定 3・範囲外・小数は設定エラー）。`tests/integration/demo-data-cli.test.ts` に 5 件（8 件 → 13 件。DynamoDB Local + 偽の S3）: `seed --days 2` が、2 日前から始まる合成データを作る（3 日分ではない）／`--days` の値がない・数字でない・0・32 のときは、何も投入せずに、`--days には、1〜31 の整数を指定してください` で終了コード 1。**既存のテストの期待値は、変えていない**（`--days` を付けない `seed` は、これまでどおり、直近 3 日分） | node +6（単体 +1、結合 +5） |
+| スモークテスト用の部品の単体テストの追加（Issue #79） | `tests/unit/shared/smoke-env.test.ts`（11 件）: URL・ユーザーID・パスワードを読む（URL は、末尾のスラッシュを除いた origin）／ローカルの確認用に限り、http の localhost を許す／3 つの変数が未指定・空なら、その名前を示すエラー／URL でない・平文の http・パス・クエリ・フラグメントがある URL はエラー／エラーにパスワードを含めない。`tests/unit/shared/smoke-report.test.ts`（5 件）: 取り込みの実行時間の行（件数・最大・p50・上限に対する割合・記録なし）／結果ログの組み立て（実行日時・端末の環境・許容時間・操作ごとの結果・集計・判定・NG の一覧）／すべて OK の判定・取り込みの実行時間がなければ節を出さない／環境の URL・認証情報に関わる項目を載せない | node +16 |
+| 負荷テストの部品の変更（Issue #79。テストの期待値は、変えていない） | `tests/stress/support/recorder.ts` の記録の出力先を、環境変数 `MEASURE_OUTPUT_DIR`（既定 `test-result/stress`）で切り替えられるようにした（サーバーレス環境のスモークテストが、同じ計測の部品を、別の出力先で使うため）。負荷テストの動作・出力先は、変わらない | なし |
 
 **Issue #77 では、上の「期待値の変更 8・9」のとおり、IaC の仕様の変更（S3 のバケットと権限、合成データを生成する Lambda の追加）に伴う期待値の変更が、6 か所ある**（それ以外の期待は、そのまま）。**Issue #76 では、上の「期待値の変更 7」のとおり、IaC の仕様の変更（ロググループの増加）に伴う期待値の変更が 1 件ある**（各ロググループの保持期間・削除の期待は、そのまま）。**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。
 取り込み後の件数と実測値は、1.2 節。
 
 **Issue #80 では、上の「期待値の変更 6」のとおり、IaC のテストの期待を、厳しくした**（緩めたのではなく、期間を明示するため）。
+
+## 13. サーバーレス環境のスモークテスト・性能の実測（`tests/smoke/`。Issue #79）
+
+`pnpm test:smoke`（`playwright.smoke.config.ts`）で実行する。単体・結合・E2E（`pnpm test`）には含めない。**手動で実行する**（CI には載せない）。評価環境（AWS。CloudFront → API の Lambda → Cognito・DynamoDB）に対して、ログインから手動入力・通知・ログアウトまでの流れが動くことと、主要な操作の時間が、許容時間（負荷テストと同じ。NFR-3.x）以内であることを確かめる。接続先・ユーザーは、環境変数（`SMOKE_BASE_URL`・`SMOKE_USER_ID`・`SMOKE_PASSWORD`）で渡し、記録には残さない。方針は dev_spec.md 6.6・commands.md。
+
+### 13.1 共通の仕様
+
+| 項目 | 内容 |
+| --- | --- |
+| 前提のデータ | 評価環境の、デモデータ（`ROBOT-01`・`SENSOR-01`。`pnpm demo-data seed`）。推移の実測（NFR-3.5）は、1 か月分のデータ（`pnpm demo-data seed --days 30`）が前提 |
+| 操作 | Playwright（chromium、1280x720）で、利用者の操作を行う。画面の要素は、E2E・負荷テストと同じ。動画・トレース・スクリーンショットは取らない（ログインのパスワードが、記録に残るため） |
+| 計測・判定 | 負荷テストと同じ部品（`measure`・`measureRefresh`）と許容時間（`limits.ts`）。(1) 応答時間と (2) 次の操作が可能になるまでの時間の、どちらも許容時間以内なら OK。時間は、端末のブラウザから見た時間（端末と環境の間の通信を含む） |
+| 出力 | `test-result/smoketest.result.log`（実行日時・端末の環境・許容時間・操作ごとの結果・集計・取り込みの実行時間・判定。環境の URL・ユーザーは載せない） |
+| 環境への書き込み | `smoke-01` が、`SENSOR-01` に、正常の範囲の値（温度 23℃・湿度 60%）の手動入力を 1 件保存し、終わりに削除する（論理削除。変更履歴には残る）。失敗して残ったときは、入力済みデータで「スモークテスト」を検索して、削除する |
+
+### 13.2 テスト
+
+| ID | ファイル・テスト名 | 検証内容 |
+| --- | --- | --- |
+| SMK-001 | `smoke-01-flow.ts` ログイン → ダッシュボード → 手動入力 → 通知 → ログアウト | ログイン画面を開く／ログインして、ダッシュボードが表示される（NFR-3.4）／再読み込みでも表示される／メニューから「データ入力」を開く／環境の値を入力して保存し、結果（保存しました・関連する観点）が表示される／通知の一覧が表示される／入力済みデータで「スモークテスト」を検索し、削除する／ログアウトで、ログイン画面に戻り、保護された画面（`/notifications`）は、ログイン画面に誘導される。各操作の時間を記録し、許容時間（画面 3 秒・操作 3 秒・初期表示 3 秒）を超えたら失敗 |
+| SMK-002 | `smoke-02-performance.ts` NFR-3.4 ダッシュボードの初期表示 | 新しいブラウザの状態（認証・キャッシュを引き継がない）から、ログインして、ダッシュボードを表示するまでを、5 回測る（許容 3 秒） |
+| SMK-003 | `smoke-02-performance.ts` NFR-3.5 推移の表示・NFR-3.3 自動更新 | ダッシュボードの自動更新（約 10 秒ごとの再取得）を 3 回測る（許容 10 秒）／観点「環境適応性」の詳細で、期間「直近30日」への切り替えを 3 回（「直近7日」を挟む）測る（許容 10 秒。1 か月分のデータが前提） |
+| SMK-004 | `smoke-02-performance.ts` JB-01 定期の取り込みの実行時間 | API でログインし、取り込みログ（`GET /ingestion/logs`。`robot`・`environment-sensor` それぞれ直近 50 件）の、開始〜終了の時間を求める。記録が 1 件以上あり、最大が Lambda のタイムアウト（300 秒）未満であること。結果ログに、件数・最大・p50・p95・タイムアウトに対する割合を載せる |
+| SMK-005 | `smoke-03-cold-start.ts` NFR-3.4 コールドスタート | `SMOKE_COLD_START=1` のときだけ実行（それ以外はスキップ）。60 分以上アクセスがない状態で、ログイン → ダッシュボードの時間を、1 回目（コールドスタートの可能性）と 2 回目（ウォーム）で測り、許容 3 秒と比べる |
+
+Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7）。
+
+### 13.3 実行結果
+
+- **ローカルでの動作確認**（2026-10-21。画面とバックエンドを、ユーザーの開発サーバーとは別の空きポートで起動し、`SMOKE_BASE_URL` に指定した。AWS の環境ではない）: 5 件（SMK-001〜SMK-005。コールドスタートは `SMOKE_COLD_START=1` で実行）がすべて成功。ただし、取り込みログの件数のテスト（SMK-004）は、定期の取り込みが動かないローカルでは、記録がなく失敗するため、API で取り込みを 1 回実行してから、成功を確認した。画面の要素と、結果ログの出力の確認のためで、性能の値は、AWS の環境のものではない。
+- **AWS の評価環境での実行結果**: ユーザーの実行（Issue #79）のあとに、記録する。
