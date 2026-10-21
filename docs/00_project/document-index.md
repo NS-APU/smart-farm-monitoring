@@ -31,10 +31,10 @@
 | | [robot-health.md](../10_design/viewpoint/robot-health.md) | ロボットの健全性の観点（収穫精度・収穫速度・操作性・メンテナンス性・コスト効率・安全性・耐久性） |
 | | [house-health.md](../10_design/viewpoint/house-health.md) | ハウスの健全性の観点（環境適応性） |
 | | [operation-health.md](../10_design/viewpoint/operation-health.md) | 評価の運用面の観点（データ活用度合い・満足度） |
-| [10_design/adr](../10_design/adr/) | [0001-modular-monolith-ports-and-adapters.md](../10_design/adr/0001-modular-monolith-ports-and-adapters.md) | ADR-0001 モジュラーモノリスとポート・アダプタ構成（提案） |
+| [10_design/adr](../10_design/adr/) | [0001-modular-monolith-ports-and-adapters.md](../10_design/adr/0001-modular-monolith-ports-and-adapters.md) | ADR-0001 モジュラーモノリスとポート・アダプタ構成（承認） |
 | | [0002-deployment-serverless.md](../10_design/adr/0002-deployment-serverless.md) | ADR-0002 デプロイ構成は、サーバーレスを基本とする（承認） |
-| | [0003-ingestion-adapter-and-provisional-spec.md](../10_design/adr/0003-ingestion-adapter-and-provisional-spec.md) | ADR-0003 取り込みの取得・解釈の分離と仕様の仮決め（提案） |
-| | [0004-federation-outbox-standalone.md](../10_design/adr/0004-federation-outbox-standalone.md) | ADR-0004 農業情報基盤との連携を連携キューによる非同期方式にする（提案） |
+| | [0003-ingestion-adapter-and-provisional-spec.md](../10_design/adr/0003-ingestion-adapter-and-provisional-spec.md) | ADR-0003 取り込みの取得・解釈の分離と仕様の仮決め（承認） |
+| | [0004-federation-outbox-standalone.md](../10_design/adr/0004-federation-outbox-standalone.md) | ADR-0004 農業情報基盤との連携を連携キューによる非同期方式にする（承認） |
 | | [0005-tech-stack.md](../10_design/adr/0005-tech-stack.md) | ADR-0005 技術スタックを TypeScript・Hono・React・DynamoDB 等で確定する（承認） |
 | | [0006-iac-cdk-and-same-origin-delivery.md](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md) | ADR-0006 IaC に AWS CDK を使い、画面と API を CloudFront の同じオリジンで配信する（承認） |
 | | [0007-dynamodb-table-design.md](../10_design/adr/0007-dynamodb-table-design.md) | ADR-0007 DynamoDB のテーブルを、観測値の専用テーブルと、そのほかの集約テーブルに分ける（承認） |
