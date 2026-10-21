@@ -1,10 +1,14 @@
-# 顧客評価環境のデプロイ（Issue #71。docs/00_project/commands.md「評価環境（IaC）」）。
-# - 手動実行（workflow_dispatch）のみ。自動のトリガ（案: develop へのマージ）は、Issue #78 で方針が決まった後に追加する
-# - AWS へは、OIDC の一時的な認証で入る（長期のアクセスキーを使わない）。ロールの ARN は、GitHub の Environment「evaluation」の
-#   シークレット AWS_DEPLOY_ROLE_ARN に設定する（ロールは infra/lib/github-oidc-stack.ts で作る。手順は commands.md）
-# - Environment「evaluation」で、デプロイできるブランチ・承認者を制限できる（ロールの信頼ポリシーも、この Environment を条件にしている）
-# - 独自のサブドメインを使うときは、Environment の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する（2 つとも。未設定なら cloudfront.net）
-name: Deploy evaluation
+# 本番サイト（実証実験用）のデプロイ（Issue #117。ADR-0013。docs/40_operations/operations.md 9 章）。開発サイトは、deploy-development.yml
+# - **main ブランチだけ**からデプロイできる。GitHub の Environment「production」の設定（Deployment branches: main のみ）と、
+#   このワークフローの条件（github.ref）の、二重で守る
+# - **承認者の承認を必須**にする（Environment「production」の Required reviewers）。承認されるまで、ジョブは、始まらない
+# - 手動実行（workflow_dispatch）のみ。自動のトリガ（main の更新）は、Issue #89 で追加する（承認は、そのまま必須）
+# - AWS へは、OIDC の一時的な認証で入る（長期のアクセスキーを使わない）。ロールの ARN は、Environment「production」の
+#   シークレット AWS_DEPLOY_ROLE_ARN に設定する（本番用のロール sfm-github-actions-deploy-production。infra/lib/github-oidc-stack.ts）。
+#   このロールを引き受けられるのは、Environment「production」のジョブだけ（開発サイトのジョブは、引き受けられない）
+# - 独自のサブドメインを使うときは、Environment「production」の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する
+#   （2 つとも。開発サイトとは別のサブドメイン。未設定なら cloudfront.net）
+name: Deploy production
 
 on:
   workflow_dispatch:
@@ -16,7 +20,7 @@ permissions:
 
 # 同時に 2 つのデプロイを動かさない。実行中のデプロイは、止めない（CloudFormation の更新が途中で止まるため）。
 concurrency:
-  group: deploy-evaluation
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
@@ -24,7 +28,9 @@ jobs:
     name: deploy
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: evaluation
+    # main 以外からは、動かさない（Environment の Deployment branches の設定と、二重で守る）
+    if: github.ref == 'refs/heads/main'
+    environment: production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,6 +65,8 @@ jobs:
           "
       - name: デプロイ（CDK）
         env:
+          # 本番サイトのスタック（SfmProductionData・SfmProductionEvaluation）を作る。開発サイトのスタックには、触れない
+          SFM_ENVIRONMENT: production
           SFM_DOMAIN_NAME: ${{ vars.SFM_DOMAIN_NAME }}
           SFM_HOSTED_ZONE_NAME: ${{ vars.SFM_HOSTED_ZONE_NAME }}
         run: pnpm --filter @smart-farm/infra run deploy

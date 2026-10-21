@@ -141,6 +141,13 @@ export interface EvaluationStackProps extends StackProps {
   readonly hostedZoneName?: string;
   /** CloudFront 用の証明書（us-east-1）。domainName を指定するとき、必須。 */
   readonly certificate?: ICertificate;
+  /**
+   * 合成データを定期的に生成する Lambda（デモ。Issue #77）を作るか。既定は作る（開発サイト）。
+   * 本番サイト（Issue #117）は、作らない（実データを扱う環境に、合成データを入れない。ADR-0013）。
+   * ファイルサーバーのモックの S3 のバケットは、どちらも作る（Lambda には、ローカルのディレクトリがなく、
+   * 未設定だと、取り込みが失敗し続けるため。本番サイトは、空のまま。実サーバーのアダプタは、Issue #119）
+   */
+  readonly includeDemoFeed?: boolean;
 }
 
 export class EvaluationStack extends Stack {
@@ -283,44 +290,9 @@ export class EvaluationStack extends Stack {
       });
     }
 
-    // 合成データを定期的に生成する Lambda（擬似のロボット・環境センサー。Issue #77。ADR-0012）。EventBridge が 15 分ごとに起動し、
-    // ファイルサーバーのモックの S3 に、新しい合成データのファイルを置く。取り込み（JB-01）が、それを読む。
-    // ジョブ（JB-01〜JB-04）とは別の関数・別の権限: **S3 への書き込みだけ**（取り込み元の下だけ）。DynamoDB・Cognito は使わない。
-    // 失敗は、次の周期で、再び置く（再試行しない）
-    const demoFeedFunction = new LambdaFunction(this, 'DemoFeedFunction', {
-      code: bundledLambdaCode(
-        join(import.meta.dirname, '../../src/backend/runtime/demo-feed-lambda.ts'),
-      ),
-      handler: 'index.handler',
-      runtime: Runtime.NODEJS_24_X,
-      architecture: Architecture.ARM_64,
-      memorySize: 256,
-      timeout: Duration.seconds(DEMO_FEED_TIMEOUT_SECONDS),
-      environment: { FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName },
-      logGroup: new LogGroup(this, 'DemoFeedLogGroup', {
-        retention: RetentionDays.ONE_MONTH,
-        removalPolicy: RemovalPolicy.DESTROY,
-      }),
-      retryAttempts: 0,
-    });
-    demoFeedFunction.addToRolePolicy(
-      new PolicyStatement({
-        actions: [S3_WRITE_ACTION],
-        resources: DEMO_FEED_SOURCE_IDS.map((sourceId) =>
-          fileServerBucket.arnForObjects(`${sourceId}/*`),
-        ),
-      }),
-    );
-    new Rule(this, 'ScheduleDemoFeed', {
-      description: `合成データのファイルを ${String(DEMO_FEED_INTERVAL_MINUTES)} 分ごとに置く（デモ）`,
-      schedule: Schedule.rate(Duration.minutes(DEMO_FEED_INTERVAL_MINUTES)),
-      targets: [
-        new LambdaFunctionTarget(demoFeedFunction, {
-          retryAttempts: 0,
-          maxEventAge: Duration.minutes(1),
-        }),
-      ],
-    });
+    // 合成データの生成（デモ）の Lambda とルール。開発サイトだけ（includeDemoFeed）。本番サイトは、作らない（Issue #117）
+    const demoFeedFunction =
+      props.includeDemoFeed === false ? undefined : this.createDemoFeed(fileServerBucket);
 
     const spaRewrite = new CloudFrontFunction(this, 'SpaRewrite', {
       code: FunctionCode.fromInline(SPA_REWRITE_CODE),
@@ -391,10 +363,55 @@ export class EvaluationStack extends Stack {
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
     new CfnOutput(this, 'ApiFunctionName', { value: apiFunction.functionName });
     new CfnOutput(this, 'JobFunctionName', { value: jobFunction.functionName });
-    new CfnOutput(this, 'DemoFeedFunctionName', { value: demoFeedFunction.functionName });
+    if (demoFeedFunction !== undefined) {
+      new CfnOutput(this, 'DemoFeedFunctionName', { value: demoFeedFunction.functionName });
+    }
     new CfnOutput(this, 'FileServerBucketName', {
       value: fileServerBucket.bucketName,
       description: 'ファイルサーバーのモック（合成データ）のバケット',
     });
+  }
+
+  /** 合成データを定期的に生成する Lambda と、EventBridge のルール（デモ。開発サイトだけ）。 */
+  private createDemoFeed(fileServerBucket: Bucket): LambdaFunction {
+    // 合成データを定期的に生成する Lambda（擬似のロボット・環境センサー。Issue #77。ADR-0012）。EventBridge が 15 分ごとに起動し、
+    // ファイルサーバーのモックの S3 に、新しい合成データのファイルを置く。取り込み（JB-01）が、それを読む。
+    // ジョブ（JB-01〜JB-04）とは別の関数・別の権限: **S3 への書き込みだけ**（取り込み元の下だけ）。DynamoDB・Cognito は使わない。
+    // 失敗は、次の周期で、再び置く（再試行しない）
+    const demoFeedFunction = new LambdaFunction(this, 'DemoFeedFunction', {
+      code: bundledLambdaCode(
+        join(import.meta.dirname, '../../src/backend/runtime/demo-feed-lambda.ts'),
+      ),
+      handler: 'index.handler',
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(DEMO_FEED_TIMEOUT_SECONDS),
+      environment: { FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName },
+      logGroup: new LogGroup(this, 'DemoFeedLogGroup', {
+        retention: RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+      retryAttempts: 0,
+    });
+    demoFeedFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [S3_WRITE_ACTION],
+        resources: DEMO_FEED_SOURCE_IDS.map((sourceId) =>
+          fileServerBucket.arnForObjects(`${sourceId}/*`),
+        ),
+      }),
+    );
+    new Rule(this, 'ScheduleDemoFeed', {
+      description: `合成データのファイルを ${String(DEMO_FEED_INTERVAL_MINUTES)} 分ごとに置く（デモ）`,
+      schedule: Schedule.rate(Duration.minutes(DEMO_FEED_INTERVAL_MINUTES)),
+      targets: [
+        new LambdaFunctionTarget(demoFeedFunction, {
+          retryAttempts: 0,
+          maxEventAge: Duration.minutes(1),
+        }),
+      ],
+    });
+    return demoFeedFunction;
   }
 }
