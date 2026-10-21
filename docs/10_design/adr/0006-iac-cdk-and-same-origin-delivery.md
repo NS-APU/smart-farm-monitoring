@@ -43,4 +43,5 @@
 
 ## 追記（2026-10-21。Issue #81。決定は、変えない）
 
+- **Issue #117（2026-10-22）**: GitHub の Environment は、`evaluation` から、`development`（開発サイト）・`production`（本番サイト）になった。OIDC のロールは、環境ごとに別（ADR-0013）。この ADR の「Environment `evaluation`」は、開発サイトの Environment（現在は `development`）と読み替える
 - 独自のサブドメインを使う想定は、変わらない（ユーザーの判断）。開発サイト・本番サイト（ADR-0013）で使う。実際の証明書の発行・レコードの作成・TLS 1.2 以上の確認は、Issue #128。画面の応答のヘッダー（Cache-Control・CSP）は、Issue #127
