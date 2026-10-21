@@ -13,7 +13,8 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { expect, type Page, type Request } from '@playwright/test';
 import { effectiveLimit, type LimitKey } from './limits.ts';
 
-export const STRESS_OUTPUT_DIR = 'test-result/stress';
+/** 記録の出力先。サーバーレス環境のスモークテスト（playwright.smoke.config.ts）は、環境変数 MEASURE_OUTPUT_DIR で、別の場所にする。 */
+export const STRESS_OUTPUT_DIR = process.env.MEASURE_OUTPUT_DIR ?? 'test-result/stress';
 export const RECORDS_PATH = `${STRESS_OUTPUT_DIR}/records.jsonl`;
 
 export type Scenario = '単独利用' | '同時接続' | '大量取り込み';

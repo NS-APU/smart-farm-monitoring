@@ -120,7 +120,6 @@ import type { CredentialPort } from '../application/ports/credential-port.ts';
 import type { JobLockPort } from '../application/ports/job-lock-port.ts';
 import type { LoginThrottlePort } from '../application/ports/login-throttle-port.ts';
 
-const DEMO_DAYS = 3;
 const DEMO_SEED = 20_261_009;
 /** デモの温度の基準（℃）。環境適応性が「注意」になり、通知の例が得られる。 */
 const DEMO_TEMPERATURE_BASE_CELSIUS = 26;
@@ -498,6 +497,7 @@ async function seedDemoData(
   { evaluationService }: Services,
   settings: AppSettings,
   clock: ClockPort,
+  days: number,
 ): Promise<void> {
   if ((await repositories.equipment.list({ includeDeleted: true })).length > 0) {
     return;
@@ -506,7 +506,7 @@ async function seedDemoData(
   for (const equipment of buildDemoEquipment(now)) {
     await repositories.equipment.save(equipment);
   }
-  const from = new Date(now.getTime() - DEMO_DAYS * MS_PER_DAY);
+  const from = new Date(now.getTime() - days * MS_PER_DAY);
   await repositories.observations.saveMany([
     ...generateAutoObservations({
       robotId: DEMO_ROBOT_ID,
@@ -595,7 +595,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
       }
     }
     if (seedMode === 'DEMO') {
-      await seedDemoData(adapters, services, settings, clock);
+      await seedDemoData(adapters, services, settings, clock, config.demoSeedDays);
     }
   }
 
