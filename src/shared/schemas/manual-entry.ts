@@ -69,9 +69,17 @@ export const ManualEntryViewpointStatusSchema = z.object({
 });
 export type ManualEntryViewpointStatus = z.infer<typeof ManualEntryViewpointStatusSchema>;
 
+/**
+ * 保存の応答の、評価の状態。`DONE`: 保存の前に評価を更新した（関連する観点のステータスは、最新）。
+ * `DEFERRED`: 評価は、定期の評価が更新する（ステータスは、前回の評価の値。反映には、数分かかる。ADR-0014）。
+ * 項目がなければ、`DONE` とみなす。
+ */
+export const MANUAL_ENTRY_EVALUATION_STATES = ['DONE', 'DEFERRED'] as const;
+
 export const ManualEntrySaveResponseSchema = z.object({
   entry: ManualEntrySchema,
   viewpointStatuses: z.array(ManualEntryViewpointStatusSchema),
+  evaluation: z.enum(MANUAL_ENTRY_EVALUATION_STATES).optional(),
 });
 export type ManualEntrySaveResponse = z.infer<typeof ManualEntrySaveResponseSchema>;
 

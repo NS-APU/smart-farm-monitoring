@@ -85,6 +85,8 @@ export const MANAGEMENT_MESSAGES = {
     save: '保存する',
     savedTitle: '保存しました',
     savedLead: '入力内容を保存し、評価を更新しました。関連する観点の現在のステータスです',
+    savedLeadDeferred:
+      '入力内容を保存しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
     noRelated: '関連する観点の評価は、まだありません',
     goList: '入力済みデータの一覧へ',
     goDashboard: 'ダッシュボードで確認',

@@ -227,7 +227,8 @@ export class EvaluationStack extends Stack {
       architecture: Architecture.ARM_64,
       memorySize: 1024,
       timeout: Duration.seconds(29),
-      environment: { ...backendEnvironment, CLIENT_IP_HEADER },
+      // 手動入力の保存・削除の応答の前に、評価を再計算しない（定期の評価 JB-02 が更新する。Issue #123。ADR-0014）
+      environment: { ...backendEnvironment, CLIENT_IP_HEADER, EVALUATION_ON_WRITE: 'deferred' },
       logGroup: new LogGroup(this, 'ApiLogGroup', {
         retention: RetentionDays.ONE_MONTH,
         removalPolicy: RemovalPolicy.DESTROY,

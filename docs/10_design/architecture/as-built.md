@@ -1130,6 +1130,7 @@ flowchart LR
 | `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
+| `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123。ADR-0014） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE`                    | なし（1 ロール `worker`） | ロールと権限の定義、初期ユーザーのロール                                                                                                        |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
@@ -1284,9 +1285,9 @@ sequenceDiagram
   FS->>REP: federation.enqueue status<br>PENDING
   MS->>AU: record CREATE manual-entry after<br>に entry
   AU->>REP: auditLogs.add
-  MS->>EV: evaluateAll MANUAL_ENTRY 4.3
+  MS->>EV: evaluateAffected MANUAL_ENTRY 4.3<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
   MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス 観点ごとに並列 Issue 79
-  MS-->>MH: entry と viewpointStatuses
+  MS-->>MH: entry と viewpointStatuses と evaluation
   MH-->>API: 201 JSON
   API-->>FORM: ManualEntrySaveResponse
   FORM->>FORM: notifyUnreadChanged<br>でヘッダーの未読件数を読み直し<br>直前の設備とカテゴリを<br>localStorage に記憶し 入力をクリア

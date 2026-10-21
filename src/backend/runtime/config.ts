@@ -11,6 +11,10 @@ import { findPasswordPolicyViolation } from '@smart-farm/shared/schemas/auth';
 import { UserIdSchema } from '@smart-farm/shared/schemas/common';
 import { IngestionIntervalSchema } from '@smart-farm/shared/schemas/ingestion';
 import { DEFAULT_ROLE_CONFIG, type RoleConfig } from '../application/auth/access-policy.ts';
+import {
+  EVALUATION_ON_WRITE_MODES,
+  type EvaluationOnWrite,
+} from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
 import { LOG_LEVELS, type LogLevel } from '../infrastructure/logging/json-logger.ts';
 import { namedErrorClass } from '../application/named-error.ts';
@@ -65,6 +69,11 @@ const EnvSchema = z.object({
    */
   FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
+  /**
+   * 手動入力の保存・修正・削除の応答の前に、評価を再計算するか（Issue #123。ADR-0014）。`sync`（既定。ローカル・E2E）は、再計算する。
+   * `deferred`（AWS の Lambda。IaC が指定する）は、再計算せず、定期の評価（JB-02）が更新する。
+   */
+  EVALUATION_ON_WRITE: z.enum(EVALUATION_ON_WRITE_MODES).default('sync'),
   /**
    * デモデータ（SEED_MODE=DEMO）の、合成データの日数（Issue #79）。既定は 3 日。1 か月分の推移の表示（NFR-3.5）を
    * 測るときは、`pnpm demo-data seed --days 30` で指定する（このコマンドが、この設定を渡す）。
@@ -148,6 +157,8 @@ export interface AppConfig {
   /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
   readonly fileServerBucket: string | undefined;
   readonly seedMode: SeedMode;
+  /** 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   /** デモデータの合成データの日数（SEED_MODE=DEMO のとき）。 */
   readonly demoSeedDays: number;
   readonly initialUser: InitialUserConfig | undefined;
@@ -327,6 +338,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
     seedMode: parsed.SEED_MODE,
+    evaluationOnWrite: parsed.EVALUATION_ON_WRITE,
     demoSeedDays: parsed.DEMO_SEED_DAYS,
     initialUser: parseInitialUser(parsed, roles),
     roles,

@@ -17,6 +17,7 @@
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
+| `EVALUATION_ON_WRITE` | 評価環境の API の Lambda は、`deferred`（IaC が指定する）。ローカル・E2E は、既定の `sync` | `deferred` は、手動入力の保存・削除の応答の前に、評価を再計算せず、定期の評価（JB-02。5 分ごと）が更新する。反映は最大 5 分遅れる。データが増えると、評価の再計算（直近 90 日の読み出し）が重くなり、保存・削除が遅くなるため（Issue #79・#123。ADR-0014） |
 | `INITIAL_USER_*` | ローカルのみ（`AUTH_PROVIDER=cognito` では、使えない。最初のユーザーは、手元で `pnpm initial-user` を 1 回だけ実行して作る。commands.md）。初回のみ。初回のログイン後に、パスワードを変更する（ユーザー管理）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
 
 起動時のログに、警告（「開発用 API が有効です」「既定のロール…で動作しています」）が出ていないことを確認する。
