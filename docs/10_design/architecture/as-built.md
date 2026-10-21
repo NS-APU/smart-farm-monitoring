@@ -270,7 +270,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
 | ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-evaluation.yml`（手動実行）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
-| スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測は、未 |
+| スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測も、実行済み（長時間アクセスがないあとの最初のログインは、約 3.2 秒。既知の制約として許容。test.spec.md 13.3） |
 
 差の詳細は、「設計との差分」（D-01〜D-22）を参照する。
 

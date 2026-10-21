@@ -80,4 +80,4 @@
 
 - 前提条件のうち、**IAM 権限は、確認した**（2026-10-15。Issue #70。architecture.md 11.4）。**ファイルサーバーの接続元 IP 制限は、未確認のまま**（Q-002。実ファイルサーバーのアダプタは、Issue #119）
 - 実際の構成: 画面は S3 + CloudFront、IaC は AWS CDK（[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)）。Amplify は採らなかった。データは DynamoDB（[ADR-0007](./0007-dynamodb-table-design.md)）、認証は Cognito（[ADR-0008](./0008-cognito-authentication.md)）、ジョブは EventBridge + Lambda（[ADR-0011](./0011-jobs-eventbridge-lambda.md)）
-- サーバーレスでの実測（Issue #79）: 画面の初期表示・自動更新・推移は、許容時間内。手動入力の保存・削除は、評価を応答から外して、許容時間内にした（[ADR-0014](./0014-defer-evaluation-on-manual-entry-write.md)）。コールドスタートの影響は、実測が残る
+- サーバーレスでの実測（Issue #79）: 画面の初期表示・自動更新・推移は、許容時間内。手動入力の保存・削除は、評価を応答から外して、許容時間内にした（[ADR-0014](./0014-defer-evaluation-on-manual-entry-write.md)）。コールドスタートは、長時間アクセスがないあとの、最初のログイン → ダッシュボードの表示は、次の操作可能まで約 3.2 秒（NFR-3.4 の暫定の 3 秒を、約 0.2 秒超過。応答は 2.96 秒で許容内）。2 回目以降は約 1.4 秒。ユーザーの判断で、既知の制約として許容した（test.spec.md 13.3）
