@@ -49,7 +49,7 @@
 **実装で変わった点・実装されていない点**
 
 - **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続（評価環境では、ファイルサーバー・農業情報基盤・Web Push は、モックのまま）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
-- 評価は、設計の「影響を受ける設備・観点に絞る」ではなく、**契機を問わず、全設備・全観点・全期間を毎回評価**する
+- 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
 - 実装時に増えたもの: 開発用 API（`/api/v1/dev/*`）、操作できる時計と停止・遅延の再現（`FaultController`）、合成データの生成、E2E の撮影とレイアウト検査
@@ -60,18 +60,18 @@
 
 | No.  | 項目                       | 設計・docs の記述                                                                                                                                         | 実装（コード）                                                                                                                                                                                                                | 区分                             |
 | ---- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| D-01 | DB                         | DynamoDB（architecture.md 13.1。ADR-0005）                                                                                                                | `PERSISTENCE=memory\|file` のみ（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション）。`dynamodb` を指定すると `createContainer` が `ConfigError`                                                | 未実装                           |
+| D-01 | DB | DynamoDB（architecture.md 13.1。ADR-0005） | **DynamoDB の Repository を実装**（`infrastructure/dynamodb/`。`PERSISTENCE=dynamodb`。ADR-0007。DynamoDB Local で契約テストを通し、AWS で確認済み）。ローカルは、`PERSISTENCE=memory\|file`（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション） | 実装済み（AWS で確認済み） |
 | D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito で確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | 実装済み（手元から AWS で確認済み） |
-| D-03 | ホスティング・ジョブ起動   | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章）                                                                                              | Lambda ハンドラ（`runtime/lambda.ts`）はあるが、組み立てが本番モードで失敗するため動かせない。EventBridge の連携コードはない。IaC（`infra/`。AWS CDK）に、画面（S3 + CloudFront）と最小の API（`/health` だけに答える Lambda）の評価環境がある（ADR-0006。Issue #71）。フロントエンドは `vite build` で `dist/frontend` へ出力する        | 一部実装（画面の配信と最小の API のみ。Issue #71）                           |
-| D-04 | ファイルサーバー           | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定）                                                                                      | ディレクトリを見立てたモック（`mock-file-server.ts`）のみ。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない   | 未実装                           |
+| D-03 | ホスティング・ジョブ起動 | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章） | **Amplify は使わず**、IaC（`infra/`。AWS CDK）で、画面（S3 + CloudFront）・API の Lambda（`runtime/lambda.ts`。本番の組み立て。ADR-0009）・ジョブの Lambda と EventBridge の 4 つのルール（`runtime/job-lambda.ts`。ADR-0011）・データ（DynamoDB・Cognito）・合成データの生成の Lambda（ADR-0012）を作る（ADR-0006。Issue #71・#75・#76・#77）。デプロイは、GitHub Actions + OIDC（手動実行） | 実装済み（AWS で確認済み。画面のホスティングは、Amplify ではなく S3 + CloudFront） |
+| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリを見立てたモック（`mock-file-server.ts`）と、S3 を見立てたモック（`s3/s3-file-source.ts`。評価環境の Lambda 用。ADR-0012）のみ。**実サーバー用のアダプタは、ない**（Issue #119。Q-002 の回答待ち）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない | 未実装（モックのみ） |
 | D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信はダミー（`dummy-web-push.ts`。記録のみ）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は実装済み。VAPID の秘密鍵・送信ライブラリはない                                                                           | 未実装                           |
 | D-06 | 農業情報基盤との連携       | 連携方式は Q-005 で未確定（architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）のみ                                                                                                                                                                         | 未実装（仕様も未確定）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
 | D-08 | 評価の対象                 | 「影響を受ける設備・観点に絞って行う」（architecture.md 7章）                                                                                             | `EvaluationService` が、設備ごとに、全観点×全期間（長期 5 窓、短期評価を持つ観点はさらに短期 1 窓）を評価し、保存する。取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけ（`evaluateAffected`）、設備・ステータスコード・判断基準の変更後・定期（JB-02）は、全設備（`evaluateAll`）                      | 一部実装（保存後は絞り込み済み。手順10）                             |
-| D-09 | 段階間の受け渡し           | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2）                                                                             | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）                                                | 実装の具体化                     |
+| D-09 | 段階間の受け渡し | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2） | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）。**AWS の API の Lambda では、手動入力の保存・修正・削除は、評価を呼ばない**（`EVALUATION_ON_WRITE=deferred`。D-22） | 実装の具体化 |
 | D-10 | 即時取得の応答             | 機能仕様書 4.2: 「202。非同期に実行」                                                                                                                     | `POST /ingestion/:sourceId/run` は、同期して実行し、結果の概要を 202 で返す（`admin-handlers.ts`。dev_spec.md 4章 No.29 に暫定として記載あり）                                                                                | 暫定仕様                         |
 | D-11 | グラフ・ルーター           | グラフのライブラリは、設計時に選定（architecture.md 13.1）                                                                                                | ライブラリは未使用。SVG を自作（`line-chart.tsx`・`radar-chart.tsx`・`chart-geometry.ts`）。ルーターも自作（`router/router.tsx`。ADR-0005 の範囲外のため追加していないと明記）                                                | 変更                             |
-| D-12 | 結合テストの DB            | DynamoDB のローカル版などのエミュレータ（architecture.md 14章）、テスト用 DB・コンテナ（test-policy.md）                                                  | エミュレータ・コンテナは使わない。メモリ／ファイルの Repository を、同じ契約テスト（`repository-contract.test.ts`）で検証する                                                                                                 | 変更                             |
+| D-12 | 結合テストの DB | DynamoDB のローカル版などのエミュレータ（architecture.md 14章）、テスト用 DB・コンテナ（test-policy.md） | **DynamoDB Local**（Java。`DYNAMODB_LOCAL_DIR` または `DYNAMODB_ENDPOINT`。CI は、コンテナで起動）で、DynamoDB のアダプタを検証する。Repository は、メモリ・ファイル・DynamoDB の 3 実装に、同じ契約テスト（`repository-contract.test.ts`）を適用する。Cognito は偽の Cognito（`tests/support/fake-cognito.ts`）、S3 は偽の S3（`tests/support/fake-s3.ts`）で検証する | 実装済み（設計どおり） |
 | D-13 | 単体テストのファイル名     | 対象ファイル名に合わせる（test-policy.md）                                                                                                                | テーマ別のファイル（例: `domain-rules.test.ts`・`application-misc.test.ts`・`shared.test.ts`）。E2E は `UC-NN-*.ts`（`.test.ts` ではない。dev_spec.md 6.1 に記載あり）                                                        | 変更                             |
 | D-14 | カバレッジの基準           | 行・分岐 90% 以上（test-policy.md）                                                                                                                       | 行・分岐・関数・文のすべて 95% 以上（`vitest.config.ts` の `thresholds`。dev_spec.md 6.2 に記載あり）                                                                                                                         | 変更（厳格化）                   |
 | D-15 | ディレクトリ構成の記載     | [directory-structure.md](../../00_project/directory-structure.md) の frontend: `pages/・components/・hooks/・api/・push/・i18n/・styles/・public/`        | 実際は、これに加えて `auth/`（`auth-context.tsx`）・`router/`（`router.tsx`）がある。`src/shared` 直下に `criteria-text.ts` がある                                                                                            | docs が古い（未更新）            |
@@ -81,6 +81,7 @@
 | D-19 | 提示層とインフラ層の依存   | `api-deps.ts` の冒頭コメント: 「提示層は、インフラ層（アダプタ）を知らない」。ESLint は、domain・application・shared・frontend にのみ import の制限を課す | 開発用 API のために、`presentation/api-deps.ts`・`dev-routes.ts` が `infrastructure/local/` の型・定数・合成データ生成を import している（ESLint の制限対象外）。本番の経路（`handlers`）は、アプリケーション層のみに依存する | コードのコメントと実装が食い違う |
 | D-20 | 技術スタックの追加（ライセンス対応） | architecture.md 13.1: Formatter / Linter は Prettier・ESLint（flat config + typescript-eslint）。ビルドは Vite | ライセンス（コピーレフトの除外）の確認の結果（[.license-check/license-report.md](../../../.license-check/license-report.md)）、アクセシビリティの検査に oxlint を追加し（`eslint-plugin-jsx-a11y` を削除。axe-core が MPL-2.0）、Vite の CSS の最小化に esbuild を追加した（`build.cssMinify: 'esbuild'`。Vite 8 が必須とする lightningcss が MPL-2.0 のため、`pnpm-workspace.yaml` の `overrides` で導入しない）。architecture.md 13.1 には、Issue #40 で、Zod・oxlint・Testing Library・jsdom と、React 19.3 系を反映した | 追加（architecture.md に反映済み） |
 | D-21 | IaC・画面の配信 | architecture.md 11.2・13.1: IaC は Amplify Gen 2（または CDK）、画面は Amplify Hosting（または S3 + CloudFront）（ADR-0002） | CDK・S3 + CloudFront を採用。画面と API を CloudFront の同じオリジンで配信し、GitHub Actions + OIDC で手動デプロイする（ADR-0006。Issue #71）。architecture.md 13.1 に反映した | 追加（architecture.md に反映済み） |
+| D-22 | 手動入力の保存後の評価 | 入力の保存のたびに、評価を更新する（human-in-the-loop.md。FR-4.1.5） | 設定 `EVALUATION_ON_WRITE`（`sync`・`deferred`）で切り替える。既定の `sync`（ローカル・E2E）は、設計どおり。**AWS の API の Lambda は `deferred`**: 保存・修正・削除で評価せず、定期の評価（JB-02。5 分ごと）が更新する。保存の応答は、前回の評価のステータスと `evaluation: DEFERRED` を返す。データ量に比例して、評価（直近 90 日の読み出し）が重くなるため（Issue #79・#123。ADR-0014） | 変更（意図的。AWS のみ） |
 
 ## 解析で気づいた課題
 
@@ -224,6 +225,7 @@
 | バックエンド   | Hono                                    | `^4.13.13`                      | 4.13.13                                       |
 |                | `@hono/node-server`                     | `^2.1.4`                        | 2.1.4                                         |
 |                | `@hono/aws-lambda`                      | `^1.0.1`                        | 1.0.1                                         |
+| AWS SDK（バックエンドの本番のアダプタ） | `@aws-sdk/client-dynamodb`・`lib-dynamodb`・`client-cognito-identity-provider`・`client-s3` | `^3.1147.0`・`^3.1147.0`・`^3.1148.0`・`^3.1148.0` | 3.1147.0・3.1147.0・3.1148.0・3.1148.0 |
 | スキーマ・検証 | Zod                                     | `^4.6.5`                        | 4.6.5                                         |
 | フロントエンド | React・React DOM                        | `^19.3.0`                       | 19.3.0                                        |
 |                | Vite                                    | `~8.3.1`                        | 8.3.3                                         |
@@ -233,11 +235,11 @@
 |                | Testing Library（react・dom）・jsdom    | `^16.3.3`・`^10.4.2`・`^30.1.2` | 16.3.3・10.4.2・30.1.2                        |
 | 静的解析       | ESLint・typescript-eslint・各プラグイン | `^9.39.5`・`^8.71.1`            | 9.39.5・8.71.1                                |
 |                | oxlint（jsx-a11y の検査のみ）           | `~1.84.0`                       | 1.84.0                                        |
-| ビルド         | esbuild（CSS の最小化）                 | `^0.28.0`                       | 0.28.2                                        |
+| ビルド         | esbuild（CSS の最小化。Lambda のコードのまとめ）   | `^0.28.0`                       | 0.28.2                                        |
 | IaC（infra/） | aws-cdk-lib・constructs・aws-cdk（CLI） | `^2.273.0`・`^10.8.1`・`^2.1145.0` | 2.273.0・10.8.1・2.1145.0 |
 |                | Prettier                                | `^3.9.9`                        | 3.9.9                                         |
 
-データベース・認証・インフラの SDK（`@aws-sdk/*` など）は、依存に含まれていない（IaC のライブラリ `aws-cdk-lib` は、`infra/` の依存）。TypeScript の厳格な設定（`strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`・`verbatimModuleSyntax`・`erasableSyntaxOnly` など）は、ルートの `tsconfig.json` にあり、各パッケージが継承する。TypeScript をそのまま実行するため、バックエンドは `node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts` で起動する（ビルドなし）。
+AWS SDK（`@aws-sdk/*`）は、バックエンドの依存（`src/backend`）。IaC のライブラリ `aws-cdk-lib` は、`infra/` の依存。TypeScript の厳格な設定（`strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`・`verbatimModuleSyntax`・`erasableSyntaxOnly` など）は、ルートの `tsconfig.json` にあり、各パッケージが継承する。TypeScript をそのまま実行するため、バックエンドは `node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts` で起動する（ビルドなし）。
 
 ## 起動の仕方（ローカル）
 
@@ -259,18 +261,18 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 | 項目                     | 設計（本番の想定）                        | 実装の状態                                                                                                                          |
 | ------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| データベース             | DynamoDB                                  | **Repository のアダプタを実装**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS では、`Main` テーブルの一部のみ確認済み（2026-10-16。手元のバックエンドから））。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
-| 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。実際の Cognito でも、手元のバックエンドから確認済み。Lambda からは未確認）。IaC は `SfmData`（ユーザープール・クライアント）。既定は、アプリ内の認証（`createLocalAuth`） |
+| データベース             | DynamoDB                                  | **実装済み**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS で確認済み（Lambda から。バックアップ・復元・全データの削除と再作成を含む））。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
+| 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。AWS で確認済み（手元のバックエンドから、Lambda からも）。IaC は `SfmData`（ユーザープール・クライアント）。ローカルの既定は、アプリ内の認証（`createLocalAuth`） |
 | 実行                     | Lambda＋ EventBridge                      | API の Lambda（`createLambdaHandler`。`@hono/aws-lambda` の `handle`。ADR-0009）と、ジョブの Lambda（`createJobLambdaHandler`。EventBridge の 4 つのルールが起動する。Issue #76。ADR-0011） |
-| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ）                                                                                                              |
+| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）。実サーバーのアダプタは未実装（Issue #119） |
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
 | Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
 | 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
-| ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront + 関数の URL の最小の Lambda）と、GitHub の OIDC のスタック。デプロイは `deploy-evaluation.yml`（手動実行）。Amplify は使わない（ADR-0006）。DynamoDB・Cognito・EventBridge は未追加 |
+| ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-evaluation.yml`（手動実行）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
-| スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79） |
+| スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測は、未 |
 
-差の詳細は、「設計との差分」（D-01〜D-19）を参照する。
+差の詳細は、「設計との差分」（D-01〜D-22）を参照する。
 
 # ユースケース図
 
@@ -976,7 +978,7 @@ flowchart LR
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
 | `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**どこにも接続されていない**                                                                                        | シークレット管理サービス                      |
 
-ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイルの 2 実装に同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
+ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 実装に、同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
 
 ## 実行構成
 
