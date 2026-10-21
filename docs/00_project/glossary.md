@@ -21,7 +21,7 @@
 | 平均修復時間 | MTTR | 故障から復旧までにかかる平均時間。復旧のしやすさを示す指標 | [project-overview.md](./project-overview.md) |
 | 経済生産性 | EconomicProductivity | 運用コストに対する収穫の成果の比（無次元）。（収穫成功率 × 収穫速度 × 可用率）÷ 運用コスト。コスト効率の観点の判定に使う | [robot-health.md](../10_design/viewpoint/robot-health.md) |
 | 設計判断の記録 | ADR | 重要な技術選定・設計判断と、その理由を残した記録 | [documentation-guidelines.md](./documentation-guidelines.md) |
-| 開発サイト | - | 開発の間の、出来栄えの評価に使う環境。`develop` ブランチを基本としてデプロイし、合成データのみを扱う。現在の評価環境（`SfmData`・`SfmEvaluation`） | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |
+| 開発サイト | - | 開発の間の、出来栄えの評価に使う環境。`develop` ブランチを基本としてデプロイし、基本は合成データを扱う（実際のロボット・センサーとの結合確認では、実データを取り込むことがある。個人情報は不可）。現在の評価環境（`SfmData`・`SfmEvaluation`） | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |
 | 本番サイト | - | 現場での実証実験に使う環境。`main` ブランチだけからデプロイし、実データ（個人情報は不可）を扱える。開発サイトとは、データ・ユーザー・URL を共有しない。実証実験の前に用意する（未作成） | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |
 | 管理者 | `admin` | ロールの 1 つ。すべての操作ができる | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |
 | 一般 | `general` | ロールの 1 つ。割り当てられた設備の閲覧・手動入力・自身のユーザー情報の編集に限る（実装は、未） | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |
