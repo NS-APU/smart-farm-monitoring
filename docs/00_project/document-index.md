@@ -13,6 +13,9 @@
 | | [commands.md](./commands.md) | よく使うコマンド |
 | | [documentation-guidelines.md](./documentation-guidelines.md) | ドキュメント運用ルール |
 | | [document-index.md](./document-index.md) | ドキュメント一覧（本書） |
+| | [open-items.md](./open-items.md) | 未検討事項の一覧（全体の見取り図・Q 番号・主題ごとの整理・重複の整理） |
+| | [open-items-todo.md](./open-items-todo.md) | 未検討事項の一覧（1）ドキュメント中の未確定事項を、出現ごとに 1 行 |
+| | [open-items-screens.md](./open-items-screens.md) | 未検討事項の一覧（2）画面（SC-01〜SC-15）ごとの、デザイン・機能面の未決 |
 | [10_design/requirements](../10_design/requirements/) | [rfp.md](../10_design/requirements/rfp.md) | RFP（発注者の要求と要件定義への橋渡し） |
 | | [functional-requirements.md](../10_design/requirements/functional-requirements.md) | 機能要件 |
 | | [non-functional-requirements.md](../10_design/requirements/non-functional-requirements.md) | 非機能要件 |
