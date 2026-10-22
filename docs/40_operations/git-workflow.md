@@ -96,6 +96,7 @@
   - レビュアーに特に見てほしい点
 - PRは小さく保つ（目安: 差分400行以内）。大きくなる場合は分割する
 - 作業途中で共有する場合はDraft PRにする
+- **PR の前に、開発サイトで動作確認できる**（任意。Issue #131）: GitHub の Actions → 「Deploy development」→ Run workflow → 「Use workflow from」で、作業ブランチ（`feature/*`・`release/*`・`hotfix/*`）を選ぶ（`gh workflow run deploy-development.yml --ref <ブランチ>` でも可）。確認した結果は、PR の「テスト・確認結果」に書く。開発サイトは 1 つで、デプロイしたブランチの内容に置き換わる（IaC・データの変更も入る）。確認のあとは、`develop` をデプロイして戻す。手順は、operations.md 8.3
 - CI（`.github/workflows/ci.yml`）がすべて成功していることをマージ条件とする。マージ先ごとの必須のチェックは、次のとおり（ブランチ保護で必須に設定する）
 
   | マージ先 | 必須のチェック（ジョブ名） | 内容 |

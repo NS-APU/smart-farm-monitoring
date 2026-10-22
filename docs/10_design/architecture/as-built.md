@@ -48,8 +48,8 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタはすべて未実装**: DynamoDB・Cognito・実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続。`APP_MODE=production` は起動時に `ConfigError`。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）のみ
-- 評価は、設計の「影響を受ける設備・観点に絞る」ではなく、**契機を問わず、全設備・全観点・全期間を毎回評価**する
+- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続（評価環境では、ファイルサーバー・農業情報基盤・Web Push は、モックのまま）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
+- 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
 - 実装時に増えたもの: 開発用 API（`/api/v1/dev/*`）、操作できる時計と停止・遅延の再現（`FaultController`）、合成データの生成、E2E の撮影とレイアウト検査
@@ -60,18 +60,18 @@
 
 | No.  | 項目                       | 設計・docs の記述                                                                                                                                         | 実装（コード）                                                                                                                                                                                                                | 区分                             |
 | ---- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| D-01 | DB                         | DynamoDB（architecture.md 13.1。ADR-0005）                                                                                                                | `PERSISTENCE=memory\|file` のみ（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション）。`dynamodb` を指定すると `createContainer` が `ConfigError`                                                | 未実装                           |
-| D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）のみ。`AuthPort` の Cognito 実装はない                                                                                                         | 未実装                           |
-| D-03 | ホスティング・ジョブ起動   | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章）                                                                                              | Lambda ハンドラ（`runtime/lambda.ts`）はあるが、組み立てが本番モードで失敗するため動かせない。EventBridge の連携コード・IaC はない（`scripts/` は空）。フロントエンドは `vite build` で `dist/frontend` へ出力するのみ        | 未実装                           |
-| D-04 | ファイルサーバー           | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定）                                                                                      | ディレクトリを見立てたモック（`mock-file-server.ts`）のみ。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない   | 未実装                           |
+| D-01 | DB | DynamoDB（architecture.md 13.1。ADR-0005） | **DynamoDB の Repository を実装**（`infrastructure/dynamodb/`。`PERSISTENCE=dynamodb`。ADR-0007。DynamoDB Local で契約テストを通し、AWS で確認済み）。ローカルは、`PERSISTENCE=memory\|file`（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション） | 実装済み（AWS で確認済み） |
+| D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito で確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | 実装済み（手元から AWS で確認済み） |
+| D-03 | ホスティング・ジョブ起動 | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章） | **Amplify は使わず**、IaC（`infra/`。AWS CDK）で、画面（S3 + CloudFront）・API の Lambda（`runtime/lambda.ts`。本番の組み立て。ADR-0009）・ジョブの Lambda と EventBridge の 4 つのルール（`runtime/job-lambda.ts`。ADR-0011）・データ（DynamoDB・Cognito）・合成データの生成の Lambda（ADR-0012）を作る（ADR-0006。Issue #71・#75・#76・#77）。デプロイは、GitHub Actions + OIDC（手動実行） | 実装済み（AWS で確認済み。画面のホスティングは、Amplify ではなく S3 + CloudFront） |
+| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリを見立てたモック（`mock-file-server.ts`）と、S3 を見立てたモック（`s3/s3-file-source.ts`。評価環境の Lambda 用。ADR-0012）のみ。**実サーバー用のアダプタは、ない**（Issue #119。Q-002 の回答待ち）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない | 未実装（モックのみ） |
 | D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信はダミー（`dummy-web-push.ts`。記録のみ）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は実装済み。VAPID の秘密鍵・送信ライブラリはない                                                                           | 未実装                           |
 | D-06 | 農業情報基盤との連携       | 連携方式は Q-005 で未確定（architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）のみ                                                                                                                                                                         | 未実装（仕様も未確定）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
 | D-08 | 評価の対象                 | 「影響を受ける設備・観点に絞って行う」（architecture.md 7章）                                                                                             | `EvaluationService` が、設備ごとに、全観点×全期間（長期 5 窓、短期評価を持つ観点はさらに短期 1 窓）を評価し、保存する。取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけ（`evaluateAffected`）、設備・ステータスコード・判断基準の変更後・定期（JB-02）は、全設備（`evaluateAll`）                      | 一部実装（保存後は絞り込み済み。手順10）                             |
-| D-09 | 段階間の受け渡し           | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2）                                                                             | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）                                                | 実装の具体化                     |
+| D-09 | 段階間の受け渡し | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2） | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）。**AWS の API の Lambda では、手動入力の保存・修正・削除は、評価を呼ばない**（`EVALUATION_ON_WRITE=deferred`。D-22） | 実装の具体化 |
 | D-10 | 即時取得の応答             | 機能仕様書 4.2: 「202。非同期に実行」                                                                                                                     | `POST /ingestion/:sourceId/run` は、同期して実行し、結果の概要を 202 で返す（`admin-handlers.ts`。dev_spec.md 4章 No.29 に暫定として記載あり）                                                                                | 暫定仕様                         |
 | D-11 | グラフ・ルーター           | グラフのライブラリは、設計時に選定（architecture.md 13.1）                                                                                                | ライブラリは未使用。SVG を自作（`line-chart.tsx`・`radar-chart.tsx`・`chart-geometry.ts`）。ルーターも自作（`router/router.tsx`。ADR-0005 の範囲外のため追加していないと明記）                                                | 変更                             |
-| D-12 | 結合テストの DB            | DynamoDB のローカル版などのエミュレータ（architecture.md 14章）、テスト用 DB・コンテナ（test-policy.md）                                                  | エミュレータ・コンテナは使わない。メモリ／ファイルの Repository を、同じ契約テスト（`repository-contract.test.ts`）で検証する                                                                                                 | 変更                             |
+| D-12 | 結合テストの DB | DynamoDB のローカル版などのエミュレータ（architecture.md 14章）、テスト用 DB・コンテナ（test-policy.md） | **DynamoDB Local**（Java。`DYNAMODB_LOCAL_DIR` または `DYNAMODB_ENDPOINT`。CI は、コンテナで起動）で、DynamoDB のアダプタを検証する。Repository は、メモリ・ファイル・DynamoDB の 3 実装に、同じ契約テスト（`repository-contract.test.ts`）を適用する。Cognito は偽の Cognito（`tests/support/fake-cognito.ts`）、S3 は偽の S3（`tests/support/fake-s3.ts`）で検証する | 実装済み（設計どおり） |
 | D-13 | 単体テストのファイル名     | 対象ファイル名に合わせる（test-policy.md）                                                                                                                | テーマ別のファイル（例: `domain-rules.test.ts`・`application-misc.test.ts`・`shared.test.ts`）。E2E は `UC-NN-*.ts`（`.test.ts` ではない。dev_spec.md 6.1 に記載あり）                                                        | 変更                             |
 | D-14 | カバレッジの基準           | 行・分岐 90% 以上（test-policy.md）                                                                                                                       | 行・分岐・関数・文のすべて 95% 以上（`vitest.config.ts` の `thresholds`。dev_spec.md 6.2 に記載あり）                                                                                                                         | 変更（厳格化）                   |
 | D-15 | ディレクトリ構成の記載     | [directory-structure.md](../../00_project/directory-structure.md) の frontend: `pages/・components/・hooks/・api/・push/・i18n/・styles/・public/`        | 実際は、これに加えて `auth/`（`auth-context.tsx`）・`router/`（`router.tsx`）がある。`src/shared` 直下に `criteria-text.ts` がある                                                                                            | docs が古い（未更新）            |
@@ -80,6 +80,8 @@
 | D-18 | 古いコメント               | -                                                                                                                                                         | `application/evaluation/criteria-service.ts` の冒頭コメントは「判断基準の編集（UC-19）は次の手順で、同じサービスに追加する」とあるが、編集は `criteria-admin-service.ts` に実装済み                                           | コードのコメントが古い           |
 | D-19 | 提示層とインフラ層の依存   | `api-deps.ts` の冒頭コメント: 「提示層は、インフラ層（アダプタ）を知らない」。ESLint は、domain・application・shared・frontend にのみ import の制限を課す | 開発用 API のために、`presentation/api-deps.ts`・`dev-routes.ts` が `infrastructure/local/` の型・定数・合成データ生成を import している（ESLint の制限対象外）。本番の経路（`handlers`）は、アプリケーション層のみに依存する | コードのコメントと実装が食い違う |
 | D-20 | 技術スタックの追加（ライセンス対応） | architecture.md 13.1: Formatter / Linter は Prettier・ESLint（flat config + typescript-eslint）。ビルドは Vite | ライセンス（コピーレフトの除外）の確認の結果（[.license-check/license-report.md](../../../.license-check/license-report.md)）、アクセシビリティの検査に oxlint を追加し（`eslint-plugin-jsx-a11y` を削除。axe-core が MPL-2.0）、Vite の CSS の最小化に esbuild を追加した（`build.cssMinify: 'esbuild'`。Vite 8 が必須とする lightningcss が MPL-2.0 のため、`pnpm-workspace.yaml` の `overrides` で導入しない）。architecture.md 13.1 には、Issue #40 で、Zod・oxlint・Testing Library・jsdom と、React 19.3 系を反映した | 追加（architecture.md に反映済み） |
+| D-21 | IaC・画面の配信 | architecture.md 11.2・13.1: IaC は Amplify Gen 2（または CDK）、画面は Amplify Hosting（または S3 + CloudFront）（ADR-0002） | CDK・S3 + CloudFront を採用。画面と API を CloudFront の同じオリジンで配信し、GitHub Actions + OIDC で手動デプロイする（ADR-0006。Issue #71）。architecture.md 13.1 に反映した | 追加（architecture.md に反映済み） |
+| D-22 | 手動入力の保存後の評価 | 入力の保存のたびに、評価を更新する（human-in-the-loop.md。FR-4.1.5） | 設定 `EVALUATION_ON_WRITE`（`sync`・`deferred`）で切り替える。既定の `sync`（ローカル・E2E）は、設計どおり。**AWS の API の Lambda は `deferred`**: 保存・修正・削除で評価せず、定期の評価（JB-02。5 分ごと）が更新する。保存の応答は、前回の評価のステータスと `evaluation: DEFERRED` を返す。データ量に比例して、評価（直近 90 日の読み出し）が重くなるため（Issue #79・#123。ADR-0014） | 変更（意図的。AWS のみ） |
 
 ## 解析で気づいた課題
 
@@ -91,7 +93,7 @@
 | I-02 | （**解消。手順9後半**: `UserService.delete` が、`deleteByUser` を呼ぶ） **ユーザーを削除しても、そのユーザーの Web Push の購読は残る**。`UserService.delete` は、ユーザーと変更履歴のみを扱う。Repository には `deleteByUser` があるが、どこからも呼ばれていない。購読は利用者を区別せず全員の有効な購読へ配信するため、削除したユーザーの端末にも通知が届き続ける                                                                                                                                             | `auth/user-service.ts`・`notification-service.ts`（`deliverPending`）・`local-repositories.ts`                   |
 | I-03 | （**解消。手順9後半**: ユーザーの削除でセッションを失効し、セッションにユーザーの作成日時（世代）を持たせた） **削除したユーザーと同じ ID で再登録すると、削除前のトークンが再び有効になる**。セッションは `userId` に結びつけてメモリに残り、`verifyAccessToken` は `userId` でユーザーを引き直すため（`.speccheck/UC-14` にも記載）                                                                                                                                                                                                                | `infrastructure/local/local-auth.ts`                                                                             |
 | I-04 | （**解消。手順9後半**: パスワードの再設定でセッションを失効する。本人の操作では、現在のセッションだけを残す） **パスワードを再設定しても、発行済みのセッションが失効しない**（`.speccheck/UC-13`・`UC-14` にも記載）                                                                                                                                                                                                                                                                                                                                 | `user-service.ts`（`update`）・`local-auth.ts`                                                                   |
-| I-05 | （**解消。手順9後半**: `TRUSTED_PROXY_HOPS`（既定 0。`X-Forwarded-For` を信頼しない）。dev_spec.md 4章 No.33。経路の確定後に、本番の値を決める） **接続元の識別に、クライアントが付けた `X-Forwarded-For` の先頭をそのまま使う**。ログインの試行回数の制限（失敗 5 回／15 分）を、毎回違う値を付けて回避できる。本番では、プロキシが付ける値に合わせる必要がある（`.speccheck/UC-13` にも記載）                                                                                                                                                                                         | `presentation/middleware.ts`（`clientKeyOf`）                                                                    |
+| I-05 | （**解消。手順9後半**: `TRUSTED_PROXY_HOPS`（既定 0。`X-Forwarded-For` を信頼しない）。dev_spec.md 4章 No.33。評価環境は、関数の URL が `X-Forwarded-For` を切り詰めるため、CloudFront の Function が入れるヘッダーを、`CLIENT_IP_HEADER` で読む。Issue #100・ADR-0010） **接続元の識別に、クライアントが付けた `X-Forwarded-For` の先頭をそのまま使う**。ログインの試行回数の制限（失敗 5 回／15 分）を、毎回違う値を付けて回避できる。本番では、プロキシが付ける値に合わせる必要がある（`.speccheck/UC-13` にも記載）                                                                                                                                                                                         | `presentation/middleware.ts`（`clientKeyOf`）                                                                    |
 | I-06 | **Web Push の配信状態が、通知ごとに 1 つ**（購読ごとではない）。購読が複数あり、一部だけ失敗すると、通知全体が `FAILURE` となり、次の JB-04 で、すでに届いた購読にも再配信される（二重配信。`.speccheck/UC-10`・`UC-23` にも記載）                                                                                                                                                                                                     | `notification-service.ts`（`deliverPending`）                                                                    |
 | I-07 | **通知の作成時に購読がなくても、JB-04 の次の実行で、Web Push は `SUCCESS`（試行 1）になる**。その後に購読した端末へは、その通知は配信されない                                                                                                                                                                                                                                                                                          | `notification-service.ts`（`deliverPending`。購読がない場合、`failure` が未設定のまま `SUCCESS` として保存する） |
 | I-08 | **取り込みの再試行は、ファイルの一覧の取得（`listFiles`）のみ**。個々のファイルの読み取り（`readFile`）の失敗は、再試行せず、そのファイルを失敗として数える（取り込み済みの記録は残さないため、次回の取り込みで再び対象になる）                                                                                                                                                                                                        | `ingestion-service.ts`（`listFilesWithRetry`・`processFile`）                                                    |
@@ -195,7 +197,7 @@
 
 ### ジョブ（JB-01〜JB-04）
 
-ジョブは `application/jobs/job-runner.ts`（`createJobRunner`）の同じ入口から実行する。スケジューラ（`scheduler.ts`）、開発用 API、テストのどれからも同じ呼び出しになる。
+ジョブは `application/jobs/job-runner.ts`（`createJobRunner`）の同じ入口から実行する。スケジューラ（`scheduler.ts`）、開発用 API、テスト、ジョブの Lambda（EventBridge。`runtime/job-lambda.ts`）のどれからも同じ呼び出しになる。
 
 | ID    | ジョブ     | 呼び出す処理                                                                   | 既定の実行間隔（`DEFAULT_SCHEDULE`） |
 | ----- | ---------- | ------------------------------------------------------------------------------ | ------------------------------------ |
@@ -203,6 +205,11 @@
 | JB-02 | 評価       | `EvaluationService.evaluateAll('SCHEDULED')`                                   | 5 分                                 |
 | JB-03 | 連携       | `FederationService.runPending()`                                               | 5 分                                 |
 | JB-04 | 通知の配信 | `NotificationService.deliverPending()`                                         | 1 分                                 |
+
+
+**Lambda での実行（Issue #76。ADR-0011）**: ジョブ専用の Lambda（`runtime/job-lambda.ts`。1 つ）を、EventBridge の 4 つのルール（`DEFAULT_SCHEDULE` と同じ間隔: JB-01 は 1 分・JB-02 は 5 分・JB-03 は 5 分・JB-04 は 1 分）が、入力 `{ "jobId": "JB-01" }` で起動する。実行の前に、DynamoDB のリース式ロック（`Main` の `JOBLOCK` / `job:{jobId}`。期限 360 秒）を取り、取れなければ、何もせずに終わる（`SKIPPED`）。失敗は例外を投げ、再試行はしない（次の周期で、再び実行される）。ローカルのスケジューラは、変えていない（ロックは、メモリの実装）。
+
+**デモのための合成データの生成（Issue #77。ADR-0012）**: ジョブ（JB-01〜JB-04）とは別に、擬似のロボット・環境センサーの Lambda（`runtime/demo-feed-lambda.ts`）を、EventBridge の 1 つのルールが 15 分ごとに起動し、ファイルサーバーのモックの S3（`robot/`・`environment-sensor/`）に、合成データのファイル（直近 4 区間の分。同じ区間は同じ内容）を置く。取り込み（JB-01）が、それを読む。S3 への書き込みだけの権限（DynamoDB・Cognito は使わない）。ファイルは、バケットの設定で、3 日で消える。
 
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
 
@@ -218,6 +225,7 @@
 | バックエンド   | Hono                                    | `^4.13.13`                      | 4.13.13                                       |
 |                | `@hono/node-server`                     | `^2.1.4`                        | 2.1.4                                         |
 |                | `@hono/aws-lambda`                      | `^1.0.1`                        | 1.0.1                                         |
+| AWS SDK（バックエンドの本番のアダプタ） | `@aws-sdk/client-dynamodb`・`lib-dynamodb`・`client-cognito-identity-provider`・`client-s3` | `^3.1147.0`・`^3.1147.0`・`^3.1148.0`・`^3.1148.0` | 3.1147.0・3.1147.0・3.1148.0・3.1148.0 |
 | スキーマ・検証 | Zod                                     | `^4.6.5`                        | 4.6.5                                         |
 | フロントエンド | React・React DOM                        | `^19.3.0`                       | 19.3.0                                        |
 |                | Vite                                    | `~8.3.1`                        | 8.3.3                                         |
@@ -227,10 +235,11 @@
 |                | Testing Library（react・dom）・jsdom    | `^16.3.3`・`^10.4.2`・`^30.1.2` | 16.3.3・10.4.2・30.1.2                        |
 | 静的解析       | ESLint・typescript-eslint・各プラグイン | `^9.39.5`・`^8.71.1`            | 9.39.5・8.71.1                                |
 |                | oxlint（jsx-a11y の検査のみ）           | `~1.84.0`                       | 1.84.0                                        |
-| ビルド         | esbuild（CSS の最小化）                 | `^0.28.0`                       | 0.28.2                                        |
+| ビルド         | esbuild（CSS の最小化。Lambda のコードのまとめ）   | `^0.28.0`                       | 0.28.2                                        |
+| IaC（infra/） | aws-cdk-lib・constructs・aws-cdk（CLI） | `^2.273.0`・`^10.8.1`・`^2.1145.0` | 2.273.0・10.8.1・2.1145.0 |
 |                | Prettier                                | `^3.9.9`                        | 3.9.9                                         |
 
-データベース・認証・インフラの SDK（`@aws-sdk/*` など）は、依存に含まれていない。TypeScript の厳格な設定（`strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`・`verbatimModuleSyntax`・`erasableSyntaxOnly` など）は、ルートの `tsconfig.json` にあり、各パッケージが継承する。TypeScript をそのまま実行するため、バックエンドは `node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts` で起動する（ビルドなし）。
+AWS SDK（`@aws-sdk/*`）は、バックエンドの依存（`src/backend`）。IaC のライブラリ `aws-cdk-lib` は、`infra/` の依存。TypeScript の厳格な設定（`strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`・`verbatimModuleSyntax`・`erasableSyntaxOnly` など）は、ルートの `tsconfig.json` にあり、各パッケージが継承する。TypeScript をそのまま実行するため、バックエンドは `node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/main.ts` で起動する（ビルドなし）。
 
 ## 起動の仕方（ローカル）
 
@@ -252,17 +261,18 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 | 項目                     | 設計（本番の想定）                        | 実装の状態                                                                                                                          |
 | ------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| データベース             | DynamoDB                                  | 未実装（`dynamodb` の指定は `ConfigError`）。ローカルは、メモリ＋ JSON ファイル                                                     |
-| 認証                     | Cognito                                   | 未実装。アプリ内の認証（`createLocalAuth`）                                                                                         |
-| 実行                     | Lambda＋ EventBridge                      | `createLambdaHandler`（`@hono/aws-lambda` の `handle`）はあるが、本番モードの組み立てが失敗する。EventBridge からの起動コードはない |
-| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ）                                                                                                              |
+| データベース             | DynamoDB                                  | **実装済み**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS で確認済み（Lambda から。バックアップ・復元・全データの削除と再作成を含む））。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
+| 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。AWS で確認済み（手元のバックエンドから、Lambda からも）。IaC は `SfmData`（ユーザープール・クライアント）。ローカルの既定は、アプリ内の認証（`createLocalAuth`） |
+| 実行                     | Lambda＋ EventBridge                      | API の Lambda（`createLambdaHandler`。`@hono/aws-lambda` の `handle`。ADR-0009）と、ジョブの Lambda（`createJobLambdaHandler`。EventBridge の 4 つのルールが起動する。Issue #76。ADR-0011） |
+| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）。実サーバーのアダプタは未実装（Issue #119） |
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
 | Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
 | 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
-| ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | なし（`scripts/` は空）                                                                                                             |
+| ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-development.yml`・`deploy-production.yml`（手動実行。本番サイトは `main` だけ・承認が必要。Issue #117。本番サイトは、AWS に未作成）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
+| スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測も、実行済み（長時間アクセスがないあとの最初のログインは、約 3.2 秒。既知の制約として許容。test.spec.md 13.3） |
 
-差の詳細は、「設計との差分」（D-01〜D-19）を参照する。
+差の詳細は、「設計との差分」（D-01〜D-22）を参照する。
 
 # ユースケース図
 
@@ -727,7 +737,7 @@ classDiagram
     +UserId userId
     +string userName
     +string role
-    +string passwordHash
+    +string passwordHash? ローカルのみ。Cognito では持たない
     +IsoDateTime lastLoginAt?
     +IsoDateTime createdAt
   }
@@ -956,19 +966,19 @@ flowchart LR
 
 | ポート                                     | 定義                            | 実装済みのアダプタ                                                                                                                                              | 本番の想定（未実装）                          |
 | ------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Repository（13 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）                                                                                           | DynamoDB                                      |
-| `AuthPort`                                 | `ports/auth-port.ts`            | `local/local-auth.ts`（`createLocalAuth`）                                                                                                                      | Cognito                                       |
-| `PasswordHasherPort`                       | `ports/password-hasher-port.ts` | `local/password-hasher.ts`（scrypt）                                                                                                                            | Cognito が持つため不要                        |
+| Repository（13 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）、`dynamodb/dynamodb-repositories.ts`（DynamoDB。ADR-0007）                                | DynamoDB（実装済み。契約テストは共通）        |
+| `AuthPort`                                 | `ports/auth-port.ts`            | `local/local-auth.ts`（`createLocalAuth`）、`cognito/cognito-identity.ts`（`createCognitoIdentity`。ADR-0008）                                                  | Cognito（実装済み。契約テストは共通）         |
+| `PasswordHasherPort`                       | `ports/password-hasher-port.ts` | `local/password-hasher.ts`（scrypt）。資格情報の管理は、`CredentialPort`（`local/local-credentials.ts`・`cognito/cognito-identity.ts`）が担う                    | Cognito が持つため、記録には持たない          |
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
-| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
+| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）・`s3/s3-file-source.ts`（S3 のモック。Lambda 用。`FILE_SERVER_S3_BUCKET` を指定したときに使う。Issue #77。ADR-0012）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON・CSV の FormatProfile）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | 農業情報基盤用（Q-005）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
 | `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**どこにも接続されていない**                                                                                        | シークレット管理サービス                      |
 
-ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイルの 2 実装に同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
+ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 実装に、同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
 
 ## 実行構成
 
@@ -981,7 +991,7 @@ flowchart LR
   NODE["Node サーバー 127.0.0.1:8787<br>serve と Hono アプリ<br>runtime/main.ts"]
   CT["Container<br>コンポジションルート"]
   REPO["LocalRepositories<br>メモリと store.json"]
-  FS["ファイルサーバーのモック<br>FILE_SERVER_DIR 配下"]
+  FS["ファイルサーバーのモック<br>FILE_SERVER_DIR 配下（Lambda は S3）"]
   FD["農業情報基盤のモック"]
   WP["Web Push のダミー"]
   CK["操作できる時計"]
@@ -1009,24 +1019,23 @@ flowchart LR
 ```mermaid
 flowchart LR
   USER["利用者のブラウザ"]
-  HOST["Amplify Hosting<br>フロントエンドの配信<br>未実装"]
-  LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ"]
-  EB["EventBridge<br>ジョブの起動<br>未実装"]
-  DDB["DynamoDB<br>未実装"]
-  COG["Cognito<br>未実装"]
+  HOST["S3 + CloudFront<br>フロントエンドの配信と、/api/*・/health の転送<br>infra/ に実装済み"]
+  LAM["Lambda 関数の URL<br>runtime/lambda.ts の handler<br>同じ Hono アプリ（APP_MODE=production）"]
+  EB["EventBridge<br>4 つのルール（1・5・5・1 分）"]
+  JOB["Lambda（ジョブ）<br>runtime/job-lambda.ts の handler<br>JobRunner の同じ入口"]
+  DDB["DynamoDB<br>infrastructure/dynamodb/"]
+  COG["Cognito<br>infrastructure/cognito/"]
 
   USER --> HOST
-  USER --> LAM
-  EB -.-> LAM
-  LAM -.-> DDB
-  LAM -.-> COG
-
-  classDef todo stroke-dasharray: 5 5
-  class HOST,EB,DDB,COG todo
+  HOST --> LAM
+  EB --> JOB
+  LAM --> DDB
+  LAM --> COG
+  JOB --> DDB
 ```
 
-- `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。`APP_MODE=production` では、`createContainer` が `ConfigError` を投げるため、呼び出しがエラーになる
-- 実装として存在するのは、実線の Lambda ハンドラのみ。点線・破線の部分（EventBridge からのジョブ起動、DynamoDB、Cognito、Amplify Hosting）は、コードも IaC もない
+- `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。設定は `parseLambdaConfig`（`APP_MODE`・`PERSISTENCE` の明示が必須。`SEED_MODE` は使えない。開発用 API・スケジューラは常に無効）。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009）
+- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS で確認済み**（2026-10-20。4 つのルールが周期どおりに起動し、ジョブが `EXECUTED` で終わる。ADR-0011 の「検証」））。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
 
 ## フロントエンドの構成
 
@@ -1112,12 +1121,18 @@ flowchart LR
 
 | 変数                                                            | 既定                      | 内容                                                                                                                                            |
 | --------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_MODE`                                                      | `local`                   | `local`／`test`／`production`。`production` は起動できない（アダプタ未実装）。`production` 以外は、開発用 API が有効                            |
+| `APP_MODE`                                                      | `local`                   | `local`／`test`／`production`。`production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須（ADR-0009）。`production` では、開発用 API は使えない                            |
 | `HOST`・`PORT`                                                  | `127.0.0.1`・`8787`       | 待ち受け                                                                                                                                        |
-| `PERSISTENCE`                                                   | `memory`                  | `memory`／`file`／`dynamodb`（未実装で、指定すると `ConfigError`）                                                                              |
+| `PERSISTENCE`                                                   | `memory`                  | `memory`／`file`／`dynamodb`（Repository を DynamoDB にする。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須）                                                                              |
+| `DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`            | なし                      | `PERSISTENCE=dynamodb` のとき必須（なければ `ConfigError`）。DynamoDB のテーブル名（テーブルは IaC の `SfmData` が作る） |
+| `DYNAMODB_ENDPOINT`・`AWS_REGION`                               | なし                      | DynamoDB の接続先（DynamoDB Local など。ローカルの確認用。指定すると、起動時にテーブルを作り、ダミーの認証情報を使う。AWS では指定しない）、リージョン（Lambda では実行環境が設定）。`PERSISTENCE=dynamodb` では、`DEV_API_ENABLED` は使えない |
+| `AUTH_PROVIDER`                                                 | `local`                   | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない（最初のユーザーは、`pnpm initial-user` で作る） |
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
+| `FILE_SERVER_S3_BUCKET`                                         | なし                      | ファイルサーバーのモックの S3 のバケット名。指定すると、`FILE_SERVER_DIR` ではなく、S3 の `<バケット>/<取り込み元>/` を使う（評価環境の Lambda。Issue #77。ADR-0012）                                                                                                       |
 | `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
+| `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
+| `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123。ADR-0014） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE`                    | なし（1 ロール `worker`） | ロールと権限の定義、初期ユーザーのロール                                                                                                        |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
@@ -1272,9 +1287,9 @@ sequenceDiagram
   FS->>REP: federation.enqueue status<br>PENDING
   MS->>AU: record CREATE manual-entry after<br>に entry
   AU->>REP: auditLogs.add
-  MS->>EV: evaluateAll MANUAL_ENTRY 4.3
-  MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス
-  MS-->>MH: entry と viewpointStatuses
+  MS->>EV: evaluateAffected MANUAL_ENTRY 4.3<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
+  MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス 観点ごとに並列 Issue 79
+  MS-->>MH: entry と viewpointStatuses と evaluation
   MH-->>API: 201 JSON
   API-->>FORM: ManualEntrySaveResponse
   FORM->>FORM: notifyUnreadChanged<br>でヘッダーの未読件数を読み直し<br>直前の設備とカテゴリを<br>localStorage に記憶し 入力をクリア
@@ -1303,10 +1318,10 @@ sequenceDiagram
     EV->>REP: observations.findForEvaluation(ids,<br>now マイナス 90 日, now)
     EV->>DOM: evaluateScope 観点 × 窓ごとに<br>aggregateMeasures と<br>evaluateHorizon
     DOM-->>EV: EvaluationDraft の配列
-    EV->>REP: evaluations.saveLatest<br>各結果を上書き
+    EV->>REP: evaluations.saveLatest<br>各結果を並列に上書き Issue 79
+    EV->>REP: evaluations.getLastStatusChange<br>観点ごとの直前の変化を並列に読む Issue 79
     loop 観点ごと 長期 7 日を基準
       EV->>EV: combineHorizonStatuses(短期,<br>長期) で最終ステータス
-      EV->>REP: evaluations.getLastStatusChange
       alt 前回と同じ
         Note over EV: 何もしない
       else 変わった
@@ -1689,7 +1704,7 @@ sequenceDiagram
     APP->>US: create(input, actor) 権限<br>user:manage
     US->>US: assertKnownRole<br>定義されていないロールは<br>VALIDATION_ERROR
     US->>UR: get(userId) 重複は CONFLICT 409
-    US->>UR: save passwordHash は<br>hashPassword で scrypt
+    US->>UR: save（パスワードは CredentialPort に預ける。<br>ローカルは scrypt のハッシュを記録に、<br>Cognito は Cognito に持つ）
     US->>AU: record CREATE after は<br>PublicUser
   else ユーザーの修正 PUT /users/ID
     APP->>US: update(userId, input, actor)
@@ -2482,7 +2497,7 @@ flowchart LR
 | シードデータ            | `SEED_MODE=DEMO`: デモの設備（ハウス 1・収穫ロボット 1・環境センサー 1）と、3 日分の合成データ（温度の基準 26℃で「注意」になる）、手動入力、評価。`reset(EQUIPMENT)`: 設備のみ                                                                                                    | `runtime/container.ts`（`seedDemoData`）・`synthetic-data.ts`                                 |
 | ダミーの認証情報        | 結合テスト: `test-user`／`Dummy-Passw0rd-test`、E2E: `e2e-user`／`Dummy-Passw0rd-e2e`。いずれも、明らかにダミーとわかる値                                                                                                                                                         | `tests/support/test-context.ts`・`tests/e2e/support/e2e-user.ts`                              |
 | 画面の単体テストの補助  | `createFakeFetch(handler)`（呼び出しの記録つきの `fetch` のスタブ。`METHOD /path` → 応答）、`createMemorySession`、`management-frontend.ts` の `App` の描画（全権限・権限なしのログイン）                                                                                         | `tests/support/frontend.ts`・`management-frontend.ts`                                         |
-| Repository の契約テスト | `describe.each` で、メモリとファイル永続化の 2 実装に、同じテストを適用する（DynamoDB の実装を追加する際に、同じテストを適用する前提）                                                                                                                                            | `tests/integration/repository-contract.test.ts`                                               |
+| Repository の契約テスト | `describe.each` で、メモリ・ファイル永続化・DynamoDB（DynamoDB Local）の 3 実装に、同じテスト（実装ごとに 39 件）を適用する。DynamoDB 固有の振る舞い（時刻の正規化・併合順・カウンター・読み取りの上限・再送）は、`tests/integration/dynamodb-adapter.test.ts`                                                                                                                                            | `tests/integration/repository-contract.test.ts`                                               |
 
 結合テストの組み立て（`createTestContext`）は、一時ディレクトリをファイルサーバーのモックのルートとし、`parseConfig`（`APP_MODE=test`・`PERSISTENCE=memory`）→ `createContainer`（固定した時計・連番の ID）→ `createApp` を作り、`login()`・`request()`・`placeFixture()`・`placeFile()` を提供する。
 
@@ -2582,6 +2597,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `pnpm test:unit`                    | `vitest run --coverage`（単体・結合。カバレッジの計測としきい値の検査つき）                        |
 | `pnpm test:e2e`                     | `playwright test`                                                                                  |
 | `pnpm test:stress`                  | `playwright test -c playwright.stress.config.ts`（負荷テスト。`pnpm test` には含めない）           |
+| `pnpm test:smoke`                   | `playwright test -c playwright.smoke.config.ts`（評価環境（AWS）に対する、スモークテスト・性能の実測。手動実行。`pnpm test` には含めない） |
 | `pnpm lint`                         | `eslint .`（依存の向きの検査を含む）                                                               |
 | `pnpm typecheck`                    | ルート・shared・backend・frontend・tests の `tsc`                                                  |
 | `pnpm format` / `pnpm format:check` | Prettier（`docs/`・`README.md`・`AGENTS.md`・`tests/fixtures/` などは `.prettierignore` で対象外） |

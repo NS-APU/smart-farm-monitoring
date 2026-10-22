@@ -79,6 +79,13 @@ describe('POST /dev/observations', () => {
   async function withEquipment() {
     const context = await createTestContext();
     await post(context, '/dev/reset', { seed: 'EQUIPMENT' });
+    // リセットは、時計を実際の現在時刻に戻す。観測値の日時は、固定（TEST_NOW）のため、評価の対象の期間（7 日）が、
+    // テストを実行する日によって変わり、ある日から失敗する（2026-10-16 から）。時計を TEST_NOW に固定する
+    await context.request('/dev/clock', {
+      method: 'PUT',
+      token: await context.login(),
+      body: { at: TEST_NOW.toISOString(), mode: 'FREEZE' },
+    });
     return context;
   }
 

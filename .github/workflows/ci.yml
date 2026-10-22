@@ -62,6 +62,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # DynamoDB アダプタの契約テストが使う、DynamoDB Local（AWS の公式のイメージ 3.3.1）を、コンテナで起動する。
+      # - タグではなく、ダイジェスト（内容のハッシュ）で固定する（タグは、あとから別のイメージに付け替えられるため）。
+      #   更新するときは、新しいタグのダイジェストに差し替える（`public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local` で確認）。
+      # - 取得先は、3 つ。ECR Public の匿名の取得には、GitHub のランナーの共有の IP からの取得量の上限があり、
+      #   `toomanyrequests: Data limit exceeded` で失敗することがある（Issue #95 の PR で発生）。同じダイジェストのため、
+      #   どこから取得しても、同じ内容。上から順に、各 3 回まで試す。
+      - name: DynamoDB Local を起動する
+        run: |
+          digest=sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab # 3.3.1
+          for repository in public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local mirror.gcr.io/amazon/dynamodb-local docker.io/amazon/dynamodb-local; do
+            for attempt in 1 2 3; do
+              if docker pull "${repository}@${digest}"; then
+                docker run --detach --name dynamodb-local --publish 8000:8000 "${repository}@${digest}"
+                exit 0
+              fi
+              sleep $((attempt * 10))
+            done
+          done
+          echo "::error::DynamoDB Local のイメージを、どの取得先からも取得できませんでした"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -73,7 +93,10 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
       # 単体・結合のテスト。カバレッジの閾値（行・分岐・関数・文が 95% 以上）を下回ると失敗する。
+      # DYNAMODB_ENDPOINT: 上の DynamoDB Local。契約テストを、DynamoDB のアダプタにも適用する（接続できるまで待つ）。
       - run: pnpm test:unit
+        env:
+          DYNAMODB_ENDPOINT: http://localhost:8000
 
   build:
     name: build

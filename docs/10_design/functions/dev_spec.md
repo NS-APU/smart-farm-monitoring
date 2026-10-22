@@ -23,6 +23,7 @@ smart-farm-monitoring/
 ├── vitest.config.ts              # 単体・結合テスト、カバレッジ
 ├── playwright.config.ts          # E2E テスト
 ├── playwright.stress.config.ts   # 負荷テスト（`pnpm test:stress`。6.5）
+├── playwright.smoke.config.ts    # サーバーレス環境のスモークテスト・性能の実測（`pnpm test:smoke`。手動実行。6.6）
 ├── dev-ports.ts                  # 開発サーバーのポート（Vite 5173・バックエンド 8787）。playwright.config.ts と vite.config.ts が共有
 ├── .env.example                  # 環境変数の一覧（ダミー値）
 ├── src/
@@ -43,6 +44,7 @@ smart-farm-monitoring/
 │   ├── integration/                      # 結合テスト（Hono アプリ・サービス・Repository の契約）
 │   ├── e2e/                              # E2E テスト（Playwright。UC-NN-<英語の概略名>.ts と scenario-<英語の概略名>.ts。補助は support/）
 │   ├── stress/                           # 負荷テスト（Playwright。stress-NN-<英語の概略名>.ts。補助は support/。6.5）
+│   ├── smoke/                            # サーバーレス環境のスモークテスト・性能の実測（Playwright。smoke-NN-<英語の概略名>.ts。補助は support/。6.6）
 │   ├── fixtures/                         # 合成データ（ファイルサーバーのモック用のファイル）
 │   └── support/                          # テストの補助（組み立て・データ生成・API のスタブ・画面の単体テストの描画）
 ├── scripts/                      # 補助スクリプト（いまはなし）
@@ -97,6 +99,7 @@ smart-farm-monitoring/
 | `pnpm test:unit` / `pnpm test:e2e` | それぞれのみ |
 | `pnpm data:backup` | データファイル（`PERSISTENCE=file`）のバックアップ・一覧・復元（`backup`・`list`・`restore`。手順は [backup-restore.md](../../40_operations/backup-restore.md)） |
 | `pnpm test:stress` | 負荷テスト（大量データの状態で、全ユースケースの操作の応答時間を計測する。6.5。結果は `./test-result/stresstest.result.log`） |
+| `pnpm test:smoke` | サーバーレス環境（評価環境）のスモークテスト・性能の実測（6.6。手動実行。結果は `./test-result/smoketest.result.log`） |
 | `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint と oxlint（jsx-a11y）、型検査（共通・backend・frontend・tests）、Prettier |
 | `pnpm dev:backend` / `pnpm dev:frontend` / `pnpm build` | ローカルのバックエンド、Vite の開発サーバー、フロントエンドのビルド |
 
@@ -110,7 +113,7 @@ smart-farm-monitoring/
 |----|--------------|------|
 | ドメイン | `src/backend/domain/` | `evaluation/`（観点の定義、メトリクスの算出、判定、集計、診断メッセージ、評価の単位ごとの評価）、`notification-rules.ts`、`observation-quality.ts`、`status-code.ts`。**純粋関数**。時刻・乱数・DB・ネットワークを使わない |
 | アプリケーション | `src/backend/application/` | ユースケース（サービス）、ポートの定義（`ports/`）、ジョブ、スケジューラ、動作設定（`settings.ts`）、初期データ |
-| インフラ | `src/backend/infrastructure/` | ポートの実装。`local/`（ローカルのアダプタ）、`format-profiles/`、`logging/`。本番のアダプタ（DynamoDB・Cognito・実ファイルサーバー等）は、同じポートの実装として、ここに追加する |
+| インフラ | `src/backend/infrastructure/` | ポートの実装。`common/`（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割。ローカルと DynamoDB が共有）、`local/`（ローカルのアダプタ）、`dynamodb/`（DynamoDB の Repository。ADR-0007）、`cognito/`（Cognito の認証と資格情報。ADR-0008）、`format-profiles/`、`logging/`。そのほかの本番のアダプタ（Cognito・実ファイルサーバー等）は、同じポートの実装として、ここに追加する |
 | 提示 | `src/backend/presentation/` | Hono アプリ、ルート一覧、領域ごとのハンドラ（`handlers.ts`・`viewpoint-handlers.ts`・`manual-entry-handlers.ts`、設定・管理は `admin-handlers.ts` が、`equipment-`・`status-code-`・`criteria-`・`user-`・`ingestion-`・`push-subscription-handlers.ts` をまとめる）、ミドルウェア（`middleware.ts`）、認証・認可の補助（`auth-guards.ts`）、本文・クエリの読み取り（`request-parsing.ts`）、ETag（`etag.ts`）、共通のエラー形式、開発用 API（`dev-routes.ts`）。本番の経路は、インフラ層に依存しない（ESLint で強制。開発用 API の `dev-routes.ts`・`api-deps.ts` を除く） |
 | 実行形態 | `src/backend/runtime/` | 環境変数の検証（`config.ts`）、組み立て（`container.ts`）、Node サーバー、Lambda ハンドラ、起動のエントリ |
 
@@ -136,13 +139,15 @@ smart-farm-monitoring/
 |--------|------|----------------------------|------------------|
 | `FileSourcePort` | ファイルの一覧・読み取り・接続テスト（読み取り専用） | `mock-file-server.ts`: ローカルのディレクトリ（`<ルート>/<取り込み元>/`）。停止・遅延を再現 | SFTP・S3・HTTPS 等（Q-002）。モックと同じ契約テストを適用 |
 | `FormatProfile` / `FormatProfileRegistry` | ファイルの解釈（レイアウトと項目の対応づけ。版と状態） | `format-profiles/declarative-profile.ts`: 宣言的な設定（JSON）で、ロボット JSON・環境センサー CSV を読む | 確定仕様の FormatProfile を追加・差し替え（FR-1.12） |
-| `Repository`（13種） | 永続化。`Repositories` にまとめる | `local/local-repositories.ts`（組み立て）と `local/repositories/`（集約ごとの実装）: メモリ + JSON ファイル（3.4） | DynamoDB（物理設計は [data-model.md](../data/data-model.md) 2章。対応は 4.3） |
+| `Repository`（13種） | 永続化。`Repositories` にまとめる | `local/local-repositories.ts`（組み立て）と `local/repositories/`（集約ごとの実装）: メモリ + JSON ファイル（3.4） | `dynamodb/dynamodb-repositories.ts`（組み立て）と、集約ごとの実装: DynamoDB（物理設計は [data-model.md](../data/data-model.md) 2章・[ADR-0007](../adr/0007-dynamodb-table-design.md)。対応は 4.3） |
 | `NotifierPort` | Web Push の配信（画面内の通知は、通知の保存そのもの） | `dummy-web-push.ts`: 配信を記録。成功・失敗・購読無効を再現 | Web Push の配信サービス。メール等の追加 |
 | `FederationPort` | 農業情報基盤への送信 | `mock-federation.ts`: 受け取りを記録。成功・停止・遅延・拒否を再現 | 農業情報基盤のアダプタ（Q-005） |
-| `AuthPort` | 認証（誰か）。ロールから権限への変換は、アプリケーション層の `AccessPolicy` | `local-auth.ts`: アプリ内のユーザーID・パスワード、セッション、試行回数の制限（3.6） | Amazon Cognito |
+| `AuthPort` | 認証（誰か）。ロールから権限への変換は、アプリケーション層の `AccessPolicy` | `local-auth.ts`: アプリ内のユーザーID・パスワード、セッション、試行回数の制限（3.6）。`cognito/cognito-identity.ts`: Amazon Cognito（ADR-0008。`AUTH_PROVIDER=cognito`） | Amazon Cognito（実装済み） |
 | `ClockPort` | 現在時刻と待機（`sleep`） | `clocks.ts`: システム時計、操作できる時計（固定・進行） | （同じ） |
 | `SecretPort` | 秘密情報の読み出し | `env-secret.ts`: 環境変数 `SECRET_<参照名>` | シークレット管理サービス |
-| `PasswordHasherPort` | パスワードのハッシュ化・検証（ユーザー管理・初期ユーザー） | `password-hasher.ts`: scrypt（ソルトつき） | Cognito へ移行後は、ユーザーのパスワードを持たない |
+| `PasswordHasherPort` | パスワードのハッシュ化（ローカルの資格情報が使う） | `password-hasher.ts`: scrypt（ソルトつき） | Cognito では、使わない（ユーザーのパスワードを持たない） |
+| `CredentialPort` | 資格情報（パスワード）の管理（作成・再設定・削除）。ユーザー管理（UC-14）・最初のユーザーが使う | `local-credentials.ts`: ハッシュを、ユーザーの記録に持つ | `cognito/cognito-identity.ts`: Cognito（`AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`） |
+| `LoginThrottlePort` | ログインの試行回数の制限（接続元ごと。複数の実行環境で共有する実装が使う） | `in-memory-login-throttle.ts`: メモリ（ローカルの認証は、`local-auth.ts` が自前で持つ） | `dynamodb/login-throttle.ts`: DynamoDB（`LOGINFAIL`。TTL で自動削除） |
 | `IdGeneratorPort` | 識別子の生成 | `ids.ts`: UUID、連番（テスト用） | （同じ） |
 | `Logger` | 構造化ログ（JSON） | `logging/json-logger.ts`: 標準出力、秘密情報らしい名前の項目をマスク | Powertools の Logger 等への差し替え可 |
 
@@ -190,7 +195,10 @@ flowchart LR
 | 形態 | 入口 | 用途 |
 |------|------|------|
 | Node サーバー | `runtime/main.ts`（`pnpm dev:backend`）。`startNodeServer()`（`runtime/node-server.ts`） | ローカル開発、E2E、負荷テスト |
-| Lambda ハンドラ | `runtime/lambda.ts`（`handler`）。`@hono/aws-lambda` の `handle` | 本番（関数の URL）。組み立ては最初の呼び出しで1回。`APP_MODE`・`PERSISTENCE` の明示が必須（未設定は `ConfigError`。`PERSISTENCE=file` は拒否。開発用 API は、指定にかかわらず無効）。初期化に失敗しても、失敗を保持せず、次の呼び出しで再試行する。本番のアダプタが未実装の間は、`APP_MODE=production` の呼び出しが `ConfigError` になる |
+| Lambda ハンドラ | `runtime/lambda.ts`（`handler`）。`@hono/aws-lambda` の `handle` | 本番（関数の URL）。組み立ては最初の呼び出しで1回。`APP_MODE`・`PERSISTENCE` の明示が必須（未設定は `ConfigError`。`PERSISTENCE=file` は拒否。開発用 API・スケジューラは、指定にかかわらず無効。`SEED_MODE` は `ConfigError`）。初期化に失敗しても、失敗を保持せず、次の呼び出しで再試行する。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009） |
+| 合成データを生成する Lambda ハンドラ | `runtime/demo-feed-lambda.ts`（`handler`）。ファイルの内容は `infrastructure/local/demo-feed-files.ts`（`buildDemoFeedFiles`）、定数は `application/demo/demo-feed-schedule.ts` | EventBridge が 15 分ごとに起動し、ファイルサーバーのモックの S3 に、直近 4 区間の合成データのファイル（ロボットの JSON・環境センサーの CSV。区間の時刻から決まる）を置く（Issue #77。ADR-0012）。環境変数は `FILE_SERVER_S3_BUCKET` のみ。S3 への書き込みだけ（DynamoDB・Cognito は使わない） |
+| デモデータのコマンド | `runtime/demo-data-main.ts`（`pnpm demo-data seed` / `reset [--yes]`）。ロジックは `runtime/demo-data-cli.ts` | 評価環境のデモデータを、手元で、投入（`SEED_MODE=DEMO` と同じ内容。設備があれば何もしない）・リセット（ユーザー・`LOGINFAIL`・`JOBLOCK` 以外の全データと、S3 のファイルを消す。`--yes` がなければ、件数だけ示す。S3 を先に消し、失敗したら DynamoDB は消さない）する（Issue #77。ADR-0012）。AWS のエラーは、名前だけを出力する |
+| ジョブの Lambda ハンドラ | `runtime/job-lambda.ts`（`handler`） | EventBridge の入力 `{ jobId }` で、JB-01〜JB-04 を実行する（Issue #76。ADR-0011）。組み立ては、API の Lambda と同じ（`parseLambdaConfig`）。実行の前に、`job:{jobId}` のロック（DynamoDB のリース式。期限 360 秒）を取り、取れなければ、実行しない（`SKIPPED`）。失敗は例外を投げる（再試行しない）。入力が不正なときは、内容を出さずに拒否する |
 | 組み立て | `runtime/container.ts`（`createContainer(config, overrides)`） | 設定に応じて、アダプタを選び、サービスを組み立てる。テストは、時計・識別子・ログ・動作設定を差し替えて使う |
 
 ### 3.3 環境変数
@@ -199,16 +207,19 @@ flowchart LR
 
 | 変数 | 既定 | 内容 |
 |------|------|------|
-| `APP_MODE` | `local` | `local`／`test`／`production`。`production` は、アダプタが未実装のため、起動できない。開発用 API は、`DEV_API_ENABLED=true` と明示した場合だけ有効（`production` では、指定にかかわらず無効） |
+| `APP_MODE` | `local` | `local`／`test`／`production`。`production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須（満たさなければ `ConfigError`。ADR-0009）。開発用 API は、`DEV_API_ENABLED=true` と明示した場合だけ有効（`production` では、DynamoDB が必須で、`DEV_API_ENABLED=true` は `ConfigError`） |
 | `HOST`・`PORT` | `127.0.0.1`・`8787` | Node サーバーの待ち受け（`PORT=0` で空きポート） |
-| `PERSISTENCE` | `memory` | `memory`（メモリのみ）／`file`（`DATA_FILE` の JSON ファイル）／`dynamodb`（未実装） |
+| `AUTH_PROVIDER` | `local` | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用不可 |
+| `PERSISTENCE` | `memory` | `memory`（メモリのみ）／`file`（`DATA_FILE` の JSON ファイル）／`dynamodb`（DynamoDB。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須。ローカルの確認用に、`DYNAMODB_ENDPOINT`（DynamoDB Local）。`DEV_API_ENABLED` とは併用不可） |
 | `DATA_FILE` | `.local-data/store.json` | ファイル永続化の保存先（Git 管理外） |
+| `FILE_SERVER_S3_BUCKET` | なし | ファイルサーバーのモックの S3 のバケット名。指定すると、`FILE_SERVER_DIR` ではなく、S3 の `<バケット>/<取り込み元>/` を使う（評価環境の Lambda。Issue #77。ADR-0012）。S3 版には、停止・遅延の再現がない |
 | `FILE_SERVER_DIR` | `.local-data/file-server` | ファイルサーバーのモックのルート。`<ルート>/robot/`・`<ルート>/environment-sensor/` に合成データのファイルを置く |
 | `SEED_MODE` | `NONE` | `DEMO`: デモの設備・合成データ（3日分）・手動入力・評価・通知を投入（設備が1件もないときのみ） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし | 最初のユーザー（4章 No.2）。3つそろえて指定する。パスワードは、パスワードの条件（FR-9.2）を満たす |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 1ロール `worker`（全権限。起動時に警告のログ） | ロールと権限の割り当て（4章 No.1）。初期ユーザーのロールの既定は、ユーザー管理の権限を持つ最初のロール（なければ、`INITIAL_USER_ROLE` の指定が必須） |
 | `DEV_API_ENABLED` | `false` | 開発用 API（3.8）を有効にするか。既定は無効。E2E（`playwright.config.ts`）・結合テスト（`tests/support/test-context.ts`）では、明示的に `true` にする。有効なときは、起動時に警告のログを出す。時刻を操作できる時計は、有効なときだけ作る（無効なときは、システム時計） |
-| `TRUSTED_PROXY_HOPS` | `0` | 信頼するプロキシの段数（0〜10）。0 は、`X-Forwarded-For` を信頼せず、接続情報（Node: 接続元のアドレス、Lambda: イベントの `sourceIp`）を使う。N は、`X-Forwarded-For` の末尾から N 番目の値（信頼するプロキシが付けた値）を、ログインの試行回数の制限の接続元とみなす（値の数が N に満たなければ使わない）。E2E は 1 |
+| `TRUSTED_PROXY_HOPS` | `0` | 信頼するプロキシの段数（0〜10）。0 は、`X-Forwarded-For` を信頼せず、接続情報（Node: 接続元のアドレス、Lambda: イベントの `sourceIp`）を使う。N は、`X-Forwarded-For` の末尾から N 番目の値（信頼するプロキシが付けた値）を、ログインの試行回数の制限の接続元とみなす（値の数が N に満たなければ使わない）。E2E は 1。**CloudFront → 関数の URL の構成では、`X-Forwarded-For` が切り詰められるため、使わない**（ADR-0010） |
+| `CLIENT_IP_HEADER` | 未指定 | 利用者の IP が入っているヘッダーの名前（英数字とハイフン。小文字にして使う）。指定すると、そのヘッダーの値（IP として正しいときだけ）を、ログインの試行回数の制限の接続元とみなす（`TRUSTED_PROXY_HOPS`・接続情報より優先）。評価環境は、CloudFront の Function が入れる `x-sfm-viewer-ip`（ADR-0010） |
 | `INGESTION_STOP_NOTIFICATION_ENABLED` | `true` | 新しいデータが届かない取り込み元を、「データ取得停止」として通知するか（4章 No.34） |
 | `INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED` | `false` | ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（4章 No.35） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS` | `false`・`30` | サーバー内でスケジューラを動かすか |
@@ -221,8 +232,8 @@ flowchart LR
 
 - `infrastructure/local/local-store.ts`: コレクション（キー → 値の Map）を持ち、変更を一定時間（既定 300 ms）まとめて、JSON ファイルへ書く（一時ファイルに書いてから置き換える）。読み込み時に、**各値をスキーマで検証**する（壊れたデータを内部に渡さない）。`PERSISTENCE=memory` ではファイルを使わない
 - `infrastructure/local/local-repositories.ts`: 13種の Repository を組み立てる。集約ごとの実装は `infrastructure/local/repositories/`（観測値・通知・取り込みと連携・設備などのマスタ・評価・手動入力と変更履歴・ユーザーと購読）にあり、コレクションの上に実装する。観測値は、設備ごとの索引と、計測日時の順の索引（一意キーと計測日時。保存した新しい一意キーは、次の参照でまとめて加える。読み込みの直後に作る）を持ち、一覧の既定の並べ替え（計測日時）は、全件を並べ替えず、索引をたどって先頭のページだけを取り出す。一覧は、サーバー側で絞り込み・並べ替え・ページ分割する（カーソルは、位置を符号化した不透明な文字列。不正なカーソルは入力不正）
-- DynamoDB の実装は、**同じ `Repositories` の別実装**として追加できる。DynamoDB ローカル等の追加パッケージは使わない。**契約テスト**（`tests/integration/repository-contract.test.ts`）を、メモリ・ファイルの両方に適用している。DynamoDB の実装にも、同じテストを適用する
-- 既知の差（DynamoDB 実装時に対応）: 観測値の保存と連携キューへの追加は、本番ではトランザクション書き込みで同時に行う（ADR-0004）。ローカルは別々の呼び出し
+- DynamoDB の実装（`infrastructure/dynamodb/`。Issue #73）は、**同じ `Repositories` の別実装**。AWS SDK（`@aws-sdk/client-dynamodb`・`@aws-sdk/lib-dynamodb`）は、このアダプタだけが使う。**契約テスト**（`tests/integration/repository-contract.test.ts`）を、メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 つに適用している（手順は [commands.md](../../00_project/commands.md)）。DynamoDB 固有の振る舞いは、`tests/integration/dynamodb-adapter.test.ts`
+- 既知の差: 観測値の保存と連携キューへの追加は、本番ではトランザクション書き込みで同時に行う（ADR-0004）。ローカルは別々の呼び出し。DynamoDB のアダプタ（Issue #73）も、Repository ごとの呼び出しのため、別々（同時に書く対応は、取り込みの組み立てを AWS に合わせるときに行う）
 
 ### 3.5 モックの外部サービス
 
@@ -236,7 +247,7 @@ flowchart LR
 
 ### 3.6 認証のローカル実装（`AuthPort`）
 
-`infrastructure/local/local-auth.ts`。Cognito への差し替えは、`AuthPort` の別実装の追加で行う。
+`infrastructure/local/local-auth.ts`。Cognito 版は、`infrastructure/cognito/cognito-identity.ts`（ADR-0008。ローカルとの違いは、ADR の表）。
 
 - パスワードは、Node 標準の `scrypt`（ソルトつき）でハッシュ化して保存する。平文を保存・出力しない。ユーザーが存在しない場合も同じ時間をかけて検証し、処理時間でユーザーの存在を推測させない
 - セッションは、不透明なランダムなトークン（アクセス・リフレッシュ）。サーバー側には**ハッシュのみ**を持つ。メモリのみで保持する（再起動で再ログイン）。ユーザーのロール・削除は、次のリクエストから反映する。ユーザーの削除・パスワードの再設定では、そのユーザーのセッションを失効する（本人が自分のパスワードを再設定した場合は、操作に使ったセッションだけを残す）。セッションは、ユーザーの作成日時（世代）を持ち、同じ ID で再登録されたユーザーには、削除前のトークンが使えない。メモリの上限: 期限切れのセッションは発行のたびに掃除し、失敗の記録を持つ接続元は 10,000 まで
@@ -250,7 +261,7 @@ flowchart LR
 
 ### 3.8 スケジューラ・ジョブ・開発用 API
 
-- ジョブは `JobRunner`（`application/jobs/job-runner.ts`）が、識別子（JB-01〜JB-04）から実行する。EventBridge・ローカルのスケジューラ・テスト・開発用 API が、同じ入口を使う
+- ジョブは `JobRunner`（`application/jobs/job-runner.ts`）が、識別子（JB-01〜JB-04）から実行する。EventBridge（ジョブの Lambda。ロックで重複を防ぐ。ADR-0011）・ローカルのスケジューラ・テスト・開発用 API が、同じ入口を使う
 - スケジューラ（`application/jobs/scheduler.ts`）は、時計に基づいて、前回の実行から間隔が過ぎたジョブを実行する。`tick()` を**手動・テストから呼び出せる**。サーバー内の定期実行は `SCHEDULER_ENABLED=true`（実時間の間隔で `tick()` を繰り返す）。既定の間隔: JB-01（取り込み。取り込み元ごとの取得間隔は、ジョブの中で判定）1分、JB-02（評価。データ途絶の確認）5分、JB-03（連携）5分、JB-04（通知の配信）1分。1つのジョブの失敗は、他のジョブに影響しない
 - **開発用 API**（`/api/v1/dev/*`。`DEV_API_ENABLED=true` のときだけ登録する（既定は無効。`production`・Lambda では常に無効）。ログインが必要で、権限は設けない）:
 
@@ -273,8 +284,8 @@ rfp.md 7章の方針（推察して仮決め、根拠を記録、確定後に差
 | No. | 項目 | 採用値（暫定） | 根拠 | 確認事項 | 実装の場所 |
 |-----|------|----------------|------|----------|------------|
 | 1 | 認証・ロール | ログイン必須（全API）。ロールは設定で割り当てる。**既定は1ロール（`worker`＝農作業者。全権限）**。操作ごとの権限は8種（設備管理、取り込み設定、取り込みの実行、ステータスコード管理、手動入力、判断基準の編集、ユーザー管理、変更履歴の参照）。「要ログイン」の操作は、権限不要。メニューは、権限のない項目（ユーザー管理）を表示しない（サーバー側でも拒否） | security.md は全APIの認証・認可を求める。architecture.md 9章は、1ロールでも3ロールでも、設定で成り立つ構造を求める。FR-9.6（農作業者が設備を管理）に合わせ、既定は区別しない | Q-017 | `shared/constants/permissions.ts`、`application/auth/access-policy.ts`、`ROLE_DEFINITIONS_JSON`、`presentation/route-table.ts` |
-| 2 | 最初のユーザーの作成 | 環境変数 `INITIAL_USER_*`。ユーザーが1人もいないときのみ作成（冪等）。パスワードはハッシュ化して保存。本番は Cognito へ移行 | architecture.md 9章「デプロイ時の設定または初期化コマンド」。秘密情報は環境変数（security.md） | 要件側 R-13、Q-017 | `infrastructure/local/initial-user.ts`、`runtime/config.ts` |
-| 3 | ログイン試行の制限・セッション | 同じ接続元（`TRUSTED_PROXY_HOPS` の設定に従う。既定は、`X-Forwarded-For` を信頼せず、接続情報の接続元。接続元を取得できない環境では、ユーザーID単位）から、**失敗**が15分で5回に達したら、一時的に拒否（成功でリセット）。アクセストークン30分、リフレッシュトークン7日。パスワードは8文字以上で英大文字・英小文字・数字を含む | FR-9.2・FR-9.3 の構想時の値。成功も数えると、E2E・複数ユーザーの利用で制限に達するため、失敗のみを数える。入力の長さの上限: ユーザーID 100・パスワード 128・リフレッシュトークン 256 文字。**TODO（本番）**: 経路（API Gateway・Function URL・CloudFront）の確定後に、`TRUSTED_PROXY_HOPS` を決める。アカウント単位の制限（一時ロック）は、発注者の確認待ち（Q-017）。E2E は `TRUSTED_PROXY_HOPS=1` で、テストごとに接続元を分ける | Q-017（方式は設計で決める） | `infrastructure/local/local-auth.ts`、`shared/schemas/auth.ts` |
+| 2 | 最初のユーザーの作成 | ローカル: 環境変数 `INITIAL_USER_*`。ユーザーが1人もいないときのみ作成（冪等）。パスワードはハッシュ化して保存。Cognito: Lambda は `INITIAL_USER_*` を読まず（併用不可）、手元で 1 回だけ `pnpm initial-user` を実行する（ADR-0008） | architecture.md 9章「デプロイ時の設定または初期化コマンド」。秘密情報は環境変数（security.md） | 要件側 R-13、Q-017 | `infrastructure/local/initial-user.ts`、`runtime/initial-user-cli.ts`、`runtime/config.ts` |
+| 3 | ログイン試行の制限・セッション | 同じ接続元（`TRUSTED_PROXY_HOPS` の設定に従う。既定は、`X-Forwarded-For` を信頼せず、接続情報の接続元。接続元を取得できない環境では、ユーザーID単位）から、**失敗**が15分で5回に達したら、一時的に拒否（成功でリセット）。アクセストークン30分、リフレッシュトークン7日。パスワードは8文字以上で英大文字・英小文字・数字を含む | FR-9.2・FR-9.3 の構想時の値。成功も数えると、E2E・複数ユーザーの利用で制限に達するため、失敗のみを数える。入力の長さの上限: ユーザーID 100・パスワード 128・リフレッシュトークン 4096 文字（ローカルのトークンは 43 文字程度だが、Cognito のリフレッシュトークンは 1,000 文字を超え、長さが固定ではないため。Issue #95）。**TODO（本番）**: 経路（API Gateway・Function URL・CloudFront）の確定後に、`TRUSTED_PROXY_HOPS` を決める。アカウント単位の制限（一時ロック）は、発注者の確認待ち（Q-017）。E2E は `TRUSTED_PROXY_HOPS=1` で、テストごとに接続元を分ける | Q-017（方式は設計で決める） | `infrastructure/local/local-auth.ts`、`shared/schemas/auth.ts` |
 | 4 | 取得間隔の既定値 | **15分**（候補: 5分／15分／30分／1時間／6時間／日次）。画面の更新（約10秒）とは独立 | FR-1.5 の構想時の値 | FR-1.5（Q-001） | `application/settings.ts`、`DEFAULT_INGESTION_INTERVAL_MINUTES` |
 | 5 | 「データが古い」の基準 | 最終のデータ取得（受信）から、**有効な取り込み元の最短の取得間隔 × 3**（既定 45分）を超えたら STALE。1件もなければ NONE（未取得）。評価の定期実行（JB-02）で、データの途絶を、短期視点の窓（直近24時間）から外れた時点で「不明」に反映する | FR-6.3 は基準が未定。取得が数回連続で失敗した状態を「古い」とする | FR-6.3 | `application/query/dashboard-query.ts`、`STALE_AFTER_INTERVALS` |
 | 6 | 通知の既読の単位 | **利用者ごと**（通知ごとに、読んだ利用者を持つ）。未読の件数も利用者ごと | data-model.md 1.1 の NOTIFICATION_READ（USER ごと）に従う | Q-018、Q-011 | `application/ports/repositories.ts`（NotificationRepository）、`local-repositories.ts` |
@@ -293,7 +304,7 @@ rfp.md 7章の方針（推察して仮決め、根拠を記録、確定後に差
 | 19 | Web Push の購読・配信 | 購読は、利用者・端末ごと（エンドポイントごと）。状態（有効・無効）は端末ごとに確認する（`GET /push-subscription?endpoint=`）。通知を作ると、Web Push の配信（待機）を持ち、購読者全員へ配信する。購読がなければ、配信は完了とする（画面内の通知のみ）。失敗は、最大3回（初回を含む）まで、JB-04 で再送する。購読が無効なら、購読を無効にする | FR-7.2・FR-7.7（再送の方法は未定） | Q-011 | `application/notification/notification-service.ts`、`application/settings.ts` |
 | 20 | ステータスコードの状態判定 | 走行: `RUNNING`・`HARVESTING`、それ以外は停止。姿勢異常: `FALLEN`。故障・異常: カテゴリが異常。定義にない・削除済みのコード値は、不正な値 | FR-3.3（コード仕様が未提供） | Q-001、Q-003 | `domain/status-code.ts` |
 | 21 | 取り込み後・手動入力後の評価 | 取り込みの保存後に、評価を更新する（評価の失敗は、取り込みの結果に影響させない）。手動入力の登録・修正・削除後の評価・通知は、通常の規則（保存後に再評価。状態変化で通知）で扱う。**取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけを評価する**（`evaluateAffected`。ほかの設備の評価の更新は、定期の評価 JB-02 が行う。手順10の負荷テストで、全設備の評価が、同時接続の保存の応答を遅くしたため）。設備・ステータスコードの変更後、判断基準の変更後は、全設備を再評価する（失敗しても、変更の結果に影響させない）。評価は、設備ごとの区切りで、イベントループへ制御を戻し、実行の開始の直前に届いた要求は、同じ回にまとめる | FR-5.4、UC-18 の TODO | UC-18（要件側 TODO） | `application/ingestion/ingestion-service.ts`、`application/manual-entry/manual-entry-service.ts` |
-| 22 | 保存期間 | メモリ・ファイルのローカル実装は、無期限（1年分の蓄積に対応）。TTL は、DynamoDB の実装時に設定 | NFR-3.6（保存期間は未確認） | rfp.md 6章（番号なし） | （DynamoDB 実装時） |
+| 22 | 保存期間 | メモリ・ファイルのローカル実装は、無期限（1年分の蓄積に対応）。TTL は、保存期間が決まったら設定（DynamoDB の実装は、TTL の属性を用意するだけで、期間は未設定。ADR-0007） | NFR-3.6（保存期間は未確認） | rfp.md 6章（番号なし） | （保存期間の確定後） |
 | 23 | セッションのブラウザでの保持 | アクセス・リフレッシュトークンを、`sessionStorage` に保持（タブを閉じると消える）。`dangerouslySetInnerHTML` は使わない。Cognito への移行時に、Cookie（HttpOnly）方式も含めて見直す | 基礎部分の簡素な方式 | Q-017 | `src/frontend/api/session-storage.ts` |
 | 24 | 設備の削除・識別子 | **ハウスを削除すると、配下のロボット・センサーも論理削除**する（変更履歴には、各設備を記録）。過去の観測値は残し、評価・取り込み・表示の対象から外す。ハウスは親を持てず、ロボット・センサーは親のハウス（削除されていないもの）が必須。**データ上の識別子（`externalId`）は、同じ種別の中で一意**（重複は 409） | FR-2。画面で、配下を含む削除を、確認のダイアログで明示する | FR-2（要件側の TODO） | `application/equipment/equipment-service.ts` |
 | 25 | ステータスコードの再登録 | **論理削除したコード値と同じコード値は、再び登録できる**（削除を取り消し、新しい内容で有効にする）。有効なコード値との重複は 409。コード値は変更できない（名称・説明・カテゴリのみ） | FR-3.2（再利用の扱いは未定） | FR-3 | `application/equipment/status-code-service.ts` |
@@ -304,7 +315,7 @@ rfp.md 7章の方針（推察して仮決め、根拠を記録、確定後に差
 | 30 | 手動入力の画面の既定 | 計測日時の既定は現在（日本時間）。直前に入力した設備・カテゴリを、ブラウザ（`localStorage`）に記憶して、次の入力の既定にする（保存できない環境では、記憶しない）。入力の検証は、API と同じ（shared）を、保存の前に行い、API が正 | FR-4.1（入力の負担を減らす） | - | `frontend/components/manual-entry-form.tsx`、`shared/schemas/manual-entry.ts` |
 | 31 | 推移（FR-6.5、6.10）の粒度・期間・表示方法 | メトリクスの推移は、**短期視点・当日（1日）: 直近24時間の1時間ごと**（短期の集計＝状態値は最新）、**直近7・30・60・90日: 日本時間の日ごと**（長期の集計）。区間ごとに、評価と同じ算出式でメトリクスを求め、データがない・算出できない区間は欠損（0 で代用しない。グラフは線を途切れさせる）。期間の平均値は、値がある区間の平均。観点のステータスの推移は、状態変化の履歴から、期間の開始時点のステータスと期間内の変化を、時系列の帯と一覧で示す。短期評価を持たない観点（コスト効率・データ活用度合い・耐久性・満足度）は、短期視点でも長期の推移を返し、短期のフィードバックは示さない。グラフは、期間（直近N日）の選択に従い、判断基準の区分を背景の帯で示す | FR-6.5、6.10 の推移の粒度・期間・表示方法が未確定（機能仕様書 7章）。要求は「グラフ等」 | FR-6.10 | `domain/evaluation/series.ts`、`application/query/viewpoint-query.ts`、`frontend/components/trend-section.tsx`・`line-chart.tsx` |
 | 32 | 開発用 API の有効化 | **環境変数 `DEV_API_ENABLED=true` と明示したときだけ有効**（既定は無効）。`production` と Lambda では、指定にかかわらず無効。有効なときは、起動時に警告を出し、時刻を操作できる時計を作る | security.md（全 API に認証・認可）。全データの消去・時計の操作・ジョブの強制実行が、ログイン済みの全員に開放されることを防ぐ（レビュー V-001・V-002・V-143） | E2E・負荷テストの設定で、明示的に有効にする。専用の権限（`dev:operate`）の追加は、権限の一覧の変更を伴うため、未実施 | `runtime/config.ts`、`runtime/container.ts`、`runtime/lambda.ts` |
-| 33 | 接続元の識別 | `TRUSTED_PROXY_HOPS`（既定 0）。0 は `X-Forwarded-For` を信頼しない。N は、末尾から N 番目の値を使う。取得できない環境は、ユーザーID単位 | クライアントが付ける `X-Forwarded-For` の先頭を使うと、試行回数の制限を回避できる（V-007・V-008） | 本番の経路（Q-017・インフラ確定後） | `presentation/client-address.ts` |
+| 33 | 接続元の識別 | `CLIENT_IP_HEADER`（指定したヘッダーの IP。ADR-0010）→ `TRUSTED_PROXY_HOPS`（既定 0。0 は `X-Forwarded-For` を信頼しない。N は、末尾から N 番目の値）→ 接続情報 → ユーザーID単位 | クライアントが付ける `X-Forwarded-For` の先頭を使うと、試行回数の制限を回避できる（V-007・V-008） | 本番の経路（Q-017・インフラ確定後） | `presentation/client-address.ts` |
 | 34 | データ取得の停止の通知 | 新しいデータ（記録 1 件以上）の取り込みが、**取得間隔 × `STALE_AFTER_INTERVALS`（既定 3）を超えて止まった**取り込み元を、「データ取得停止」として通知する（JB-01 の中で判定。同じ取り込み元は 60 分に 1 件）。一度もデータを取り込んでいない取り込み元・無効な取り込み元は対象外。通知の種別は `INGESTION_FAILURE`（重複抑制のキーは別）。`INGESTION_STOP_NOTIFICATION_ENABLED=false` で無効にできる | ファイルが 0 件でも取り込みは成功になり、ロボット・センサーの停止（通信断・出力の停止）が、誰にも伝わらない（V-018） | Q-010・Q-011（通知の条件・宛先） | `application/ingestion/ingestion-service.ts`（`notifyStoppedSources`） |
 | 35 | ファイル単位の失敗の通知 | **既定は通知しない**（No.17・UC-24 の仕様）。`INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED=true` で、読み取り不可・形式違い・大きすぎるファイルの失敗も、取り込み失敗として通知できる | 失敗の通知が、ファイル一覧の取得の失敗だけでは、ロボットが壊れた形式を出し続けても、気づけない（V-017）。通知の条件は、発注者の確認が先に必要なため、既存の仕様を保ち、設定で切り替える | Q-011 | `application/ingestion/ingestion-service.ts`、`application/settings.ts` |
 | 36 | 計測日時の解釈 | プロファイルの `utcOffsetMinutes`（既定 540 = 日本時間）。**タイムゾーンのない日時は、日本時間として解釈**する（実行環境のタイムゾーンに依存しない）。ISO 8601 以外・存在しない日時は、読み取れない記録として数える。タイムゾーンつき（Z・±hh:mm）は、そのまま。JSON は、設定した項目が1つも読み取れない、CSV は、設定した項目の列が1つもない場合は、形式違い（構造の変更の検出） | 開発 PC は日本時間、Lambda は UTC のため、ローカルでは動き、本番で9時間ずれる、気づきにくい不具合を防ぐ（V-019・V-020） | Q-001（日時の表記・タイムゾーン） | `infrastructure/format-profiles/declarative-profile.ts`、`*.profile.json` |
@@ -338,7 +349,7 @@ Repository のポートを境界にし、ローカル実装と DynamoDB 実装�
 | Evaluations | `EvaluationRepository` | `evaluations`（最新。キーは設備・観点・視点・期間）、`lastStatusChanges`・`statusChangeHistory` | ローカルは、視点・期間ごとの最新を上書き。状態変化の履歴は、通知の判定とステータスの推移（FR-6.10）に使う。data-model.md のキー（ハウス・観点・視点、SK＝評価日時）と、設備・期間を含める点が異なるため、実装時にキーを確定する |
 | Notifications（既読は利用者ごと）、GSI-2 | `NotificationRepository` | `notifications`・`notificationReads` | 種別・既読での絞り込みは GSI-2。既読は、利用者ごとの項目。重複抑制の検索（同じキーの最新）の索引が必要 |
 | FederationQueue | `FederationRepository` | `federationItems`・`federationLogs` | 状態ごとのパーティション。TTL（送信済み） |
-| Config | `CriteriaRepository`、`StatusCodeRepository`、`UserRepository`、`PushSubscriptionRepository`、`SettingsRepository` | `criteria`・`statusCodes`・`users`・`pushSubscriptions`・`settings` | 少量のデータ。ユーザーは、Cognito 移行後は、ロール等のみ |
+| Config | `CriteriaRepository`、`StatusCodeRepository`、`UserRepository`、`PushSubscriptionRepository`、`SettingsRepository` | `criteria`・`statusCodes`・`users`・`pushSubscriptions`・`settings` | 少量のデータ。ユーザーは、Cognito では、名前・ロール・最終ログインのみ（パスワードのハッシュは持たない。ADR-0008） |
 | AuditLog | `AuditLogRepository` | `auditLogs` | 月ごとのパーティション。TTL |
 
 ## 5. ユースケースと画面・API・ジョブの対応
@@ -417,6 +428,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | 結合テスト | `tests/integration/`: Hono アプリ（`app.request`）、サービス + ローカルのアダプタ（メモリ上のデータ、モックの外部サービス、固定した時計）、Repository の契約テスト | Vitest | 外部サービスはモック |
 | E2E テスト | `tests/e2e/UC-NN-<ユースケース名の英語の概略名>.ts`（例: `UC-01-view-dashboard.ts`）、`tests/e2e/scenario-<シナリオの英語の概略名>.ts`（例: `scenario-user-onboarding.ts`）。補助は `tests/e2e/support/` | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ、固定のダミーの初期ユーザー）と Vite を起動 | テスト環境一式（ローカル構成） |
 | 負荷テスト | `tests/stress/stress-NN-<英語の概略名>.ts`（補助は `tests/stress/support/`）。`pnpm test:stress` で実行（`pnpm test` には含めない。6.5） | Playwright（chromium）。`playwright.stress.config.ts` | 同じローカル構成。大量の合成データを、起動時に投入 |
+| スモークテスト・性能の実測（サーバーレス環境） | `tests/smoke/smoke-NN-<英語の概略名>.ts`（補助は `tests/smoke/support/`）。`pnpm test:smoke` で実行（`pnpm test` には含めない。手動実行。6.6） | Playwright（chromium）。`playwright.smoke.config.ts` | AWS 上の評価環境（環境変数で接続先・ユーザーを渡す） |
 | 画面の単体テストの補助 | `tests/support/management-frontend.ts`（API のスタブ（`METHOD /path` → 応答）での、アプリ全体の描画。全権限・権限なしのログイン）。Node の実験的な `localStorage` が jsdom を隠すため、`tests/unit/frontend/setup.ts` でテストごとにメモリ上の実装へ差し替える | - | - |
 | 合成データ | `tests/fixtures/`（匿名化・合成データのみ。意図的に不正な形式のファイルを含む） | - | - |
 | テストの補助 | `tests/support/`（組み立て `test-context.ts`、データ生成 `builders.ts`、API のスタブ `frontend.ts`） | - | - |
@@ -453,6 +465,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | `pnpm test` | `vitest run --coverage && playwright test`。単体・結合・E2E を実行し、カバレッジのレポートを `./test-result/` に出力 |
 | `pnpm data:backup` | データファイル（`PERSISTENCE=file`）のバックアップ・一覧・復元（`backup`・`list`・`restore`。手順は [backup-restore.md](../../40_operations/backup-restore.md)） |
 | `pnpm test:stress` | 負荷テスト（6.5）。結果は `./test-result/stresstest.result.log`、報告は `./test-result/stresstest.report.md`。`pnpm test` には含めない（約2〜3分。ポートが E2E と同じため、同時に実行しない） |
+| `pnpm test:smoke` | サーバーレス環境のスモークテスト・性能の実測（6.6）。結果は `./test-result/smoketest.result.log`。`pnpm test` には含めない（手動実行。接続先・ユーザーは環境変数） |
 | `pnpm lint` | ESLint（依存の向きの強制を含む） |
 | `pnpm typecheck` | 共通・backend・frontend・tests の型検査 |
 | `pnpm format` | Prettier で整形（確認のみは `pnpm format:check`） |
@@ -470,6 +483,20 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | シナリオ | `stress-01-single-user.ts`（単独利用。全 UC の約150操作。UC-08〜UC-11・UC-24 は、即時取得・開発用 API のジョブ（JB-01〜JB-04）・モック（ファイルサーバー・農業情報基盤）の停止・復旧で起こし、結果が画面に表れるまでを測る）、`stress-02-concurrent-users.ts`（同時接続。NFR-3.1 の10名が、別のセッションで、全員がそろってから、いっせいに、表示・推移・一覧・入力の保存・通知の既読を操作。2巡。手動入力の計測日時は、利用者ごとに基準の時刻を固定して遡る（`support/observed-at.ts`。呼ぶたびに現在の時刻を読むと、2巡の間隔が約1分のとき、同じ設備・項目・日時になり、409 で不安定になる）。HTTP のエラー（400 以上）の応答は、結果ログの備考に残す）、`stress-03-bulk-ingestion.ts`（取り込みの大量実行。ロボット・センサー各150ファイル（形式違いを含む）の即時取得、取り込み済みの判定のみの再実行、新しい各150ファイルの定期取り込み（JB-01）、連携・評価のジョブ、その後の画面の表示・保存）、`stress-04-mobile-layout.ts`（モバイル・タブレット幅。375px・768px で、主要な9画面を大量データの状態で開き、ページの横スクロールがないことを確認し、スクリーンショットを保存する。応答時間は計測しない） |
 | 画面の確認 | 大量データ表示時の主要な画面のスクリーンショット（1280px 幅は stress-01〜03、375px・768px 幅は stress-04）を、`test-result/stress/screenshots/` に保存する（目視で、レイアウト（隙間・被り・偏り・はみ出し）を確認する） |
 | 制約 | メモリ実装の1プロセス・1台での計測（DynamoDB・Lambda・ネットワークの遅延を含まない）。ブラウザは、同じ PC の Chromium（ヘッドレス）。計測は、Playwright の操作と描画の確認を含み、数ミリ秒の誤差がある |
+
+### 6.6 サーバーレス環境のスモークテスト・性能の実測（`pnpm test:smoke`。Issue #79）
+
+評価環境（AWS。CloudFront → API の Lambda → Cognito・DynamoDB）に対して、主要な経路が動くことと、性能（ADR-0002 の「実測で確認する」）を、確かめる。
+
+| 項目 | 内容 |
+|------|------|
+| 設定・実行 | `playwright.smoke.config.ts`（`testDir: tests/smoke`、`testMatch: smoke-NN-*.ts`、サーバーは起動しない、動画・トレースなし）。**手動で実行する**（CI に載せない）。接続先・ユーザーは、環境変数 `SMOKE_BASE_URL`・`SMOKE_USER_ID`・`SMOKE_PASSWORD`（`tests/smoke/support/smoke-env.ts`。`https://` のみ（ローカルの確認は http の localhost も可）。値は、記録に残さない） |
+| `smoke-01-flow.ts` | ログイン → ダッシュボード → 手動入力（`SENSOR-01` に、正常の値を 1 件保存）→ 通知の一覧 → 入力の削除 → ログアウト。各操作の時間も記録する |
+| `smoke-02-performance.ts` | NFR-3.4 初期表示（新しいブラウザの状態から、ログイン → ダッシュボード。5 回）／NFR-3.3 自動更新（3 回）／NFR-3.5 推移（観点の詳細で、直近 30 日。3 回。**1 か月分のデータが前提**。`pnpm demo-data seed --days 30`）／定期の取り込み（JB-01）の実行時間（取り込みログ API の開始〜終了。Lambda のタイムアウトに対する余裕） |
+| `smoke-03-cold-start.ts` | `SMOKE_COLD_START=1` のときだけ動く。60 分以上アクセスがない状態で、ログイン → ダッシュボードの時間（1 回目＝コールドスタートの可能性、2 回目＝ウォーム）を、NFR-3.4 と比べる |
+| 計測・判定 | 負荷テストと同じ部品（`tests/stress/support/recorder.ts` の `measure`・`measureRefresh`）と許容時間（`limits.ts`）を使う。記録の出力先だけ、環境変数 `MEASURE_OUTPUT_DIR`（`playwright.smoke.config.ts` が設定）で `test-result/smoke/` に分ける。時間は、端末のブラウザから見た時間（通信を含む） |
+| 結果 | `test-result/smoketest.result.log`（`tests/smoke/support/smoke-report.ts`。実行日時・端末の環境・許容時間・操作ごとの結果・集計・取り込みの実行時間・判定。環境の URL・ユーザーは載せない） |
+| ほかのジョブ・Lambda の起動 | JB-02〜04 の実行時間と、Lambda の起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7） |
 
 ## 7. API の補足（入出力の詳細）
 
@@ -493,7 +520,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | `GET /observations` | クエリ `equipmentId`、`viewpointId`、`category`、`itemKey`、`source`、`from`・`to`（計測日時）、`q`（キーワード。項目・カテゴリ・設備・取得元・状態の表示名、値の部分一致）、`sort`（`observedAt`／`category`／`value`）、`direction`、`limit`、`cursor`。応答 `{ items[], nextCursor }` |
 | `POST /equipment`、`PUT /equipment/{id}`、`DELETE /equipment/{id}` | 登録は `{ equipmentId, equipmentType, name, facilityId?, externalId? }`（201。設備ID・`externalId` の重複は 409）。修正は `{ name, facilityId?, externalId? }`（設備IDと種別は変更できない）。削除は 204（ハウスは配下も。4.1 No.24）。変更のたびに、評価を更新し、変更履歴に記録 |
 | `POST /status-codes`、`PUT /status-codes/{code}`、`DELETE /status-codes/{code}` | 登録は `{ code, name, category, description? }`（201。コード値は英大文字・数字・アンダースコア。重複は 409。削除済みの再登録は 4.1 No.25）。修正は `{ name, category, description? }`。削除は 204 |
-| `POST /manual-entries` | 入力 `{ equipmentId, category, observedAt, items, note? }`（`items` は項目の識別子 → 数値。検証は shared の `validateManualEntry` と同じ）。応答 201 `{ entry, viewpointStatuses[] }`（関連観点の現在のステータス）。設備がなければ 404、検証の不備は 400（`fields`）、同じ設備・項目・計測日時の入力があれば 409 |
+| `POST /manual-entries` | 入力 `{ equipmentId, category, observedAt, items, note? }`（`items` は項目の識別子 → 数値。検証は shared の `validateManualEntry` と同じ）。応答 201 `{ entry, viewpointStatuses[], evaluation? }`（関連観点のステータス。`evaluation` は、`DONE`＝保存の前に評価を更新した／`DEFERRED`＝評価は定期の評価（JB-02）が更新する（ステータスは前回の評価の値。`EVALUATION_ON_WRITE=deferred`。ADR-0014）。なければ `DONE`）。設備がなければ 404、検証の不備は 400（`fields`）、同じ設備・項目・計測日時の入力があれば 409 |
 | `GET /manual-entries` | クエリ `q`、`category`、`equipmentId`、`from`・`to`、`sort`（`observedAt`／`category`／`enteredBy`）、`direction`、`limit`、`cursor`。論理削除を除く。応答 `{ items[], nextCursor }` |
 | `PUT /manual-entries/{id}`、`DELETE /manual-entries/{id}` | 修正は登録と同じ入力・応答（200）。削除は論理削除（204）。存在しなければ 404。修正・削除も、評価の更新・変更履歴・連携キューに反映 |
 | `GET /audit-logs` | 権限 `audit:read`。クエリ `operation`（`CREATE`／`UPDATE`／`DELETE`）、`actor`、`targetType`（`manual-entry`・`criteria`・`equipment`・`status-code`・`user`・`ingestion-settings`）、`from`・`to`、`direction`、`limit`、`cursor`。1件は `{ auditId, occurredAt, operation, targetType, targetId, actor, before?, after? }` |
@@ -524,7 +551,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 - **手順9（後半）の確認待ち**: レビュー指摘のうち、発注者・ユーザーの判断が先に必要なもの・本番のスコープ外のものは、`work/.current-session/work/review.md` の各項目の「状態」に、理由と提案を記載している
 - **負荷テスト**（`pnpm test:stress`）は実装済み（6.5。結果と報告は `./test-result/stresstest.result.log`・`stresstest.report.md`）。ローカルのメモリ実装・1台での計測であり、本番（DynamoDB・Lambda 等）の性能は、本番のアダプタの実装後に、同じテストで確認する
 - **E2E のカバレッジ**は、Vitest（単体・結合）の計測のみ。E2E（ブラウザ・別プロセスのサーバー）の計測の統合は未実施（6.2）
-- **本番のアダプタ**（DynamoDB・Cognito・実ファイルサーバー・実際の Web Push の配信・農業情報基盤）は未実装。ポートの契約テストを、実装時に同じものを適用する
+- **本番のアダプタ**のうち、DynamoDB の Repository は実装済み（Issue #73。DynamoDB Local で、契約テストを通した。AWS では、`Main` テーブルの一部のみ、手元のバックエンドから確認済み）。Cognito の認証も、実装済み（Issue #74。偽の Cognito で契約テストを通し、実際の Cognito でも、手元のバックエンドから確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。Lambda は、これらを、本番の設定（`APP_MODE=production`）で使う（Issue #75。ADR-0009）。実ファイルサーバー・実際の Web Push の配信・農業情報基盤は未実装。ポートの契約テストを、実装時に同じものを適用する
 - **未使用のコード**: `frontend/pages/placeholder-page.tsx`（全画面を実装したため、どの画面からも使っていない。削除の候補）
 - **テスト方針との差**: カバレッジの目標は 95%（test-policy.md の 90% より厳しい）、E2E のファイル名は `UC-NN-*.ts`・`scenario-*.ts`（test-policy.md の接尾辞 `.test.ts` と異なる）。いずれも 6章に理由を記載
 - **既知の制約**: 固定した時計の同一の瞬間に作った、ステータスの履歴・変更履歴は、同じキーの上書き・順序の不定が起こる。E2E は、時計を進めてから次の操作を行う

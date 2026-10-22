@@ -28,6 +28,7 @@
     "vitest.config.ts",
     "playwright.config.ts",
     "playwright.stress.config.ts",
+    "playwright.smoke.config.ts",
     "dev-ports.ts"
   ]
 }

@@ -11,6 +11,10 @@ import { findPasswordPolicyViolation } from '@smart-farm/shared/schemas/auth';
 import { UserIdSchema } from '@smart-farm/shared/schemas/common';
 import { IngestionIntervalSchema } from '@smart-farm/shared/schemas/ingestion';
 import { DEFAULT_ROLE_CONFIG, type RoleConfig } from '../application/auth/access-policy.ts';
+import {
+  EVALUATION_ON_WRITE_MODES,
+  type EvaluationOnWrite,
+} from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
 import { LOG_LEVELS, type LogLevel } from '../infrastructure/logging/json-logger.ts';
 import { namedErrorClass } from '../application/named-error.ts';
@@ -18,9 +22,13 @@ import { namedErrorClass } from '../application/named-error.ts';
 export const APP_MODES = ['local', 'test', 'production'] as const;
 export type AppMode = (typeof APP_MODES)[number];
 
-/** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: 未実装。 */
+/** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: DynamoDB（ADR-0007）。 */
 export const PERSISTENCE_MODES = ['memory', 'file', 'dynamodb'] as const;
 export type PersistenceMode = (typeof PERSISTENCE_MODES)[number];
+
+/** 認証の方式。local: アプリ内のユーザーID・パスワード／cognito: Amazon Cognito（ADR-0008）。 */
+export const AUTH_PROVIDERS = ['local', 'cognito'] as const;
+export type AuthProvider = (typeof AUTH_PROVIDERS)[number];
 
 const BooleanFromString = z.enum(['true', 'false']).transform((value) => value === 'true');
 
@@ -32,15 +40,45 @@ const RoleDefinitionsSchema = z.record(
 /** 信頼するプロキシの段数の上限（これを超える段数は、設定の誤りとみなす）。 */
 const MAX_TRUSTED_PROXY_HOPS = 10;
 
+/** デモデータの合成データの日数の上限（約 1 か月。DynamoDB への書き込みの量を、限る）。 */
+export const MAX_DEMO_SEED_DAYS = 31;
+
 const EnvSchema = z.object({
   APP_MODE: z.enum(APP_MODES).default('local'),
   HOST: z.string().min(1).default('127.0.0.1'),
   PORT: z.coerce.number().int().min(0).max(65_535).default(8787),
   PERSISTENCE: z.enum(PERSISTENCE_MODES).default('memory'),
   DATA_FILE: z.string().min(1).default('.local-data/store.json'),
+  /** DynamoDB のテーブル名（PERSISTENCE=dynamodb で必須）。AWS のテーブルは、IaC（infra/）が作る。 */
+  DYNAMODB_OBSERVATIONS_TABLE: z.string().min(1).optional(),
+  DYNAMODB_MAIN_TABLE: z.string().min(1).optional(),
+  /** DynamoDB の接続先（DynamoDB Local など、ローカルの開発用）。指定すると、起動時にテーブルを作る。AWS では指定しない。 */
+  DYNAMODB_ENDPOINT: z.url().optional(),
+  /** 認証の方式。cognito は、PERSISTENCE=dynamodb が必要（ユーザーのロールを DynamoDB に持つ）。 */
+  AUTH_PROVIDER: z.enum(AUTH_PROVIDERS).default('local'),
+  /** Cognito のユーザープール・アプリクライアントの ID（AUTH_PROVIDER=cognito で必須。IaC の SfmData の出力）。 */
+  COGNITO_USER_POOL_ID: z.string().min(1).optional(),
+  COGNITO_CLIENT_ID: z.string().min(1).optional(),
+  /** AWS のリージョン（Lambda では、実行環境が設定する）。 */
+  AWS_REGION: z.string().min(1).optional(),
   /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
   FILE_SERVER_DIR: z.string().min(1).default('.local-data/file-server'),
+  /**
+   * ファイルサーバーのモックの S3 のバケット名（Issue #77。ADR-0012）。指定すると、ローカルのディレクトリ（FILE_SERVER_DIR）ではなく、
+   * S3 の `<バケット>/<取り込み元>/` を使う。Lambda には、ローカルのディレクトリがないため、評価環境は、これを指定する。
+   */
+  FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
+  /**
+   * 手動入力の保存・修正・削除の応答の前に、評価を再計算するか（Issue #123。ADR-0014）。`sync`（既定。ローカル・E2E）は、再計算する。
+   * `deferred`（AWS の Lambda。IaC が指定する）は、再計算せず、定期の評価（JB-02）が更新する。
+   */
+  EVALUATION_ON_WRITE: z.enum(EVALUATION_ON_WRITE_MODES).default('sync'),
+  /**
+   * デモデータ（SEED_MODE=DEMO）の、合成データの日数（Issue #79）。既定は 3 日。1 か月分の推移の表示（NFR-3.5）を
+   * 測るときは、`pnpm demo-data seed --days 30` で指定する（このコマンドが、この設定を渡す）。
+   */
+  DEMO_SEED_DAYS: z.coerce.number().int().min(1).max(MAX_DEMO_SEED_DAYS).default(3),
   INITIAL_USER_ID: z.string().min(1).optional(),
   INITIAL_USER_NAME: z.string().min(1).optional(),
   INITIAL_USER_PASSWORD: z.string().min(1).optional(),
@@ -69,7 +107,34 @@ const EnvSchema = z.object({
    * N なら、X-Forwarded-For の末尾から N 番目（信頼するプロキシが付けた値）を、接続元とみなす（V-007）。
    */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(MAX_TRUSTED_PROXY_HOPS).default(0),
+  /**
+   * 利用者の IP が入っているヘッダーの名前（小文字にして使う）。指定すると、そのヘッダーの値（IP として正しいときだけ）を、
+   * 接続元とみなす。CloudFront の Function が入れる（関数の URL は、X-Forwarded-For を切り詰めるため、段数では識別できない。
+   * Issue #100）。CloudFront を経由しない呼び出しでは、利用者が値を付けられる。
+   */
+  CLIENT_IP_HEADER: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'ヘッダー名（英数字とハイフン）で指定してください')
+    .optional(),
 });
+
+/** DynamoDB の接続の設定（PERSISTENCE=dynamodb のとき）。 */
+export interface DynamoDbConfig {
+  readonly observationsTable: string;
+  readonly mainTable: string;
+  /** 別の接続先（DynamoDB Local など）。AWS では undefined。 */
+  readonly endpoint: string | undefined;
+  readonly region: string | undefined;
+}
+
+/** Cognito の接続の設定（AUTH_PROVIDER=cognito のとき）。 */
+export interface CognitoConfig {
+  readonly userPoolId: string;
+  readonly clientId: string;
+  readonly region: string | undefined;
+}
 
 export interface InitialUserConfig {
   readonly userId: string;
@@ -84,8 +149,18 @@ export interface AppConfig {
   readonly port: number;
   readonly persistence: PersistenceMode;
   readonly dataFile: string;
+  /** PERSISTENCE=dynamodb のときだけ。 */
+  readonly dynamodb: DynamoDbConfig | undefined;
+  /** AUTH_PROVIDER=cognito のときだけ。 */
+  readonly cognito: CognitoConfig | undefined;
   readonly fileServerDirectory: string;
+  /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
+  readonly fileServerBucket: string | undefined;
   readonly seedMode: SeedMode;
+  /** 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
+  /** デモデータの合成データの日数（SEED_MODE=DEMO のとき）。 */
+  readonly demoSeedDays: number;
   readonly initialUser: InitialUserConfig | undefined;
   readonly roles: RoleConfig;
   readonly schedulerEnabled: boolean;
@@ -101,6 +176,8 @@ export interface AppConfig {
   readonly devApiEnabled: boolean;
   /** 信頼するプロキシの段数（接続元の識別。0 なら X-Forwarded-For を信頼しない）。 */
   readonly trustedProxyHops: number;
+  /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
+  readonly clientIpHeader: string | undefined;
 }
 
 export class ConfigError extends namedErrorClass('ConfigError') {}
@@ -151,22 +228,118 @@ function parseInitialUser(
   return { userId, userName, password, role };
 }
 
-export function parseConfig(env: Readonly<Record<string, string | undefined>>): AppConfig {
+function parseDynamoDb(parsed: z.infer<typeof EnvSchema>): DynamoDbConfig | undefined {
+  if (parsed.PERSISTENCE !== 'dynamodb') {
+    return undefined;
+  }
+  if (
+    parsed.DYNAMODB_OBSERVATIONS_TABLE === undefined ||
+    parsed.DYNAMODB_MAIN_TABLE === undefined
+  ) {
+    throw new ConfigError(
+      'PERSISTENCE=dynamodb では、DYNAMODB_OBSERVATIONS_TABLE と DYNAMODB_MAIN_TABLE の指定が必要です',
+    );
+  }
+  if (parsed.DEV_API_ENABLED) {
+    // 開発用 API のリセットは、全データを消す。DynamoDB のデータを、消さないようにする
+    throw new ConfigError('PERSISTENCE=dynamodb では、DEV_API_ENABLED は使えません');
+  }
+  return {
+    observationsTable: parsed.DYNAMODB_OBSERVATIONS_TABLE,
+    mainTable: parsed.DYNAMODB_MAIN_TABLE,
+    endpoint: parsed.DYNAMODB_ENDPOINT,
+    region: parsed.AWS_REGION,
+  };
+}
+
+function parseCognito(parsed: z.infer<typeof EnvSchema>): CognitoConfig | undefined {
+  if (parsed.AUTH_PROVIDER !== 'cognito') {
+    return undefined;
+  }
+  if (parsed.COGNITO_USER_POOL_ID === undefined || parsed.COGNITO_CLIENT_ID === undefined) {
+    throw new ConfigError(
+      'AUTH_PROVIDER=cognito では、COGNITO_USER_POOL_ID と COGNITO_CLIENT_ID の指定が必要です',
+    );
+  }
+  if (parsed.PERSISTENCE !== 'dynamodb') {
+    // ユーザーのロール・最終ログインは、DynamoDB の USER に持つ。ログインの試行回数の制限も、DynamoDB で共有する
+    throw new ConfigError('AUTH_PROVIDER=cognito では、PERSISTENCE=dynamodb が必要です');
+  }
+  if (
+    parsed.INITIAL_USER_ID !== undefined ||
+    parsed.INITIAL_USER_NAME !== undefined ||
+    parsed.INITIAL_USER_PASSWORD !== undefined
+  ) {
+    // 最初のユーザーは、起動のたびではなく、手元のスクリプトで 1 回だけ作る（パスワードを、環境変数・設定に残さない）
+    throw new ConfigError(
+      'AUTH_PROVIDER=cognito では、INITIAL_USER_* は使えません。最初のユーザーは、スクリプトで作ります（docs/00_project/commands.md）',
+    );
+  }
+  return {
+    userPoolId: parsed.COGNITO_USER_POOL_ID,
+    clientId: parsed.COGNITO_CLIENT_ID,
+    region: parsed.AWS_REGION,
+  };
+}
+
+function parseEnv(env: Readonly<Record<string, string | undefined>>): z.infer<typeof EnvSchema> {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
     const names = [...new Set(result.error.issues.map((issue) => String(issue.path[0] ?? 'ENV')))];
     throw new ConfigError(`環境変数の設定が正しくありません: ${names.join(', ')}`);
   }
-  const parsed = result.data;
+  return result.data;
+}
+
+/**
+ * 環境変数の INITIAL_USER_* だけを読む（最初のユーザーを作るコマンド用。ほかの設定の検証は、parseConfig が行う）。
+ * 指定がなければ undefined。
+ */
+export function parseInitialUserEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  roles: RoleConfig,
+): InitialUserConfig | undefined {
+  return parseInitialUser(parseEnv(env), roles);
+}
+
+/**
+ * 本番（APP_MODE=production）の必須の設定（ADR-0009）。本番では、ユーザー・データを失う・分裂する構成（アプリ内の認証・
+ * メモリ・ファイル）を使わない。認証は Cognito、データは DynamoDB。
+ */
+function assertProductionAdapters(
+  mode: AppMode,
+  cognito: CognitoConfig | undefined,
+  dynamodb: DynamoDbConfig | undefined,
+): void {
+  if (mode !== 'production') {
+    return;
+  }
+  if (cognito === undefined || dynamodb === undefined) {
+    throw new ConfigError(
+      'APP_MODE=production では、AUTH_PROVIDER=cognito と PERSISTENCE=dynamodb（と、それぞれの設定）が必要です',
+    );
+  }
+}
+
+export function parseConfig(env: Readonly<Record<string, string | undefined>>): AppConfig {
+  const parsed = parseEnv(env);
   const roles = parseRoles(parsed.ROLE_DEFINITIONS_JSON);
+  const dynamodb = parseDynamoDb(parsed);
+  const cognito = parseCognito(parsed);
+  assertProductionAdapters(parsed.APP_MODE, cognito, dynamodb);
   return {
     mode: parsed.APP_MODE,
     host: parsed.HOST,
     port: parsed.PORT,
     persistence: parsed.PERSISTENCE,
     dataFile: parsed.DATA_FILE,
+    dynamodb,
+    cognito,
     fileServerDirectory: parsed.FILE_SERVER_DIR,
+    fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
     seedMode: parsed.SEED_MODE,
+    evaluationOnWrite: parsed.EVALUATION_ON_WRITE,
+    demoSeedDays: parsed.DEMO_SEED_DAYS,
     initialUser: parseInitialUser(parsed, roles),
     roles,
     schedulerEnabled: parsed.SCHEDULER_ENABLED,
@@ -180,6 +353,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
+    clientIpHeader: parsed.CLIENT_IP_HEADER,
   };
 }
 
@@ -206,5 +380,12 @@ export function parseLambdaConfig(env: Readonly<Record<string, string | undefine
       '本番の Lambda では、PERSISTENCE=memory は使えません（データが失われるため）',
     );
   }
-  return { ...config, devApiEnabled: false };
+  if (config.seedMode !== 'NONE') {
+    // 起動のたび（コールドスタートのたび）に、デモデータを投入しない。評価環境のデモデータは、別の入口で投入する（Issue #77）
+    throw new ConfigError(
+      'Lambda では、SEED_MODE は使えません（デモデータは、別の入口で投入します）',
+    );
+  }
+  // ジョブは、EventBridge から起動する（Issue #76）。Lambda の中で、タイマーによるスケジューラを動かさない
+  return { ...config, devApiEnabled: false, schedulerEnabled: false };
 }

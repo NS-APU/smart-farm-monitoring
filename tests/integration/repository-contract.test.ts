@@ -7,7 +7,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { AppError } from '@smart-farm/shared/errors';
 import { NotificationIdSchema, toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
@@ -17,6 +17,10 @@ import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import type { Repositories } from '../../src/backend/application/ports/repositories.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { equipmentSet, observation, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
+import {
+  createDynamoRepositoriesForTest,
+  dropDynamoTestTables,
+} from '../support/dynamodb-test-database.ts';
 
 interface Subject {
   readonly repositories: Repositories;
@@ -49,7 +53,15 @@ const FACTORIES: readonly { readonly name: string; readonly create: () => Subjec
       };
     },
   },
+  {
+    name: 'DynamoDB',
+    create() {
+      return { repositories: createDynamoRepositoriesForTest(), flush: () => undefined };
+    },
+  },
 ];
+
+afterAll(dropDynamoTestTables);
 
 const USER = toUserId('user-1');
 const OTHER_USER = toUserId('user-2');

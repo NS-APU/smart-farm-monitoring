@@ -1,6 +1,6 @@
 {
   "name": "smart-farm-monitoring",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "イチゴ収穫ロボット・スマートハウス向け稼働モニタリング基盤",
   "type": "module",
@@ -15,10 +15,13 @@
     "test": "vitest run --coverage && playwright test",
     "test:unit": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "initial-user": "node --disable-warning=ExperimentalWarning src/backend/runtime/initial-user-main.ts",
+    "demo-data": "node --disable-warning=ExperimentalWarning src/backend/runtime/demo-data-main.ts",
     "data:backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/data-backup-main.ts",
     "test:stress": "playwright test -c playwright.stress.config.ts",
+    "test:smoke": "playwright test -c playwright.smoke.config.ts",
     "lint": "eslint . && oxlint -c .oxlintrc.json src/frontend",
-    "typecheck": "tsc -p tsconfig.json && tsc -p src/shared/tsconfig.json && tsc -p src/backend/tsconfig.json && tsc -p src/frontend/tsconfig.json && tsc -p tests/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/shared/tsconfig.json && tsc -p src/backend/tsconfig.json && tsc -p src/frontend/tsconfig.json && tsc -p infra/tsconfig.json && tsc -p tests/tsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

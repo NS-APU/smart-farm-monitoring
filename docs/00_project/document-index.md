@@ -31,11 +31,20 @@
 | | [robot-health.md](../10_design/viewpoint/robot-health.md) | ロボットの健全性の観点（収穫精度・収穫速度・操作性・メンテナンス性・コスト効率・安全性・耐久性） |
 | | [house-health.md](../10_design/viewpoint/house-health.md) | ハウスの健全性の観点（環境適応性） |
 | | [operation-health.md](../10_design/viewpoint/operation-health.md) | 評価の運用面の観点（データ活用度合い・満足度） |
-| [10_design/adr](../10_design/adr/) | [0001-modular-monolith-ports-and-adapters.md](../10_design/adr/0001-modular-monolith-ports-and-adapters.md) | ADR-0001 モジュラーモノリスとポート・アダプタ構成（提案） |
+| [10_design/adr](../10_design/adr/) | [0001-modular-monolith-ports-and-adapters.md](../10_design/adr/0001-modular-monolith-ports-and-adapters.md) | ADR-0001 モジュラーモノリスとポート・アダプタ構成（承認） |
 | | [0002-deployment-serverless.md](../10_design/adr/0002-deployment-serverless.md) | ADR-0002 デプロイ構成は、サーバーレスを基本とする（承認） |
-| | [0003-ingestion-adapter-and-provisional-spec.md](../10_design/adr/0003-ingestion-adapter-and-provisional-spec.md) | ADR-0003 取り込みの取得・解釈の分離と仕様の仮決め（提案） |
-| | [0004-federation-outbox-standalone.md](../10_design/adr/0004-federation-outbox-standalone.md) | ADR-0004 農業情報基盤との連携を連携キューによる非同期方式にする（提案） |
+| | [0003-ingestion-adapter-and-provisional-spec.md](../10_design/adr/0003-ingestion-adapter-and-provisional-spec.md) | ADR-0003 取り込みの取得・解釈の分離と仕様の仮決め（承認） |
+| | [0004-federation-outbox-standalone.md](../10_design/adr/0004-federation-outbox-standalone.md) | ADR-0004 農業情報基盤との連携を連携キューによる非同期方式にする（承認） |
 | | [0005-tech-stack.md](../10_design/adr/0005-tech-stack.md) | ADR-0005 技術スタックを TypeScript・Hono・React・DynamoDB 等で確定する（承認） |
+| | [0006-iac-cdk-and-same-origin-delivery.md](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md) | ADR-0006 IaC に AWS CDK を使い、画面と API を CloudFront の同じオリジンで配信する（承認） |
+| | [0007-dynamodb-table-design.md](../10_design/adr/0007-dynamodb-table-design.md) | ADR-0007 DynamoDB のテーブルを、観測値の専用テーブルと、そのほかの集約テーブルに分ける（承認） |
+| | [0008-cognito-authentication.md](../10_design/adr/0008-cognito-authentication.md) | ADR-0008 認証に Amazon Cognito を使い、資格情報は Cognito、ロールは DynamoDB に持つ（承認） |
+| | [0009-lambda-production-assembly.md](../10_design/adr/0009-lambda-production-assembly.md) | ADR-0009 API の Lambda で、本番モード（DynamoDB・Cognito）の組み立てを動かす（承認。6 章は ADR-0010 で置換） |
+| | [0010-client-ip-from-cloudfront-function.md](../10_design/adr/0010-client-ip-from-cloudfront-function.md) | ADR-0010 利用者の IP は、CloudFront の Function でヘッダーに入れて、Lambda が読む（承認） |
+| | [0011-jobs-eventbridge-lambda.md](../10_design/adr/0011-jobs-eventbridge-lambda.md) | ADR-0011 ジョブ（JB-01〜JB-04）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ（承認） |
+| | [0012-demo-data-and-s3-file-server-mock.md](../10_design/adr/0012-demo-data-and-s3-file-server-mock.md) | ADR-0012 評価環境のデモデータは、ファイルサーバーのモック（S3）と、手元のコマンドで用意する（承認） |
+| | [0013-environments-and-access-control.md](../10_design/adr/0013-environments-and-access-control.md) | ADR-0013 評価環境は、開発サイトと本番サイトに分け、ログイン必須・管理者／一般の 2 ロールで制御する（承認） |
+| | [0014-defer-evaluation-on-manual-entry-write.md](../10_design/adr/0014-defer-evaluation-on-manual-entry-write.md) | ADR-0014 手動入力の保存・削除の評価の再計算を、AWS では、応答から外し、定期の評価（JB-02）に任せる（承認） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |
@@ -43,9 +52,10 @@
 | | [test.spec.md](../../test-result/test.spec.md)（`test-result/` に置く） | テスト仕様書（E2E・単体・結合・負荷テストの、対応する UC・概要・詳細。UC・FR・NFR との対応） |
 | | [stresstest.report.md](../../test-result/stresstest.report.md)（`test-result/` に置く） | 負荷試験の報告（結果のサマリ、採用した許容時間と根拠、データ規模、環境、対応で行ったこと（修正前後の値）、制約・限界） |
 | | [stresstest.result.log](../../test-result/stresstest.result.log)（`test-result/` に置く） | 負荷試験の結果ログ（`pnpm test:stress` の最新の実行。操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計） |
+| | [smoketest.result.log](../../test-result/smoketest.result.log)（`test-result/` に置く） | サーバーレス環境（AWS の評価環境）のスモークテスト・性能の実測の結果ログ（`pnpm test:smoke`。2026-10-21 の、30 日分のデータ・`EVALUATION_ON_WRITE=deferred` での実行。Issue #79・#123。環境の URL・ユーザーは載せない） |
 | [40_operations](../40_operations/) | [git-workflow.md](../40_operations/git-workflow.md) | Git・ブランチ・PR運用 |
-| | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。本番のデプロイ・ロールバックは TODO） |
-| | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行は実装済み。本番は TODO） |
+| | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。評価環境（AWS）のデプロイ・ロールバック・初期ユーザー・データの初期化・障害時の確認） |
+| | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行・評価環境の DynamoDB（PITR・オンデマンド・復元）） |
 | [50_references](../50_references/) | （今後追加） | 外部資料・参考情報 |
 | [.license-check](../../.license-check/)（リポジトリ直下） | [license-report.md](../../.license-check/license-report.md) | 依存パッケージのライセンス確認（コピーレフトの検出と対応、全依存のライセンス別の件数と一覧、配布物に含まれるものの区別）。`docs/` の外に置く |
 | [.speccheck](../../.speccheck/)（リポジトリ直下） | UC-01〜UC-24 の整合性チェックレポート（例: [UC-01-view-dashboard.md](../../.speccheck/UC-01-view-dashboard.md)） | ユースケースごとの、要件（use-cases.md・FR・NFR）・設計・実装・テストの対応表と、不足・食い違いの記録（24 ファイル）。`docs/` の外に置く |

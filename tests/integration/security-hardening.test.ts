@@ -198,6 +198,41 @@ describe('接続元の識別（V-007・V-008。ログインの試行回数の制
     expect(blocked.status).toBe(429);
   });
 
+  it('接続元のヘッダー（CLIENT_IP_HEADER）を指定したとき、そのヘッダーの IP を接続元にする。X-Forwarded-For が変わっても、回避できない（Issue #100）', async () => {
+    const context = await createTestContext({
+      env: { CLIENT_IP_HEADER: 'x-sfm-viewer-ip', TRUSTED_PROXY_HOPS: '1' },
+    });
+
+    await failLogins(context, TEST_USER.userId, (index) => ({
+      'x-sfm-viewer-ip': '203.0.113.10',
+      'x-forwarded-for': `198.51.100.${String(index + 1)}`,
+    }));
+
+    const blocked = await login(context, TEST_USER.userId, TEST_USER.password, {
+      'x-sfm-viewer-ip': '203.0.113.10',
+      'x-forwarded-for': '198.51.100.200',
+    });
+    const otherClient = await login(context, TEST_USER.userId, TEST_USER.password, {
+      'x-sfm-viewer-ip': '2001:db8::11',
+      'x-forwarded-for': '198.51.100.1',
+    });
+    expect(blocked.status).toBe(429);
+    expect(otherClient.status).toBe(200);
+  });
+
+  it('接続元のヘッダーの値が IP でないときは、使わず、ユーザーID単位に切り替える（偽の値で、回避できない）', async () => {
+    const context = await createTestContext({ env: { CLIENT_IP_HEADER: 'x-sfm-viewer-ip' } });
+
+    await failLogins(context, TEST_USER.userId, (index) => ({
+      'x-sfm-viewer-ip': `not-an-ip-${String(index)}`,
+    }));
+
+    const blocked = await login(context, TEST_USER.userId, TEST_USER.password, {
+      'x-sfm-viewer-ip': 'not-an-ip-other',
+    });
+    expect(blocked.status).toBe(429);
+  });
+
   it('接続元を取得できない環境では、ユーザーID単位で数え、1人の失敗がほかの利用者のログインを止めない', async () => {
     const context = await createTestContext();
     await context.request('/users', { method: 'POST', body: NEW_USER });
@@ -220,12 +255,29 @@ describe('入力の長さの上限（V-009）', () => {
     const longRefresh = await context.app.request('/api/v1/auth/refresh', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ refreshToken: 'x'.repeat(257) }),
+      body: JSON.stringify({ refreshToken: 'x'.repeat(4097) }),
     });
 
     expect(longPassword.status).toBe(400);
     expect(longUserId.status).toBe(400);
     expect(longRefresh.status).toBe(400);
+  });
+
+  it('リフレッシュトークンは、4096 文字まで、検証に進む（Cognito のトークンは、1,000 文字を超える。Issue #95）', async () => {
+    const context = await createTestContext();
+    const refresh = (refreshToken: string) =>
+      context.app.request('/api/v1/auth/refresh', {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ refreshToken }),
+      });
+
+    const atLimit = await refresh('x'.repeat(4096));
+    const overLimit = await refresh('x'.repeat(4097));
+
+    // 上限の内側は、入力の検証を通り、無効なトークンとして拒否される（401）。外側は、検証せずに拒否される（400）
+    expect(atLimit.status).toBe(401);
+    expect(overLimit.status).toBe(400);
   });
 
   it('ユーザー登録・再設定のパスワードにも上限がある', async () => {

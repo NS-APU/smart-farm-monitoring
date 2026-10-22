@@ -33,6 +33,7 @@ import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/sour
 import type { AuditService } from '../audit/audit-service.ts';
 import { requireActiveEquipment } from '../equipment/require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
+import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
@@ -69,6 +70,8 @@ export interface ManualEntryServiceDeps {
   >;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
+  /** 保存・修正・削除の応答の前に、評価を再計算するか（ADR-0014）。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   readonly federation: FederationService;
   readonly clock: ClockPort;
   readonly ids: IdGeneratorPort;
@@ -114,7 +117,10 @@ function entryMatchesKeyword(
 }
 
 export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEntryService {
-  const { repositories, audit, evaluation, federation, clock, ids, logger } = deps;
+  const { repositories, audit, evaluation, evaluationOnWrite, federation, clock, ids, logger } =
+    deps;
+  /** 応答に付ける、評価の状態。`deferred` では、評価は、定期の評価（JB-02）が更新する。 */
+  const evaluationState = evaluationOnWrite === 'sync' ? 'DONE' : 'DEFERRED';
 
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);
@@ -168,47 +174,51 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     });
   }
 
-  /** 評価の更新。失敗しても、入力の保存の結果には影響させない。 */
+  /**
+   * 評価の更新。失敗しても、入力の保存の結果には影響させない。
+   * `deferred` では、何もしない（データが増えると、評価の読み出しで、応答が遅くなるため。定期の評価が更新する。ADR-0014）。
+   */
   const reevaluate = (affected: readonly EquipmentId[]): Promise<void> =>
-    reevaluateSafely(
-      evaluation,
-      logger,
-      'MANUAL_ENTRY',
-      '手動入力の後の評価に失敗しました',
-      affected,
-    );
+    evaluationOnWrite === 'deferred'
+      ? Promise.resolve()
+      : reevaluateSafely(
+          evaluation,
+          logger,
+          'MANUAL_ENTRY',
+          '手動入力の後の評価に失敗しました',
+          affected,
+        );
 
   /** 入力した項目に関係する観点の、最新のステータス（ハウス単位。短期・長期の悪い方）。 */
   async function relatedStatuses(entry: ManualEntry): Promise<ManualEntryViewpointStatus[]> {
     const equipment = await repositories.equipment.get(entry.equipmentId);
     const facilityId = equipment?.facilityId ?? entry.equipmentId;
     const itemKeys = Object.keys(entry.items);
-    const statuses: ManualEntryViewpointStatus[] = [];
-    for (const viewpointId of VIEWPOINT_IDS) {
-      const definition = getViewpointDefinition(viewpointId);
-      const sourceKeys = viewpointSourceItemKeys(definition);
-      if (sourceKeys !== null && !sourceKeys.some((key) => itemKeys.includes(key))) {
-        continue;
-      }
-      const long = await repositories.evaluations.getLatest(
-        facilityId,
-        viewpointId,
-        'LONG',
-        DEFAULT_PERIOD_DAYS,
-      );
-      if (long === undefined) {
-        continue;
-      }
-      const short = definition.hasShortHorizon
-        ? await repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
-        : undefined;
-      statuses.push({
-        viewpointId,
-        name: findViewpointMeta(viewpointId)?.name ?? viewpointId,
-        status: combineHorizonStatuses(short?.status ?? null, long.status),
-      });
-    }
-    return statuses;
+    // 観点ごとの、最新の結果の読み出しは、互いに独立のため、並列に行う（観点の順は、保つ。Issue #79）
+    const found = await Promise.all(
+      VIEWPOINT_IDS.map(async (viewpointId): Promise<ManualEntryViewpointStatus | undefined> => {
+        const definition = getViewpointDefinition(viewpointId);
+        const sourceKeys = viewpointSourceItemKeys(definition);
+        if (sourceKeys !== null && !sourceKeys.some((key) => itemKeys.includes(key))) {
+          return undefined;
+        }
+        const [long, short] = await Promise.all([
+          repositories.evaluations.getLatest(facilityId, viewpointId, 'LONG', DEFAULT_PERIOD_DAYS),
+          definition.hasShortHorizon
+            ? repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
+            : Promise.resolve(undefined),
+        ]);
+        if (long === undefined) {
+          return undefined;
+        }
+        return {
+          viewpointId,
+          name: findViewpointMeta(viewpointId)?.name ?? viewpointId,
+          status: combineHorizonStatuses(short?.status ?? null, long.status),
+        };
+      }),
+    );
+    return found.filter((status): status is ManualEntryViewpointStatus => status !== undefined);
   }
 
   async function findEntry(entryId: string): Promise<ManualEntry> {
@@ -247,7 +257,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         after: entry,
       });
       await reevaluate([entry.equipmentId]);
-      return { entry, viewpointStatuses: await relatedStatuses(entry) };
+      return {
+        entry,
+        viewpointStatuses: await relatedStatuses(entry),
+        evaluation: evaluationState,
+      };
     },
 
     async update(entryId, input, actor) {
@@ -279,7 +293,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       });
       // 設備を変更した修正は、変更前の設備も評価し直す
       await reevaluate([before.equipmentId, entry.equipmentId]);
-      return { entry, viewpointStatuses: await relatedStatuses(entry) };
+      return {
+        entry,
+        viewpointStatuses: await relatedStatuses(entry),
+        evaluation: evaluationState,
+      };
     },
 
     async delete(entryId, actor) {

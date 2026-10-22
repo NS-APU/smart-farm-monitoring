@@ -1,6 +1,7 @@
 /**
  * 組み立て（コンポジションルート）。設定に応じて、ポートの実装（アダプタ）を選び、サービスを組み立てる。
- * 本番は、DynamoDB・Cognito・実ファイルサーバー等のアダプタを、ここで差し替える（後で追加する）。
+ * 本番（production）は、DynamoDB の Repository・Cognito の認証を使う（設定で必須。ADR-0009）。ファイルサーバー・農業情報基盤・
+ * Web Push は、評価環境では、モックのまま（実ファイルサーバーなどは未実装。ファイルサーバーのモックの S3 版は Issue #77）。
  * ローカル（local）・テスト（test）では、メモリ／ファイルの Repository、ファイルサーバーと農業情報基盤の
  * モック、Web Push のダミー、アプリ内の認証、操作できる時計を使う（AWS なしで E2E・負荷テストを動かす）。
  */
@@ -75,6 +76,14 @@ import { createViewpointQuery, type ViewpointQuery } from '../application/query/
 import { seedInitialStatusCodes } from '../application/seed/initial-data.ts';
 import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { S3Client } from '@aws-sdk/client-s3';
+import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
+import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
+import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
+import { createJobLock } from '../infrastructure/dynamodb/job-lock.ts';
+import { createLoginThrottle } from '../infrastructure/dynamodb/login-throttle.ts';
+import { createTables } from '../infrastructure/dynamodb/table-admin.ts';
 import { createDefaultFormatProfileRegistry } from '../infrastructure/format-profiles/declarative-profile.ts';
 import {
   createControllableClock,
@@ -85,10 +94,15 @@ import { createDummyWebPush } from '../infrastructure/local/dummy-web-push.ts';
 import { createFaultController } from '../infrastructure/local/faults.ts';
 import { createUuidGenerator } from '../infrastructure/local/ids.ts';
 import { ensureInitialUser } from '../infrastructure/local/initial-user.ts';
+import { createInMemoryJobLock } from '../infrastructure/local/in-memory-job-lock.ts';
+import { createInMemoryLoginThrottle } from '../infrastructure/local/in-memory-login-throttle.ts';
 import { createLocalAuth } from '../infrastructure/local/local-auth.ts';
+import { createLocalCredentials } from '../infrastructure/local/local-credentials.ts';
 import { createLocalRepositories } from '../infrastructure/local/local-repositories.ts';
+import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
+import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
 import {
   DEMO_ROBOT_ID,
@@ -100,9 +114,12 @@ import {
 import { createJsonLogger, STDOUT_SINK } from '../infrastructure/logging/json-logger.ts';
 import type { DevApiDeps } from '../presentation/api-deps.ts';
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
-import { ConfigError, type AppConfig } from './config.ts';
+import type { AppConfig, CognitoConfig, DynamoDbConfig } from './config.ts';
+import type { AuthPort } from '../application/ports/auth-port.ts';
+import type { CredentialPort } from '../application/ports/credential-port.ts';
+import type { JobLockPort } from '../application/ports/job-lock-port.ts';
+import type { LoginThrottlePort } from '../application/ports/login-throttle-port.ts';
 
-const DEMO_DAYS = 3;
 const DEMO_SEED = 20_261_009;
 /** デモの温度の基準（℃）。環境適応性が「注意」になり、通知の例が得られる。 */
 const DEMO_TEMPERATURE_BASE_CELSIUS = 26;
@@ -112,6 +129,8 @@ export interface Container {
   readonly logger: Logger;
   readonly clock: ClockPort;
   readonly repositories: Repositories;
+  /** 資格情報（パスワード）の管理。最初のユーザーを作るコマンドが使う。 */
+  readonly credentials: CredentialPort;
   readonly policy: AccessPolicy;
   readonly authService: AuthService;
   readonly equipmentService: EquipmentService;
@@ -130,11 +149,15 @@ export interface Container {
   readonly ingestionService: IngestionService;
   readonly ingestionSettings: IngestionSettings;
   readonly jobRunner: JobRunner;
+  /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
+  readonly jobLock: JobLockPort;
   readonly scheduler: Scheduler;
   /** 開発用の操作（時計・モック・リセット）。環境変数 DEV_API_ENABLED で明示した場合だけ有効（既定・本番では undefined）。 */
   readonly dev: DevApiDeps | undefined;
   /** 信頼するプロキシの段数（接続元の識別）。 */
   readonly trustedProxyHops: number;
+  /** 利用者の IP が入っているヘッダーの名前（接続元の識別）。 */
+  readonly clientIpHeader: string | undefined;
   /** 初期データ・最初のユーザー・（指定なら）デモデータを用意する。起動時に1度呼ぶ。 */
   initialize(): Promise<void>;
   /** 未保存のデータを書き出し、スケジューラを止める。 */
@@ -146,6 +169,10 @@ export interface ContainerOverrides {
   readonly clock?: ControllableClock;
   readonly ids?: IdGeneratorPort;
   readonly settings?: Partial<AppSettings>;
+  /** Cognito のクライアント（テストで、偽のクライアントに差し替える）。 */
+  readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
+  /** S3 のクライアント（テストで、偽のクライアントに差し替える）。 */
+  readonly s3Client?: Pick<S3Client, 'send'>;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -165,8 +192,54 @@ function buildSettings(config: AppConfig, overrides: ContainerOverrides): AppSet
   };
 }
 
-/** ローカル・テスト用のアダプタ: Repository、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、認証。 */
-function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
+/** DynamoDB Local など、別の接続先（ローカルの開発用）に使う、明らかにダミーの認証情報。 */
+const LOCAL_DYNAMODB_CREDENTIALS = {
+  accessKeyId: 'localdummykey',
+  secretAccessKey: 'localdummysecret',
+};
+const LOCAL_DYNAMODB_REGION = 'ap-northeast-1';
+
+/** データの保持（Repository）。メモリ・ファイルは、ローカルの実装。store は、ローカルの実装だけが持つ。 */
+interface Storage {
+  readonly repositories: Repositories;
+  readonly store: LocalStore | undefined;
+  /** 使う前の準備（DynamoDB Local のテーブルの作成など）。 */
+  readonly prepare: () => Promise<void>;
+  /** ログインの試行回数の制限。複数の実行環境で共有する必要がある DynamoDB は、DynamoDB に持つ。 */
+  readonly loginThrottle: LoginThrottlePort;
+  /** ジョブの排他（リース式ロック）。複数の実行環境が、同じジョブを起動しうる DynamoDB は、DynamoDB に持つ。 */
+  readonly jobLock: JobLockPort;
+}
+
+/**
+ * DynamoDB の接続のオプション。別の接続先（DynamoDB Local）のときだけ、ダミーの認証情報を使う。
+ * AWS では、実行ロール（手元のコマンドでは、プロファイル）の認証情報。デモデータのコマンド（demo-data-cli.ts）も使う。
+ */
+export function dynamoClientOptions(dynamodb: DynamoDbConfig) {
+  return {
+    region:
+      dynamodb.region ?? (dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_REGION),
+    endpoint: dynamodb.endpoint,
+    credentials: dynamodb.endpoint === undefined ? undefined : LOCAL_DYNAMODB_CREDENTIALS,
+  };
+}
+
+function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage {
+  const options = dynamoClientOptions(dynamodb);
+  const tables = { observations: dynamodb.observationsTable, main: dynamodb.mainTable };
+  const client = createDocumentClient(options);
+  return {
+    repositories: createDynamoRepositories({ client, tables }),
+    loginThrottle: createLoginThrottle({ client, tables }, clock),
+    jobLock: createJobLock({ client, tables }, clock),
+    store: undefined,
+    // AWS のテーブルは、IaC で作る。ローカルの接続先のときだけ、作る（すでにあれば、そのまま使う）
+    prepare: () =>
+      dynamodb.endpoint === undefined ? Promise.resolve() : createTables(options, tables),
+  };
+}
+
+function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort): Storage {
   const { repositories, store } = createLocalRepositories(
     config.persistence === 'file'
       ? {
@@ -180,6 +253,53 @@ function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
       : {},
   );
   store.load();
+  return {
+    repositories,
+    store,
+    prepare: () => Promise.resolve(),
+    loginThrottle: createInMemoryLoginThrottle(clock),
+    jobLock: createInMemoryJobLock(clock),
+  };
+}
+
+/** 認証（誰か）と、資格情報（パスワード）の管理。ローカルは、アプリ内の認証、Cognito は、Amazon Cognito（ADR-0008）。 */
+interface Identity {
+  readonly auth: AuthPort;
+  readonly credentials: CredentialPort;
+}
+
+function buildCognitoIdentity(
+  cognito: CognitoConfig,
+  storage: Storage,
+  clock: ClockPort,
+  overrides: ContainerOverrides,
+): Identity {
+  return createCognitoIdentity({
+    client:
+      overrides.cognitoClient ??
+      new CognitoIdentityProviderClient(
+        cognito.region === undefined ? {} : { region: cognito.region },
+      ),
+    userPoolId: cognito.userPoolId,
+    clientId: cognito.clientId,
+    users: storage.repositories.users,
+    clock,
+    throttle: storage.loginThrottle,
+  });
+}
+
+/** ローカル・テスト用のアダプタ: Repository、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、認証。 */
+function buildAdapters(
+  config: AppConfig,
+  clock: ClockPort,
+  logger: Logger,
+  overrides: ContainerOverrides,
+) {
+  const storage =
+    config.dynamodb === undefined
+      ? buildLocalStorage(config, logger, clock)
+      : buildDynamoStorage(config.dynamodb, clock);
+  const { repositories, store, prepare } = storage;
 
   const faults = {
     fileServer: createFaultController(),
@@ -190,16 +310,42 @@ function buildAdapters(config: AppConfig, clock: ClockPort, logger: Logger) {
     federation: createMockFederation({ faults: faults.federation, clock }),
     webPush: createDummyWebPush({ faults: faults.webPush }),
   };
-  const fileSource = createDirectoryFileSource({
-    rootDirectory: config.fileServerDirectory,
-    faults: faults.fileServer,
-    clock,
-  });
+  // ファイルサーバーのモック: S3 のバケットを指定したとき（Lambda）は S3、そうでなければ、ローカルのディレクトリ。
+  // S3 版には、停止・遅延の再現（faults）は、ない（開発用 API は、本番で無効）
+  const fileSource =
+    config.fileServerBucket === undefined
+      ? createDirectoryFileSource({
+          rootDirectory: config.fileServerDirectory,
+          faults: faults.fileServer,
+          clock,
+        })
+      : createS3FileSource({
+          client: overrides.s3Client ?? new S3Client({}),
+          bucket: config.fileServerBucket,
+        });
   const policy = createAccessPolicy(config.roles);
-  const auth = createLocalAuth({ users: repositories.users, clock });
+  const { auth, credentials }: Identity =
+    config.cognito === undefined
+      ? {
+          auth: createLocalAuth({ users: repositories.users, clock }),
+          credentials: createLocalCredentials({ hash: hashPassword }),
+        }
+      : buildCognitoIdentity(config.cognito, storage, clock, overrides);
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
-  return { repositories, store, faults, mocks, fileSource, policy, auth, profiles };
+  return {
+    repositories,
+    store,
+    prepare,
+    jobLock: storage.jobLock,
+    faults,
+    mocks,
+    fileSource,
+    policy,
+    auth,
+    credentials,
+    profiles,
+  };
 }
 
 type Adapters = ReturnType<typeof buildAdapters>;
@@ -215,7 +361,7 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, mocks, fileSource, policy, auth, profiles } = adapters;
+  const { repositories, mocks, fileSource, policy, auth, credentials, profiles } = adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
@@ -267,6 +413,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     repositories,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     federation,
     clock,
     ids,
@@ -296,7 +443,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const userService = createUserService({
     users: repositories.users,
     policy,
-    hasher: { hash: hashPassword },
+    credentials,
     audit: auditService,
     clock,
     sessions: auth,
@@ -351,6 +498,7 @@ async function seedDemoData(
   { evaluationService }: Services,
   settings: AppSettings,
   clock: ClockPort,
+  days: number,
 ): Promise<void> {
   if ((await repositories.equipment.list({ includeDeleted: true })).length > 0) {
     return;
@@ -359,7 +507,7 @@ async function seedDemoData(
   for (const equipment of buildDemoEquipment(now)) {
     await repositories.equipment.save(equipment);
   }
-  const from = new Date(now.getTime() - DEMO_DAYS * MS_PER_DAY);
+  const from = new Date(now.getTime() - days * MS_PER_DAY);
   await repositories.observations.saveMany([
     ...generateAutoObservations({
       robotId: DEMO_ROBOT_ID,
@@ -393,7 +541,7 @@ function buildDevControls(
     faults,
     mocks,
     async reset(seedMode) {
-      store.clear();
+      store?.clear();
       scheduler.reset();
       mocks.federation.reset();
       mocks.webPush.reset();
@@ -420,10 +568,6 @@ function buildDevControls(
 }
 
 export function createContainer(config: AppConfig, overrides: ContainerOverrides = {}): Container {
-  if (config.mode === 'production' || config.persistence === 'dynamodb') {
-    throw new ConfigError('本番用のアダプタ（DynamoDB・Cognito・実ファイルサーバー）は未実装です');
-  }
-
   const logger =
     overrides.logger ?? createJsonLogger({ sink: STDOUT_SINK, minimumLevel: config.logLevel });
   // 時刻を操作できる時計は、開発用 API が有効なときだけ作る（無効なときは、システム時計。V-143）
@@ -433,20 +577,26 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
   const ids = overrides.ids ?? createUuidGenerator();
   const settings = buildSettings(config, overrides);
 
-  const adapters = buildAdapters(config, clock, logger);
+  const adapters = buildAdapters(config, clock, logger, overrides);
   const services = buildServices({ config, settings, adapters, logger, clock, ids });
   const { repositories, store, policy } = adapters;
 
   async function initialize(seedMode: SeedMode = config.seedMode): Promise<void> {
+    await adapters.prepare();
     await seedInitialStatusCodes(repositories.statusCodes);
     if (config.initialUser !== undefined) {
-      const created = await ensureInitialUser(repositories.users, config.initialUser, clock.now());
+      const created = await ensureInitialUser(
+        repositories.users,
+        config.initialUser,
+        clock.now(),
+        adapters.credentials,
+      );
       if (created) {
         logger.info('最初のユーザーを作成しました', { userId: config.initialUser.userId });
       }
     }
     if (seedMode === 'DEMO') {
-      await seedDemoData(adapters, services, settings, clock);
+      await seedDemoData(adapters, services, settings, clock, config.demoSeedDays);
     }
   }
 
@@ -468,6 +618,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     logger,
     clock,
     repositories,
+    credentials: adapters.credentials,
     policy,
     authService: services.authService,
     equipmentService: services.equipmentService,
@@ -496,13 +647,15 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     ingestionService: services.ingestionService,
     ingestionSettings: services.ingestionSettings,
     jobRunner: services.jobRunner,
+    jobLock: adapters.jobLock,
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,
+    clientIpHeader: config.clientIpHeader,
     initialize: () => initialize(),
     close() {
       services.scheduler.stop();
-      store.flush();
+      store?.flush();
     },
   };
 }

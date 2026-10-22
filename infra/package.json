@@ -1,0 +1,26 @@
+{
+  "name": "@smart-farm/infra",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "顧客評価環境（サーバーレス構成）の IaC（AWS CDK）",
+  "scripts": {
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy --all --require-approval never",
+    "destroy": "cdk destroy \"*Evaluation*\" --force",
+    "destroy:data": "cdk destroy \"*Data\" --force",
+    "bootstrap": "cdk bootstrap aws://unknown-account/ap-northeast-1",
+    "bootstrap:certificate": "cdk bootstrap aws://unknown-account/us-east-1",
+    "deploy:oidc": "cdk -a \"node --disable-warning=ExperimentalWarning bin/github-oidc.ts\" deploy --all --require-approval never",
+    "destroy:oidc": "cdk -a \"node --disable-warning=ExperimentalWarning bin/github-oidc.ts\" destroy --all --force"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.273.0",
+    "constructs": "^10.8.1"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.1145.0",
+    "esbuild": "^0.28.0"
+  }
+}

@@ -11,22 +11,10 @@ import { errorLogFields } from '../error-fields.ts';
 import type { Logger } from '../ports/logger-port.ts';
 import { withTimeout } from '../with-timeout.ts';
 import type { JobId, JobRunner } from './job-runner.ts';
+import type { SchedulePlan } from './job-schedule.ts';
 
-export interface SchedulePlan {
-  readonly jobId: JobId;
-  readonly intervalMinutes: number;
-}
-
-/**
- * 既定の実行間隔（暫定）。JB-01 は、取り込み元ごとの取得間隔を、ジョブの中で判定する。
- * JB-02 は、データの途絶を「不明」へ反映するための定期の評価。
- */
-export const DEFAULT_SCHEDULE: readonly SchedulePlan[] = [
-  { jobId: 'JB-01', intervalMinutes: 1 },
-  { jobId: 'JB-02', intervalMinutes: 5 },
-  { jobId: 'JB-03', intervalMinutes: 5 },
-  { jobId: 'JB-04', intervalMinutes: 1 },
-];
+// 既定の実行間隔は、IaC（EventBridge のスケジュール）と共有するため、job-schedule.ts に置く
+export { DEFAULT_SCHEDULE, type SchedulePlan } from './job-schedule.ts';
 
 export interface Scheduler {
   /** 実行すべきジョブ（前回の実行から間隔が過ぎたもの）を実行し、実行したジョブの識別子を返す。 */

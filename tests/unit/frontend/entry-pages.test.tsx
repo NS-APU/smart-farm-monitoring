@@ -165,6 +165,30 @@ describe('データ入力（UC-06。SC-06）', () => {
     });
   });
 
+  it.each([
+    ['DEFERRED', '数分かかります', '前回の評価のステータスです'],
+    ['DONE', '評価を更新しました', '現在のステータスです'],
+    [undefined, '評価を更新しました', '現在のステータスです'],
+  ])(
+    '保存後の説明は、評価の状態（%s）に合わせる。遅延（DEFERRED）なら、反映に数分かかり、前回の評価のステータスであることを示す',
+    async (evaluation, expectedLead, expectedStatusNote) => {
+      renderApp('/data-entry', {
+        'POST /manual-entries': () =>
+          jsonResponse({ ...SAVED, ...(evaluation === undefined ? {} : { evaluation }) }, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+      fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '1' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      const lead = (await screen.findByTestId('entry-lead')).textContent;
+      expect(lead).toContain(expectedLead);
+      expect(lead).toContain(expectedStatusNote);
+    },
+  );
+
   it('備考が空なら、備考を送らない。関連する観点がなければ、その旨を示す', async () => {
     const { calls } = renderApp('/data-entry', {
       'POST /manual-entries': () => jsonResponse({ ...SAVED, viewpointStatuses: [] }, 201),

@@ -1,41 +1,15 @@
 /** 手動入力と変更履歴の Repository（ローカル実装）。 */
 
-import type { ManualEntrySortKey, SortDirection } from '@smart-farm/shared/constants/sorting';
 import { AuditLogEntrySchema } from '@smart-farm/shared/schemas/audit';
 import { compareIsoInstants } from '@smart-farm/shared/time';
-import { ManualEntrySchema, type ManualEntry } from '@smart-farm/shared/schemas/manual-entry';
+import { ManualEntrySchema } from '@smart-farm/shared/schemas/manual-entry';
 import type {
   AuditLogRepository,
-  ManualEntryFilter,
   ManualEntryRepository,
 } from '../../../application/ports/repositories.ts';
+import { compareManualEntries, matchesManualEntry } from '../../common/manual-entry-rules.ts';
 import type { LocalStore } from '../local-store.ts';
 import { paginated, saverOf } from './collection-helpers.ts';
-
-function matchesManualEntry(entry: ManualEntry, filter: ManualEntryFilter): boolean {
-  const fromIso = filter.from?.toISOString();
-  const toIso = filter.to?.toISOString();
-  return (
-    !entry.isDeleted &&
-    (filter.category === undefined || entry.category === filter.category) &&
-    (filter.equipmentId === undefined || entry.equipmentId === filter.equipmentId) &&
-    (fromIso === undefined || compareIsoInstants(entry.observedAt, fromIso) >= 0) &&
-    (toIso === undefined || compareIsoInstants(entry.observedAt, toIso) <= 0) &&
-    (filter.matches?.(entry) ?? true)
-  );
-}
-
-function compareManualEntries(
-  key: ManualEntrySortKey,
-  direction: SortDirection,
-): (left: ManualEntry, right: ManualEntry) => number {
-  const sign = direction === 'asc' ? 1 : -1;
-  return (left, right) =>
-    // 同じ値のときは、計測日時の新しい順 → 識別子の順で並べ、ページ分割の結果を安定させる
-    sign * left[key].localeCompare(right[key]) ||
-    right.observedAt.localeCompare(left.observedAt) ||
-    left.entryId.localeCompare(right.entryId);
-}
 
 export function createManualEntryRepository(store: LocalStore): ManualEntryRepository {
   const manualEntries = store.collection(

@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, parseConfig } from '../../../../src/backend/runtime/config.ts';
+import {
+  ConfigError,
+  parseConfig,
+  parseLambdaConfig,
+} from '../../../../src/backend/runtime/config.ts';
 
 const INITIAL_USER = {
   INITIAL_USER_ID: 'first-user',
   INITIAL_USER_NAME: '最初のユーザー',
   INITIAL_USER_PASSWORD: 'Dummy-Passw0rd-1',
+};
+
+const DYNAMODB_TABLES = {
+  DYNAMODB_OBSERVATIONS_TABLE: 'dummy-observations',
+  DYNAMODB_MAIN_TABLE: 'dummy-main',
+};
+
+// 本番（APP_MODE=production）に必要な、DynamoDB・Cognito の設定（ダミー値）
+const PRODUCTION_ADAPTERS = {
+  PERSISTENCE: 'dynamodb',
+  ...DYNAMODB_TABLES,
+  AUTH_PROVIDER: 'cognito',
+  COGNITO_USER_POOL_ID: 'dummy-pool',
+  COGNITO_CLIENT_ID: 'dummy-client',
 };
 
 describe('実行設定（環境変数）', () => {
@@ -17,6 +35,8 @@ describe('実行設定（環境変数）', () => {
       port: 8787,
       persistence: 'memory',
       seedMode: 'NONE',
+      demoSeedDays: 3,
+      evaluationOnWrite: 'sync',
       schedulerEnabled: false,
       defaultIngestionIntervalMinutes: 15,
       staleAfterIntervals: 3,
@@ -26,6 +46,109 @@ describe('実行設定（環境変数）', () => {
     });
     expect(config.initialUser).toBeUndefined();
     expect(Object.keys(config.roles)).toEqual(['worker']);
+  });
+
+  it('PERSISTENCE=dynamodb: テーブル名・接続先・リージョンを読み込む（メモリ・ファイルでは、持たない）', () => {
+    const local = parseConfig({
+      PERSISTENCE: 'dynamodb',
+      ...DYNAMODB_TABLES,
+      DYNAMODB_ENDPOINT: 'http://127.0.0.1:18000',
+      AWS_REGION: 'ap-northeast-1',
+    });
+    const aws = parseConfig({ PERSISTENCE: 'dynamodb', ...DYNAMODB_TABLES });
+
+    expect(local.dynamodb).toEqual({
+      observationsTable: 'dummy-observations',
+      mainTable: 'dummy-main',
+      endpoint: 'http://127.0.0.1:18000',
+      region: 'ap-northeast-1',
+    });
+    expect(aws.dynamodb).toEqual({
+      observationsTable: 'dummy-observations',
+      mainTable: 'dummy-main',
+      endpoint: undefined,
+      region: undefined,
+    });
+    expect(parseConfig({ ...DYNAMODB_TABLES }).dynamodb).toBeUndefined();
+  });
+
+  it('PERSISTENCE=dynamodb: テーブル名の指定がなければ、設定エラーにする', () => {
+    expect(() => parseConfig({ PERSISTENCE: 'dynamodb' })).toThrow(ConfigError);
+    expect(() =>
+      parseConfig({ PERSISTENCE: 'dynamodb', DYNAMODB_MAIN_TABLE: 'dummy-main' }),
+    ).toThrow('DYNAMODB_OBSERVATIONS_TABLE');
+    expect(() =>
+      parseConfig({ PERSISTENCE: 'dynamodb', DYNAMODB_OBSERVATIONS_TABLE: 'dummy-observations' }),
+    ).toThrow('DYNAMODB_MAIN_TABLE');
+  });
+
+  it('PERSISTENCE=dynamodb: 開発用 API（リセットで、全データを消す）とは、同時に使えない', () => {
+    expect(() =>
+      parseConfig({ PERSISTENCE: 'dynamodb', ...DYNAMODB_TABLES, DEV_API_ENABLED: 'true' }),
+    ).toThrow('DEV_API_ENABLED');
+  });
+
+  it('AUTH_PROVIDER=cognito: ユーザープール・クライアントの ID とリージョンを読み込む。既定は local（Cognito の設定は、持たない）', () => {
+    const cognito = parseConfig({
+      PERSISTENCE: 'dynamodb',
+      ...DYNAMODB_TABLES,
+      AUTH_PROVIDER: 'cognito',
+      COGNITO_USER_POOL_ID: 'dummy-pool',
+      COGNITO_CLIENT_ID: 'dummy-client',
+      AWS_REGION: 'ap-northeast-1',
+    });
+
+    expect(cognito.cognito).toEqual({
+      userPoolId: 'dummy-pool',
+      clientId: 'dummy-client',
+      region: 'ap-northeast-1',
+    });
+    expect(parseConfig({}).cognito).toBeUndefined();
+    expect(
+      parseConfig({ COGNITO_USER_POOL_ID: 'dummy-pool', COGNITO_CLIENT_ID: 'dummy-client' })
+        .cognito,
+    ).toBeUndefined();
+  });
+
+  it('AUTH_PROVIDER=cognito: ID の指定がなければ、設定エラーにする', () => {
+    const base = { PERSISTENCE: 'dynamodb', ...DYNAMODB_TABLES, AUTH_PROVIDER: 'cognito' };
+
+    expect(() => parseConfig(base)).toThrow('COGNITO_USER_POOL_ID');
+    expect(() => parseConfig({ ...base, COGNITO_USER_POOL_ID: 'dummy-pool' })).toThrow(
+      'COGNITO_CLIENT_ID',
+    );
+    expect(() => parseConfig({ ...base, COGNITO_CLIENT_ID: 'dummy-client' })).toThrow(
+      'COGNITO_USER_POOL_ID',
+    );
+  });
+
+  it('AUTH_PROVIDER=cognito: PERSISTENCE=dynamodb が必要（ユーザーのロールと、ログインの試行回数の制限を、DynamoDB に持つ）', () => {
+    expect(() =>
+      parseConfig({
+        AUTH_PROVIDER: 'cognito',
+        COGNITO_USER_POOL_ID: 'dummy-pool',
+        COGNITO_CLIENT_ID: 'dummy-client',
+      }),
+    ).toThrow('PERSISTENCE=dynamodb');
+  });
+
+  it('AUTH_PROVIDER=cognito: INITIAL_USER_*（環境変数の初期ユーザー）は、使えない', () => {
+    for (const name of ['INITIAL_USER_ID', 'INITIAL_USER_NAME', 'INITIAL_USER_PASSWORD']) {
+      expect(() =>
+        parseConfig({
+          PERSISTENCE: 'dynamodb',
+          ...DYNAMODB_TABLES,
+          AUTH_PROVIDER: 'cognito',
+          COGNITO_USER_POOL_ID: 'dummy-pool',
+          COGNITO_CLIENT_ID: 'dummy-client',
+          [name]: 'dummy',
+        }),
+      ).toThrow('INITIAL_USER_*');
+    }
+  });
+
+  it('不正な AUTH_PROVIDER は、設定エラーにする', () => {
+    expect(() => parseConfig({ AUTH_PROVIDER: 'ldap' })).toThrow('AUTH_PROVIDER');
   });
 
   it('指定した値を読み込む', () => {
@@ -60,8 +183,64 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  it('手動入力の保存の後の評価（EVALUATION_ON_WRITE）は、sync（既定）か deferred。それ以外は設定エラー', () => {
+    expect(parseConfig({ EVALUATION_ON_WRITE: 'deferred' }).evaluationOnWrite).toBe('deferred');
+    expect(parseConfig({ EVALUATION_ON_WRITE: 'sync' }).evaluationOnWrite).toBe('sync');
+    expect(() => parseConfig({ EVALUATION_ON_WRITE: 'async' })).toThrow('EVALUATION_ON_WRITE');
+  });
+
+  it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {
+    expect(parseConfig({ DEMO_SEED_DAYS: '30' }).demoSeedDays).toBe(30);
+    expect(parseConfig({ DEMO_SEED_DAYS: '1' }).demoSeedDays).toBe(1);
+    expect(parseConfig({ DEMO_SEED_DAYS: '31' }).demoSeedDays).toBe(31);
+    expect(() => parseConfig({ DEMO_SEED_DAYS: '0' })).toThrow('DEMO_SEED_DAYS');
+    expect(() => parseConfig({ DEMO_SEED_DAYS: '32' })).toThrow('DEMO_SEED_DAYS');
+    expect(() => parseConfig({ DEMO_SEED_DAYS: '1.5' })).toThrow('DEMO_SEED_DAYS');
+  });
+
   it('本番では、開発用 API を無効にする', () => {
-    expect(parseConfig({ APP_MODE: 'production' }).devApiEnabled).toBe(false);
+    expect(parseConfig({ APP_MODE: 'production', ...PRODUCTION_ADAPTERS }).devApiEnabled).toBe(
+      false,
+    );
+  });
+
+  describe('本番（APP_MODE=production）の必須の設定（ADR-0009）', () => {
+    it('DynamoDB と Cognito がそろっていれば、読み込める', () => {
+      const config = parseConfig({ APP_MODE: 'production', ...PRODUCTION_ADAPTERS });
+
+      expect(config).toMatchObject({ mode: 'production', persistence: 'dynamodb' });
+      expect(config.dynamodb).toBeDefined();
+      expect(config.cognito).toBeDefined();
+    });
+
+    it.each([
+      ['何も指定しない', {}],
+      ['認証が Cognito でない', { ...PRODUCTION_ADAPTERS, AUTH_PROVIDER: 'local' }],
+      ['データが DynamoDB でない', { ...PRODUCTION_ADAPTERS, PERSISTENCE: 'memory' }],
+    ])('%s場合は、設定エラーにする', (_name, adapters) => {
+      expect(() => parseConfig({ APP_MODE: 'production', ...adapters })).toThrow(ConfigError);
+    });
+  });
+
+  describe('Lambda の設定', () => {
+    const lambdaEnv = { APP_MODE: 'production', ...PRODUCTION_ADAPTERS };
+
+    it('開発用 API・スケジューラを、指定があっても使えなくする', () => {
+      // DynamoDB の設定は、DEV_API_ENABLED そのものを拒否する。上書きは、メモリの設定で確かめる
+      const config = parseLambdaConfig({
+        APP_MODE: 'test',
+        PERSISTENCE: 'memory',
+        DEV_API_ENABLED: 'true',
+        SCHEDULER_ENABLED: 'true',
+      });
+
+      expect(config.devApiEnabled).toBe(false);
+      expect(config.schedulerEnabled).toBe(false);
+    });
+
+    it('SEED_MODE の指定は、起動のたびにデモデータを投入してしまうため、設定エラーにする', () => {
+      expect(() => parseLambdaConfig({ ...lambdaEnv, SEED_MODE: 'DEMO' })).toThrow('SEED_MODE');
+    });
   });
 
   describe('開発用 API の有効化（V-001）', () => {
@@ -73,15 +252,44 @@ describe('実行設定（環境変数）', () => {
       expect(parseConfig({ APP_MODE: 'test', DEV_API_ENABLED: 'false' }).devApiEnabled).toBe(false);
     });
 
-    it('本番では、DEV_API_ENABLED=true でも、強制的に無効にする', () => {
-      expect(parseConfig({ APP_MODE: 'production', DEV_API_ENABLED: 'true' }).devApiEnabled).toBe(
-        false,
-      );
+    it('本番では、DEV_API_ENABLED=true を、設定エラーにする（本番は DynamoDB 必須で、開発用 API を使えない）', () => {
+      expect(() =>
+        parseConfig({ APP_MODE: 'production', ...PRODUCTION_ADAPTERS, DEV_API_ENABLED: 'true' }),
+      ).toThrow('DEV_API_ENABLED');
     });
 
     it('真偽値でない指定は、設定エラーにする', () => {
       expect(() => parseConfig({ DEV_API_ENABLED: 'yes' })).toThrow('DEV_API_ENABLED');
     });
+  });
+
+  describe('ファイルサーバーのモックの S3 のバケット（FILE_SERVER_S3_BUCKET。Issue #77）', () => {
+    it('既定は、指定なし（ローカルのディレクトリ）。指定すれば、読み込む', () => {
+      expect(parseConfig({}).fileServerBucket).toBeUndefined();
+      expect(parseConfig({ FILE_SERVER_S3_BUCKET: 'dummy-file-server' }).fileServerBucket).toBe(
+        'dummy-file-server',
+      );
+    });
+
+    it('空の指定は、設定エラーにする', () => {
+      expect(() => parseConfig({ FILE_SERVER_S3_BUCKET: '' })).toThrow('FILE_SERVER_S3_BUCKET');
+    });
+  });
+
+  describe('利用者の IP のヘッダー（CLIENT_IP_HEADER。Issue #100）', () => {
+    it('既定は指定なし。指定したヘッダー名は、小文字にして読み込む', () => {
+      expect(parseConfig({}).clientIpHeader).toBeUndefined();
+      expect(parseConfig({ CLIENT_IP_HEADER: 'X-Sfm-Viewer-Ip' }).clientIpHeader).toBe(
+        'x-sfm-viewer-ip',
+      );
+    });
+
+    it.each(['x sfm', 'x-sfm:ip', 'x-sfm\nip'])(
+      'ヘッダー名として不正な値（%j）は、設定エラーにする',
+      (value) => {
+        expect(() => parseConfig({ CLIENT_IP_HEADER: value })).toThrow('CLIENT_IP_HEADER');
+      },
+    );
   });
 
   describe('信頼するプロキシの段数（V-007）', () => {

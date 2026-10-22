@@ -6,17 +6,18 @@
 
 ```text
 smart-farm-monitoring/
-├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml））
+├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml）と、開発サイト・本番サイトのデプロイ（deploy-development.yml・deploy-production.yml））
 ├── docs/          # ドキュメント
 ├── src/
 │   ├── backend/   # バックエンド（Hono）
 │   │   ├── domain/          # ドメイン層（評価エンジン・通知の規則など。純粋なロジック）
 │   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）
-│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。local/（repositories/ に集約ごとの Repository）・format-profiles/・logging/）
+│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・format-profiles/・logging/）
 │   │   ├── presentation/    # 提示層（Hono アプリ・ルート・領域ごとのハンドラ・認証認可・共通エラー）
 │   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts などの補助）
+├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・test/ のテスト。API の Lambda は、バックエンド本体 `src/backend/runtime/lambda.ts` を、esbuild でまとめて配る。ADR-0006・ADR-0007・ADR-0009）
 ├── scripts/       # 補助スクリプト
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
 ├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）
@@ -26,8 +27,9 @@ smart-farm-monitoring/
 │   ├── integration/   # 結合テスト
 │   ├── e2e/           # E2E テスト（Playwright。UC-NN-<英語の概略名>.ts と scenario-<英語の概略名>.ts。補助は support/）
 │   ├── stress/        # 負荷テスト（Playwright。stress-NN-<英語の概略名>.ts。補助は support/: データ規模 scale.ts・データ投入 seed-data.ts・サーバー起動 stress-server.ts・許容時間 limits.ts・計測 recorder.ts・結果ログ report-log.ts・手動入力の計測日時 observed-at.ts など）
+│   ├── smoke/         # サーバーレス環境（評価環境）のスモークテスト・性能の実測（Playwright。smoke-NN-<英語の概略名>.ts。補助は support/: 接続先・認証情報 smoke-env.ts・画面操作 smoke-ui.ts・結果ログ smoke-report.ts など。計測と許容時間は、tests/stress/support/ を共有）
 │   ├── fixtures/      # テストデータ（合成データ。ファイルサーバーのモック用のファイル）
-│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts）
+│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
 ├── test-result/   # テストの出力（Git 管理外。カバレッジ・動画・レポート）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
 ├── dist/          # ビルドの出力（Git 管理外）
 └── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化・ファイルサーバーのモック）
@@ -44,10 +46,10 @@ smart-farm-monitoring/
 | `.env.example` | 必要な環境変数の一覧（値はダミー） |
 | `.gitignore` | Git管理対象外のファイルの定義 |
 | `.gitattributes` | 行末の指定（LF に統一。Windows の `core.autocrlf` に依らず、チェックアウトを LF にする） |
-| `package.json`・`pnpm-workspace.yaml`・`pnpm-lock.yaml` | pnpm ワークスペース（ルートはツール類、`src/` 配下の3つがアプリのパッケージ）とスクリプト |
+| `package.json`・`pnpm-workspace.yaml`・`pnpm-lock.yaml` | pnpm ワークスペース（ルートはツール類、`src/` 配下の3つがアプリのパッケージ、`infra/` が IaC のパッケージ）とスクリプト |
 | `tsconfig.json` | TypeScript の共通設定（各パッケージが継承） |
 | `eslint.config.js`・`.oxlintrc.json`・`.prettierrc`・`.prettierignore`・`.editorconfig` | Lint（ESLint と、アクセシビリティ用の oxlint）・フォーマットの設定 |
-| `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）の設定 |
+| `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts`・`playwright.smoke.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）の設定 |
 | `dev-ports.ts` | 開発サーバーのポート（Vite 5173・バックエンド 8787）。`playwright.config.ts` と `src/frontend/vite.config.ts` が共有する |
 
 ## docs/ の構成

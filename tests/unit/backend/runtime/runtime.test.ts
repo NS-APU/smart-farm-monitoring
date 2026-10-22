@@ -25,13 +25,6 @@ const ENV = {
 };
 
 describe('組み立て（コンポジションルート）', () => {
-  it('本番用のアダプタ（DynamoDB・Cognito・実ファイルサーバー）は未実装のため、本番設定では組み立てを拒否する', () => {
-    expect(() => createContainer(parseConfig({ APP_MODE: 'production' }))).toThrow(ConfigError);
-    expect(() =>
-      createContainer(parseConfig({ APP_MODE: 'local', PERSISTENCE: 'dynamodb' })),
-    ).toThrow('未実装');
-  });
-
   it('初期化すると、ステータスコードの初期の定義と、最初のユーザーを用意する（冪等）', async () => {
     const container = createContainer(parseConfig(ENV), { logger: NULL_LOGGER });
 
@@ -270,10 +263,16 @@ describe('Lambda のハンドラ（関数の URL）', () => {
     expect(second).toMatchObject({ statusCode: 200 });
   });
 
-  it('本番のアダプタが未実装の間は、呼び出しがエラーになる', async () => {
+  it('本番（APP_MODE=production）で、Cognito の設定がなければ、設定エラーにする（ADR-0009）', async () => {
     const handler = createLambdaHandler({ APP_MODE: 'production', PERSISTENCE: 'dynamodb' });
 
     await expect(handler(functionUrlEvent('GET', '/health'))).rejects.toThrow(ConfigError);
+  });
+
+  it('SEED_MODE は、Lambda では使えない（起動のたびにデモデータを投入しない）', async () => {
+    const handler = createLambdaHandler({ ...ENV, PERSISTENCE: 'memory', SEED_MODE: 'DEMO' });
+
+    await expect(handler(functionUrlEvent('GET', '/health'))).rejects.toThrow('SEED_MODE');
   });
 
   it('APP_MODE・PERSISTENCE が未設定なら、既定（local・メモリ）で動かさず、設定エラーにする（V-002）', async () => {
