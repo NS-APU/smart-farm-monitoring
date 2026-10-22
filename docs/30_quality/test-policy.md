@@ -7,7 +7,7 @@
 | 対象 | フレームワーク |
 |------|----------------|
 | バックエンド（`src/backend/`） | Vitest（単体・結合） |
-| フロントエンド（`src/frontend/`） | Vitest（単体）。コンポーネントのテストのライブラリは TODO: 実装の開始時に決める |
+| フロントエンド（`src/frontend/`） | Vitest（単体）。コンポーネントのテストは、Testing Library（`@testing-library/react`）と jsdom |
 | 共通コード（`src/shared/`） | Vitest（単体） |
 | E2E | Playwright |
 
