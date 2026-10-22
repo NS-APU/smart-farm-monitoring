@@ -2,7 +2,8 @@
 # - 手動実行（workflow_dispatch）のみ。自動のトリガ（develop の更新）は、Issue #89 で追加する（ADR-0013）
 # - AWS へは、OIDC の一時的な認証で入る（長期のアクセスキーを使わない）。ロールの ARN は、GitHub の Environment「development」の
 #   シークレット AWS_DEPLOY_ROLE_ARN に設定する（ロールは infra/lib/github-oidc-stack.ts で作る。手順は commands.md）
-# - Environment「development」で、デプロイできるブランチ（develop）を制限できる（ロールの信頼ポリシーも、この Environment を条件にしている。
+# - Environment「development」で、デプロイできるブランチ（develop・feature/*・release/*・hotfix/*。PR の前の動作確認のため。Issue #131）を制限している。
+#   「Use workflow from」で選んだブランチを、そのままデプロイする（ロールの信頼ポリシーも、この Environment を条件にしている。
 #   本番サイトの Environment「production」のジョブは、このロールを引き受けられない）
 # - 独自のサブドメインを使うときは、Environment の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する（2 つとも。未設定なら cloudfront.net）
 name: Deploy development

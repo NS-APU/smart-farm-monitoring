@@ -57,7 +57,7 @@
 顧客評価環境のデプロイ（`infra/`。[ADR-0006](../10_design/adr/0006-iac-cdk-and-same-origin-delivery.md)）には、次の決まりを適用する。
 
 - **長期のアクセスキーを、GitHub にも、リポジトリにも、CI の設定にも置かない**。GitHub Actions は、OIDC の一時的な認証で、AWS のロール（`sfm-github-actions-deploy`）を引き受ける（セッションは 1 時間）
-- ロールを引き受けられるのは、**環境ごとのロール**: 開発サイトのロール（`sfm-github-actions-deploy`）は、GitHub の Environment `development` のジョブだけ、本番サイトのロール（`sfm-github-actions-deploy-production`）は、Environment `production` のジョブだけ（信頼ポリシーの条件。互いに、引き受けられない）。Environment で、デプロイできるブランチ・承認者を、さらに制限する（本番サイトは、`main` だけ・承認者の承認が必須。ADR-0013）。同じアカウントのため、ロールは、`cdk-*` のロールを引き受けられる点で、完全な分離ではない
+- ロールを引き受けられるのは、**環境ごとのロール**: 開発サイトのロール（`sfm-github-actions-deploy`）は、GitHub の Environment `development` のジョブだけ、本番サイトのロール（`sfm-github-actions-deploy-production`）は、Environment `production` のジョブだけ（信頼ポリシーの条件。互いに、引き受けられない）。Environment で、デプロイできるブランチ・承認者を、さらに制限する（本番サイトは、`main` だけ・承認者の承認が必須。開発サイトは、`develop`・`feature/*`・`release/*`・`hotfix/*`（`main` は含めない）。ADR-0013）。同じアカウントのため、ロールは、`cdk-*` のロールを引き受けられる点で、完全な分離ではない
 - 信頼ポリシーの `sub` は、GitHub の**不変の ID の形式**（組織・リポジトリの ID を含む。`repo:<組織>@<ID>/<リポジトリ>@<ID>:environment:<Environment の名前>`）で書く。リポジトリの名前変更・移管・同名の別リポジトリによる、なりすましを防ぐため。旧形式（名前だけ）には戻さない（Issue #87）
 - ロールの権限は、**CDK のデプロイ用ロール（`cdk-<識別子>-*`）を引き受けることだけ**。リソースの作成・変更は、CDK のデプロイ用ロールの権限で行う
 - ロールの ARN にはアカウント ID が含まれるため、GitHub の **Environment のシークレット**（`AWS_DEPLOY_ROLE_ARN`）に設定する。リポジトリ（公開）には、アカウント ID・ドメイン名・ホストゾーン名を書かない（環境変数・GitHub の変数で渡す）。`cdk.context.json`（検索結果のキャッシュ）は、Git 管理外にする
