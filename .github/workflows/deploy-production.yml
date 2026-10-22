@@ -2,7 +2,9 @@
 # - **main ブランチだけ**からデプロイできる。GitHub の Environment「production」の設定（Deployment branches: main のみ）と、
 #   このワークフローの条件（github.ref）の、二重で守る
 # - **承認者の承認を必須**にする（Environment「production」の Required reviewers）。承認されるまで、ジョブは、始まらない
-# - 手動実行（workflow_dispatch）のみ。自動のトリガ（main の更新）は、Issue #89 で追加する（承認は、そのまま必須）
+# - トリガ: main への push（自動。Issue #89。承認されるまで、ジョブは始まらない）と、手動実行（workflow_dispatch）。
+#   main には、PR の CI（E2E・負荷テストを含む必須チェック）が成功した内容だけが入るため、CI の完了は待たず、push で動かす。
+#   承認者は、承認の前に、CI の成功を確認する。承認待ちは、30 日で期限切れになる（手動実行で、やり直せる）
 # - AWS へは、OIDC の一時的な認証で入る（長期のアクセスキーを使わない）。ロールの ARN は、Environment「production」の
 #   シークレット AWS_DEPLOY_ROLE_ARN に設定する（本番用のロール sfm-github-actions-deploy-production。infra/lib/github-oidc-stack.ts）。
 #   このロールを引き受けられるのは、Environment「production」のジョブだけ（開発サイトのジョブは、引き受けられない）
@@ -11,6 +13,8 @@
 name: Deploy production
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

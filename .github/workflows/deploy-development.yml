@@ -1,5 +1,8 @@
 # 開発サイト（現在の評価環境）のデプロイ（Issue #71・#117。docs/00_project/commands.md「評価環境（IaC）」）。本番サイトは、deploy-production.yml
-# - 手動実行（workflow_dispatch）のみ。自動のトリガ（develop の更新）は、Issue #89 で追加する（ADR-0013）
+# - トリガ: develop への push（自動。Issue #89。ADR-0013）と、手動実行（workflow_dispatch）。
+#   develop には、PR の CI（必須チェック。ブランチの保護）が成功した内容だけが入るため、CI の完了は待たず、push で動かす
+#   （CI は pull_request でだけ動くため、workflow_run は使えない）。
+#   手動で別のブランチを確認している間に develop が更新されると、確認中の内容が置き換わる（上書きを避ける仕組みは入れない。手順で注意する）
 # - AWS へは、OIDC の一時的な認証で入る（長期のアクセスキーを使わない）。ロールの ARN は、GitHub の Environment「development」の
 #   シークレット AWS_DEPLOY_ROLE_ARN に設定する（ロールは infra/lib/github-oidc-stack.ts で作る。手順は commands.md）
 # - Environment「development」で、デプロイできるブランチ（develop・feature/*・release/*・hotfix/*。PR の前の動作確認のため。Issue #131）を制限している。
@@ -9,6 +12,8 @@
 name: Deploy development
 
 on:
+  push:
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
