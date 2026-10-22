@@ -1,6 +1,6 @@
 {
   "name": "smart-farm-monitoring",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "イチゴ収穫ロボット・スマートハウス向け稼働モニタリング基盤",
   "type": "module",
