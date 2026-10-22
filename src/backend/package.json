@@ -1,6 +1,6 @@
 {
   "name": "@smart-farm/backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "バックエンド（Hono）。ドメイン・アプリケーション・インフラ（アダプタ）・提示・実行形態",
