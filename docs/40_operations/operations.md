@@ -320,6 +320,8 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 2. データのスタックを削除する: スタックの削除の保護・テーブルの削除の保護を外し、`pnpm --filter @smart-farm/infra run destroy:data`（`SfmProductionData`）。手順の詳細は、commands.md「削除と再作成」の「データ（DynamoDB のテーブル）の削除」と同じ（スタック名を読み替える）。Cognito のユーザーも消える
 3. 終わったら、`Remove-Item Env:SFM_ENVIRONMENT` で、環境変数を消す
 
+**実行の前に**: `$env:SFM_ENVIRONMENT = 'production'` を設定し、`echo $env:SFM_ENVIRONMENT` で確かめ、`pnpm --filter @smart-farm/infra run diff` の `Stack` の行が、**本番の 2 スタック（`SfmProductionData`・`SfmProductionEvaluation`）だけ**であることを確認する（`SfmData`・`SfmEvaluation` が出たら、中止する。開発サイトを消してしまう）。データのスタックの削除のあとは、テーブル（RETAIN）と Cognito のユーザープールを、別に削除する（commands.md「削除と再作成」）。**2026-10-22 に、この手順で確認済み**（9.9）
+
 **`pnpm demo-data reset` は、本番サイトでは使えない**（安全装置）。一部のデータだけを消すときは、画面の削除（手動入力・設備など）を使う。
 
 ### 9.8 実データの扱いの条件（確定。2026-10-22）
@@ -334,4 +336,6 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | 開発サイトの Environment の改名（`evaluation` → `development`）・OIDC のスタックの更新（開発のロールの信頼条件の更新・本番のロールの作成）（9.2 の前提） | **確認済み**（2026-10-22）。差分は、想定どおり（開発のロールの `sub`・`Description`・タグの変更、本番のロールと出力の追加。置き換えなし）。開発サイトの全リソースのタグの値（`Environment`）だけが変わる差分で、**「Deploy development」が成功し、`/health` とログインを確認した**。古い Environment `evaluation` を削除した |
 | GitHub の Environment `development`・`production` の設定 | **確認済み**（2026-10-22。`gh api` で確認）。`development`: デプロイできるブランチ `develop`・`feature/*`・`release/*`・`hotfix/*`・シークレット `AWS_DEPLOY_ROLE_ARN`。`production`: ブランチ `main` のみ・承認者 T-Ishikawa-R・シークレット `AWS_DEPLOY_ROLE_ARN`（本番のロール）。本番のデプロイは、未実施 |
 | 9.5 最初のユーザー | **確認済み**（2026-10-22。ユーザーが実行）。最初のユーザーを作成し、ログインできた |
-| 9.4 ロールバック・9.6 バックアップ・9.7 データの削除 | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
+| 9.7 データの削除と、再作成 | **確認済み**（2026-10-22。ユーザーが実行。データが空の状態）。評価環境のスタック（`SfmProductionEvaluation`）の削除 → 保護の解除 → データのスタック（`SfmProductionData`）の削除 → DynamoDB のテーブル 2 つの削除 → Cognito のユーザープールの削除（コンソール）が成功した。削除の確認（スタックがない・本番のテーブルがない）と、**開発サイトが無事なこと**（スタックの状態・`/health`）も確認した。続けて「Deploy production」で再作成し、`/health`・最初のユーザーの作成・ログイン・ダッシュボードの表示・ジョブのログにエラーがないことを確認した（IaC で同じ環境を再作成できる。`SiteUrl` は新しくなる）。**削除のコマンドは、`SFM_ENVIRONMENT=production` を指定しないと、開発サイトを消す**。実行の前に、`diff` の `Stack` の行が、本番の 2 スタックだけであることを確認する（`pnpm --filter @smart-farm/infra run diff`） |
+| `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
+| 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
