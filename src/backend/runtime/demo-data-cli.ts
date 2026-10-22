@@ -10,6 +10,9 @@
  *   ファイルサーバーのモックの S3 のファイルを、消す。**元に戻せない**ため、`--yes` を付けないと、何も消さずに、対象の件数を示す
  * - AWS のエラーは、名前だけを出力する（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
  *
+ * **開発サイト専用**。本番サイト（Issue #117。ADR-0013）には、使わない（合成データを入れない。`reset` は、実データを消す）。
+ *   本番サイトの操作のために、環境変数 `SFM_ENVIRONMENT=production` を設定したままのシェルで、誤って実行しても、実行しない（安全装置）
+ *
  * 環境変数: `PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`（値は、SfmData のスタックの出力）。
  * `reset` で S3 のファイルも消すときは、`FILE_SERVER_S3_BUCKET`（SfmEvaluation の出力 `FileServerBucketName`）。AWS_REGION の既定は ap-northeast-1。
  */
@@ -166,6 +169,12 @@ export async function runDemoDataCli(
   const [command] = args;
   if (command !== 'seed' && command !== 'reset') {
     output.error(`コマンドを指定してください。${USAGE}`);
+    return 1;
+  }
+  if (env.SFM_ENVIRONMENT?.trim() === 'production') {
+    output.error(
+      'demo-data は、開発サイト専用です。本番サイトでは、実行できません（SFM_ENVIRONMENT=production）。本番サイトの手順は、docs/40_operations/operations.md 9 章',
+    );
     return 1;
   }
   try {

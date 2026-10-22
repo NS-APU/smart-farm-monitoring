@@ -36,11 +36,11 @@
 | 単体: backend/infrastructure               |         12 |        208 |
 | 単体: backend/runtime                      |          3 |         76 |
 | 単体: frontend                             |         19 |        375 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |         63 |
-| 結合（`tests/integration/`）               |         27 |        816 |
-| 合計                                       |        116 |       2663 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |         73 |
+| 結合（`tests/integration/`）               |         27 |        818 |
+| 合計                                       |        116 |       2675 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1083 件、結合 816 件（単体と結合の合計 1899 件。`vitest list` の件数。Issue #73〜#79・#95・#100・#107・#123 の実装後の値。実測（DynamoDB Local あり。2026-10-21）は、85 ファイル・1901 件で、1899 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする。CI（Linux）は、1901 件すべて成功）。
+内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1093 件、結合 818 件（単体と結合の合計 1911 件。`vitest list` の件数。Issue #73〜#79・#95・#100・#107・#117・#123 の実装後の値。実測（DynamoDB Local あり。2026-10-22）は、85 ファイル・1913 件で、1911 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする。カバレッジ: 行 99.46%・分岐 95.70%・関数 99.83%・文 99.48%）。
 この件数は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -6722,12 +6722,12 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | frontend               | `tests/unit/frontend/resilience.test.tsx`                               |   16 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/service-worker.test.ts`                            |    7 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/ui-refinements.test.tsx`                           |    4 | （個別の節なし。8 章で説明）                                                                     |
-| infra                  | `infra/test/apps.test.ts`                                               |    7 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/apps.test.ts`                                               |    12 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/bundle-lambda.test.ts`                                      |    4 | （個別の節なし。12 章で説明）                                                                    |
-| infra                  | `infra/test/config.test.ts`                                             |    5 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/config.test.ts`                                             |    7 | （個別の節なし。12 章で説明）                                                                    |
 | infra                  | `infra/test/data-stack.test.ts`                                         |    9 | （個別の節なし。12 章で説明）           |
 | infra                  | `infra/test/evaluation-stack.test.ts`                                   |   31 | （個別の節なし。12 章で説明）                                                                    |
-| infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    7 | （個別の節なし。12 章で説明）                                                                    |
+| infra                  | `infra/test/github-oidc-stack.test.ts`                                  |    10 | （個別の節なし。12 章で説明）                                                                    |
 | integration            | `tests/integration/access-log.test.ts`                                  |    1 | （UC に直接対応しない基盤）                                                                      |
 | integration            | `tests/integration/api.test.ts`                                         |  124 | UC-01・UC-05・UC-12・UC-13・UC-17・UC-22・UC-24                                                  |
 | integration            | `tests/integration/application-services.test.ts`                        |    4 | UC-12・UC-17・UC-19                                                                              |
@@ -6753,7 +6753,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | integration            | `tests/integration/job-lambda.test.ts`                                  |   11 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/s3-file-source.test.ts`                              |   20 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/s3-ingestion.test.ts`                                |    3 | （個別の節なし。12 章で説明）           |
-| integration            | `tests/integration/demo-data-cli.test.ts`                               |    13 | （個別の節なし。12 章で説明）           |
+| integration            | `tests/integration/demo-data-cli.test.ts`                               |    15 | （個別の節なし。12 章で説明）           |
 | integration            | `tests/integration/demo-feed.test.ts`                                   |    8 | （個別の節なし。12 章で説明）           |
 
 件数は、定義されているテストの数（実測。Sprint1 の取り込み後の値に、Issue #73 で追加した件数を加えた。実測は、合計 82 ファイル・1866 件。DynamoDB Local あり。Issue #73・#74・#75・#76・#77・#95・#100・#107 の加算を含む）。`data-backup.test.ts` と `store-and-logging-hardening.test.ts` の各 1 件は、Windows ではスキップする（ファイル権限のテスト）が、件数に含む。1.2 節の件数（`vitest list`）は、このスキップする 2 件を含まない（infrastructure は 146 件）。
@@ -10985,7 +10985,7 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | カバレッジ | 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41% |
 | 負荷テスト | 4 件成功（約2分）。443 操作すべてが許容時間内（NG 0） |
 
-## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#79・#87・#95・#100・#107・#123）で変更・追加したテスト
+## 12. Sprint1 の取り込み（Issue #30〜#39・#60・#62）と、Sprint2 の IaC・DynamoDB・Cognito・Lambda・ジョブ・S3 のファイルサーバー（Issue #71・#73・#74・#75・#76・#77・#79・#87・#95・#100・#107・#117・#123）で変更・追加したテスト
 
 ローカルにあった成果物を、層ごとに `develop` へ取り込む過程で、次の変更をした。**テストの期待値の書き換え・削除・スキップはしていない**（分割・移動、テストの追加、ポートの直書きの修正、CI で現れた環境の違い・タイミング依存の調整のみ）。**ただし、Issue #73（DynamoDB アダプタ）では、仕様の変更に伴う期待値の変更が 2 か所ある（下の表。Issue の作業内容「`PERSISTENCE=dynamodb` の組み立てを追加する」「IaC に、DynamoDB のテーブルを追加する」による。削除・スキップはしていない）**。
 
@@ -11046,6 +11046,9 @@ NFR-3.1（利用者10名ほど）に従い、10人の利用者が、別のブラ
 | スモークテスト用の部品の単体テストの追加（Issue #79） | `tests/unit/shared/smoke-env.test.ts`（11 件）: URL・ユーザーID・パスワードを読む（URL は、末尾のスラッシュを除いた origin）／ローカルの確認用に限り、http の localhost を許す／3 つの変数が未指定・空なら、その名前を示すエラー／URL でない・平文の http・パス・クエリ・フラグメントがある URL はエラー／エラーにパスワードを含めない。`tests/unit/shared/smoke-report.test.ts`（5 件）: 取り込みの実行時間の行（件数・最大・p50・上限に対する割合・記録なし）／結果ログの組み立て（実行日時・端末の環境・許容時間・操作ごとの結果・集計・判定・NG の一覧）／すべて OK の判定・取り込みの実行時間がなければ節を出さない／環境の URL・認証情報に関わる項目を載せない | node +16 |
 | 評価結果の保存・読み出しの並列化のテストの追加（Issue #79。サーバーレス環境の実測で、手動入力の保存・削除が許容時間を超えたことへの対応） | `tests/integration/evaluation-affected.test.ts` に 2 件（7 件 → 9 件）: `evaluateAffected` が、評価結果の保存（`saveLatest`）と、直前の状態の変化の読み出し（`getLastStatusChange`）を並列に行い、保存される結果の数（ロボット 40・ハウス 56）は変わらない／手動入力の保存後の、関連する観点の最新の結果の読み出し（`getLatest`）を並列に行い、観点の順は変わらない。**修正前のコードでは、この 2 件が失敗することを確認した**（重なりの最大数が 1）。**既存のテストの期待値は、変えていない** | node +2 |
 | 手動入力の保存後の評価の遅延のテストの追加（Issue #123。ADR-0014） | `tests/integration/manual-entry-deferred-evaluation.test.ts`（6 件）: `sync`（既定）では、保存・修正・削除のたびに影響する設備の評価を実行し（設備の変更を伴う修正は、変更前と変更後）、応答の `evaluation` は `DONE`／`deferred` では、評価を実行せず、応答は `DEFERRED`・評価の結果は増えない／入力そのもの（手動入力・観測値）は保存される／関連する観点のステータスは、前回の評価の値（評価がなければ空）／定期の評価（`evaluateAll`）が、保存した入力を反映する／API の応答に `evaluation: DEFERRED` が含まれ、共有のスキーマで読める。`config.test.ts` に 1 件（`EVALUATION_ON_WRITE` は `sync`・`deferred`、それ以外は設定エラー。既定の確認に `evaluationOnWrite: sync` を追加）、`entry-pages.test.tsx` に 3 件（保存後の説明が、評価の状態 `DEFERRED`・`DONE`・なしに合う。`DEFERRED` は、数分かかる旨と、前回のステータスであることを示す）、`infra/test/evaluation-stack.test.ts` に 1 件（API の環境変数 `EVALUATION_ON_WRITE` は `deferred`。ジョブの Lambda には持たない）。**既存のテストの期待値は、変えていない**（既存の「環境変数」のテストは、追加した設定の影響を受けない） | node +5、frontend +3、infra +1 |
+| **期待値の変更 10**: `infra/test/github-oidc-stack.test.ts`・`apps.test.ts`・`config.test.ts`（Issue #117。**仕様の変更**: GitHub の Environment の改名（`evaluation` → `development`）と、サイトの環境（開発・本番）の導入） | ① `github-oidc-stack.test.ts`: ロールの props を `environmentName: 'evaluation'` から `deployRoles`（開発・本番の 2 つ）に変え、開発サイトのロールの信頼条件の `sub` の Environment を `evaluation` → `development` に変えた（2 か所） ② `apps.test.ts`: `sub` の `environment:evaluation` を `development` に変えた（2 か所）。「全スタックに、コスト配分用のタグ（Project・Environment・ManagedBy）が付く」（OIDC のスタックの `Environment` タグ `evaluation` を確認していた）を、**2 件に置き換えた**: 評価環境のスタックに、`Environment` がサイトの環境（development・production）のタグが付く／OIDC のスタックは、アカウント共通（開発・本番のロールを持つ）で、`Environment` のタグは付けず、Project・ManagedBy が付く ③ `config.test.ts`: `readConfig` の戻り値に `environment: 'development'` が加わったため、3 か所の `toEqual` の期待値に追加した。**検証を緩めたのではなく、仕様の変更に合わせた**。開発サイトの既存のスタックは、タグの値（`Environment`）以外は変わらないことを、変更の前後の合成結果の比較で確認した | なし（件数は、同じ。②で、1 件を 2 件に置き換え、+1） |
+| 本番サイト（IaC）のテストの追加（Issue #117。ADR-0013） | `infra/test/` に 10 件（63 件 → 73 件）: `config.test.ts` に 2 件（`SFM_ENVIRONMENT` は development（既定）・production・空白は未指定・それ以外はエラー／スタックの名前: 開発の既存の名前は変えない・本番は別の名前で、`Evaluation` を含み、重ならない）、`github-oidc-stack.test.ts` に 3 件（ロールは 2 つで、本番のロールを引き受けられるのは Environment「production」のジョブだけ／開発のロールは production を許さず、本番のロールは development を許さない／開発の既存のロールは置き換わらない（コンストラクトの ID・ロール名・出力の ID が、これまでと同じ）。出力 `ProductionDeployRoleArn` の確認も追加）、`apps.test.ts` に 5 件（本番のスタックは別の名前／本番の独自ドメインは、本番用の名前の証明書のスタックも作る／本番は、合成データを生成する Lambda・ルールを作らず、開発は作る（ファイルサーバーのモックのバケットは、どちらにもある）／サイトの環境が不正ならエラー／評価環境のタグ・OIDC のスタックのタグ（②で、1 件を 2 件に置き換えた分を含む））。ワークフローは、`actionlint` で確認した | infra +10 |
+| デモデータのコマンドの、本番サイトでの安全装置のテストの追加（Issue #117） | `tests/integration/demo-data-cli.test.ts` に 2 件（13 件 → 15 件。DynamoDB Local + 偽の S3）: `SFM_ENVIRONMENT=production` のとき、`seed`・`reset --yes` は、何も投入・削除せず、`開発サイト専用` と示して、終了コード 1。**既存のテストの期待値は、変えていない** | 結合 +2 |
 | 負荷テストの部品の変更（Issue #79。テストの期待値は、変えていない） | `tests/stress/support/recorder.ts` の記録の出力先を、環境変数 `MEASURE_OUTPUT_DIR`（既定 `test-result/stress`）で切り替えられるようにした（サーバーレス環境のスモークテストが、同じ計測の部品を、別の出力先で使うため）。負荷テストの動作・出力先は、変わらない | なし |
 
 **Issue #77 では、上の「期待値の変更 8・9」のとおり、IaC の仕様の変更（S3 のバケットと権限、合成データを生成する Lambda の追加）に伴う期待値の変更が、6 か所ある**（それ以外の期待は、そのまま）。**Issue #76 では、上の「期待値の変更 7」のとおり、IaC の仕様の変更（ロググループの増加）に伴う期待値の変更が 1 件ある**（各ロググループの保持期間・削除の期待は、そのまま）。**Issue #100（バグ修正）では、上の「期待値の変更 4・5」のとおり、前提の誤りに伴う期待値の変更がある**（修正の前に、書き換え後のテストが失敗することを確認した）。**Issue #75 では、上の「期待値の変更 1〜3」と「削除」のとおり、仕様の変更に伴う期待値の変更・削除がある**（テストを通すためではなく、実装の変更で、前提が変わったため。実装の前に、ユーザーへ方針を示した。api-handler.test.ts の削除は、承認済み。そのほかは、PR で、あらためて確認する）。

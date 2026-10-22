@@ -99,12 +99,35 @@ describe('CDK アプリの組み立て', () => {
       role?.Properties.AssumeRolePolicyDocument?.Statement[0]?.Condition.StringEquals[
         'token.actions.githubusercontent.com:sub'
       ];
-    expect(sub).toBe(`${GITHUB_SUBJECT_PREFIX}:environment:evaluation`);
+    expect(sub).toBe(`${GITHUB_SUBJECT_PREFIX}:environment:development`);
     // 不変の ID の形式: repo:<組織>@<組織の ID>/<リポジトリ>@<リポジトリの ID>
-    expect(sub).toMatch(/^repo:[^@/]+@\d+\/[^@/]+@\d+:environment:evaluation$/);
+    expect(sub).toMatch(/^repo:[^@/]+@\d+\/[^@/]+@\d+:environment:development$/);
   });
 
-  it('全スタックに、コスト配分用のタグ（Project・Environment・ManagedBy）が付く', () => {
+  it('評価環境のスタックに、コスト配分用のタグ（Project・Environment・ManagedBy）が付く。Environment は、サイトの環境（Issue #117）', () => {
+    for (const environment of ['development', 'production'] as const) {
+      const app = createEvaluationApp({ SFM_ENVIRONMENT: environment }, assets());
+      const dataStack = app.synth().stacks.find((stack) => stack.stackName.endsWith('Data'));
+      const template = dataStack?.template as {
+        Resources: Record<
+          string,
+          { Type: string; Properties: { Tags?: { Key: string; Value: string }[] } }
+        >;
+      };
+      const table = Object.values(template.Resources).find(
+        (r) => r.Type === 'AWS::DynamoDB::Table',
+      );
+      expect(table?.Properties.Tags).toEqual(
+        expect.arrayContaining([
+          { Key: 'Project', Value: 'smart-farm-monitoring' },
+          { Key: 'Environment', Value: environment },
+          { Key: 'ManagedBy', Value: 'cdk' },
+        ]),
+      );
+    }
+  });
+
+  it('GitHub の OIDC のスタックは、アカウント共通（開発・本番のロールを持つ）。タグは、Project・ManagedBy', () => {
     const app = createGithubOidcApp({});
     const template = app.synth().getStackByName('SfmGithubOidc').template as {
       Resources: Record<
@@ -112,13 +135,77 @@ describe('CDK アプリの組み立て', () => {
         { Type: string; Properties: { Tags?: { Key: string; Value: string }[] } }
       >;
     };
-    const role = Object.values(template.Resources).find((r) => r.Type === 'AWS::IAM::Role');
-    expect(role?.Properties.Tags).toEqual(
-      expect.arrayContaining([
-        { Key: 'Project', Value: 'smart-farm-monitoring' },
-        { Key: 'Environment', Value: 'evaluation' },
-        { Key: 'ManagedBy', Value: 'cdk' },
-      ]),
+    const roles = Object.values(template.Resources).filter((r) => r.Type === 'AWS::IAM::Role');
+    expect(roles).toHaveLength(2);
+    for (const role of roles) {
+      expect(role.Properties.Tags).toEqual(
+        expect.arrayContaining([
+          { Key: 'Project', Value: 'smart-farm-monitoring' },
+          { Key: 'ManagedBy', Value: 'cdk' },
+        ]),
+      );
+    }
+  });
+
+  it('本番サイト（SFM_ENVIRONMENT=production）: 開発サイトとは別の名前のスタックを作る（データ・ユーザー・URL を共有しない）', () => {
+    const production = createEvaluationApp({ SFM_ENVIRONMENT: 'production' }, assets());
+    const development = createEvaluationApp({}, assets());
+
+    expect(stackNames(production)).toEqual(['SfmProductionData', 'SfmProductionEvaluation']);
+    expect(stackNames(development)).toEqual(['SfmData', 'SfmEvaluation']);
+    const shared = stackNames(production).filter((name) => stackNames(development).includes(name));
+    expect(shared).toEqual([]);
+  });
+
+  it('本番サイト: 独自ドメインを指定すると、本番用の名前の証明書（us-east-1）のスタックも作る', () => {
+    const app = createEvaluationApp(
+      {
+        SFM_ENVIRONMENT: 'production',
+        CDK_DEFAULT_ACCOUNT: '111111111111',
+        SFM_DOMAIN_NAME: 'prod.example.com',
+        SFM_HOSTED_ZONE_NAME: 'example.com',
+      },
+      assets(),
+    );
+
+    expect(stackNames(app)).toEqual([
+      'SfmProductionData',
+      'SfmProductionEvaluation',
+      'SfmProductionEvaluationCertificate',
+    ]);
+  });
+
+  it('本番サイトは、合成データを生成する Lambda・ルールを作らない。開発サイトは、作る（実データを扱う環境に、合成データを入れない。ADR-0013）', () => {
+    const resourcesOf = (environment: 'development' | 'production') => {
+      const app = createEvaluationApp({ SFM_ENVIRONMENT: environment }, assets());
+      const stack = app.synth().stacks.find((item) => item.stackName.endsWith('Evaluation'));
+      const template = stack?.template as {
+        Resources: Record<string, { Type: string }>;
+        Outputs?: Record<string, unknown>;
+      };
+      return {
+        demoIds: Object.keys(template.Resources).filter((id) => id.includes('DemoFeed')),
+        outputs: Object.keys(template.Outputs ?? {}),
+        buckets: Object.values(template.Resources).filter((r) => r.Type === 'AWS::S3::Bucket')
+          .length,
+      };
+    };
+
+    const development = resourcesOf('development');
+    const production = resourcesOf('production');
+
+    expect(development.demoIds.length).toBeGreaterThan(0);
+    expect(development.outputs).toContain('DemoFeedFunctionName');
+    expect(production.demoIds).toEqual([]);
+    expect(production.outputs).not.toContain('DemoFeedFunctionName');
+    // ファイルサーバーのモックのバケット（空のまま）は、どちらにもある（Lambda の取り込みの失敗を避ける）
+    expect(production.outputs).toContain('FileServerBucketName');
+    expect(production.buckets).toBe(development.buckets);
+  });
+
+  it('サイトの環境の指定が不正なら、エラーにする', () => {
+    expect(() => createEvaluationApp({ SFM_ENVIRONMENT: 'staging' }, assets())).toThrow(
+      'SFM_ENVIRONMENT',
     );
   });
 });

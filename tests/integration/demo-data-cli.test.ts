@@ -120,6 +120,35 @@ describe('pnpm demo-data seed', () => {
     expect((await counts()).equipment).toBe(0);
   });
 
+  it.each(['seed', 'reset'])(
+    '本番サイト（SFM_ENVIRONMENT=production）では、%s を実行しない（何も投入・削除せず、終了コード 1。Issue #117）',
+    async (command) => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const env: Record<string, string> = {
+        PERSISTENCE: 'dynamodb',
+        DYNAMODB_ENDPOINT: dynamoTestClientOptions().endpoint ?? '',
+        DYNAMODB_OBSERVATIONS_TABLE: database.tables.observations,
+        DYNAMODB_MAIN_TABLE: database.tables.main,
+        SFM_ENVIRONMENT: 'production',
+      };
+      const out = output();
+
+      const exitCode = await runDemoDataCli([command, '--yes'], env, out, {
+        s3Client: createFakeS3({ bucket: BUCKET }),
+      });
+
+      expect(exitCode).toBe(1);
+      expect(out.lines).toHaveLength(1);
+      expect(out.lines[0]).toContain('開発サイト専用');
+      const container = createContainer(parseConfig({ ...env, AWS_REGION: 'ap-northeast-1' }));
+      expect((await container.repositories.equipment.list({ includeDeleted: true })).length).toBe(
+        0,
+      );
+      container.close();
+    },
+  );
+
   it('PERSISTENCE=dynamodb でなければ、設定エラー（終了コード 1）。コマンドの指定がなければ、使い方を示す', async () => {
     const out = output();
 
