@@ -1,6 +1,6 @@
 # ADR-0013 評価環境は、開発サイトと本番サイトに分け、ログイン必須・管理者／一般の 2 ロールで制御する
 
-- ステータス: 承認（2026-10-21。ユーザーの判断。Issue #78）。実装は、Issue #115・#116（未実装）。Issue #117（本番サイト）は、IaC・ワークフロー・手順を用意した（AWS への作成は、Sprint 2 のリリース（#84）の後）
+- ステータス: 承認（2026-10-21。ユーザーの判断。Issue #78）。実装は、Issue #115・#116（未実装）。Issue #117（本番サイト）は、IaC・ワークフロー・手順を用意し、AWS に作成した（2026-10-22。operations.md 9.9）
 - 日付: 2026-10-21
 - 関連: [ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0008](./0008-cognito-authentication.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0010](./0010-client-ip-from-cloudfront-function.md)、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)、[security.md](../../20_development/security.md)、[functional-requirements.md](../requirements/functional-requirements.md) の FR-9
 
@@ -21,7 +21,7 @@
 | 目的 | 開発の間の、出来栄えの評価 | 現場での実証実験 |
 | デプロイ元のブランチ | `develop`（基本）。動作確認のために、ほかのブランチに切り替えることがある（下の 4） | `main` |
 | データ | **基本は合成データ**。実際のロボット・センサーとの**結合確認**では、実データを取り込むことがある（個人情報は不可。条件は、結合確認の前に決める。下の 6） | **実データ可（個人情報は不可）**。扱う条件は、実証実験の前に決める（下の 6） |
-| 状態 | **現在の評価環境（`SfmData`・`SfmEvaluation`）が、開発サイト** | **IaC・ワークフロー・手順を用意した**（Issue #117）。AWS への作成は、リリース（#84）の後（`main` から） |
+| 状態 | **現在の評価環境（`SfmData`・`SfmEvaluation`）が、開発サイト** | **AWS に作成した**（2026-10-22。Issue #117。`main` から、承認つき） |
 
 - 2 つのサイトは、**データ・ユーザー・URL を共有しない**（別のスタック・別のテーブル・別のユーザープール・別の S3）。
 - 開発サイトの名前（`SfmData`・`SfmEvaluation`）は、変えない。本番サイトは、環境変数 `SFM_ENVIRONMENT`（`development`（既定）・`production`）で、別の名前のスタック（`SfmProductionData`・`SfmProductionEvaluation`、独自ドメインのときは `SfmProductionEvaluationCertificate`）として作る（Issue #117）。
@@ -114,6 +114,6 @@
 - **取り込みの状況・ログを、設備ごとに絞るには、ログの持ち方を変える必要がある**（上の 3。Issue #116）。実装が大きくなる。
 - 開発サイトで、結合確認の実データを扱うため、**個人情報を入れない・ログに出さない**ことを、結合確認の条件で、実施の前に決める（上の 6）。リポジトリは公開のため、結合確認の結果を、Issue・PR・docs に書くときは、実データ・個人・組織が特定される内容を含めない。
 - IP 制限・WAF を設けないため、**ログインの総当たりに対する防御は、Cognito のロックと、接続元ごとの試行回数の制限だけ**（Issue #102 で、直接の呼び出しの回避の対策を検討する）。評価する人が、10 人程度で、合成データが中心の間は、許容する。本番サイトで、実データを扱う前に、見直す（Issue #117）。
-- **本番サイトの AWS への作成は、リリース（#84）の後**（`main` から。承認つき。operations.md 9 章）。Issue #117 では、IaC・ワークフロー・手順を用意した。同じアカウントのため、**開発サイトのロールも、`cdk-*` のロールを引き受けられる**（本番のスタックを、技術的には、変更できる）。環境ごとの Environment・ロールで、通常の経路を分けるが、アカウント内の完全な分離ではない（別のアカウントにすれば分離できるが、ユーザーの判断で、同じアカウントにした）。開発サイトの Environment が許可するブランチは、PR のもとになる名前（`develop`・`feature/*`・`release/*`・`hotfix/*`）に絞った（「すべてのブランチ」にはしない）。担当者が増えたら、見直す。
+- **本番サイトは、リリース（#84）の後に、`main` から、承認つきで、AWS に作成した**（2026-10-22。operations.md 9 章）。同じアカウントのため、**開発サイトのロールも、`cdk-*` のロールを引き受けられる**（本番のスタックを、技術的には、変更できる）。環境ごとの Environment・ロールで、通常の経路を分けるが、アカウント内の完全な分離ではない（別のアカウントにすれば分離できるが、ユーザーの判断で、同じアカウントにした）。開発サイトの Environment が許可するブランチは、PR のもとになる名前（`develop`・`feature/*`・`release/*`・`hotfix/*`）に絞った（「すべてのブランチ」にはしない）。担当者が増えたら、見直す。
 - **開発サイトの Environment の改名（`evaluation` → `development`）に伴い、移行の手順が要った**（commands.md）。**2026-10-22 に完了した**（operations.md 9.9）。Environment の作り直しと、OIDC のロールの信頼条件の更新（`deploy:oidc`）。開発サイトの全リソースの `Environment` タグの値が、`development` に変わる（リソースの置き換えは、ない）。
 - 影響を受けるドキュメント: functional-requirements.md（FR-9.5・FR-9.6）・architecture.md 9 章・human-in-the-loop.md・security.md・operations.md（8 章を追加）・glossary.md。
