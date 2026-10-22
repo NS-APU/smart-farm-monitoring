@@ -100,7 +100,7 @@
 
 1. 変更が、PR の CI（`ci.yml`）を通り、レビューを受けて、`develop` にマージされていることを確認する
 2. データの構造に関わる変更（`SfmData`・テーブルのキー・インデックス）を含む場合は、先に、DynamoDB のオンデマンドバックアップを取る（[backup-restore.md](./backup-restore.md)）
-3. GitHub の Actions → 「Deploy development」→ Run workflow（ブランチ: `develop`）。画面のビルド（`pnpm build`）のあと、`cdk deploy --all` が動く。実行中のデプロイは、止めない（CloudFormation の更新が、途中で止まるため）
+3. GitHub の Actions → 「Deploy development」→ Run workflow（ブランチ: `develop`。PR の前の動作確認では、`feature/*` などを選べる。8.3）。画面のビルド（`pnpm build`）のあと、`cdk deploy --all` が動く。実行中のデプロイは、止めない（CloudFormation の更新が、途中で止まるため）
 4. 確認: ワークフローのログの `SiteUrl` を開く。`<SiteUrl>/health` が `{"status":"ok",…}` を返す。ログインできる。API のログに、起動時の警告（1 章）が出ていない（7.6）
 
 手元から行う場合（検証用）と、差分の確認は、[commands.md](../00_project/commands.md) の「評価環境（IaC）」。
@@ -221,7 +221,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ### 8.3 更新の方針
 
-- **開発サイト**: `develop` の更新で、**自動デプロイ**する（方針。トリガの実装は Issue #89。**実装前の現在は、手動実行**。Actions の「Deploy evaluation」。7.2）。手動実行も残す。動作確認のために、`develop` 以外のブランチをデプロイするときは、GitHub の Environment のデプロイブランチの制限に、そのブランチを一時的に加えて手動実行し、確認のあとに外して、`develop` からデプロイし直す。**確認の間に `develop` が更新されると、自動デプロイで上書きされる**（上書きを避ける手段は、Issue #89 で決める）
+- **開発サイト**: `develop` の更新で、**自動デプロイ**する（方針。トリガの実装は Issue #89。**実装前の現在は、手動実行**。Actions の「Deploy development」。7.2）。手動実行も残す。**PR の前の動作確認のために、`develop` 以外のブランチも、デプロイできる**（Issue #131）: Environment `development` が許可するブランチは、`develop`・`feature/*`・`release/*`・`hotfix/*`。Actions の「Use workflow from」で、確認したいブランチを選ぶ（`gh workflow run deploy-development.yml --ref <ブランチ>` でも可）。**開発サイトは 1 つ**で、デプロイしたブランチの内容に置き換わる（IaC・DynamoDB・Cognito の変更も、そのまま入る）。確認のあとは、`develop` をデプロイして、戻す。選んだブランチに、`deploy-development.yml` が要る（`develop` を取り込む）。**確認の間に `develop` が更新されると、自動デプロイで上書きされる**（上書きを避ける手段は、Issue #89 で決める）
 - **本番サイト**: `main` の更新で、自動デプロイする（方針。Issue #89・#117）。デプロイできるブランチは `main` だけで、**承認者による承認を必須にする**（承認者は T-Ishikawa-R のみ・自己承認を許可。`main` の更新でデプロイが始まり、承認を待つ。自動のトリガは Issue #89。それまでは、手動実行（「Deploy production」）。9 章）
 - 評価する人への告知は、しない
 
@@ -255,8 +255,8 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 前提: 開発サイトの初回の設定（bootstrap・OIDC のプロバイダー。commands.md「評価環境（IaC）」）と、Environment の改名の移行（commands.md）が済んでいる。本番サイトの IaC の変更が、`main` に入っている（Sprint 2 のリリース（#84）の後）。
 
-1. **OIDC のスタックを更新**（本番用のロールを作る）: `pnpm --filter @smart-farm/infra run deploy:oidc`。出力 `ProductionDeployRoleArn` を控える
-2. **GitHub の Environment `production` を作る**（Settings → Environments）:
+1. **OIDC のスタックを更新**（本番用のロールを作る。**2026-10-22 に実施済み**）: `pnpm --filter @smart-farm/infra run deploy:oidc`。出力 `ProductionDeployRoleArn` を控える
+2. **GitHub の Environment `production` を作る**（Settings → Environments。**2026-10-22 に作成済み**。設定を確認した）:
    - Deployment branches and tags: **Selected branches** → `main` だけ
    - Required reviewers: **T-Ishikawa-R**（Prevent self-review は、オフ）
    - Environment のシークレット `AWS_DEPLOY_ROLE_ARN`: 手順 1 の `ProductionDeployRoleArn`
@@ -331,5 +331,7 @@ ADR-0013 の 6 の表（**案**）のとおり。**実証実験で、実デー�
 | 手順 | 状況 |
 |------|------|
 | 9.2 初回の作成・9.3 デプロイ | **未実施**（リリース（#84）の後に、ユーザーが実行する）。IaC のテスト（CDK の assertions。スタックの名前・デモの Lambda がないこと・ロールの信頼条件）と、開発サイトのスタックが、タグの値以外は変わらないことの確認（合成結果の比較）は、済み |
+| 開発サイトの Environment の改名（`evaluation` → `development`）・OIDC のスタックの更新（開発のロールの信頼条件の更新・本番のロールの作成）（9.2 の前提） | **確認済み**（2026-10-22）。差分は、想定どおり（開発のロールの `sub`・`Description`・タグの変更、本番のロールと出力の追加。置き換えなし）。開発サイトの全リソースのタグの値（`Environment`）だけが変わる差分で、**「Deploy development」が成功し、`/health` とログインを確認した**。古い Environment `evaluation` を削除した |
+| GitHub の Environment `development`・`production` の設定 | **確認済み**（2026-10-22。`gh api` で確認）。`development`: デプロイできるブランチ `develop`・`feature/*`・`release/*`・`hotfix/*`・シークレット `AWS_DEPLOY_ROLE_ARN`。`production`: ブランチ `main` のみ・承認者 T-Ishikawa-R・シークレット `AWS_DEPLOY_ROLE_ARN`（本番のロール）。本番のデプロイは、未実施 |
 | 9.5 最初のユーザー | 未実施 |
 | 9.4 ロールバック・9.6 バックアップ・9.7 データの削除 | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |

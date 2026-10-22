@@ -6,7 +6,7 @@
   "description": "顧客評価環境（サーバーレス構成）の IaC（AWS CDK）",
   "scripts": {
     "synth": "cdk synth",
-    "diff": "cdk diff --all",
+    "diff": "cdk diff",
     "deploy": "cdk deploy --all --require-approval never",
     "destroy": "cdk destroy \"*Evaluation*\" --force",
     "destroy:data": "cdk destroy \"*Data\" --force",
