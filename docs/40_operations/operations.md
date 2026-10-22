@@ -221,8 +221,8 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ### 8.3 更新の方針
 
-- **開発サイト**: `develop` の更新で、**自動デプロイ**する（方針。トリガの実装は Issue #89。**実装前の現在は、手動実行**。Actions の「Deploy development」。7.2）。手動実行も残す。**PR の前の動作確認のために、`develop` 以外のブランチも、デプロイできる**（Issue #131）: Environment `development` が許可するブランチは、`develop`・`feature/*`・`release/*`・`hotfix/*`。Actions の「Use workflow from」で、確認したいブランチを選ぶ（`gh workflow run deploy-development.yml --ref <ブランチ>` でも可）。**開発サイトは 1 つ**で、デプロイしたブランチの内容に置き換わる（IaC・DynamoDB・Cognito の変更も、そのまま入る）。確認のあとは、`develop` をデプロイして、戻す。選んだブランチに、`deploy-development.yml` が要る（`develop` を取り込む）。**確認の間に `develop` が更新されると、自動デプロイで上書きされる**（上書きを避ける手段は、Issue #89 で決める）
-- **本番サイト**: `main` の更新で、自動デプロイする（方針。Issue #89・#117）。デプロイできるブランチは `main` だけで、**承認者による承認を必須にする**（承認者は T-Ishikawa-R のみ・自己承認を許可。`main` の更新でデプロイが始まり、承認を待つ。自動のトリガは Issue #89。それまでは、手動実行（「Deploy production」）。9 章）
+- **開発サイト**: `develop` の更新で、**自動デプロイ**する（Issue #89。`develop` への push で、Actions の「Deploy development」が始まる。7.2）。手動実行も残す。**PR の前の動作確認のために、`develop` 以外のブランチも、デプロイできる**（Issue #131）: Environment `development` が許可するブランチは、`develop`・`feature/*`・`release/*`・`hotfix/*`。Actions の「Use workflow from」で、確認したいブランチを選ぶ（`gh workflow run deploy-development.yml --ref <ブランチ>` でも可）。**開発サイトは 1 つ**で、デプロイしたブランチの内容に置き換わる（IaC・DynamoDB・Cognito の変更も、そのまま入る）。確認のあとは、`develop` をデプロイして、戻す。**別のブランチを確認している間は、`develop` にマージしない**（マージすると、自動デプロイで、確認中の内容が `develop` の内容に置き換わる。再デプロイで戻せる。仕組みでは防がない。ユーザーの判断。Issue #89）。選んだブランチに、`deploy-development.yml` が要る（`develop` を取り込む）。**確認の間に `develop` が更新されると、自動デプロイで上書きされる**（上書きを避ける手段は、Issue #89 で決める）
+- **本番サイト**: `main` の更新で、自動デプロイする（Issue #89・#117）。デプロイできるブランチは `main` だけで、**承認者による承認を必須にする**（承認者は T-Ishikawa-R のみ・自己承認を許可。`main` への push で、「Deploy production」が始まり、承認を待つ。手動実行も使える。9 章）
 - 評価する人への告知は、しない
 
 ### 8.4 評価の進め方
@@ -278,7 +278,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 2. 「Deploy production」→ Run workflow（Branch: `main`）→ 承認者が承認する。実行中のデプロイは、止めない（CloudFormation の更新が、途中で止まるため）
 3. 確認は、7.2 の 4 と同じ（本番の `SiteUrl`）
 
-自動のトリガ（`main` の更新で、デプロイの実行が始まる）は、Issue #89 で追加する。**承認は、そのまま必須**。
+`main` への push（リリース・hotfix のマージ）でも、「Deploy production」が始まり、承認を待つ（Issue #89）。**承認は、必須**。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していることを確認する。承認待ちは、30 日で期限切れになる（承認しなければ、デプロイされない。手動実行で、やり直せる）。
 
 ### 9.4 ロールバック
 
