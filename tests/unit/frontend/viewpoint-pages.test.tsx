@@ -29,6 +29,7 @@ import {
   series,
   speedDetail,
 } from '../../support/viewpoint-fixtures.ts';
+import { expectCardLabels } from '../../support/card-table.ts';
 
 interface Scenario {
   readonly dashboard?: (request: FakeRequest) => Response;
@@ -1008,5 +1009,14 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     renderPath('/satisfaction');
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('満足度の詳細');
+  });
+});
+
+describe('判断基準の表の、狭い幅のカード（#151。SC-03）', () => {
+  it('各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ（指標の名前は、行の見出しで、題名になる）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+    await screen.findByTestId('criteria');
+
+    expectCardLabels(within(screen.getByTestId('criteria')).getByRole('table'));
   });
 });

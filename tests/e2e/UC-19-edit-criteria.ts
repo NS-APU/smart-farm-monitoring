@@ -811,7 +811,15 @@ for (const viewport of LAYOUT_VIEWPORTS) {
         await page.goto('/data-entry/history?targetType=criteria');
         await expect(page.getByTestId('audit-row')).toHaveCount(1);
         await expectNoPageOverflow(page);
-        await expectNotCrushed(page, '.audit-table thead th', { minWidth: 60, maxHeight: 60 });
+        if (viewport.width > DRAWER_MAX_VIEWPORT_WIDTH) {
+          await expectNotCrushed(page, '.audit-table thead th', { minWidth: 60, maxHeight: 60 });
+        } else {
+          // 狭い幅（900px 以下）では、1 行が 1 枚のカードになる（見出しの行は、視覚的に隠す）
+          await expectNotCrushed(page, '.audit-table tbody tr', {
+            minWidth: viewport.width * 0.8,
+            maxHeight: 1400,
+          });
+        }
         await shot(page, testInfo, `uc19-long-history-${suffix}`);
 
         // 通知（SC-10）: 異常の通知（温度 40℃ の異常は、判断基準の変更の前に通知済み。条件名は含まない）
