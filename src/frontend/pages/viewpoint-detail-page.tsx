@@ -13,7 +13,7 @@ import { useAppState } from '../components/app-state.tsx';
 import { CriteriaTable } from '../components/criteria-table.tsx';
 import { DiagnosisSection } from '../components/diagnosis-section.tsx';
 import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
-import { ViewpointIcon } from '../components/icon.tsx';
+import { Icon, ViewpointIcon } from '../components/icon.tsx';
 import { MetricsTable } from '../components/metrics-table.tsx';
 import { SourceDataSection } from '../components/source-data-section.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -83,6 +83,7 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
     // 選んだ設備では評価しない観点（例: センサーでは環境適応性のみ）
     content = (
       <div role="alert" className="state-view state-error" data-testid="not-applicable">
+        <Icon name="status-error" size={20} />
         <p>{detail.error.message}</p>
         <p>{MESSAGES.viewpoint.notApplicable}</p>
       </div>

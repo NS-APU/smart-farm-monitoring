@@ -31,6 +31,7 @@ import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { Icon } from '../components/icon.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.entries;
@@ -288,6 +289,7 @@ export function EntryListPage(): ReactNode {
 
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="entries-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

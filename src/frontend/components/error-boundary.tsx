@@ -10,6 +10,7 @@ import { Component, type ReactNode } from 'react';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link, useLocation } from '../router/router.tsx';
+import { Icon } from './icon.tsx';
 
 interface BoundaryProps {
   readonly children: ReactNode;
@@ -41,6 +42,7 @@ class RenderErrorBoundary extends Component<BoundaryProps, BoundaryState> {
     if (this.state.hasError) {
       return (
         <div role="alert" className="state-view state-error">
+          <Icon name="status-error" size={20} />
           <p>{MESSAGES.common.renderFailed}</p>
           <p>
             <Link to={PATHS.dashboard}>{MESSAGES.common.backToDashboard}</Link>

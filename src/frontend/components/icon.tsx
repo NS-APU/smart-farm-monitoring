@@ -37,6 +37,14 @@ const GLYPHS = {
       <circle cx="12" cy="17" r="1" fill="currentColor" />
     </>
   ),
+  // 案内（情報）。状態ではないため、状態の 4 つの形とは別の形（丸 + i）にする
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5.5" />
+      <circle cx="12" cy="7.8" r="1" fill="currentColor" />
+    </>
+  ),
 } as const satisfies Record<string, ReactNode>;
 
 /** 観点のアイコン。全観点に、1 つずつ持つ（観点を足したときに、型の検査で気づける）。 */

@@ -16,7 +16,7 @@ import { getViewpointDetail } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { HorizonControls } from '../components/horizon-controls.tsx';
-import { ViewpointIcon } from '../components/icon.tsx';
+import { Icon, ViewpointIcon } from '../components/icon.tsx';
 import { RadarChart } from '../components/radar-chart.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
@@ -85,6 +85,7 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
         ) : null}
         {missing.length > 0 ? (
           <div className="notice notice-warning" role="status" data-testid="satisfaction-missing">
+            <Icon name="status-caution" size={18} />
             <p>
               <strong>{MESSAGES.satisfaction.missingTitle}</strong>:{' '}
               {missing.map((axis) => axis.name).join('、')}
@@ -155,6 +156,7 @@ export function SatisfactionPage(): ReactNode {
   } else if (error instanceof ApiError && error.code === 'NOT_FOUND') {
     content = (
       <div role="alert" className="state-view state-error" data-testid="not-applicable">
+        <Icon name="status-error" size={20} />
         <p>{error.message}</p>
         <p>{MESSAGES.viewpoint.notApplicable}</p>
       </div>
