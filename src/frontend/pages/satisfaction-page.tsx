@@ -16,6 +16,7 @@ import { getViewpointDetail } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { HorizonControls } from '../components/horizon-controls.tsx';
+import { ViewpointIcon } from '../components/icon.tsx';
 import { RadarChart } from '../components/radar-chart.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
@@ -170,6 +171,7 @@ export function SatisfactionPage(): ReactNode {
     <div className="satisfaction">
       <div className="page-head">
         <h1>
+          <ViewpointIcon viewpointId="satisfaction" size={22} />
           {MESSAGES.satisfaction.title}
           {data === undefined ? null : <StatusBadge status={data.status} />}
         </h1>

@@ -252,13 +252,12 @@
 .card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 8px;
 }
 
 .card-head h3 {
-  margin: 0;
+  margin: 0 auto 0 0;
 }
 
 .metric-value {

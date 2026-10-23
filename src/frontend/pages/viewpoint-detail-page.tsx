@@ -13,6 +13,7 @@ import { useAppState } from '../components/app-state.tsx';
 import { CriteriaTable } from '../components/criteria-table.tsx';
 import { DiagnosisSection } from '../components/diagnosis-section.tsx';
 import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
+import { ViewpointIcon } from '../components/icon.tsx';
 import { MetricsTable } from '../components/metrics-table.tsx';
 import { SourceDataSection } from '../components/source-data-section.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -124,9 +125,10 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
   // 選んだ設備で評価しない観点（NOT_FOUND）は、観点の名称を見出しにする（どの観点を開いたか分かるように。V-173）。
   // 読み込み中は、従来どおり
   const isNotApplicable = detail.error instanceof ApiError && detail.error.code === 'NOT_FOUND';
+  const viewpointMeta = findViewpointMeta(viewpointId);
   const heading =
     detail.data?.name ??
-    (isNotApplicable ? findViewpointMeta(viewpointId)?.name : undefined) ??
+    (isNotApplicable ? viewpointMeta?.name : undefined) ??
     MESSAGES.nav.dashboard;
   return (
     <div className="viewpoint-detail">
@@ -140,6 +142,9 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
       </nav>
       <div className="page-head">
         <h1>
+          {viewpointMeta === undefined || (detail.data === undefined && !isNotApplicable) ? null : (
+            <ViewpointIcon viewpointId={viewpointMeta.id} size={22} />
+          )}
           {heading}
           {detail.data === undefined ? null : <StatusBadge status={detail.data.status} />}
         </h1>
