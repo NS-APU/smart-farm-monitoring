@@ -240,7 +240,7 @@ flowchart LR
 
 ### 5.1 取り込み層
 
-接続先とファイル仕様が未確定のため、取り込みを「取得」と「解釈」の2つの抽象に分ける。回答が得られないため、暫定の方針（宇都宮大学のファイルサーバーを想定した rsync。接続の方式・接続先は、画面から設定して切り替える。ファイル仕様は、1 ファイルを随時更新する方式に見直す）で進める（[ADR-0015](../adr/0015-provisional-policy-external-specs.md)）。
+接続先とファイル仕様が未確定のため、取り込みを「取得」と「解釈」の2つの抽象に分ける。回答が得られないため、暫定の方針（宇都宮大学のファイルサーバーを想定する。アクセスの手段は決めず、接続先・認証・ネットワークの経路など、手段によらず必要になる情報を、設定として持ち、画面から設定して切り替える。ファイル仕様は、1 ファイルを随時更新する方式に見直す）で進める（[ADR-0015](../adr/0015-provisional-policy-external-specs.md)）。
 
 ```mermaid
 flowchart LR
@@ -690,7 +690,7 @@ flowchart TB
 | [0012](../adr/0012-demo-data-and-s3-file-server-mock.md) | 評価環境のデモデータは、ファイルサーバーのモック（S3）と、手元のコマンドで用意する | 承認 | 各 ADR の「関連」を参照 |
 | [0013](../adr/0013-environments-and-access-control.md) | 評価環境は、開発サイトと本番サイトに分け、ログイン必須・管理者／一般の 2 ロールで制御する | 承認 | 各 ADR の「関連」を参照 |
 | [0014](../adr/0014-defer-evaluation-on-manual-entry-write.md) | 手動入力の保存・削除の評価の再計算を、AWS では、応答から外し、定期の評価（JB-02）に任せる | 承認 | 各 ADR の「関連」を参照 |
-| [0015](../adr/0015-provisional-policy-external-specs.md) | ファイルサーバー・ファイル仕様・農業情報基盤は、回答を待たず、暫定の方針で進める | 提案 | 各 ADR の「関連」を参照 |
+| [0015](../adr/0015-provisional-policy-external-specs.md) | ファイルサーバー・ファイル仕様・農業情報基盤は、回答を待たず、暫定の方針で進める | 承認 | 各 ADR の「関連」を参照 |
 
 承認済みのADRは書き換えず、変更する場合は新しいADRを追加する（[documentation-guidelines.md](../../00_project/documentation-guidelines.md)）。
 
