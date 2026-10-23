@@ -32,7 +32,7 @@ export function CriteriaTable(props: { readonly detail: ViewpointDetailResponse 
         </Link>
       </div>
       <div className="table-scroll">
-        <table className="data-table criteria-table">
+        <table className="data-table card-table criteria-table">
           <thead>
             <tr>
               <th scope="col">{MESSAGES.viewpoint.criteriaIndicator}</th>
@@ -48,10 +48,11 @@ export function CriteriaTable(props: { readonly detail: ViewpointDetailResponse 
               return (
                 <tr key={criterion.indicator} data-testid={`criterion-${criterion.indicator}`}>
                   <th scope="row">{getMetricMeta(criterion.indicator).label}</th>
-                  <td>{criterion.label}</td>
+                  <td data-label={MESSAGES.viewpoint.criteriaLabel}>{criterion.label}</td>
                   {rows.map((row) => (
                     <td
                       key={row.status}
+                      data-label={STATUS_LABELS[row.status]}
                       className={`condition condition-${row.status.toLowerCase()}`}
                     >
                       {row.condition}

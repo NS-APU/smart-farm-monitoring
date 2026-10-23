@@ -78,6 +78,21 @@ textarea {
   margin-top: 12px;
 }
 
+/* 判断基準の編集（SC-13）: 指標ごとのフォームが縦に長い（375px で約 2,700px）ため、狭い幅（900px 以下）では、
+   保存・既定値へ戻すボタンを、画面の下に固定する（#151 SC-13-4） */
+@media (max-width: 900px) {
+  .criteria-form .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-right: calc(var(--space) * -1);
+    margin-left: calc(var(--space) * -1);
+    padding: 12px var(--space);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+}
+
 .form-success {
   margin: 8px 0;
   padding: 8px 12px;

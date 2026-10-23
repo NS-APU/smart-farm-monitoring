@@ -168,6 +168,68 @@
   white-space: nowrap;
 }
 
+/* カードにする表（class="card-table"。各セルに data-label を持つ）: 狭い幅（900px 以下）では、1 行を 1 枚のカードにし、
+   項目名を値の左に置く（見出しの行は、視覚的に隠す）。列が右へ切れて、横スクロールの先にある操作に届かない問題を避ける（#151）。
+   各表の、最小の幅・折り返し・列ごとの幅の指定（詳しさが上のセレクタ）は、ここで打ち消す */
+@media (max-width: 900px) {
+  .data-table.card-table {
+    min-width: 0;
+    table-layout: auto;
+  }
+
+  .data-table.card-table,
+  .data-table.card-table tbody,
+  .data-table.card-table tr,
+  .data-table.card-table tbody th {
+    display: block;
+  }
+
+  .data-table.card-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .data-table.card-table thead th {
+    white-space: nowrap;
+  }
+
+  .data-table.card-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .data-table.card-table td,
+  .data-table.card-table td:nth-child(n),
+  .data-table.card-table tbody th {
+    width: auto;
+    min-width: 0;
+    padding: 4px 12px;
+    border-bottom: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.card-table td {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .data-table.card-table td::before {
+    content: attr(data-label);
+    flex: none;
+    width: 7em;
+    color: var(--color-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    overflow-wrap: normal;
+  }
+}
+
 /* 元データの表: 計測日時・取得元・状態は、狭い幅でも折り返さない（表の枠の中で横にスクロールする） */
 .source-table .nowrap-cell {
   white-space: nowrap;

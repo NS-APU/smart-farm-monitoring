@@ -125,7 +125,7 @@ export function EntryListPage(): ReactNode {
     body = (
       <>
         <div className="table-scroll">
-          <table className="data-table entry-table">
+          <table className="data-table card-table entry-table">
             <thead>
               <tr>
                 <th scope="col">{TEXT.observedAt}</th>
@@ -140,16 +140,18 @@ export function EntryListPage(): ReactNode {
             <tbody>
               {data.items.map((entry) => (
                 <tr key={entry.entryId} data-testid="entry-row">
-                  <td>
+                  <td data-label={TEXT.observedAt}>
                     <time dateTime={entry.observedAt}>{formatDateTimeJst(entry.observedAt)}</time>
                   </td>
-                  <td>{equipmentNames.get(entry.equipmentId) ?? entry.equipmentId}</td>
-                  <td>{CATEGORY_LABELS[entry.category]}</td>
-                  <td>
+                  <td data-label={TEXT.equipment}>
+                    {equipmentNames.get(entry.equipmentId) ?? entry.equipmentId}
+                  </td>
+                  <td data-label={TEXT.category}>{CATEGORY_LABELS[entry.category]}</td>
+                  <td data-label={TEXT.values}>
                     <EntryValues entry={entry} />
                   </td>
-                  <td>{entry.enteredBy}</td>
-                  <td>
+                  <td data-label={TEXT.enteredBy}>{entry.enteredBy}</td>
+                  <td data-label={TEXT.note}>
                     {entry.note === undefined ? (
                       MESSAGES.common.missingValue
                     ) : (
@@ -157,7 +159,7 @@ export function EntryListPage(): ReactNode {
                     )}
                   </td>
                   {canWrite ? (
-                    <td>
+                    <td data-label={TEXT.actions}>
                       <div className="row-actions">
                         <button
                           type="button"

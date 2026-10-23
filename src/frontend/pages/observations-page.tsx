@@ -104,7 +104,7 @@ export function ObservationsPage(): ReactNode {
     body = (
       <>
         <div className="table-scroll">
-          <table className="data-table source-table observation-table">
+          <table className="data-table card-table source-table observation-table">
             <thead>
               <tr>
                 <th scope="col">{MESSAGES.viewpoint.observedAt}</th>
@@ -124,15 +124,23 @@ export function ObservationsPage(): ReactNode {
                   key={`${item.equipmentId}#${item.itemKey}#${item.observedAt}#${item.source}`}
                   data-testid="observation-row"
                 >
-                  <td className="nowrap-cell">
+                  <td className="nowrap-cell" data-label={MESSAGES.viewpoint.observedAt}>
                     <time dateTime={item.observedAt}>{formatDateTimeJst(item.observedAt)}</time>
                   </td>
-                  <td>{equipmentNames.get(item.equipmentId) ?? item.equipmentId}</td>
-                  <td>{CATEGORY_LABELS[item.category]}</td>
-                  <td>{findItemDefinition(item.itemKey)?.label ?? item.itemKey}</td>
-                  <td className="numeric">{formatObservationValue(item, statusNames)}</td>
-                  <td className="nowrap-cell">{OBSERVATION_SOURCE_LABELS[item.source]}</td>
-                  <td className="nowrap-cell">
+                  <td data-label={TEXT.equipment}>
+                    {equipmentNames.get(item.equipmentId) ?? item.equipmentId}
+                  </td>
+                  <td data-label={TEXT.category}>{CATEGORY_LABELS[item.category]}</td>
+                  <td data-label={MESSAGES.viewpoint.item}>
+                    {findItemDefinition(item.itemKey)?.label ?? item.itemKey}
+                  </td>
+                  <td className="numeric" data-label={MESSAGES.viewpoint.value}>
+                    {formatObservationValue(item, statusNames)}
+                  </td>
+                  <td className="nowrap-cell" data-label={TEXT.source}>
+                    {OBSERVATION_SOURCE_LABELS[item.source]}
+                  </td>
+                  <td className="nowrap-cell" data-label={MESSAGES.viewpoint.quality}>
                     <span className={`quality quality-${item.quality.toLowerCase()}`}>
                       {OBSERVATION_QUALITY_LABELS[item.quality]}
                     </span>

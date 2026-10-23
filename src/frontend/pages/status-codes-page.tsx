@@ -198,7 +198,7 @@ export function StatusCodesPage(): ReactNode {
   } else {
     body = (
       <div className="table-scroll">
-        <table className="data-table status-code-table">
+        <table className="data-table card-table status-code-table">
           <thead>
             <tr>
               <th scope="col">{TEXT.code}</th>
@@ -211,14 +211,16 @@ export function StatusCodesPage(): ReactNode {
           <tbody>
             {data.items.map((item) => (
               <tr key={item.code} data-testid="status-code-row" data-code={item.code}>
-                <td>{item.code}</td>
-                <td>{item.name}</td>
-                <td>
+                <td data-label={TEXT.code}>{item.code}</td>
+                <td data-label={TEXT.name}>{item.name}</td>
+                <td data-label={TEXT.category}>
                   <StatusBadge status={item.category} />
                 </td>
-                <td>{item.description ?? MESSAGES.common.missingValue}</td>
+                <td data-label={TEXT.description}>
+                  {item.description ?? MESSAGES.common.missingValue}
+                </td>
                 {canManage ? (
-                  <td>
+                  <td data-label={TEXT.actions}>
                     <div className="row-actions">
                       <button
                         type="button"

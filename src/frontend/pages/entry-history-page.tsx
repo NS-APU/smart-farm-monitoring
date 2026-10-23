@@ -147,19 +147,19 @@ export function EntryHistoryPage(): ReactNode {
   function row(entry: AuditLogEntry): ReactNode {
     return (
       <tr key={entry.auditId} data-testid="audit-row">
-        <td>
+        <td data-label={TEXT.occurredAt}>
           <time dateTime={entry.occurredAt}>{formatDateTimeJst(entry.occurredAt)}</time>
         </td>
-        <td>{TEXT.operationLabels[entry.operation]}</td>
-        <td>
+        <td data-label={TEXT.operation}>{TEXT.operationLabels[entry.operation]}</td>
+        <td data-label={TEXT.target}>
           {targetTypeLabel(entry.targetType)}
           <span className="muted category-note">（{entry.targetId}）</span>
         </td>
-        <td>{entry.actor}</td>
-        <td>
+        <td data-label={TEXT.actor}>{entry.actor}</td>
+        <td data-label={TEXT.before}>
           <AuditValue targetType={entry.targetType} value={entry.before} />
         </td>
-        <td>
+        <td data-label={TEXT.after}>
           <AuditValue targetType={entry.targetType} value={entry.after} />
         </td>
       </tr>
@@ -183,7 +183,7 @@ export function EntryHistoryPage(): ReactNode {
     body = (
       <>
         <div className="table-scroll">
-          <table className="data-table audit-table">
+          <table className="data-table card-table audit-table">
             <thead>
               <tr>
                 <th scope="col">{TEXT.occurredAt}</th>
