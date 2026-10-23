@@ -398,7 +398,7 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(within(satisfaction).queryByText(/判定の対象期間/)).toBeNull();
     const badge = within(satisfaction).getByText('不明').closest('.status-badge');
     expect(badge?.className).toContain('status-unknown');
-    expect(badge?.textContent).toContain('?');
+    expect(badge?.querySelector('[data-icon="status-unknown"]')).not.toBeNull();
   });
 
   it('視点（短期・長期）と長期の期間を切り替えると、その条件で取得し直す', async () => {
