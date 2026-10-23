@@ -1,6 +1,6 @@
 # CI（docs/40_operations/git-workflow.md「PRの作り方」）。
 # - develop 宛て・main 宛ての PR: lint・型検査・単体テスト（結合を含む）・ビルド
-# - main 宛ての PR（release/*・hotfix/*）: 上記に加えて、E2E（約 45 分）・負荷テスト（約 2 分）
+# - main 宛ての PR（release/*・hotfix/*）: 上記に加えて、E2E（4 つのシャードで並行）・負荷テスト
 # - ラベル ci:full を付けた PR: develop 宛てでも、E2E・負荷テストを実行する（確認したいときに使う）
 # マージの必須条件にするチェックは、リポジトリの設定（ブランチ保護）で指定する（ジョブ名: lint・typecheck・unit-test・build、main 宛てはさらに e2e・stress）。
 name: CI
@@ -116,12 +116,27 @@ jobs:
       - run: pnpm build
 
   # main 宛ての PR、またはラベル ci:full の PR で実行する。速いチェックが成功してから始める（長いため）。
-  e2e:
-    name: e2e
+  #
+  # E2E は、4 つに分けて（シャード）、別のランナーで並行して実行する。各シャードは、自分のサーバー（Vite・バックエンド）を起動する
+  # ため、状態は共有しない。ブラウザとシステムのライブラリは、Playwright の公式のコンテナ（ダイジェストで固定）に入っているため、
+  # `apt` を使わない（Ubuntu のミラーが遅いと、導入だけで 20 分以上かかったため。Issue #185）。
+  # Playwright の版（package.json・pnpm-lock.yaml）を上げるときは、下のコンテナの版とダイジェストも、合わせて更新する
+  # （合っていないと、下の「Playwright の版を確かめる」のステップが、失敗して知らせる）。
+  e2e-shard:
+    name: e2e-shard (${{ matrix.shard }}/4)
     if: github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
     needs: [lint, typecheck, unit-test, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 60
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      options: --ipc=host --init
+    env:
+      PLAYWRIGHT_IMAGE_VERSION: 1.64.0
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,20 +148,23 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
-      # 画面のレイアウトの検査（幅・高さ）は、フォントに依存する。CSS（app.css）の 'Noto Sans CJK JP' を、
-      # Linux のランナーでも使えるようにして、Windows・Mac に近い幅にする。
-      - name: 日本語のフォントを入れる
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
-      # ポート 5173・8787 を使う（dev-ports.ts）。ジョブは別のランナーで動くため、負荷テストと衝突しない。
-      - run: pnpm test:e2e
+      - name: Playwright の版を確かめる
+        run: |
+          actual="$(pnpm exec playwright --version | awk '{print $2}')"
+          if [ "$actual" != "$PLAYWRIGHT_IMAGE_VERSION" ]; then
+            echo "::error::Playwright の版（$actual）が、コンテナの版（$PLAYWRIGHT_IMAGE_VERSION）と違います。ci.yml のコンテナの版とダイジェストを、更新してください"
+            exit 1
+          fi
+      - uses: ./.github/actions/install-japanese-fonts
+      # ポート 5173・8787 を使う（dev-ports.ts）。シャードは、別のランナーで動くため、衝突しない。
+      - run: pnpm test:e2e --shard=${{ matrix.shard }}/4
       # 失敗の調査用。失敗したテストのスクリーンショット・トレース・エラーの文脈だけを保存する
-      # （動画は、全テストで撮影するため、大きく（約 900MB）、保存しない）。
+      # （CI では、動画を撮らない。playwright.config.ts）。
       - name: 失敗時の成果物を保存
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-failure
+          name: e2e-failure-${{ matrix.shard }}
           path: |
             test-result/e2e/**/test-failed-*.png
             test-result/e2e/**/error-context.md
@@ -154,12 +172,35 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # 全シャードの結果をまとめる。ブランチ保護（Rulesets）の必須のチェック名 `e2e` を、変えないために置く。
+  # シャードのどれかが失敗したら、失敗にする（速いチェックの失敗で、シャードが実行されなかったときは、そちらの失敗で、マージできない）。
+  e2e:
+    name: e2e
+    if: ${{ !cancelled() && (github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'ci:full')) }}
+    needs: [e2e-shard]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: 全シャードの結果を確かめる
+        env:
+          RESULT: ${{ needs.e2e-shard.result }}
+        run: |
+          echo "e2e-shard の結果: $RESULT"
+          if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
+            echo "::error::E2E のシャードが失敗しました（結果: $RESULT）"
+            exit 1
+          fi
+
   stress:
     name: stress
     if: github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'ci:full')
     needs: [lint, typecheck, unit-test, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # E2E と同じ、Playwright の公式のコンテナ（e2e-shard の説明を参照）
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      options: --ipc=host --init
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -171,10 +212,8 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
       # E2E と同じフォントにする（モバイル幅の表示の確認があるため）。
-      - name: 日本語のフォントを入れる
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+      - uses: ./.github/actions/install-japanese-fonts
       # 許容時間（tests/stress/support/limits.ts）を超える操作があると失敗する。
       # GitHub のランナーは、CPU の速さが実行のたびに違い、同時 10 人の保存（UC-06）が、許容 3 秒を超えたり
       # 超えなかったりした（約 2〜3.5 秒）。そのため、CI だけ、許容時間を 1.5 倍にする（NFR の値は、変えない。手元は 1 倍）。
