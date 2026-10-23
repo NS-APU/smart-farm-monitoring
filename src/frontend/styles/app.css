@@ -37,6 +37,9 @@
   --color-chart-line: #1a5fb4;
   --color-chart-area: rgb(26 95 180 / 20%);
   --color-rating: #b54708;
+  /* 観点のアイコン（状態の色と混ぜない、中立の 1 色） */
+  --color-viewpoint-icon: #1d5c40;
+  --color-viewpoint-icon-bg: #e8f1ec;
   /* 状態: main = アイコン・縁・大きな数字（3:1）／ text = 面の上の文字（4.5:1）／ fill・on = バッジの塗りと、その上の文字／ tile・tile-on = サマリーのタイル／ soft・soft-on = 広い面（注意書き・表のセル・グラフの帯）の控えめな色と、その上の文字 */
   --status-normal-main: #009f7e;
   --status-normal-text: #00664f;
@@ -110,6 +113,8 @@
     --color-chart-line: #8ecbff;
     --color-chart-area: rgb(142 203 255 / 22%);
     --color-rating: #ffb35c;
+    --color-viewpoint-icon: #c3ccd4;
+    --color-viewpoint-icon-bg: #26313a;
     --status-normal-main: #6ee7b7;
     --status-normal-text: #6ee7b7;
     --status-normal-fill: #6ee7b7;
@@ -324,6 +329,18 @@ input:not([type='radio']) {
   vertical-align: middle;
 }
 
+/* 観点のアイコン: 観点の名前の隣に置く、中立の 1 色の枠つきのアイコン（状態の色は使わない） */
+.viewpoint-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--color-viewpoint-icon-bg);
+  color: var(--color-viewpoint-icon);
+}
+
 /* 状態の表示 */
 .status-badge {
   display: inline-flex;
@@ -461,10 +478,14 @@ input:not([type='radio']) {
 
 .status-border-error {
   border-left-color: var(--status-error-main);
+  background: var(--status-error-card);
 }
 
+/* 不明: 外枠は破線、左の太い帯は実線（帯まで破線にすると、はしごのように見える） */
 .status-border-unknown {
-  border-left-color: var(--status-unknown-main);
+  border-style: dashed;
+  border-left-style: solid;
+  border-color: var(--status-unknown-main);
 }
 
 .metrics {

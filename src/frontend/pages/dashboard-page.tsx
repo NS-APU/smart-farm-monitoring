@@ -20,7 +20,7 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
-import { Icon, STATUS_ICON } from '../components/icon.tsx';
+import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -66,6 +66,7 @@ function ViewpointCardView(props: {
       data-testid={`card-${card.viewpointId}`}
     >
       <div className="card-head">
+        <ViewpointIcon viewpointId={card.viewpointId} />
         <h3>
           <Link to={path}>{card.name}</Link>
         </h3>
