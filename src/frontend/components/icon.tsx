@@ -45,6 +45,86 @@ const GLYPHS = {
       <circle cx="12" cy="7.8" r="1" fill="currentColor" />
     </>
   ),
+  // メニュー・設備・操作（文字と一緒に使う）
+  'nav-dashboard': (
+    <>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  'nav-entry': (
+    <>
+      <path d="M4 20h4.2L19.5 8.7a2 2 0 0 0 0-2.8l-1.4-1.4a2 2 0 0 0-2.8 0L4 15.8z" />
+      <path d="m13.5 6.5 4 4" />
+    </>
+  ),
+  'nav-notifications': (
+    <>
+      <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z" />
+      <path d="M10 21a2 2 0 0 0 4 0" />
+    </>
+  ),
+  'nav-observations': (
+    <>
+      <path d="M8 6.5h12M8 12h12M8 17.5h12" />
+      <circle cx="4" cy="6.5" r="1" fill="currentColor" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" />
+      <circle cx="4" cy="17.5" r="1" fill="currentColor" />
+    </>
+  ),
+  'nav-settings': (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
+    </>
+  ),
+  'nav-equipment': (
+    <>
+      <path d="M3 20v-8.5L12 5l9 6.5V20z" />
+      <path d="M9.5 20v-5h5v5" />
+    </>
+  ),
+  'nav-ingestion': (
+    <>
+      <path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0zM12 17v4" />
+    </>
+  ),
+  'nav-status-codes': (
+    <>
+      <path d="M3.5 12.5V4.5h8l9 9-8 8z" />
+      <circle cx="8" cy="9" r="1.3" fill="currentColor" />
+    </>
+  ),
+  'nav-users': (
+    <>
+      <circle cx="9" cy="8.5" r="3.2" />
+      <path d="M3 19.5c.7-3.3 3-5 6-5s5.3 1.7 6 5M16 5.6a3.2 3.2 0 0 1 0 5.8M18 14.8c1.7.6 2.8 2.1 3.2 4.4" />
+    </>
+  ),
+  'nav-push': (
+    <>
+      <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z" />
+      <path d="M10 21a2 2 0 0 0 4 0" />
+      <path d="M12 3v1.5" />
+    </>
+  ),
+  menu: <path d="M4 6.5h16M4 12h16M4 17.5h16" />,
+  close: <path d="m6 6 12 12M18 6 6 18" />,
+  chevron: <path d="m6 9 6 6 6-6" />,
+  user: (
+    <>
+      <circle cx="12" cy="8.5" r="3.6" />
+      <path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" />
+    </>
+  ),
+  brand: (
+    <>
+      <path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15z" />
+      <path d="M5 19c3-5 6-8 11-10" />
+    </>
+  ),
 } as const satisfies Record<string, ReactNode>;
 
 /** 観点のアイコン。全観点に、1 つずつ持つ（観点を足したときに、型の検査で気づける）。 */

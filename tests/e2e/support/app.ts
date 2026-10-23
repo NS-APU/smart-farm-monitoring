@@ -288,8 +288,15 @@ export async function openAs(
   await expect(page.getByRole('banner')).toBeVisible();
 }
 
-/** 画面内のリンクのメニューを選ぶ（ナビゲーション）。 */
+/**
+ * 画面内のリンクのメニューを選ぶ（ナビゲーション）。
+ * 狭い幅（900px 以下）では、メニューは「☰ で開く引き出し」のため、☰ が見えているときだけ、先に開く。
+ */
 export async function goToMenu(page: Page, name: string): Promise<void> {
+  const toggle = page.getByRole('button', { name: 'メニューを開く' });
+  if (await toggle.isVisible()) {
+    await toggle.click();
+  }
   await page
     .getByRole('navigation', { name: 'メニュー' })
     .getByRole('link', { name, exact: true })

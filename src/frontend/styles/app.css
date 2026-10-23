@@ -236,7 +236,129 @@ input:not([type='radio']) {
   padding: 8px 12px;
 }
 
-/* ヘッダー・ナビゲーション */
+/*
+ * 共通のレイアウト: 左のサイドメニュー + 上部のバー + 本文（ui-design-guidelines.md 8 章）。
+ * 狭い幅（900px 以下。use-narrow-viewport.ts と同じ値）では、メニューを、☰ で開閉する引き出しにする。
+ */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-self: flex-start;
+  width: 236px;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--color-nav-bg);
+  color: var(--color-nav-text);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-nav-current-bg);
+}
+
+.app-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+  color: var(--color-primary-text);
+}
+
+.app-nav {
+  padding: 8px 0 16px;
+}
+
+.app-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-item {
+  position: relative;
+}
+
+.app-nav a,
+.nav-group summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  color: var(--color-nav-text);
+  text-decoration: none;
+}
+
+.app-nav a:hover {
+  color: var(--color-primary-text);
+  text-decoration: underline;
+}
+
+.app-nav a[aria-current='page'] {
+  background: var(--color-nav-current-bg);
+  box-shadow: inset 4px 0 0 var(--color-nav-current-bar);
+  color: var(--color-primary-text);
+  font-weight: 700;
+}
+
+/* 未読の件数の印（リンクの外に置く）。状態の色の「異常」の塗りと同じ（強い色を、気づいてほしいものに絞る） */
+.nav-badge {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+  transform: translateY(-50%);
+}
+
+.nav-group summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.nav-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.nav-group summary > span {
+  margin-right: auto;
+}
+
+.nav-group details[open] summary > .icon:last-child {
+  transform: rotate(180deg);
+}
+
+.nav-group ul a {
+  padding-left: 45px;
+  font-size: 0.95rem;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .app-header {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -246,16 +368,8 @@ input:not([type='radio']) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space);
-  padding: 12px var(--space);
-}
-
-.app-title {
-  font-weight: 700;
-  font-size: 1.15rem;
-  text-decoration: none;
-  color: var(--color-text);
-  margin-right: auto;
+  gap: 8px var(--space);
+  padding: 10px var(--space);
 }
 
 .header-field {
@@ -281,7 +395,7 @@ input:not([type='radio']) {
 .header-unread {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   text-decoration: none;
   color: var(--color-text);
   border: 1px solid var(--color-border);
@@ -290,8 +404,9 @@ input:not([type='radio']) {
 }
 
 .header-data-status {
-  margin: 0;
+  margin: 0 0 0 auto;
   color: var(--color-muted);
+  font-size: 0.9rem;
 }
 
 .data-stale {
@@ -304,27 +419,20 @@ input:not([type='radio']) {
   gap: 8px;
 }
 
-.app-nav ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  list-style: none;
-  margin: 0;
-  padding: 0 var(--space) 8px;
+.header-user > .icon {
+  color: var(--color-muted);
 }
 
-.app-nav a {
-  display: inline-block;
-  padding: 6px 4px;
-  text-decoration: none;
-}
-
-.app-nav a[aria-current='page'] {
-  font-weight: 700;
-  border-bottom: 3px solid var(--color-primary-ink);
+/* メニューの開閉の操作（狭い幅だけ表示する） */
+.menu-toggle,
+.menu-close,
+.menu-scrim,
+.app-title-compact {
+  display: none;
 }
 
 .app-main {
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding: var(--space);
@@ -638,11 +746,117 @@ input:not([type='radio']) {
 }
 
 @media (max-width: 720px) {
-  .app-header-row {
-    gap: 8px;
-  }
-
   .viewpoint-cards {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: min(280px, 85vw);
+    height: auto;
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition:
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+  }
+
+  .menu-is-open .app-sidebar {
+    visibility: visible;
+    transform: none;
+    transition: transform 0.2s ease;
+  }
+
+  .menu-toggle,
+  .menu-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    padding: 4px 8px;
+  }
+
+  .menu-toggle {
+    background: var(--color-surface);
+    color: var(--color-primary-ink);
+    border-color: var(--color-border-control);
+  }
+
+  .menu-close {
+    background: transparent;
+    color: var(--color-nav-text);
+    border-color: transparent;
+  }
+
+  .menu-is-open .menu-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-scrim);
+  }
+
+  /* 題名は、残りの幅に合わせて縮める（末尾を省略する）。縮められないと、ユーザーの欄が、次の行へ折り返す */
+  .app-title-compact {
+    display: inline;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 上部のバー: 1 行目に ☰・題名・通知・ユーザー。設備の選択と、最終のデータ取得は、次の行へ */
+  .header-unread {
+    order: 2;
+  }
+
+  .header-user {
+    order: 3;
+  }
+
+  .header-field {
+    order: 4;
+    flex: 1 1 100%;
+  }
+
+  .header-field select {
+    flex: 1;
+    max-width: none;
+  }
+
+  .header-data-status {
+    order: 5;
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.85rem;
+  }
+
+  body.menu-open {
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 600px) {
+  .header-user > span,
+  .header-user > .icon {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar {
+    transition: none;
   }
 }
