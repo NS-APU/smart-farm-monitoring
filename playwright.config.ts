@@ -5,13 +5,14 @@ import { E2E_ROLE_DEFINITIONS_JSON, E2E_USER } from './tests/e2e/support/e2e-use
 /**
  * Playwright の設定（E2E テスト）。方針は docs/10_design/functions/dev_spec.md 6章。
  * - テストは tests/e2e/UC-NN-<英語の概略名>.ts（ユースケースごと）と、tests/e2e/scenario-<英語の概略名>.ts（複数のユースケース・複数の利用者をまたぐシナリオ）
- * - video 撮影を常に有効にし、出力は ./test-result/ 配下
+ * - video 撮影は、手元では常に有効にし、出力は ./test-result/ 配下。CI（環境変数 CI がある）では、撮らない（保存せず、捨てていたため。時間がかかる。Issue #185）
  * - バックエンド（ローカルの Node サーバー。メモリ上のデータ・モックの外部サービス・テスト用の時計）と、
  *   フロントエンド（Vite の開発サーバー）を起動して、AWS なしで動かす
  */
 
 const BACKEND_PORT = DEV_BACKEND_PORT;
 const FRONTEND_PORT = DEV_FRONTEND_PORT;
+const IN_CI = (process.env.CI ?? '') !== '';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -26,7 +27,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: `http://127.0.0.1:${String(FRONTEND_PORT)}`,
-    video: { mode: 'on', size: { width: 1280, height: 720 } },
+    video: IN_CI ? 'off' : { mode: 'on', size: { width: 1280, height: 720 } },
     screenshot: 'on',
     trace: 'retain-on-failure',
     locale: 'ja-JP',
