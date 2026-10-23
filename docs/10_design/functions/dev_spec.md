@@ -87,7 +87,7 @@ smart-farm-monitoring/
 | oxlint | `.oxlintrc.json`。`jsx-a11y` プラグインの、eslint-plugin-jsx-a11y の推奨設定と同じルール・オプション（31 ルール）のみを有効にする。`pnpm lint` は、`eslint .` に続けて `oxlint -c .oxlintrc.json src/frontend` を実行する。例外の指定は、`oxlint-disable-next-line` を使う（`eslint-disable` だと ESLint が「未使用の指示」と報告するため） |
 | Prettier | `.prettierrc`（シングルクォート、100桁、末尾カンマ）。`docs/`・Markdown・`tests/fixtures/`（意図的に不正な形式のファイルを含む）・`test-result/` は対象外 |
 | Vitest | `vitest.config.ts`。プロジェクトを2つ持つ: `node`（`tests/unit/{shared,backend}`・`tests/integration`）、`frontend`（`tests/unit/frontend`、jsdom）。カバレッジは v8、出力は `./test-result/coverage` |
-| Playwright | `playwright.config.ts`。`tests/e2e/UC-NN-*.ts`・`tests/e2e/scenario-*.ts`、video を常に有効、出力は `./test-result/e2e`、HTML レポートは `./test-result/playwright-report`。バックエンドと Vite を起動して実行する（6章） |
+| Playwright | `playwright.config.ts`。`tests/e2e/UC-NN-*.ts`・`tests/e2e/scenario-*.ts`、video は手元で常に有効（CI では撮らない）、出力は `./test-result/e2e`、HTML レポートは `./test-result/playwright-report`。バックエンドと Vite を起動して実行する（6章） |
 
 ### 1.5 スクリプト
 
@@ -448,14 +448,14 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 
 ### 6.3 E2E の設定（Playwright）
 
-- **video は常に有効**（`use.video: { mode: 'on' }`）。出力は `./test-result/` 配下: 動画・スクリーンショット・トレースは `./test-result/e2e/`、HTML レポートは `./test-result/playwright-report/`、ファイルサーバーのモックのディレクトリは `./test-result/e2e-file-server/`
+- **video は、手元では常に有効**（`use.video: { mode: 'on' }`）。**CI（環境変数 `CI` がある）では、撮らない**（`'off'`。保存せず、捨てていたため。時間がかかる。Issue #185）。出力は `./test-result/` 配下: 動画・スクリーンショット・トレースは `./test-result/e2e/`、HTML レポートは `./test-result/playwright-report/`、ファイルサーバーのモックのディレクトリは `./test-result/e2e-file-server/`
 - バックエンド: `node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`（`APP_MODE=test`、`PERSISTENCE=memory`、`LOG_LEVEL=warn`、再試行の待ち時間 10 ms）。フロントエンド: `vite`（`127.0.0.1:5173`。`/api/v1` をバックエンド `127.0.0.1:8787` へ中継）。テストは1ワーカーで、順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）
 - テスト用の初期ユーザー（`tests/e2e/support/e2e-user.ts`）は、明らかにダミーとわかる値。実際の認証情報ではない
 - 画面の確認（余計な隙間・要素の重なり・偏りがないこと）は、スクリーンショット（`screenshot: 'on'` と、シナリオごとの名前つきの撮影）を目視して行う。`shot()` と `expectCleanLayout`（`tests/e2e/support/viewpoint-scenarios.ts`）が、撮影のたびに、横スクロール・要素の重なり・表示領域からのはみ出し・文字のあふれ・同じ行のカードの高さの不揃い・表の列の潰れ（文字が1字ずつ縦に折り返される）・ページの下の余計な空白（見えない要素が文書の高さを伸ばす）を機械的に確認する
 - ロール: E2E のサーバーは、農作業者（`worker`。全権限）と閲覧者（`viewer`。権限なし）の2ロールで起動する（`ROLE_DEFINITIONS_JSON`。`tests/e2e/support/e2e-user.ts`）。権限による表示・操作の制限と、サーバー側の拒否を確かめる
 - Web Push の公開鍵は、ダミー値の `WEB_PUSH_PUBLIC_KEY` を渡す。ブラウザの Push API・通知の許可は、`addInitScript` で差し替える（3.5）
 - バックエンドには、`DEV_API_ENABLED=true`（開発用 API）と `TRUSTED_PROXY_HOPS=1`（接続元を、`X-Forwarded-For` で、テストごとに分ける）を渡す
-- 前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。全 E2E の実行時間は、約45分
+- 前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。全 E2E を 1 つのランナーで実行すると、約 20 分（CI の実測。17〜21 分）。CI では、4 つのシャード（`--shard=N/4`）に分けて、別のランナーで並行して実行する（Issue #185）
 - 同じ時刻（固定した時計の同一の瞬間）に作った、ステータスの履歴・変更履歴は、同じキーに上書き・順序が不定になるため、E2E は、時計を進めてから次の操作を行う（既知の制約）
 
 ### 6.4 `pnpm` のスクリプト

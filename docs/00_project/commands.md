@@ -321,11 +321,11 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 | `e2e` | `pnpm test:e2e` | `main` 宛て、またはラベル `ci:full` |
 | `stress` | `pnpm test:stress` | 同上 |
 
-- 実行環境は、ubuntu-24.04（GitHub Actions のランナー。`ubuntu-latest` は、Ubuntu 26 へ移行するため、固定している）・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、`pnpm exec playwright install --with-deps chromium` でブラウザを入れてから実行する
+- 実行環境は、ubuntu-24.04（GitHub Actions のランナー。`ubuntu-latest` は、Ubuntu 26 へ移行するため、固定している）・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、Playwright の公式のコンテナ（`mcr.microsoft.com/playwright:v<版>-noble`。ブラウザとシステムのライブラリを含む。ダイジェストで固定）で実行する。Playwright の版（`package.json`・`pnpm-lock.yaml`）を上げるときは、`.github/workflows/ci.yml` のコンテナの版とダイジェストも、合わせて更新する（合っていないと、`e2e-shard` ジョブの「Playwright の版を確かめる」が失敗して知らせる）
 - 手元（Windows）では実行しないファイル権限のテスト（2 件）は、CI（Linux）で実行される
 - CI の `stress` ジョブは、`STRESS_LIMIT_FACTOR=1.5`（許容時間を 1.5 倍）で実行する。GitHub のランナーは、CPU の速さが実行のたびに違い、同時 10 人の保存（UC-06）が、許容 3 秒付近（約 2〜3.5 秒）で、超えたり超えなかったりしたため（PR #58）。NFR の値そのものは、変えていない
-- 画面のレイアウトの検査（E2E・負荷テスト）は、フォントに依存するため、`e2e`・`stress` のジョブで、日本語のフォント（`fonts-noto-cjk`）を入れる
-- 失敗したときの E2E の動画・レポートと、負荷テストの結果ログは、Actions の成果物（Artifacts）から取得できる
+- 画面のレイアウトの検査（E2E・負荷テスト）は、フォントに依存するため、`e2e-shard`・`stress` のジョブで、日本語のフォント（Noto Sans CJK JP の Regular・Bold）を入れる。GitHub 上の公式のファイル（notofonts/noto-cjk のタグ `Sans2.004`）を、ハッシュで検証して取得する（`.github/actions/install-japanese-fonts`。Ubuntu のパッケージ `fonts-noto-cjk` 1:20230817+repack1-3 と、バイト単位で同じ）。`apt` は、Ubuntu のミラーが遅いと、取得だけで 20 分近くかかったため、使わない（Issue #185）
+- 失敗したときの E2E のスクリーンショット・トレース・エラーの文脈（シャードごと。`e2e-failure-<番号>`）と、負荷テストの結果ログは、Actions の成果物（Artifacts）から取得できる。CI では、E2E の動画を撮らない（手元は、常に撮る）
 
 ## 環境変数
 
