@@ -162,6 +162,7 @@ export const MESSAGES = {
   },
   notFound: {
     title: 'ページが見つかりません',
+    hint: 'URL が違っているか、ページが移動した可能性があります。',
     back: 'ダッシュボードへ戻る',
   },
 } as const;

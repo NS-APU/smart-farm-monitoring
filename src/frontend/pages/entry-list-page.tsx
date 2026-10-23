@@ -22,7 +22,7 @@ import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { ManualEntryForm } from '../components/manual-entry-form.tsx';
 import { DIRECTION_OPTIONS, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -116,10 +116,10 @@ export function EntryListPage(): ReactNode {
   } else if (data.items.length === 0) {
     const filtered = [keyword, category, equipmentId, from, to].some((value) => value !== '');
     body = (
-      <div className="state-view" data-testid="entries-empty">
+      <EmptyState testId="entries-empty">
         <p>{filtered ? MESSAGES.form.emptyList : TEXT.empty}</p>
         {filtered ? null : <Link to={PATHS.dataEntry}>{TEXT.emptyAction}</Link>}
-      </div>
+      </EmptyState>
     );
   } else {
     body = (

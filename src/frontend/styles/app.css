@@ -676,6 +676,40 @@ input:not([type='radio']) {
   padding: var(--space);
 }
 
+/* 空の状態・404: イラスト（装飾）の下に、何が起きているか・次に何をするかを、中央に置く */
+.state-empty,
+.not-found-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--color-primary-ink);
+}
+
+.state-empty {
+  padding: 32px var(--space);
+}
+
+.not-found-page {
+  padding: 48px var(--space);
+}
+
+.state-empty-body {
+  color: var(--color-text);
+}
+
+.state-empty-body p,
+.not-found-page h1,
+.not-found-page p {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.state-empty-body p + p {
+  margin-top: 8px;
+}
+
 .state-error {
   background: var(--status-error-card);
   border-left: 6px solid var(--status-error-main);

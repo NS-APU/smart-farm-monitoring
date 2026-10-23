@@ -19,7 +19,7 @@ import {
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
@@ -191,9 +191,9 @@ export function StatusCodesPage(): ReactNode {
     body = <LoadingView />;
   } else if (data.items.length === 0) {
     body = (
-      <p className="state-view" data-testid="status-codes-empty">
-        {TEXT.empty}
-      </p>
+      <EmptyState testId="status-codes-empty">
+        <p>{TEXT.empty}</p>
+      </EmptyState>
     );
   } else {
     body = (

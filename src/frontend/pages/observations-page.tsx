@@ -24,7 +24,7 @@ import { Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { DIRECTION_OPTIONS, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { formatObservationValue } from '../components/source-data-section.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -90,7 +90,7 @@ export function ObservationsPage(): ReactNode {
       (value) => value !== '',
     );
     body = (
-      <div className="state-view" data-testid="observations-empty">
+      <EmptyState testId="observations-empty">
         <p>{filtered ? TEXT.empty : TEXT.emptyLead}</p>
         {filtered ? null : (
           <p className="notice-links">
@@ -98,7 +98,7 @@ export function ObservationsPage(): ReactNode {
             <Link to={PATHS.dataEntry}>{TEXT.goEntry}</Link>
           </p>
         )}
-      </div>
+      </EmptyState>
     );
   } else {
     body = (
