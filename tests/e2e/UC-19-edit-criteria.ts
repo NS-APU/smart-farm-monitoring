@@ -684,6 +684,17 @@ const LAYOUT_VIEWPORTS = [
   { name: 'スマートフォン幅（375px）', width: 375, height: 667 },
 ] as const;
 
+/** 左のメニューの幅（app.css の .app-sidebar）と、メニューが引き出しになる幅（900px 以下）。引き出しでない幅では、本文は、メニューの分だけ狭い */
+const SIDEBAR_WIDTH = 236;
+const DRAWER_MAX_VIEWPORT_WIDTH = 900;
+
+/** 判断基準のカードの幅の下限。メニューが左にある幅では、本文（画面幅 − メニュー）の 90%、引き出しの幅では、画面幅の 80%。 */
+function minCardWidth(viewportWidth: number): number {
+  return viewportWidth > DRAWER_MAX_VIEWPORT_WIDTH
+    ? (viewportWidth - SIDEBAR_WIDTH) * 0.9
+    : viewportWidth * 0.8;
+}
+
 /** 環境適応性のすべての指標の条件名を最大長にし、温度の異常下限を桁の多い値にして、API で保存する（温度 40℃は異常のまま）。 */
 async function saveLongCriteria(request: Parameters<typeof api>[0], label: string): Promise<void> {
   const current = (await (
@@ -766,7 +777,7 @@ for (const viewport of LAYOUT_VIEWPORTS) {
         await expectNoPageOverflow(page);
         await expectNotCrushed(page, '.criterion-card input', { minWidth: 120, maxHeight: 60 });
         await expectNotCrushed(page, '.criterion-card', {
-          minWidth: viewport.width * 0.8,
+          minWidth: minCardWidth(viewport.width),
           maxHeight: 1400,
         });
         await shot(page, testInfo, `uc19-long-edit-${suffix}`);
