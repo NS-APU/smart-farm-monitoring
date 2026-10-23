@@ -301,6 +301,15 @@ describe('共通のヘッダー・ナビゲーション', () => {
     expect(await screen.findByRole('heading', { name: 'ダッシュボード' })).toBeDefined();
   });
 
+  it('存在しないパスの画面は、イラスト（装飾）と、原因と次の操作の案内を示す', async () => {
+    renderApp({ path: '/no/such/page' });
+
+    const heading = await screen.findByRole('heading', { name: 'ページが見つかりません' });
+    const page = heading.closest('.not-found-page');
+    expect(page?.querySelector('svg.illustration')?.getAttribute('aria-hidden')).toBe('true');
+    expect(page?.textContent).toContain('URL が違っているか、ページが移動した可能性があります。');
+  });
+
   it('観点の詳細などのパラメータつきのパスも、画面に対応づける', async () => {
     // 観点（safety）をパスから受け取り、判断基準の編集（SC-13）の画面に対応づける
     const base = handlerOf();
