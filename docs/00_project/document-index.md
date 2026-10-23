@@ -25,6 +25,7 @@
 | | [data-model.md](../10_design/data/data-model.md) | データモデル（論理モデルと DynamoDB の物理設計の案） |
 | | [data-dictionary.md](../10_design/data/data-dictionary.md) | データ項目定義（データ辞書） |
 | [10_design/functions](../10_design/functions/) | [functional-specification.md](../10_design/functions/functional-specification.md) | 機能仕様書（画面・API・非同期処理の振る舞い） |
+| | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) | UI デザイン方針（方向性・デザイントークン・状態の表し方と色覚への配慮・アイコン・共通のレイアウト・守ること） |
 | | [dev_spec.md](../10_design/functions/dev_spec.md) | 開発仕様書（ディレクトリ・パッケージ構成、ポート／アダプタ、ローカル実行構成、暫定仕様、UC と画面・API・ジョブの対応、テスト構成） |
 | [10_design/viewpoint](../10_design/viewpoint/) | [viewpoint-overview.md](../10_design/viewpoint/viewpoint-overview.md) | 健全性評価の観点（概要・記載形式・観点一覧） |
 | | [evaluation.md](../10_design/viewpoint/evaluation.md) | 観点に共通する評価方針 |
