@@ -1,0 +1,47 @@
+# 日本語のフォント（Noto Sans CJK JP の Regular・Bold）を入れる。E2E・負荷テストのジョブで使う（Issue #185）。
+#
+# 画面のレイアウトの検査（幅・高さ）は、フォントに依存する。CSS（app.css）の 'Noto Sans CJK JP' を、
+# Linux でも使えるようにして、Windows・Mac に近い幅にする。CSS で使う太さは、400・600・700 だけ（600 は Bold になる）。
+#
+# 以前は、`apt-get install fonts-noto-cjk` を使っていた。Ubuntu のミラーの速度が、実行ごとに大きく変わり、
+# 61 MB の取得に 19 分かかる（毎秒 52 kB）ことがあったため、GitHub 上の公式のファイルを、ハッシュで検証して取得する。
+# このファイルは、Ubuntu のパッケージ fonts-noto-cjk 1:20230817+repack1-3 の中のファイルと、バイト単位で同じ（sha256 が一致することを確認済み）。
+# ライセンスは、SIL Open Font License 1.1（取得して使うだけで、再配布しない）。
+#
+# 取得元（notofonts/noto-cjk のタグ Sans2.004 のコミット）を変えるときは、ハッシュも、新しいファイルで計算し直す。
+name: 日本語のフォントを入れる
+description: Noto Sans CJK JP（Regular・Bold）を、ハッシュで検証して取得し、フォントとして使えるようにする
+
+runs:
+  using: composite
+  steps:
+    - name: フォントを取得し、検証し、入れる
+      shell: bash
+      env:
+        NOTO_CJK_COMMIT: 523d033d6cb47f4a80c58a35753646f5c3608a78
+        REGULAR_SHA256: b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
+        BOLD_SHA256: faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb
+      run: |
+        set -euo pipefail
+        dir=/usr/local/share/fonts/noto-cjk
+        mkdir -p "$dir"
+        for weight in Regular Bold; do
+          file="NotoSansCJK-${weight}.ttc"
+          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+            -o "$dir/$file" \
+            "https://github.com/notofonts/noto-cjk/raw/${NOTO_CJK_COMMIT}/Sans/OTC/${file}"
+        done
+        echo "${REGULAR_SHA256}  ${dir}/NotoSansCJK-Regular.ttc" | sha256sum -c -
+        echo "${BOLD_SHA256}  ${dir}/NotoSansCJK-Bold.ttc" | sha256sum -c -
+        # フォントの一覧を更新し、使えることを確かめる（fontconfig のコマンドが、ない環境では、確認を省く）
+        if command -v fc-cache > /dev/null; then fc-cache -f "$dir"; fi
+        if command -v fc-list > /dev/null; then
+          # パイプで grep -q に渡さない（grep が先に終わると、fc-list が SIGPIPE を受け、pipefail で、一致していても失敗する）
+          families="$(fc-list : family)"
+          if ! grep -q "Noto Sans CJK JP" <<< "$families"; then
+            echo "::error::Noto Sans CJK JP が、フォントとして見つかりません。見つかったフォントの一覧（先頭 30 件）:"
+            head -n 30 <<< "$families"
+            exit 1
+          fi
+          fc-match "Noto Sans CJK JP:weight=bold"
+        fi
