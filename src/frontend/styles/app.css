@@ -318,6 +318,12 @@ input:not([type='radio']) {
   padding: var(--space);
 }
 
+/* アイコン（自前の SVG。文字の色にそろえる） */
+.icon {
+  flex: none;
+  vertical-align: middle;
+}
+
 /* 状態の表示 */
 .status-badge {
   display: inline-flex;
@@ -361,19 +367,64 @@ input:not([type='radio']) {
   padding: 0;
 }
 
-.summary li {
-  display: flex;
+/*
+ * サマリーのタイル: アイコン + 大きな数 + 状態名。異常だけを塗りつぶし、強い色を異常に絞る。
+ * 不明は、塗りなし + 破線の枠（色の差に頼らず、塗り方でも区別する）。
+ */
+.summary-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    'icon count'
+    'icon label';
+  column-gap: 12px;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  justify-items: start;
+  padding: 12px 14px;
+  border: 2px solid var(--color-border);
   border-radius: 8px;
 }
 
+.summary-tile .icon {
+  grid-area: icon;
+}
+
 .summary-count {
-  font-size: 1.5rem;
+  grid-area: count;
+  font-size: 2rem;
   font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-label {
+  grid-area: label;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.summary-normal {
+  background: var(--status-normal-tile);
+  border-color: var(--status-normal-main);
+  color: var(--status-normal-tile-on);
+}
+
+.summary-caution {
+  background: var(--status-caution-tile);
+  border-color: var(--status-caution-main);
+  color: var(--status-caution-tile-on);
+}
+
+.summary-error {
+  background: var(--status-error-tile);
+  border-color: var(--status-error-main);
+  color: var(--status-error-tile-on);
+}
+
+.summary-unknown {
+  background: var(--status-unknown-tile);
+  border: 2px dashed var(--status-unknown-main);
+  color: var(--status-unknown-tile-on);
 }
 
 .viewpoint-cards {

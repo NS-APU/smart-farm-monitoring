@@ -267,8 +267,13 @@
   gap: 4px;
 }
 
+/* 正常の値は、本文の色。印のアイコンだけ、状態の色にして、強い色を異常に絞る */
 .metric-normal {
-  color: var(--status-normal-text);
+  color: var(--color-text);
+}
+
+.metric-normal .metric-mark {
+  color: var(--status-normal-main);
 }
 
 .metric-caution {
@@ -284,7 +289,8 @@
 }
 
 .metric-mark {
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .card-link {
