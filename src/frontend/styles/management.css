@@ -41,10 +41,6 @@ textarea {
   font-size: 0.9rem;
 }
 
-.field-error::before {
-  content: '✖ ';
-}
-
 .field-hint {
   margin: 0;
   color: var(--color-muted);

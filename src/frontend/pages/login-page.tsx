@@ -7,6 +7,7 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { navigate, useLocation } from '../router/router.tsx';
+import { Icon } from '../components/icon.tsx';
 
 /** ログイン後に戻る場所。外部のサイトへ誘導されないよう、同じサイト内のパスだけを許す。 */
 export function safeNextPath(next: string | null): string {
@@ -71,6 +72,7 @@ export function LoginPage(): ReactNode {
         <h2>{MESSAGES.login.title}</h2>
         {formError === undefined ? null : (
           <p role="alert" className="form-error">
+            <Icon name="status-error" size={16} />
             {formError}
           </p>
         )}
@@ -89,6 +91,7 @@ export function LoginPage(): ReactNode {
         </label>
         {fieldErrors.userId === undefined ? null : (
           <p id="userId-error" className="field-error">
+            <Icon name="status-error" size={14} />
             {fieldErrors.userId}
           </p>
         )}
@@ -108,6 +111,7 @@ export function LoginPage(): ReactNode {
         </label>
         {fieldErrors.password === undefined ? null : (
           <p id="password-error" className="field-error">
+            <Icon name="status-error" size={14} />
             {fieldErrors.password}
           </p>
         )}

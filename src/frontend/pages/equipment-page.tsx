@@ -20,6 +20,7 @@ import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
@@ -460,6 +461,7 @@ export function EquipmentPage(): ReactNode {
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="equipment-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

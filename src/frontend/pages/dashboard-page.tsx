@@ -160,6 +160,7 @@ export function DashboardPage(): ReactNode {
       <section>
         <h1>{MESSAGES.dashboard.title}</h1>
         <div role="status" className="notice notice-info">
+          <Icon name="info" size={18} />
           <p>{MESSAGES.dashboard.noEquipment}</p>
           <p className="notice-links">
             <Link to={PATHS.settingsEquipment}>{MESSAGES.nav.equipment}</Link>
@@ -182,6 +183,7 @@ export function DashboardPage(): ReactNode {
       <>
         {refreshError === undefined ? null : (
           <p role="status" className="notice notice-warning" data-testid="stale-data-notice">
+            <Icon name="status-caution" size={18} />
             {MESSAGES.common.staleData}
           </p>
         )}
@@ -228,11 +230,13 @@ function DashboardContent(props: {
     <>
       {data.dataFreshness === 'STALE' ? (
         <p role="alert" className="notice notice-warning">
+          <Icon name="status-caution" size={18} />
           {MESSAGES.dashboard.freshnessStale}
         </p>
       ) : null}
       {data.dataFreshness === 'NONE' ? (
         <div role="status" className="notice notice-info">
+          <Icon name="info" size={18} />
           <p>{MESSAGES.dashboard.freshnessNone}</p>
           <p className="notice-links">
             <Link to={PATHS.dataEntry}>{MESSAGES.dashboard.goDataEntry}</Link>

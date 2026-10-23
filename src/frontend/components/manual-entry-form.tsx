@@ -28,6 +28,7 @@ import { Field, FormError } from './form-controls.tsx';
 import { isoToJstDateTimeInput, jstDateTimeToIso } from './jst.ts';
 import { normalizeNumberText } from './number-text.ts';
 import { notifyUnreadChanged } from './unread-events.ts';
+import { Icon } from './icon.tsx';
 
 const TEXT = MESSAGES.entry;
 const REMEMBER_KEY = 'smart-farm:last-entry-target';
@@ -241,7 +242,10 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
           <p className="muted">{TEXT.itemsHint}</p>
           {errors.items === undefined ? null : (
             <div data-field="items">
-              <p className="field-error">{errors.items}</p>
+              <p className="field-error">
+                <Icon name="status-error" size={14} />
+                {errors.items}
+              </p>
             </div>
           )}
           <div className="form-grid">

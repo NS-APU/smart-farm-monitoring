@@ -160,6 +160,13 @@ body {
   background: var(--color-bg);
 }
 
+/* 数字は、等幅の数字にする（桁がそろい、約 10 秒ごとの更新で値が変わっても、幅が揺れない） */
+table,
+.metrics,
+.page-meta {
+  font-variant-numeric: tabular-nums;
+}
+
 h1 {
   font-size: 1.5rem;
   margin: 0 0 var(--space);
@@ -566,6 +573,37 @@ input:not([type='radio']) {
   border-left: 6px solid var(--status-error-main);
   color: var(--status-error-text);
   border-radius: 8px;
+}
+
+/*
+ * 通知・エラー・成功の表示: 先頭に、種類を表すアイコン（形）を置く。文字が、同じ意味を持つ。
+ * 複数の段落を持つ表示があるため、広い面（通知・エラー）のアイコンは、絶対配置にする。
+ */
+.notice,
+.state-error {
+  position: relative;
+  padding-left: 46px;
+}
+
+.notice > .icon,
+.state-error > .icon {
+  position: absolute;
+  top: 14px;
+  left: 15px;
+}
+
+.form-error,
+.field-error,
+.form-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.form-error > .icon,
+.field-error > .icon,
+.form-success > .icon {
+  margin-top: 0.3em;
 }
 
 /* ログイン */

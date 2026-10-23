@@ -5,6 +5,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from './icon.tsx';
 
 export interface FieldControlProps {
   readonly id: string;
@@ -47,6 +48,7 @@ export function Field(props: FieldProps): ReactNode {
       })}
       {props.error === undefined ? null : (
         <p id={messageId} className="field-error">
+          <Icon name="status-error" size={14} />
           {props.error}
         </p>
       )}
@@ -200,6 +202,7 @@ export function Pager(props: PagerProps): ReactNode {
 export function FormError(props: { readonly message: string | undefined }): ReactNode {
   return props.message === undefined ? null : (
     <p role="alert" className="form-error">
+      <Icon name="status-error" size={16} />
       {props.message}
     </p>
   );
@@ -209,6 +212,7 @@ export function FormError(props: { readonly message: string | undefined }): Reac
 export function PermissionNotice(props: { readonly message: string }): ReactNode {
   return (
     <p className="notice notice-info" role="status" data-testid="permission-notice">
+      <Icon name="info" size={18} />
       {props.message}
     </p>
   );

@@ -15,6 +15,7 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.entry;
 
@@ -41,6 +42,7 @@ export function DataEntryPage(): ReactNode {
         <LoadingView />
       ) : equipmentTree.facilities.length === 0 ? (
         <div className="notice notice-warning" role="status" data-testid="no-equipment">
+          <Icon name="status-caution" size={18} />
           <p>{TEXT.noEquipment}</p>
           <p className="notice-links">
             <Link to={PATHS.settingsEquipment}>{TEXT.goEquipment}</Link>

@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { ApiError } from '../api/client.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from './icon.tsx';
 
 export function LoadingView(): ReactNode {
   return (
@@ -21,6 +22,7 @@ export function ErrorView(props: {
     props.error instanceof ApiError ? props.error.message : MESSAGES.common.unexpectedError;
   return (
     <div role="alert" className="state-view state-error">
+      <Icon name="status-error" size={20} />
       <p>{message}</p>
       {props.onRetry === undefined ? null : (
         <button type="button" onClick={props.onRetry}>

@@ -21,6 +21,7 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -274,6 +275,7 @@ export function UsersPage(): ReactNode {
       <p className="muted">{TEXT.lead}</p>
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="users-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}
