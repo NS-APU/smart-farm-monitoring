@@ -8,6 +8,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { navigate, useLocation } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
+import { HouseAndStrawberry } from '../components/illustration.tsx';
 
 /** ログイン後に戻る場所。外部のサイトへ誘導されないよう、同じサイト内のパスだけを許す。 */
 export function safeNextPath(next: string | null): string {
@@ -61,7 +62,10 @@ export function LoginPage(): ReactNode {
 
   return (
     <main className="login-page">
-      <h1>{MESSAGES.appName}</h1>
+      <div className="login-brand">
+        <HouseAndStrawberry />
+        <h1>{MESSAGES.appName}</h1>
+      </div>
       <form
         className="login-form"
         noValidate

@@ -312,10 +312,18 @@
 
 .diagnosis-caution {
   border-left-color: var(--status-caution-main);
+  background: var(--status-caution-soft);
 }
 
 .diagnosis-error {
   border-left-color: var(--status-error-main);
+  background: var(--status-error-card);
+}
+
+/* 診断のメッセージと推奨アクションは、観点の詳細で、最も読んでほしい文字。少し大きくする */
+.diagnosis .diagnostic-message,
+.diagnosis .recommended-action {
+  font-size: 1.05rem;
 }
 
 .diagnosis-head {
@@ -466,6 +474,17 @@
   height: 36px;
   overflow: hidden;
   border-radius: 6px;
+}
+
+/* 帯は、広い面。正常・注意は、控えめな面にして、ダークでも、まぶしくしない。異常は塗りつぶし（バッジと同じ）、不明は破線の枠 */
+.status-segment.status-normal {
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
+}
+
+.status-segment.status-caution {
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
 }
 
 .status-segment {
