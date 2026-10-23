@@ -288,6 +288,20 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* 広い幅でも、左のメニューの分だけ本文が狭い（1280px で、表の枠は約 980px）。右端の「状態」（既読にする）が枠の外へ
+   切れないよう、セルの左右の余白を詰め、メッセージの最小の幅を縮める */
+@media (min-width: 901px) {
+  .notification-table th,
+  .notification-table td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .notification-table td.notification-message {
+    min-width: 15em;
+  }
+}
+
 /* 900px 以下（タブレット・スマートフォン）: 表を、通知ごとのカード（項目名: 値の縦並び）にする。
    7 列の表が、横にスクロールしないと「既読にする」に届かない、長い設備名で行が縦に伸びる、のを避ける。見出し行は、読み上げ用に残す */
 @media (max-width: 900px) {

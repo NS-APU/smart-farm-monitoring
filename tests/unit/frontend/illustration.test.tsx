@@ -3,10 +3,11 @@
  * イラストは、装飾（読み上げの対象から外す）で、使う場面は、ログイン・空の状態・404 だけ（ui-design-guidelines.md 7 章）。
  */
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../../../src/frontend/app.tsx';
 import { HouseAndStrawberry } from '../../../src/frontend/components/illustration.tsx';
+import { EmptyState } from '../../../src/frontend/components/state-views.tsx';
 import { createFakeFetch, createMemorySession } from '../../support/frontend.ts';
 import { withBaseRoutes } from '../../support/management-frontend.ts';
 
@@ -39,6 +40,23 @@ describe('小さなイラスト', () => {
     const { container } = render(<HouseAndStrawberry />);
 
     expect(container.querySelector('svg')?.getAttribute('stroke')).toBe('currentColor');
+  });
+});
+
+describe('空の状態', () => {
+  it('イラスト（装飾）と、本文（文・次の操作への導線）を、同じ枠に置く。文字は、本文だけ', () => {
+    render(
+      <EmptyState testId="sample-empty">
+        <p>データがありません</p>
+        <a href="/next">次の操作へ</a>
+      </EmptyState>,
+    );
+
+    const view = screen.getByTestId('sample-empty');
+    expect(view.classList.contains('state-view')).toBe(true);
+    expect(view.querySelector('svg.illustration')?.getAttribute('aria-hidden')).toBe('true');
+    expect(view.textContent).toBe('データがありません次の操作へ');
+    expect(within(view).getByRole('link', { name: '次の操作へ' })).toBeDefined();
   });
 });
 

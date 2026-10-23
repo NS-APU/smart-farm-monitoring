@@ -279,6 +279,20 @@
   overflow-wrap: anywhere;
 }
 
+/* 広い幅でも、左のメニューの分だけ本文が狭い（1280px で、表の枠は約 980px）。右端の「状態」が枠の外へ切れないよう、
+   セルの左右の余白を詰め、設備の列の最小の幅を縮める */
+@media (min-width: 901px) {
+  .observation-table th,
+  .observation-table td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .observation-table td:nth-child(2) {
+    min-width: 14em;
+  }
+}
+
 /* 判断基準の表: 条件名（最大 200 文字。区切りのない英数字でも）で、他の列が 1 文字幅へ潰れず、ページが横にはみ出さない。
    各列に最小の幅を持たせ、条件名は枠の中で折り返す。表が枠より広い場合は、表の枠の中で横にスクロールする */
 .criteria-table th,

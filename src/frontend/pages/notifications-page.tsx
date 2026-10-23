@@ -24,7 +24,7 @@ import { useAppState } from '../components/app-state.tsx';
 import { FormError, Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { SelectFilter } from '../components/filter-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
@@ -115,9 +115,9 @@ export function NotificationsPage(): ReactNode {
     body = <LoadingView />;
   } else if (data.items.length === 0) {
     body = (
-      <p className="state-view" data-testid="notifications-empty">
-        {hasFilter ? TEXT.emptyFiltered : TEXT.empty}
-      </p>
+      <EmptyState testId="notifications-empty">
+        <p>{hasFilter ? TEXT.emptyFiltered : TEXT.empty}</p>
+      </EmptyState>
     );
   } else {
     body = (
