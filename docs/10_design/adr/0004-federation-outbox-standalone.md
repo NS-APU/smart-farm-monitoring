@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-21。ユーザーの判断。Issue #81。Sprint 1 から実装・運用している）
 - 日付: 2026-10-09
+- 更新（2026-10-23。#142）: 連携方式（API・データモデル・頻度）は、私たちで調査して決める（#176。FIWARE の Orion の形式を想定）。暫定の方針は、[ADR-0015](./0015-provisional-policy-external-specs.md)
 - 関連: [architecture.md](../architecture/architecture.md) 5.3、RQ-006, RQ-007, RQ-020 / FR-8 / NFR-2.1, NFR-2.2, NFR-4.4
 
 ## 背景
