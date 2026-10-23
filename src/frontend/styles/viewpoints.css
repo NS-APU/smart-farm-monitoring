@@ -30,9 +30,9 @@
 }
 
 .tag-changed {
-  background: var(--color-caution-bg);
-  border-color: var(--color-caution-fg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-fill);
+  border-color: var(--status-caution-main);
+  color: var(--status-caution-on);
   font-weight: 700;
 }
 
@@ -92,7 +92,8 @@
 
 .button-secondary {
   background: var(--color-surface);
-  color: var(--color-primary);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
 }
 
 .panel {
@@ -153,7 +154,7 @@
 }
 
 .data-table thead th {
-  background: #f2f4f7;
+  background: var(--color-surface-muted);
   font-size: 0.9rem;
 }
 
@@ -233,18 +234,18 @@
 }
 
 .criteria-table .condition-normal {
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
 }
 
 .criteria-table .condition-caution {
-  background: var(--color-caution-bg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
 }
 
 .criteria-table .condition-error {
-  background: var(--color-error-bg);
-  color: var(--color-error-fg);
+  background: var(--status-error-soft);
+  color: var(--status-error-soft-on);
 }
 
 /* ダッシュボードのカード */
@@ -267,19 +268,19 @@
 }
 
 .metric-normal {
-  color: var(--color-normal-fg);
+  color: var(--status-normal-text);
 }
 
 .metric-caution {
-  color: var(--color-caution-fg);
+  color: var(--status-caution-text);
 }
 
 .metric-error {
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 .metric-unknown {
-  color: var(--color-unknown-fg);
+  color: var(--status-unknown-text);
 }
 
 .metric-mark {
@@ -295,21 +296,21 @@
 /* 観点の詳細 */
 .diagnosis {
   padding: 12px 16px;
-  background: #f9fafb;
-  border-left: 8px solid var(--color-muted);
+  background: var(--color-surface-subtle);
+  border-left: 8px solid var(--status-unknown-main);
   border-radius: 6px;
 }
 
 .diagnosis-normal {
-  border-left-color: var(--color-normal-fg);
+  border-left-color: var(--status-normal-main);
 }
 
 .diagnosis-caution {
-  border-left-color: #b54708;
+  border-left-color: var(--status-caution-main);
 }
 
 .diagnosis-error {
-  border-left-color: var(--color-error-fg);
+  border-left-color: var(--status-error-main);
 }
 
 .diagnosis-head {
@@ -340,7 +341,7 @@
 .unknown-guide {
   margin: 8px 0;
   padding: 8px 12px;
-  background: var(--color-unknown-bg);
+  background: var(--color-surface-muted);
   border-radius: 6px;
 }
 
@@ -409,25 +410,25 @@
 }
 
 .chart-band-normal {
-  fill: var(--color-normal-bg);
+  fill: var(--status-normal-soft);
 }
 
 .chart-band-caution {
-  fill: var(--color-caution-bg);
+  fill: var(--status-caution-soft);
 }
 
 .chart-band-error {
-  fill: var(--color-error-bg);
+  fill: var(--status-error-soft);
 }
 
 .chart-grid {
-  stroke: #d0d5dd;
+  stroke: var(--color-chart-grid);
   stroke-width: 1;
   stroke-dasharray: 2 4;
 }
 
 .chart-axis {
-  stroke: #667085;
+  stroke: var(--color-chart-axis);
   stroke-width: 1;
 }
 
@@ -438,18 +439,18 @@
 
 .chart-line {
   fill: none;
-  stroke: var(--color-primary);
+  stroke: var(--color-chart-line);
   stroke-width: 2.5;
 }
 
 .chart-dot {
-  fill: var(--color-primary);
-  stroke: #ffffff;
+  fill: var(--color-chart-line);
+  stroke: var(--color-surface);
   stroke-width: 1.5;
 }
 
 .chart-average {
-  stroke: #344054;
+  stroke: var(--color-chart-average);
   stroke-width: 1.5;
   stroke-dasharray: 6 4;
 }
@@ -521,19 +522,19 @@
 }
 
 .quality-valid {
-  color: var(--color-normal-fg);
+  color: var(--status-normal-text);
 }
 
 .quality-late {
-  color: var(--color-caution-fg);
+  color: var(--status-caution-text);
 }
 
 .quality-invalid {
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 .quality-missing {
-  color: var(--color-unknown-fg);
+  color: var(--status-unknown-text);
 }
 
 .pager {
@@ -591,12 +592,12 @@
 
 .radar-ring {
   fill: none;
-  stroke: #d0d5dd;
+  stroke: var(--color-chart-grid);
   stroke-width: 1;
 }
 
 .radar-axis {
-  stroke: #d0d5dd;
+  stroke: var(--color-chart-grid);
   stroke-width: 1;
 }
 
@@ -605,13 +606,13 @@
 }
 
 .radar-area {
-  fill: rgba(26, 95, 180, 0.25);
-  stroke: var(--color-primary);
+  fill: var(--color-chart-area);
+  stroke: var(--color-chart-line);
   stroke-width: 2.5;
 }
 
 .radar-dot {
-  fill: var(--color-primary);
+  fill: var(--color-chart-line);
 }
 
 .radar-label {
@@ -623,7 +624,7 @@
 }
 
 .stars {
-  color: #b54708;
+  color: var(--color-rating);
   letter-spacing: 2px;
   white-space: nowrap;
 }

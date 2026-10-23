@@ -31,13 +31,13 @@ textarea {
 .field-invalid input,
 .field-invalid select,
 .field-invalid textarea {
-  border-color: var(--color-error-fg);
+  border-color: var(--status-error-main);
   border-width: 2px;
 }
 
 .field-error {
   margin: 0;
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
   font-size: 0.9rem;
 }
 
@@ -52,7 +52,7 @@ textarea {
 }
 
 .required-mark {
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 .field-checkbox {
@@ -86,8 +86,8 @@ textarea {
   margin: 8px 0;
   padding: 8px 12px;
   border-radius: 6px;
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
   font-weight: 600;
 }
 
@@ -136,15 +136,15 @@ textarea {
 
 /* ボタン */
 .button-danger {
-  border-color: var(--color-error-fg);
-  background: var(--color-error-fg);
-  color: #ffffff;
+  border-color: var(--status-error-main);
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
 }
 
 .button-danger-outline {
-  border-color: var(--color-error-fg);
+  border-color: var(--status-error-main);
   background: var(--color-surface);
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 /* ステータスコードの表: 長いコード値・名称・説明（最大 100・100・500 文字）でも、列が極端に細くならないように、列の幅を固定して、折り返す */
@@ -212,7 +212,7 @@ textarea {
   align-items: center;
   justify-content: center;
   padding: var(--space);
-  background: rgb(16 24 40 / 55%);
+  background: var(--color-scrim);
 }
 
 .dialog {
@@ -220,7 +220,7 @@ textarea {
   padding: 24px;
   background: var(--color-surface);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(16 24 40 / 25%);
+  box-shadow: var(--shadow-dialog);
 }
 
 .dialog h2 {
@@ -239,7 +239,7 @@ textarea {
 
 /* 通知 */
 .row-unread td {
-  background: #f1f6ff;
+  background: var(--color-unread-bg);
   font-weight: 600;
 }
 
@@ -356,8 +356,8 @@ textarea {
 }
 
 .read-state-unread {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
   font-weight: 700;
 }
 
@@ -376,7 +376,7 @@ textarea {
 }
 
 .push-on {
-  color: var(--color-normal-fg);
+  color: var(--status-normal-text);
 }
 
 .push-off {
@@ -607,20 +607,20 @@ textarea {
 
 .log-result-success,
 .log-result-sent {
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-fill);
+  color: var(--status-normal-on);
 }
 
 .log-result-partial,
 .log-result-held {
-  background: var(--color-caution-bg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-fill);
+  color: var(--status-caution-on);
 }
 
 .log-result-failure,
 .log-result-failed {
-  background: var(--color-error-bg);
-  color: var(--color-error-fg);
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
 }
 
 @media (max-width: 720px) {
