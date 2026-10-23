@@ -152,7 +152,7 @@ textarea {
 
 .status-code-table th:nth-child(1),
 .status-code-table th:nth-child(2) {
-  width: 24%;
+  width: 20%;
 }
 
 .status-code-table th:nth-child(3) {
@@ -697,6 +697,23 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* 広い幅でも、左のメニューの分だけ本文が狭い（1280px で、表の枠は約 980px）。長い値を入れても、表の枠の中で横にスクロールしないよう、
+   セルの左右の余白を詰め、項目の値を、枠の中で折り返す（変更前後の列の最小の幅は、この下で縮める） */
+@media (min-width: 901px) {
+  .entry-table th,
+  .entry-table td,
+  .audit-table th,
+  .audit-table td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .entry-table .entry-values li,
+  .audit-table .entry-values li {
+    white-space: normal;
+  }
+}
+
 /* 長い備考（最大 2000 文字）は、行の高さが伸びすぎないよう、枠の中でスクロールする */
 .entry-note {
   max-height: 9em;
@@ -741,4 +758,11 @@ textarea {
 .audit-table td:nth-child(5),
 .audit-table td:nth-child(6) {
   min-width: 16em;
+}
+
+@media (min-width: 901px) {
+  .audit-table td:nth-child(5),
+  .audit-table td:nth-child(6) {
+    min-width: 13em;
+  }
 }
