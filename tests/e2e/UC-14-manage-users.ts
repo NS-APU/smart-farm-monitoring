@@ -577,13 +577,20 @@ test.describe('スマートフォン幅（375px）でも、ユーザー管理は
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
-    // 表の列が、1文字ずつ折り返すほど、押しつぶされない（狭い幅では、表の枠の中で、横にスクロールする）
+    // 表の列が、1文字ずつ折り返すほど、押しつぶされない
     const headerHeights = await page
       .getByRole('columnheader')
       .evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect().height));
     expect(Math.max(...headerHeights)).toBeLessThan(48);
-    const firstRow = await rows(page).first().boundingBox();
-    expect(firstRow?.height ?? Infinity).toBeLessThan(96);
+    // 狭い幅（900px 以下）では、1 行が 1 枚のカードになり、修正・削除のボタンが、横にスクロールせずに、画面の幅の中に見える
+    for (const name of ['修正', '削除']) {
+      const box = await rows(page).first().getByRole('button', { name }).boundingBox();
+      expect(box?.x ?? -1, `${name}ボタンの左端`).toBeGreaterThanOrEqual(0);
+      expect(
+        (box?.x ?? Infinity) + (box?.width ?? Infinity),
+        `${name}ボタンの右端`,
+      ).toBeLessThanOrEqual(375);
+    }
     await register(page, {
       userId: 'narrow-user',
       userName: '狭い画面の人',
