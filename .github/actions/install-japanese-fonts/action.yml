@@ -36,6 +36,12 @@ runs:
         # フォントの一覧を更新し、使えることを確かめる（fontconfig のコマンドが、ない環境では、確認を省く）
         if command -v fc-cache > /dev/null; then fc-cache -f "$dir"; fi
         if command -v fc-list > /dev/null; then
-          fc-list | grep -q "Noto Sans CJK JP" || { echo "::error::Noto Sans CJK JP が、フォントとして見つかりません"; exit 1; }
+          # パイプで grep -q に渡さない（grep が先に終わると、fc-list が SIGPIPE を受け、pipefail で、一致していても失敗する）
+          families="$(fc-list : family)"
+          if ! grep -q "Noto Sans CJK JP" <<< "$families"; then
+            echo "::error::Noto Sans CJK JP が、フォントとして見つかりません。見つかったフォントの一覧（先頭 30 件）:"
+            head -n 30 <<< "$families"
+            exit 1
+          fi
           fc-match "Noto Sans CJK JP:weight=bold"
         fi
