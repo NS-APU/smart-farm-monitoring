@@ -255,6 +255,17 @@ describe.each(THEMES)('デザイントークン（%s）', (_name, tokens) => {
     }
   });
 
+  it('観点のアイコンは、その枠の背景に対して 3:1 以上のコントラスト（WCAG 1.4.11）。状態の色とは混ぜない', () => {
+    const icon = pick(tokens, 'color-viewpoint-icon');
+    const box = pick(tokens, 'color-viewpoint-icon-bg');
+
+    expect(contrast(icon, box)).toBeGreaterThanOrEqual(3);
+    // 状態の主色と、同じ色にしない（観点の種類と、状態の意味を混ぜない）
+    for (const status of STATUSES) {
+      expect(icon, `${status} の主色と同じ`).not.toBe(pick(tokens, `status-${status}-main`));
+    }
+  });
+
   it('4 つの状態の主色は、色覚シミュレーション（P 型・D 型・T 型）でも、ΔE 15 以上の差がある', () => {
     const colors = STATUSES.map(
       (status) => [status, pick(tokens, `status-${status}-main`)] as const,
