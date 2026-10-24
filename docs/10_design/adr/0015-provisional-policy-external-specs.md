@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-23。ユーザーの判断。Issue #142）
 - 日付: 2026-10-23
+- 更新（2026-10-24。#143）: 「ファイル仕様」の想定は、[ADR-0016](./0016-ingestion-federation-rules.md) で、「JSON 形式で、更新のたびに全体が書き換わり、中身は最新の値だけ（通常 1 MB 以内）。設備ごとにファイルパスを変えて配置する予定」と具体化した。確認事項は #193。
 - 関連: [ADR-0001](./0001-modular-monolith-ports-and-adapters.md)、[ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)、[ADR-0004](./0004-federation-outbox-standalone.md)、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)、[architecture.md](../architecture/architecture.md) 5.1・5.3、rfp.md 7 章、RQ-001〜RQ-006 / FR-1・FR-8、Issue #142（D-01〜D-05）・#119・#172〜#177
 
 目的: 発注者側（宇都宮大学）の回答が得られない事項（ファイルサーバーの接続先・ファイル仕様）と、私たちで決められる事項（農業情報基盤との連携方式）について、暫定の方針と、見直しの条件を残す。

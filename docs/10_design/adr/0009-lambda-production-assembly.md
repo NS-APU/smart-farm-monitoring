@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-16。ユーザーの判断。Issue #75）。ただし、「6. 利用者の接続元の識別」は、AWS での確認で想定が誤っていたため、[ADR-0010](./0010-client-ip-from-cloudfront-function.md) で置換した（2026-10-20）
 - 日付: 2026-10-16
+- 更新（2026-10-24。#143）: 「3. 秘密情報」の `SecretPort` の設計（値は、コールドスタートで 1 度だけ取得してキャッシュ）は、[ADR-0016](./0016-ingestion-federation-rules.md)（D-55）で、**5 分の期限つきのキャッシュ（認証に失敗したら、すぐ取り直す）**と、**読み取りと書き込みの権限を分ける**形に更新した。`SecretPort` は、非同期の読み取り・書き込み・状態の確認を持つ。
 - 関連: [ADR-0002](./0002-deployment-serverless.md)、[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0008](./0008-cognito-authentication.md)、[architecture.md](../architecture/architecture.md) 11 章・13 章、[security.md](../../20_development/security.md)
 
 目的: API の Lambda を、仮の実装からバックエンド本体に置き換えるときの、設定・権限・配信経路・秘密情報の扱いの決定を残す。
