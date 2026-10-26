@@ -1,7 +1,7 @@
 # ADR-0021 非機能・運用・文書の規則を、恒久の仕様にする（#148 の決定）
 
-- ステータス: 承認（2026-10-27。ユーザーの判断。Issue #148）
-- 日付: 2026-10-27
+- ステータス: 承認（2026-10-26。ユーザーの判断。Issue #148）
+- 日付: 2026-10-26
 - 関連: [ADR-0002](./0002-deployment-serverless.md)、[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0013](./0013-environments-and-access-control.md)、[ADR-0017](./0017-evaluation-rules.md)、[ADR-0018](./0018-manual-input-and-data-rules.md)、[architecture.md](../architecture/architecture.md) 10〜12 章、NFR-1.4・NFR-3.4・NFR-3.5・NFR-4.1・NFR-6.2・NFR-6.8、[use-cases.md](../requirements/use-cases.md)
 
 目的: 非機能の目標値・運用体制・文書の形式・採用する機能の範囲など、暫定だった規則を、決めて、恒久の仕様にする。決めた経緯（背景・見直しの条件）は、各決定のコメント（#148）にもある。

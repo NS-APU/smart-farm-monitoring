@@ -2,7 +2,7 @@
 
 - ステータス: 承認（サーバーレスを基本とする方針。IAM権限・接続元IP制限の確認は、前提条件として残る）
 - 日付: 2026-10-09
-- 更新（2026-10-27。#148）: 同じ発注者での実績の記載は、「受注者のこれまでの知見（詳細は書かない）」に簡素化した。無料枠は、使えない見込みとした。詳細は、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md)。
+- 更新（2026-10-26。#148）: 同じ発注者での実績の記載は、「受注者のこれまでの知見（詳細は書かない）」に簡素化した。無料枠は、使えない見込みとした。詳細は、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md)。
 - 関連: [architecture.md](../architecture/architecture.md) 11章、RQ-015〜RQ-018 / NFR-1, NFR-4, NFR-6、[ADR-0001](./0001-modular-monolith-ports-and-adapters.md)
 
 ## 背景
