@@ -27,6 +27,7 @@ import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.criteria;
 /** 1時間ごとの再取得は不要（編集中の入力を、更新で壊さないため、読み込みは保存・リセットのときだけ行う）。 */
@@ -187,13 +188,19 @@ function CriteriaEditor(props: EditorProps): ReactNode {
             </div>
             {errors[`criteria.${String(index)}.thresholds`] === undefined ? null : (
               <p className="field-error" data-testid={`criterion-error-${row.indicator}`}>
+                <Icon name="status-error" size={14} />
                 {errors[`criteria.${String(index)}.thresholds`]}
               </p>
             )}
           </fieldset>
         );
       })}
-      {errors.criteria === undefined ? null : <p className="field-error">{errors.criteria}</p>}
+      {errors.criteria === undefined ? null : (
+        <p className="field-error">
+          <Icon name="status-error" size={14} />
+          {errors.criteria}
+        </p>
+      )}
       {criteria.usesStatusIndicator ? (
         <p className="muted" data-testid="criteria-status-note">
           {TEXT.statusNote}（<Link to={PATHS.settingsStatusCodes}>{TEXT.goStatusCodes}</Link>）
@@ -251,6 +258,7 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
   if (meta === undefined) {
     body = (
       <p className="state-view state-error" role="alert">
+        <Icon name="status-error" size={20} />
         {TEXT.unknownViewpoint}
       </p>
     );
@@ -315,6 +323,7 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
       {canEdit ? null : <PermissionNotice message={TEXT.readOnly} />}
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="criteria-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

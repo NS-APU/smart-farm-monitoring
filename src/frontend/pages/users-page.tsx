@@ -21,6 +21,7 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -207,7 +208,7 @@ export function UsersPage(): ReactNode {
   } else {
     body = (
       <div className="table-scroll">
-        <table className="data-table user-table">
+        <table className="data-table card-table user-table">
           <thead>
             <tr>
               <th scope="col">{TEXT.userId}</th>
@@ -220,20 +221,20 @@ export function UsersPage(): ReactNode {
           <tbody>
             {data.items.map((item) => (
               <tr key={item.userId} data-testid="user-row" data-user-id={item.userId}>
-                <td>
+                <td data-label={TEXT.userId}>
                   {item.userId}
                   {item.userId === me?.userId ? (
                     <span className="muted category-note">{TEXT.self}</span>
                   ) : null}
                 </td>
-                <td>{item.userName}</td>
-                <td>{roleNames.get(item.role) ?? item.role}</td>
-                <td>
+                <td data-label={TEXT.userName}>{item.userName}</td>
+                <td data-label={TEXT.role}>{roleNames.get(item.role) ?? item.role}</td>
+                <td data-label={TEXT.lastLogin}>
                   {item.lastLoginAt === undefined
                     ? TEXT.never
                     : formatDateTimeJst(item.lastLoginAt)}
                 </td>
-                <td>
+                <td data-label={TEXT.actions}>
                   <div className="row-actions">
                     <button
                       type="button"
@@ -274,6 +275,7 @@ export function UsersPage(): ReactNode {
       <p className="muted">{TEXT.lead}</p>
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="users-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

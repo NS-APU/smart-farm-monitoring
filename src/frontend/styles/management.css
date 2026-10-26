@@ -31,18 +31,14 @@ textarea {
 .field-invalid input,
 .field-invalid select,
 .field-invalid textarea {
-  border-color: var(--color-error-fg);
+  border-color: var(--status-error-main);
   border-width: 2px;
 }
 
 .field-error {
   margin: 0;
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
   font-size: 0.9rem;
-}
-
-.field-error::before {
-  content: '✖ ';
 }
 
 .field-hint {
@@ -52,7 +48,7 @@ textarea {
 }
 
 .required-mark {
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 .field-checkbox {
@@ -82,12 +78,27 @@ textarea {
   margin-top: 12px;
 }
 
+/* 判断基準の編集（SC-13）: 指標ごとのフォームが縦に長い（375px で約 2,700px）ため、狭い幅（900px 以下）では、
+   保存・既定値へ戻すボタンを、画面の下に固定する（#151 SC-13-4） */
+@media (max-width: 900px) {
+  .criteria-form .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-right: calc(var(--space) * -1);
+    margin-left: calc(var(--space) * -1);
+    padding: 12px var(--space);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg);
+  }
+}
+
 .form-success {
   margin: 8px 0;
   padding: 8px 12px;
   border-radius: 6px;
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
   font-weight: 600;
 }
 
@@ -136,15 +147,15 @@ textarea {
 
 /* ボタン */
 .button-danger {
-  border-color: var(--color-error-fg);
-  background: var(--color-error-fg);
-  color: #ffffff;
+  border-color: var(--status-error-main);
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
 }
 
 .button-danger-outline {
-  border-color: var(--color-error-fg);
+  border-color: var(--status-error-main);
   background: var(--color-surface);
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 /* ステータスコードの表: 長いコード値・名称・説明（最大 100・100・500 文字）でも、列が極端に細くならないように、列の幅を固定して、折り返す */
@@ -156,7 +167,7 @@ textarea {
 
 .status-code-table th:nth-child(1),
 .status-code-table th:nth-child(2) {
-  width: 24%;
+  width: 20%;
 }
 
 .status-code-table th:nth-child(3) {
@@ -212,7 +223,7 @@ textarea {
   align-items: center;
   justify-content: center;
   padding: var(--space);
-  background: rgb(16 24 40 / 55%);
+  background: var(--color-scrim);
 }
 
 .dialog {
@@ -220,7 +231,7 @@ textarea {
   padding: 24px;
   background: var(--color-surface);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(16 24 40 / 25%);
+  box-shadow: var(--shadow-dialog);
 }
 
 .dialog h2 {
@@ -239,7 +250,7 @@ textarea {
 
 /* 通知 */
 .row-unread td {
-  background: #f1f6ff;
+  background: var(--color-unread-bg);
   font-weight: 600;
 }
 
@@ -275,6 +286,20 @@ textarea {
 .notification-table td.notification-message {
   min-width: 18em;
   overflow-wrap: anywhere;
+}
+
+/* 広い幅でも、左のメニューの分だけ本文が狭い（1280px で、表の枠は約 980px）。右端の「状態」（既読にする）が枠の外へ
+   切れないよう、セルの左右の余白を詰め、メッセージの最小の幅を縮める */
+@media (min-width: 901px) {
+  .notification-table th,
+  .notification-table td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .notification-table td.notification-message {
+    min-width: 15em;
+  }
 }
 
 /* 900px 以下（タブレット・スマートフォン）: 表を、通知ごとのカード（項目名: 値の縦並び）にする。
@@ -356,8 +381,8 @@ textarea {
 }
 
 .read-state-unread {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
   font-weight: 700;
 }
 
@@ -376,7 +401,7 @@ textarea {
 }
 
 .push-on {
-  color: var(--color-normal-fg);
+  color: var(--status-normal-text);
 }
 
 .push-off {
@@ -607,20 +632,20 @@ textarea {
 
 .log-result-success,
 .log-result-sent {
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-fill);
+  color: var(--status-normal-on);
 }
 
 .log-result-partial,
 .log-result-held {
-  background: var(--color-caution-bg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-fill);
+  color: var(--status-caution-on);
 }
 
 .log-result-failure,
 .log-result-failed {
-  background: var(--color-error-bg);
-  color: var(--color-error-fg);
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
 }
 
 @media (max-width: 720px) {
@@ -701,6 +726,23 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* 広い幅でも、左のメニューの分だけ本文が狭い（1280px で、表の枠は約 980px）。長い値を入れても、表の枠の中で横にスクロールしないよう、
+   セルの左右の余白を詰め、項目の値を、枠の中で折り返す（変更前後の列の最小の幅は、この下で縮める） */
+@media (min-width: 901px) {
+  .entry-table th,
+  .entry-table td,
+  .audit-table th,
+  .audit-table td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .entry-table .entry-values li,
+  .audit-table .entry-values li {
+    white-space: normal;
+  }
+}
+
 /* 長い備考（最大 2000 文字）は、行の高さが伸びすぎないよう、枠の中でスクロールする */
 .entry-note {
   max-height: 9em;
@@ -745,4 +787,11 @@ textarea {
 .audit-table td:nth-child(5),
 .audit-table td:nth-child(6) {
   min-width: 16em;
+}
+
+@media (min-width: 901px) {
+  .audit-table td:nth-child(5),
+  .audit-table td:nth-child(6) {
+    min-width: 13em;
+  }
 }

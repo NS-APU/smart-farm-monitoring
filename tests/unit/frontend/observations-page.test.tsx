@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Observation } from '../../../src/shared/schemas/observation.ts';
 import { jsonResponse } from '../../support/frontend.ts';
 import { callsOf, errorBody, renderApp } from '../../support/management-frontend.ts';
+import { expectCardLabels } from '../../support/card-table.ts';
 
 function observation(overrides: Partial<Observation> = {}): Observation {
   return {
@@ -174,5 +175,16 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
     failing = false;
     fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
     expect(await screen.findAllByTestId('observation-row')).toHaveLength(1);
+  });
+});
+
+describe('取り込み済みデータの表の、狭い幅のカード（#151。SC-09）', () => {
+  it('各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
+    renderApp('/observations', {
+      'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
+    });
+    await screen.findAllByTestId('observation-row');
+
+    expectCardLabels();
   });
 });

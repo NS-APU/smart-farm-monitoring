@@ -19,13 +19,14 @@ import {
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.statusCodes;
 
@@ -190,14 +191,14 @@ export function StatusCodesPage(): ReactNode {
     body = <LoadingView />;
   } else if (data.items.length === 0) {
     body = (
-      <p className="state-view" data-testid="status-codes-empty">
-        {TEXT.empty}
-      </p>
+      <EmptyState testId="status-codes-empty">
+        <p>{TEXT.empty}</p>
+      </EmptyState>
     );
   } else {
     body = (
       <div className="table-scroll">
-        <table className="data-table status-code-table">
+        <table className="data-table card-table status-code-table">
           <thead>
             <tr>
               <th scope="col">{TEXT.code}</th>
@@ -210,14 +211,16 @@ export function StatusCodesPage(): ReactNode {
           <tbody>
             {data.items.map((item) => (
               <tr key={item.code} data-testid="status-code-row" data-code={item.code}>
-                <td>{item.code}</td>
-                <td>{item.name}</td>
-                <td>
+                <td data-label={TEXT.code}>{item.code}</td>
+                <td data-label={TEXT.name}>{item.name}</td>
+                <td data-label={TEXT.category}>
                   <StatusBadge status={item.category} />
                 </td>
-                <td>{item.description ?? MESSAGES.common.missingValue}</td>
+                <td data-label={TEXT.description}>
+                  {item.description ?? MESSAGES.common.missingValue}
+                </td>
                 {canManage ? (
-                  <td>
+                  <td data-label={TEXT.actions}>
                     <div className="row-actions">
                       <button
                         type="button"
@@ -260,6 +263,7 @@ export function StatusCodesPage(): ReactNode {
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="status-codes-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

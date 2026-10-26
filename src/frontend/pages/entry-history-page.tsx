@@ -19,7 +19,7 @@ import { Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -147,19 +147,19 @@ export function EntryHistoryPage(): ReactNode {
   function row(entry: AuditLogEntry): ReactNode {
     return (
       <tr key={entry.auditId} data-testid="audit-row">
-        <td>
+        <td data-label={TEXT.occurredAt}>
           <time dateTime={entry.occurredAt}>{formatDateTimeJst(entry.occurredAt)}</time>
         </td>
-        <td>{TEXT.operationLabels[entry.operation]}</td>
-        <td>
+        <td data-label={TEXT.operation}>{TEXT.operationLabels[entry.operation]}</td>
+        <td data-label={TEXT.target}>
           {targetTypeLabel(entry.targetType)}
           <span className="muted category-note">（{entry.targetId}）</span>
         </td>
-        <td>{entry.actor}</td>
-        <td>
+        <td data-label={TEXT.actor}>{entry.actor}</td>
+        <td data-label={TEXT.before}>
           <AuditValue targetType={entry.targetType} value={entry.before} />
         </td>
-        <td>
+        <td data-label={TEXT.after}>
           <AuditValue targetType={entry.targetType} value={entry.after} />
         </td>
       </tr>
@@ -175,15 +175,15 @@ export function EntryHistoryPage(): ReactNode {
     body = <LoadingView />;
   } else if (data.items.length === 0) {
     body = (
-      <p className="state-view" data-testid="audit-empty">
-        {TEXT.empty}
-      </p>
+      <EmptyState testId="audit-empty">
+        <p>{TEXT.empty}</p>
+      </EmptyState>
     );
   } else {
     body = (
       <>
         <div className="table-scroll">
-          <table className="data-table audit-table">
+          <table className="data-table card-table audit-table">
             <thead>
               <tr>
                 <th scope="col">{TEXT.occurredAt}</th>

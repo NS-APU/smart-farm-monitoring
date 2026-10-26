@@ -22,7 +22,7 @@ import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { ManualEntryForm } from '../components/manual-entry-form.tsx';
 import { DIRECTION_OPTIONS, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -31,6 +31,7 @@ import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { Icon } from '../components/icon.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.entries;
@@ -115,16 +116,16 @@ export function EntryListPage(): ReactNode {
   } else if (data.items.length === 0) {
     const filtered = [keyword, category, equipmentId, from, to].some((value) => value !== '');
     body = (
-      <div className="state-view" data-testid="entries-empty">
+      <EmptyState testId="entries-empty">
         <p>{filtered ? MESSAGES.form.emptyList : TEXT.empty}</p>
         {filtered ? null : <Link to={PATHS.dataEntry}>{TEXT.emptyAction}</Link>}
-      </div>
+      </EmptyState>
     );
   } else {
     body = (
       <>
         <div className="table-scroll">
-          <table className="data-table entry-table">
+          <table className="data-table card-table entry-table">
             <thead>
               <tr>
                 <th scope="col">{TEXT.observedAt}</th>
@@ -139,16 +140,18 @@ export function EntryListPage(): ReactNode {
             <tbody>
               {data.items.map((entry) => (
                 <tr key={entry.entryId} data-testid="entry-row">
-                  <td>
+                  <td data-label={TEXT.observedAt}>
                     <time dateTime={entry.observedAt}>{formatDateTimeJst(entry.observedAt)}</time>
                   </td>
-                  <td>{equipmentNames.get(entry.equipmentId) ?? entry.equipmentId}</td>
-                  <td>{CATEGORY_LABELS[entry.category]}</td>
-                  <td>
+                  <td data-label={TEXT.equipment}>
+                    {equipmentNames.get(entry.equipmentId) ?? entry.equipmentId}
+                  </td>
+                  <td data-label={TEXT.category}>{CATEGORY_LABELS[entry.category]}</td>
+                  <td data-label={TEXT.values}>
                     <EntryValues entry={entry} />
                   </td>
-                  <td>{entry.enteredBy}</td>
-                  <td>
+                  <td data-label={TEXT.enteredBy}>{entry.enteredBy}</td>
+                  <td data-label={TEXT.note}>
                     {entry.note === undefined ? (
                       MESSAGES.common.missingValue
                     ) : (
@@ -156,7 +159,7 @@ export function EntryListPage(): ReactNode {
                     )}
                   </td>
                   {canWrite ? (
-                    <td>
+                    <td data-label={TEXT.actions}>
                       <div className="row-actions">
                         <button
                           type="button"
@@ -288,6 +291,7 @@ export function EntryListPage(): ReactNode {
 
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="entries-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

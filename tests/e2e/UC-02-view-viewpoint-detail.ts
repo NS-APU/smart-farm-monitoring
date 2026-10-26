@@ -775,9 +775,9 @@ test.describe('ステータスコードで判定する観点: カテゴリ名で
 
 test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・アイコン・文字）', () => {
   const cases = [
-    { status: '正常', icon: '✔', klass: 'normal', temperature: 20 },
-    { status: '注意', icon: '▲', klass: 'caution', temperature: 27 },
-    { status: '異常', icon: '✖', klass: 'error', temperature: 40 },
+    { status: '正常', iconName: 'status-normal', klass: 'normal', temperature: 20 },
+    { status: '注意', iconName: 'status-caution', klass: 'caution', temperature: 27 },
+    { status: '異常', iconName: 'status-error', klass: 'error', temperature: 40 },
   ] as const;
   for (const item of cases) {
     test(`温度 ${String(item.temperature)}℃（${item.status}）のとき、診断の枠・見出し・メトリクスの判定が、色・アイコン・文字の3つで${item.status}と分かる`, async ({
@@ -795,7 +795,7 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
       );
       for (const target of [badge(page), heading(page).locator('.status-badge')]) {
         await expect(target).toHaveClass(new RegExp(`status-${item.klass}(\\s|$)`));
-        await expect(target).toContainText(item.icon);
+        await expect(target.locator(`[data-icon="${item.iconName}"]`)).toBeVisible();
         await expect(target).toContainText(item.status);
       }
       // 指標ごとの判定（温度）も、同じ3つで示す
@@ -805,7 +805,7 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
         .nth(1)
         .locator('.status-badge');
       await expect(judgement).toHaveClass(new RegExp(`status-${item.klass}(\\s|$)`));
-      await expect(judgement).toContainText(item.icon);
+      await expect(judgement.locator(`[data-icon="${item.iconName}"]`)).toBeVisible();
       await expect(judgement).toContainText(item.status);
       await shot(page, testInfo, `detail-visual-${item.klass}`);
     });
@@ -826,7 +826,7 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
       .nth(1)
       .locator('.status-badge');
     await expect(unknown).toHaveClass(/status-unknown(\s|$)/);
-    await expect(unknown).toContainText('?');
+    await expect(unknown.locator('[data-icon="status-unknown"]')).toBeVisible();
     await expect(unknown).toContainText('不明');
     const caution = page
       .getByTestId('metric-temperatureCelsius')
@@ -847,7 +847,7 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
     await openDetail(page, 'harvestAccuracy');
 
     await expect(badge(page)).toHaveClass(/status-unknown(\s|$)/);
-    await expect(badge(page)).toContainText('?');
+    await expect(badge(page).locator('[data-icon="status-unknown"]')).toBeVisible();
     await expect(badge(page)).toContainText('不明');
     await expect(page.locator('.diagnosis')).toHaveClass(/diagnosis-unknown(\s|$)/);
   });

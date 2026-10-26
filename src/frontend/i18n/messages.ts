@@ -32,6 +32,8 @@ export const MESSAGES = {
   layout: {
     skipToContent: '本文へ移動',
     menu: 'メニュー',
+    openMenu: 'メニューを開く',
+    closeMenu: 'メニューを閉じる',
     equipment: '対象の設備',
     unreadNotifications: '未読の通知',
     lastReceived: '最終のデータ取得',
@@ -160,6 +162,7 @@ export const MESSAGES = {
   },
   notFound: {
     title: 'ページが見つかりません',
+    hint: 'URL が違っているか、ページが移動した可能性があります。',
     back: 'ダッシュボードへ戻る',
   },
 } as const;

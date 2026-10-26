@@ -30,9 +30,9 @@
 }
 
 .tag-changed {
-  background: var(--color-caution-bg);
-  border-color: var(--color-caution-fg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-fill);
+  border-color: var(--status-caution-main);
+  color: var(--status-caution-on);
   font-weight: 700;
 }
 
@@ -92,7 +92,8 @@
 
 .button-secondary {
   background: var(--color-surface);
-  color: var(--color-primary);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
 }
 
 .panel {
@@ -153,7 +154,7 @@
 }
 
 .data-table thead th {
-  background: #f2f4f7;
+  background: var(--color-surface-muted);
   font-size: 0.9rem;
 }
 
@@ -165,6 +166,68 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* カードにする表（class="card-table"。各セルに data-label を持つ）: 狭い幅（900px 以下）では、1 行を 1 枚のカードにし、
+   項目名を値の左に置く（見出しの行は、視覚的に隠す）。列が右へ切れて、横スクロールの先にある操作に届かない問題を避ける（#151）。
+   各表の、最小の幅・折り返し・列ごとの幅の指定（詳しさが上のセレクタ）は、ここで打ち消す */
+@media (max-width: 900px) {
+  .data-table.card-table {
+    min-width: 0;
+    table-layout: auto;
+  }
+
+  .data-table.card-table,
+  .data-table.card-table tbody,
+  .data-table.card-table tr,
+  .data-table.card-table tbody th {
+    display: block;
+  }
+
+  .data-table.card-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .data-table.card-table thead th {
+    white-space: nowrap;
+  }
+
+  .data-table.card-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .data-table.card-table td,
+  .data-table.card-table td:nth-child(n),
+  .data-table.card-table tbody th {
+    width: auto;
+    min-width: 0;
+    padding: 4px 12px;
+    border-bottom: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.card-table td {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .data-table.card-table td::before {
+    content: attr(data-label);
+    flex: none;
+    width: 7em;
+    color: var(--color-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    overflow-wrap: normal;
+  }
 }
 
 /* 元データの表: 計測日時・取得元・状態は、狭い幅でも折り返さない（表の枠の中で横にスクロールする） */
@@ -216,6 +279,20 @@
   overflow-wrap: anywhere;
 }
 
+/* 広い幅でも、左のメニューの分だけ本文が狭い（1280px で、表の枠は約 980px）。右端の「状態」が枠の外へ切れないよう、
+   セルの左右の余白を詰め、設備の列の最小の幅を縮める */
+@media (min-width: 901px) {
+  .observation-table th,
+  .observation-table td {
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+
+  .observation-table td:nth-child(2) {
+    min-width: 14em;
+  }
+}
+
 /* 判断基準の表: 条件名（最大 200 文字。区切りのない英数字でも）で、他の列が 1 文字幅へ潰れず、ページが横にはみ出さない。
    各列に最小の幅を持たせ、条件名は枠の中で折り返す。表が枠より広い場合は、表の枠の中で横にスクロールする */
 .criteria-table th,
@@ -233,31 +310,30 @@
 }
 
 .criteria-table .condition-normal {
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
 }
 
 .criteria-table .condition-caution {
-  background: var(--color-caution-bg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
 }
 
 .criteria-table .condition-error {
-  background: var(--color-error-bg);
-  color: var(--color-error-fg);
+  background: var(--status-error-soft);
+  color: var(--status-error-soft-on);
 }
 
 /* ダッシュボードのカード */
 .card-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   margin-bottom: 8px;
 }
 
 .card-head h3 {
-  margin: 0;
+  margin: 0 auto 0 0;
 }
 
 .metric-value {
@@ -266,24 +342,30 @@
   gap: 4px;
 }
 
+/* 正常の値は、本文の色。印のアイコンだけ、状態の色にして、強い色を異常に絞る */
 .metric-normal {
-  color: var(--color-normal-fg);
+  color: var(--color-text);
+}
+
+.metric-normal .metric-mark {
+  color: var(--status-normal-main);
 }
 
 .metric-caution {
-  color: var(--color-caution-fg);
+  color: var(--status-caution-text);
 }
 
 .metric-error {
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 .metric-unknown {
-  color: var(--color-unknown-fg);
+  color: var(--status-unknown-text);
 }
 
 .metric-mark {
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .card-link {
@@ -295,21 +377,29 @@
 /* 観点の詳細 */
 .diagnosis {
   padding: 12px 16px;
-  background: #f9fafb;
-  border-left: 8px solid var(--color-muted);
+  background: var(--color-surface-subtle);
+  border-left: 8px solid var(--status-unknown-main);
   border-radius: 6px;
 }
 
 .diagnosis-normal {
-  border-left-color: var(--color-normal-fg);
+  border-left-color: var(--status-normal-main);
 }
 
 .diagnosis-caution {
-  border-left-color: #b54708;
+  border-left-color: var(--status-caution-main);
+  background: var(--status-caution-soft);
 }
 
 .diagnosis-error {
-  border-left-color: var(--color-error-fg);
+  border-left-color: var(--status-error-main);
+  background: var(--status-error-card);
+}
+
+/* 診断のメッセージと推奨アクションは、観点の詳細で、最も読んでほしい文字。少し大きくする */
+.diagnosis .diagnostic-message,
+.diagnosis .recommended-action {
+  font-size: 1.05rem;
 }
 
 .diagnosis-head {
@@ -340,7 +430,7 @@
 .unknown-guide {
   margin: 8px 0;
   padding: 8px 12px;
-  background: var(--color-unknown-bg);
+  background: var(--color-surface-muted);
   border-radius: 6px;
 }
 
@@ -409,25 +499,25 @@
 }
 
 .chart-band-normal {
-  fill: var(--color-normal-bg);
+  fill: var(--status-normal-soft);
 }
 
 .chart-band-caution {
-  fill: var(--color-caution-bg);
+  fill: var(--status-caution-soft);
 }
 
 .chart-band-error {
-  fill: var(--color-error-bg);
+  fill: var(--status-error-soft);
 }
 
 .chart-grid {
-  stroke: #d0d5dd;
+  stroke: var(--color-chart-grid);
   stroke-width: 1;
   stroke-dasharray: 2 4;
 }
 
 .chart-axis {
-  stroke: #667085;
+  stroke: var(--color-chart-axis);
   stroke-width: 1;
 }
 
@@ -438,18 +528,18 @@
 
 .chart-line {
   fill: none;
-  stroke: var(--color-primary);
+  stroke: var(--color-chart-line);
   stroke-width: 2.5;
 }
 
 .chart-dot {
-  fill: var(--color-primary);
-  stroke: #ffffff;
+  fill: var(--color-chart-line);
+  stroke: var(--color-surface);
   stroke-width: 1.5;
 }
 
 .chart-average {
-  stroke: #344054;
+  stroke: var(--color-chart-average);
   stroke-width: 1.5;
   stroke-dasharray: 6 4;
 }
@@ -460,6 +550,17 @@
   height: 36px;
   overflow: hidden;
   border-radius: 6px;
+}
+
+/* 帯は、広い面。正常・注意は、控えめな面にして、ダークでも、まぶしくしない。異常は塗りつぶし（バッジと同じ）、不明は破線の枠 */
+.status-segment.status-normal {
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
+}
+
+.status-segment.status-caution {
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
 }
 
 .status-segment {
@@ -521,19 +622,19 @@
 }
 
 .quality-valid {
-  color: var(--color-normal-fg);
+  color: var(--status-normal-text);
 }
 
 .quality-late {
-  color: var(--color-caution-fg);
+  color: var(--status-caution-text);
 }
 
 .quality-invalid {
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 .quality-missing {
-  color: var(--color-unknown-fg);
+  color: var(--status-unknown-text);
 }
 
 .pager {
@@ -591,12 +692,12 @@
 
 .radar-ring {
   fill: none;
-  stroke: #d0d5dd;
+  stroke: var(--color-chart-grid);
   stroke-width: 1;
 }
 
 .radar-axis {
-  stroke: #d0d5dd;
+  stroke: var(--color-chart-grid);
   stroke-width: 1;
 }
 
@@ -605,13 +706,13 @@
 }
 
 .radar-area {
-  fill: rgba(26, 95, 180, 0.25);
-  stroke: var(--color-primary);
+  fill: var(--color-chart-area);
+  stroke: var(--color-chart-line);
   stroke-width: 2.5;
 }
 
 .radar-dot {
-  fill: var(--color-primary);
+  fill: var(--color-chart-line);
 }
 
 .radar-label {
@@ -623,7 +724,7 @@
 }
 
 .stars {
-  color: #b54708;
+  color: var(--color-rating);
   letter-spacing: 2px;
   white-space: nowrap;
 }

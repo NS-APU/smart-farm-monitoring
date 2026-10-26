@@ -9,6 +9,7 @@ import {
   noContent,
   renderApp,
 } from '../../support/management-frontend.ts';
+import { expectCardLabels } from '../../support/card-table.ts';
 
 const USERS = {
   items: [
@@ -271,5 +272,14 @@ describe('ユーザー管理（UC-14。SC-14）', () => {
         screen.getAllByRole('alert').some((node) => node.textContent === '削除できませんでした'),
       ).toBe(true);
     });
+  });
+});
+
+describe('ユーザー管理の表の、狭い幅のカード（#151。SC-14）', () => {
+  it('各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
+    renderApp('/settings/users', routes());
+    await screen.findAllByTestId('user-row');
+
+    expectCardLabels();
   });
 });

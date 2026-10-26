@@ -9,7 +9,6 @@ import { useCallback, useEffect, type ReactNode } from 'react';
 import { formatMetricValue, getMetricMeta } from '@smart-farm/shared/constants/metrics';
 import {
   EVALUATION_STATUSES,
-  STATUS_ICONS,
   STATUS_LABELS,
   type EvaluationStatus,
   type Horizon,
@@ -21,6 +20,7 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
+import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -46,7 +46,7 @@ function MetricMark(props: { readonly status: EvaluationStatus | undefined }): R
   }
   return (
     <span className="metric-mark" title={STATUS_LABELS[props.status]}>
-      <span aria-hidden="true">{STATUS_ICONS[props.status]}</span>
+      <Icon name={STATUS_ICON[props.status]} size={15} />
       <span className="visually-hidden">{STATUS_LABELS[props.status]}</span>
     </span>
   );
@@ -66,6 +66,7 @@ function ViewpointCardView(props: {
       data-testid={`card-${card.viewpointId}`}
     >
       <div className="card-head">
+        <ViewpointIcon viewpointId={card.viewpointId} />
         <h3>
           <Link to={path}>{card.name}</Link>
         </h3>
@@ -159,6 +160,7 @@ export function DashboardPage(): ReactNode {
       <section>
         <h1>{MESSAGES.dashboard.title}</h1>
         <div role="status" className="notice notice-info">
+          <Icon name="info" size={18} />
           <p>{MESSAGES.dashboard.noEquipment}</p>
           <p className="notice-links">
             <Link to={PATHS.settingsEquipment}>{MESSAGES.nav.equipment}</Link>
@@ -181,6 +183,7 @@ export function DashboardPage(): ReactNode {
       <>
         {refreshError === undefined ? null : (
           <p role="status" className="notice notice-warning" data-testid="stale-data-notice">
+            <Icon name="status-caution" size={18} />
             {MESSAGES.common.staleData}
           </p>
         )}
@@ -227,11 +230,13 @@ function DashboardContent(props: {
     <>
       {data.dataFreshness === 'STALE' ? (
         <p role="alert" className="notice notice-warning">
+          <Icon name="status-caution" size={18} />
           {MESSAGES.dashboard.freshnessStale}
         </p>
       ) : null}
       {data.dataFreshness === 'NONE' ? (
         <div role="status" className="notice notice-info">
+          <Icon name="info" size={18} />
           <p>{MESSAGES.dashboard.freshnessNone}</p>
           <p className="notice-links">
             <Link to={PATHS.dataEntry}>{MESSAGES.dashboard.goDataEntry}</Link>
@@ -243,9 +248,16 @@ function DashboardContent(props: {
       <h2>{MESSAGES.dashboard.summary}</h2>
       <ul className="summary" aria-label={MESSAGES.dashboard.summary}>
         {EVALUATION_STATUSES.map((status) => (
-          <li key={status} data-testid={`summary-${status}`}>
-            <StatusBadge status={status} />
+          <li
+            key={status}
+            className={`summary-tile summary-${status.toLowerCase()}`}
+            data-testid={`summary-${status}`}
+          >
+            <Icon name={STATUS_ICON[status]} size={30} />
             <span className="summary-count">{data.summary[status]}</span>
+            <span className="summary-label" aria-hidden="true">
+              {STATUS_LABELS[status]}
+            </span>
             <span className="visually-hidden">
               {MESSAGES.dashboard.summaryCountLabel(STATUS_LABELS[status])}
             </span>

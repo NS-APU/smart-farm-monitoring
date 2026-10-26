@@ -15,6 +15,7 @@ import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { usePushBrowser } from '../push/push-context.tsx';
 import type { PushPermission } from '../push/browser-push.ts';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.push;
 
@@ -92,6 +93,7 @@ export function PushSettingsPage(): ReactNode {
           )
         ) : (
           <p className="notice notice-warning" role="status" data-testid="push-limitation">
+            <Icon name="status-caution" size={18} />
             {limitation}
           </p>
         )}
@@ -124,6 +126,7 @@ export function PushSettingsPage(): ReactNode {
         <FormError message={submit.formMessage} />
         {done === undefined ? null : (
           <p role="status" className="form-success" data-testid="push-done">
+            <Icon name="status-normal" size={16} />
             {done}
           </p>
         )}

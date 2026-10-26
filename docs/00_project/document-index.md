@@ -25,6 +25,7 @@
 | | [data-model.md](../10_design/data/data-model.md) | データモデル（論理モデルと DynamoDB の物理設計の案） |
 | | [data-dictionary.md](../10_design/data/data-dictionary.md) | データ項目定義（データ辞書） |
 | [10_design/functions](../10_design/functions/) | [functional-specification.md](../10_design/functions/functional-specification.md) | 機能仕様書（画面・API・非同期処理の振る舞い） |
+| | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) | UI デザイン方針（方向性・デザイントークン・状態の表し方と色覚への配慮・アイコン・共通のレイアウト・守ること） |
 | | [dev_spec.md](../10_design/functions/dev_spec.md) | 開発仕様書（ディレクトリ・パッケージ構成、ポート／アダプタ、ローカル実行構成、暫定仕様、UC と画面・API・ジョブの対応、テスト構成） |
 | [10_design/viewpoint](../10_design/viewpoint/) | [viewpoint-overview.md](../10_design/viewpoint/viewpoint-overview.md) | 健全性評価の観点（概要・記載形式・観点一覧） |
 | | [evaluation.md](../10_design/viewpoint/evaluation.md) | 観点に共通する評価方針 |
@@ -45,6 +46,13 @@
 | | [0012-demo-data-and-s3-file-server-mock.md](../10_design/adr/0012-demo-data-and-s3-file-server-mock.md) | ADR-0012 評価環境のデモデータは、ファイルサーバーのモック（S3）と、手元のコマンドで用意する（承認） |
 | | [0013-environments-and-access-control.md](../10_design/adr/0013-environments-and-access-control.md) | ADR-0013 評価環境は、開発サイトと本番サイトに分け、ログイン必須・管理者／一般の 2 ロールで制御する（承認） |
 | | [0014-defer-evaluation-on-manual-entry-write.md](../10_design/adr/0014-defer-evaluation-on-manual-entry-write.md) | ADR-0014 手動入力の保存・削除の評価の再計算を、AWS では、応答から外し、定期の評価（JB-02）に任せる（承認） |
+| | [0015-provisional-policy-external-specs.md](../10_design/adr/0015-provisional-policy-external-specs.md) | ADR-0015 ファイルサーバー・ファイル仕様・農業情報基盤は、回答を待たず、暫定の方針で進める（承認） |
+| | [0016-ingestion-federation-rules.md](../10_design/adr/0016-ingestion-federation-rules.md) | ADR-0016 取り込み・連携の規則を、恒久の仕様にする（#143 の決定。承認） |
+| | [0017-evaluation-rules.md](../10_design/adr/0017-evaluation-rules.md) | ADR-0017 評価・観点・メトリクスの規則を、恒久の仕様にする（#144 の決定。承認） |
+| | [0018-manual-input-and-data-rules.md](../10_design/adr/0018-manual-input-and-data-rules.md) | ADR-0018 手動入力・データの扱いの規則を、恒久の仕様にする（#145 の決定。承認） |
+| | [0019-notification-rules.md](../10_design/adr/0019-notification-rules.md) | ADR-0019 通知の規則を、恒久の仕様にする（#146 の決定。承認） |
+| | [0020-authentication-rules.md](../10_design/adr/0020-authentication-rules.md) | ADR-0020 認証の規則（ログインの制限・パスワード）を、恒久の仕様にする（#147 の決定。承認） |
+| | [0021-nonfunctional-ops-doc-rules.md](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) | ADR-0021 非機能・運用・文書の規則を、恒久の仕様にする（#148 の決定。承認） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |

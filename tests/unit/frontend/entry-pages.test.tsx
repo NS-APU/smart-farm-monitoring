@@ -13,6 +13,7 @@ import {
   renderApp,
   type Routes,
 } from '../../support/management-frontend.ts';
+import { expectCardLabels } from '../../support/card-table.ts';
 
 const SAVED = {
   entry: manualEntry(),
@@ -696,5 +697,23 @@ describe('変更履歴（UC-18。SC-08）', () => {
     expect(
       (await screen.findByRole('link', { name: '入力済みデータへ戻る' })).getAttribute('href'),
     ).toBe('/data-entry/list');
+  });
+});
+
+describe('入力済みデータ・変更履歴の表の、狭い幅のカード（#151。SC-07・SC-08）', () => {
+  it('入力済みデータ（SC-07）: 各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
+    renderApp('/data-entry/list', listRoutes());
+    await screen.findAllByTestId('entry-row');
+
+    expectCardLabels();
+  });
+
+  it('変更履歴（SC-08）: 各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
+    renderApp('/data-entry/history', {
+      'GET /audit-logs': () => jsonResponse({ items: [AUDIT_ENTRY], nextCursor: null }),
+    });
+    await screen.findAllByTestId('audit-row');
+
+    expectCardLabels();
   });
 });

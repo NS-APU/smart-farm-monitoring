@@ -20,6 +20,8 @@
 | 平均故障間隔 | MTBF | 故障から次の故障までの平均時間。ロボット運用の信頼性を示す指標 | [project-overview.md](./project-overview.md) |
 | 平均修復時間 | MTTR | 故障から復旧までにかかる平均時間。復旧のしやすさを示す指標 | [project-overview.md](./project-overview.md) |
 | 経済生産性 | EconomicProductivity | 運用コストに対する収穫の成果の比（無次元）。（収穫成功率 × 収穫速度 × 可用率）÷ 運用コスト。コスト効率の観点の判定に使う | [robot-health.md](../10_design/viewpoint/robot-health.md) |
+| デザイントークン | - | 色・文字の大きさ・余白・角丸などのデザインの値に、役割で付けた名前（実装は、CSS のカスタムプロパティ）。ライト・ダークで値を切り替える | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) |
+| カラーユニバーサルデザイン | CUD | 色の見え方が異なる人（色覚の違い）にも、情報が正しく伝わるようにする設計。本システムでは、状態を、色・形・塗り方・文字で示す | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) |
 | 設計判断の記録 | ADR | 重要な技術選定・設計判断と、その理由を残した記録 | [documentation-guidelines.md](./documentation-guidelines.md) |
 | 開発サイト | - | 開発の間の、出来栄えの評価に使う環境。`develop` ブランチを基本としてデプロイし、基本は合成データを扱う（実際のロボット・センサーとの結合確認では、実データを取り込むことがある。個人情報は不可）。現在の評価環境（`SfmData`・`SfmEvaluation`） | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |
 | 本番サイト | - | 現場での実証実験に使う環境。`main` ブランチだけからデプロイし、実データ（個人情報は不可）を扱える。開発サイトとは、データ・ユーザー・URL を共有しない。IaC・ワークフロー・手順は用意した（Issue #117）。AWS への作成は、リリースの後（未作成） | [ADR-0013](../10_design/adr/0013-environments-and-access-control.md) |

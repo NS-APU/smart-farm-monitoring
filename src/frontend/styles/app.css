@@ -1,22 +1,79 @@
-/* 画面の基本スタイル。状態は色・アイコン・文字で示す（NFR-7.2）。タブレット幅でも使えるレスポンシブ（NFR-7.3）。 */
+/*
+ * 画面の基本スタイル。状態は色・形・塗り方・文字で示す（NFR-7.2）。PC・タブレット・スマートフォンの幅でも使える（NFR-7.3）。
+ * 色の値は docs/10_design/functions/ui-design-guidelines.md 5 章に従う。ライト・ダークは、ブラウザの設定（prefers-color-scheme）に従う。
+ * 状態の色（--status-*）は、状態の表示にだけ使う。観点の種類・装飾・リンクには使わない。
+ */
 :root {
-  --color-bg: #f5f7fa;
+  color-scheme: light dark;
+  /* 面・文字 */
+  --color-bg: #f3f6f4;
   --color-surface: #ffffff;
-  --color-text: #1d2939;
-  --color-muted: #475467;
-  --color-border: #d0d5dd;
-  --color-primary: #1a5fb4;
+  --color-surface-muted: #eef2ef;
+  --color-surface-subtle: #f7f9f8;
+  --color-border: #d3dcd6;
+  /* 入力欄・ボタンの枠。背景に対して、非テキストのコントラスト 3:1 以上（WCAG 1.4.11） */
+  --color-border-control: #75867c;
+  --color-text: #17261f;
+  --color-muted: #4a5a52;
+  /* メニュー・主ボタンの緑（枠組みの色。状態の「正常」の緑とは、役割も色も分ける） */
+  --color-nav-bg: #1d3a2e;
+  --color-nav-text: #d6e6dd;
+  --color-nav-current-bg: #2c5a45;
+  --color-nav-current-bar: #7ee0a6;
+  --color-primary: #1d5c40;
+  --color-primary-text: #ffffff;
+  /* 面の上で、主色を文字・枠に使うとき（ダークは、緑の枠組みの色が暗いため、本文の色にする） */
+  --color-primary-ink: #1d5c40;
+  --color-link: #1a5fb4;
   /* キーボードのフォーカス。白・ページの背景に対して、非テキストのコントラスト 3:1 以上（WCAG 1.4.11）。V-151 */
   --color-focus: #b54708;
-  --color-primary-text: #ffffff;
-  --color-normal-bg: #e7f6ec;
-  --color-normal-fg: #14653a;
-  --color-caution-bg: #fff3d6;
-  --color-caution-fg: #7a4d00;
-  --color-error-bg: #fde8e7;
-  --color-error-fg: #a1241a;
-  --color-unknown-bg: #eceff3;
-  --color-unknown-fg: #3d4757;
+  --color-scrim: rgb(16 24 40 / 55%);
+  --shadow-dialog: 0 8px 24px rgb(16 24 40 / 25%);
+  --color-unread-bg: #e8f3ed;
+  /* グラフ（状態の色ではなく、データの色） */
+  --color-chart-grid: #d3dcd6;
+  --color-chart-axis: #75867c;
+  --color-chart-average: #2b3b33;
+  --color-chart-line: #1a5fb4;
+  --color-chart-area: rgb(26 95 180 / 20%);
+  --color-rating: #b54708;
+  /* 観点のアイコン（状態の色と混ぜない、中立の 1 色） */
+  --color-viewpoint-icon: #1d5c40;
+  --color-viewpoint-icon-bg: #e8f1ec;
+  /* 状態: main = アイコン・縁・大きな数字（3:1）／ text = 面の上の文字（4.5:1）／ fill・on = バッジの塗りと、その上の文字／ tile・tile-on = サマリーのタイル／ soft・soft-on = 広い面（注意書き・表のセル・グラフの帯）の控えめな色と、その上の文字 */
+  --status-normal-main: #009f7e;
+  --status-normal-text: #00664f;
+  --status-normal-fill: #d6f3e9;
+  --status-normal-on: #00664f;
+  --status-normal-tile: #e6f7f1;
+  --status-normal-tile-on: #00664f;
+  --status-normal-soft: #d6f3e9;
+  --status-normal-soft-on: #00664f;
+  --status-caution-main: #cc7a00;
+  --status-caution-text: #6b4100;
+  --status-caution-fill: #ffe9b8;
+  --status-caution-on: #6b4100;
+  --status-caution-tile: #fff3d6;
+  --status-caution-tile-on: #6b4100;
+  --status-caution-soft: #ffe9b8;
+  --status-caution-soft-on: #6b4100;
+  --status-error-main: #b3261e;
+  --status-error-text: #b3261e;
+  --status-error-fill: #b3261e;
+  --status-error-on: #ffffff;
+  --status-error-tile: #b3261e;
+  --status-error-tile-on: #ffffff;
+  --status-error-soft: #fde8e7;
+  --status-error-soft-on: #a1241a;
+  --status-error-card: #fff7f6;
+  --status-unknown-main: #59636e;
+  --status-unknown-text: #3f4a55;
+  --status-unknown-fill: #ffffff;
+  --status-unknown-on: #3f4a55;
+  --status-unknown-tile: #ffffff;
+  --status-unknown-tile-on: #3f4a55;
+  --status-unknown-soft: #eceff3;
+  --status-unknown-soft-on: #3f4a55;
   --space: 16px;
   /* Mac・Windows のフォントを先に、Linux・Android の Noto Sans CJK を次に指定する（どの環境でも、日本語の幅が近くなる） */
   font-family:
@@ -27,6 +84,73 @@
   background: var(--color-bg);
 }
 
+/* ダーク: 背景は、暗い緑にしない（状態の「正常」の緑・「不明」の灰と、背景が似て見えるため）。中立の暗いグレーにする */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #12171c;
+    --color-surface: #1b2229;
+    --color-surface-muted: #26313a;
+    --color-surface-subtle: #202830;
+    --color-border: #2e3943;
+    --color-border-control: #71808c;
+    --color-text: #e8edf1;
+    --color-muted: #a3b0ba;
+    --color-nav-bg: #0e1318;
+    --color-nav-text: #b9c4cc;
+    --color-nav-current-bg: #1f3d33;
+    --color-nav-current-bar: #4fa985;
+    --color-primary: #2f6f55;
+    --color-primary-text: #ffffff;
+    --color-primary-ink: #e8edf1;
+    --color-link: #8ecbff;
+    --color-focus: #ffd24d;
+    --color-scrim: rgb(0 0 0 / 65%);
+    --shadow-dialog: 0 8px 24px rgb(0 0 0 / 50%);
+    --color-unread-bg: #1f2d36;
+    --color-chart-grid: #2e3943;
+    --color-chart-axis: #71808c;
+    --color-chart-average: #c3ccd4;
+    --color-chart-line: #8ecbff;
+    --color-chart-area: rgb(142 203 255 / 22%);
+    --color-rating: #ffb35c;
+    --color-viewpoint-icon: #c3ccd4;
+    --color-viewpoint-icon-bg: #26313a;
+    --status-normal-main: #6ee7b7;
+    --status-normal-text: #6ee7b7;
+    --status-normal-fill: #6ee7b7;
+    --status-normal-on: #052b1d;
+    --status-normal-tile: #1b2229;
+    --status-normal-tile-on: #6ee7b7;
+    --status-normal-soft: #2a4543;
+    --status-normal-soft-on: #6ee7b7;
+    --status-caution-main: #ffcc00;
+    --status-caution-text: #ffcc00;
+    --status-caution-fill: #ffcc00;
+    --status-caution-on: #2a2100;
+    --status-caution-tile: #1b2229;
+    --status-caution-tile-on: #ffcc00;
+    --status-caution-soft: #444122;
+    --status-caution-soft-on: #ffcc00;
+    --status-error-main: #ff5c5c;
+    --status-error-text: #ff5c5c;
+    --status-error-fill: #ff5c5c;
+    --status-error-on: #2b0606;
+    --status-error-tile: #ff5c5c;
+    --status-error-tile-on: #2b0606;
+    --status-error-soft: #442c32;
+    --status-error-soft-on: #ff8f8f;
+    --status-error-card: #2a1d20;
+    --status-unknown-main: #8a97a3;
+    --status-unknown-text: #c3ccd4;
+    --status-unknown-fill: transparent;
+    --status-unknown-on: #c3ccd4;
+    --status-unknown-tile: #1b2229;
+    --status-unknown-tile-on: #c3ccd4;
+    --status-unknown-soft: #26313a;
+    --status-unknown-soft-on: #c3ccd4;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -34,6 +158,13 @@
 body {
   margin: 0;
   background: var(--color-bg);
+}
+
+/* 数字は、等幅の数字にする（桁がそろい、約 10 秒ごとの更新で値が変わっても、幅が揺れない） */
+table,
+.metrics,
+.page-meta {
+  font-variant-numeric: tabular-nums;
 }
 
 h1 {
@@ -52,7 +183,7 @@ h3 {
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 button,
@@ -80,7 +211,7 @@ select,
 input:not([type='radio']) {
   min-height: 40px;
   padding: 4px 8px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: 6px;
   background: var(--color-surface);
 }
@@ -105,7 +236,129 @@ input:not([type='radio']) {
   padding: 8px 12px;
 }
 
-/* ヘッダー・ナビゲーション */
+/*
+ * 共通のレイアウト: 左のサイドメニュー + 上部のバー + 本文（ui-design-guidelines.md 8 章）。
+ * 狭い幅（900px 以下。use-narrow-viewport.ts と同じ値）では、メニューを、☰ で開閉する引き出しにする。
+ */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-self: flex-start;
+  width: 236px;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--color-nav-bg);
+  color: var(--color-nav-text);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-nav-current-bg);
+}
+
+.app-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+  color: var(--color-primary-text);
+}
+
+.app-nav {
+  padding: 8px 0 16px;
+}
+
+.app-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-item {
+  position: relative;
+}
+
+.app-nav a,
+.nav-group summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  color: var(--color-nav-text);
+  text-decoration: none;
+}
+
+.app-nav a:hover {
+  color: var(--color-primary-text);
+  text-decoration: underline;
+}
+
+.app-nav a[aria-current='page'] {
+  background: var(--color-nav-current-bg);
+  box-shadow: inset 4px 0 0 var(--color-nav-current-bar);
+  color: var(--color-primary-text);
+  font-weight: 700;
+}
+
+/* 未読の件数の印（リンクの外に置く）。状態の色の「異常」の塗りと同じ（強い色を、気づいてほしいものに絞る） */
+.nav-badge {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+  transform: translateY(-50%);
+}
+
+.nav-group summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.nav-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.nav-group summary > span {
+  margin-right: auto;
+}
+
+.nav-group details[open] summary > .icon:last-child {
+  transform: rotate(180deg);
+}
+
+.nav-group ul a {
+  padding-left: 45px;
+  font-size: 0.95rem;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .app-header {
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -115,16 +368,8 @@ input:not([type='radio']) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space);
-  padding: 12px var(--space);
-}
-
-.app-title {
-  font-weight: 700;
-  font-size: 1.15rem;
-  text-decoration: none;
-  color: var(--color-text);
-  margin-right: auto;
+  gap: 8px var(--space);
+  padding: 10px var(--space);
 }
 
 .header-field {
@@ -150,7 +395,7 @@ input:not([type='radio']) {
 .header-unread {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   text-decoration: none;
   color: var(--color-text);
   border: 1px solid var(--color-border);
@@ -159,12 +404,13 @@ input:not([type='radio']) {
 }
 
 .header-data-status {
-  margin: 0;
+  margin: 0 0 0 auto;
   color: var(--color-muted);
+  font-size: 0.9rem;
 }
 
 .data-stale {
-  color: var(--color-caution-fg);
+  color: var(--status-caution-text);
 }
 
 .header-user {
@@ -173,30 +419,41 @@ input:not([type='radio']) {
   gap: 8px;
 }
 
-.app-nav ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  list-style: none;
-  margin: 0;
-  padding: 0 var(--space) 8px;
+.header-user > .icon {
+  color: var(--color-muted);
 }
 
-.app-nav a {
-  display: inline-block;
-  padding: 6px 4px;
-  text-decoration: none;
-}
-
-.app-nav a[aria-current='page'] {
-  font-weight: 700;
-  border-bottom: 3px solid var(--color-primary);
+/* メニューの開閉の操作（狭い幅だけ表示する） */
+.menu-toggle,
+.menu-close,
+.menu-scrim,
+.app-title-compact {
+  display: none;
 }
 
 .app-main {
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding: var(--space);
+}
+
+/* アイコン（自前の SVG。文字の色にそろえる） */
+.icon {
+  flex: none;
+  vertical-align: middle;
+}
+
+/* 観点のアイコン: 観点の名前の隣に置く、中立の 1 色の枠つきのアイコン（状態の色は使わない） */
+.viewpoint-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--color-viewpoint-icon-bg);
+  color: var(--color-viewpoint-icon);
 }
 
 /* 状態の表示 */
@@ -206,28 +463,31 @@ input:not([type='radio']) {
   align-items: center;
   gap: 6px;
   padding: 2px 12px;
+  border: 1.5px solid transparent;
   border-radius: 999px;
   font-weight: 700;
 }
 
 .status-normal {
-  background: var(--color-normal-bg);
-  color: var(--color-normal-fg);
+  background: var(--status-normal-fill);
+  color: var(--status-normal-on);
 }
 
 .status-caution {
-  background: var(--color-caution-bg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-fill);
+  color: var(--status-caution-on);
 }
 
 .status-error {
-  background: var(--color-error-bg);
-  color: var(--color-error-fg);
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
 }
 
+/* 不明: 塗りなし + 破線の枠（色の差に頼らず、塗り方でも区別する） */
 .status-unknown {
-  background: var(--color-unknown-bg);
-  color: var(--color-unknown-fg);
+  background: var(--status-unknown-fill);
+  border: 1.5px dashed var(--status-unknown-main);
+  color: var(--status-unknown-on);
 }
 
 .summary {
@@ -239,19 +499,64 @@ input:not([type='radio']) {
   padding: 0;
 }
 
-.summary li {
-  display: flex;
+/*
+ * サマリーのタイル: アイコン + 大きな数 + 状態名。異常だけを塗りつぶし、強い色を異常に絞る。
+ * 不明は、塗りなし + 破線の枠（色の差に頼らず、塗り方でも区別する）。
+ */
+.summary-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    'icon count'
+    'icon label';
+  column-gap: 12px;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  justify-items: start;
+  padding: 12px 14px;
+  border: 2px solid var(--color-border);
   border-radius: 8px;
 }
 
+.summary-tile .icon {
+  grid-area: icon;
+}
+
 .summary-count {
-  font-size: 1.5rem;
+  grid-area: count;
+  font-size: 2rem;
   font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-label {
+  grid-area: label;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.summary-normal {
+  background: var(--status-normal-tile);
+  border-color: var(--status-normal-main);
+  color: var(--status-normal-tile-on);
+}
+
+.summary-caution {
+  background: var(--status-caution-tile);
+  border-color: var(--status-caution-main);
+  color: var(--status-caution-tile-on);
+}
+
+.summary-error {
+  background: var(--status-error-tile);
+  border-color: var(--status-error-main);
+  color: var(--status-error-tile-on);
+}
+
+.summary-unknown {
+  background: var(--status-unknown-tile);
+  border: 2px dashed var(--status-unknown-main);
+  color: var(--status-unknown-tile-on);
 }
 
 .viewpoint-cards {
@@ -279,19 +584,23 @@ input:not([type='radio']) {
 }
 
 .status-border-normal {
-  border-left-color: var(--color-normal-fg);
+  border-left-color: var(--status-normal-main);
 }
 
 .status-border-caution {
-  border-left-color: #b54708;
+  border-left-color: var(--status-caution-main);
 }
 
 .status-border-error {
-  border-left-color: var(--color-error-fg);
+  border-left-color: var(--status-error-main);
+  background: var(--status-error-card);
 }
 
+/* 不明: 外枠は破線、左の太い帯は実線（帯まで破線にすると、はしごのように見える） */
 .status-border-unknown {
-  border-left-color: var(--color-muted);
+  border-style: dashed;
+  border-left-style: solid;
+  border-color: var(--status-unknown-main);
 }
 
 .metrics {
@@ -354,35 +663,121 @@ input:not([type='radio']) {
 }
 
 .notice-warning {
-  background: var(--color-caution-bg);
-  color: var(--color-caution-fg);
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
 }
 
 .notice-info {
-  background: var(--color-unknown-bg);
-  color: var(--color-unknown-fg);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
 }
 
 .state-view {
   padding: var(--space);
 }
 
+/* 空の状態・404: イラスト（装飾）の下に、何が起きているか・次に何をするかを、中央に置く */
+.state-empty,
+.not-found-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--color-primary-ink);
+}
+
+.state-empty {
+  padding: 32px var(--space);
+}
+
+.not-found-page {
+  padding: 48px var(--space);
+}
+
+.state-empty-body {
+  color: var(--color-text);
+}
+
+.state-empty-body p,
+.not-found-page h1,
+.not-found-page p {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.state-empty-body p + p {
+  margin-top: 8px;
+}
+
 .state-error {
-  background: var(--color-error-bg);
-  color: var(--color-error-fg);
+  background: var(--status-error-card);
+  border-left: 6px solid var(--status-error-main);
+  color: var(--status-error-text);
   border-radius: 8px;
 }
 
+/*
+ * 通知・エラー・成功の表示: 先頭に、種類を表すアイコン（形）を置く。文字が、同じ意味を持つ。
+ * 複数の段落を持つ表示があるため、広い面（通知・エラー）のアイコンは、絶対配置にする。
+ */
+.notice,
+.state-error {
+  position: relative;
+  padding-left: 46px;
+}
+
+.notice > .icon,
+.state-error > .icon {
+  position: absolute;
+  top: 14px;
+  left: 15px;
+}
+
+.form-error,
+.field-error,
+.form-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.form-error > .icon,
+.field-error > .icon,
+.form-success > .icon {
+  margin-top: 0.3em;
+}
+
 /* ログイン */
+/* 画面の中央に、ブランド（イラスト + 名前）とログインの枠を置く */
 .login-page {
-  max-width: 420px;
-  margin: 48px auto;
-  padding: 0 var(--space);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space);
+  min-height: 100vh;
+  padding: 24px var(--space);
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-primary-ink);
+}
+
+.login-brand h1 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.5rem;
 }
 
 .login-form {
   display: grid;
   gap: 12px;
+  width: min(420px, 100%);
   padding: 24px;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -401,15 +796,121 @@ input:not([type='radio']) {
 .form-error,
 .field-error {
   margin: 0;
-  color: var(--color-error-fg);
+  color: var(--status-error-text);
 }
 
 @media (max-width: 720px) {
-  .app-header-row {
-    gap: 8px;
-  }
-
   .viewpoint-cards {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: min(280px, 85vw);
+    height: auto;
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition:
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+  }
+
+  .menu-is-open .app-sidebar {
+    visibility: visible;
+    transform: none;
+    transition: transform 0.2s ease;
+  }
+
+  .menu-toggle,
+  .menu-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    padding: 4px 8px;
+  }
+
+  .menu-toggle {
+    background: var(--color-surface);
+    color: var(--color-primary-ink);
+    border-color: var(--color-border-control);
+  }
+
+  .menu-close {
+    background: transparent;
+    color: var(--color-nav-text);
+    border-color: transparent;
+  }
+
+  .menu-is-open .menu-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--color-scrim);
+  }
+
+  /* 題名は、残りの幅に合わせて縮める（末尾を省略する）。縮められないと、ユーザーの欄が、次の行へ折り返す */
+  .app-title-compact {
+    display: inline;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 上部のバー: 1 行目に ☰・題名・通知・ユーザー。設備の選択と、最終のデータ取得は、次の行へ */
+  .header-unread {
+    order: 2;
+  }
+
+  .header-user {
+    order: 3;
+  }
+
+  .header-field {
+    order: 4;
+    flex: 1 1 100%;
+  }
+
+  .header-field select {
+    flex: 1;
+    max-width: none;
+  }
+
+  .header-data-status {
+    order: 5;
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.85rem;
+  }
+
+  body.menu-open {
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 600px) {
+  .header-user > span,
+  .header-user > .icon {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar {
+    transition: none;
   }
 }

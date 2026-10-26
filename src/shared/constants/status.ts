@@ -23,14 +23,6 @@ export const STATUS_LABELS: Readonly<Record<EvaluationStatus, string>> = {
  */
 export const UNKNOWN_ACTION = 'データの取得・入力を確認してください（取り込みの状況、手動入力）';
 
-/** 色だけに頼らない表示（NFR-7.2）のためのアイコン文字。 */
-export const STATUS_ICONS: Readonly<Record<EvaluationStatus, string>> = {
-  NORMAL: '✔',
-  CAUTION: '▲',
-  ERROR: '✖',
-  UNKNOWN: '?',
-};
-
 /** 悪さの順位。大きいほど悪い。「不明」は比較に使わない（evaluation.md 3章・5章）。 */
 export const STATUS_SEVERITY: Readonly<Record<JudgedStatus, number>> = {
   NORMAL: 1,

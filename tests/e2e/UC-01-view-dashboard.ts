@@ -196,7 +196,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
       status: 'NORMAL',
       temperature: 20,
       expected: '正常',
-      icon: '✔',
+      iconName: 'status-normal',
       border: 'normal',
     },
     {
@@ -204,7 +204,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
       status: 'CAUTION',
       temperature: 27,
       expected: '注意',
-      icon: '▲',
+      iconName: 'status-caution',
       border: 'caution',
     },
     {
@@ -212,7 +212,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
       status: 'ERROR',
       temperature: 40,
       expected: '異常',
-      icon: '✖',
+      iconName: 'status-error',
       border: 'error',
     },
   ] as const;
@@ -231,7 +231,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
       await expect(environment).toHaveClass(new RegExp(`status-border-${item.border}`));
       const badge = environment.locator('.status-badge');
       await expect(badge).toContainText(item.expected);
-      await expect(badge).toContainText(item.icon);
+      await expect(badge.locator(`[data-icon="${item.iconName}"]`)).toBeVisible();
       await expect(badge).toHaveClass(new RegExp(`status-${item.border}`));
       // 環境適応性だけが評価できる。データ活用度合いは、ロボット・手動入力の取得がないため異常（取得の割合が低い）。他の8観点は不明
       const expectedCounts = { NORMAL: 0, CAUTION: 0, ERROR: 1, UNKNOWN: 8 };
@@ -254,7 +254,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
 
     const accuracy = card(page, 'harvestAccuracy');
     await expect(accuracy.locator('.status-badge')).toContainText('不明');
-    await expect(accuracy.locator('.status-badge')).toContainText('?');
+    await expect(accuracy.locator('.status-badge [data-icon="status-unknown"]')).toBeVisible();
     await expect(accuracy.locator('.diagnostic')).toContainText('データ不足のため評価できません');
     await expect(accuracy.locator('.action')).toContainText('データの取得・入力を確認してください');
     expect(await summaryCount(page, 'UNKNOWN')).toBe(10);

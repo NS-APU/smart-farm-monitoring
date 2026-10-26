@@ -15,11 +15,12 @@ import { createEquipment, deleteEquipment, updateEquipment } from '../api/manage
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
-import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
@@ -428,9 +429,9 @@ export function EquipmentPage(): ReactNode {
     body = <LoadingView />;
   } else if (equipmentTree.facilities.length === 0) {
     body = (
-      <p className="state-view" data-testid="equipment-empty">
-        {TEXT.empty}
-      </p>
+      <EmptyState testId="equipment-empty">
+        <p>{TEXT.empty}</p>
+      </EmptyState>
     );
   } else {
     body = (
@@ -460,6 +461,7 @@ export function EquipmentPage(): ReactNode {
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
       {notice === undefined ? null : (
         <p role="status" className="form-success" data-testid="equipment-notice">
+          <Icon name="status-normal" size={16} />
           {notice}
         </p>
       )}

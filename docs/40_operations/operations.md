@@ -13,7 +13,7 @@
 | `AUTH_PROVIDER` | `cognito`（Amazon Cognito。ADR-0008）。`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` に、`SfmData` のスタックの出力を指定する。`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない。ローカル・テストは、既定の `local` | 本番の Lambda は、パスワードを Cognito に預ける（アプリ内の認証は、セッションをメモリに持つため、Lambda では使えない） |
 | `FILE_SERVER_S3_BUCKET` | 評価環境の Lambda は、IaC が、ファイルサーバーのモックのバケットを指定する（Issue #77）。取り込み元ごとに `<バケット>/<取り込み元の識別子>/` にファイルを置く。**置くのは、合成データだけ**（実データ・個人情報は置かない） | Lambda には、ローカルのディレクトリがない。未指定の `FILE_SERVER_DIR` は、ローカル用 |
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
-| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールの分け方は発注者の判断待ち（Q-017） |
+| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（決定。ADR-0013。実装は #115） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
@@ -57,7 +57,7 @@
 | バックアップ | 日次 | [backup-restore.md](./backup-restore.md) |
 | 復元の試験 | 月次 | 同上 |
 | ログ・通知の確認 | 随時 | 上記 3・4 |
-| 依存パッケージの更新・脆弱性の確認 | 月次 | `pnpm audit`（TODO: 自動化。CI の整備後） |
+| 依存パッケージの更新・脆弱性の確認 | 随時 | Dependabot alerts（自動の検知・通知）。`pnpm audit` は、補助（決定。[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md)） |
 
 ## 6. 配信（画面）の前提（評価環境の IaC の実装状況）
 
@@ -71,7 +71,7 @@
 
 ## 7. 評価環境（AWS）のデプロイ・ロールバック・初期化・障害時の確認
 
-現在の評価環境は、**開発サイト**（8 章）。本番サイトは、実証実験の前に用意する（未作成）。
+現在の評価環境は、**開発サイト**（8 章）。本番サイトは、実証実験の前に用意した（9 章。2026-10-22 に作成）。
 
 顧客評価環境（サーバーレス構成。ADR-0006）の最小の運用手順（Issue #80）。環境の作り方（初回の設定・bootstrap・OIDC のロール）は [commands.md](../00_project/commands.md) の「評価環境（IaC）」。
 
@@ -124,7 +124,7 @@
 - `SfmData` の出力（`UserPoolId`・`UserPoolClientId`・`ObservationsTableName`・`MainTableName`）を、環境変数に入れ、`pnpm initial-user` を実行する
 - ユーザーが 1 人でもいれば、何もしない（既存のユーザーを上書きしない）
 - 実行したら、`INITIAL_USER_*`（特にパスワード）を、すべて消す。初回のログイン後に、パスワードを変更する
-- 2 人目以降は、画面の「ユーザー管理」で作る
+- 2 人目以降は、画面の「ユーザー管理」で作る。**管理者は、2 名以上にする**（管理者が 1 人だけで、パスワードを忘れると、アプリからは復旧できず、AWS の管理者の操作が要る。決定。[ADR-0020](../10_design/adr/0020-authentication-rules.md)）。忘れたときは、管理者が再設定する
 
 ### 7.5 データの初期化
 
@@ -173,7 +173,7 @@
 | 長時間アクセスがないあと、最初のログイン・画面の表示が遅い（約 3 秒） | Lambda のコールドスタート（既知の制約。2 回目以降は約 1.4 秒。Issue #79）。毎回遅い場合は、Logs Insights（7.7）で、Init Duration と実行時間を確認する |
 | デプロイの直後から、おかしい | 7.3 のロールバック |
 
-- 障害時の連絡先・エスカレーション（運用体制）: TODO（NFR-6.8。体制が決まったら）
+- 障害時の連絡先・エスカレーション（運用体制）: 利用者 → システムの管理者（受注者）→ 運用・保守の担当（受注者）。**連絡先は、リポジトリの外で管理する**（公開のため。決定。[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md)）
 
 ### 7.7 性能の確認（Lambda の起動時間・実行時間。Issue #79）
 
@@ -200,7 +200,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ## 8. 開発サイトと本番サイト（評価環境の運用方針）
 
-決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割・設備の割り当ては、まだ実装されていない**（Issue #115・#116）。本番サイトは、IaC・ワークフロー・手順を用意した（Issue #117。9 章）。AWS への作成は、リリース（#84）の後。
+決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割・設備の割り当ては、まだ実装されていない**（Issue #115・#116）。本番サイトは、AWS に作成した（Issue #117。9 章。2026-10-22）。
 
 ### 8.1 サイト
 
@@ -208,8 +208,8 @@ filter @type = "REPORT" and ispresent(@initDuration)
 |---|-----------|------------|
 | 目的 | 開発の間の、出来栄えの評価 | 現場での実証実験 |
 | デプロイ元のブランチ | `develop`（基本）。動作確認で、ほかのブランチを使うことがある（8.3） | `main` |
-| データ | **基本は合成データ**。実際のロボット・センサーとの結合確認では、実データを取り込むことがある（個人情報は不可。条件は、結合確認の前に決める。TODO。接続のアダプタは Issue #119） | **実データ可（個人情報は不可）**。扱う条件は、実証実験の前に決める（TODO。Issue #117） |
-| 状態 | 現在の評価環境（`SfmData`・`SfmEvaluation`。7 章） | **IaC・ワークフロー・手順を用意した**（9 章。Issue #117）。AWS には、**未作成**（リリース（#84）の後、`main` から作る） |
+| データ | **基本は合成データ**。実際のロボット・センサーとの結合確認では、実データを取り込むことがある（個人情報は不可。条件は、ADR-0013・[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) に記録した。接続のアダプタは Issue #119） | **実データ可（個人情報は不可）**。扱う条件は、確定済み（ADR-0013 6 章。Issue #117） |
+| 状態 | 現在の評価環境（`SfmData`・`SfmEvaluation`。7 章） | **AWS に作成した**（9 章。Issue #117。2026-10-22。`main` から、承認つき） |
 
 - 2 つのサイトは、データ・ユーザー・URL を共有しない（別のスタック・別のテーブル・別のユーザープール・別の S3）
 - **評価する人・アクセス元**: 登録されたユーザー（10 人程度）。インターネットから。**接続元 IP による制限は、設けない**（WAF も設けない）
@@ -221,8 +221,8 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ### 8.3 更新の方針
 
-- **開発サイト**: `develop` の更新で、**自動デプロイ**する（方針。トリガの実装は Issue #89。**実装前の現在は、手動実行**。Actions の「Deploy development」。7.2）。手動実行も残す。**PR の前の動作確認のために、`develop` 以外のブランチも、デプロイできる**（Issue #131）: Environment `development` が許可するブランチは、`develop`・`feature/*`・`release/*`・`hotfix/*`。Actions の「Use workflow from」で、確認したいブランチを選ぶ（`gh workflow run deploy-development.yml --ref <ブランチ>` でも可）。**開発サイトは 1 つ**で、デプロイしたブランチの内容に置き換わる（IaC・DynamoDB・Cognito の変更も、そのまま入る）。確認のあとは、`develop` をデプロイして、戻す。選んだブランチに、`deploy-development.yml` が要る（`develop` を取り込む）。**確認の間に `develop` が更新されると、自動デプロイで上書きされる**（上書きを避ける手段は、Issue #89 で決める）
-- **本番サイト**: `main` の更新で、自動デプロイする（方針。Issue #89・#117）。デプロイできるブランチは `main` だけで、**承認者による承認を必須にする**（承認者は T-Ishikawa-R のみ・自己承認を許可。`main` の更新でデプロイが始まり、承認を待つ。自動のトリガは Issue #89。それまでは、手動実行（「Deploy production」）。9 章）
+- **開発サイト**: `develop` の更新で、**自動デプロイ**する（Issue #89。`develop` への push で、Actions の「Deploy development」が始まる。7.2）。手動実行も残す。**PR の前の動作確認のために、`develop` 以外のブランチも、デプロイできる**（Issue #131）: Environment `development` が許可するブランチは、`develop`・`feature/*`・`release/*`・`hotfix/*`。Actions の「Use workflow from」で、確認したいブランチを選ぶ（`gh workflow run deploy-development.yml --ref <ブランチ>` でも可）。**開発サイトは 1 つ**で、デプロイしたブランチの内容に置き換わる（IaC・DynamoDB・Cognito の変更も、そのまま入る）。確認のあとは、`develop` をデプロイして、戻す。**別のブランチを確認している間は、`develop` にマージしない**（マージすると、自動デプロイで、確認中の内容が `develop` の内容に置き換わる。再デプロイで戻せる。仕組みでは防がない。ユーザーの判断。Issue #89）。選んだブランチに、`deploy-development.yml` が要る（`develop` を取り込む）。**確認の間に `develop` が更新されると、自動デプロイで上書きされる**（上書きを避ける手段は、Issue #89 で決める）
+- **本番サイト**: `main` の更新で、自動デプロイする（Issue #89・#117）。デプロイできるブランチは `main` だけで、**承認者による承認を必須にする**（承認者は T-Ishikawa-R のみ・自己承認を許可。`main` への push で、「Deploy production」が始まり、承認を待つ。手動実行も使える。9 章）
 - 評価する人への告知は、しない
 
 ### 8.4 評価の進め方
@@ -233,7 +233,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ## 9. 本番サイトの運用手順（Issue #117。ADR-0013）
 
-本番サイトは、現場での実証実験に使う環境（実データ可。個人情報は不可）。開発サイト（7 章・8 章）とは、**データ・ユーザー・URL を共有しない**。**現在は、AWS に作成していない**（IaC・ワークフロー・手順を用意した段階。AWS への作成は、Sprint 2 のリリース（#84）の後に、`main` から行う）。AWS に接続する操作は、**ユーザーが実行する**（AGENTS.md 12 章）。
+本番サイトは、現場での実証実験に使う環境（実データ可。個人情報は不可）。開発サイト（7 章・8 章）とは、**データ・ユーザー・URL を共有しない**。**2026-10-22 に、AWS に作成した**（`main` から、承認つき。9.2・9.9）。AWS に接続する操作は、**ユーザーが実行する**（AGENTS.md 12 章）。
 
 ### 9.1 構成と、開発サイトとの違い
 
@@ -278,7 +278,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 2. 「Deploy production」→ Run workflow（Branch: `main`）→ 承認者が承認する。実行中のデプロイは、止めない（CloudFormation の更新が、途中で止まるため）
 3. 確認は、7.2 の 4 と同じ（本番の `SiteUrl`）
 
-自動のトリガ（`main` の更新で、デプロイの実行が始まる）は、Issue #89 で追加する。**承認は、そのまま必須**。
+`main` への push（リリース・hotfix のマージ）でも、「Deploy production」が始まり、承認を待つ（Issue #89）。**承認は、必須**。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していることを確認する。承認待ちは、30 日で期限切れになる（承認しなければ、デプロイされない。手動実行で、やり直せる）。
 
 ### 9.4 ロールバック
 
@@ -320,18 +320,22 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 2. データのスタックを削除する: スタックの削除の保護・テーブルの削除の保護を外し、`pnpm --filter @smart-farm/infra run destroy:data`（`SfmProductionData`）。手順の詳細は、commands.md「削除と再作成」の「データ（DynamoDB のテーブル）の削除」と同じ（スタック名を読み替える）。Cognito のユーザーも消える
 3. 終わったら、`Remove-Item Env:SFM_ENVIRONMENT` で、環境変数を消す
 
+**実行の前に**: `$env:SFM_ENVIRONMENT = 'production'` を設定し、`echo $env:SFM_ENVIRONMENT` で確かめ、`pnpm --filter @smart-farm/infra run diff` の `Stack` の行が、**本番の 2 スタック（`SfmProductionData`・`SfmProductionEvaluation`）だけ**であることを確認する（`SfmData`・`SfmEvaluation` が出たら、中止する。開発サイトを消してしまう）。データのスタックの削除のあとは、テーブル（RETAIN）と Cognito のユーザープールを、別に削除する（commands.md「削除と再作成」）。**2026-10-22 に、この手順で確認済み**（9.9）
+
 **`pnpm demo-data reset` は、本番サイトでは使えない**（安全装置）。一部のデータだけを消すときは、画面の削除（手動入力・設備など）を使う。
 
-### 9.8 実データの扱いの条件（案）
+### 9.8 実データの扱いの条件（確定。2026-10-22）
 
-ADR-0013 の 6 の表（**案**）のとおり。**実証実験で、実データを入れる前に、ユーザーが確定し、ADR-0013 の「案」を外す**。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
+ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（取り込み元の実ファイルサーバーのアダプタ #119 も要る）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
 
 ### 9.9 AWS での確認状況
 
 | 手順 | 状況 |
 |------|------|
-| 9.2 初回の作成・9.3 デプロイ | **未実施**（リリース（#84）の後に、ユーザーが実行する）。IaC のテスト（CDK の assertions。スタックの名前・デモの Lambda がないこと・ロールの信頼条件）と、開発サイトのスタックが、タグの値以外は変わらないことの確認（合成結果の比較）は、済み |
+| 9.2 初回の作成・9.3 デプロイ | **確認済み**（2026-10-22。ユーザーが実行）。差分（9.2 の 3）は、本番の 2 つのスタック（`SfmProductionData`・`SfmProductionEvaluation`）だけ。「Deploy production」が承認待ちになり、承認でデプロイが進み、成功した。`<SiteUrl>/health` が `{"status":"ok",…}` を返し、ログインとダッシュボードの表示ができた（設備が未登録のため「設備が登録されていません」と出る。デモデータは入れない）。**取り込み（JB-01）**: 作成の直後（1 時間たたない間）のジョブのログで、「ジョブを終了しました」（`outcome: EXECUTED`・`jobId`・`durationMs`）が 32 件あり、`level error`・`AccessDeniedException` は 0 件。画面（取り込みログ）に失敗の行がなく、通知一覧に「データ取得失敗」の通知がない（取り込み元がないため、何も取り込まずに終わるのが正しい動き）。**合成データの Lambda がない**: スタックの出力に `DemoFeedFunctionName` がなく、リソースに「Demo」を含むものがなく（`[]`）、EventBridge のルールはジョブの 4 本だけ、ファイルサーバーのモックの S3 は空。IaC のテスト（CDK の assertions。スタックの名前・デモの Lambda がないこと・ロールの信頼条件）と、開発サイトのスタックが、タグの値以外は変わらないことの確認（合成結果の比較）は、済み |
 | 開発サイトの Environment の改名（`evaluation` → `development`）・OIDC のスタックの更新（開発のロールの信頼条件の更新・本番のロールの作成）（9.2 の前提） | **確認済み**（2026-10-22）。差分は、想定どおり（開発のロールの `sub`・`Description`・タグの変更、本番のロールと出力の追加。置き換えなし）。開発サイトの全リソースのタグの値（`Environment`）だけが変わる差分で、**「Deploy development」が成功し、`/health` とログインを確認した**。古い Environment `evaluation` を削除した |
 | GitHub の Environment `development`・`production` の設定 | **確認済み**（2026-10-22。`gh api` で確認）。`development`: デプロイできるブランチ `develop`・`feature/*`・`release/*`・`hotfix/*`・シークレット `AWS_DEPLOY_ROLE_ARN`。`production`: ブランチ `main` のみ・承認者 T-Ishikawa-R・シークレット `AWS_DEPLOY_ROLE_ARN`（本番のロール）。本番のデプロイは、未実施 |
-| 9.5 最初のユーザー | 未実施 |
-| 9.4 ロールバック・9.6 バックアップ・9.7 データの削除 | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
+| 9.5 最初のユーザー | **確認済み**（2026-10-22。ユーザーが実行）。最初のユーザーを作成し、ログインできた |
+| 9.7 データの削除と、再作成 | **確認済み**（2026-10-22。ユーザーが実行。データが空の状態）。評価環境のスタック（`SfmProductionEvaluation`）の削除 → 保護の解除 → データのスタック（`SfmProductionData`）の削除 → DynamoDB のテーブル 2 つの削除 → Cognito のユーザープールの削除（コンソール）が成功した。削除の確認（スタックがない・本番のテーブルがない）と、**開発サイトが無事なこと**（スタックの状態・`/health`）も確認した。続けて「Deploy production」で再作成し、`/health`・最初のユーザーの作成・ログイン・ダッシュボードの表示・ジョブのログにエラーがないことを確認した（IaC で同じ環境を再作成できる。`SiteUrl` は新しくなる）。**削除のコマンドは、`SFM_ENVIRONMENT=production` を指定しないと、開発サイトを消す**。実行の前に、`diff` の `Stack` の行が、本番の 2 スタックだけであることを確認する（`pnpm --filter @smart-farm/infra run diff`） |
+| `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
+| 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
