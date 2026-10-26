@@ -51,6 +51,7 @@
 | | [0017-evaluation-rules.md](../10_design/adr/0017-evaluation-rules.md) | ADR-0017 評価・観点・メトリクスの規則を、恒久の仕様にする（#144 の決定。承認） |
 | | [0018-manual-input-and-data-rules.md](../10_design/adr/0018-manual-input-and-data-rules.md) | ADR-0018 手動入力・データの扱いの規則を、恒久の仕様にする（#145 の決定。承認） |
 | | [0019-notification-rules.md](../10_design/adr/0019-notification-rules.md) | ADR-0019 通知の規則を、恒久の仕様にする（#146 の決定。承認） |
+| | [0020-authentication-rules.md](../10_design/adr/0020-authentication-rules.md) | ADR-0020 認証の規則（ログインの制限・パスワード）を、恒久の仕様にする（#147 の決定。承認） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |

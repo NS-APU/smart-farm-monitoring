@@ -695,6 +695,7 @@ flowchart TB
 | [0017](../adr/0017-evaluation-rules.md) | 評価・観点・メトリクスの規則を、恒久の仕様にする（#144 の決定） | 承認 | 各 ADR の「関連」を参照 |
 | [0018](../adr/0018-manual-input-and-data-rules.md) | 手動入力・データの扱いの規則を、恒久の仕様にする（#145 の決定） | 承認 | 各 ADR の「関連」を参照 |
 | [0019](../adr/0019-notification-rules.md) | 通知の規則を、恒久の仕様にする（#146 の決定） | 承認 | 各 ADR の「関連」を参照 |
+| [0020](../adr/0020-authentication-rules.md) | 認証の規則（ログインの制限・パスワード）を、恒久の仕様にする（#147 の決定） | 承認 | 各 ADR の「関連」を参照 |
 
 承認済みのADRは書き換えず、変更する場合は新しいADRを追加する（[documentation-guidelines.md](../../00_project/documentation-guidelines.md)）。
 
