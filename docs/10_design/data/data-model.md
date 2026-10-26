@@ -50,8 +50,9 @@ erDiagram
 | 評価結果 EvaluationResult | 観点・対象・視点ごとの評価 | 観点、設備、視点（短期／長期）、期間、ステータス、メトリクス値、診断メッセージ、推奨アクション、判断基準の版、評価日時 | FR-5、FR-6 |
 | 通知 Notification | 通知の内容 | 種別、対象、観点、ステータス、メッセージ、発生日時、重複抑制のキー | FR-7 |
 | 配信 Delivery | 通知の配信の結果 | 通知、手段、結果、試行回数、日時 | FR-7.7 |
-| 既読 NotificationRead | 通知の既読状態 | 通知、状態（未読／既読）、日時。TODO: 単位（利用者ごとか共通か。Q-018、Q-011） | FR-7.6 |
-| Web Push 購読 PushSubscription | 通知を受ける端末の購読 | 利用者、購読情報、有効／解除。TODO: 単位（要件側 TODO） | FR-7.2 |
+| 既読 NotificationRead | 通知の既読状態 | 通知、状態（未読／既読）、日時。単位は、利用者ごと（決定。[ADR-0019](../adr/0019-notification-rules.md)） | FR-7.6 |
+| Web Push 購読 PushSubscription | 通知を受ける端末の購読 | 利用者、購読情報、有効／解除。単位は、利用者 × 端末（決定。[ADR-0019](../adr/0019-notification-rules.md)） | FR-7.2 |
+| 通知のメモ NotificationMemo | 通知ごとの、利用者のメモ（自由記述） | 通知、入力者、日時、本文。共有・追記のみ。通知と同じ保持（決定。[ADR-0019](../adr/0019-notification-rules.md)。実装は #239） | FR-7.6 |
 | 連携項目 FederationItem | 農業情報基盤へ送るデータの状態（連携キュー） | 対象（観測値／評価結果の参照）、状態（待機／送信済／失敗／保留）、試行回数、結果、日時 | FR-8 |
 | ユーザー User | 利用者（必須。FR-9。ロールは、管理者・一般の 2 種類。ADR-0013） | ユーザーID（一意）、名前、ロール、最終ログイン。認証情報は Cognito に持つ（パスワードをアプリで保持しない。[ADR-0008](../adr/0008-cognito-authentication.md)。DynamoDB の `USER` は、名前・ロール・最終ログインのみ）。代替構成ではアプリ内 | FR-9 |
 | 変更履歴・操作履歴 ChangeHistory / AuditLog | 入力・設定の変更の追跡 | 操作種別、対象、変更者、変更前後、日時 | FR-4.2.3、NFR-5.7 |
