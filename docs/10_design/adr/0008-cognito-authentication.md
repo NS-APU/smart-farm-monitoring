@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-16。ユーザーの判断。Issue #74）
 - 日付: 2026-10-16
+- 更新（2026-10-27。#147）: 接続元ごとのログインの制限は、5 回 / 15 分を恒久化し、設定値（環境変数）にする。アカウント単位のロックは、Cognito に任せる。管理者が決めたパスワードは、一時のもので、本人が最初のログインで変更する。詳細は、[ADR-0020](./0020-authentication-rules.md)。
 - 関連: [ADR-0001](./0001-modular-monolith-ports-and-adapters.md)、[ADR-0002](./0002-deployment-serverless.md)、[ADR-0005](./0005-tech-stack.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[architecture.md](../architecture/architecture.md) 9 章、[security.md](../../20_development/security.md)、Issue #74・#75
 
 ## 背景
