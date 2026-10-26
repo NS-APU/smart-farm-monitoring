@@ -354,7 +354,7 @@ flowchart LR
 | 応答（test） | 200。`ok`（真偽値）、`message`（失敗の原因。内部情報・認証情報を含めない） |
 | 応答（run） | 202（非同期に実行）。実行中の場合は 409（二重実行の防止）。結果は、取り込みログで確認する |
 
-その他のAPIは、4.1 の概要と、data-dictionary.md の項目定義に従う（入出力の詳細は、実装時に API 定義ファイルとして補う。TODO: 形式は NFR-6.2）。
+その他のAPIは、4.1 の概要と、data-dictionary.md の項目定義に従う。**入出力の詳細は、共有のスキーマ（`src/shared/schemas/`。Zod）が正**で、OpenAPI 等の API 定義ファイルは使わない（決定。[ADR-0021](../adr/0021-nonfunctional-ops-doc-rules.md)）。
 
 ## 5. 非同期・定期処理の仕様
 

@@ -4,7 +4,7 @@
 
 > **記載のルール**
 > - 各要件の「根拠」に、元になった要求ID（rfp.md の RQ-xxx）と、関連するユースケース（UC-xx）を示す
-> - 根拠が「提案」の要件は、発注者の要求にはなく、構想時のプロトタイピング要件（`work/functional.requirements.md`）や受注者の判断で加えたもの。発注者への確認が必要（確認していない間は暫定）
+> - 根拠が「提案」の要件は、発注者の要求にはなく、構想時のプロトタイピング要件（`work/functional.requirements.md`）や受注者の判断で加えたもの。受注者の提案として採用した（決定。[ADR-0021](../adr/0021-nonfunctional-ops-doc-rules.md)）。発注者には、採用した機能の一覧を報告する（#248）
 > - 評価観点のメトリクス・判断基準は、重複を避けるため [viewpoint/](../viewpoint/) に書き、ここでは書かない
 > - データ項目の詳細は [data-dictionary.md](../data/data-dictionary.md) で定義する
 > - 未確定の事項は `TODO:` と明記し、確認事項の番号（rfp.md の Q-xxx）を添える
