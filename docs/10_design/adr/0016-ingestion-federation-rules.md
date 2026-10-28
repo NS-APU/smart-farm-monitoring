@@ -3,6 +3,7 @@
 - ステータス: 承認（2026-10-24。ユーザーの判断。Issue #143）
 - 日付: 2026-10-24
 - 更新（2026-10-26。#145）: 合計の項目（収穫数・稼働時間など）の値は、**累積**（時間とともに増える）と想定する（暫定。D-08 の「最新の値だけ」とも整合）。期間の値は、期間内の増分の合計。手動入力との重なりの扱いは、[ADR-0018](./0018-manual-input-and-data-rules.md)。
+- 更新（2026-10-28。#232）: D-11 の既定（ロボット 1 分・環境センサー 5 分）の、評価の読み取りの費用を、再試算した。**最大で月約 3,900 円（評価の読み取りと Lambda。現実的な見込み 約 1,600 円）で、既定は変えない**（ユーザーの判断）。詳細と、見直しの条件は、[ADR-0007](./0007-dynamodb-table-design.md) の「再計算」。評価が失敗する不具合（#266）も見つけた
 - 関連: [ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)、[ADR-0004](./0004-federation-outbox-standalone.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0013](./0013-environments-and-access-control.md)、[ADR-0015](./0015-provisional-policy-external-specs.md)、[architecture.md](../architecture/architecture.md) 5.1〜5.3・6 章、FR-1.4〜FR-1.6・FR-4.1・FR-6.3・FR-6.7・FR-8.3、UC-08・UC-11・UC-15・UC-16
 
 目的: 取り込み・連携の、暫定だった規則（再試行・重複判定・データの品質・取得間隔・「データが古い」の基準・認証情報の登録・停止中の連携データ）を、決めて、恒久の仕様にする。決めた経緯（背景・見直しの条件）は、各決定のコメント（#143）にもある。
