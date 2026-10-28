@@ -28,6 +28,24 @@ describe('parseLimitFactor', () => {
   );
 });
 
+describe('LIMITS（NFR-3.4 初期表示）', () => {
+  it('通常は 3 秒、コールドスタートは、その 2 倍の 6 秒である（NFR-3.4。ADR-0021 の更新メモ・Issue #168）', () => {
+    expect(LIMITS.dashboardInitial.seconds).toBe(3);
+    expect(LIMITS.dashboardColdStart.seconds).toBe(6);
+    expect(LIMITS.dashboardColdStart.seconds).toBe(LIMITS.dashboardInitial.seconds * 2);
+  });
+
+  it('コールドスタートの根拠の文言に、NFR-3.4 とコールドスタートを示す', () => {
+    expect(LIMITS.dashboardColdStart.basis).toContain('NFR-3.4');
+    expect(LIMITS.dashboardColdStart.basis).toContain('コールドスタート');
+  });
+
+  it('係数をかけても、コールドスタートは、通常の 2 倍のままである', () => {
+    expect(effectiveLimit('dashboardColdStart', 1.5).seconds).toBe(9);
+    expect(effectiveLimit('dashboardInitial', 1.5).seconds).toBe(4.5);
+  });
+});
+
 describe('effectiveLimit', () => {
   it('係数 1 のときは、NFR の値（LIMITS）のままである', () => {
     for (const key of Object.keys(LIMITS) as (keyof typeof LIMITS)[]) {

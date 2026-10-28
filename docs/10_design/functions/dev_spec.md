@@ -493,7 +493,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | 設定・実行 | `playwright.smoke.config.ts`（`testDir: tests/smoke`、`testMatch: smoke-NN-*.ts`、サーバーは起動しない、動画・トレースなし）。**手動で実行する**（CI に載せない）。接続先・ユーザーは、環境変数 `SMOKE_BASE_URL`・`SMOKE_USER_ID`・`SMOKE_PASSWORD`（`tests/smoke/support/smoke-env.ts`。`https://` のみ（ローカルの確認は http の localhost も可）。値は、記録に残さない） |
 | `smoke-01-flow.ts` | ログイン → ダッシュボード → 手動入力（`SENSOR-01` に、正常の値を 1 件保存）→ 通知の一覧 → 入力の削除 → ログアウト。各操作の時間も記録する |
 | `smoke-02-performance.ts` | NFR-3.4 初期表示（新しいブラウザの状態から、ログイン → ダッシュボード。5 回）／NFR-3.3 自動更新（3 回）／NFR-3.5 推移（観点の詳細で、直近 30 日。3 回。**1 か月分のデータが前提**。`pnpm demo-data seed --days 30`）／定期の取り込み（JB-01）の実行時間（取り込みログ API の開始〜終了。Lambda のタイムアウトに対する余裕） |
-| `smoke-03-cold-start.ts` | `SMOKE_COLD_START=1` のときだけ動く。60 分以上アクセスがない状態で、ログイン → ダッシュボードの時間（1 回目＝コールドスタートの可能性、2 回目＝ウォーム）を、NFR-3.4 と比べる |
+| `smoke-03-cold-start.ts` | `SMOKE_COLD_START=1` のときだけ動く。60 分以上アクセスがない状態で、ログイン → ダッシュボードの時間（1 回目＝コールドスタートの可能性、2 回目＝ウォーム）を、NFR-3.4（1 回目は 6 秒、2 回目は 3 秒）と比べる |
 | 計測・判定 | 負荷テストと同じ部品（`tests/stress/support/recorder.ts` の `measure`・`measureRefresh`）と許容時間（`limits.ts`）を使う。記録の出力先だけ、環境変数 `MEASURE_OUTPUT_DIR`（`playwright.smoke.config.ts` が設定）で `test-result/smoke/` に分ける。時間は、端末のブラウザから見た時間（通信を含む） |
 | 結果 | `test-result/smoketest.result.log`（`tests/smoke/support/smoke-report.ts`。実行日時・端末の環境・許容時間・操作ごとの結果・集計・取り込みの実行時間・判定。環境の URL・ユーザーは載せない） |
 | ほかのジョブ・Lambda の起動 | JB-02〜04 の実行時間と、Lambda の起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7） |
