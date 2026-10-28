@@ -360,3 +360,51 @@ describe('観測値の集計: データ活用度合いの入力', () => {
     expect(measures.values).not.toHaveProperty('totalDataCount');
   });
 });
+
+describe('観測値の集計: 大量のステータスコード（Issue #266）', () => {
+  // ロボットが 1 分間隔で、24 時間連続のデータが 90 日分（129,600 件）。引数の展開の上限（Node で約 12.4 万件）を超える
+  const MINUTE_MS = 60_000;
+  const COUNT = 90 * 24 * 60;
+  const FROM = new Date(NOW.getTime() - 90 * DAY_MS);
+
+  function statusPoints(codeAt: (index: number) => string) {
+    return Array.from({ length: COUNT }, (_, index) =>
+      observation({
+        itemKey: 'statusCode',
+        value: codeAt(index),
+        observedAt: new Date(FROM.getTime() + index * MINUTE_MS).toISOString(),
+      }),
+    );
+  }
+
+  it('ステータスコードの点が 12 万件を超えても、長期評価が失敗せず、最も悪いカテゴリになる', () => {
+    const observations = statusPoints((index) => (index === 1000 ? 'FALLEN' : 'RUNNING'));
+
+    const measures = aggregateMeasures(input({ observations, from: FROM }));
+
+    expect(observations.length).toBeGreaterThan(124_000);
+    expect(measures.status).toEqual({
+      code: 'FALLEN',
+      name: '転倒（姿勢異常）',
+      category: 'ERROR',
+    });
+  });
+
+  it('最も悪いカテゴリの点が複数あるときは、その中で最新の点を選ぶ（少ない件数のときと同じ）', () => {
+    // 停止中（注意）→ バッテリー不足（注意）。どちらも、最も悪いカテゴリ。最新は、バッテリー不足
+    const observations = statusPoints((index) => {
+      if (index === 1000) {
+        return 'STOPPED';
+      }
+      return index === 5000 ? 'LOW_BATTERY' : 'RUNNING';
+    });
+
+    const measures = aggregateMeasures(input({ observations, from: FROM }));
+
+    expect(measures.status).toEqual({
+      code: 'LOW_BATTERY',
+      name: 'バッテリー不足',
+      category: 'CAUTION',
+    });
+  });
+});
