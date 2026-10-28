@@ -149,9 +149,12 @@ function resolveStatus(
   }
   let candidates = resolved;
   if (horizon === 'LONG') {
-    const worstSeverity = Math.max(
-      ...resolved.map(({ detail }) => STATUS_SEVERITY[detail.category]),
-    );
+    // 引数の展開（Math.max(...配列)）は、点が約 12 万件を超えると、呼び出しのスタックが足りず失敗する
+    // （ロボットが 1 分間隔の 90 日分。Issue #266）。件数に依存しないよう、ループで求める
+    let worstSeverity = Number.NEGATIVE_INFINITY;
+    for (const { detail } of resolved) {
+      worstSeverity = Math.max(worstSeverity, STATUS_SEVERITY[detail.category]);
+    }
     candidates = resolved.filter(
       ({ detail }) => STATUS_SEVERITY[detail.category] === worstSeverity,
     );
