@@ -1600,7 +1600,7 @@ sequenceDiagram
   end
 ```
 
-- 項目が積まれるのは、取り込み（`IngestionService`）・手動入力の登録・修正・削除（`ManualEntryService`）・観点ステータスの変化（`EvaluationService`）の保存時（`FederationService.enqueue`。`PENDING`・`attempts` 0・`nextAttemptAt` は積んだ時刻）
+- 項目が積まれるのは、取り込み（`IngestionService`）・手動入力の登録・修正・削除（`ManualEntryService`）・観点ステータスの変化（`EvaluationService`）の保存時（`FederationService.enqueue`。`PENDING`・`attempts` 0・`nextAttemptAt` は積んだ時刻）。観測値の配列（`payload.observations`）が 1,000 件を超えるときは、1,000 件ごとの複数の項目に分けて積む（参照は `{元の参照}#part-{番号}-of-{総数}`、内容に `part: { index, total }`。`splitObservationPayload`。DynamoDB の 1 項目の上限（約 400 KB）に収めるため。#205）
 - 農業情報基盤が停止中（`HELD`）でも、他の処理は止まらない。復旧後は、最初に送信に成功したとき、溜まった保留・失敗の項目の次の試行が今に戻り（1 回の成功につき最大でバッチの件数）、次の実行（5 分以内）で送られる（再送の間隔の計算は、「特徴的アルゴリズム説明」の連携の再送）
 - 画面（SC-11）は、`GET /federation/logs` で、結果の記録（新しい順）と、連携キューの状態ごとの件数（`PENDING`・`SENT`・`FAILED`・`HELD`・`EXPIRED`）を表示する
 

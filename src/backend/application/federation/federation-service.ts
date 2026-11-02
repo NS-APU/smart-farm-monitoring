@@ -6,12 +6,14 @@
  * 次の試行を、すぐ（今）に戻して、積んだ順に送る（1 回の成功につき、最大でバッチの件数。ADR-0016 の D-06。dev_spec.md 4章）。
  * 積んでから破棄の期限（設定値。既定 30 日）を過ぎても送れていない項目は、送らずに破棄し（状態「期限切れ」）、
  * 連携のログに記録して、通知する（ADR-0016 の D-06）。期限は、次の試行の日時が来た項目を取り出したときに確かめる。
+ * 観測値が多いファイルは、1 項目の大きさの上限（約 400 KB）に収まるよう、複数の項目に分けて積む（#205）。
  */
 
 import type { FederationItem } from '@smart-farm/shared/schemas/ingestion';
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { errorLogFields } from '../error-fields.ts';
+import { splitObservationPayload } from '../../domain/federation-payload.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { FederationUnavailableError, type FederationPort } from '../ports/federation-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
@@ -116,17 +118,20 @@ export function createFederationService(deps: FederationServiceDeps): Federation
   return {
     async enqueue(input) {
       const now = clock.now().toISOString();
-      await federation.enqueue({
-        federationItemId: ids.next(),
-        targetType: input.targetType,
-        targetRef: input.targetRef,
-        payload: input.payload,
-        status: 'PENDING',
-        attempts: 0,
-        enqueuedAt: now,
-        updatedAt: now,
-        nextAttemptAt: now,
-      });
+      // 観測値が多いファイルは、1 項目の大きさの上限（約 400 KB）を超えないよう、複数の項目に分ける（#205）
+      for (const part of splitObservationPayload(input.targetRef, input.payload)) {
+        await federation.enqueue({
+          federationItemId: ids.next(),
+          targetType: input.targetType,
+          targetRef: part.targetRef,
+          payload: part.payload,
+          status: 'PENDING',
+          attempts: 0,
+          enqueuedAt: now,
+          updatedAt: now,
+          nextAttemptAt: now,
+        });
+      }
     },
 
     async runPending() {
