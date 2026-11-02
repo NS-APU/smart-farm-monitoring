@@ -1097,7 +1097,7 @@ flowchart LR
   PM -->|"持っていない 403"| X["FORBIDDEN"]
 ```
 
-- **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回に達すると、`RATE_LIMITED`（429）
+- **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回（既定。環境変数で変えられる）に達すると、`RATE_LIMITED`（429）
 - **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、1 ロール `worker`（農作業者。全 8 権限）
 - **ルートごとの宣言**: `route-table.ts` の `access`（`PUBLIC`・`LOGIN`・権限名）。`createApp` は、すべてのルートにハンドラがなければ起動時にエラーにする（認可の宣言だけが残ることを防ぐ）
 - **ロール・権限の変更**: `verifyAccessToken` が、リクエストごとにユーザーを引き直し、`permissionsOf` が、設定から権限を導く。ユーザーの削除・ロールの変更は、次のリクエストから効く。画面の権限（メニュー・ボタンの表示）は、ログイン・セッション更新時の値
@@ -1156,7 +1156,7 @@ flowchart LR
 | 短期視点の対象期間               | 直近 24 時間                        | `scope-evaluator.ts`                        |
 | 長期視点の期間                   | 1・7・30・60・90 日（既定 7。満足度は 30） | `shared/constants/status.ts`・`viewpoints.ts`（`defaultPeriodDays`） |
 | セッション                       | アクセス 30 分、リフレッシュ 7 日   | `local-auth.ts`                             |
-| ログインの失敗の上限             | 5 回／15 分／接続元                 | `local-auth.ts`                             |
+| ログインの失敗の上限             | 5 回／15 分／接続元（既定。環境変数 `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` で変えられる） | `auth-policy.ts`・`config.ts`               |
 | リクエスト本文の上限             | 1 MiB                               | `request-parsing.ts`（`MAX_BODY_BYTES`）     |
 | 一覧の件数                       | 既定 20、最大 100                   | `shared/schemas/api.ts`                     |
 | 画面の読み直し                   | 10 秒（設備の階層は 60 秒）         | `use-polling.ts`・`app-state.tsx`           |
@@ -2428,7 +2428,7 @@ for 区間:
 | 並べ替えの安定化       | 同じ値のときは、計測日時 → 一意キーの順で並べ、ページ分割の結果を安定させる                                                                                    | `compareObservations` ほか                         |
 | 取得間隔の「古い」判定 | `最短の有効な取得間隔 × STALE_AFTER_INTERVALS（3）`（既定 15 × 3 ＝ 45 分）を超えて、最終の受信から経った場合 `STALE`、受信が 1 件もなければ `NONE`            | `dashboard-query.ts`                               |
 | パスワードのハッシュ   | `scrypt`（ソルト 16 バイト、鍵 64 バイト）。形式 `scrypt$<salt>$<hash>`。比較は `timingSafeEqual`                                                              | `password-hasher.ts`                               |
-| ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、15 分の窓の中で 5 回に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
+| ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、窓（既定 15 分。`LOGIN_FAILURE_WINDOW_MINUTES`）の中で、上限（既定 5 回。`LOGIN_FAILURE_LIMIT`）に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
 | 評価の単位             | ハウス＝ハウスと配下の観測値をまとめて評価。ロボット・センサー＝その設備のみ                                                                                   | `scope.ts`                                         |
 | 観点の絞り込み         | ハウス 10 観点、ロボット 7 観点、センサー 1 観点（環境適応性）                                                                                                 | `viewpointsForEquipmentType`                       |
 | 満足度の集計           | 長期（平均）の入力値の平均。短期評価はない。期間内に複数回入力されると、スターは平均（小数）になり、画面は四捨五入して示す                                     | `operation-viewpoints.ts`・`satisfaction-page.tsx` |
