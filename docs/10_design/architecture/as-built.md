@@ -543,7 +543,7 @@ classDiagram
 - **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。削除は論理削除（`isDeleted`）
 - **Observation**: 共通形式の観測値。一意キーは `設備ID#項目#計測日時#取得元`（`observationKey`）。欠損は `null`（0 で代用しない）。取り込みの観測値は `sourceFileId`・`formatProfileVersion`、手動入力の観測値は `enteredBy`・`note`・`manualEntryId` を持つ
 - **ManualEntry**: 1 回の入力（設備・カテゴリ・計測日時・項目の値・備考）。項目ごとの観測値（取得元 `MANUAL`・品質 `VALID`）としても保存される
-- **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`STATUS`）・取得元（自動・手動）を持つ
+- **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`RATING`・`STATUS`）・取得元（自動・手動）を持つ
 - **StatusCodeDefinition**: ロボットのステータスコード。コード値は `^[A-Z][A-Z0-9_]*$`、カテゴリは正常・注意・異常。初期データとして 8 件を投入（`INITIAL_STATUS_CODES`）
 
 ### 項目カタログ（ItemDefinition）の内訳
@@ -560,7 +560,7 @@ classDiagram
 | COST コスト情報         | `robotCostYenPerHour`・`laborCostYenPerHour`（円/時間）                                                                                   | 手動       | LEVEL        |
 |                         | `maintenanceCostYen`・`electricityCostYen`（円）                                                                                          | 手動       | TOTAL        |
 | FAILURE 故障情報        | `failureCount`・`recoveryMinutes`                                                                                                         | 手動       | TOTAL        |
-| SATISFACTION 満足度情報 | `satisfaction.<観点ID>`（9 観点。1〜5 の整数）                                                                                            | 手動       | LEVEL        |
+| SATISFACTION 満足度情報 | `satisfaction.<観点ID>`（9 観点。1〜5 の整数）                                                                                            | 手動       | RATING       |
 
 `harvestSecondsPerFruit`・`standbyHours`・`harvestAttemptCount`・`harvestSuccessCount`・`misrecognitionCount` は、取り込み・入力できるが、どの観点のメトリクスの算出にも使われていない（コードの参照が、カタログと FormatProfile・合成データのみ）。
 
@@ -2112,7 +2112,8 @@ for 項目 in グループ:
     if 定義.aggregation == STATUS: continue
     数値の点 = 値が数値の点
     最新 = 計測日時が最大の点（同時刻なら後に現れた点）
-    if 定義.aggregation == LEVEL and 視点 == SHORT:   値 = 最新.値
+    if 定義.aggregation == RATING:                     値 = 入力者ごとの最新.値 の平均（視点によらない）
+    elif 定義.aggregation == LEVEL and 視点 == SHORT:  値 = 最新.値
     elif 定義.aggregation == TOTAL:                    値 = 合計
     else (LEVEL かつ LONG):                            値 = 平均
     values[itemKey] = round6(値)
@@ -2122,7 +2123,7 @@ status = resolveStatus(...)                              （1.5 の「ステー�
 
 - **未取得の項目は、結果に含めない**（0 で代用しない）。後段で「不明」になる
 - 数値は、小数第 6 位に丸める（`normalizeMetric`。`roundTo(value + Number.EPSILON, 6)`）。90% ちょうどのような境界が、浮動小数点の誤差で外れないようにするため
-- 集計の種類: `TOTAL`（期間内の発生量の合計。短期・長期とも）、`LEVEL`（状態値。短期は最新、長期は平均）、`STATUS`（ステータスコード）
+- 集計の種類: `TOTAL`（期間内の発生量の合計。短期・長期とも）、`LEVEL`（状態値。短期は最新、長期は平均）、`RATING`（満足度。各入力者の、期間内の最新の入力を取り、入力者の平均を取る＝1 人 1 票。観点（項目）ごとに選ぶ。入力者の記録（`enteredBy`）がない入力は、1 人として扱う。短期・長期とも同じ。D-18）、`STATUS`（ステータスコード）
 
 **ステータスコードの集計**（`resolveStatus`）: 値が文字列で、定義があり、論理削除でないものだけを対象にする。短期は、最新の点のコード。長期は、期間内で**最も悪いカテゴリ**（異常 > 注意 > 正常）の点のうち、最新のもの。
 

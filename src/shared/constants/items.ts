@@ -50,8 +50,9 @@ export type ItemValueType = 'integer' | 'number' | 'string';
  * - TOTAL: 期間内の合計（件数・時間・金額など、記録ごとの発生量）
  * - LEVEL: 状態値。短期は期間内の最新値、長期は期間内の平均
  * - STATUS: ステータスコード。短期は最新、長期は期間内で最も悪いカテゴリ
+ * - RATING: 入力者ごとの評価（満足度）。各入力者の期間内の最新の入力を取り、入力者の平均を取る（1 人 1 票。短期・長期とも。D-18）
  */
-export type ItemAggregation = 'TOTAL' | 'LEVEL' | 'STATUS';
+export type ItemAggregation = 'TOTAL' | 'LEVEL' | 'STATUS' | 'RATING';
 
 export interface ItemDefinition {
   readonly itemKey: string;
@@ -89,7 +90,7 @@ const SATISFACTION_ITEMS: readonly ItemDefinition[] = VIEWPOINTS.filter(
   valueType: 'integer',
   min: 1,
   max: SATISFACTION_MAX_STARS,
-  aggregation: 'LEVEL',
+  aggregation: 'RATING',
   origins: MANUAL,
 }));
 

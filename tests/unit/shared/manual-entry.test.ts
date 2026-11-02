@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { findItemDefinition, type ItemDefinition } from '../../../src/shared/constants/items.ts';
+import {
+  findItemDefinition,
+  itemsOfCategory,
+  type ItemDefinition,
+} from '../../../src/shared/constants/items.ts';
 import { FUTURE_TOLERANCE_MINUTES, MAX_NOTE_LENGTH } from '../../../src/shared/constants/limits.ts';
 import {
   describeRange,
@@ -138,6 +142,50 @@ describe('validateManualEntry（手動入力の検証）', () => {
     const errors = validateManualEntry(draft({ items: { failureCount: -1 } }), NOW);
     expect(names(errors)).toEqual(['items.failureCount']);
     expect(validateManualEntry(draft({ items: { failureCount: 'abc' } }), NOW)).toHaveLength(1);
+  });
+
+  describe('満足度（D-18: 9観点すべてが必須）', () => {
+    const allKeys = itemsOfCategory('SATISFACTION').map((definition) => definition.itemKey);
+    const fullItems = Object.fromEntries(allKeys.map((key) => [key, 4]));
+
+    it('9観点がすべて揃っていれば、エラーなし', () => {
+      expect(
+        validateManualEntry(draft({ category: 'SATISFACTION', items: fullItems }), NOW),
+      ).toEqual([]);
+    });
+
+    it('一部の観点だけの入力は、入力のない観点ごとに、選択を求めるエラー', () => {
+      const partial = Object.fromEntries(
+        Object.entries(fullItems).filter(([key]) => key !== 'satisfaction.safety'),
+      );
+      expect(validateManualEntry(draft({ category: 'SATISFACTION', items: partial }), NOW)).toEqual(
+        [{ name: 'items.satisfaction.safety', message: '満足度（安全性）を選択してください' }],
+      );
+    });
+
+    it('観点が1つも入力されていなければ、9観点すべてのエラーと、項目のエラー', () => {
+      const errors = validateManualEntry(draft({ category: 'SATISFACTION', items: {} }), NOW);
+      expect(names(errors).sort()).toEqual(
+        ['items', ...allKeys.map((key) => `items.${key}`)].sort(),
+      );
+    });
+
+    it('揃っていても、範囲外の値（0・6）は、その観点のエラー', () => {
+      const errors = validateManualEntry(
+        draft({
+          category: 'SATISFACTION',
+          items: { ...fullItems, 'satisfaction.safety': 0, 'satisfaction.durability': 6 },
+        }),
+        NOW,
+      );
+      expect(names(errors)).toEqual(['items.satisfaction.safety', 'items.satisfaction.durability']);
+    });
+
+    it('満足度以外のカテゴリには、全項目の必須を課さない', () => {
+      expect(
+        validateManualEntry(draft({ category: 'FAILURE', items: { failureCount: 1 } }), NOW),
+      ).toEqual([]);
+    });
   });
 
   it('備考: 上限の文字数まで有効。超えるとエラー', () => {

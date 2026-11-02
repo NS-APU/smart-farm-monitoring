@@ -3,7 +3,8 @@ import {
   aggregateMeasures,
   type AggregationInput,
 } from '../../../../src/backend/domain/evaluation/measures.ts';
-import { observation, SENSOR_ID, statusCodeMap } from '../../../support/builders.ts';
+import { toUserId } from '../../../../src/shared/schemas/common.ts';
+import { FACILITY_ID, observation, SENSOR_ID, statusCodeMap } from '../../../support/builders.ts';
 
 const NOW = new Date('2026-10-09T03:00:00Z');
 const DAY_MS = 86_400_000;
@@ -194,6 +195,174 @@ describe('観測値の集計: 集計の種類', () => {
     );
 
     expect(measures.status).toBeNull();
+  });
+});
+
+describe('観測値の集計: 満足度（入力者ごとの最新の平均。1 人 1 票。D-18）', () => {
+  const KEY = 'satisfaction.safety';
+  const A = toUserId('worker-a');
+  const B = toUserId('worker-b');
+
+  function rating(
+    value: number,
+    observedAt: string,
+    enteredBy?: ReturnType<typeof toUserId>,
+    itemKey = KEY,
+  ) {
+    return observation({
+      equipmentId: FACILITY_ID,
+      itemKey,
+      value,
+      observedAt,
+      source: 'MANUAL',
+      ...(enteredBy === undefined ? {} : { enteredBy }),
+    });
+  }
+
+  it('同じ入力者が、期間内に複数回入力したときは、最新の入力だけを使う', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(5, '2026-10-09T01:00:00Z', A),
+          rating(1, '2026-10-09T02:00:00Z', A),
+          rating(4, '2026-10-08T12:00:00Z', A),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(1);
+  });
+
+  it('入力者が複数のときは、各入力者の最新の値の平均にする（入力の回数が多い人の意見が重くならない）', () => {
+    // A は 5 を 3 回、B は 1 を 1 回。全入力の平均（3.8）ではなく、1 人 1 票の平均（3）
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(5, '2026-10-07T01:00:00Z', A),
+          rating(5, '2026-10-08T01:00:00Z', A),
+          rating(5, '2026-10-09T01:00:00Z', A),
+          rating(1, '2026-10-09T02:00:00Z', B),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(3);
+  });
+
+  it('期間内に入力のない人は含めない（期間の外の入力は、その人の票にしない）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [rating(5, '2026-10-09T01:00:00Z', A), rating(1, '2026-10-01T01:00:00Z', B)],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(5);
+  });
+
+  it('論理削除した入力は使わず、その人の、削除されていない最新の入力に戻る', () => {
+    const deleted = observation({
+      equipmentId: FACILITY_ID,
+      itemKey: KEY,
+      value: 1,
+      observedAt: '2026-10-09T02:00:00Z',
+      source: 'MANUAL',
+      enteredBy: A,
+      isDeleted: true,
+    });
+
+    const measures = aggregateMeasures(
+      input({ observations: [rating(4, '2026-10-09T01:00:00Z', A), deleted] }),
+    );
+
+    expect(measures.values[KEY]).toBe(4);
+  });
+
+  it('観点ごとに、入力者の最新の入力を選ぶ（観点によって、最新の入力の日時が違ってもよい）', () => {
+    const other = 'satisfaction.durability';
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(2, '2026-10-08T01:00:00Z', A),
+          rating(4, '2026-10-09T01:00:00Z', A),
+          rating(5, '2026-10-08T01:00:00Z', A, other),
+          rating(3, '2026-10-09T01:00:00Z', B, other),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(4);
+    expect(measures.values[other]).toBe(4);
+  });
+
+  it('入力者が分からない入力（入力者の記録がない）は、1 人の入力として扱い、その最新を使う', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(5, '2026-10-09T00:00:00Z'),
+          rating(3, '2026-10-09T01:00:00Z'),
+          rating(1, '2026-10-09T02:00:00Z', A),
+        ],
+      }),
+    );
+
+    // 入力者不明の最新 3 と、A の 1 → 平均 2
+    expect(measures.values[KEY]).toBe(2);
+  });
+
+  it('同じ入力者の同じ日時の入力が複数あるときは、後のものを使う。平均は、小数第 6 位に丸める', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(2, '2026-10-09T01:00:00Z', A),
+          rating(4, '2026-10-09T01:00:00Z', A),
+          rating(5, '2026-10-09T01:00:00Z', B),
+          rating(5, '2026-10-09T01:00:00Z', toUserId('worker-c')),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(4.666667);
+  });
+
+  it('短期視点でも、同じ規則（入力者ごとの最新の平均）にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        horizon: 'SHORT',
+        from: new Date('2026-10-08T03:00:00Z'),
+        observations: [
+          rating(5, '2026-10-09T01:00:00Z', A),
+          rating(1, '2026-10-09T02:00:00Z', A),
+          rating(3, '2026-10-09T02:00:00Z', B),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(2);
+  });
+
+  it('満足度以外の状態値は、従来どおり、入力者に関わらず、長期は全入力の平均にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          observation({
+            itemKey: 'robotCostYenPerHour',
+            value: 100,
+            observedAt: '2026-10-09T01:00:00Z',
+            source: 'MANUAL',
+            enteredBy: A,
+          }),
+          observation({
+            itemKey: 'robotCostYenPerHour',
+            value: 200,
+            observedAt: '2026-10-09T02:00:00Z',
+            source: 'MANUAL',
+            enteredBy: A,
+          }),
+        ],
+      }),
+    );
+
+    expect(measures.values.robotCostYenPerHour).toBe(150);
   });
 });
 

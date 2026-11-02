@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { AuditLogListResponseSchema } from '@smart-farm/shared/schemas/audit';
 import { UserListResponseSchema } from '@smart-farm/shared/schemas/auth';
+import { toUserId } from '@smart-farm/shared/schemas/common';
 import { ViewpointCriteriaSchema } from '@smart-farm/shared/schemas/criteria';
 import { EquipmentSchema } from '@smart-farm/shared/schemas/equipment';
 import {
@@ -50,6 +51,23 @@ function entryBody(overrides: Partial<ManualEntryInput> = {}): ManualEntryInput 
     items: { operationStepCount: 4, operationMinutes: 8, operationErrorCount: 0 },
     ...overrides,
   };
+}
+
+/** 満足度の入力（D-18: 9観点すべてが必須）。観点ごとの値は、指定がなければ 4。 */
+function satisfactionItems(
+  overrides: Readonly<Record<string, number>> = {},
+): Record<string, number> {
+  return {
+    ...Object.fromEntries(
+      SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => [`satisfaction.${viewpointId}`, 4]),
+    ),
+    ...overrides,
+  };
+}
+
+/** 満足度の入力から、指定した観点だけを除いたもの（一部の観点だけの入力）。 */
+function satisfactionItemsExcept(itemKey: string): Record<string, number> {
+  return Object.fromEntries(Object.entries(satisfactionItems()).filter(([key]) => key !== itemKey));
 }
 
 async function createEntry(context: TestContext, body: ManualEntryInput = entryBody()) {
@@ -118,7 +136,7 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
       entryBody({
         equipmentId: FACILITY_ID,
         category: 'SATISFACTION',
-        items: { 'satisfaction.harvestAccuracy': 5 },
+        items: satisfactionItems({ 'satisfaction.harvestAccuracy': 5 }),
       }),
     );
 
@@ -219,7 +237,7 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
           equipmentId: FACILITY_ID,
           category: 'SATISFACTION',
           observedAt: OBSERVED_AT,
-          items: { 'satisfaction.harvestSpeed': value },
+          items: satisfactionItems({ 'satisfaction.harvestSpeed': value }),
         })
       ).status;
 
@@ -228,6 +246,29 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
     expect(await attempt(1)).toBe(201);
     // 同じ設備・項目・計測日時の2回目は、競合
     expect(await attempt(5)).toBe(409);
+  });
+
+  it('満足度は、9観点が揃わないと保存できない（一部の観点だけの入力は 400。何も保存しない）', async () => {
+    const context = await withEquipment();
+    const partial = satisfactionItemsExcept('satisfaction.safety');
+
+    const response = await send(
+      context,
+      'POST',
+      '/manual-entries',
+      entryBody({ equipmentId: FACILITY_ID, category: 'SATISFACTION', items: partial }),
+    );
+
+    expect(response.status).toBe(400);
+    const error = await errorOf(response);
+    expect(error.code).toBe('VALIDATION_ERROR');
+    expect(error.fields?.map((item) => item.name)).toEqual(['items.satisfaction.safety']);
+    const saved = await context.container.repositories.observations.findForEvaluation(
+      [FACILITY_ID],
+      new Date('2026-10-01T00:00:00Z'),
+      TEST_NOW,
+    );
+    expect(saved).toHaveLength(0);
   });
 
   it('存在しない設備・削除済みの設備は 404', async () => {
@@ -333,7 +374,7 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
         equipmentId: FACILITY_ID,
         category: 'SATISFACTION',
         observedAt: '2026-10-09T02:30:00.000Z',
-        items: { 'satisfaction.safety': 3 },
+        items: satisfactionItems({ 'satisfaction.safety': 3 }),
       }),
     );
     return { first, second, third };
@@ -466,6 +507,64 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
     });
     expect(audit.items[0]?.before).toMatchObject({ items: { operationStepCount: 12 } });
     expect(audit.items[0]?.after).toMatchObject({ items: { operationMinutes: 8 } });
+  });
+
+  it('満足度の修正も、9観点が揃った状態を保つ（一部の観点だけにする修正は 400。元の入力は変わらない）', async () => {
+    const context = await withEquipment();
+    const { third } = await threeEntries(context);
+    const partial = satisfactionItemsExcept('satisfaction.safety');
+    const path = `/manual-entries/${third.entry.entryId}`;
+    const body = entryBody({
+      equipmentId: FACILITY_ID,
+      category: 'SATISFACTION',
+      observedAt: '2026-10-09T02:30:00.000Z',
+    });
+
+    const rejected = await send(context, 'PUT', path, { ...body, items: partial });
+    const accepted = await send(context, 'PUT', path, {
+      ...body,
+      items: satisfactionItems({ 'satisfaction.safety': 5 }),
+    });
+
+    expect(rejected.status).toBe(400);
+    expect((await errorOf(rejected)).fields?.map((item) => item.name)).toEqual([
+      'items.satisfaction.safety',
+    ]);
+    expect(accepted.status).toBe(200);
+    const [stored] = (await list(context, '?category=SATISFACTION')).items;
+    expect(stored?.items['satisfaction.safety']).toBe(5);
+  });
+
+  it('既存の、一部の観点だけの満足度の入力は、そのまま残る。修正するときは、9観点を揃える', async () => {
+    const context = await withEquipment();
+    const legacy = {
+      entryId: 'legacy-partial',
+      equipmentId: FACILITY_ID,
+      category: 'SATISFACTION' as const,
+      observedAt: '2026-10-09T02:30:00.000Z',
+      items: { 'satisfaction.safety': 3 },
+      enteredBy: toUserId('test-user'),
+      createdAt: '2026-10-09T02:31:00.000Z',
+      updatedAt: '2026-10-09T02:31:00.000Z',
+      isDeleted: false,
+    };
+    await context.container.repositories.manualEntries.save(legacy);
+
+    const listed = await list(context, '?category=SATISFACTION');
+    const partialEdit = await send(
+      context,
+      'PUT',
+      '/manual-entries/legacy-partial',
+      entryBody({
+        equipmentId: FACILITY_ID,
+        category: 'SATISFACTION',
+        observedAt: legacy.observedAt,
+        items: { 'satisfaction.safety': 4 },
+      }),
+    );
+
+    expect(listed.items.map((item) => item.entryId)).toEqual(['legacy-partial']);
+    expect(partialEdit.status).toBe(400);
   });
 
   it('同じ内容のまま修正しても、自分自身とは競合しない。他の入力と重なる修正は 409', async () => {

@@ -13,7 +13,7 @@ import {
   ViewpointDetailResponseSchema,
 } from '../../src/shared/schemas/evaluation.ts';
 import { ObservationListResponseSchema } from '../../src/shared/schemas/observation.ts';
-import { toEquipmentId } from '../../src/shared/schemas/common.ts';
+import { toEquipmentId, toUserId, type UserId } from '../../src/shared/schemas/common.ts';
 import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import {
@@ -414,7 +414,14 @@ describe('観点の詳細（UC-02。GET /viewpoints/{id}）', () => {
 });
 
 describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
-  function stars(scores: readonly number[], observedAt = hoursAgo(1)): ObservationOverrides[] {
+  const WORKER_A = toUserId('worker-a');
+  const WORKER_B = toUserId('worker-b');
+
+  function stars(
+    scores: readonly number[],
+    observedAt = hoursAgo(1),
+    enteredBy?: UserId,
+  ): ObservationOverrides[] {
     return SATISFACTION_TARGET_VIEWPOINT_IDS.flatMap((viewpointId, index) => {
       const score = scores[index];
       return score === undefined
@@ -426,6 +433,7 @@ describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
               value: score,
               observedAt,
               source: 'MANUAL' as const,
+              ...(enteredBy === undefined ? {} : { enteredBy }),
             },
           ];
     });
@@ -503,11 +511,11 @@ describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
     expect(detail.radar).toHaveLength(9);
   });
 
-  it('期間を選ぶと、その期間の満足度の平均で判定する', async () => {
+  it('期間を選ぶと、その期間に入力した人の満足度の平均で判定する', async () => {
     const context = await setup();
     await seed(context, [
-      ...stars([5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(1)),
-      ...stars([1, 1, 1, 1, 1, 1, 1, 1, 1], hoursAgo(10 * 24)),
+      ...stars([5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(1), WORKER_A),
+      ...stars([1, 1, 1, 1, 1, 1, 1, 1, 1], hoursAgo(10 * 24), WORKER_B),
     ]);
 
     const week = await detailOf(context, 'periodDays=7', 'satisfaction');
@@ -621,6 +629,70 @@ describe('満足度の既定の期間は 30 日（D-18）。期間を選べば�
       expect(cardOf('environmentalAdaptability')?.status).toBe(environmental);
     },
   );
+});
+
+describe('満足度の集計: 入力者ごとの最新の平均（1 人 1 票。D-18）', () => {
+  const WORKER_A = toUserId('worker-a');
+  const WORKER_B = toUserId('worker-b');
+
+  function entry(score: number, observedAt: string, enteredBy: UserId): ObservationOverrides[] {
+    return SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => ({
+      equipmentId: FACILITY_ID,
+      itemKey: satisfactionItemKey(viewpointId),
+      value: score,
+      observedAt,
+      source: 'MANUAL' as const,
+      enteredBy,
+    }));
+  }
+
+  it('同じ入力者が複数回入力したときは、最新の入力だけを使う', async () => {
+    const context = await setup();
+    await seed(context, [...entry(5, hoursAgo(5), WORKER_A), ...entry(2, hoursAgo(1), WORKER_A)]);
+
+    const detail = await detailOf(context, '', 'satisfaction');
+
+    expect(detail.radar?.every((point) => point.score === 2)).toBe(true);
+    expect(detail.metrics.find((row) => row.metricId === 'overallSatisfaction')).toMatchObject({
+      value: 2,
+      indicatorStatus: 'ERROR',
+    });
+    expect(detail.status).toBe('ERROR');
+  });
+
+  it('入力の回数が違う入力者は、1 人 1 票で平均する（入力の多い人の意見が重くならない）', async () => {
+    const context = await setup();
+    // A は 5 を 4 回、B は 1 を 1 回。全入力の平均なら 4.2（正常）、1 人 1 票なら 3（注意）
+    await seed(context, [
+      ...entry(5, hoursAgo(5), WORKER_A),
+      ...entry(5, hoursAgo(4), WORKER_A),
+      ...entry(5, hoursAgo(3), WORKER_A),
+      ...entry(5, hoursAgo(2), WORKER_A),
+      ...entry(1, hoursAgo(1), WORKER_B),
+    ]);
+
+    const detail = await detailOf(context, '', 'satisfaction');
+
+    expect(detail.radar?.[0]?.score).toBe(3);
+    expect(detail.metrics.find((row) => row.metricId === 'overallSatisfaction')?.value).toBe(3);
+    expect(detail.status).toBe('CAUTION');
+  });
+
+  it('期間を選ぶと、その期間に入力した人だけで集計する（期間内に入力のない人は含まれない）', async () => {
+    const context = await setup();
+    await seed(context, [
+      ...entry(5, hoursAgo(5 * 24), WORKER_A),
+      ...entry(1, hoursAgo(20 * 24), WORKER_B),
+      ...entry(3, hoursAgo(10 * 24), WORKER_B),
+    ]);
+
+    const week = await detailOf(context, 'periodDays=7', 'satisfaction');
+    const month = await detailOf(context, 'periodDays=30', 'satisfaction');
+
+    // 7 日: A だけ。30 日: A の 5 と、B の最新（10 日前の 3）→ 4
+    expect(week.radar?.[0]?.score).toBe(5);
+    expect(month.radar?.[0]?.score).toBe(4);
+  });
 });
 
 describe('推移（UC-03。GET /viewpoints/{id}/series）', () => {
