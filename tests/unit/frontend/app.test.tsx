@@ -414,7 +414,8 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     const { calls } = renderApp();
     await screen.findByRole('heading', { name: '安全性' });
     expect(dashboardCalls(calls)[0]?.query.get('horizon')).toBe('LONG');
-    expect(dashboardCalls(calls)[0]?.query.get('periodDays')).toBe('7');
+    // 期間を選ぶまでは、期間を送らない（観点ごとの既定の期間で評価した結果を返す。満足度は 30 日。D-18）
+    expect(dashboardCalls(calls)[0]?.query.has('periodDays')).toBe(false);
 
     fireEvent.click(screen.getByRole('radio', { name: '短期' }));
     await waitFor(() => {

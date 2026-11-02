@@ -928,7 +928,8 @@ test.describe('視点（短期・長期）と期間の選択', () => {
 
     await page.getByRole('radio', { name: '短期' }).check();
 
-    await expect(page).toHaveURL(/\?horizon=SHORT&periodDays=7$/);
+    // 期間を選んでいないため、期間は URL に付けない（観点の既定の期間。D-18）
+    await expect(page).toHaveURL(/\?horizon=SHORT$/);
     await expectMetric(page, 'temperatureCelsius', { value: '30.0℃', judgement: '注意' });
     await expect(page.locator('.diagnosis-horizon')).toContainText('短期（直近24時間）');
     await expect(

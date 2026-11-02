@@ -5,6 +5,7 @@
 
 import { useCallback, type ReactNode } from 'react';
 import { SATISFACTION_MAX_STARS } from '@smart-farm/shared/constants/items';
+import { SATISFACTION_DEFAULT_PERIOD_DAYS } from '@smart-farm/shared/constants/viewpoints';
 import {
   OVERALL_SATISFACTION_METRIC_ID,
   formatMetricValue,
@@ -132,7 +133,8 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
 export function SatisfactionPage(): ReactNode {
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentNames, equipmentError } = useAppState();
-  const { periodDays, setPeriodDays } = useHorizonSelection();
+  // 期間を選んでいなければ、満足度の既定の期間（30 日）。選べば、他の観点と同じ長期の期間
+  const { periodDays, setPeriodDays } = useHorizonSelection(SATISFACTION_DEFAULT_PERIOD_DAYS);
 
   const fetchDetail = useCallback(async () => {
     if (selectedEquipmentId === undefined) {

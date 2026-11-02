@@ -377,21 +377,90 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
       ),
     });
     await openSatisfaction(page);
-    await expect(page.getByTestId('overall-score')).toHaveText('3.0');
-
-    await page.getByLabel('長期の期間').selectOption({ label: '直近30日' });
-
-    await expect(page).toHaveURL(/periodDays=30/);
+    // 期間を選ばないときは、満足度の既定の期間（30 日）。20日前の入力も含めるため、平均（5 と 3）は 4.0（D-18）
+    await expect(page.getByLabel('長期の期間')).toHaveValue('30');
+    await expect(page).not.toHaveURL(/periodDays/);
     await expect(overallScore(page)).toHaveText('4.0');
+
     await page.getByLabel('長期の期間').selectOption({ label: '当日' });
+    await expect(page).toHaveURL(/periodDays=1/);
     await expect(overallScore(page)).toHaveText('3.0');
     await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+    await expect(page).toHaveURL(/periodDays=7/);
     await expect(overallScore(page)).toHaveText('3.0');
+    await page.getByLabel('長期の期間').selectOption({ label: '直近30日' });
+    await expect(page).toHaveURL(/periodDays=30/);
+    await expect(overallScore(page)).toHaveText('4.0');
     // 60日・90日は、20日前の入力者A（5）も含めるため、平均（5 と 3）は 4.0
     await page.getByLabel('長期の期間').selectOption({ label: '直近60日' });
     await expect(overallScore(page)).toHaveText('4.0');
     await page.getByLabel('長期の期間').selectOption({ label: '直近90日' });
     await expect(overallScore(page)).toHaveText('4.0');
+  });
+});
+
+test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボードのカードと、最終ステータス', () => {
+  test('期間を選ばないと、満足度のカードだけ 30 日で評価し（20日前の入力も使う）、ほかのカードは 7 日。詳細へも、期間を付けずに開く', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], daysAgo(20));
+    await alignBrowserClock(page);
+    await openAs(page, '/');
+
+    const satisfaction = page.getByTestId('card-satisfaction');
+    await expect(satisfaction.locator('.status-badge')).toContainText('正常');
+    await expect(satisfaction.locator('.evaluated-period').first()).toContainText(
+      '2026/09/09 12:00:00 〜 2026/10/09 12:00:00',
+    );
+    await expect(
+      page.getByTestId('card-safety').locator('.evaluated-period').first(),
+    ).toContainText('2026/10/02 12:00:00 〜 2026/10/09 12:00:00');
+
+    await satisfaction.locator('h3').getByRole('link').click();
+
+    await expect(page).toHaveURL(/\/satisfaction$/);
+    await expect(overallScore(page)).toHaveText('5.0');
+    await expect(page.getByLabel('長期の期間')).toHaveValue('30');
+  });
+
+  test('ダッシュボードで期間（直近7日）を選ぶと、満足度のカードも、その期間で評価する（20日前の入力は使わず、不明）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], daysAgo(20));
+    await alignBrowserClock(page);
+    await openAs(page, '/');
+    await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+      '正常',
+    );
+
+    await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+
+    await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+      '不明',
+    );
+    await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
+    await expect(page).toHaveURL(/\/satisfaction\?periodDays=7$/);
+    await expect(overallBadge(page)).toContainText('不明');
+  });
+
+  test('最終ステータス（通知の基準）も 30 日で評価する: 20日前の満足度（すべて 1）で、異常の通知が作られる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [1, 1, 1, 1, 1, 1, 1, 1, 1], daysAgo(20));
+    await alignBrowserClock(page);
+
+    await openAs(page, '/notifications');
+
+    await expect(page.getByTestId('notification-row').filter({ hasText: '満足度' })).toHaveCount(1);
+    await expect(page.getByTestId('notification-row').filter({ hasText: '満足度' })).toContainText(
+      '異常',
+    );
   });
 });
 

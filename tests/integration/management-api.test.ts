@@ -146,6 +146,30 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
     ]);
   });
 
+  it('満足度の保存後に返す、関連観点のステータスは、満足度の既定の期間（30 日）で評価した値', async () => {
+    const context = await withEquipment();
+
+    // 20 日前の入力（7 日の期間の外。30 日の期間の中）
+    const saved = await createEntry(
+      context,
+      entryBody({
+        equipmentId: FACILITY_ID,
+        category: 'SATISFACTION',
+        observedAt: '2026-09-19T02:00:00.000Z',
+        items: Object.fromEntries(
+          SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => [
+            `satisfaction.${viewpointId}`,
+            5,
+          ]),
+        ),
+      }),
+    );
+
+    expect(
+      saved.viewpointStatuses.find((item) => item.viewpointId === 'satisfaction'),
+    ).toMatchObject({ name: '満足度', status: 'NORMAL' });
+  });
+
   it.each([
     ['計測日時が未入力（形式が不正）', { observedAt: 'not-a-date' }, 400, 'observedAt'],
     [

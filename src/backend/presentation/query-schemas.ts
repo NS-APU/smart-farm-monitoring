@@ -2,7 +2,6 @@
 
 import { z } from 'zod';
 import { SORT_DIRECTIONS } from '@smart-farm/shared/constants/sorting';
-import { DEFAULT_PERIOD_DAYS } from '@smart-farm/shared/constants/status';
 import { PushEndpointSchema } from '@smart-farm/shared/schemas/notification';
 import {
   EquipmentIdSchema,
@@ -12,11 +11,14 @@ import {
   ReadStateSchema,
 } from '@smart-farm/shared/schemas/common';
 
-/** ダッシュボード・観点の詳細のクエリ: 設備（省略時は最初のハウス）、視点（短期・長期）、長期の期間。 */
+/**
+ * ダッシュボード・観点の詳細のクエリ: 設備（省略時は最初のハウス）、視点（短期・長期）、長期の期間。
+ * 期間を省略すると、観点ごとの既定の期間（満足度は 30 日、ほかは 7 日。defaultPeriodDays）で評価した結果を返す。
+ */
 export const HorizonQuerySchema = z.object({
   equipmentId: EquipmentIdSchema.optional(),
   horizon: HorizonSchema.default('LONG'),
-  periodDays: z.coerce.number().pipe(PeriodDaysSchema).default(DEFAULT_PERIOD_DAYS),
+  periodDays: z.coerce.number().pipe(PeriodDaysSchema).optional(),
 });
 
 /** 通知の絞り込み（一覧のクエリと、一括既読の本文で共通）。 */

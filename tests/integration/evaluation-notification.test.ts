@@ -3,6 +3,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
+import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
@@ -206,6 +208,52 @@ describe('評価（JB-02）', () => {
     });
 
     await expect(service.evaluateAll('DEV')).rejects.toThrow('判断基準が見つかりません');
+  });
+});
+
+describe('満足度の最終ステータス（通知・連携の基準）は、30 日で評価する（D-18）', () => {
+  it('20 日前の満足度（すべて 1）でも、30 日の期間の中のため、「異常」になり、通知する', async () => {
+    const context = await setup();
+    await context.container.repositories.observations.saveMany(
+      SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) =>
+        observation({
+          equipmentId: FACILITY_ID,
+          itemKey: satisfactionItemKey(viewpointId),
+          value: 1,
+          observedAt: new Date(TEST_NOW.getTime() - 20 * 24 * HOUR_MS).toISOString(),
+          source: 'MANUAL',
+        }),
+      ),
+    );
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const last = await context.container.repositories.evaluations.getLastStatusChange(
+      FACILITY_ID,
+      'satisfaction',
+    );
+    expect(last?.status).toBe('ERROR');
+    const notifications = await notificationsOf(context);
+    expect(notifications.find((item) => item.viewpointId === 'satisfaction')).toMatchObject({
+      kind: 'STATUS_CHANGE',
+      status: 'ERROR',
+      equipmentId: FACILITY_ID,
+    });
+  });
+
+  it('7 日より前の入力は、ほかの観点の最終ステータスには使わない（従来どおり 7 日）', async () => {
+    const context = await setup();
+    await context.container.repositories.observations.saveMany([
+      temperature(40, new Date(TEST_NOW.getTime() - 20 * 24 * HOUR_MS).toISOString()),
+    ]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const last = await context.container.repositories.evaluations.getLastStatusChange(
+      SENSOR_ID,
+      'environmentalAdaptability',
+    );
+    expect(last?.status).toBe('UNKNOWN');
   });
 });
 

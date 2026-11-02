@@ -301,7 +301,8 @@ test.describe('視点（短期・長期）と期間の選択', () => {
 
     await page.getByRole('radio', { name: '短期' }).check();
 
-    await expect(page).toHaveURL(/\?horizon=SHORT&periodDays=7$/);
+    // 期間を選んでいないため、期間は URL に付けない（観点ごとの既定の期間。満足度は 30 日。D-18）
+    await expect(page).toHaveURL(/\?horizon=SHORT$/);
     await expect(environment.locator('dd', { hasText: '30.0℃' })).toBeVisible();
     await expect(environment.locator('.evaluated-period')).toContainText(
       '判定の対象期間: 2026/10/08 12:00:00 〜 2026/10/09 12:00:00',
