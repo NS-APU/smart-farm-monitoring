@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, type ReactNode } from 'react';
-import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
+import { defaultPeriodDays, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import { ApiError } from '../api/client.ts';
 import { getViewpointDetail, getViewpointSeries } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
@@ -44,7 +44,8 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
   const { viewpointId } = props;
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentNames, equipmentError } = useAppState();
-  const { horizon, periodDays, setHorizon, setPeriodDays } = useHorizonSelection();
+  const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
+    useHorizonSelection(defaultPeriodDays(viewpointId));
 
   const fetchDetail = useCallback(async () => {
     if (selectedEquipmentId === undefined) {
@@ -72,7 +73,8 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
   }, [api, viewpointId, selectedEquipmentId, horizon, periodDays]);
   const series = usePolling(fetchSeries);
 
-  const backPath = `/?${horizonQueryString(horizon, periodDays)}`;
+  // ダッシュボードへ戻るときは、期間を選んでいなければ、選んだことにしない
+  const backPath = `/?${horizonQueryString(horizon, selectedPeriodDays)}`;
   const equipmentName =
     selectedEquipmentId === undefined ? undefined : equipmentNames.get(selectedEquipmentId);
 

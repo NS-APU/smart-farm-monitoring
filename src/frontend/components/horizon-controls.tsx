@@ -2,7 +2,6 @@
 
 import type { ReactNode } from 'react';
 import {
-  DEFAULT_PERIOD_DAYS,
   PERIOD_DAYS_OPTIONS,
   type Horizon,
   type PeriodDays,
@@ -72,19 +71,25 @@ export function HorizonControls(props: HorizonControlsProps): ReactNode {
   );
 }
 
-/** URL のクエリから、視点・期間を読む（不正な値は既定値）。 */
+/**
+ * URL のクエリから、視点・期間を読む。視点の不正な値は長期。期間は、選んだ期間（不正な値・指定なしは undefined。
+ * 選んでいなければ、観点ごとの既定の期間で評価する。満足度は 30 日、ほかは 7 日）。
+ */
 export function readHorizonQuery(search: URLSearchParams): {
   horizon: Horizon;
-  periodDays: PeriodDays;
+  periodDays: PeriodDays | undefined;
 } {
   const periodDays = PERIOD_DAYS_OPTIONS.find((days) => days === Number(search.get('periodDays')));
   return {
     horizon: search.get('horizon') === 'SHORT' ? 'SHORT' : 'LONG',
-    periodDays: periodDays ?? DEFAULT_PERIOD_DAYS,
+    periodDays,
   };
 }
 
-/** 視点・期間のクエリ文字列（既定値の長期・直近7日も明示する）。 */
-export function horizonQueryString(horizon: Horizon, periodDays: PeriodDays): string {
-  return new URLSearchParams({ horizon, periodDays: String(periodDays) }).toString();
+/** 視点・期間のクエリ文字列（既定値の長期も明示する）。期間は、選んだときだけ付ける。 */
+export function horizonQueryString(horizon: Horizon, periodDays: PeriodDays | undefined): string {
+  return new URLSearchParams({
+    horizon,
+    ...(periodDays === undefined ? {} : { periodDays: String(periodDays) }),
+  }).toString();
 }

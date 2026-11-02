@@ -3,8 +3,13 @@
  * 保存済みの最新の評価結果を読むだけで、この呼び出しでは評価しない（NFR-3.4）。
  */
 
-import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
 import {
+  DEFAULT_PERIOD_DAYS,
+  type Horizon,
+  type PeriodDays,
+} from '@smart-farm/shared/constants/status';
+import {
+  defaultPeriodDays,
   viewpointsForEquipmentType,
   type ViewpointMeta,
 } from '@smart-farm/shared/constants/viewpoints';
@@ -30,7 +35,8 @@ import { findHorizonResults, selectDisplayedResult } from './evaluation-selectio
 export interface DashboardParams {
   readonly equipmentId: EquipmentId;
   readonly horizon: Horizon;
-  readonly periodDays: PeriodDays;
+  /** 長期の期間。指定しなければ、観点ごとの既定の期間（満足度は 30 日、ほかは 7 日）。 */
+  readonly periodDays?: PeriodDays | undefined;
 }
 
 export interface DashboardQuery {
@@ -72,7 +78,8 @@ function buildCard(
   params: DashboardParams,
 ): ViewpointCard {
   const definition = getViewpointDefinition(meta.id);
-  const { shortResult, longResult } = findHorizonResults(latest, definition, params.periodDays);
+  const periodDays = params.periodDays ?? defaultPeriodDays(meta.id);
+  const { shortResult, longResult } = findHorizonResults(latest, definition, periodDays);
   if (longResult === undefined) {
     return buildUnevaluatedCard(meta);
   }
@@ -162,7 +169,7 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
       return {
         equipmentId: params.equipmentId,
         horizon: params.horizon,
-        periodDays: params.periodDays,
+        periodDays: params.periodDays ?? DEFAULT_PERIOD_DAYS,
         evaluatedAt,
         lastReceivedAt: toIsoOrNull(lastReceived),
         dataFreshness: classifyFreshness(lastReceived, now, thresholdMinutes),

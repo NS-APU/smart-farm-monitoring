@@ -12,8 +12,11 @@ import {
   getMetricMeta,
   MISSING_VALUE_TEXT,
 } from '@smart-farm/shared/constants/metrics';
+import { DEFAULT_PERIOD_DAYS, PERIOD_DAYS_OPTIONS } from '@smart-farm/shared/constants/status';
 import {
   VIEWPOINTS,
+  VIEWPOINT_IDS,
+  defaultPeriodDays,
   findViewpointMeta,
   viewpointsForEquipmentType,
 } from '@smart-farm/shared/constants/viewpoints';
@@ -68,6 +71,23 @@ describe('観点の定義', () => {
   it('観点の識別子から観点を引く。存在しなければ undefined', () => {
     expect(findViewpointMeta('safety')?.name).toBe('安全性');
     expect(findViewpointMeta('nothing')).toBeUndefined();
+  });
+});
+
+describe('観点ごとの既定の長期の期間（D-18）', () => {
+  it('満足度は 30 日。ほかの観点は、共通の既定（7 日）', () => {
+    expect(defaultPeriodDays('satisfaction')).toBe(30);
+    for (const viewpointId of VIEWPOINT_IDS.filter((id) => id !== 'satisfaction')) {
+      expect(defaultPeriodDays(viewpointId)).toBe(DEFAULT_PERIOD_DAYS);
+    }
+    expect(DEFAULT_PERIOD_DAYS).toBe(7);
+  });
+
+  it('既定の期間は、選べる長期の期間のいずれか。知らない観点は、共通の既定', () => {
+    for (const viewpointId of VIEWPOINT_IDS) {
+      expect(PERIOD_DAYS_OPTIONS).toContain(defaultPeriodDays(viewpointId));
+    }
+    expect(defaultPeriodDays('noSuchViewpoint')).toBe(DEFAULT_PERIOD_DAYS);
   });
 });
 

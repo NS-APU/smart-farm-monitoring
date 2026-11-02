@@ -35,7 +35,7 @@ export function getEquipmentTree(api: ApiClient) {
 
 export function getDashboard(
   api: ApiClient,
-  params: { equipmentId: EquipmentId; horizon: Horizon; periodDays: PeriodDays },
+  params: { equipmentId: EquipmentId; horizon: Horizon; periodDays?: PeriodDays | undefined },
 ) {
   return api.request('/dashboard', { query: params, schema: DashboardResponseSchema });
 }

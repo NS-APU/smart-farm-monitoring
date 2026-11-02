@@ -520,6 +520,109 @@ describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
   });
 });
 
+describe('満足度の既定の期間は 30 日（D-18）。期間を選べば、選んだ期間で評価する', () => {
+  /** 20 日前の、9 観点すべて 5 の満足度（7 日の期間の外。30 日の期間の中）。 */
+  function oldSatisfaction(): ObservationOverrides[] {
+    return SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => ({
+      equipmentId: FACILITY_ID,
+      itemKey: satisfactionItemKey(viewpointId),
+      value: 5,
+      observedAt: hoursAgo(20 * 24),
+      source: 'MANUAL' as const,
+    }));
+  }
+
+  it('観点の詳細: 期間を選ばないと、30 日で評価する（20 日前の入力が、評価に入る）', async () => {
+    const context = await setup();
+    await seed(context, oldSatisfaction());
+
+    const detail = await detailOf(context, '', 'satisfaction');
+
+    expect(detail.periodDays).toBe(30);
+    expect(detail.status).toBe('NORMAL');
+    expect(detail.radar?.every((point) => point.score === 5)).toBe(true);
+    expect(detail.long?.periodDays).toBe(30);
+  });
+
+  it.each([
+    [1, 'UNKNOWN'],
+    [7, 'UNKNOWN'],
+    [30, 'NORMAL'],
+    [60, 'NORMAL'],
+    [90, 'NORMAL'],
+  ] as const)(
+    '観点の詳細: 期間（%s 日）を選ぶと、その期間で評価する（20 日前の入力は、期間による）→ %s',
+    async (periodDays, expected) => {
+      const context = await setup();
+      await seed(context, oldSatisfaction());
+
+      const detail = await detailOf(context, `periodDays=${String(periodDays)}`, 'satisfaction');
+
+      expect(detail.periodDays).toBe(periodDays);
+      expect(detail.status).toBe(expected);
+    },
+  );
+
+  it('観点の詳細: 満足度以外の観点は、期間を選ばないと、従来どおり 7 日で評価する', async () => {
+    const context = await setup();
+    await seed(context, environment(20, hoursAgo(20 * 24)));
+
+    const unspecified = await detailOf(context, '', 'environmentalAdaptability');
+    const month = await detailOf(context, 'periodDays=30', 'environmentalAdaptability');
+
+    expect(unspecified.periodDays).toBe(7);
+    expect(unspecified.status).toBe('UNKNOWN');
+    expect(month.status).toBe('NORMAL');
+  });
+
+  it('推移: 満足度は、期間を選ばないと、30 日（日ごと 30 区間）。期間を選べば、その期間', async () => {
+    const context = await setup();
+    await seed(context, oldSatisfaction());
+
+    const unspecified = await seriesOf(context, '', 'satisfaction');
+    const week = await seriesOf(context, 'periodDays=7', 'satisfaction');
+
+    expect(unspecified.periodDays).toBe(30);
+    expect(unspecified.metrics[0]?.points).toHaveLength(30);
+    expect(week.periodDays).toBe(7);
+    expect(week.metrics[0]?.points).toHaveLength(7);
+  });
+
+  it('ダッシュボード: 期間を選ばないと、満足度のカードだけ 30 日で、ほかのカードは 7 日で評価する', async () => {
+    const context = await setup();
+    await seed(context, [...oldSatisfaction(), ...environment(20, hoursAgo(20 * 24))]);
+
+    const dashboard = DashboardResponseSchema.parse((await get(context, '/dashboard')).body);
+
+    const cardOf = (viewpointId: string) =>
+      dashboard.viewpoints.find((card) => card.viewpointId === viewpointId);
+    expect(dashboard.periodDays).toBe(7);
+    expect(cardOf('satisfaction')?.status).toBe('NORMAL');
+    expect(cardOf('environmentalAdaptability')?.status).toBe('UNKNOWN');
+  });
+
+  it.each([
+    [7, 'UNKNOWN', 'UNKNOWN'],
+    [30, 'NORMAL', 'NORMAL'],
+  ] as const)(
+    'ダッシュボード: 期間（%s 日）を選ぶと、すべてのカードを、その期間で評価する（満足度 %s・環境適応性 %s）',
+    async (periodDays, satisfaction, environmental) => {
+      const context = await setup();
+      await seed(context, [...oldSatisfaction(), ...environment(20, hoursAgo(20 * 24))]);
+
+      const dashboard = DashboardResponseSchema.parse(
+        (await get(context, `/dashboard?periodDays=${String(periodDays)}`)).body,
+      );
+
+      const cardOf = (viewpointId: string) =>
+        dashboard.viewpoints.find((card) => card.viewpointId === viewpointId);
+      expect(dashboard.periodDays).toBe(periodDays);
+      expect(cardOf('satisfaction')?.status).toBe(satisfaction);
+      expect(cardOf('environmentalAdaptability')?.status).toBe(environmental);
+    },
+  );
+});
+
 describe('推移（UC-03。GET /viewpoints/{id}/series）', () => {
   it('短期は、直近24時間の1時間ごと（24区間）。観測値のない区間は欠損（null）で、期間の平均は値のある区間の平均', async () => {
     const context = await setup();

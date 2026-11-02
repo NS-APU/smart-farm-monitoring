@@ -3,7 +3,7 @@
  * 観点ごとのメトリクス・判断基準の本体は backend のドメイン層（docs/10_design/viewpoint/）。
  */
 
-import type { EquipmentType } from './status.ts';
+import { DEFAULT_PERIOD_DAYS, type EquipmentType, type PeriodDays } from './status.ts';
 
 export const VIEWPOINT_IDS = [
   'harvestAccuracy',
@@ -54,6 +54,17 @@ export function findViewpointMeta(viewpointId: string): ViewpointMeta | undefine
 export const SATISFACTION_TARGET_VIEWPOINT_IDS: readonly ViewpointId[] = VIEWPOINT_IDS.filter(
   (id) => id !== 'satisfaction',
 );
+
+/** 満足度の既定の長期の期間（日）。月に 1 回の入力が、期間におおむね 1 回入る長さ（D-18）。 */
+export const SATISFACTION_DEFAULT_PERIOD_DAYS: PeriodDays = 30;
+
+/**
+ * 観点の既定の長期の期間（日）。期間を選ばないときの表示と、最終ステータス（通知・連携の基準）に使う。
+ * 満足度は 30 日、ほかの観点は共通の既定（7 日）。期間を選んだときは、観点によらず、選んだ期間で評価する。
+ */
+export function defaultPeriodDays(viewpointId: string): PeriodDays {
+  return viewpointId === 'satisfaction' ? SATISFACTION_DEFAULT_PERIOD_DAYS : DEFAULT_PERIOD_DAYS;
+}
 
 /**
  * 設備の種別ごとに表示・評価する観点（暫定。FR-5.3、dev_spec.md 4章）。

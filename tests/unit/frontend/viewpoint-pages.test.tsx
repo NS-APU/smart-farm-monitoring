@@ -101,6 +101,54 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     });
   });
 
+  it('期間を選んでいないときは、期間を送らず（観点ごとの既定。満足度は 30 日）、期間の選択は、直近7日を示す', async () => {
+    const { calls } = renderPath('/');
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(calls.find((call) => call.path === '/dashboard')?.query.has('periodDays')).toBe(false);
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+  });
+
+  it('期間を選んでいないときに、視点を切り替えても、期間は選んだことにならない（URL・取得とも）', async () => {
+    const { calls } = renderPath('/');
+    await screen.findByRole('heading', { name: '安全性' });
+
+    fireEvent.click(screen.getByRole('radio', { name: '短期' }));
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?horizon=SHORT');
+    });
+    await waitFor(() => {
+      const last = calls.filter((call) => call.path === '/dashboard').at(-1);
+      expect(last?.query.get('horizon')).toBe('SHORT');
+      expect(last?.query.has('periodDays')).toBe(false);
+    });
+  });
+
+  it('期間を選ぶと、その期間で取得する（満足度も、選んだ期間）。選んだあとは、視点を切り替えても、期間を保つ', async () => {
+    const { calls } = renderPath('/');
+    await screen.findByRole('heading', { name: '安全性' });
+
+    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '60' } });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?horizon=LONG&periodDays=60');
+    });
+    await waitFor(() => {
+      expect(
+        calls
+          .filter((call) => call.path === '/dashboard')
+          .at(-1)
+          ?.query.get('periodDays'),
+      ).toBe('60');
+    });
+    const satisfaction = screen.getByRole('heading', { name: '満足度' }).closest('li');
+    expect(satisfaction && within(satisfaction).getAllByRole('link')[0]?.getAttribute('href')).toBe(
+      '/satisfaction?periodDays=60',
+    );
+  });
+
   it('不正なクエリは、既定値（長期・直近7日）として扱う', async () => {
     renderPath('/?horizon=MIDDLE&periodDays=5');
 
@@ -128,6 +176,21 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     await screen.findByRole('heading', { name: '安全性' });
 
     expect(screen.queryByText(/最終の評価/)).toBeNull();
+  });
+
+  it('期間を選んでいないとき、満足度のカードの詳細へのリンクは、期間を付けない（満足度の既定の 30 日で開く）', async () => {
+    renderPath('/');
+
+    const satisfaction = (await screen.findByRole('heading', { name: '満足度' })).closest('li');
+    if (satisfaction === null) {
+      throw new Error('テストの前提: カードがある');
+    }
+
+    expect(
+      within(satisfaction)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['/satisfaction', '/satisfaction']);
   });
 
   it('カードの詳細へのリンクは、視点・期間を引き継ぐ。満足度は、満足度の詳細（期間のみ）へ', async () => {
@@ -959,6 +1022,53 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
 
     expect(overall.textContent).toContain('まだ評価されていません');
     expect(screen.getByTestId('satisfaction-missing').textContent).toContain('収穫精度');
+  });
+
+  it('期間を選んでいないときは、満足度の既定の期間（30 日）で取得し、期間の選択も 30 日を示す', async () => {
+    const { calls } = renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    await screen.findByTestId('overall');
+
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('30');
+    expect(
+      calls.find((call) => call.path === '/viewpoints/satisfaction')?.query.get('periodDays'),
+    ).toBe('30');
+  });
+
+  it('期間を選ぶと（30 日以外も）、他の観点と同じ長期の期間（当日・7・30・60・90 日）から選べ、選んだ期間で取得する', async () => {
+    const { calls } = renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    await screen.findByTestId('overall');
+
+    expect(
+      [...screen.getByLabelText<HTMLSelectElement>('長期の期間').options].map(
+        (option) => option.value,
+      ),
+    ).toEqual(['1', '7', '30', '60', '90']);
+    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '7' } });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?horizon=LONG&periodDays=7');
+    });
+    await waitFor(() => {
+      const last = calls.filter((call) => call.path === '/viewpoints/satisfaction').at(-1);
+      expect(last?.query.get('periodDays')).toBe('7');
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+  });
+
+  it('URL に期間があれば（7 日など）、その期間で取得する', async () => {
+    const { calls } = renderPath('/satisfaction?periodDays=7', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    await screen.findByTestId('overall');
+
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+    expect(
+      calls.find((call) => call.path === '/viewpoints/satisfaction')?.query.get('periodDays'),
+    ).toBe('7');
   });
 
   it('期間を選ぶと、その期間で取得し直す。URL のクエリで保持する', async () => {
