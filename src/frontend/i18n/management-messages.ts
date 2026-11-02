@@ -80,6 +80,8 @@ export const MANAGEMENT_MESSAGES = {
     observedAt: '計測日時（日本時間）',
     items: '入力項目',
     itemsHint: '入力する項目だけ、値を入力してください（1つ以上）',
+    itemsHintSatisfaction: '9観点すべてを選んでください（1〜5 スター）',
+    starOption: (stars: number) => `${String(stars)}スター`,
     note: '備考（所感・補足情報）',
     selectPlaceholder: '選択してください',
     save: '保存する',
