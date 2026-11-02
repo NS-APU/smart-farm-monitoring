@@ -643,7 +643,8 @@ textarea {
 }
 
 .log-result-failure,
-.log-result-failed {
+.log-result-failed,
+.log-result-expired {
   background: var(--status-error-fill);
   color: var(--status-error-on);
 }

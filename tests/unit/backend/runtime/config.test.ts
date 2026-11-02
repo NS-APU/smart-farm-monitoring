@@ -236,6 +236,32 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('連携の破棄の期限（FEDERATION_EXPIRY_DAYS。#204）', () => {
+    it('既定は 30 日。環境変数で変えられる', () => {
+      expect(parseConfig({}).federationExpiryDays).toBe(30);
+      expect(parseConfig({ FEDERATION_EXPIRY_DAYS: '7' }).federationExpiryDays).toBe(7);
+    });
+
+    it.each([
+      ['下限（1 日）', '1', 1],
+      ['上限（365 日）', '365', 365],
+    ])('境界値: %s は、有効', (_name, value, expected) => {
+      expect(parseConfig({ FEDERATION_EXPIRY_DAYS: value }).federationExpiryDays).toBe(expected);
+    });
+
+    it.each([
+      ['0 日', '0'],
+      ['366 日（上限の外）', '366'],
+      ['小数', '1.5'],
+      ['数値でない', 'long'],
+      ['負', '-1'],
+    ])('範囲外・不正な値は、設定エラー: %s', (_name, value) => {
+      expect(() => parseConfig({ FEDERATION_EXPIRY_DAYS: value })).toThrow(
+        'FEDERATION_EXPIRY_DAYS',
+      );
+    });
+  });
+
   it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {
     expect(parseConfig({ DEMO_SEED_DAYS: '30' }).demoSeedDays).toBe(30);
     expect(parseConfig({ DEMO_SEED_DAYS: '1' }).demoSeedDays).toBe(1);

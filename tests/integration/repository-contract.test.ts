@@ -710,6 +710,45 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       SENT: 2,
       FAILED: 1,
       HELD: 1,
+      EXPIRED: 0,
+    });
+  });
+
+  it('連携キュー: 期限切れの項目は、送信の対象にも、戻す対象にも含めず、状態ごとの件数に数える（#204）', async () => {
+    const { repositories } = create();
+    const base = {
+      targetType: 'EVALUATION' as const,
+      payload: {},
+      attempts: 1,
+      updatedAt: '2026-10-09T00:00:00.000Z',
+      nextAttemptAt: '2026-10-09T09:00:00.000Z',
+    };
+    await repositories.federation.enqueue({
+      ...base,
+      federationItemId: 'x-1',
+      targetRef: 'x-1',
+      status: 'HELD',
+      enqueuedAt: '2026-10-09T00:01:00.000Z',
+    });
+    await repositories.federation.update({
+      ...base,
+      federationItemId: 'x-1',
+      targetRef: 'x-1',
+      status: 'EXPIRED',
+      enqueuedAt: '2026-10-09T00:01:00.000Z',
+    });
+    const now = new Date('2026-10-09T12:00:00.000Z');
+
+    expect(await repositories.federation.listDue(now, 10)).toEqual([]);
+    expect(
+      await repositories.federation.listWaiting(new Date('2026-10-09T03:00:00.000Z'), 10),
+    ).toEqual([]);
+    expect(await repositories.federation.countByStatus()).toEqual({
+      PENDING: 0,
+      SENT: 0,
+      FAILED: 0,
+      HELD: 0,
+      EXPIRED: 1,
     });
   });
 

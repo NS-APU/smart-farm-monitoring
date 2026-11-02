@@ -132,7 +132,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   STORE[(観測値・評価結果)] --> SEL[連携対象の選択<br>生データ・派生データ]
-  SEL --> Q[(連携キュー<br>待機・送信済・失敗・保留)]
+  SEL --> Q[(連携キュー<br>待機・送信済・失敗・保留・期限切れ)]
   Q --> JOB[連携ジョブ]
   JOB --> AG[農業情報基盤]
   JOB -->|結果を記録| Q

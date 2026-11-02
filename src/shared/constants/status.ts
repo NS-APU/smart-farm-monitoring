@@ -47,17 +47,21 @@ export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];
 export const OBSERVATION_QUALITIES = ['VALID', 'MISSING', 'LATE', 'INVALID'] as const;
 export type ObservationQuality = (typeof OBSERVATION_QUALITIES)[number];
 
-export const NOTIFICATION_KINDS = ['STATUS_CHANGE', 'INGESTION_FAILURE'] as const;
+export const NOTIFICATION_KINDS = [
+  'STATUS_CHANGE',
+  'INGESTION_FAILURE',
+  'FEDERATION_EXPIRED',
+] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 export const READ_STATES = ['UNREAD', 'READ'] as const;
 export type ReadState = (typeof READ_STATES)[number];
 
-/** 連携キューの項目の状態。 */
-export const FEDERATION_STATUSES = ['PENDING', 'SENT', 'FAILED', 'HELD'] as const;
+/** 連携キューの項目の状態。EXPIRED（期限切れ）は、破棄の期限（既定 30 日）を過ぎて、破棄した項目（ADR-0016 の D-06）。 */
+export const FEDERATION_STATUSES = ['PENDING', 'SENT', 'FAILED', 'HELD', 'EXPIRED'] as const;
 export type FederationStatus = (typeof FEDERATION_STATUSES)[number];
-/** 連携の送信結果（成功／失敗／保留。FR-8.3）。キューの状態から、送信前の PENDING を除いたもの。 */
-export const FEDERATION_RESULTS = ['SENT', 'FAILED', 'HELD'] as const;
+/** 連携の結果（成功／失敗／保留／期限切れ。FR-8.3）。キューの状態から、送信前の PENDING を除いたもの。 */
+export const FEDERATION_RESULTS = ['SENT', 'FAILED', 'HELD', 'EXPIRED'] as const;
 export type FederationResult = (typeof FEDERATION_RESULTS)[number];
 
 /** 取得間隔の候補（分）。FR-1.5。 */

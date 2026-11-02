@@ -494,7 +494,13 @@ describe('連携（DynamoDB）', () => {
     await federation.update({ ...item('f-1', 'FAILED', 1), attempts: 2 });
     await federation.update(item('f-2', 'SENT', 2));
 
-    expect(await federation.countByStatus()).toEqual({ PENDING: 0, SENT: 1, FAILED: 1, HELD: 0 });
+    expect(await federation.countByStatus()).toEqual({
+      PENDING: 0,
+      SENT: 1,
+      FAILED: 1,
+      HELD: 0,
+      EXPIRED: 0,
+    });
   });
 
   it('送信してよい項目は、読む 1 回の件数より多くても、積んだ順に、上限の件数だけ返す', async () => {

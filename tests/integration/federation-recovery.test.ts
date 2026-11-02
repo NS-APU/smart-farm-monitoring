@@ -22,6 +22,7 @@ function setup(overrides: { batchSize?: number } = {}) {
   const sent: string[] = [];
   const service = createFederationService({
     federation: repositories.federation,
+    notifications: { notifyFederationExpired: () => Promise.resolve(null) },
     port: {
       send: (items) => {
         if (down) {
@@ -67,8 +68,8 @@ describe('送信に成功したら、溜まった項目を、すぐ送る（#203
     const first = await service.runPending();
     const second = await service.runPending();
 
-    expect(first).toEqual({ sent: 1, failed: 0, held: 0 });
-    expect(second).toEqual({ sent: 2, failed: 0, held: 0 });
+    expect(first).toEqual({ sent: 1, failed: 0, held: 0, expired: 0 });
+    expect(second).toEqual({ sent: 2, failed: 0, held: 0, expired: 0 });
     expect(sent).toEqual(['c', 'a', 'b']);
   });
 

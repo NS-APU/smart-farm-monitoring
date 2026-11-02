@@ -180,6 +180,7 @@ export interface ContainerOverrides {
 function buildSettings(config: AppConfig, overrides: ContainerOverrides): AppSettings {
   return {
     ...DEFAULT_APP_SETTINGS,
+    federation: { ...DEFAULT_APP_SETTINGS.federation, expiryDays: config.federationExpiryDays },
     defaultIngestionIntervalMinutes: config.defaultIngestionIntervalMinutes,
     staleAfterIntervals: config.staleAfterIntervals,
     ingestion: {
@@ -374,14 +375,6 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
-  const federation = createFederationService({
-    federation: repositories.federation,
-    port: mocks.federation,
-    clock,
-    ids,
-    settings: settings.federation,
-    logger,
-  });
   const notificationService = createNotificationService({
     notifications: repositories.notifications,
     pushSubscriptions: repositories.pushSubscriptions,
@@ -389,6 +382,15 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     clock,
     ids,
     settings: settings.notification,
+    logger,
+  });
+  const federation = createFederationService({
+    federation: repositories.federation,
+    notifications: notificationService,
+    port: mocks.federation,
+    clock,
+    ids,
+    settings: settings.federation,
     logger,
   });
   const evaluationService = createEvaluationService({

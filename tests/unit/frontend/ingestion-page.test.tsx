@@ -57,7 +57,7 @@ function ingestionLog(overrides: Record<string, unknown> = {}) {
   };
 }
 
-const QUEUE = { PENDING: 1, SENT: 2, FAILED: 3, HELD: 4 };
+const QUEUE = { PENDING: 1, SENT: 2, FAILED: 3, HELD: 4, EXPIRED: 5 };
 
 function federationLog(overrides: Record<string, unknown> = {}) {
   return {
@@ -146,6 +146,35 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(
       within(custom).getByRole<HTMLButtonElement>('button', { name: '設定を保存' }).disabled,
     ).toBe(true);
+  });
+
+  it('連携の記録の「期限切れ」（破棄の期限を過ぎて破棄した）と、連携キューの期限切れの件数を表示する（#204）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'GET /federation/logs': () =>
+          jsonResponse({
+            items: [
+              federationLog({
+                logId: 'f-3',
+                result: 'EXPIRED',
+                itemCount: 7,
+                message: '連携の期限（30 日）を過ぎた項目を、破棄しました',
+              }),
+            ],
+            nextCursor: null,
+            queue: QUEUE,
+          }),
+      }),
+    );
+
+    const [row] = await screen.findAllByTestId('federation-log-row');
+
+    expect(row?.getAttribute('data-result')).toBe('EXPIRED');
+    expect(row?.textContent).toContain('期限切れ');
+    expect(row?.textContent).toContain('連携の期限（30 日）を過ぎた項目を、破棄しました');
+    expect(screen.getByTestId('queue-EXPIRED').textContent).toContain('期限切れ');
+    expect(screen.getByTestId('queue-EXPIRED').textContent).toContain('5');
   });
 
   it('取り込みのログ（日時・取り込み元・結果・件数・エラー内容）と、連携の状況（キューの件数・結果の記録）を表示する', async () => {

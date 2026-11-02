@@ -47,8 +47,15 @@ export interface AppSettings {
     readonly retryMaxDelayMinutes: number;
     /** 農業情報基盤への1回の送信のタイムアウト（ミリ秒）。 */
     readonly ioTimeoutMs: number;
+    /** 破棄の期限（日）。連携キューに積んでから、この日数を過ぎても送れていない項目は、破棄する（ADR-0016 の D-06）。 */
+    readonly expiryDays: number;
   };
 }
+
+/** 連携の破棄の期限（日）の既定と、設定できる範囲。 */
+export const DEFAULT_FEDERATION_EXPIRY_DAYS = 30;
+export const MIN_FEDERATION_EXPIRY_DAYS = 1;
+export const MAX_FEDERATION_EXPIRY_DAYS = 365;
 
 /** 外部との通信のタイムアウトの既定（ミリ秒）。Lambda の実行時間・ゲートウェイの時間制限より、十分に短くする。 */
 const DEFAULT_IO_TIMEOUT_MS = 30_000;
@@ -78,5 +85,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     retryBaseDelayMinutes: 5,
     retryMaxDelayMinutes: 720,
     ioTimeoutMs: DEFAULT_IO_TIMEOUT_MS,
+    expiryDays: DEFAULT_FEDERATION_EXPIRY_DAYS,
   },
 };
