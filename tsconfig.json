@@ -29,6 +29,7 @@
     "playwright.config.ts",
     "playwright.stress.config.ts",
     "playwright.smoke.config.ts",
+    "playwright.smoke-auth.config.ts",
     "dev-ports.ts"
   ]
 }

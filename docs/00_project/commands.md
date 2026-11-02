@@ -306,6 +306,27 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 - 構成の詳細は dev_spec.md 6.6
 - **状態: 実行済み**（2026-10-21。AWS の評価環境。スモークテスト・初期表示・自動更新・推移・取り込みの実行時間。結果は test.spec.md 13.3・`test-result/smoketest.result.log`）。コールドスタート（`smoke-03`）も、実行済み（2026-10-21。コールドは、次の操作可能まで 3.21 秒で、通常の 3 秒を約 0.2 秒超過。コールドスタートの許容（6 秒以内）の範囲内。2026-10-28 に、NFR-3.4 に明記し、対策はしないと決めた。test.spec.md 13.3・Issue #168）
 
+### 認証の確認（評価環境。Issue #243〜#245。D-44・D-45）
+
+Cognito を偽にした自動テストでは確かめられない、実際の経路（CloudFront・API の Lambda・Cognito・DynamoDB）での動きを、確かめる。**手動で実行する**（CI には載せない）。性能の実測（`pnpm test:smoke`）とは、設定を分けている（`playwright.smoke-auth.config.ts`。結果ログ `test-result/smoketest.result.log` を上書きしない）。
+
+```powershell
+# PowerShell の例。接続先・ユーザー（管理者。ユーザーの登録・削除ができること）は、上の「サーバーレス環境のスモークテスト」と同じ
+$env:SMOKE_BASE_URL = '<SiteUrl>'
+$env:SMOKE_USER_ID = '<管理者のユーザーID>'
+$env:SMOKE_PASSWORD = (Read-Host 'パスワード' -MaskInput)   # 履歴に残さない
+
+pnpm test:smoke:auth
+
+# 終わったら、必ず消す
+Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE_LOGIN_LIMIT -ErrorAction SilentlyContinue
+```
+
+- **確認する内容**（`tests/smoke/auth/auth-01-password-change.ts`）: 管理者が決めたパスワードで、最初にログインすると、変更が必要（ほかの API は 403 `PASSWORD_CHANGE_REQUIRED`）→ 現在のパスワードの誤りは 400 → 本人が変更すると、新しいセッションが返り、変更が必要な旨が外れる → 古いセッション（変更に使った端末・別の端末）のアクセストークン・リフレッシュトークンは、すぐに使えなくなる → 管理者が決めたパスワードでは、ログインできない → 管理者が再設定したパスワードも、一時のもの（管理者自身のセッションは、そのまま）→ 変更履歴に、パスワードの変更が残り、パスワードは残らない。これで、Lambda の IAM の権限（`AdminSetUserPassword`・`AdminInitiateAuth`・`AdminUserGlobalSignOut`）が足りること、Cognito が、全セッションの失効を、すぐに反映することを確かめる
+- **環境に書き込む**: 確認用のユーザー（`smoke-pw-<乱数>`）を 1 人登録し、終わりに削除する（変更履歴には残る）。途中で失敗しても、削除を試みる。削除できなかったときは、ユーザー管理で、`smoke-pw-` で始まるユーザーを削除する
+- **任意: ログインの失敗の制限（D-44）の確認**: `$env:SMOKE_LOGIN_LIMIT = '<回数>'` を指定すると、その回数の失敗のあと、429 になることを確かめる（存在しないユーザーの失敗を、接続元ごとに数える）。**この端末の接続元が、制限の時間（既定 15 分）、ログインできなくなる**ため、最後に行う（確認用のユーザーの削除のあと）。回数を変えて確かめるには、GitHub の Environment（development）の変数 `SFM_LOGIN_FAILURE_LIMIT`・`SFM_LOGIN_FAILURE_WINDOW_MINUTES` を設定し、「Deploy development」を実行したあと、同じ回数を `SMOKE_LOGIN_LIMIT` に指定する。確認したら、変数を消して（既定の 5 回 / 15 分に戻す）、もう一度デプロイする
+- **状態: ローカル（メモリ・ローカル認証。`LOGIN_FAILURE_LIMIT=3`）で、テストの論理は確認済み**（2026-11-02。2 件成功）。AWS の評価環境での実行は、未実施
+
 ## CI（GitHub Actions）
 
 開発サイト・本番サイトのデプロイは、`.github/workflows/deploy-development.yml`・`deploy-production.yml`（手動実行のみ。OIDC で AWS に入る。本番サイトは、`main` だけ・承認が必要。手順は「評価環境（IaC）」と operations.md 9 章）。以下は、PR の CI（`ci.yml`）。
