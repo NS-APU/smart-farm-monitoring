@@ -29,6 +29,18 @@ import type { AccessPolicy } from './access-policy.ts';
 
 const USER_TARGET_TYPE = 'user' satisfies AuditTargetType;
 
+/**
+ * 全セッションの失効のあと、新しいパスワードでログインしても、そのセッションが、失効として扱われることがある
+ * （Cognito は、失効と同じ秒に発行したトークンを、失効として扱う。評価環境で確認）。有効になるまで、間を置いて、やり直す。
+ */
+const NEW_SESSION_RETRY_DELAY_MS = 700;
+const NEW_SESSION_MAX_RETRIES = 3;
+
+const wait = (milliseconds: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+
 /** パスワードの変更の入力（本人。現在のパスワードと、新しいパスワード）。 */
 export interface ChangeOwnPasswordInput {
   readonly currentPassword: string;
@@ -69,7 +81,9 @@ export interface UserServiceDeps {
   readonly audit: AuditService;
   readonly clock: ClockPort;
   /** セッションの失効・現在のパスワードの確認と新しいセッションの発行（ログイン。AuthPort の一部）。 */
-  readonly sessions: Pick<AuthPort, 'login' | 'revokeSessionsOf'>;
+  readonly sessions: Pick<AuthPort, 'login' | 'revokeSessionsOf' | 'verifyAccessToken'>;
+  /** 新しいセッションが有効になるのを待つ間隔（ミリ秒）の待ち。既定は、実際の待ち（テストで差し替える）。 */
+  readonly delay?: (milliseconds: number) => Promise<void>;
   readonly pushSubscriptions: PushSubscriptionRepository;
 }
 
@@ -85,6 +99,7 @@ function toPublicUser(user: UserRecord): PublicUser {
 
 export function createUserService(deps: UserServiceDeps): UserService {
   const { users, policy, credentials, audit, clock, sessions, pushSubscriptions } = deps;
+  const delay = deps.delay ?? wait;
 
   function assertKnownRole(role: string): void {
     if (!policy.isKnownRole(role)) {
@@ -109,6 +124,30 @@ export function createUserService(deps: UserServiceDeps): UserService {
         'ユーザーを管理できる利用者が、1人もいなくなるため、このロールには変更できません',
       );
     }
+  }
+
+  /**
+   * 新しいパスワードで、ログインして、有効なセッションを返す。失効として扱われたら（直前の全セッションの失効と同じ秒の発行）、
+   * 間を置いて、やり直す。やり直しても有効にならなければ、パスワードは変更済みのため、ログインし直す旨を伝える。
+   */
+  async function issueSession(
+    userId: UserId,
+    password: string,
+    clientKey: string,
+  ): Promise<AuthSession> {
+    for (let retry = 0; retry <= NEW_SESSION_MAX_RETRIES; retry += 1) {
+      const session = await sessions.login({ userId, password }, clientKey);
+      if ((await sessions.verifyAccessToken(session.accessToken)) !== null) {
+        return session;
+      }
+      if (retry < NEW_SESSION_MAX_RETRIES) {
+        await delay(NEW_SESSION_RETRY_DELAY_MS);
+      }
+    }
+    throw new AppError(
+      'UNAUTHENTICATED',
+      'パスワードを変更しました。新しいパスワードで、ログインし直してください',
+    );
   }
 
   async function findUser(userId: UserId): Promise<UserRecord> {
@@ -221,7 +260,7 @@ export function createUserService(deps: UserServiceDeps): UserService {
       // 確認に使ったセッションを含め、すべてのセッションを失効し、新しいパスワードで、新しいセッションを作る
       // （Cognito は、端末ごとにセッションを選べないため、実装によらず、同じ動きにする）
       await sessions.revokeSessionsOf(userId);
-      const session = await sessions.login({ userId, password: input.newPassword }, clientKey);
+      const session = await issueSession(userId, input.newPassword, clientKey);
       await audit.record({
         operation: 'UPDATE',
         targetType: USER_TARGET_TYPE,

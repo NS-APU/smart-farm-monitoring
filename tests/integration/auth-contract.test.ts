@@ -83,6 +83,11 @@ function build(
     clock,
     sessions: auth,
     pushSubscriptions: repositories.pushSubscriptions,
+    // 新しいセッションが有効になるのを待つ間（実際は待つ）、時計を進める（凍結した時計では、待っても、時間が進まないため）
+    delay: (milliseconds) => {
+      clock.advance(milliseconds);
+      return Promise.resolve();
+    },
   });
   return { auth, credentials, users: repositories.users, clock, userService };
 }
@@ -101,25 +106,32 @@ const LOCAL: Factory = {
     })),
 };
 
-const COGNITO: Factory = {
-  name: 'Cognito（偽）',
-  create: () =>
-    build((users, clock) => {
-      const fake = createFakeCognito({
-        userPoolId: 'pool',
-        clientId: 'client',
-        now: () => clock.now(),
-      });
-      return createCognitoIdentity({
-        client: fake,
-        userPoolId: 'pool',
-        clientId: 'client',
-        users,
-        clock,
-        throttle: createInMemoryLoginThrottle(clock),
-      });
-    }),
-};
+function cognitoFactory(name: string, revokeSameSecond: boolean): Factory {
+  return {
+    name,
+    create: () =>
+      build((users, clock) => {
+        const fake = createFakeCognito({
+          userPoolId: 'pool',
+          clientId: 'client',
+          now: () => clock.now(),
+          revokeSameSecond,
+        });
+        return createCognitoIdentity({
+          client: fake,
+          userPoolId: 'pool',
+          clientId: 'client',
+          users,
+          clock,
+          throttle: createInMemoryLoginThrottle(clock),
+        });
+      }),
+  };
+}
+
+const COGNITO: Factory = cognitoFactory('Cognito（偽）', false);
+/** 全セッションの失効と同じ秒に発行したトークンも、失効として扱う Cognito（実際の挙動。Issue #245）。 */
+const COGNITO_SAME_SECOND: Factory = cognitoFactory('Cognito（偽。同じ秒の失効あり）', true);
 
 const FACTORIES: readonly Factory[] = [LOCAL, COGNITO];
 
@@ -457,7 +469,7 @@ describe('実装ごとに違う振る舞い（ADR-0008）', () => {
     ).resolves.toBeDefined();
   });
 
-  describe.each(FACTORIES)(
+  describe.each([LOCAL, COGNITO_SAME_SECOND])(
     '管理者が決めたパスワードは、一時のもの。本人が変更する（Issue #245。D-45。$name）',
     ({ create }) => {
       const TEMPORARY = 'Dummy-Passw0rd-temp';
