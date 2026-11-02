@@ -795,3 +795,49 @@ textarea {
     min-width: 13em;
   }
 }
+
+/* スターで選ぶ入力（満足度。D-18）。ラジオは、見えない状態で標準の操作（矢印キー・Tab）を保ち、スターの見た目で示す */
+.star-field .star-label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.star-rating {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.star-rating:focus {
+  outline: none;
+}
+
+.star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 指で押しやすい大きさ（44px 四方）にする */
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 8px;
+  color: var(--color-border-control);
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.star-on {
+  color: var(--color-rating);
+}
+
+.star:has(input:focus-visible) {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.field-invalid .star-rating {
+  outline: 2px solid var(--status-error-main);
+  outline-offset: 2px;
+  border-radius: 8px;
+}

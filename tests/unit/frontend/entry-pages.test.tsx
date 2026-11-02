@@ -1,6 +1,9 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { satisfactionItemKey } from '../../../src/shared/constants/items.ts';
 import { PERMISSIONS } from '../../../src/shared/constants/permissions.ts';
+import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '../../../src/shared/constants/viewpoints.ts';
+import { toEquipmentId } from '../../../src/shared/schemas/common.ts';
 import { jsonResponse } from '../../support/frontend.ts';
 import {
   FULL_LOGIN,
@@ -34,6 +37,33 @@ function entryForm(): HTMLElement {
 function field(label: string): HTMLElement {
   return within(entryForm()).getByLabelText(label, { exact: false });
 }
+
+/** 満足度の観点のスター（ラジオ）のグループ。名前は、観点の項目名（例: 満足度（収穫精度））。 */
+function starGroup(container: HTMLElement, label: string): HTMLElement {
+  return within(container).getByRole('radiogroup', { name: label });
+}
+
+function starRadio(container: HTMLElement, label: string, stars: number): HTMLInputElement {
+  return within(starGroup(container, label)).getByRole<HTMLInputElement>('radio', {
+    name: `${String(stars)}スター`,
+  });
+}
+
+function pickStars(container: HTMLElement, label: string, stars: number): void {
+  fireEvent.click(starRadio(container, label, stars));
+}
+
+const SATISFACTION_LABELS = [
+  '満足度（収穫精度）',
+  '満足度（収穫速度）',
+  '満足度（環境適応性）',
+  '満足度（操作性）',
+  '満足度（メンテナンス性）',
+  '満足度（コスト効率）',
+  '満足度（安全性）',
+  '満足度（データ活用度合い）',
+  '満足度（耐久性）',
+];
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -92,6 +122,100 @@ describe('データ入力（UC-06。SC-06）', () => {
       within(screen.getByTestId('entry-items')).getByLabelText<HTMLInputElement>('操作時間（分）')
         .value,
     ).toBe('');
+  });
+
+  describe('満足度は、スターで選び、9観点が揃わないと保存できない（D-18）', () => {
+    async function openSatisfactionForm(routes: Routes = {}) {
+      const rendered = renderApp('/data-entry', routes);
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'HOUSE-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'SATISFACTION' } });
+      return { ...rendered, items: screen.getByTestId('entry-items') };
+    }
+
+    it('9観点それぞれに、1〜5 のスターを選ぶグループを表示する（数値の文字入力ではない）', async () => {
+      const { items } = await openSatisfactionForm();
+
+      expect(within(items).getAllByRole('radiogroup')).toHaveLength(9);
+      for (const label of SATISFACTION_LABELS) {
+        expect(within(starGroup(items, label)).getAllByRole('radio')).toHaveLength(5);
+      }
+      expect(within(items).queryByRole('textbox')).toBeNull();
+      expect(within(items).queryByRole('spinbutton')).toBeNull();
+      expect(within(items).getByText('9観点すべてを選んでください（1〜5 スター）')).toBeDefined();
+    });
+
+    it('スターを選ぶと、その値が選ばれた状態になる。選び直せる', async () => {
+      const { items } = await openSatisfactionForm();
+
+      pickStars(items, '満足度（収穫精度）', 4);
+      expect(starRadio(items, '満足度（収穫精度）', 4).checked).toBe(true);
+      pickStars(items, '満足度（収穫精度）', 2);
+
+      expect(starRadio(items, '満足度（収穫精度）', 2).checked).toBe(true);
+      expect(starRadio(items, '満足度（収穫精度）', 4).checked).toBe(false);
+    });
+
+    it('何も選ばずに保存すると、9観点すべてのエラーを示し、API は呼ばない', async () => {
+      const { calls, items } = await openSatisfactionForm();
+
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      for (const label of SATISFACTION_LABELS) {
+        expect(await screen.findByText(`${label}を選択してください`)).toBeDefined();
+        expect(starGroup(items, label).getAttribute('aria-invalid')).toBe('true');
+      }
+      expect(callsOf(calls, 'POST', '/manual-entries')).toHaveLength(0);
+    });
+
+    it('一部の観点だけを選んで保存すると、選んでいない観点のエラーだけを示し、API は呼ばない', async () => {
+      const { calls, items } = await openSatisfactionForm();
+      for (const label of SATISFACTION_LABELS.slice(1)) {
+        pickStars(items, label, 3);
+      }
+
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      expect(await screen.findByText('満足度（収穫精度）を選択してください')).toBeDefined();
+      expect(screen.getAllByText(/を選択してください/)).toHaveLength(1);
+      expect(callsOf(calls, 'POST', '/manual-entries')).toHaveLength(0);
+    });
+
+    it('9観点すべてを選んで保存すると、9観点の整数の値を送り、保存後は選択を空に戻す', async () => {
+      const { calls, items } = await openSatisfactionForm({
+        'POST /manual-entries': () => jsonResponse(SAVED, 201),
+      });
+      SATISFACTION_LABELS.forEach((label, index) => {
+        pickStars(items, label, (index % 5) + 1);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      await screen.findByTestId('entry-result');
+      expect(callsOf(calls, 'POST', '/manual-entries')[0]?.body).toMatchObject({
+        equipmentId: 'HOUSE-01',
+        category: 'SATISFACTION',
+        items: Object.fromEntries(
+          SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId, index) => [
+            satisfactionItemKey(viewpointId),
+            (index % 5) + 1,
+          ]),
+        ),
+      });
+      expect(
+        within(screen.getByTestId('entry-items')).queryAllByRole('radio', { checked: true }),
+      ).toHaveLength(0);
+    });
+
+    it('スターは、観点ごとに 1 つのラジオのグループ（矢印キーで選べ、Tab の停止は 1 つ）', async () => {
+      const { items } = await openSatisfactionForm();
+      const radios = within(starGroup(items, '満足度（収穫精度）')).getAllByRole<HTMLInputElement>(
+        'radio',
+      );
+
+      expect(new Set(radios.map((radio) => radio.name)).size).toBe(1);
+      expect(radios.map((radio) => radio.value)).toEqual(['1', '2', '3', '4', '5']);
+    });
   });
 
   it('項目を1つも入力していなければ、「1つ以上の項目を入力」のエラー。数値でない値・範囲外の値は、項目ごとのエラー', async () => {
@@ -452,6 +576,38 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     expect(screen.queryByTestId('entry-edit')).toBeNull();
     await waitFor(() => {
       expect(screen.getAllByTestId('entry-row')[0]?.textContent).toContain('故障回数: 5回');
+    });
+  });
+
+  it('修正: 一部の観点だけの既存の満足度の入力は、未入力の観点を空のまま示し、9観点を揃えるまで保存できない', async () => {
+    const legacy = manualEntry({
+      equipmentId: toEquipmentId('HOUSE-01'),
+      category: 'SATISFACTION',
+      items: { 'satisfaction.safety': 3 },
+    });
+    const { calls } = renderApp('/data-entry/list', {
+      'GET /manual-entries': () => jsonResponse({ items: [legacy], nextCursor: null }),
+      'PUT /manual-entries/e-1': () => jsonResponse(SAVED),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('entry-edit');
+    expect(starRadio(edit, '満足度（安全性）', 3).checked).toBe(true);
+
+    fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+    expect(await within(edit).findByText('満足度（収穫精度）を選択してください')).toBeDefined();
+    expect(callsOf(calls, 'PUT', '/manual-entries/e-1')).toHaveLength(0);
+
+    for (const label of SATISFACTION_LABELS.filter((item) => item !== '満足度（安全性）')) {
+      pickStars(edit, label, 5);
+    }
+    fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(callsOf(calls, 'PUT', '/manual-entries/e-1')).toHaveLength(1);
+    });
+    expect(callsOf(calls, 'PUT', '/manual-entries/e-1')[0]?.body).toMatchObject({
+      items: { 'satisfaction.safety': 3, 'satisfaction.harvestAccuracy': 5 },
     });
   });
 

@@ -27,8 +27,8 @@ import {
   openAs,
   prepareApp,
 } from './support/app.ts';
-import { fillEntryForm, saveEntry } from './support/entry.ts';
-import { daysAgo, hoursAgo, shot } from './support/viewpoint-scenarios.ts';
+import { allSatisfactionStars, fillEntryForm, saveEntry } from './support/entry.ts';
+import { daysAgo, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 import { expectNoHorizontalScroll } from './support/pages.ts';
 
 const VIEWPOINTS = [
@@ -43,7 +43,11 @@ const VIEWPOINTS = [
   ['durability', '耐久性'],
 ] as const;
 
-/** 満足度の入力（ハウス）。scores は、9観点の順（収穫精度 … 耐久性）。null は、その観点を入力しない。 */
+/**
+ * 満足度の入力（ハウス）。scores は、9観点の順（収穫精度 … 耐久性）。null は、その観点を入力しない。
+ * 9観点が揃う入力は、手動入力の API で登録する。一部の観点だけの入力は、API が受け付けない（D-18）ため、
+ * 「既存の（D-18 より前の）一部だけの入力」として、観測値を直接投入する。
+ */
 async function enterSatisfaction(
   request: Parameters<typeof prepareApp>[0],
   scores: readonly (number | null)[],
@@ -57,7 +61,19 @@ async function enterSatisfaction(
     }
   });
   if (Object.keys(items).length === 0) {
-    return; // まったく入力しない（項目がない入力は、登録できない）
+    return; // まったく入力しない
+  }
+  if (Object.keys(items).length < VIEWPOINTS.length) {
+    await seed(request, {
+      observations: Object.entries(items).map(([itemKey, value]) => ({
+        equipmentId: HOUSE_ID,
+        itemKey,
+        observedAt,
+        value,
+        source: 'MANUAL' as const,
+      })),
+    });
+    return;
   }
   await addEntry(request, { equipmentId: HOUSE_ID, category: 'SATISFACTION', observedAt, items });
 }
@@ -86,8 +102,8 @@ test.describe('基本フロー: 満足度の詳細を開き、各観点の満足
       equipment: HOUSE_ID,
       category: 'SATISFACTION',
       observedAt: '2026-10-09T11:00',
-      items: Object.fromEntries(
-        VIEWPOINTS.map(([, name], index) => [`満足度（${name}）`, String(stars[index])]),
+      stars: Object.fromEntries(
+        VIEWPOINTS.map(([, name], index) => [`満足度（${name}）`, stars[index] ?? 4]),
       ),
     });
     await saveEntry(page);
@@ -376,7 +392,7 @@ test.describe('シナリオ: 利用者Aが満足度を入力し、利用者Bが�
       equipment: HOUSE_ID,
       category: 'SATISFACTION',
       observedAt: '2026-10-09T10:00',
-      items: Object.fromEntries(VIEWPOINTS.map(([, name]) => [`満足度（${name}）`, '4'])),
+      stars: allSatisfactionStars(4),
     });
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
@@ -387,14 +403,14 @@ test.describe('シナリオ: 利用者Aが満足度を入力し、利用者Bが�
     await expect(overallScore(b.page)).toHaveText('4.0');
     await expect(b.page.getByTestId('radar').locator('circle.radar-dot')).toHaveCount(9);
     await shot(b.page, testInfo, 'uc21-user-b');
-    // 利用者B: 収穫精度の評価を 1 つ追加で入力する（別の時刻）
+    // 利用者B: 9観点を入力する（別の時刻。収穫精度だけ 1、ほかは 4）
     await advanceMinutes(request, 1);
     await b.page.goto('/data-entry');
     await fillEntryForm(b.page, {
       equipment: HOUSE_ID,
       category: 'SATISFACTION',
       observedAt: '2026-10-09T11:00',
-      items: { '満足度（収穫精度）': '1' },
+      stars: allSatisfactionStars(4, { '満足度（収穫精度）': 1 }),
     });
     await saveEntry(b.page);
     await expect(b.page.getByTestId('entry-result')).toBeVisible();
