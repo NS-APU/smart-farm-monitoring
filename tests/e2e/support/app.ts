@@ -132,8 +132,48 @@ export async function advanceMinutes(request: APIRequestContext, minutes: number
   await apiOk(request, 'POST', '/dev/clock/advance', { minutes });
 }
 
-/** ユーザーを追加する（ユーザー管理の API）。 */
+/**
+ * 管理者が決めたパスワードで、最初にログインした利用者が、パスワードの変更を済ませた状態にする（Issue #245。D-45）。
+ * 管理者が決めたパスワードは、一時のもの（変更するまで、ほかの操作ができない）。パスワードを、一度、別のものに変え、
+ * もとのパスワードに戻す（新しいパスワードは、現在と同じにはできないため）。終わると、変更が必要な旨は外れ、パスワードは、`user.password`。
+ * ログインの強制そのものを確かめるテスト以外で、登録した利用者を、そのまま使うための補助。
+ */
+export async function settlePassword(
+  request: APIRequestContext,
+  user: Pick<E2eUser, 'userId' | 'password'>,
+): Promise<void> {
+  const interim = `${user.password}x`;
+  const change = async (token: string, currentPassword: string, newPassword: string) => {
+    const response = await request.post('/api/v1/auth/password', {
+      data: { currentPassword, newPassword },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(
+      response.ok(),
+      `POST /auth/password（${user.userId}）: ${String(response.status())}`,
+    ).toBe(true);
+    return LoginResponseSchema.parse(await response.json()).accessToken;
+  };
+  const login = await request.post('/api/v1/auth/login', {
+    data: { userId: user.userId, password: user.password },
+  });
+  expect(login.ok(), `ログイン（${user.userId}）`).toBe(true);
+  const first = LoginResponseSchema.parse(await login.json()).accessToken;
+  const second = await change(first, user.password, interim);
+  await change(second, interim, user.password);
+}
+
+/** ユーザーを追加する（ユーザー管理の API）。管理者が決めたパスワードの変更も、済ませる（`settlePassword`）。 */
 export async function addUser(request: APIRequestContext, user: E2eUser): Promise<void> {
+  await addUserWithTemporaryPassword(request, user);
+  await settlePassword(request, user);
+}
+
+/** ユーザーを追加する（ユーザー管理の API）。パスワードは、管理者が決めた、一時のもの（最初のログインで、変更が必要）。 */
+export async function addUserWithTemporaryPassword(
+  request: APIRequestContext,
+  user: E2eUser,
+): Promise<void> {
   await apiOk(request, 'POST', '/users', {
     userId: user.userId,
     userName: user.userName,

@@ -34,6 +34,7 @@ import {
   robotJson,
   runJob,
   sensorCsv,
+  settlePassword,
   unreadBadge,
 } from './support/app.ts';
 import { E2E_USER } from './support/e2e-user.ts';
@@ -728,6 +729,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await userForm.getByRole('button', { name: '登録する' }).click();
     await expect(page.getByTestId('users-notice')).toHaveText('登録しました');
     await expect(page.getByTestId('user-row').filter({ hasText: USER_B.userId })).toBeVisible();
+    // 管理者が決めたパスワードは、一時のもの（D-45）。利用者Bが、パスワードの変更を済ませた状態にして、続ける
+    await settlePassword(request, USER_B);
 
     // UC-12: ハウス・ロボット・環境センサーを登録する（データ上の識別子で、ファイルの内容と対応づける）
     await goToMenu(page, '設備');
