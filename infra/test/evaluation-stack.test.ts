@@ -306,6 +306,42 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     }
   });
 
+  it('API の環境変数: ログインの失敗の制限（接続元ごと）は、既定で、失敗 5 回 / 15 分。ジョブの Lambda には、持たない（Issue #244。D-44）', () => {
+    const { template } = plainStack();
+    const withSetting = Object.values(
+      template.findResources('AWS::Lambda::Function') as Record<
+        string,
+        { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+      >,
+    ).filter(
+      (resource) => resource.Properties.Environment?.Variables.LOGIN_FAILURE_LIMIT !== undefined,
+    );
+
+    expect(environmentOf(template)).toMatchObject({
+      LOGIN_FAILURE_LIMIT: '5',
+      LOGIN_FAILURE_WINDOW_MINUTES: '15',
+    });
+    // 設定を持つのは、API（ログインを受ける関数）だけ
+    expect(withSetting).toHaveLength(1);
+    expect(withSetting[0]?.Properties.Environment?.Variables.CLIENT_IP_HEADER).toBe(
+      CLIENT_IP_HEADER,
+    );
+  });
+
+  it('API の環境変数: ログインの失敗の制限は、スタックの引数（デプロイ時の指定）で変えられる。コードの変更は、要らない（Issue #244）', () => {
+    const app = newApp();
+    const stack = new EvaluationStack(app, 'Evaluation', {
+      frontendAssetPath: frontendAssets(),
+      data: new DataStack(app, 'Data'),
+      loginFailurePolicy: { limit: 10, windowMinutes: 30 },
+    });
+
+    expect(environmentOf(Template.fromStack(stack))).toMatchObject({
+      LOGIN_FAILURE_LIMIT: '10',
+      LOGIN_FAILURE_WINDOW_MINUTES: '30',
+    });
+  });
+
   it('API の環境変数 EVALUATION_ON_WRITE は deferred（手動入力の保存・削除の応答の前に、評価しない。Issue #123。ADR-0014）。ジョブの Lambda には、持たない', () => {
     const { template } = plainStack();
     const environment = environmentOf(template);

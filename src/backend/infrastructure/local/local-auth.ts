@@ -23,12 +23,14 @@ import type { UserRecord } from '../../application/ports/records.ts';
 import type { UserRepository } from '../../application/ports/repositories.ts';
 import {
   ACCESS_TOKEN_TTL_MINUTES,
+  DEFAULT_LOGIN_FAILURE_POLICY,
   LOGIN_FAILED_MESSAGE,
   LOGIN_FAILURE_LIMIT,
   LOGIN_FAILURE_WINDOW_MINUTES,
   LOGIN_LOCKED_MESSAGE,
   REFRESH_TOKEN_TTL_DAYS,
   SESSION_INVALID_MESSAGE,
+  type LoginFailurePolicy,
 } from '../common/auth-policy.ts';
 import { hashPassword, verifyPassword } from './password-hasher.ts';
 
@@ -66,11 +68,14 @@ export interface LocalAuthDeps {
   readonly clock: ClockPort;
   /** 失敗の記録を保持する接続元の数の上限（テストで小さくする）。 */
   readonly maxTrackedClients?: number;
+  /** 接続元ごとのログインの失敗の制限。既定は、失敗 5 回 / 15 分。 */
+  readonly loginFailurePolicy?: LoginFailurePolicy;
 }
 
 export function createLocalAuth(deps: LocalAuthDeps): AuthPort {
   const { users, clock } = deps;
   const maxTrackedClients = deps.maxTrackedClients ?? DEFAULT_MAX_TRACKED_CLIENTS;
+  const failurePolicy = deps.loginFailurePolicy ?? DEFAULT_LOGIN_FAILURE_POLICY;
   const sessionsByAccess = new Map<string, Session>();
   const sessionsByRefresh = new Map<string, Session>();
   const failures = new Map<string, number[]>();
@@ -78,7 +83,7 @@ export function createLocalAuth(deps: LocalAuthDeps): AuthPort {
   const dummyHash = hashPassword(randomBytes(TOKEN_BYTES).toString('hex'));
 
   function recentFailures(clientKey: string): number[] {
-    const threshold = clock.now().getTime() - LOGIN_FAILURE_WINDOW_MINUTES * MS_PER_MINUTE;
+    const threshold = clock.now().getTime() - failurePolicy.windowMinutes * MS_PER_MINUTE;
     const recent = (failures.get(clientKey) ?? []).filter((at) => at > threshold);
     if (recent.length === 0) {
       failures.delete(clientKey);
@@ -158,7 +163,7 @@ export function createLocalAuth(deps: LocalAuthDeps): AuthPort {
 
   return {
     async login(credentials, clientKey) {
-      if (recentFailures(clientKey).length >= LOGIN_FAILURE_LIMIT) {
+      if (recentFailures(clientKey).length >= failurePolicy.limit) {
         throw new AppError('RATE_LIMITED', LOGIN_LOCKED_MESSAGE);
       }
       const parsedUserId = UserIdSchema.safeParse(credentials.userId);

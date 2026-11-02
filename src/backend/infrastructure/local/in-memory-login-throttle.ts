@@ -6,18 +6,21 @@
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import type { ClockPort } from '../../application/ports/clock-port.ts';
 import type { LoginThrottlePort } from '../../application/ports/login-throttle-port.ts';
-import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MINUTES } from '../common/auth-policy.ts';
+import { DEFAULT_LOGIN_FAILURE_POLICY, type LoginFailurePolicy } from '../common/auth-policy.ts';
 
-export function createInMemoryLoginThrottle(clock: ClockPort): LoginThrottlePort {
+export function createInMemoryLoginThrottle(
+  clock: ClockPort,
+  policy: LoginFailurePolicy = DEFAULT_LOGIN_FAILURE_POLICY,
+): LoginThrottlePort {
   const failures = new Map<string, number[]>();
 
   function recent(clientKey: string): number[] {
-    const threshold = clock.now().getTime() - LOGIN_FAILURE_WINDOW_MINUTES * MS_PER_MINUTE;
+    const threshold = clock.now().getTime() - policy.windowMinutes * MS_PER_MINUTE;
     return (failures.get(clientKey) ?? []).filter((at) => at > threshold);
   }
 
   return {
-    isLocked: (clientKey) => Promise.resolve(recent(clientKey).length >= LOGIN_FAILURE_LIMIT),
+    isLocked: (clientKey) => Promise.resolve(recent(clientKey).length >= policy.limit),
     recordFailure(clientKey) {
       failures.set(clientKey, [...recent(clientKey), clock.now().getTime()]);
       return Promise.resolve();

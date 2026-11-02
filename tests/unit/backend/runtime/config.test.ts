@@ -189,6 +189,53 @@ describe('実行設定（環境変数）', () => {
     expect(() => parseConfig({ EVALUATION_ON_WRITE: 'async' })).toThrow('EVALUATION_ON_WRITE');
   });
 
+  describe('ログインの失敗の制限（接続元ごと。Issue #244。D-44）', () => {
+    it('既定は、失敗 5 回 / 15 分（従来の値）', () => {
+      expect(parseConfig({}).loginFailurePolicy).toEqual({ limit: 5, windowMinutes: 15 });
+    });
+
+    it('LOGIN_FAILURE_LIMIT・LOGIN_FAILURE_WINDOW_MINUTES で、回数・時間を変えられる（片方だけの指定もできる）', () => {
+      expect(
+        parseConfig({ LOGIN_FAILURE_LIMIT: '10', LOGIN_FAILURE_WINDOW_MINUTES: '30' })
+          .loginFailurePolicy,
+      ).toEqual({ limit: 10, windowMinutes: 30 });
+      expect(parseConfig({ LOGIN_FAILURE_LIMIT: '8' }).loginFailurePolicy).toEqual({
+        limit: 8,
+        windowMinutes: 15,
+      });
+      expect(parseConfig({ LOGIN_FAILURE_WINDOW_MINUTES: '60' }).loginFailurePolicy).toEqual({
+        limit: 5,
+        windowMinutes: 60,
+      });
+    });
+
+    it.each([
+      ['回数の下限（1）', { LOGIN_FAILURE_LIMIT: '1' }, { limit: 1, windowMinutes: 15 }],
+      ['回数の上限（100）', { LOGIN_FAILURE_LIMIT: '100' }, { limit: 100, windowMinutes: 15 }],
+      ['時間の下限（1 分）', { LOGIN_FAILURE_WINDOW_MINUTES: '1' }, { limit: 5, windowMinutes: 1 }],
+      [
+        '時間の上限（1440 分 = 24 時間）',
+        { LOGIN_FAILURE_WINDOW_MINUTES: '1440' },
+        { limit: 5, windowMinutes: 1440 },
+      ],
+    ])('境界値: %s は、有効', (_name, env, expected) => {
+      expect(parseConfig(env).loginFailurePolicy).toEqual(expected);
+    });
+
+    it.each([
+      ['回数が 0', 'LOGIN_FAILURE_LIMIT', '0'],
+      ['回数が 101（上限の外）', 'LOGIN_FAILURE_LIMIT', '101'],
+      ['回数が小数', 'LOGIN_FAILURE_LIMIT', '2.5'],
+      ['回数が数値でない', 'LOGIN_FAILURE_LIMIT', 'many'],
+      ['時間が 0', 'LOGIN_FAILURE_WINDOW_MINUTES', '0'],
+      ['時間が 1441（上限の外）', 'LOGIN_FAILURE_WINDOW_MINUTES', '1441'],
+      ['時間が小数', 'LOGIN_FAILURE_WINDOW_MINUTES', '1.5'],
+      ['時間が負', 'LOGIN_FAILURE_WINDOW_MINUTES', '-5'],
+    ])('範囲外・不正な値は、設定エラー: %s', (_name, variable, value) => {
+      expect(() => parseConfig({ [variable]: value })).toThrow(variable);
+    });
+  });
+
   it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {
     expect(parseConfig({ DEMO_SEED_DAYS: '30' }).demoSeedDays).toBe(30);
     expect(parseConfig({ DEMO_SEED_DAYS: '1' }).demoSeedDays).toBe(1);

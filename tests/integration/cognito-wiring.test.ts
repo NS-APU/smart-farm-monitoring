@@ -52,6 +52,27 @@ describe('ログインの試行回数の制限（DynamoDB）', () => {
     expect(await throttle.isLocked('203.0.113.11')).toBe(false);
   });
 
+  it('制限の回数・時間は、設定で変えられる（失敗 2 回 / 3 分）。既定の 5 回 / 15 分には、よらない（Issue #244）', async () => {
+    const database = createDynamoTestDatabase();
+    await database.ready;
+    const clock = createControllableClock(new Date('2026-10-09T03:00:00.000Z'));
+    const throttle = createLoginThrottle(
+      { client: database.client, tables: database.tables },
+      clock,
+      { limit: 2, windowMinutes: 3 },
+    );
+
+    await throttle.recordFailure('203.0.113.10');
+    expect(await throttle.isLocked('203.0.113.10')).toBe(false);
+    await throttle.recordFailure('203.0.113.10');
+    expect(await throttle.isLocked('203.0.113.10')).toBe(true);
+    clock.advance(3 * MS_PER_MINUTE - 1);
+    expect(await throttle.isLocked('203.0.113.10')).toBe(true);
+    clock.advance(2);
+
+    expect(await throttle.isLocked('203.0.113.10')).toBe(false);
+  });
+
   it('制限の時間が過ぎたら、制限を解く。古い失敗は、数えない', async () => {
     const { throttle, clock } = await throttleWithClock();
     for (let count = 0; count < LOGIN_FAILURE_LIMIT; count += 1) {

@@ -150,6 +150,36 @@ describe('ユーザー削除・パスワード再設定とセッション（V-00
   });
 });
 
+describe('ログインの試行回数の制限は、環境変数で変えられる（Issue #244。D-44）', () => {
+  const OTHER = { 'x-forwarded-for': '198.51.100.1' };
+
+  it('LOGIN_FAILURE_LIMIT=2・LOGIN_FAILURE_WINDOW_MINUTES=1: 2 回の失敗で拒否（429）し、1 分後に、再び試行できる', async () => {
+    const context = await createTestContext({
+      env: { LOGIN_FAILURE_LIMIT: '2', LOGIN_FAILURE_WINDOW_MINUTES: '1' },
+    });
+
+    expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+    expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+    const blocked = await login(context, TEST_USER.userId, TEST_USER.password, OTHER);
+    context.clock.advance(60_000 + 1);
+    const after = await login(context, TEST_USER.userId, TEST_USER.password, OTHER);
+
+    expect(blocked.status).toBe(429);
+    expect(after.status).toBe(200);
+  });
+
+  it('回数を緩める（LOGIN_FAILURE_LIMIT=8）と、既定の 5 回を超えても、拒否しない。8 回で拒否する', async () => {
+    const context = await createTestContext({ env: { LOGIN_FAILURE_LIMIT: '8' } });
+    for (let count = 0; count < 7; count += 1) {
+      expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+    }
+
+    expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+
+    expect((await login(context, TEST_USER.userId, TEST_USER.password, OTHER)).status).toBe(429);
+  });
+});
+
 describe('接続元の識別（V-007・V-008。ログインの試行回数の制限）', () => {
   async function failLogins(
     context: TestContext,

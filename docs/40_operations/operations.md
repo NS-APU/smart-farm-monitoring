@@ -15,6 +15,7 @@
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（決定。ADR-0013。実装は #115） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
+| `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` | 既定は、失敗 5 回 / 15 分（IaC が、API の Lambda に、この値を設定する）。**共有の IP などで、誤ってロックされる事例が出たら、回数を増やす・時間を短くする**。変えるときは、GitHub の Environment（development・production）の変数 `SFM_LOGIN_FAILURE_LIMIT`（1〜100）・`SFM_LOGIN_FAILURE_WINDOW_MINUTES`（1〜1440 分）を設定して、デプロイし直す（ワークフローが、そのまま CDK に渡す。未設定なら 5 回 / 15 分。コードの変更は、要らない。手元からのデプロイは、同名の環境変数を指定する）。ローカルは、`LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` を指定する | ログインの試行回数の制限（接続元ごと。FR-9.2。D-44）。アカウント単位のロックは、Cognito が持つ（値は、設定できない）。回数を大きくするほど、総当たりに弱くなる |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
 | `EVALUATION_ON_WRITE` | 評価環境の API の Lambda は、`deferred`（IaC が指定する）。ローカル・E2E は、既定の `sync` | `deferred` は、手動入力の保存・削除の応答の前に、評価を再計算せず、定期の評価（JB-02。5 分ごと）が更新する。反映は最大 5 分遅れる。データが増えると、評価の再計算（直近 90 日の読み出し）が重くなり、保存・削除が遅くなるため（Issue #79・#123。ADR-0014） |
