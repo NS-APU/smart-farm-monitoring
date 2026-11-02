@@ -19,6 +19,7 @@ import {
   HOUSE_ID,
   USER_B,
   addEntry,
+  addEntryAs,
   apiOk,
   addUser,
   advanceMinutes,
@@ -295,7 +296,7 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
     await expect(page.getByTestId('score-harvestSpeed')).toContainText('★★★★★');
   });
 
-  test('同じ観点を複数回入力すると、期間内の平均になる（5 と 3 → 4）', async ({
+  test('同じ入力者が同じ観点を複数回入力すると、最新の入力だけを使う（5 のあとに 3 → 3。D-18）', async ({
     page,
     request,
   }) => {
@@ -307,9 +308,40 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
 
     await expect(page.getByTestId('score-harvestAccuracy').getByRole('img')).toHaveAttribute(
       'aria-label',
-      '4 / 5',
+      '3 / 5',
     );
-    await expect(overallScore(page)).toHaveText('4.0');
+    // (3 + 4×8) ÷ 9 = 3.88… → 3.9
+    await expect(overallScore(page)).toHaveText('3.9');
+  });
+
+  test('入力者が複数のときは、各入力者の最新の入力の平均（1 人 1 票）にする。入力の回数が多い人の意見が重くならない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    // 利用者A（E2E のユーザー）は、すべて 5 を 3 回。利用者Bは、すべて 1 を 1 回
+    await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(4));
+    await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(3));
+    await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(2));
+    await addEntryAs(request, USER_B, {
+      equipmentId: HOUSE_ID,
+      category: 'SATISFACTION',
+      observedAt: hoursAgo(1),
+      items: Object.fromEntries(
+        VIEWPOINTS.map(([viewpointId]) => [`satisfaction.${viewpointId}`, 1]),
+      ),
+    });
+
+    await openSatisfaction(page);
+
+    // 全入力の平均なら 4.0（5 が 3 回・1 が 1 回）。1 人 1 票なら、(5 + 1) ÷ 2 = 3.0
+    await expect(page.getByTestId('score-harvestAccuracy').getByRole('img')).toHaveAttribute(
+      'aria-label',
+      '3 / 5',
+    );
+    await expect(overallScore(page)).toHaveText('3.0');
+    await expect(overallBadge(page)).toContainText('注意');
   });
 
   test('期間（当日・7日・30日…）を選ぶと、その期間の入力だけで集計する（期間外の入力は使わない）', async ({
@@ -317,9 +349,17 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
     request,
   }) => {
     await prepareApp(request);
-    // 20日前に、すべて 5。今日（1時間前）に、すべて 3
+    await addUser(request, USER_B);
+    // 利用者Aが、20日前に、すべて 5。利用者Bが、今日（1時間前）に、すべて 3（入力者ごとの最新の平均。D-18）
     await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], daysAgo(20));
-    await enterSatisfaction(request, [3, 3, 3, 3, 3, 3, 3, 3, 3], hoursAgo(1));
+    await addEntryAs(request, USER_B, {
+      equipmentId: HOUSE_ID,
+      category: 'SATISFACTION',
+      observedAt: hoursAgo(1),
+      items: Object.fromEntries(
+        VIEWPOINTS.map(([viewpointId]) => [`satisfaction.${viewpointId}`, 3]),
+      ),
+    });
     await openSatisfaction(page);
     await expect(page.getByTestId('overall-score')).toHaveText('3.0');
 
@@ -331,7 +371,7 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
     await expect(overallScore(page)).toHaveText('3.0');
     await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
     await expect(overallScore(page)).toHaveText('3.0');
-    // 60日・90日は、20日前の入力（5）も含めるため、平均（5 と 3）は 4.0
+    // 60日・90日は、20日前の入力者A（5）も含めるため、平均（5 と 3）は 4.0
     await page.getByLabel('長期の期間').selectOption({ label: '直近60日' });
     await expect(overallScore(page)).toHaveText('4.0');
     await page.getByLabel('長期の期間').selectOption({ label: '直近90日' });

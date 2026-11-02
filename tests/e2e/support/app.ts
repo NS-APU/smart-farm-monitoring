@@ -156,6 +156,28 @@ export async function addEntry(
   return apiOk(request, 'POST', '/manual-entries', { equipmentId: ROBOT_ID, ...input });
 }
 
+/** 手動入力を、指定した利用者として API で登録する（入力者が複数の前提のデータの用意）。 */
+export async function addEntryAs(
+  request: APIRequestContext,
+  user: Pick<E2eUser, 'userId' | 'password'>,
+  input: {
+    equipmentId?: string;
+    category: string;
+    observedAt: string;
+    items: Record<string, number>;
+  },
+): Promise<void> {
+  const response = await request.fetch('/api/v1/manual-entries', {
+    method: 'POST',
+    data: { equipmentId: ROBOT_ID, ...input },
+    headers: { authorization: `Bearer ${await accessToken(request, user)}` },
+  });
+  expect(
+    response.ok(),
+    `POST /manual-entries（${user.userId}）: ${String(response.status())}`,
+  ).toBe(true);
+}
+
 // ファイルサーバーのモック
 
 /**
