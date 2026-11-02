@@ -320,7 +320,7 @@ flowchart LR
 
 | 項目 | 内容 |
 |------|------|
-| クエリ | `equipmentId`（設備。省略時はヘッダーで選択中の設備）、`horizon`（`SHORT`／`LONG`。省略時 `LONG`）、`periodDays`（1／7／30／60／90。既定 7） |
+| クエリ | `equipmentId`（設備。省略時はヘッダーで選択中の設備）、`horizon`（`SHORT`／`LONG`。省略時 `LONG`）、`periodDays`（1／7／30／60／90。省略時は、観点ごとの既定の期間: 満足度 30、ほかは 7。選べば、すべての観点を、選んだ期間で評価する） |
 | 応答 | `summary`（ステータスごとの件数）、`lastReceivedAt`（最終のデータ取得日時）、`viewpoints[]`（`viewpointId`、`status`、`metrics`（主要メトリクスの名前→値。null 可）、`diagnosticMessage`、`recommendedAction`、`evaluatedFrom`／`evaluatedTo`、`isCustomCriteria`、`statuses`（短期・長期のステータス）） |
 | 備考 | 保存済みの最新の評価結果を読む（事前計算）。評価は、この呼び出しでは行わない（NFR-3.4） |
 

@@ -824,7 +824,7 @@ classDiagram
 | `EvaluationStatus`                  | `NORMAL`（正常）・`CAUTION`（注意）・`ERROR`（異常）・`UNKNOWN`（不明）                                                                                                                 | `shared/constants/status.ts`      |
 | `JudgedStatus`                      | `NORMAL`・`CAUTION`・`ERROR`（「不明」を除く。ステータスコードのカテゴリも同じ）                                                                                                        | 同上                              |
 | `Horizon`                           | `SHORT`（短期）・`LONG`（長期）                                                                                                                                                         | 同上                              |
-| `PeriodDays`                        | 1・7・30・60・90（既定 7）                                                                                                                                                              | 同上                              |
+| `PeriodDays`                        | 1・7・30・60・90（既定 7。満足度は 30）                                                                                                                                                            | 同上                              |
 | `EquipmentType`                     | `FACILITY`・`ROBOT`・`SENSOR`                                                                                                                                                           | 同上                              |
 | `ObservationSource`                 | `AUTO_IMPORT`・`MANUAL`                                                                                                                                                                 | 同上                              |
 | `ObservationQuality`                | `VALID`・`MISSING`・`LATE`・`INVALID`                                                                                                                                                   | 同上                              |
@@ -1154,7 +1154,7 @@ flowchart LR
 | Web Push の配信の試行回数        | 3 回                                | `settings.ts`                               |
 | 連携の 1 回の件数・再試行の間隔  | 100 件、5 分の倍々、上限 720 分     | `settings.ts`・`federation-service.ts`      |
 | 短期視点の対象期間               | 直近 24 時間                        | `scope-evaluator.ts`                        |
-| 長期視点の期間                   | 1・7・30・60・90 日（既定 7）       | `shared/constants/status.ts`                |
+| 長期視点の期間                   | 1・7・30・60・90 日（既定 7。満足度は 30） | `shared/constants/status.ts`・`viewpoints.ts`（`defaultPeriodDays`） |
 | セッション                       | アクセス 30 分、リフレッシュ 7 日   | `local-auth.ts`                             |
 | ログインの失敗の上限             | 5 回／15 分／接続元                 | `local-auth.ts`                             |
 | リクエスト本文の上限             | 1 MiB                               | `request-parsing.ts`（`MAX_BODY_BYTES`）     |
@@ -2199,7 +2199,7 @@ combineHorizonStatuses(短期, 長期):
 ```
 
 - 「不明」は比較に使わない。片方が「不明」なら、もう片方を採る。両方が「不明」（短期評価を持たない観点は長期のみ）なら「不明」
-- **通知・連携・状態変化の基準**は、短期と、**長期 7 日**（`DEFAULT_PERIOD_DAYS`）の合成。ダッシュボードのカードの最終ステータスは、短期と、**選んだ期間**の長期の合成（`DashboardQuery`）。期間を 7 日以外にすると、カードのステータスは、通知の基準と異なりうる
+- **通知・連携・状態変化の基準**は、短期と、**観点ごとの既定の期間の長期**（`defaultPeriodDays`。満足度は 30 日、ほかは 7 日）の合成。ダッシュボードのカードの最終ステータスは、短期と、**選んだ期間**（選んでいなければ、観点ごとの既定の期間）の長期の合成（`DashboardQuery`）。期間を選ぶと、カードのステータスは、通知の基準と異なりうる
 - 評価結果がまだ保存されていない観点（設備の登録直後など）は、ダッシュボード・詳細で「不明」（診断メッセージ: `評価がまだ行われていません`）
 - 「不明」への変化は、通知しない（暫定仕様）が、状態変化の記録と連携キューには積む
 
