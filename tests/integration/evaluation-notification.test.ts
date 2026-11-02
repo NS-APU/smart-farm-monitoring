@@ -995,6 +995,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
       notifications: {
         notifyStatusChange: vi.fn(),
         notifyIngestionFailure: vi.fn(),
+        notifyFederationExpired: vi.fn(),
         list: vi.fn(),
         unreadCount: vi.fn(),
         markRead: vi.fn(),

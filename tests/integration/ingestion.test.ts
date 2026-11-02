@@ -48,6 +48,7 @@ function build(fileSource: FileSource, profiles = createDefaultFormatProfileRegi
     notifications: {
       notifyStatusChange: vi.fn(),
       notifyIngestionFailure,
+      notifyFederationExpired: vi.fn(),
       list: vi.fn(),
       unreadCount: vi.fn(),
       markRead: vi.fn(),

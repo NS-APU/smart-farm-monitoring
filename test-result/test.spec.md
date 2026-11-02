@@ -11255,3 +11255,18 @@ Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch L
 | 結合: `tests/integration/dynamodb-adapter.test.ts`（DynamoDB Local） | 次の試行の日時が先の項目は、読まない（期限が来た項目の取り出し・先の項目の取り出しで、Query が返した項目が、取り出した件数以下。事前に、先の項目を 30 件積む。変更前は 56 件を読み、失敗した）（1） |
 
 実測（2026-11-02。手元（Windows））: `pnpm test:unit` は、95 ファイル・2117 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.42%・Branches 95.8%・Functions 99.73%・Lines 99.4%。E2E: UC-11・シナリオ（停止と復旧）の 14 件が成功（別ポート 18787・15173）。**途中で、E2E の 2 件が失敗した**: 同じ時刻に積んだ項目の並びが、挿入順から ID 順に変わったため（ローカルの取り出しの並べ替えの不具合）。テストは変えず、ローカルの実装を、同じ時刻なら挿入順（安定ソート）に直した。
+
+### 16.2 破棄の期限と、期限切れの記録・通知（Issue #204）
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/federation-expiry.test.ts`（新規） | 期限（既定 30 日）を過ぎた項目は、送らずに破棄し、連携のログに「期限切れ」（件数・メッセージ）で記録して、通知する（1）。破棄した項目は、状態「期限切れ」で、以後は送信の対象にならず、件数に数える（1）。期限の境界: ちょうど 30 日は破棄しない・30 日と 1 ミリ秒は破棄する（1）。期限は設定値（7 日）で変えられ、ログ・通知の日数も変わる（1）。同じ実行で、期限内の項目は送り、期限切れだけを破棄する（1）。農業情報基盤が停止中でも、期限切れは破棄し、期限内だけが保留になる（1）。通知は 60 分に 1 件で、60 分が過ぎたら、また通知する（1） |
+| 結合: `tests/integration/repository-contract.test.ts`（3 通り） | 連携キュー: 期限切れの項目は、送信の対象にも、戻す対象にも含めず、状態ごとの件数に数える（1 × 3） |
+| 単体: `tests/unit/backend/runtime/config.test.ts` | `FEDERATION_EXPIRY_DAYS`: 既定 30 日・環境変数で変えられる（1）。境界値 1・365 は有効（2）。範囲外・不正（0・366・小数・数値でない・負）は設定エラー（5） |
+| 単体: `tests/unit/frontend/ingestion-page.test.tsx` | 連携の記録の「期限切れ」と、連携キューの期限切れの件数を表示する（1） |
+| 単体: `tests/unit/frontend/notifications-page.test.tsx` | 連携の期限切れの通知を、種別「連携の期限切れ」で表示し、種別の絞り込みにも選べる（1） |
+| E2E: `tests/e2e/UC-11-federate-data.ts` | 停止が 30 日を過ぎて続くと、送れていない項目を破棄し、連携のログに「期限切れ」で記録して、通知する（期限の直前の 29 日では保留のまま）。復旧しても、破棄した項目は送らない（1。`pnpm test:e2e` の UC-11・UC-16・停止と復旧のシナリオ 36 件が成功） |
+
+**変更した既存のテスト（仕様の変更に伴う。期待する振る舞いは、変えていない）**: 状態「期限切れ」の追加で、連携キューの件数の応答に `EXPIRED` が増え、ジョブの要約に `expired` が増えたため、完全一致で比べていた期待値に、`EXPIRED: 0`・`expired: 0` を足した（`repository-contract.test.ts`・`dynamodb-adapter.test.ts`・`runtime-resilience.test.ts`・`federation-recovery.test.ts`）。画面のテストの連携キューのデータに `EXPIRED: 5` を足した（`ingestion-page.test.tsx`）。通知サービスの偽物に、新しいメソッド（`notifyFederationExpired`）を足した（`evaluation-notification.test.ts`・`ingestion.test.ts`・`ingestion-reliability.test.ts`）。
+
+実測（2026-11-02。手元（Windows））: `pnpm test:unit` は、96 ファイル・2137 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.4%・Branches 95.81%・Functions 99.73%・Lines 99.38%。E2E の追加分は、実装のあとに書いた（結合・単体は、先に失敗を確認した）。

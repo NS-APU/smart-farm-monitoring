@@ -156,7 +156,7 @@ export function createFederationRepository(db: Database): FederationRepository {
   async function save(item: FederationItem): Promise<void> {
     const existing = await items.get(FEDERATION_ITEM, item.federationItemId);
     const indexKeys =
-      item.status === 'SENT'
+      item.status === 'SENT' || item.status === 'EXPIRED'
         ? {}
         : {
             gsi1pk: FEDERATION_DUE,
@@ -249,6 +249,7 @@ export function createFederationRepository(db: Database): FederationRepository {
         SENT: counts.get(federationCounter('SENT')) ?? 0,
         FAILED: counts.get(federationCounter('FAILED')) ?? 0,
         HELD: counts.get(federationCounter('HELD')) ?? 0,
+        EXPIRED: counts.get(federationCounter('EXPIRED')) ?? 0,
       };
     },
   };

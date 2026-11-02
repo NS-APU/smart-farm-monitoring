@@ -359,7 +359,7 @@ function FederationTable(props: {
   return (
     <>
       <ul className="queue-counts" aria-label={TEXT.queue} data-testid="federation-queue">
-        {(['PENDING', 'SENT', 'FAILED', 'HELD'] as const).map((status) => (
+        {(['PENDING', 'SENT', 'FAILED', 'HELD', 'EXPIRED'] as const).map((status) => (
           <li key={status} data-testid={`queue-${status}`}>
             <span>{TEXT.queueLabels[status]}</span>
             <strong>{data.queue[status]}</strong>

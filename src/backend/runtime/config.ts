@@ -17,6 +17,11 @@ import {
 } from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
 import {
+  DEFAULT_FEDERATION_EXPIRY_DAYS,
+  MAX_FEDERATION_EXPIRY_DAYS,
+  MIN_FEDERATION_EXPIRY_DAYS,
+} from '../application/settings.ts';
+import {
   LOGIN_FAILURE_LIMIT,
   LOGIN_FAILURE_WINDOW_MINUTES,
   MAX_LOGIN_FAILURE_LIMIT,
@@ -100,6 +105,13 @@ const EnvSchema = z.object({
   DEFAULT_INGESTION_INTERVAL_MINUTES: z.coerce.number().pipe(IngestionIntervalSchema).default(15),
   STALE_AFTER_INTERVALS: z.coerce.number().min(1).default(3),
   INGESTION_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(0).default(1000),
+  /** 連携の破棄の期限（日）。積んでからこの日数を過ぎても送れていない項目は、破棄して、連携のログと通知に残す（D-06。既定は 30 日）。 */
+  FEDERATION_EXPIRY_DAYS: z.coerce
+    .number()
+    .int()
+    .min(MIN_FEDERATION_EXPIRY_DAYS)
+    .max(MAX_FEDERATION_EXPIRY_DAYS)
+    .default(DEFAULT_FEDERATION_EXPIRY_DAYS),
   /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知しない）。 */
   INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(false),
   /** 新しいデータが届かない取り込み元を、「データ取得の停止」として通知するか（V-018。暫定仕様）。 */
@@ -195,6 +207,7 @@ export interface AppConfig {
   readonly defaultIngestionIntervalMinutes: IngestionIntervalMinutes;
   readonly staleAfterIntervals: number;
   readonly ingestionRetryBaseDelayMs: number;
+  readonly federationExpiryDays: number;
   readonly ingestionStopNotificationEnabled: boolean;
   readonly ingestionFileFailureNotificationEnabled: boolean;
   readonly webPushPublicKey: string | undefined;
@@ -376,6 +389,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     defaultIngestionIntervalMinutes: parsed.DEFAULT_INGESTION_INTERVAL_MINUTES,
     staleAfterIntervals: parsed.STALE_AFTER_INTERVALS,
     ingestionRetryBaseDelayMs: parsed.INGESTION_RETRY_BASE_DELAY_MS,
+    federationExpiryDays: parsed.FEDERATION_EXPIRY_DAYS,
     ingestionStopNotificationEnabled: parsed.INGESTION_STOP_NOTIFICATION_ENABLED,
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,

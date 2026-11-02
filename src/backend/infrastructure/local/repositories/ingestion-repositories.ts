@@ -115,6 +115,11 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
   };
 }
 
+/** 送信していない項目（送信済み・期限切れ（破棄）を除く）。 */
+function isUnsent(item: FederationItem): boolean {
+  return item.status !== 'SENT' && item.status !== 'EXPIRED';
+}
+
 /** 次の試行の日時の順（同じ日時は、積んだ日時の順。それも同じなら、積んだ順（安定ソート））。 */
 function byNextAttempt(left: FederationItem, right: FederationItem): number {
   return (
@@ -142,7 +147,7 @@ export function createFederationRepository(store: LocalStore): FederationReposit
       return Promise.resolve(
         federationItems
           .values()
-          .filter((item) => item.status !== 'SENT' && item.nextAttemptAt <= nowIso)
+          .filter((item) => isUnsent(item) && item.nextAttemptAt <= nowIso)
           .sort(byNextAttempt)
           .slice(0, limit),
       );
@@ -173,7 +178,7 @@ export function createFederationRepository(store: LocalStore): FederationReposit
       return paginated(sorted, page);
     },
     countByStatus() {
-      const counts = { PENDING: 0, SENT: 0, FAILED: 0, HELD: 0 };
+      const counts = { PENDING: 0, SENT: 0, FAILED: 0, HELD: 0, EXPIRED: 0 };
       for (const item of federationItems.values()) {
         counts[item.status] += 1;
       }

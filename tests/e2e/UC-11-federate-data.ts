@@ -54,7 +54,7 @@ async function received(request: Parameters<typeof prepareApp>[0]): Promise<Rece
 
 async function queue(request: Parameters<typeof prepareApp>[0]) {
   return (
-    await apiOk<{ queue: Record<'PENDING' | 'SENT' | 'FAILED' | 'HELD', number> }>(
+    await apiOk<{ queue: Record<'PENDING' | 'SENT' | 'FAILED' | 'HELD' | 'EXPIRED', number> }>(
       request,
       'GET',
       '/federation/logs',
@@ -371,6 +371,45 @@ test.describe('代替フロー: 農業情報基盤が停止している場合は
 
     expect((await queue(request)).HELD).toBe(0);
     expect((await received(request)).length).toBeGreaterThan(0);
+  });
+
+  test('停止が、破棄の期限（30 日）を過ぎて続くと、送れていない項目を破棄し、連携のログに「期限切れ」で記録して、通知する。復旧しても、破棄した項目は送らない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await setMock(request, 'federation', 'DOWN');
+    await produceData(request);
+    const produced = (await queue(request)).PENDING;
+    expect(produced).toBeGreaterThanOrEqual(4);
+
+    // 期限の直前（29 日）では、保留のまま。期限（30 日）を過ぎたら、破棄する
+    await advanceMinutes(request, 29 * 24 * 60);
+    await runJob(request, 'JB-03');
+    expect((await queue(request)).EXPIRED).toBe(0);
+    await advanceMinutes(request, 2 * 24 * 60);
+    await runJob(request, 'JB-03');
+
+    const after = await queue(request);
+    expect(after.EXPIRED).toBe(produced);
+    expect(after.HELD).toBe(0);
+    await openStatus(page);
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('期限切れ');
+    await expect(federationRows(page).first()).toContainText(
+      '連携の期限（30 日）を過ぎた項目を、破棄しました',
+    );
+    await expect(queueCount(page, 'EXPIRED')).toHaveText(String(produced));
+    await expect(queueCount(page, 'HELD')).toHaveText('0');
+    await shot(page, testInfo, 'uc11-expired');
+    await page.goto('/notifications');
+    await expect(
+      page.getByTestId('notification-row').filter({ hasText: '連携の期限切れ' }).first(),
+    ).toBeVisible();
+
+    // 復旧しても、破棄した項目は送らない
+    await setMock(request, 'federation', 'UP');
+    await runJob(request, 'JB-03');
+    expect(await received(request)).toHaveLength(0);
   });
 });
 
