@@ -329,6 +329,7 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
               <div className="header-user">
                 <Icon name="user" size={18} />
                 <span aria-label={MESSAGES.layout.user}>{user?.userName}</span>
+                <Link to={PATHS.changePassword}>{MESSAGES.changePassword.link}</Link>
                 <button
                   type="button"
                   onClick={() => {

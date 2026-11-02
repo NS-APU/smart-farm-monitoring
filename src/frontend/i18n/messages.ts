@@ -29,6 +29,23 @@ export const MESSAGES = {
     submitting: 'ログイン中…',
     failed: 'ユーザーIDまたはパスワードが正しくありません',
   },
+  changePassword: {
+    title: 'パスワードの変更',
+    lead: '現在のパスワードを入力して、新しいパスワードを決めます。変更すると、ほかの端末のログインは、解除されます',
+    forcedNotice:
+      '管理者が決めたパスワードは、一時のものです。新しいパスワードを決めてください。変更するまで、ほかの操作はできません',
+    current: '現在のパスワード',
+    next: '新しいパスワード',
+    confirm: '新しいパスワード（確認）',
+    policyHint: '8文字以上で、英大文字・英小文字・数字を含めてください',
+    submit: 'パスワードを変更する',
+    submitting: '変更中…',
+    currentRequired: '現在のパスワードを入力してください',
+    newRequired: '新しいパスワードを入力してください',
+    confirmMismatch: '新しいパスワード（確認）が一致しません',
+    sameAsCurrent: '新しいパスワードは、現在のパスワードと違うものにしてください',
+    link: 'パスワードの変更',
+  },
   layout: {
     skipToContent: '本文へ移動',
     menu: 'メニュー',
