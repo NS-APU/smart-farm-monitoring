@@ -238,7 +238,12 @@ describe('ローカルの認証（AuthPort）', () => {
       'client-1',
     );
 
-    expect(session.principal).toEqual({ userId: 'user-a', userName: 'ユーザーA', role: 'worker' });
+    expect(session.principal).toEqual({
+      userId: 'user-a',
+      userName: 'ユーザーA',
+      role: 'worker',
+      mustChangePassword: false,
+    });
     expect(session.accessTokenExpiresAt.getTime() - NOW.getTime()).toBe(
       ACCESS_TOKEN_TTL_MINUTES * 60_000,
     );

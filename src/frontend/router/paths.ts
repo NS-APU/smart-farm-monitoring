@@ -17,6 +17,8 @@ export const PATHS = {
   settingsStatusCodes: '/settings/status-codes',
   settingsUsers: '/settings/users',
   settingsPush: '/settings/push',
+  /** パスワードの変更（本人。変更が必要な利用者は、ログイン後に、この画面だけが使える。D-45）。 */
+  changePassword: '/change-password',
   /** 観点の詳細。 */
   viewpoint: (viewpointId: string) => `/viewpoints/${viewpointId}`,
   /** 判断基準の編集。 */

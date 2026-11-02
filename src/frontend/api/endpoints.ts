@@ -29,6 +29,15 @@ export function logout(api: ApiClient) {
   return api.command('/auth/logout', { method: 'POST' });
 }
 
+/** 本人によるパスワードの変更。成功すると、新しいセッション（ほかの端末のセッションは、失効する）を返す。 */
+export function changePassword(api: ApiClient, currentPassword: string, newPassword: string) {
+  return api.request('/auth/password', {
+    method: 'POST',
+    body: { currentPassword, newPassword },
+    schema: LoginResponseSchema,
+  });
+}
+
 export function getEquipmentTree(api: ApiClient) {
   return api.request('/equipment', { schema: EquipmentTreeResponseSchema });
 }

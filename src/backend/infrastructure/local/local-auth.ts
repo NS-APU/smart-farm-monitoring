@@ -129,7 +129,12 @@ export function createLocalAuth(deps: LocalAuthDeps): AuthPort {
   }
 
   function toPrincipal(user: UserRecord): AuthPrincipal {
-    return { userId: user.userId, userName: user.userName, role: user.role };
+    return {
+      userId: user.userId,
+      userName: user.userName,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword === true,
+    };
   }
 
   function createSession(user: UserRecord): AuthSession {

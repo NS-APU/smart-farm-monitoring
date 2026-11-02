@@ -774,6 +774,22 @@ input:not([type='radio']) {
   font-size: 1.5rem;
 }
 
+.login-brand-name {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* パスワードの変更（強制のときは、ログインの枠と同じ幅の、中央の枠） */
+.change-password {
+  width: min(420px, 100%);
+}
+
+.login-page .change-password {
+  margin: 0;
+}
+
 .login-form {
   display: grid;
   gap: 12px;

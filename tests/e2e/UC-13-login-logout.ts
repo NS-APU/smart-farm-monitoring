@@ -19,7 +19,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   USER_B,
+  accessToken,
   addUser,
+  addUserWithTemporaryPassword,
   advanceMinutes,
   alignBrowserClock,
   newUserSession,
@@ -27,7 +29,7 @@ import {
   prepareApp,
 } from './support/app.ts';
 import { E2E_USER } from './support/e2e-user.ts';
-import { loginViaUi, resetBackend } from './support/helpers.ts';
+import { changePasswordViaUi, loginViaUi, resetBackend } from './support/helpers.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
 const FAILED_MESSAGE = 'ユーザーIDまたはパスワードが正しくありません';
@@ -480,5 +482,175 @@ test.describe('ログアウト: セッションを破棄する', () => {
     await b.page.reload();
     await expect(b.page.getByLabel('ログイン中のユーザー')).toHaveText(USER_B.userName);
     await b.context.close();
+  });
+});
+
+test.describe('管理者が決めたパスワードは、一時のもの。本人が最初のログインで変更する（Issue #245。D-45。FR-9.4・FR-9.7）', () => {
+  const TEMPORARY = USER_B.password;
+  const OWN = 'Own-Passw0rd-1';
+  const heading = (page: Page) => page.getByRole('heading', { name: 'パスワードの変更', level: 1 });
+
+  /** 管理者が登録した直後（一時のパスワード）の、利用者 B で、ログイン画面からログインする。 */
+  async function loginAsNewUser(page: Page, password: string = TEMPORARY): Promise<void> {
+    await page.goto('/login');
+    await loginViaUi(page, password, USER_B.userId);
+  }
+
+  test('最初のログインで、パスワードの変更の画面だけを表示する。ほかの画面を直接開いても、同じ。変更すると、使える。管理者が決めたパスワードは、使えなくなる', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUserWithTemporaryPassword(request, USER_B);
+
+    await loginAsNewUser(page);
+    await expect(heading(page)).toBeVisible();
+    await expect(page.getByTestId('password-change-required')).toContainText(
+      '管理者が決めたパスワードは、一時のものです',
+    );
+    // メニュー・ヘッダーは、出さない。ほかの画面を、URL で開いても、変更の画面のまま
+    await expect(page.getByRole('banner')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'メニュー' })).toHaveCount(0);
+    await page.goto('/data-entry');
+    await expect(heading(page)).toBeVisible();
+    await shot(page, testInfo, 'uc13-password-change-forced');
+
+    await changePasswordViaUi(page, TEMPORARY, OWN);
+
+    await expect(page.getByRole('banner')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'データ入力', level: 1 })).toBeVisible();
+    // ログアウトして、管理者が決めたパスワードでは、ログインできない。本人が決めたパスワードで、変更を求められずに、ログインできる
+    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await loginAsNewUser(page, TEMPORARY);
+    await expect(page.getByRole('alert')).toHaveText(FAILED_MESSAGE);
+    await loginAsNewUser(page, OWN);
+    await expect(page.getByRole('banner')).toBeVisible();
+    await expect(heading(page)).toHaveCount(0);
+  });
+
+  test('変更が必要な間は、サーバーも、パスワードの変更・ログアウト以外の API を拒否する（403。PASSWORD_CHANGE_REQUIRED）。変更すると、使える', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUserWithTemporaryPassword(request, USER_B);
+    const token = await accessToken(request, USER_B);
+
+    const blocked = await request.get('/api/v1/equipment', {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const changed = await request.post('/api/v1/auth/password', {
+      data: { currentPassword: TEMPORARY, newPassword: OWN },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const newToken = ((await changed.json()) as { accessToken: string }).accessToken;
+    const allowed = await request.get('/api/v1/equipment', {
+      headers: { authorization: `Bearer ${newToken}` },
+    });
+
+    expect(blocked.status()).toBe(403);
+    expect(((await blocked.json()) as { error: { code: string } }).error.code).toBe(
+      'PASSWORD_CHANGE_REQUIRED',
+    );
+    expect(changed.status()).toBe(200);
+    expect(allowed.status()).toBe(200);
+  });
+
+  test('入力の誤りは、項目ごとに示す（現在のパスワードが違う・条件を満たさない・確認が違う・現在と同じ）。変更は、されない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUserWithTemporaryPassword(request, USER_B);
+    await loginAsNewUser(page);
+    await expect(heading(page)).toBeVisible();
+
+    await changePasswordViaUi(page, 'Wrong-Passw0rd-1', OWN);
+    await expect(page.locator('[data-field="currentPassword"] .field-error')).toHaveText(
+      '現在のパスワードが正しくありません',
+    );
+
+    await changePasswordViaUi(page, TEMPORARY, 'short');
+    await expect(page.locator('[data-field="newPassword"] .field-error')).toContainText(
+      'パスワードは8文字以上',
+    );
+
+    await page.getByLabel('現在のパスワード').fill(TEMPORARY);
+    await page.getByLabel('新しいパスワード', { exact: true }).fill(OWN);
+    await page.getByLabel('新しいパスワード（確認）').fill('Other-Passw0rd-1');
+    await page.getByRole('button', { name: 'パスワードを変更する' }).click();
+    await expect(page.locator('[data-field="confirmPassword"] .field-error')).toHaveText(
+      '新しいパスワード（確認）が一致しません',
+    );
+
+    await changePasswordViaUi(page, TEMPORARY, TEMPORARY);
+    await expect(page.locator('[data-field="newPassword"] .field-error')).toHaveText(
+      '新しいパスワードは、現在のパスワードと違うものにしてください',
+    );
+    // 変更されていない: 管理者が決めたパスワードで、ログインできる
+    await expect(heading(page)).toBeVisible();
+  });
+
+  test('変更が必要な画面から、ログアウトできる（変更せずに、ログイン画面へ戻る）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUserWithTemporaryPassword(request, USER_B);
+    await loginAsNewUser(page);
+
+    await page.getByRole('button', { name: 'ログアウト' }).click();
+
+    await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+  });
+
+  test('スマートフォン幅（375px）でも、変更の画面は、横にはみ出さず、入力欄とボタンが画面の幅に収まる', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUserWithTemporaryPassword(request, USER_B);
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    await loginAsNewUser(page);
+
+    await expect(heading(page)).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
+    const box = await page.getByRole('button', { name: 'パスワードを変更する' }).boundingBox();
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(375);
+    await shot(page, testInfo, 'uc13-password-change-375');
+  });
+
+  test('変更が必要でない利用者も、ヘッダーの「パスワードの変更」から、自分のパスワードを変えられる。変更すると、ほかの端末のセッションは、失効する', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await alignBrowserClock(page);
+    await openAs(page, '/', USER_B);
+    const otherDevice = await newUserSession(browser, testInfo, 'other-device');
+    await openAs(otherDevice.page, '/', USER_B);
+
+    await page.getByRole('link', { name: 'パスワードの変更' }).click();
+    await expect(
+      page.getByRole('main').getByRole('heading', { name: 'パスワードの変更', level: 1 }),
+    ).toBeVisible();
+    // 強制の案内は、出さない
+    await expect(page.getByTestId('password-change-required')).toHaveCount(0);
+    await changePasswordViaUi(page, TEMPORARY, OWN);
+
+    // この端末は、新しいセッションで、ダッシュボードへ戻る
+    await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
+    // ほかの端末は、次の操作（または、約 10 秒の更新）で、ログイン画面へ戻る
+    await otherDevice.page.getByRole('link', { name: '通知' }).first().click();
+    await expect(otherDevice.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(
+      {
+        timeout: 20_000,
+      },
+    );
+    await otherDevice.context.close();
   });
 });

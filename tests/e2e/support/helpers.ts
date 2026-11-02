@@ -13,6 +13,18 @@ export async function loginViaUi(
   await page.getByRole('button', { name: 'ログイン' }).click();
 }
 
+/** パスワードの変更の画面で、現在のパスワードと、新しいパスワード（確認も同じ）を入力して、変更する（Issue #245）。 */
+export async function changePasswordViaUi(
+  page: Page,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await page.getByLabel('現在のパスワード').fill(currentPassword);
+  await page.getByLabel('新しいパスワード', { exact: true }).fill(newPassword);
+  await page.getByLabel('新しいパスワード（確認）').fill(newPassword);
+  await page.getByRole('button', { name: 'パスワードを変更する' }).click();
+}
+
 /**
  * 指定のパスを開く。未認証でログイン画面へ誘導された場合のみ、ログインする（すでにログインしていれば、そのまま）。
  * 1つのテストの中で、複数の画面を続けて開くときに使う。

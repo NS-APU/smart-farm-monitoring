@@ -14,6 +14,8 @@ export interface AuthService {
   logout(accessToken: string): Promise<void>;
   /** アクセストークンから、認証済みの利用者（権限つき）を返す。無効なトークンは null。 */
   authenticate(accessToken: string): Promise<AuthenticatedUser | null>;
+  /** セッション（ポートの結果）を、API の応答の形にする。パスワードの変更後の、新しいセッションの応答に使う。 */
+  toLoginResponse(session: AuthSession): LoginResponse;
 }
 
 /**
@@ -34,6 +36,7 @@ export function createAuthService(deps: {
       userName: principal.userName,
       role: principal.role,
       permissions: [...policy.permissionsOf(principal.role)],
+      mustChangePassword: principal.mustChangePassword,
     };
   }
 
@@ -48,6 +51,7 @@ export function createAuthService(deps: {
   }
 
   return {
+    toLoginResponse,
     async login(userId, password, clientKey) {
       try {
         const response = toLoginResponse(await auth.login({ userId, password }, clientKey));

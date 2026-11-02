@@ -124,6 +124,20 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
   return context;
 }
 
+/**
+ * 管理者が登録した利用者は、最初のログインで、パスワードの変更が必要になる（Issue #245。D-45）。パスワードの変更とは別の
+ * 振る舞い（ロール・セッションなど）を確かめるテストが、登録した利用者で、そのまま操作できるよう、変更済みの利用者として扱う。
+ * 変更の強制そのものは、password-change.test.ts で確かめる。
+ */
+export async function markPasswordChanged(context: TestContext, userId: string): Promise<void> {
+  const id = toUserId(userId);
+  const user = await context.container.repositories.users.get(id);
+  if (user === undefined) {
+    throw new Error(`テストの前提: ユーザーがいます: ${userId}`);
+  }
+  await context.container.repositories.users.save({ ...user, mustChangePassword: false });
+}
+
 /** 設備の一式（ハウス・ロボット・センサー。`equipmentSet()`）を登録したテストの組み立て。 */
 export async function withEquipment(options: TestContextOptions = {}): Promise<TestContext> {
   const context = await createTestContext(options);

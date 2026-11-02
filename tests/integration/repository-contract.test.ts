@@ -793,6 +793,31 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.users.get(toUserId('a-user'))).toBeUndefined();
   });
 
+  it('ユーザー: 「パスワードの変更が必要」の印（mustChangePassword。Issue #245）を、保存して、取得できる。印のない記録は、印なしのまま（既存のユーザー）', async () => {
+    const { repositories } = create();
+    const base = {
+      userName: 'u',
+      role: 'worker',
+      passwordHash: 'scrypt$00$00',
+      createdAt: '2026-10-09T00:00:00.000Z',
+    };
+    await repositories.users.save({
+      ...base,
+      userId: toUserId('flagged'),
+      mustChangePassword: true,
+    });
+    await repositories.users.save({
+      ...base,
+      userId: toUserId('cleared'),
+      mustChangePassword: false,
+    });
+    await repositories.users.save({ ...base, userId: toUserId('legacy') });
+
+    expect((await repositories.users.get(toUserId('flagged')))?.mustChangePassword).toBe(true);
+    expect((await repositories.users.get(toUserId('cleared')))?.mustChangePassword).toBe(false);
+    expect((await repositories.users.get(toUserId('legacy')))?.mustChangePassword).toBeUndefined();
+  });
+
   it('Web Push の購読: 有効なものだけ返し、無効化・利用者ごとの削除ができる', async () => {
     const { repositories } = create();
     const subscription = (subscriptionId: string, userId: typeof USER) => ({

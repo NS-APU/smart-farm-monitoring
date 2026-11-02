@@ -22,6 +22,8 @@ import {
 } from '@smart-farm/shared/constants/viewpoints';
 import { AppError, isAppError } from '@smart-farm/shared/errors';
 import {
+  AuthenticatedUserSchema,
+  ChangePasswordRequestSchema,
   PASSWORD_MIN_LENGTH,
   PasswordSchema,
   findPasswordPolicyViolation,
@@ -307,6 +309,33 @@ describe('パスワードの条件', () => {
 
   it(`最低${String(PASSWORD_MIN_LENGTH)}文字を求める`, () => {
     expect(findPasswordPolicyViolation('Ab1')).toContain(String(PASSWORD_MIN_LENGTH));
+  });
+});
+
+describe('パスワードの変更の入力・認証済みの利用者（Issue #245。D-45）', () => {
+  it('パスワードの変更: 現在のパスワードは必須（128 文字まで）。新しいパスワードは、パスワードの条件を満たすこと', () => {
+    const valid = { currentPassword: 'Dummy-Passw0rd-1', newPassword: 'Abcdefg1' };
+
+    expect(ChangePasswordRequestSchema.safeParse(valid).success).toBe(true);
+    expect(ChangePasswordRequestSchema.safeParse({ ...valid, currentPassword: '' }).success).toBe(
+      false,
+    );
+    expect(
+      ChangePasswordRequestSchema.safeParse({ ...valid, currentPassword: 'a'.repeat(129) }).success,
+    ).toBe(false);
+    expect(
+      ChangePasswordRequestSchema.safeParse({ ...valid, newPassword: 'abcdefg1' }).success,
+    ).toBe(false);
+    expect(ChangePasswordRequestSchema.safeParse({ currentPassword: 'x' }).success).toBe(false);
+  });
+
+  it('認証済みの利用者: 変更が必要な旨（mustChangePassword）の指定がなければ false（この項目ができる前の、保存済みのセッション）', () => {
+    const user = { userId: 'u-1', userName: 'U', role: 'worker', permissions: [] };
+
+    expect(AuthenticatedUserSchema.parse(user).mustChangePassword).toBe(false);
+    expect(
+      AuthenticatedUserSchema.parse({ ...user, mustChangePassword: true }).mustChangePassword,
+    ).toBe(true);
   });
 });
 

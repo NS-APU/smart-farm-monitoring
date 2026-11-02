@@ -9,7 +9,11 @@
 
 import { AppError } from '@smart-farm/shared/errors';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
-import { LoginRequestSchema, RefreshRequestSchema } from '@smart-farm/shared/schemas/auth';
+import {
+  ChangePasswordRequestSchema,
+  LoginRequestSchema,
+  RefreshRequestSchema,
+} from '@smart-farm/shared/schemas/auth';
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { ApiDeps } from './api-deps.ts';
@@ -53,6 +57,17 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
         await deps.authService.logout(token);
       }
       return c.body(null, 204);
+    },
+
+    async 'POST /auth/password'(c) {
+      const body = await parseJsonBody(c, ChangePasswordRequestSchema);
+      const user = actorOf(c);
+      // 現在のパスワードの誤りは、ログインの失敗と同じ制限に数える（接続元を取得できない環境では、ユーザーID単位）
+      const clientKey =
+        clientAddressOf(c, deps.trustedProxyHops, deps.clientIpHeader) ??
+        `user-without-address:${user}`;
+      const session = await deps.userService.changeOwnPassword(user, body, clientKey);
+      return c.json(deps.authService.toLoginResponse(session));
     },
 
     async 'GET /equipment'(c) {

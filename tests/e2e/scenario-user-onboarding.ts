@@ -19,9 +19,11 @@ import {
   openAs,
   prepareApp,
 } from './support/app.ts';
-import { loginViaUi } from './support/helpers.ts';
+import { changePasswordViaUi, loginViaUi } from './support/helpers.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
+/** 利用者Bが、最初のログインで決める、自分のパスワード（管理者が決めたパスワードは、一時のもの。D-45）。 */
+const B_OWN_PASSWORD = 'Own-Passw0rd-b1';
 const userRow = (page: Page, userId: string) =>
   page.locator(`[data-testid="user-row"][data-user-id="${userId}"]`);
 const equipmentRows = (page: Page) => page.getByTestId('equipment-row');
@@ -54,9 +56,14 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await expect(userRow(page, USER_B.userId)).toContainText('未ログイン');
     await shot(page, testInfo, 'scenario-onboarding-a-registered');
 
-    // UC-13: 利用者Bが、登録されたユーザーIDとパスワードでログインする（別のブラウザ）
+    // UC-13: 利用者Bが、登録されたユーザーIDとパスワードでログインする（別のブラウザ）。管理者が決めたパスワードは、
+    // 一時のもの: 最初のログインでは、パスワードの変更の画面だけが表示され、本人が決めたパスワードに変えると、使える（D-45）
     const b = await newUserSession(browser, testInfo, 'user-b');
-    await openAs(b.page, '/', USER_B);
+    await alignBrowserClock(b.page);
+    await b.page.goto('/');
+    await loginViaUi(b.page, USER_B.password, USER_B.userId);
+    await expect(b.page.getByRole('heading', { name: 'パスワードの変更', level: 1 })).toBeVisible();
+    await changePasswordViaUi(b.page, USER_B.password, B_OWN_PASSWORD);
     await expect(b.page.getByText(USER_B.userName, { exact: true })).toBeVisible();
     await expect(
       b.page.getByText('設備が登録されていません。設備を登録してください'),
@@ -100,7 +107,7 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     // UC-13: Bが、ログアウトして、ログインし直す → UC-12: 構成は参照のみ（権限は、ログインのたびに反映される）
     await b.page.getByRole('button', { name: 'ログアウト' }).click();
     await expect(b.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
-    await loginViaUi(b.page, USER_B.password, USER_B.userId);
+    await loginViaUi(b.page, B_OWN_PASSWORD, USER_B.userId);
     await goToMenu(b.page, '設備');
     await expect(b.page.getByTestId('permission-notice')).toHaveText(
       '設備を変更する権限がありません。参照のみできます',
@@ -126,7 +133,7 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await expect(b.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible({
       timeout: 20_000,
     });
-    await loginViaUi(b.page, USER_B.password, USER_B.userId);
+    await loginViaUi(b.page, B_OWN_PASSWORD, USER_B.userId);
     await expect(b.page.getByRole('alert')).toHaveText(
       'ユーザーIDまたはパスワードが正しくありません',
     );
