@@ -299,6 +299,28 @@ describe('ローカルの認証（AuthPort）', () => {
     ).resolves.toBeDefined();
   });
 
+  it('制限の回数・時間は、設定で変えられる（失敗 2 回 / 3 分）。既定の 5 回 / 15 分には、よらない（Issue #244）', async () => {
+    const { repositories, clock } = await setup();
+    const auth = createLocalAuth({
+      users: repositories.users,
+      clock,
+      loginFailurePolicy: { limit: 2, windowMinutes: 3 },
+    });
+    await auth.login({ userId: 'user-a', password: 'bad' }, 'client-1').catch(() => undefined);
+    // 1 回の失敗では、まだ拒否しない
+    await expect(
+      auth.login({ userId: 'user-a', password: 'bad' }, 'client-1'),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    clock.advance(3 * 60_000 + 1);
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).resolves.toBeDefined();
+  });
+
   it('ログインに成功すると、失敗の回数をリセットする', async () => {
     const { auth } = await setup();
     for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT - 1; attempt += 1) {

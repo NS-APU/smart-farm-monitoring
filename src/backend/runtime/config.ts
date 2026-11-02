@@ -16,6 +16,15 @@ import {
   type EvaluationOnWrite,
 } from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
+import {
+  LOGIN_FAILURE_LIMIT,
+  LOGIN_FAILURE_WINDOW_MINUTES,
+  MAX_LOGIN_FAILURE_LIMIT,
+  MAX_LOGIN_FAILURE_WINDOW_MINUTES,
+  MIN_LOGIN_FAILURE_LIMIT,
+  MIN_LOGIN_FAILURE_WINDOW_MINUTES,
+  type LoginFailurePolicy,
+} from '../infrastructure/common/auth-policy.ts';
 import { LOG_LEVELS, type LogLevel } from '../infrastructure/logging/json-logger.ts';
 import { namedErrorClass } from '../application/named-error.ts';
 
@@ -112,6 +121,23 @@ const EnvSchema = z.object({
    * 接続元とみなす。CloudFront の Function が入れる（関数の URL は、X-Forwarded-For を切り詰めるため、段数では識別できない。
    * Issue #100）。CloudFront を経由しない呼び出しでは、利用者が値を付けられる。
    */
+  /**
+   * 接続元ごとのログインの失敗の制限（FR-9.2。D-44）: 同じ接続元から、LOGIN_FAILURE_WINDOW_MINUTES 分のうちに、失敗が
+   * LOGIN_FAILURE_LIMIT 回に達したら、一時的に拒否する。既定は、失敗 5 回 / 15 分。共有の IP で、誤ってロックされる事例が出たら、
+   * コードを変えずに、回数・時間を変えられる。アカウント単位のロックは、Cognito に任せる（ADR-0008）。
+   */
+  LOGIN_FAILURE_LIMIT: z.coerce
+    .number()
+    .int()
+    .min(MIN_LOGIN_FAILURE_LIMIT)
+    .max(MAX_LOGIN_FAILURE_LIMIT)
+    .default(LOGIN_FAILURE_LIMIT),
+  LOGIN_FAILURE_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(MIN_LOGIN_FAILURE_WINDOW_MINUTES)
+    .max(MAX_LOGIN_FAILURE_WINDOW_MINUTES)
+    .default(LOGIN_FAILURE_WINDOW_MINUTES),
   CLIENT_IP_HEADER: z
     .string()
     .trim()
@@ -178,6 +204,8 @@ export interface AppConfig {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
   readonly clientIpHeader: string | undefined;
+  /** 接続元ごとのログインの失敗の制限（失敗 `limit` 回 / `windowMinutes` 分。既定は 5 回 / 15 分。D-44）。 */
+  readonly loginFailurePolicy: LoginFailurePolicy;
 }
 
 export class ConfigError extends namedErrorClass('ConfigError') {}
@@ -354,6 +382,10 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
     clientIpHeader: parsed.CLIENT_IP_HEADER,
+    loginFailurePolicy: {
+      limit: parsed.LOGIN_FAILURE_LIMIT,
+      windowMinutes: parsed.LOGIN_FAILURE_WINDOW_MINUTES,
+    },
   };
 }
 

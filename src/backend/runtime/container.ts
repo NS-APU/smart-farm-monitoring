@@ -82,6 +82,7 @@ import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identit
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
 import { createJobLock } from '../infrastructure/dynamodb/job-lock.ts';
+import type { LoginFailurePolicy } from '../infrastructure/common/auth-policy.ts';
 import { createLoginThrottle } from '../infrastructure/dynamodb/login-throttle.ts';
 import { createTables } from '../infrastructure/dynamodb/table-admin.ts';
 import { createDefaultFormatProfileRegistry } from '../infrastructure/format-profiles/declarative-profile.ts';
@@ -224,13 +225,17 @@ export function dynamoClientOptions(dynamodb: DynamoDbConfig) {
   };
 }
 
-function buildDynamoStorage(dynamodb: DynamoDbConfig, clock: ClockPort): Storage {
+function buildDynamoStorage(
+  dynamodb: DynamoDbConfig,
+  clock: ClockPort,
+  loginFailurePolicy: LoginFailurePolicy,
+): Storage {
   const options = dynamoClientOptions(dynamodb);
   const tables = { observations: dynamodb.observationsTable, main: dynamodb.mainTable };
   const client = createDocumentClient(options);
   return {
     repositories: createDynamoRepositories({ client, tables }),
-    loginThrottle: createLoginThrottle({ client, tables }, clock),
+    loginThrottle: createLoginThrottle({ client, tables }, clock, loginFailurePolicy),
     jobLock: createJobLock({ client, tables }, clock),
     store: undefined,
     // AWS のテーブルは、IaC で作る。ローカルの接続先のときだけ、作る（すでにあれば、そのまま使う）
@@ -257,7 +262,7 @@ function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort):
     repositories,
     store,
     prepare: () => Promise.resolve(),
-    loginThrottle: createInMemoryLoginThrottle(clock),
+    loginThrottle: createInMemoryLoginThrottle(clock, config.loginFailurePolicy),
     jobLock: createInMemoryJobLock(clock),
   };
 }
@@ -298,7 +303,7 @@ function buildAdapters(
   const storage =
     config.dynamodb === undefined
       ? buildLocalStorage(config, logger, clock)
-      : buildDynamoStorage(config.dynamodb, clock);
+      : buildDynamoStorage(config.dynamodb, clock, config.loginFailurePolicy);
   const { repositories, store, prepare } = storage;
 
   const faults = {
@@ -327,7 +332,11 @@ function buildAdapters(
   const { auth, credentials }: Identity =
     config.cognito === undefined
       ? {
-          auth: createLocalAuth({ users: repositories.users, clock }),
+          auth: createLocalAuth({
+            users: repositories.users,
+            clock,
+            loginFailurePolicy: config.loginFailurePolicy,
+          }),
           credentials: createLocalCredentials({ hash: hashPassword }),
         }
       : buildCognitoIdentity(config.cognito, storage, clock, overrides);
