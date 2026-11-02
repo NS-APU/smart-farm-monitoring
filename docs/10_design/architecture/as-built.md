@@ -739,6 +739,7 @@ classDiagram
     +string role
     +string passwordHash? ローカルのみ。Cognito では持たない
     +IsoDateTime lastLoginAt?
+    +boolean mustChangePassword? 管理者が決めたパスワードを、本人が、まだ変更していない（D-45）
     +IsoDateTime createdAt
   }
   class Session {
@@ -835,7 +836,7 @@ classDiagram
 | `ViewpointId`（10）                 | `harvestAccuracy`・`harvestSpeed`・`environmentalAdaptability`・`operability`・`maintainability`・`costEfficiency`・`safety`・`dataUtilization`・`durability`・`satisfaction`（表示順） | `shared/constants/viewpoints.ts`  |
 | `ViewpointTarget`                   | `ROBOT`・`HOUSE`・`OPERATION`（運用面はハウス単位で評価）                                                                                                                               | 同上                              |
 | `Permission`（8）                   | 上記                                                                                                                                                                                    | `shared/constants/permissions.ts` |
-| `ErrorCode`（9）                    | `VALIDATION_ERROR`・`UNAUTHENTICATED`・`FORBIDDEN`・`NOT_FOUND`・`CONFLICT`・`RATE_LIMITED`・`NOT_IMPLEMENTED`・`INTERNAL_ERROR`・`SERVICE_UNAVAILABLE`                                 | `shared/errors.ts`                |
+| `ErrorCode`（10）                   | `VALIDATION_ERROR`・`UNAUTHENTICATED`・`FORBIDDEN`・`PASSWORD_CHANGE_REQUIRED`（403。D-45）・`NOT_FOUND`・`CONFLICT`・`RATE_LIMITED`・`NOT_IMPLEMENTED`・`INTERNAL_ERROR`・`SERVICE_UNAVAILABLE`                                 | `shared/errors.ts`                |
 | `AuditOperation`                    | `CREATE`・`UPDATE`・`DELETE`                                                                                                                                                            | `shared/schemas/audit.ts`         |
 | `DeliveryChannel`・`DeliveryResult` | `IN_APP`・`WEB_PUSH`／`PENDING`・`SUCCESS`・`FAILURE`                                                                                                                                   | `shared/schemas/notification.ts`  |
 | `IngestionResult`                   | `SUCCESS`・`PARTIAL`・`FAILURE`                                                                                                                                                         | `shared/schemas/ingestion.ts`     |
