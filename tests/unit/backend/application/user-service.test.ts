@@ -61,6 +61,7 @@ function build(users: (original: UserRepository) => UserRepository, credentials:
     sessions: {
       login: () => Promise.reject(new Error('このテストでは使わない')),
       revokeSessionsOf: () => Promise.resolve(),
+      verifyAccessToken: () => Promise.resolve(null),
     },
     pushSubscriptions: repositories.pushSubscriptions,
   });
