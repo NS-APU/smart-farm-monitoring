@@ -713,6 +713,45 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     });
   });
 
+  it('連携キュー: 次の試行の日時が先の、保留・失敗の項目だけを、積んだ順に返す（送信に成功した後に、すぐ送る対象。#203）', async () => {
+    const { repositories } = create();
+    const item = (
+      id: string,
+      status: 'PENDING' | 'SENT' | 'FAILED' | 'HELD',
+      nextAttemptAt: string,
+      enqueuedAt: string,
+    ) => ({
+      federationItemId: id,
+      targetType: 'EVALUATION' as const,
+      targetRef: id,
+      payload: {},
+      status,
+      attempts: 1,
+      enqueuedAt,
+      updatedAt: enqueuedAt,
+      nextAttemptAt,
+    });
+    const future = '2026-10-09T09:00:00.000Z';
+    const past = '2026-10-09T00:00:00.000Z';
+    await repositories.federation.enqueue(item('w-3', 'HELD', future, '2026-10-09T00:03:00.000Z'));
+    await repositories.federation.enqueue(
+      item('w-1', 'FAILED', future, '2026-10-09T00:01:00.000Z'),
+    );
+    // 次の試行の日時が来ている（送信の対象）、送信済み、待機（積んだばかり）は、含めない
+    await repositories.federation.enqueue(item('w-2', 'HELD', past, '2026-10-09T00:02:00.000Z'));
+    await repositories.federation.enqueue(item('w-4', 'SENT', future, '2026-10-09T00:04:00.000Z'));
+    await repositories.federation.enqueue(
+      item('w-5', 'PENDING', future, '2026-10-09T00:05:00.000Z'),
+    );
+    const now = new Date('2026-10-09T03:00:00.000Z');
+
+    const waiting = await repositories.federation.listWaiting(now, 10);
+    const limited = await repositories.federation.listWaiting(now, 1);
+
+    expect(waiting.map((entry) => entry.federationItemId)).toEqual(['w-1', 'w-3']);
+    expect(limited.map((entry) => entry.federationItemId)).toEqual(['w-1']);
+  });
+
   it('連携ログ: 新しい順に一覧できる', async () => {
     const { repositories } = create();
     await repositories.federation.addLog({

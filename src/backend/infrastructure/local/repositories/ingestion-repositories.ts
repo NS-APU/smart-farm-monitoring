@@ -2,6 +2,7 @@
 
 import {
   FederationItemSchema,
+  type FederationItem,
   FederationLogSchema,
   IngestionLogSchema,
 } from '@smart-farm/shared/schemas/ingestion';
@@ -114,6 +115,14 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
   };
 }
 
+/** 次の試行の日時の順（同じ日時は、積んだ日時の順。それも同じなら、積んだ順（安定ソート））。 */
+function byNextAttempt(left: FederationItem, right: FederationItem): number {
+  return (
+    left.nextAttemptAt.localeCompare(right.nextAttemptAt) ||
+    left.enqueuedAt.localeCompare(right.enqueuedAt)
+  );
+}
+
 export function createFederationRepository(store: LocalStore): FederationRepository {
   const federationItems = store.collection(
     'federationItems',
@@ -134,7 +143,20 @@ export function createFederationRepository(store: LocalStore): FederationReposit
         federationItems
           .values()
           .filter((item) => item.status !== 'SENT' && item.nextAttemptAt <= nowIso)
-          .sort((left, right) => left.enqueuedAt.localeCompare(right.enqueuedAt))
+          .sort(byNextAttempt)
+          .slice(0, limit),
+      );
+    },
+    listWaiting(now, limit) {
+      const nowIso = now.toISOString();
+      return Promise.resolve(
+        federationItems
+          .values()
+          .filter(
+            (item) =>
+              (item.status === 'HELD' || item.status === 'FAILED') && item.nextAttemptAt > nowIso,
+          )
+          .sort(byNextAttempt)
           .slice(0, limit),
       );
     },

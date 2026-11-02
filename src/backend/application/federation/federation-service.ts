@@ -2,8 +2,8 @@
  * 農業情報基盤との連携のユースケース（UC-11。JB-03。ADR-0004）。
  * 連携対象は連携キュー（アウトボックス）に積み、連携ジョブが非同期に送る。
  * 農業情報基盤の停止中は「保留」にし、他の機能は影響を受けない（FR-8.2, NFR-2.1）。
- * 結果（成功・失敗・保留）は記録する（FR-8.3）。再送の方針（復旧後の再送・遅延連携）は未確定（Q-005）のため、
- * 暫定として、復旧後は積んだ順にすべて送る（dev_spec.md 4章）。
+ * 結果（成功・失敗・保留）は記録する（FR-8.3）。復旧後は、送信に成功したら、溜まった保留・失敗の項目の
+ * 次の試行を、すぐ（今）に戻して、積んだ順に送る（1 回の成功につき、最大でバッチの件数。ADR-0016 の D-06。dev_spec.md 4章）。
  */
 
 import type { FederationItem } from '@smart-farm/shared/schemas/ingestion';
@@ -52,6 +52,15 @@ export function createFederationService(deps: FederationServiceDeps): Federation
       settings.retryBaseDelayMinutes * 2 ** Math.max(0, attempts - 1),
     );
     return new Date(now.getTime() + delayMinutes * MS_PER_MINUTE).toISOString();
+  }
+
+  /** 送信に成功したら、溜まった保留・失敗の項目の次の試行を、今に戻す（古い順に、バッチの件数まで。試行の回数は変えない）。 */
+  async function releaseWaiting(now: Date): Promise<void> {
+    const waiting = await federation.listWaiting(now, settings.batchSize);
+    const nextAttemptAt = now.toISOString();
+    for (const item of waiting) {
+      await federation.update({ ...item, nextAttemptAt });
+    }
   }
 
   return {
@@ -113,6 +122,9 @@ export function createFederationService(deps: FederationServiceDeps): Federation
         itemCount: due.length,
         ...omitUndefined({ message }),
       });
+      if (result === 'SENT') {
+        await releaseWaiting(now);
+      }
       return {
         sent: result === 'SENT' ? due.length : 0,
         failed: result === 'FAILED' ? due.length : 0,

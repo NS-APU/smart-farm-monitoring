@@ -3,6 +3,7 @@
 - ステータス: 承認（2026-10-15。ユーザーの判断。Issue #72）
 - 日付: 2026-10-15
 - 更新（2026-10-28。#232）: D-11 の既定（ロボット 1 分）での、評価の読み取りの費用を、再試算した。単価は、2024 年 11 月の値下げ後の値（0.1425 USD/100 万 RRU。AWS の公式の料金表で確認）。最大で月約 3,900 円（Lambda を含む。現実的な見込み 約 1,600 円）。**D-11 の既定は変えない**。評価が失敗する不具合を見つけ、修正した（#266）。「再計算」の節
+- 更新（2026-11-02。#203）: 連携の未送信の項目の GSI1 の並べ替えキーを、積んだ日時から、**次の試行の日時**（`{nextAttemptAt}#{enqueuedAt}#{id}`）に変えた。送信してよい項目（期限が来たもの）と、送信に成功した後に戻す項目（先のもの）を、範囲で読むため。移行は行わない（既存の項目は、次に更新されたときに、新しいキーになる）。
 - 関連: [data-model.md](../data/data-model.md) 2章、[ADR-0001](./0001-modular-monolith-ports-and-adapters.md)、[ADR-0002](./0002-deployment-serverless.md)、[ADR-0004](./0004-federation-outbox-standalone.md)、Issue #72・#73
 
 ## 背景
@@ -63,7 +64,7 @@
 | **カウンター** | `COUNTER` | `NOTIF_TOTAL`・`READ#{userId}`・`FED#{status}` | 通知の総数、利用者ごとの既読数、連携の状態ごとの件数。トランザクションで更新する |
 | 取り込み済みファイル | `SRC#{sourceId}` | `FILE#{fileId}#{contentHash}`・`HASH#{contentHash}`（成功のみ）・`STATE`（直近の開始・成功・データ取り込みの日時） | `findIngestedFile` は GetItem。取り込み元の状態（`lastStartedAt` など）は、1 回の GetItem |
 | 取り込みログ | `ILOG#{sourceId}` | `{startedAt}#{logId}` | 取り込み元ごとの Query。全取り込み元は、併合。TTL |
-| 連携項目 | `FED` | `{federationItemId}` | `listDue` は、未送信の項目だけが載る疎な GSI1（`FDUE` / `{enqueuedAt}#{id}`） |
+| 連携項目 | `FED` | `{federationItemId}` | `listDue`・`listWaiting` は、未送信の項目だけが載る疎な GSI1（`FDUE` / `{nextAttemptAt}#{enqueuedAt}#{id}`。次の試行の日時の順）を、範囲で読む（期限が来た項目・先の項目だけを読み、溜まった件数に比例して読まない。#203） |
 | 連携ログ | `FLOG` | `{occurredAt}#{logId}` | TTL |
 | 変更履歴 | `AUDIT` | `{occurredAt}#{auditId}` | 操作種別・変更者などは、FilterExpression。期間は、キー条件。TTL |
 | 手動入力 | `ME` | `{observedAt}#{entryId}` | 少量。`get` は GSI1。並べ替え・絞り込みは、アプリ側 |

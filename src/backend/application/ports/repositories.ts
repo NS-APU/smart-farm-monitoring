@@ -187,8 +187,10 @@ export interface IngestionRepository {
 
 export interface FederationRepository {
   enqueue(item: FederationItem): Promise<void>;
-  /** 送信してよい項目（待機・失敗・保留で、次の試行の日時が来ているもの）。 */
+  /** 送信してよい項目（待機・失敗・保留で、次の試行の日時が来ているもの）。次の試行の日時の順（同じ日時は、積んだ順）。 */
   listDue(now: Date, limit: number): Promise<FederationItem[]>;
+  /** 次の試行の日時が先の、保留・失敗の項目を、次の試行の日時の順（同じ日時は、積んだ順）に返す（送信に成功した後に、すぐ送る対象。ADR-0016 の D-06）。 */
+  listWaiting(now: Date, limit: number): Promise<FederationItem[]>;
   update(item: FederationItem): Promise<void>;
   addLog(entry: FederationLog): Promise<void>;
   listLogs(page: PageRequest): Promise<Page<FederationLog>>;
