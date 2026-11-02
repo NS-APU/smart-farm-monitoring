@@ -9,6 +9,7 @@
 #   「Use workflow from」で選んだブランチを、そのままデプロイする（ロールの信頼ポリシーも、この Environment を条件にしている。
 #   本番サイトの Environment「production」のジョブは、このロールを引き受けられない）
 # - 独自のサブドメインを使うときは、Environment の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する（2 つとも。未設定なら cloudfront.net）
+# - ログインの失敗の制限（接続元ごと）を変えるときは、Environment の変数 SFM_LOGIN_FAILURE_LIMIT（1〜100）・SFM_LOGIN_FAILURE_WINDOW_MINUTES（1〜1440 分）を設定する（未設定なら、5 回 / 15 分。Issue #244）
 name: Deploy development
 
 on:
@@ -70,4 +71,6 @@ jobs:
           SFM_ENVIRONMENT: development
           SFM_DOMAIN_NAME: ${{ vars.SFM_DOMAIN_NAME }}
           SFM_HOSTED_ZONE_NAME: ${{ vars.SFM_HOSTED_ZONE_NAME }}
+          SFM_LOGIN_FAILURE_LIMIT: ${{ vars.SFM_LOGIN_FAILURE_LIMIT }}
+          SFM_LOGIN_FAILURE_WINDOW_MINUTES: ${{ vars.SFM_LOGIN_FAILURE_WINDOW_MINUTES }}
         run: pnpm --filter @smart-farm/infra run deploy
