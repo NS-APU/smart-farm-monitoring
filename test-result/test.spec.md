@@ -11270,3 +11270,14 @@ Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch L
 **変更した既存のテスト（仕様の変更に伴う。期待する振る舞いは、変えていない）**: 状態「期限切れ」の追加で、連携キューの件数の応答に `EXPIRED` が増え、ジョブの要約に `expired` が増えたため、完全一致で比べていた期待値に、`EXPIRED: 0`・`expired: 0` を足した（`repository-contract.test.ts`・`dynamodb-adapter.test.ts`・`runtime-resilience.test.ts`・`federation-recovery.test.ts`）。画面のテストの連携キューのデータに `EXPIRED: 5` を足した（`ingestion-page.test.tsx`）。通知サービスの偽物に、新しいメソッド（`notifyFederationExpired`）を足した（`evaluation-notification.test.ts`・`ingestion.test.ts`・`ingestion-reliability.test.ts`）。
 
 実測（2026-11-02。手元（Windows））: `pnpm test:unit` は、96 ファイル・2137 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.4%・Branches 95.81%・Functions 99.73%・Lines 99.38%。E2E の追加分は、実装のあとに書いた（結合・単体は、先に失敗を確認した）。
+
+### 16.3 連携キューの 1 項目の大きさの確認と対応（Issue #205）
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/backend/domain/federation-payload.test.ts`（新規） | 上限（1,000 件）以下は、分割せず、そのまま 1 項目（1）。上限を超えたら、上限の件数ごとに分け、順序を保ち、参照に連番・内容に part を持たせ、元の情報（sourceId・fileId）を引き継ぐ（1）。観測値の配列を持たない内容は、そのまま（1）。境界: 1,001 件は、1,000 件と 1 件の 2 項目（1） |
+| 結合: `tests/integration/federation-item-size.test.ts`（新規。DynamoDB Local） | DynamoDB の 1 項目の上限（約 400 KB）を超える観測値（3,500 件。約 1 MB）も、4 項目に分けて積め、すべて送れる（1。**変更前は、DynamoDB の項目の大きさの上限で失敗することを確認した**）。上限以下（1,000 件）は、分割せず、これまでと同じ参照・内容（1）。取り込み: 環境センサーの CSV（700 行 × 4 項目 = 2,800 件）を取り込むと、1,000・1,000・800 件の 3 項目に分けて積み、すべて送る（1） |
+
+実測（DynamoDB Local。Issue #205 の確認。一時のテストで測り、削除した）: 観測値 1 件は、JSON で約 307 バイト。1,000 件（約 307 KB）・1,200 件（約 368 KB）・1,300 件（約 399 KB）・1,500 件（約 460 KB）まで保存でき、**2,000 件（約 614 KB）で、項目の大きさの上限を超えて失敗した**（実際の DynamoDB の上限は、約 400 KB。ここで使った DynamoDB Local は、JSON より、小さく数える。保存できた件数に余裕を見て、1 項目 1,000 件にした）。
+
+実測（2026-11-02。手元（Windows））: `pnpm test:unit` は、98 ファイル・2144 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.4%・Branches 95.81%・Functions 99.73%・Lines 99.38%。E2E: UC-11・シナリオ（停止と復旧）の 15 件が成功（別ポート 18787・15173）。**テストの期待値の変更・削除・スキップはしていない**。
