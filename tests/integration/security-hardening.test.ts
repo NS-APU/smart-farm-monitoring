@@ -8,7 +8,12 @@ import { describe, expect, it } from 'vitest';
 import { LoginResponseSchema } from '@smart-farm/shared/schemas/auth';
 import { toUserId } from '@smart-farm/shared/schemas/common';
 import { LOGIN_FAILURE_LIMIT } from '../../src/backend/infrastructure/local/local-auth.ts';
-import { createTestContext, TEST_USER, type TestContext } from '../support/test-context.ts';
+import {
+  createTestContext,
+  markPasswordChanged,
+  TEST_USER,
+  type TestContext,
+} from '../support/test-context.ts';
 
 const NEW_USER = {
   userId: 'worker-2',
@@ -37,6 +42,7 @@ async function loginSession(context: TestContext, userId: string, password: stri
 
 async function createWorker(context: TestContext) {
   await context.request('/users', { method: 'POST', body: NEW_USER });
+  await markPasswordChanged(context, NEW_USER.userId);
   return loginSession(context, NEW_USER.userId, NEW_USER.password);
 }
 

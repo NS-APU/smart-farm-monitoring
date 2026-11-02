@@ -29,6 +29,7 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'POST', path: '/auth/login', access: 'PUBLIC', useCases: ['UC-13'] },
   { method: 'POST', path: '/auth/refresh', access: 'PUBLIC', useCases: ['UC-13'] },
   { method: 'POST', path: '/auth/logout', access: 'LOGIN', useCases: ['UC-13'] },
+  { method: 'POST', path: '/auth/password', access: 'LOGIN', useCases: ['UC-13', 'UC-14'] },
   // 設備（SC-10）
   { method: 'GET', path: '/equipment', access: 'LOGIN', useCases: ['UC-01', 'UC-12'] },
   { method: 'POST', path: '/equipment', access: 'equipment:manage', useCases: ['UC-12'] },

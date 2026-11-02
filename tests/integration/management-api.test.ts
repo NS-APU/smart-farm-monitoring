@@ -28,6 +28,7 @@ import { observation, FACILITY_ID, ROBOT_ID, SENSOR_ID } from '../support/builde
 import {
   createTestContext,
   errorOf,
+  markPasswordChanged,
   TEST_NOW,
   withEquipment,
   type TestContext,
@@ -1457,6 +1458,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
       },
     });
     await send(context, 'POST', '/users', NEW_USER);
+    await markPasswordChanged(context, NEW_USER.userId);
     const login = await context.app.request('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

@@ -8,6 +8,8 @@ export const ERROR_CODES = [
   'VALIDATION_ERROR',
   'UNAUTHENTICATED',
   'FORBIDDEN',
+  /** 管理者が決めたパスワードの変更が済むまで、ほかの操作ができない（403。D-45）。 */
+  'PASSWORD_CHANGE_REQUIRED',
   'NOT_FOUND',
   'CONFLICT',
   'RATE_LIMITED',

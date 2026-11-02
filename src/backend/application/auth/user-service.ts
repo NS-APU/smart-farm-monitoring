@@ -20,7 +20,7 @@ import type {
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
 import type { AuditService } from '../audit/audit-service.ts';
-import type { AuthPort } from '../ports/auth-port.ts';
+import type { AuthPort, AuthSession } from '../ports/auth-port.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { CredentialPort } from '../ports/credential-port.ts';
 import type { UserRecord } from '../ports/records.ts';
@@ -28,6 +28,12 @@ import type { PushSubscriptionRepository, UserRepository } from '../ports/reposi
 import type { AccessPolicy } from './access-policy.ts';
 
 const USER_TARGET_TYPE = 'user' satisfies AuditTargetType;
+
+/** パスワードの変更の入力（本人。現在のパスワードと、新しいパスワード）。 */
+export interface ChangeOwnPasswordInput {
+  readonly currentPassword: string;
+  readonly newPassword: string;
+}
 
 export interface UserService {
   list(): Promise<UserListResponse>;
@@ -43,6 +49,16 @@ export interface UserService {
     options?: { readonly currentAccessToken?: string },
   ): Promise<PublicUser>;
   delete(userId: UserId, actor: UserId): Promise<void>;
+  /**
+   * 本人が、自分のパスワードを変更する（FR-9.7。D-45）。現在のパスワードの確認（誤りは、ログインの失敗と同じく、接続元ごとの
+   * 制限に数える）→ 新しいパスワードの設定 → 「変更が必要」の印を外す → すべてのセッションを失効 → 新しいセッションを返す。
+   * 現在のパスワードの誤りは、VALIDATION_ERROR（currentPassword）。新しいパスワードが現在と同じなら、VALIDATION_ERROR（newPassword）。
+   */
+  changeOwnPassword(
+    userId: UserId,
+    input: ChangeOwnPasswordInput,
+    clientKey: string,
+  ): Promise<AuthSession>;
 }
 
 export interface UserServiceDeps {
@@ -52,8 +68,8 @@ export interface UserServiceDeps {
   readonly credentials: CredentialPort;
   readonly audit: AuditService;
   readonly clock: ClockPort;
-  /** セッションの失効（AuthPort の一部）。 */
-  readonly sessions: Pick<AuthPort, 'revokeSessionsOf'>;
+  /** セッションの失効・現在のパスワードの確認と新しいセッションの発行（ログイン。AuthPort の一部）。 */
+  readonly sessions: Pick<AuthPort, 'login' | 'revokeSessionsOf'>;
   readonly pushSubscriptions: PushSubscriptionRepository;
 }
 
@@ -122,6 +138,8 @@ export function createUserService(deps: UserServiceDeps): UserService {
         userName: input.userName,
         role: input.role,
         ...stored,
+        // 管理者が決めたパスワードは、一時のもの。本人が、最初のログインで、変更する（D-45）
+        mustChangePassword: true,
         createdAt: clock.now().toISOString(),
       };
       try {
@@ -152,6 +170,9 @@ export function createUserService(deps: UserServiceDeps): UserService {
         userName: input.userName,
         role: input.role,
         ...stored,
+        // 管理者が、他の利用者のパスワードを再設定したら、再設定したパスワードも、一時のもの（D-45）。
+        // 自分自身のパスワードは、自分で決めたため、強制しない
+        ...(input.password !== undefined && userId !== actor ? { mustChangePassword: true } : {}),
       };
       await users.save(updated);
       if (input.password !== undefined) {
@@ -171,6 +192,46 @@ export function createUserService(deps: UserServiceDeps): UserService {
         after: toPublicUser(updated),
       });
       return toPublicUser(updated);
+    },
+
+    async changeOwnPassword(userId, input, clientKey) {
+      if (input.newPassword === input.currentPassword) {
+        throw validationError([
+          {
+            name: 'newPassword',
+            message: '新しいパスワードは、現在のパスワードと違うものにしてください',
+          },
+        ]);
+      }
+      // 現在のパスワードの確認は、ログインと同じ手順（失敗は、接続元ごとの制限に数える）
+      try {
+        await sessions.login({ userId, password: input.currentPassword }, clientKey);
+      } catch (error) {
+        if (error instanceof AppError && error.code === 'UNAUTHENTICATED') {
+          throw validationError([
+            { name: 'currentPassword', message: '現在のパスワードが正しくありません' },
+          ]);
+        }
+        throw error;
+      }
+      const before = await findUser(userId);
+      const stored = await credentials.reset(userId, input.newPassword);
+      const updated: UserRecord = { ...before, ...stored, mustChangePassword: false };
+      await users.save(updated);
+      // 確認に使ったセッションを含め、すべてのセッションを失効し、新しいパスワードで、新しいセッションを作る
+      // （Cognito は、端末ごとにセッションを選べないため、実装によらず、同じ動きにする）
+      await sessions.revokeSessionsOf(userId);
+      const session = await sessions.login({ userId, password: input.newPassword }, clientKey);
+      await audit.record({
+        operation: 'UPDATE',
+        targetType: USER_TARGET_TYPE,
+        targetId: userId,
+        actor: userId,
+        before: toPublicUser(before),
+        // パスワード・ハッシュは、残さない。変更したことだけを示す
+        after: { ...toPublicUser(updated), passwordChanged: true },
+      });
+      return session;
     },
 
     async delete(userId, actor) {

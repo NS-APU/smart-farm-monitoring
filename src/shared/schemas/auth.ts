@@ -48,12 +48,27 @@ export const RefreshRequestSchema = z.object({
 });
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
 
+/** POST /auth/password: 本人によるパスワードの変更（FR-9.7）。現在のパスワードを入力する。 */
+export const ChangePasswordRequestSchema = z.object({
+  currentPassword: z
+    .string()
+    .min(1, '現在のパスワードを入力してください')
+    .max(PASSWORD_MAX_LENGTH, 'パスワードが長すぎます'),
+  newPassword: PasswordSchema,
+});
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
+
 /** 認証済みの利用者（権限はロールの設定から導出する）。 */
 export const AuthenticatedUserSchema = z.object({
   userId: UserIdSchema,
   userName: z.string(),
   role: z.string(),
   permissions: z.array(z.enum(PERMISSIONS)),
+  /**
+   * 管理者が決めたパスワードを、本人が、まだ変更していない（D-45）。true の間は、パスワードの変更・ログアウト以外の
+   * API は、拒否される（PASSWORD_CHANGE_REQUIRED）。画面は、パスワードの変更の画面へ誘導する。
+   */
+  mustChangePassword: z.boolean().default(false),
 });
 export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
 
