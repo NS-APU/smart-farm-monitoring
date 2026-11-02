@@ -1,7 +1,7 @@
 /** テストデータの生成（合成データ）。実データは使わない。 */
 
 import { toEquipmentId } from '../../src/shared/schemas/common.ts';
-import type { EquipmentId } from '../../src/shared/schemas/common.ts';
+import type { EquipmentId, UserId } from '../../src/shared/schemas/common.ts';
 import type { Equipment } from '../../src/shared/schemas/equipment.ts';
 import type { Observation } from '../../src/shared/schemas/observation.ts';
 import type { StatusCodeDefinition } from '../../src/shared/schemas/status-code.ts';
@@ -71,6 +71,8 @@ export interface ObservationOverrides {
   readonly source?: Observation['source'];
   readonly quality?: Observation['quality'];
   readonly isDeleted?: boolean;
+  /** 入力者（手動入力）。 */
+  readonly enteredBy?: UserId;
 }
 
 /** 観測値を作る。カテゴリは、項目カタログから決める（ステータスコードは STATUS）。 */
@@ -105,6 +107,7 @@ export function observation(overrides: ObservationOverrides): Observation {
     source: overrides.source ?? 'AUTO_IMPORT',
     quality: overrides.quality ?? 'VALID',
     receivedAt: overrides.receivedAt ?? observedAt,
+    ...(overrides.enteredBy === undefined ? {} : { enteredBy: overrides.enteredBy }),
     isDeleted: overrides.isDeleted ?? false,
   };
 }
