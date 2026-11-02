@@ -31,6 +31,46 @@ describe('IaC の設定（環境変数）', () => {
     });
   });
 
+  describe('ログインの失敗の制限（接続元ごと。Issue #244。D-44）', () => {
+    it('指定しなければ、設定に含めない（アプリの既定の、失敗 5 回 / 15 分）。空白は、未指定として扱う', () => {
+      expect(readConfig({})).not.toHaveProperty('loginFailureLimit');
+      expect(readConfig({})).not.toHaveProperty('loginFailureWindowMinutes');
+      expect(
+        readConfig({ SFM_LOGIN_FAILURE_LIMIT: ' ', SFM_LOGIN_FAILURE_WINDOW_MINUTES: '' }),
+      ).toEqual({ environment: 'development' });
+    });
+
+    it('SFM_LOGIN_FAILURE_LIMIT・SFM_LOGIN_FAILURE_WINDOW_MINUTES を読み取る（片方だけも可）', () => {
+      expect(
+        readConfig({ SFM_LOGIN_FAILURE_LIMIT: '10', SFM_LOGIN_FAILURE_WINDOW_MINUTES: '30' }),
+      ).toMatchObject({ loginFailureLimit: 10, loginFailureWindowMinutes: 30 });
+      expect(readConfig({ SFM_LOGIN_FAILURE_LIMIT: '8' })).toMatchObject({
+        loginFailureLimit: 8,
+      });
+    });
+
+    it.each([
+      ['SFM_LOGIN_FAILURE_LIMIT', '1'],
+      ['SFM_LOGIN_FAILURE_LIMIT', '100'],
+      ['SFM_LOGIN_FAILURE_WINDOW_MINUTES', '1'],
+      ['SFM_LOGIN_FAILURE_WINDOW_MINUTES', '1440'],
+    ])('境界値: %s=%s は、有効', (name, value) => {
+      expect(() => readConfig({ [name]: value })).not.toThrow();
+    });
+
+    it.each([
+      ['SFM_LOGIN_FAILURE_LIMIT', '0'],
+      ['SFM_LOGIN_FAILURE_LIMIT', '101'],
+      ['SFM_LOGIN_FAILURE_LIMIT', '2.5'],
+      ['SFM_LOGIN_FAILURE_LIMIT', 'many'],
+      ['SFM_LOGIN_FAILURE_WINDOW_MINUTES', '0'],
+      ['SFM_LOGIN_FAILURE_WINDOW_MINUTES', '1441'],
+      ['SFM_LOGIN_FAILURE_WINDOW_MINUTES', '-1'],
+    ])('範囲外・不正な値は、エラー: %s=%s', (name, value) => {
+      expect(() => readConfig({ [name]: value })).toThrow(name);
+    });
+  });
+
   it('サイトの環境（SFM_ENVIRONMENT）は、development（既定）か production。空白は、未指定。それ以外は、エラー（Issue #117）', () => {
     expect(readConfig({ SFM_ENVIRONMENT: 'production' }).environment).toBe('production');
     expect(readConfig({ SFM_ENVIRONMENT: 'development' }).environment).toBe('development');

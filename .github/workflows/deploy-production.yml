@@ -9,6 +9,7 @@
 #   シークレット AWS_DEPLOY_ROLE_ARN に設定する（本番用のロール sfm-github-actions-deploy-production。infra/lib/github-oidc-stack.ts）。
 #   このロールを引き受けられるのは、Environment「production」のジョブだけ（開発サイトのジョブは、引き受けられない）
 # - 独自のサブドメインを使うときは、Environment「production」の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する
+# - ログインの失敗の制限（接続元ごと）を変えるときは、Environment の変数 SFM_LOGIN_FAILURE_LIMIT（1〜100）・SFM_LOGIN_FAILURE_WINDOW_MINUTES（1〜1440 分）を設定する（未設定なら、5 回 / 15 分。Issue #244）
 #   （2 つとも。開発サイトとは別のサブドメイン。未設定なら cloudfront.net）
 name: Deploy production
 
@@ -73,4 +74,6 @@ jobs:
           SFM_ENVIRONMENT: production
           SFM_DOMAIN_NAME: ${{ vars.SFM_DOMAIN_NAME }}
           SFM_HOSTED_ZONE_NAME: ${{ vars.SFM_HOSTED_ZONE_NAME }}
+          SFM_LOGIN_FAILURE_LIMIT: ${{ vars.SFM_LOGIN_FAILURE_LIMIT }}
+          SFM_LOGIN_FAILURE_WINDOW_MINUTES: ${{ vars.SFM_LOGIN_FAILURE_WINDOW_MINUTES }}
         run: pnpm --filter @smart-farm/infra run deploy

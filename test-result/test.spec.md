@@ -11181,3 +11181,22 @@ Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch L
 
 - E2E: UC-07 が 36 → 43 件、UC-21 が 29 → 33 件（`playwright test --list` の件数。このファイルの件数のみ）。
 - 実測（2026-11-02。`develop` に #269〜#271 を取り込んだ結果。手元（Windows））: `pnpm test:unit` は、91 ファイル・2025 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、行 99.42%・分岐 95.7%・関数 99.83%・文 99.44%。E2E は、UC-21・07・18・06・01・02・scenario-criteria-change の 271 件が成功。
+
+## 15. Sprint 3 の、認証の見直し（Issue #243。#244・#245。D-44・D-45）で変更・追加したテスト
+
+この章は、Sprint 3 のほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。**テストの期待値の変更・削除・スキップはしていない**。
+
+### 15.1 ログインの失敗の制限（接続元ごと）を、設定値にする（Issue #244。D-44）
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/backend/runtime/config.test.ts` | 既定は 5 回 / 15 分（1）。`LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` で変えられる・片方だけも可（1）。境界値: 回数 1・100、時間 1・1440 は有効（4）。範囲外・不正（0・101・小数・数値でない・時間 0・1441・小数・負）は設定エラー（8） |
+| 単体: `tests/unit/backend/infrastructure/adapters.test.ts` | ローカルの認証: 制限の回数・時間を設定で変えられる（失敗 2 回 / 3 分で、2 回で拒否し、3 分後に解く）（1） |
+| 結合: `tests/integration/cognito-wiring.test.ts` | DynamoDB のスロットル: 設定（2 回 / 3 分）で、2 回で制限し、3 分の直前まで制限し、過ぎたら解く（1） |
+| 結合: `tests/integration/security-hardening.test.ts` | API（メモリのスロットル）: `LOGIN_FAILURE_LIMIT=2`・`LOGIN_FAILURE_WINDOW_MINUTES=1` で、2 回の失敗で 429、1 分後に再び試行できる（1）。回数を緩める（8）と、既定の 5 回を超えても拒否せず、8 回で拒否する（1） |
+| 結合: `tests/integration/lambda-production.test.ts` | 本番の組み立て（DynamoDB・Cognito）でも、環境変数（2 回 / 30 分）が効き、2 回の失敗で 429（1）。補助 `productionHandler` が、環境変数を追加で受ける（期待値は、変えていない） |
+| IaC: `infra/test/config.test.ts` | `SFM_LOGIN_FAILURE_LIMIT`・`SFM_LOGIN_FAILURE_WINDOW_MINUTES`: 未指定・空白は設定に含めない（1）。読み取り・片方だけ（1）。境界値（4）。範囲外・不正はエラー（7） |
+| IaC: `infra/test/evaluation-stack.test.ts` | API の Lambda の環境変数は、既定で 5 / 15。ジョブの Lambda には持たない（1）。スタックの引数で変えられる（1） |
+| IaC: `infra/test/apps.test.ts` | `createEvaluationApp` が、環境変数の指定を API の Lambda に渡す。未指定は 5 / 15（1） |
+
+件数の合計は、単体 +15・結合 +4・IaC +16（新規 35 件）。実測（2026-11-02。手元（Windows））: `pnpm test:unit` は、91 ファイル・2060 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、行 99.42%・分岐 95.73%・関数 99.83%・文 99.44%。

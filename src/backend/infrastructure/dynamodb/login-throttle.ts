@@ -12,23 +12,27 @@ import { createHash } from 'node:crypto';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import type { ClockPort } from '../../application/ports/clock-port.ts';
 import type { LoginThrottlePort } from '../../application/ports/login-throttle-port.ts';
-import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MINUTES } from '../common/auth-policy.ts';
+import { DEFAULT_LOGIN_FAILURE_POLICY, type LoginFailurePolicy } from '../common/auth-policy.ts';
 import { deleteItem, getItem, putItem, type Database } from './operations.ts';
 
 const PARTITION = 'LOGINFAIL';
-const WINDOW_MS = LOGIN_FAILURE_WINDOW_MINUTES * MS_PER_MINUTE;
 
 function sortKeyOf(clientKey: string): string {
   return createHash('sha256').update(clientKey).digest('hex');
 }
 
-export function createLoginThrottle(db: Database, clock: ClockPort): LoginThrottlePort {
+export function createLoginThrottle(
+  db: Database,
+  clock: ClockPort,
+  policy: LoginFailurePolicy = DEFAULT_LOGIN_FAILURE_POLICY,
+): LoginThrottlePort {
   const table = db.tables.main;
+  const windowMs = policy.windowMinutes * MS_PER_MINUTE;
 
   /** 制限の時間内の失敗の時刻。 */
   async function recentFailures(sortKey: string): Promise<number[]> {
     const item = await getItem(db, table, { pk: PARTITION, sk: sortKey });
-    const threshold = clock.now().getTime() - WINDOW_MS;
+    const threshold = clock.now().getTime() - windowMs;
     const recorded: unknown = item?.at;
     return Array.isArray(recorded)
       ? recorded.filter((at): at is number => typeof at === 'number' && at > threshold)
@@ -37,17 +41,17 @@ export function createLoginThrottle(db: Database, clock: ClockPort): LoginThrott
 
   return {
     async isLocked(clientKey) {
-      return (await recentFailures(sortKeyOf(clientKey))).length >= LOGIN_FAILURE_LIMIT;
+      return (await recentFailures(sortKeyOf(clientKey))).length >= policy.limit;
     },
     async recordFailure(clientKey) {
       const sortKey = sortKeyOf(clientKey);
       const nowMs = clock.now().getTime();
-      const failures = [...(await recentFailures(sortKey)), nowMs].slice(-LOGIN_FAILURE_LIMIT);
+      const failures = [...(await recentFailures(sortKey)), nowMs].slice(-policy.limit);
       await putItem(db, table, {
         pk: PARTITION,
         sk: sortKey,
         at: failures,
-        ttl: Math.ceil((nowMs + WINDOW_MS) / 1000),
+        ttl: Math.ceil((nowMs + windowMs) / 1000),
       });
     },
     reset: (clientKey) => deleteItem(db, table, { pk: PARTITION, sk: sortKeyOf(clientKey) }),
