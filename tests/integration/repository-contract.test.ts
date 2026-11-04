@@ -710,7 +710,85 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       SENT: 2,
       FAILED: 1,
       HELD: 1,
+      EXPIRED: 0,
     });
+  });
+
+  it('連携キュー: 期限切れの項目は、送信の対象にも、戻す対象にも含めず、状態ごとの件数に数える（#204）', async () => {
+    const { repositories } = create();
+    const base = {
+      targetType: 'EVALUATION' as const,
+      payload: {},
+      attempts: 1,
+      updatedAt: '2026-10-09T00:00:00.000Z',
+      nextAttemptAt: '2026-10-09T09:00:00.000Z',
+    };
+    await repositories.federation.enqueue({
+      ...base,
+      federationItemId: 'x-1',
+      targetRef: 'x-1',
+      status: 'HELD',
+      enqueuedAt: '2026-10-09T00:01:00.000Z',
+    });
+    await repositories.federation.update({
+      ...base,
+      federationItemId: 'x-1',
+      targetRef: 'x-1',
+      status: 'EXPIRED',
+      enqueuedAt: '2026-10-09T00:01:00.000Z',
+    });
+    const now = new Date('2026-10-09T12:00:00.000Z');
+
+    expect(await repositories.federation.listDue(now, 10)).toEqual([]);
+    expect(
+      await repositories.federation.listWaiting(new Date('2026-10-09T03:00:00.000Z'), 10),
+    ).toEqual([]);
+    expect(await repositories.federation.countByStatus()).toEqual({
+      PENDING: 0,
+      SENT: 0,
+      FAILED: 0,
+      HELD: 0,
+      EXPIRED: 1,
+    });
+  });
+
+  it('連携キュー: 次の試行の日時が先の、保留・失敗の項目だけを、積んだ順に返す（送信に成功した後に、すぐ送る対象。#203）', async () => {
+    const { repositories } = create();
+    const item = (
+      id: string,
+      status: 'PENDING' | 'SENT' | 'FAILED' | 'HELD',
+      nextAttemptAt: string,
+      enqueuedAt: string,
+    ) => ({
+      federationItemId: id,
+      targetType: 'EVALUATION' as const,
+      targetRef: id,
+      payload: {},
+      status,
+      attempts: 1,
+      enqueuedAt,
+      updatedAt: enqueuedAt,
+      nextAttemptAt,
+    });
+    const future = '2026-10-09T09:00:00.000Z';
+    const past = '2026-10-09T00:00:00.000Z';
+    await repositories.federation.enqueue(item('w-3', 'HELD', future, '2026-10-09T00:03:00.000Z'));
+    await repositories.federation.enqueue(
+      item('w-1', 'FAILED', future, '2026-10-09T00:01:00.000Z'),
+    );
+    // 次の試行の日時が来ている（送信の対象）、送信済み、待機（積んだばかり）は、含めない
+    await repositories.federation.enqueue(item('w-2', 'HELD', past, '2026-10-09T00:02:00.000Z'));
+    await repositories.federation.enqueue(item('w-4', 'SENT', future, '2026-10-09T00:04:00.000Z'));
+    await repositories.federation.enqueue(
+      item('w-5', 'PENDING', future, '2026-10-09T00:05:00.000Z'),
+    );
+    const now = new Date('2026-10-09T03:00:00.000Z');
+
+    const waiting = await repositories.federation.listWaiting(now, 10);
+    const limited = await repositories.federation.listWaiting(now, 1);
+
+    expect(waiting.map((entry) => entry.federationItemId)).toEqual(['w-1', 'w-3']);
+    expect(limited.map((entry) => entry.federationItemId)).toEqual(['w-1']);
   });
 
   it('連携ログ: 新しい順に一覧できる', async () => {

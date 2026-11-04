@@ -9,7 +9,7 @@
  *                  派生データ（メトリクス・評価観点別診断結果・推奨アクション・分析結果・インサイト）とする
  *               3. システムが、連携の結果（成功・失敗）を記録する
  *   代替フロー  農業情報基盤が停止している場合は、連携を保留し、本システムの他のユースケース（UC-01〜UC-10）は影響を受けずに継続する。
- *               復旧後の扱い（暫定: 保留・失敗の項目を、積んだ順にすべて送る）。連携の結果（成功・失敗・保留）は記録し、UC-16 で確認する
+ *               復旧後の扱い（決定。ADR-0016 の D-06: 送信に成功したら、溜まった保留・失敗の項目を、すぐ送る）。連携の結果（成功・失敗・保留）は記録し、UC-16 で確認する
  *   事後条件    連携対象のデータが農業情報基盤に反映されている。または、連携の保留が記録されている
  *
  * 値の同値分割: 連携対象の種類（ロボット・環境センサー・人手入力の生データ、評価結果の派生データ）、農業情報基盤の状態
@@ -54,7 +54,7 @@ async function received(request: Parameters<typeof prepareApp>[0]): Promise<Rece
 
 async function queue(request: Parameters<typeof prepareApp>[0]) {
   return (
-    await apiOk<{ queue: Record<'PENDING' | 'SENT' | 'FAILED' | 'HELD', number> }>(
+    await apiOk<{ queue: Record<'PENDING' | 'SENT' | 'FAILED' | 'HELD' | 'EXPIRED', number> }>(
       request,
       'GET',
       '/federation/logs',
@@ -371,6 +371,45 @@ test.describe('代替フロー: 農業情報基盤が停止している場合は
 
     expect((await queue(request)).HELD).toBe(0);
     expect((await received(request)).length).toBeGreaterThan(0);
+  });
+
+  test('停止が、破棄の期限（30 日）を過ぎて続くと、送れていない項目を破棄し、連携のログに「期限切れ」で記録して、通知する。復旧しても、破棄した項目は送らない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await setMock(request, 'federation', 'DOWN');
+    await produceData(request);
+    const produced = (await queue(request)).PENDING;
+    expect(produced).toBeGreaterThanOrEqual(4);
+
+    // 期限の直前（29 日）では、保留のまま。期限（30 日）を過ぎたら、破棄する
+    await advanceMinutes(request, 29 * 24 * 60);
+    await runJob(request, 'JB-03');
+    expect((await queue(request)).EXPIRED).toBe(0);
+    await advanceMinutes(request, 2 * 24 * 60);
+    await runJob(request, 'JB-03');
+
+    const after = await queue(request);
+    expect(after.EXPIRED).toBe(produced);
+    expect(after.HELD).toBe(0);
+    await openStatus(page);
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('期限切れ');
+    await expect(federationRows(page).first()).toContainText(
+      '連携の期限（30 日）を過ぎた項目を、破棄しました',
+    );
+    await expect(queueCount(page, 'EXPIRED')).toHaveText(String(produced));
+    await expect(queueCount(page, 'HELD')).toHaveText('0');
+    await shot(page, testInfo, 'uc11-expired');
+    await page.goto('/notifications');
+    await expect(
+      page.getByTestId('notification-row').filter({ hasText: '連携の期限切れ' }).first(),
+    ).toBeVisible();
+
+    // 復旧しても、破棄した項目は送らない
+    await setMock(request, 'federation', 'UP');
+    await runJob(request, 'JB-03');
+    expect(await received(request)).toHaveLength(0);
   });
 });
 

@@ -23,7 +23,7 @@ import type {
   FederationRepository,
   IngestionRepository,
 } from '../../application/ports/repositories.ts';
-import { timedSortKey } from './keys.ts';
+import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
 import {
   getItem,
@@ -148,13 +148,23 @@ export function createFederationRepository(db: Database): FederationRepository {
   const items = mainAggregate(db, FederationItemSchema);
   const logs = mainAggregate(db, FederationLogSchema);
 
-  /** 項目を保存し、状態が変わったら、同じトランザクションで、状態ごとの件数を更新する。 */
+  /**
+   * 項目を保存し、状態が変わったら、同じトランザクションで、状態ごとの件数を更新する。
+   * 送信していない項目は、次の試行の日時の順に並ぶインデックスに載せる（同じ日時は、積んだ順）。
+   * 期限が来た項目・先の項目を、範囲で読めて、溜まった件数に比例して読まない（ADR-0016 の D-06。#203）。
+   */
   async function save(item: FederationItem): Promise<void> {
     const existing = await items.get(FEDERATION_ITEM, item.federationItemId);
     const indexKeys =
-      item.status === 'SENT'
+      item.status === 'SENT' || item.status === 'EXPIRED'
         ? {}
-        : { gsi1pk: FEDERATION_DUE, gsi1sk: timedSortKey(item.enqueuedAt, item.federationItemId) };
+        : {
+            gsi1pk: FEDERATION_DUE,
+            gsi1sk: timedSortKey(
+              item.nextAttemptAt,
+              `${instantKey(item.enqueuedAt)}#${item.federationItemId}`,
+            ),
+          };
     if (existing?.status === item.status) {
       await items.put(FEDERATION_ITEM, item.federationItemId, item, indexKeys);
       return;
@@ -169,29 +179,57 @@ export function createFederationRepository(db: Database): FederationRepository {
     await transactWrite(db, operations);
   }
 
-  return {
-    enqueue: save,
-    async listDue(now, limit) {
-      const nowMs = now.getTime();
-      const due: FederationItem[] = [];
-      for await (const stored of queryItems(db, {
-        table,
-        index: MAIN_INDEX_1,
-        hashName: 'gsi1pk',
-        hashValue: FEDERATION_DUE,
-        sortName: 'gsi1sk',
-        forward: true,
-        pageSize: Math.min(1000, Math.max(limit, 25)),
-      })) {
-        const item = items.parse(stored);
-        if (Date.parse(item.nextAttemptAt) <= nowMs) {
-          due.push(item);
-          if (due.length >= limit) {
-            break;
-          }
+  /**
+   * 送信していない項目を、次の試行の日時の順（範囲は、キーの値で指定）に読み、条件に合うものを、limit 件まで返す。
+   * 条件は、キーの形が古い項目（積んだ日時のキー）を、読み飛ばすための確認。
+   */
+  async function pickUnsent(
+    limit: number,
+    range: { readonly lower?: string; readonly upper?: string },
+    accepts: (item: FederationItem) => boolean,
+  ): Promise<FederationItem[]> {
+    const picked: FederationItem[] = [];
+    for await (const stored of queryItems(db, {
+      table,
+      index: MAIN_INDEX_1,
+      hashName: 'gsi1pk',
+      hashValue: FEDERATION_DUE,
+      sortName: 'gsi1sk',
+      ...range,
+      forward: true,
+      pageSize: Math.min(1000, Math.max(limit, 1)),
+    })) {
+      const item = items.parse(stored);
+      if (accepts(item)) {
+        picked.push(item);
+        if (picked.length >= limit) {
+          break;
         }
       }
-      return due;
+    }
+    return picked;
+  }
+
+  return {
+    enqueue: save,
+    listDue(now, limit) {
+      const nowMs = now.getTime();
+      return pickUnsent(
+        limit,
+        { upper: upperBoundOf(instantKey(now.toISOString())) },
+        (item) => Date.parse(item.nextAttemptAt) <= nowMs,
+      );
+    },
+    listWaiting(now, limit) {
+      const nowMs = now.getTime();
+      // 現在の日時（ミリ秒）の項目は、含めない（`$` は `#` の次の文字）
+      return pickUnsent(
+        limit,
+        { lower: upperBoundOf(instantKey(now.toISOString())) },
+        (item) =>
+          (item.status === 'HELD' || item.status === 'FAILED') &&
+          Date.parse(item.nextAttemptAt) > nowMs,
+      );
     },
     update: save,
     addLog: (entry) => logs.put(FEDERATION_LOG, timedSortKey(entry.occurredAt, entry.logId), entry),
@@ -211,6 +249,7 @@ export function createFederationRepository(db: Database): FederationRepository {
         SENT: counts.get(federationCounter('SENT')) ?? 0,
         FAILED: counts.get(federationCounter('FAILED')) ?? 0,
         HELD: counts.get(federationCounter('HELD')) ?? 0,
+        EXPIRED: counts.get(federationCounter('EXPIRED')) ?? 0,
       };
     },
   };

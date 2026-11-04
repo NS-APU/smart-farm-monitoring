@@ -20,6 +20,8 @@ import type {
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import {
+  buildFederationExpiredDedupKey,
+  buildFederationExpiredMessage,
   buildIngestionFailureDedupKey,
   buildIngestionFailureMessage,
   type IngestionNotificationSituation,
@@ -66,6 +68,11 @@ export interface NotificationService {
     reason: string;
     situation?: IngestionNotificationSituation;
   }): Promise<Notification | null>;
+  /**
+   * 連携の期限切れ（破棄の期限を過ぎて、項目を破棄した）の通知を作る。抑制の期間内の重複は作らず、null を返す
+   * （抑制の間に破棄した分は、連携のログに残る）。
+   */
+  notifyFederationExpired(input: { expiryDays: number }): Promise<Notification | null>;
   list(
     userId: UserId,
     query: {
@@ -216,6 +223,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         sourceId: input.sourceId,
         message: buildIngestionFailureMessage(input.sourceName, input.reason, input.situation),
         dedupKey: buildIngestionFailureDedupKey(input.sourceId, input.situation),
+      });
+    },
+
+    notifyFederationExpired(input) {
+      return createIfNotSuppressed({
+        kind: 'FEDERATION_EXPIRED',
+        message: buildFederationExpiredMessage(input.expiryDays),
+        dedupKey: buildFederationExpiredDedupKey(),
       });
     },
 

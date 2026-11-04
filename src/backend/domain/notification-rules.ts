@@ -64,6 +64,16 @@ export function buildStatusChangeMessage(input: StatusChangeMessageInput): strin
   return `【${STATUS_LABELS[input.status]}】${input.viewpointName}（${input.equipmentName}）: ${input.diagnosticMessage}`;
 }
 
+/** 連携の期限切れの通知の重複抑制のキー（種類ごとに 1 つ。60 分に 1 件）。 */
+export function buildFederationExpiredDedupKey(): string {
+  return 'FEDERATION_EXPIRED';
+}
+
+/** 連携の期限切れの通知の本文。件数は含めない（抑制の間の分は、連携のログに残るため）。 */
+export function buildFederationExpiredMessage(expiryDays: number): string {
+  return `【連携の期限切れ】農業情報基盤に ${String(expiryDays)} 日以上送れなかった項目を、破棄しました。連携のログを確認してください`;
+}
+
 export function buildIngestionFailureMessage(
   sourceName: string,
   reason: string,

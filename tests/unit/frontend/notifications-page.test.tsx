@@ -71,6 +71,32 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     expect(rows[4]?.textContent).toContain('ROBOT-99');
   });
 
+  it('連携の期限切れの通知は、種別「連携の期限切れ」で表示し、種別の絞り込みにも選べる（#204）', async () => {
+    renderApp('/notifications', {
+      'GET /notifications': listOf([
+        notification({
+          notificationId: 'n-9' as never,
+          kind: 'FEDERATION_EXPIRED',
+          viewpointId: undefined,
+          equipmentId: undefined,
+          sourceId: undefined,
+          status: undefined,
+          message:
+            '【連携の期限切れ】農業情報基盤に 30 日以上送れなかった項目を、破棄しました。連携のログを確認してください',
+        }),
+      ]),
+    });
+
+    const [row] = await screen.findAllByTestId('notification-row');
+
+    expect(row?.textContent).toContain('連携の期限切れ');
+    expect(row?.textContent).toContain('連携のログを確認してください');
+    const options = [...screen.getByLabelText<HTMLSelectElement>('種別').options].map(
+      (option) => option.textContent,
+    );
+    expect(options).toContain('連携の期限切れ');
+  });
+
   it('各セルに、項目名（data-label）を持つ。狭い画面（900px 以下）では、表を通知ごとのカードにして、項目名を表示するため', async () => {
     renderApp('/notifications', { 'GET /notifications': listOf([notification()]) });
 

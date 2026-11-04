@@ -127,6 +127,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
     const clock = createControllableClock(TEST_NOW);
     const service = createFederationService({
       federation: repositories.federation,
+      notifications: { notifyFederationExpired: () => Promise.resolve(null) },
       port: { send: () => NEVER },
       clock,
       ids: createSequentialIdGenerator(),
@@ -137,7 +138,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
 
     const summary = await service.runPending();
 
-    expect(summary).toEqual({ sent: 0, failed: 0, held: 1 });
+    expect(summary).toEqual({ sent: 0, failed: 0, held: 1, expired: 0 });
   });
 
   it('Web Push の配信が応答しなければ、配信の失敗として記録する（再送の対象）', async () => {

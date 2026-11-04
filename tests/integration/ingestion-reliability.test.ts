@@ -66,6 +66,7 @@ async function build(
     notifications: {
       notifyStatusChange: vi.fn(),
       notifyIngestionFailure,
+      notifyFederationExpired: vi.fn(),
       list: vi.fn(),
       unreadCount: vi.fn(),
       markRead: vi.fn(),

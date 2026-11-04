@@ -122,7 +122,7 @@ export type IngestionLogListResponse = z.infer<typeof IngestionLogListResponseSc
 export const FederationLogSchema = z.object({
   logId: z.string(),
   occurredAt: IsoDateTimeSchema,
-  /** 成功（SENT）／失敗（FAILED）／保留（HELD）。FR-8.3。 */
+  /** 成功（SENT）／失敗（FAILED）／保留（HELD）／期限切れ（EXPIRED。破棄の期限を過ぎて破棄した）。FR-8.3。 */
   result: z.enum(FEDERATION_RESULTS),
   itemCount: z.number().int().nonnegative(),
   message: z.string().optional(),
@@ -140,6 +140,7 @@ export const FederationLogListResponseSchema = z.object({
     SENT: QueueCountSchema,
     FAILED: QueueCountSchema,
     HELD: QueueCountSchema,
+    EXPIRED: QueueCountSchema,
   } satisfies Record<FederationStatus, typeof QueueCountSchema>),
 });
 export type FederationLogListResponse = z.infer<typeof FederationLogListResponseSchema>;
