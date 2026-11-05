@@ -11306,5 +11306,6 @@ Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch L
 | `tests/unit/frontend/observations-page.test.tsx` | 「ページ分割と、取得失敗の表示」で、キーワードを入力する前に、期間（URL の `from`・`to`）を指定して始めるようにした | 画面が、期間のないキーワードで、API を呼ばず、案内を示すため（取得失敗の再現ができなくなる） |
 | `tests/e2e/UC-20-view-observations.ts` | キーワード 6 件・値の並べ替え 2 件・カテゴリの並べ替え 1 件で、一覧を開くときに、期間（`?from=2026-10-08&to=2026-10-09`）を指定する | 同上 |
 | `tests/e2e/UC-07-input-missing-data.ts`・`UC-09-import-sensor-data.ts` | 観測値の一覧を、キーワード付きで開く URL に、期間を加えた | 同上 |
+| `tests/stress/stress-01-single-user.ts`・`stress-02-concurrent-users.ts`（負荷テスト） | stress-01: 直近 30 日の期間の指定を、キーワード・値・カテゴリの並べ替えの計測が済むまで続け、期間の絞り込みの解除は、そのあとに移した。stress-02: 値の昇順の並べ替えの前に、直近 30 日の期間を入力する | 同上。**Issue #91 の PR で、負荷テストへの反映を漏らし、リリースの PR（`main` 宛ての CI の stress）で、失敗して見つかった。** 修正後、手元で、CI と同じ倍率（`STRESS_LIMIT_FACTOR=1.5`）で、4 件成功 |
 
 実測（手元（Windows））: 上の変更の確認として、E2E の UC-20・UC-07・UC-09・UC-02 の 189 件が成功（別ポート 18787・15173）。`pnpm test:unit` は、99 ファイル・2171 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.41%・Branches 95.86%・Functions 99.73%・Lines 99.39%。**途中の 1 回の全体実行で、2 件（`entry-pages.test.tsx` の満足度の修正・`demo-data-cli.test.ts` の reset）が失敗したが、単独で再実行すると成功し、再度の全体実行も成功した（全体実行時の負荷による不安定さ。この変更とは無関係）**。結合・単体は、先に失敗を確認してから実装した。E2E の追加分は、実装のあとに実行した。
