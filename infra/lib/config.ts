@@ -4,7 +4,16 @@
  * - SFM_ENVIRONMENT: サイトの環境（development（既定）・production。Issue #117。ADR-0013）。スタックの名前・タグ・構成が変わる。
  *   開発サイトの既存の名前（SfmData・SfmEvaluation）は、変えない
  * - SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME: 独自のサブドメインを使うときだけ、2 つとも指定する
+ * - SFM_LOGIN_FAILURE_LIMIT・SFM_LOGIN_FAILURE_WINDOW_MINUTES: 接続元ごとのログインの失敗の制限（失敗の回数・時間（分））。
+ *   API の Lambda の環境変数 LOGIN_FAILURE_LIMIT・LOGIN_FAILURE_WINDOW_MINUTES になる。指定しなければ、5 回 / 15 分
+ *   （Issue #244。D-44）。値を変えるときは、環境変数を指定して、デプロイし直す（コードの変更は、要らない）
  */
+import {
+  MAX_LOGIN_FAILURE_LIMIT,
+  MAX_LOGIN_FAILURE_WINDOW_MINUTES,
+  MIN_LOGIN_FAILURE_LIMIT,
+  MIN_LOGIN_FAILURE_WINDOW_MINUTES,
+} from '../../src/backend/infrastructure/common/auth-policy.ts';
 
 /** リージョンは、東京に固定する（ユーザーの指示。architecture.md 11.4）。 */
 export const REGION = 'ap-northeast-1';
@@ -53,6 +62,10 @@ export interface InfraConfig {
   readonly domainName?: string;
   readonly hostedZoneName?: string;
   readonly existingOidcProviderArn?: string;
+  /** 接続元ごとのログインの失敗の制限の回数。未指定は、アプリの既定（5 回）。 */
+  readonly loginFailureLimit?: number;
+  /** 接続元ごとのログインの失敗の制限の時間（分）。未指定は、アプリの既定（15 分）。 */
+  readonly loginFailureWindowMinutes?: number;
 }
 
 function optional(
@@ -75,12 +88,42 @@ function readEnvironment(env: Readonly<Record<string, string | undefined>>): Sit
   return found;
 }
 
+/** 範囲の中の整数の環境変数を読む。未指定（空白を含む）は undefined。範囲外・整数でない値は、エラー。 */
+function optionalInteger(
+  env: Readonly<Record<string, string | undefined>>,
+  name: string,
+  min: number,
+  max: number,
+): number | undefined {
+  const value = optional(env, name);
+  if (value === undefined) {
+    return undefined;
+  }
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < min || number > max) {
+    throw new Error(`${name} は、${String(min)}〜${String(max)} の整数にしてください`);
+  }
+  return number;
+}
+
 export function readConfig(env: Readonly<Record<string, string | undefined>>): InfraConfig {
   const environment = readEnvironment(env);
   const account = optional(env, 'CDK_DEFAULT_ACCOUNT');
   const domainName = optional(env, 'SFM_DOMAIN_NAME');
   const hostedZoneName = optional(env, 'SFM_HOSTED_ZONE_NAME');
   const existingOidcProviderArn = optional(env, 'SFM_GITHUB_OIDC_PROVIDER_ARN');
+  const loginFailureLimit = optionalInteger(
+    env,
+    'SFM_LOGIN_FAILURE_LIMIT',
+    MIN_LOGIN_FAILURE_LIMIT,
+    MAX_LOGIN_FAILURE_LIMIT,
+  );
+  const loginFailureWindowMinutes = optionalInteger(
+    env,
+    'SFM_LOGIN_FAILURE_WINDOW_MINUTES',
+    MIN_LOGIN_FAILURE_WINDOW_MINUTES,
+    MAX_LOGIN_FAILURE_WINDOW_MINUTES,
+  );
   if ((domainName === undefined) !== (hostedZoneName === undefined)) {
     throw new Error(
       'SFM_DOMAIN_NAME と SFM_HOSTED_ZONE_NAME は、2 つとも指定するか、2 つとも指定しないでください',
@@ -96,5 +139,7 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): I
       ? {}
       : { domainName, hostedZoneName }),
     ...(existingOidcProviderArn === undefined ? {} : { existingOidcProviderArn }),
+    ...(loginFailureLimit === undefined ? {} : { loginFailureLimit }),
+    ...(loginFailureWindowMinutes === undefined ? {} : { loginFailureWindowMinutes }),
   };
 }

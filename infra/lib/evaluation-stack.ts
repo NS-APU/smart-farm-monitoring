@@ -61,6 +61,11 @@ import {
   DEFAULT_SCHEDULE,
   JOB_LAMBDA_TIMEOUT_SECONDS,
 } from '../../src/backend/application/jobs/job-schedule.ts';
+import {
+  LOGIN_FAILURE_LIMIT,
+  LOGIN_FAILURE_WINDOW_MINUTES,
+  type LoginFailurePolicy,
+} from '../../src/backend/infrastructure/common/auth-policy.ts';
 import { bundledLambdaCode } from './bundle-lambda.ts';
 
 /** ファイルの拡張子がないパス（SPA の画面のパス）を、index.html に書き換える。API のパスには、付けない。 */
@@ -148,6 +153,11 @@ export interface EvaluationStackProps extends StackProps {
    * 未設定だと、取り込みが失敗し続けるため。本番サイトは、空のまま。実サーバーのアダプタは、Issue #119）
    */
   readonly includeDemoFeed?: boolean;
+  /**
+   * 接続元ごとのログインの失敗の制限（API の Lambda の環境変数 LOGIN_FAILURE_LIMIT・LOGIN_FAILURE_WINDOW_MINUTES）。
+   * 既定は、失敗 5 回 / 15 分（Issue #244。D-44）。一部だけを指定すると、残りは、既定の値。
+   */
+  readonly loginFailurePolicy?: Partial<LoginFailurePolicy>;
 }
 
 export class EvaluationStack extends Stack {
@@ -235,7 +245,16 @@ export class EvaluationStack extends Stack {
       memorySize: 1024,
       timeout: Duration.seconds(29),
       // 手動入力の保存・削除の応答の前に、評価を再計算しない（定期の評価 JB-02 が更新する。Issue #123。ADR-0014）
-      environment: { ...backendEnvironment, CLIENT_IP_HEADER, EVALUATION_ON_WRITE: 'deferred' },
+      environment: {
+        ...backendEnvironment,
+        CLIENT_IP_HEADER,
+        EVALUATION_ON_WRITE: 'deferred',
+        // ログインを受けるのは、API だけ（ジョブの Lambda には、持たない）。値は、IaC のデプロイで決める（コードの変更は、要らない）
+        LOGIN_FAILURE_LIMIT: String(props.loginFailurePolicy?.limit ?? LOGIN_FAILURE_LIMIT),
+        LOGIN_FAILURE_WINDOW_MINUTES: String(
+          props.loginFailurePolicy?.windowMinutes ?? LOGIN_FAILURE_WINDOW_MINUTES,
+        ),
+      },
       logGroup: new LogGroup(this, 'ApiLogGroup', {
         retention: RetentionDays.ONE_MONTH,
         removalPolicy: RemovalPolicy.DESTROY,

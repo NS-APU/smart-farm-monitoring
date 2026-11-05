@@ -101,6 +101,54 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     });
   });
 
+  it('期間を選んでいないときは、期間を送らず（観点ごとの既定。満足度は 30 日）、期間の選択は、直近7日を示す', async () => {
+    const { calls } = renderPath('/');
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(calls.find((call) => call.path === '/dashboard')?.query.has('periodDays')).toBe(false);
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+  });
+
+  it('期間を選んでいないときに、視点を切り替えても、期間は選んだことにならない（URL・取得とも）', async () => {
+    const { calls } = renderPath('/');
+    await screen.findByRole('heading', { name: '安全性' });
+
+    fireEvent.click(screen.getByRole('radio', { name: '短期' }));
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?horizon=SHORT');
+    });
+    await waitFor(() => {
+      const last = calls.filter((call) => call.path === '/dashboard').at(-1);
+      expect(last?.query.get('horizon')).toBe('SHORT');
+      expect(last?.query.has('periodDays')).toBe(false);
+    });
+  });
+
+  it('期間を選ぶと、その期間で取得する（満足度も、選んだ期間）。選んだあとは、視点を切り替えても、期間を保つ', async () => {
+    const { calls } = renderPath('/');
+    await screen.findByRole('heading', { name: '安全性' });
+
+    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '60' } });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?horizon=LONG&periodDays=60');
+    });
+    await waitFor(() => {
+      expect(
+        calls
+          .filter((call) => call.path === '/dashboard')
+          .at(-1)
+          ?.query.get('periodDays'),
+      ).toBe('60');
+    });
+    const satisfaction = screen.getByRole('heading', { name: '満足度' }).closest('li');
+    expect(satisfaction && within(satisfaction).getAllByRole('link')[0]?.getAttribute('href')).toBe(
+      '/satisfaction?periodDays=60',
+    );
+  });
+
   it('不正なクエリは、既定値（長期・直近7日）として扱う', async () => {
     renderPath('/?horizon=MIDDLE&periodDays=5');
 
@@ -128,6 +176,21 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     await screen.findByRole('heading', { name: '安全性' });
 
     expect(screen.queryByText(/最終の評価/)).toBeNull();
+  });
+
+  it('期間を選んでいないとき、満足度のカードの詳細へのリンクは、期間を付けない（満足度の既定の 30 日で開く）', async () => {
+    renderPath('/');
+
+    const satisfaction = (await screen.findByRole('heading', { name: '満足度' })).closest('li');
+    if (satisfaction === null) {
+      throw new Error('テストの前提: カードがある');
+    }
+
+    expect(
+      within(satisfaction)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual(['/satisfaction', '/satisfaction']);
   });
 
   it('カードの詳細へのリンクは、視点・期間を引き継ぐ。満足度は、満足度の詳細（期間のみ）へ', async () => {
@@ -822,6 +885,112 @@ describe('観点の詳細: 元データ（UC-02）', () => {
     expect(observationCalls().at(-1)?.query.get('sort')).toBe('value');
   });
 
+  describe('並べ替え（値・カテゴリ）・キーワード検索の期間は、診断期間の終了から 31 日以内（#91）', () => {
+    const ninetyDays = () => {
+      const long = diagnosis({ evaluatedFrom: '2026-07-11T03:00:00.000Z', periodDays: 90 });
+      return jsonResponse(detail({ long, selected: long, periodDays: 90 }));
+    };
+    const observationCalls = (calls: { path: string; query: URLSearchParams }[]) =>
+      calls.filter((call) => call.path === '/observations');
+
+    it('診断期間が 31 日を超えるとき、既定（日時順・キーワードなし）は、診断期間の全体で取得し、案内は出さない', async () => {
+      const { calls } = renderPath('/viewpoints/environmentalAdaptability', { detail: ninetyDays });
+      const source = await screen.findByTestId('source-data');
+      await within(source).findByText('27.5℃');
+
+      expect(observationCalls(calls)[0]?.query.get('from')).toBe('2026-07-11T03:00:00.000Z');
+      expect(observationCalls(calls)[0]?.query.get('to')).toBe('2026-10-09T03:00:00.000Z');
+      expect(within(source).queryByTestId('source-data-period-note')).toBeNull();
+    });
+
+    it.each([
+      ['値の順', 'sort'],
+      ['キーワード', 'keyword'],
+    ])(
+      '診断期間が 31 日を超えるとき、%s を使うと、終了から 31 日分に絞って取得し、その旨を示す。戻すと、診断期間の全体に戻る',
+      async (_name, kind) => {
+        const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
+          detail: ninetyDays,
+        });
+        const source = await screen.findByTestId('source-data');
+        await within(source).findByText('27.5℃');
+
+        if (kind === 'sort') {
+          fireEvent.change(within(source).getByLabelText('並べ替え', { selector: 'select' }), {
+            target: { value: 'value' },
+          });
+        } else {
+          fireEvent.change(within(source).getByLabelText('キーワード'), {
+            target: { value: '温度' },
+          });
+        }
+
+        await waitFor(() => {
+          expect(observationCalls(calls).at(-1)?.query.get('from')).toBe(
+            '2026-09-08T03:00:00.000Z',
+          );
+        });
+        expect(observationCalls(calls).at(-1)?.query.get('to')).toBe('2026-10-09T03:00:00.000Z');
+        expect(within(source).getByTestId('source-data-period-note').textContent).toBe(
+          '並べ替え・検索の対象は、診断期間のうち、終了日時から 31 日分です',
+        );
+
+        if (kind === 'sort') {
+          fireEvent.change(within(source).getByLabelText('並べ替え', { selector: 'select' }), {
+            target: { value: 'observedAt' },
+          });
+        } else {
+          fireEvent.change(within(source).getByLabelText('キーワード'), { target: { value: '' } });
+        }
+        await waitFor(() => {
+          expect(observationCalls(calls).at(-1)?.query.get('from')).toBe(
+            '2026-07-11T03:00:00.000Z',
+          );
+        });
+        expect(within(source).queryByTestId('source-data-period-note')).toBeNull();
+      },
+    );
+
+    it('診断期間が 31 日以内なら、並べ替え・キーワードを使っても、診断期間のまま取得し、案内は出さない', async () => {
+      const { calls } = renderPath('/viewpoints/environmentalAdaptability');
+      const source = await screen.findByTestId('source-data');
+      await within(source).findByText('27.5℃');
+
+      fireEvent.change(within(source).getByLabelText('並べ替え', { selector: 'select' }), {
+        target: { value: 'value' },
+      });
+
+      await waitFor(() => {
+        expect(observationCalls(calls).at(-1)?.query.get('sort')).toBe('value');
+      });
+      expect(observationCalls(calls).at(-1)?.query.get('from')).toBe('2026-10-02T03:00:00.000Z');
+      expect(within(source).queryByTestId('source-data-period-note')).toBeNull();
+    });
+
+    it('評価がまだなく、診断期間がないときは、キーワード・値・カテゴリの順を使えない（案内を示す）。日時順は使える', async () => {
+      const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
+        detail: () =>
+          jsonResponse(detail({ isEvaluated: false, selected: null, short: null, long: null })),
+      });
+      const source = await screen.findByTestId('source-data');
+      await waitFor(() => {
+        expect(observationCalls(calls)).not.toHaveLength(0);
+      });
+
+      expect(within(source).getByLabelText<HTMLInputElement>('キーワード').disabled).toBe(true);
+      expect(
+        within(source).getByLabelText<HTMLSelectElement>('並べ替え', { selector: 'select' })
+          .disabled,
+      ).toBe(true);
+      expect(within(source).getByTestId('source-data-period-guidance').textContent).toBe(
+        '診断（評価）がまだないため、並べ替え・キーワード検索は使えません',
+      );
+      expect(observationCalls(calls).every((call) => call.query.get('sort') === 'observedAt')).toBe(
+        true,
+      );
+    });
+  });
+
   it('ページ分割: 次へ・前へで、カーソルを進め・戻す。先頭では前へ、最後では次へを無効にする', async () => {
     const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
       observations: (request) =>
@@ -959,6 +1128,53 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
 
     expect(overall.textContent).toContain('まだ評価されていません');
     expect(screen.getByTestId('satisfaction-missing').textContent).toContain('収穫精度');
+  });
+
+  it('期間を選んでいないときは、満足度の既定の期間（30 日）で取得し、期間の選択も 30 日を示す', async () => {
+    const { calls } = renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    await screen.findByTestId('overall');
+
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('30');
+    expect(
+      calls.find((call) => call.path === '/viewpoints/satisfaction')?.query.get('periodDays'),
+    ).toBe('30');
+  });
+
+  it('期間を選ぶと（30 日以外も）、他の観点と同じ長期の期間（当日・7・30・60・90 日）から選べ、選んだ期間で取得する', async () => {
+    const { calls } = renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    await screen.findByTestId('overall');
+
+    expect(
+      [...screen.getByLabelText<HTMLSelectElement>('長期の期間').options].map(
+        (option) => option.value,
+      ),
+    ).toEqual(['1', '7', '30', '60', '90']);
+    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '7' } });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?horizon=LONG&periodDays=7');
+    });
+    await waitFor(() => {
+      const last = calls.filter((call) => call.path === '/viewpoints/satisfaction').at(-1);
+      expect(last?.query.get('periodDays')).toBe('7');
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+  });
+
+  it('URL に期間があれば（7 日など）、その期間で取得する', async () => {
+    const { calls } = renderPath('/satisfaction?periodDays=7', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    await screen.findByTestId('overall');
+
+    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+    expect(
+      calls.find((call) => call.path === '/viewpoints/satisfaction')?.query.get('periodDays'),
+    ).toBe('7');
   });
 
   it('期間を選ぶと、その期間で取得し直す。URL のクエリで保持する', async () => {

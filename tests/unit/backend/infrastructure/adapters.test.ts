@@ -238,7 +238,12 @@ describe('ローカルの認証（AuthPort）', () => {
       'client-1',
     );
 
-    expect(session.principal).toEqual({ userId: 'user-a', userName: 'ユーザーA', role: 'worker' });
+    expect(session.principal).toEqual({
+      userId: 'user-a',
+      userName: 'ユーザーA',
+      role: 'worker',
+      mustChangePassword: false,
+    });
     expect(session.accessTokenExpiresAt.getTime() - NOW.getTime()).toBe(
       ACCESS_TOKEN_TTL_MINUTES * 60_000,
     );
@@ -294,6 +299,28 @@ describe('ローカルの認証（AuthPort）', () => {
 
     clock.advance(LOGIN_FAILURE_WINDOW_MINUTES * 60_000 + 1);
 
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).resolves.toBeDefined();
+  });
+
+  it('制限の回数・時間は、設定で変えられる（失敗 2 回 / 3 分）。既定の 5 回 / 15 分には、よらない（Issue #244）', async () => {
+    const { repositories, clock } = await setup();
+    const auth = createLocalAuth({
+      users: repositories.users,
+      clock,
+      loginFailurePolicy: { limit: 2, windowMinutes: 3 },
+    });
+    await auth.login({ userId: 'user-a', password: 'bad' }, 'client-1').catch(() => undefined);
+    // 1 回の失敗では、まだ拒否しない
+    await expect(
+      auth.login({ userId: 'user-a', password: 'bad' }, 'client-1'),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    clock.advance(3 * 60_000 + 1);
     await expect(
       auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
     ).resolves.toBeDefined();

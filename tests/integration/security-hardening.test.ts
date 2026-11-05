@@ -8,7 +8,12 @@ import { describe, expect, it } from 'vitest';
 import { LoginResponseSchema } from '@smart-farm/shared/schemas/auth';
 import { toUserId } from '@smart-farm/shared/schemas/common';
 import { LOGIN_FAILURE_LIMIT } from '../../src/backend/infrastructure/local/local-auth.ts';
-import { createTestContext, TEST_USER, type TestContext } from '../support/test-context.ts';
+import {
+  createTestContext,
+  markPasswordChanged,
+  TEST_USER,
+  type TestContext,
+} from '../support/test-context.ts';
 
 const NEW_USER = {
   userId: 'worker-2',
@@ -37,6 +42,7 @@ async function loginSession(context: TestContext, userId: string, password: stri
 
 async function createWorker(context: TestContext) {
   await context.request('/users', { method: 'POST', body: NEW_USER });
+  await markPasswordChanged(context, NEW_USER.userId);
   return loginSession(context, NEW_USER.userId, NEW_USER.password);
 }
 
@@ -141,6 +147,36 @@ describe('ユーザー削除・パスワード再設定とセッション（V-00
     expect(reset.status).toBe(200);
     expect((await context.request('/equipment', { token: current.accessToken })).status).toBe(200);
     expect((await context.request('/equipment', { token: other.accessToken })).status).toBe(401);
+  });
+});
+
+describe('ログインの試行回数の制限は、環境変数で変えられる（Issue #244。D-44）', () => {
+  const OTHER = { 'x-forwarded-for': '198.51.100.1' };
+
+  it('LOGIN_FAILURE_LIMIT=2・LOGIN_FAILURE_WINDOW_MINUTES=1: 2 回の失敗で拒否（429）し、1 分後に、再び試行できる', async () => {
+    const context = await createTestContext({
+      env: { LOGIN_FAILURE_LIMIT: '2', LOGIN_FAILURE_WINDOW_MINUTES: '1' },
+    });
+
+    expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+    expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+    const blocked = await login(context, TEST_USER.userId, TEST_USER.password, OTHER);
+    context.clock.advance(60_000 + 1);
+    const after = await login(context, TEST_USER.userId, TEST_USER.password, OTHER);
+
+    expect(blocked.status).toBe(429);
+    expect(after.status).toBe(200);
+  });
+
+  it('回数を緩める（LOGIN_FAILURE_LIMIT=8）と、既定の 5 回を超えても、拒否しない。8 回で拒否する', async () => {
+    const context = await createTestContext({ env: { LOGIN_FAILURE_LIMIT: '8' } });
+    for (let count = 0; count < 7; count += 1) {
+      expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+    }
+
+    expect((await login(context, TEST_USER.userId, 'Wrong-Passw0rd-x', OTHER)).status).toBe(401);
+
+    expect((await login(context, TEST_USER.userId, TEST_USER.password, OTHER)).status).toBe(429);
   });
 });
 

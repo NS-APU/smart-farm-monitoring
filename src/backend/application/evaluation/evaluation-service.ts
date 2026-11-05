@@ -7,12 +7,13 @@
  */
 
 import {
+  defaultPeriodDays,
   viewpointsForEquipmentType,
   type ViewpointId,
 } from '@smart-farm/shared/constants/viewpoints';
 import type { ViewpointCriteria } from '@smart-farm/shared/schemas/criteria';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
-import { DEFAULT_PERIOD_DAYS, PERIOD_DAYS_OPTIONS } from '@smart-farm/shared/constants/status';
+import { PERIOD_DAYS_OPTIONS } from '@smart-farm/shared/constants/status';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
@@ -184,9 +185,10 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   ): Promise<{ changes: number; notified: number }> {
     let changes = 0;
     let notified = 0;
-    // 観点ごとに、既定の期間の長期の結果（すべての観点にある）を基準にする
+    // 観点ごとに、その観点の既定の期間（満足度は 30 日、ほかは 7 日）の長期の結果（すべての観点にある）を基準にする
     const defaultLongResults = results.filter(
-      (result) => result.horizon === 'LONG' && result.periodDays === DEFAULT_PERIOD_DAYS,
+      (result) =>
+        result.horizon === 'LONG' && result.periodDays === defaultPeriodDays(result.viewpointId),
     );
     // 観点ごとの、直前のステータスの変化は、互いに独立のため、先に、まとめて並列に読む（Issue #79）。
     // 変化の記録・連携・通知は、観点の順に、1件ずつ行う（通知・連携の順序と重複の抑制を、変えない）

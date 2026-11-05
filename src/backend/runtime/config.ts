@@ -16,6 +16,20 @@ import {
   type EvaluationOnWrite,
 } from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
+import {
+  DEFAULT_FEDERATION_EXPIRY_DAYS,
+  MAX_FEDERATION_EXPIRY_DAYS,
+  MIN_FEDERATION_EXPIRY_DAYS,
+} from '../application/settings.ts';
+import {
+  LOGIN_FAILURE_LIMIT,
+  LOGIN_FAILURE_WINDOW_MINUTES,
+  MAX_LOGIN_FAILURE_LIMIT,
+  MAX_LOGIN_FAILURE_WINDOW_MINUTES,
+  MIN_LOGIN_FAILURE_LIMIT,
+  MIN_LOGIN_FAILURE_WINDOW_MINUTES,
+  type LoginFailurePolicy,
+} from '../infrastructure/common/auth-policy.ts';
 import { LOG_LEVELS, type LogLevel } from '../infrastructure/logging/json-logger.ts';
 import { namedErrorClass } from '../application/named-error.ts';
 
@@ -91,6 +105,13 @@ const EnvSchema = z.object({
   DEFAULT_INGESTION_INTERVAL_MINUTES: z.coerce.number().pipe(IngestionIntervalSchema).default(15),
   STALE_AFTER_INTERVALS: z.coerce.number().min(1).default(3),
   INGESTION_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(0).default(1000),
+  /** 連携の破棄の期限（日）。積んでからこの日数を過ぎても送れていない項目は、破棄して、連携のログと通知に残す（D-06。既定は 30 日）。 */
+  FEDERATION_EXPIRY_DAYS: z.coerce
+    .number()
+    .int()
+    .min(MIN_FEDERATION_EXPIRY_DAYS)
+    .max(MAX_FEDERATION_EXPIRY_DAYS)
+    .default(DEFAULT_FEDERATION_EXPIRY_DAYS),
   /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知しない）。 */
   INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(false),
   /** 新しいデータが届かない取り込み元を、「データ取得の停止」として通知するか（V-018。暫定仕様）。 */
@@ -112,6 +133,23 @@ const EnvSchema = z.object({
    * 接続元とみなす。CloudFront の Function が入れる（関数の URL は、X-Forwarded-For を切り詰めるため、段数では識別できない。
    * Issue #100）。CloudFront を経由しない呼び出しでは、利用者が値を付けられる。
    */
+  /**
+   * 接続元ごとのログインの失敗の制限（FR-9.2。D-44）: 同じ接続元から、LOGIN_FAILURE_WINDOW_MINUTES 分のうちに、失敗が
+   * LOGIN_FAILURE_LIMIT 回に達したら、一時的に拒否する。既定は、失敗 5 回 / 15 分。共有の IP で、誤ってロックされる事例が出たら、
+   * コードを変えずに、回数・時間を変えられる。アカウント単位のロックは、Cognito に任せる（ADR-0008）。
+   */
+  LOGIN_FAILURE_LIMIT: z.coerce
+    .number()
+    .int()
+    .min(MIN_LOGIN_FAILURE_LIMIT)
+    .max(MAX_LOGIN_FAILURE_LIMIT)
+    .default(LOGIN_FAILURE_LIMIT),
+  LOGIN_FAILURE_WINDOW_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(MIN_LOGIN_FAILURE_WINDOW_MINUTES)
+    .max(MAX_LOGIN_FAILURE_WINDOW_MINUTES)
+    .default(LOGIN_FAILURE_WINDOW_MINUTES),
   CLIENT_IP_HEADER: z
     .string()
     .trim()
@@ -169,6 +207,7 @@ export interface AppConfig {
   readonly defaultIngestionIntervalMinutes: IngestionIntervalMinutes;
   readonly staleAfterIntervals: number;
   readonly ingestionRetryBaseDelayMs: number;
+  readonly federationExpiryDays: number;
   readonly ingestionStopNotificationEnabled: boolean;
   readonly ingestionFileFailureNotificationEnabled: boolean;
   readonly webPushPublicKey: string | undefined;
@@ -178,6 +217,8 @@ export interface AppConfig {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
   readonly clientIpHeader: string | undefined;
+  /** 接続元ごとのログインの失敗の制限（失敗 `limit` 回 / `windowMinutes` 分。既定は 5 回 / 15 分。D-44）。 */
+  readonly loginFailurePolicy: LoginFailurePolicy;
 }
 
 export class ConfigError extends namedErrorClass('ConfigError') {}
@@ -348,12 +389,17 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     defaultIngestionIntervalMinutes: parsed.DEFAULT_INGESTION_INTERVAL_MINUTES,
     staleAfterIntervals: parsed.STALE_AFTER_INTERVALS,
     ingestionRetryBaseDelayMs: parsed.INGESTION_RETRY_BASE_DELAY_MS,
+    federationExpiryDays: parsed.FEDERATION_EXPIRY_DAYS,
     ingestionStopNotificationEnabled: parsed.INGESTION_STOP_NOTIFICATION_ENABLED,
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
     clientIpHeader: parsed.CLIENT_IP_HEADER,
+    loginFailurePolicy: {
+      limit: parsed.LOGIN_FAILURE_LIMIT,
+      windowMinutes: parsed.LOGIN_FAILURE_WINDOW_MINUTES,
+    },
   };
 }
 

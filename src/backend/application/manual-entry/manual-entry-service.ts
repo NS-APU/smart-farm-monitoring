@@ -11,8 +11,11 @@ import {
   type Category,
 } from '@smart-farm/shared/constants/items';
 import type { ManualEntrySortKey, SortDirection } from '@smart-farm/shared/constants/sorting';
-import { DEFAULT_PERIOD_DAYS } from '@smart-farm/shared/constants/status';
-import { VIEWPOINT_IDS, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
+import {
+  VIEWPOINT_IDS,
+  defaultPeriodDays,
+  findViewpointMeta,
+} from '@smart-farm/shared/constants/viewpoints';
 import { AppError, validationError } from '@smart-farm/shared/errors';
 import type { EquipmentId, UserId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
@@ -203,7 +206,12 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
           return undefined;
         }
         const [long, short] = await Promise.all([
-          repositories.evaluations.getLatest(facilityId, viewpointId, 'LONG', DEFAULT_PERIOD_DAYS),
+          repositories.evaluations.getLatest(
+            facilityId,
+            viewpointId,
+            'LONG',
+            defaultPeriodDays(viewpointId),
+          ),
           definition.hasShortHorizon
             ? repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
             : Promise.resolve(undefined),

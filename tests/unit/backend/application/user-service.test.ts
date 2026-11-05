@@ -58,7 +58,11 @@ function build(users: (original: UserRepository) => UserRepository, credentials:
       ids: createSequentialIdGenerator('audit'),
     }),
     clock,
-    sessions: { revokeSessionsOf: () => Promise.resolve() },
+    sessions: {
+      login: () => Promise.reject(new Error('このテストでは使わない')),
+      revokeSessionsOf: () => Promise.resolve(),
+      verifyAccessToken: () => Promise.resolve(null),
+    },
     pushSubscriptions: repositories.pushSubscriptions,
   });
   return { service, users: repositories.users };

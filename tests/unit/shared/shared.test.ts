@@ -12,13 +12,18 @@ import {
   getMetricMeta,
   MISSING_VALUE_TEXT,
 } from '@smart-farm/shared/constants/metrics';
+import { DEFAULT_PERIOD_DAYS, PERIOD_DAYS_OPTIONS } from '@smart-farm/shared/constants/status';
 import {
   VIEWPOINTS,
+  VIEWPOINT_IDS,
+  defaultPeriodDays,
   findViewpointMeta,
   viewpointsForEquipmentType,
 } from '@smart-farm/shared/constants/viewpoints';
 import { AppError, isAppError } from '@smart-farm/shared/errors';
 import {
+  AuthenticatedUserSchema,
+  ChangePasswordRequestSchema,
   PASSWORD_MIN_LENGTH,
   PasswordSchema,
   findPasswordPolicyViolation,
@@ -68,6 +73,23 @@ describe('観点の定義', () => {
   it('観点の識別子から観点を引く。存在しなければ undefined', () => {
     expect(findViewpointMeta('safety')?.name).toBe('安全性');
     expect(findViewpointMeta('nothing')).toBeUndefined();
+  });
+});
+
+describe('観点ごとの既定の長期の期間（D-18）', () => {
+  it('満足度は 30 日。ほかの観点は、共通の既定（7 日）', () => {
+    expect(defaultPeriodDays('satisfaction')).toBe(30);
+    for (const viewpointId of VIEWPOINT_IDS.filter((id) => id !== 'satisfaction')) {
+      expect(defaultPeriodDays(viewpointId)).toBe(DEFAULT_PERIOD_DAYS);
+    }
+    expect(DEFAULT_PERIOD_DAYS).toBe(7);
+  });
+
+  it('既定の期間は、選べる長期の期間のいずれか。知らない観点は、共通の既定', () => {
+    for (const viewpointId of VIEWPOINT_IDS) {
+      expect(PERIOD_DAYS_OPTIONS).toContain(defaultPeriodDays(viewpointId));
+    }
+    expect(defaultPeriodDays('noSuchViewpoint')).toBe(DEFAULT_PERIOD_DAYS);
   });
 });
 
@@ -287,6 +309,33 @@ describe('パスワードの条件', () => {
 
   it(`最低${String(PASSWORD_MIN_LENGTH)}文字を求める`, () => {
     expect(findPasswordPolicyViolation('Ab1')).toContain(String(PASSWORD_MIN_LENGTH));
+  });
+});
+
+describe('パスワードの変更の入力・認証済みの利用者（Issue #245。D-45）', () => {
+  it('パスワードの変更: 現在のパスワードは必須（128 文字まで）。新しいパスワードは、パスワードの条件を満たすこと', () => {
+    const valid = { currentPassword: 'Dummy-Passw0rd-1', newPassword: 'Abcdefg1' };
+
+    expect(ChangePasswordRequestSchema.safeParse(valid).success).toBe(true);
+    expect(ChangePasswordRequestSchema.safeParse({ ...valid, currentPassword: '' }).success).toBe(
+      false,
+    );
+    expect(
+      ChangePasswordRequestSchema.safeParse({ ...valid, currentPassword: 'a'.repeat(129) }).success,
+    ).toBe(false);
+    expect(
+      ChangePasswordRequestSchema.safeParse({ ...valid, newPassword: 'abcdefg1' }).success,
+    ).toBe(false);
+    expect(ChangePasswordRequestSchema.safeParse({ currentPassword: 'x' }).success).toBe(false);
+  });
+
+  it('認証済みの利用者: 変更が必要な旨（mustChangePassword）の指定がなければ false（この項目ができる前の、保存済みのセッション）', () => {
+    const user = { userId: 'u-1', userName: 'U', role: 'worker', permissions: [] };
+
+    expect(AuthenticatedUserSchema.parse(user).mustChangePassword).toBe(false);
+    expect(
+      AuthenticatedUserSchema.parse({ ...user, mustChangePassword: true }).mustChangePassword,
+    ).toBe(true);
   });
 });
 

@@ -29,13 +29,18 @@ import {
   prepareApp,
 } from './support/app.ts';
 import {
+  SATISFACTION_LABELS,
+  allSatisfactionStars,
   expectRelatedStatus,
   fieldError,
   fillEntryForm,
   mainArea,
+  satisfactionApiItems,
   saveEntry,
+  starGroup,
   type EntryFormValues,
 } from './support/entry.ts';
+import { expectNoHorizontalScroll } from './support/pages.ts';
 import { environmentData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 
 async function openEntry(page: Page): Promise<void> {
@@ -112,6 +117,8 @@ test.describe('基本フロー: センサーから取得できない環境の値
     equipment: string;
     category: string;
     items: Record<string, string>;
+    /** スターで選ぶ項目（満足度）。 */
+    stars?: Record<string, number>;
     count: number;
   }[] = [
     {
@@ -167,8 +174,13 @@ test.describe('基本フロー: センサーから取得できない環境の値
       name: '満足度情報（ハウスへの入力）',
       equipment: HOUSE_ID,
       category: 'SATISFACTION',
-      items: { '満足度（収穫精度）': '5', '満足度（収穫速度）': '3', '満足度（安全性）': '1' },
-      count: 3,
+      items: {},
+      stars: allSatisfactionStars(3, {
+        '満足度（収穫精度）': 5,
+        '満足度（収穫速度）': 3,
+        '満足度（安全性）': 1,
+      }),
+      count: 9,
     },
   ];
 
@@ -185,6 +197,7 @@ test.describe('基本フロー: センサーから取得できない環境の値
         category: item.category,
         observedAt: AT,
         items: item.items,
+        ...(item.stars === undefined ? {} : { stars: item.stars }),
       });
       await saveEntry(page);
 
@@ -349,7 +362,7 @@ test.describe('代替フロー: 自動取り込みと手動入力で同じ項目
     // 手動入力が評価に使われる（異常）
     await expectRelatedStatus(page, 'environmentalAdaptability', '異常');
     // 両方を保持する（取得元で区別できる）
-    await page.goto('/observations?q=%E6%B8%A9%E5%BA%A6');
+    await page.goto('/observations?q=%E6%B8%A9%E5%BA%A6&from=2026-10-08&to=2026-10-09');
     const rows = page.getByTestId('observation-row');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: '自動取り込み' })).toContainText('20℃');
@@ -419,38 +432,144 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     });
   }
 
-  const stars: readonly { value: string; ok: boolean }[] = [
-    { value: '0', ok: false },
-    { value: '1', ok: true },
-    { value: '5', ok: true },
-    { value: '6', ok: false },
-    { value: '3.5', ok: false },
-    { value: '四', ok: false },
-  ];
-
-  for (const item of stars) {
-    test(`満足度 ${item.value} は${item.ok ? '保存できる（1〜5の整数）' : 'エラーになる（1以上5以下の整数）'}`, async ({
+  // 満足度は、スターで選ぶ（1〜5 以外は、画面では選べない）。範囲外・整数でない値は、API が拒否する（D-18）
+  for (const value of [1, 2, 3, 4, 5]) {
+    test(`満足度 ${String(value)}（スター）は保存できる（1〜5の整数。他の8観点は 3）`, async ({
       page,
       request,
     }) => {
       await prepareApp(request);
       await openEntry(page);
 
-      await submit(page, {
+      await fillEntryForm(page, {
         equipment: HOUSE_ID,
         category: 'SATISFACTION',
-        items: { '満足度（収穫精度）': item.value },
+        observedAt: AT,
+        stars: allSatisfactionStars(3, { '満足度（収穫精度）': value }),
       });
+      await saveEntry(page);
 
-      if (item.ok) {
-        await expect(page.getByTestId('entry-result')).toBeVisible();
-      } else {
-        await expect(fieldError(page, 'items.satisfaction.harvestAccuracy')).toHaveText(
-          '満足度（収穫精度）は1以上5以下の整数で指定してください',
-        );
-      }
+      await expect(page.getByTestId('entry-result')).toBeVisible();
+      await page.goto('/data-entry/list');
+      await expect(page.getByTestId('entry-row')).toContainText(
+        `満足度（収穫精度）: ${String(value)}スター`,
+      );
     });
   }
+
+  test('満足度のスターは、各観点に 5 つ（1〜5）だけ。数値の文字入力はなく、範囲外の値は選べない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+
+    await fillEntryForm(page, { equipment: HOUSE_ID, category: 'SATISFACTION' });
+
+    const items = mainArea(page).getByTestId('entry-items');
+    await expect(items.getByRole('radiogroup')).toHaveCount(9);
+    await expect(items.getByRole('textbox')).toHaveCount(0);
+    for (const label of SATISFACTION_LABELS) {
+      await expect(starGroup(mainArea(page), label).getByRole('radio')).toHaveCount(5);
+    }
+  });
+
+  const invalidStars: readonly { name: string; value: unknown }[] = [
+    { name: '0（下限未満）', value: 0 },
+    { name: '6（上限超過）', value: 6 },
+    { name: '3.5（整数でない）', value: 3.5 },
+    { name: '文字（数値でない）', value: '四' },
+  ];
+
+  for (const item of invalidStars) {
+    test(`満足度 ${item.name} は、API が拒否する（400）。何も保存しない`, async ({ request }) => {
+      await prepareApp(request);
+
+      const response = await api(request, 'POST', '/manual-entries', {
+        equipmentId: HOUSE_ID,
+        category: 'SATISFACTION',
+        observedAt: '2026-10-09T02:00:00.000Z',
+        items: { ...satisfactionApiItems(3), 'satisfaction.harvestAccuracy': item.value },
+      });
+
+      expect(response.status()).toBe(400);
+      const list = (await (await api(request, 'GET', '/manual-entries')).json()) as {
+        items: unknown[];
+      };
+      expect(list.items).toHaveLength(0);
+    });
+  }
+
+  test('満足度は、9観点が揃わないと保存できない（API も 400）。選んでいない観点ごとにエラーを示し、最初のエラーへフォーカスする', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, {
+      equipment: HOUSE_ID,
+      category: 'SATISFACTION',
+      observedAt: AT,
+      stars: { '満足度（収穫精度）': 5, '満足度（収穫速度）': 4 },
+    });
+
+    await saveEntry(page);
+
+    await expect(page.getByTestId('entry-result')).toHaveCount(0);
+    // 選んでいない 7 観点のエラー。選んだ 2 観点のエラーは出ない
+    await expect(mainArea(page).locator('[data-field^="items."] .field-error')).toHaveCount(7);
+    await expect(fieldError(page, 'items.satisfaction.environmentalAdaptability')).toHaveText(
+      '満足度（環境適応性）を選択してください',
+    );
+    await expect(fieldError(page, 'items.satisfaction.harvestAccuracy')).toHaveCount(0);
+    await expect(starGroup(mainArea(page), '満足度（環境適応性）')).toBeFocused();
+    await shot(page, testInfo, 'uc07-satisfaction-missing');
+    // API も、一部の観点だけの入力を拒否する
+    const partial = await api(request, 'POST', '/manual-entries', {
+      equipmentId: HOUSE_ID,
+      category: 'SATISFACTION',
+      observedAt: '2026-10-09T02:00:00.000Z',
+      items: { 'satisfaction.harvestAccuracy': 5 },
+    });
+    expect(partial.status()).toBe(400);
+    await page.goto('/data-entry/list');
+    await expect(page.getByTestId('entry-row')).toHaveCount(0);
+  });
+
+  test('満足度のスターは、キーボードだけで選べる（Tab でグループへ、矢印キーでスターを選ぶ）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: HOUSE_ID, category: 'SATISFACTION' });
+    const group = starGroup(mainArea(page), '満足度（収穫精度）');
+
+    await group.getByRole('radio').first().focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+
+    await expect(group.getByRole('radio', { name: '3スター' })).toBeChecked();
+    await page.keyboard.press('ArrowLeft');
+    await expect(group.getByRole('radio', { name: '2スター' })).toBeChecked();
+  });
+
+  test('満足度の入力は、スマートフォンの幅（375px）でも、横にはみ出さず、スターを押せる大きさ（44px 以上）で並ぶ', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: HOUSE_ID, category: 'SATISFACTION' });
+
+    await expectNoHorizontalScroll(page);
+    const star = starGroup(mainArea(page), '満足度（収穫精度）').locator('label.star').first();
+    const box = await star.boundingBox();
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await shot(page, testInfo, 'uc07-satisfaction-375');
+  });
 
   test('照度・CO2濃度は0以上（負の値はエラー）。温度は負の値も入力できる', async ({
     page,

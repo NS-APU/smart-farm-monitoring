@@ -4,6 +4,7 @@
  * - 使う観測値: 論理削除でない、品質が VALID または LATE、値がある、計測日時が期間内、評価時刻までに受信済み
  * - 同じ設備・項目・計測日時に自動取り込みと手動入力が重なる場合は、手動入力を使う（FR-4.1.4。Q の暫定）
  * - 合計（TOTAL）: 期間内の合計。状態値（LEVEL）: 短期は最新値、長期は平均。ステータス: 短期は最新、長期は最も悪いカテゴリ
+ * - 評価（RATING。満足度）: 各入力者の期間内の最新の入力を取り、入力者の平均を取る（1 人 1 票。短期・長期とも）
  * - 未取得の項目は、結果に含めない（0 で代用しない）
  */
 
@@ -107,11 +108,41 @@ function latestOf<Item extends { readonly observedMs: number }>(
   return latest;
 }
 
+/**
+ * 入力者ごとの最新の入力の平均（1 人 1 票）。入力の回数に偏らない。入力者の記録がない入力は、1 人の入力として扱う。
+ * 期間内に入力のない人は、含まれない（点は、期間内のものだけが渡る）。
+ */
+function averageOfLatestPerEntrant(points: readonly Point[]): number | undefined {
+  const latestByEntrant = new Map<string, { observedMs: number; value: number }>();
+  for (const { observation, observedMs } of points) {
+    if (typeof observation.value !== 'number') {
+      continue;
+    }
+    const entrant = observation.enteredBy ?? '';
+    const current = latestByEntrant.get(entrant);
+    // 同じ日時なら、後に現れた点を使う
+    if (current === undefined || observedMs >= current.observedMs) {
+      latestByEntrant.set(entrant, { observedMs, value: observation.value });
+    }
+  }
+  if (latestByEntrant.size === 0) {
+    return undefined;
+  }
+  let total = 0;
+  for (const { value } of latestByEntrant.values()) {
+    total += value;
+  }
+  return normalizeMetric(total / latestByEntrant.size);
+}
+
 function aggregateNumericItem(
-  aggregation: 'TOTAL' | 'LEVEL',
+  aggregation: 'TOTAL' | 'LEVEL' | 'RATING',
   horizon: Horizon,
   points: readonly Point[],
 ): number | undefined {
+  if (aggregation === 'RATING') {
+    return averageOfLatestPerEntrant(points);
+  }
   const numeric = points.flatMap(({ observation, observedMs }) =>
     typeof observation.value === 'number' ? [{ observedMs, value: observation.value }] : [],
   );
@@ -149,9 +180,12 @@ function resolveStatus(
   }
   let candidates = resolved;
   if (horizon === 'LONG') {
-    const worstSeverity = Math.max(
-      ...resolved.map(({ detail }) => STATUS_SEVERITY[detail.category]),
-    );
+    // 引数の展開（Math.max(...配列)）は、点が約 12 万件を超えると、呼び出しのスタックが足りず失敗する
+    // （ロボットが 1 分間隔の 90 日分。Issue #266）。件数に依存しないよう、ループで求める
+    let worstSeverity = Number.NEGATIVE_INFINITY;
+    for (const { detail } of resolved) {
+      worstSeverity = Math.max(worstSeverity, STATUS_SEVERITY[detail.category]);
+    }
     candidates = resolved.filter(
       ({ detail }) => STATUS_SEVERITY[detail.category] === worstSeverity,
     );

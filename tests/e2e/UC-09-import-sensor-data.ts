@@ -372,7 +372,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
       await openIngestion(page);
       await runNow(page, 'environment-sensor');
 
-      await openObservations(page, '?q=%E6%B9%BF%E5%BA%A6');
+      await openObservations(page, '?q=%E6%B9%BF%E5%BA%A6&from=2026-10-08&to=2026-10-09');
 
       await expect(observationRows(page)).toHaveCount(1);
       await expect(observationRows(page).first().locator('.quality')).toHaveText(item.quality);

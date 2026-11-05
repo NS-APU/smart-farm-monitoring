@@ -84,7 +84,7 @@ flowchart TD
   H --> D3[手動入力データ<br>設備に紐づけて入力]
 ```
 
-評価の単位（ハウス単位かロボット単位か）は未確定（TODO: FR-5.3、[evaluation.md](../viewpoint/evaluation.md)）。
+評価の単位は、設備ごと（ロボット・環境センサー）で、ハウスの結果は、配下の設備の最も悪い結果（決定。[ADR-0017](../adr/0017-evaluation-rules.md) の D-19。FR-5.3、[evaluation.md](../viewpoint/evaluation.md)）。
 
 ## 6. 主要な機能のまとまり
 

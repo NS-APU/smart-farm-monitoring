@@ -1,6 +1,8 @@
 /**
  * 観点の詳細: 元データ（FR-6.4。UC-02）。診断に使った、取り込みデータ・手動入力データの一覧。
  * キーワードでの絞り込み、並べ替え（日時・値・カテゴリ）、ページ分割ができる。
+ * 値・カテゴリの順の並べ替えと、キーワード検索は、期間が 31 日以内でなければならない（ADR-0007 の判断。#91）ため、
+ * 診断期間が 31 日を超えるときは、終了日時から 31 日分に絞る。診断期間がないとき（評価前）は、使えない。
  */
 
 import { useCallback, useState, type ReactNode } from 'react';
@@ -13,6 +15,12 @@ import type { ObservationSortKey, SortDirection } from '@smart-farm/shared/const
 import { formatThreshold } from '@smart-farm/shared/criteria-text';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
+import {
+  checkListPeriod,
+  MAX_LIST_PERIOD_DAYS,
+  requiresListPeriod,
+} from '@smart-farm/shared/observation-list-period';
+import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { listObservations } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
@@ -68,8 +76,21 @@ export function SourceDataSection(props: SourceDataSectionProps): ReactNode {
   const { cursor } = paging;
 
   const { equipmentId, viewpointId, period } = props;
-  const periodFrom = period?.from;
+  const diagnosticFrom = period?.from;
   const periodTo = period?.to;
+  // 診断期間がないとき（評価前）は、並べ替え（値・カテゴリ）・キーワード検索を使えない（日時順だけ）
+  const searchUnavailable = period === null;
+  const effectiveSort = searchUnavailable ? 'observedAt' : sort;
+  const effectiveKeyword = searchUnavailable ? '' : keyword.trim();
+  // 並べ替え・検索を使うときに、診断期間が 31 日を超えるなら、終了日時から 31 日分に絞る
+  const narrowed =
+    period !== null &&
+    requiresListPeriod({ sort: effectiveSort, keyword: effectiveKeyword }) &&
+    checkListPeriod(period) === 'TOO_LONG';
+  const periodFrom =
+    narrowed && periodTo !== undefined
+      ? new Date(Date.parse(periodTo) - MAX_LIST_PERIOD_DAYS * MS_PER_DAY).toISOString()
+      : diagnosticFrom;
   const fetchPage = useCallback(
     () =>
       listObservations(api, {
@@ -79,13 +100,23 @@ export function SourceDataSection(props: SourceDataSectionProps): ReactNode {
           from: periodFrom,
           to: periodTo,
         }),
-        ...(keyword.trim() === '' ? {} : { q: keyword.trim() }),
-        sort,
+        ...(effectiveKeyword === '' ? {} : { q: effectiveKeyword }),
+        sort: effectiveSort,
         direction,
         limit: PAGE_SIZE,
         ...omitUndefined({ cursor }),
       }),
-    [api, equipmentId, viewpointId, periodFrom, periodTo, keyword, sort, direction, cursor],
+    [
+      api,
+      equipmentId,
+      viewpointId,
+      periodFrom,
+      periodTo,
+      effectiveKeyword,
+      effectiveSort,
+      direction,
+      cursor,
+    ],
   );
   const { data, error, reload } = usePolling(fetchPage);
   const statusNames = useStatusNames();
@@ -168,11 +199,22 @@ export function SourceDataSection(props: SourceDataSectionProps): ReactNode {
         </Link>
       </div>
       <p className="muted">{MESSAGES.viewpoint.sourceDataLead}</p>
+      {searchUnavailable ? (
+        <p className="muted" data-testid="source-data-period-guidance">
+          {MESSAGES.viewpoint.sourceDataPeriodGuidance}
+        </p>
+      ) : null}
+      {narrowed ? (
+        <p className="muted" data-testid="source-data-period-note">
+          {MESSAGES.viewpoint.sourceDataPeriodNote}
+        </p>
+      ) : null}
       <div className="source-controls">
         <label>
           <span>{MESSAGES.viewpoint.keyword}</span>
           <input
             type="search"
+            disabled={searchUnavailable}
             value={keyword}
             placeholder={MESSAGES.viewpoint.keywordPlaceholder}
             onChange={(event) => {
@@ -183,6 +225,7 @@ export function SourceDataSection(props: SourceDataSectionProps): ReactNode {
         <label>
           <span>{MESSAGES.viewpoint.sort}</span>
           <select
+            disabled={searchUnavailable}
             value={sort}
             onChange={(event) => {
               const selected = SORT_OPTIONS.find((option) => option.key === event.target.value);

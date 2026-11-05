@@ -3,6 +3,7 @@
  * ステータス・観点・項目の名称は、共通コード（src/shared）の定義を使う。
  */
 
+import { MAX_LIST_PERIOD_DAYS } from '@smart-farm/shared/observation-list-period';
 import { MANAGEMENT_MESSAGES } from './management-messages.ts';
 
 export const MESSAGES = {
@@ -28,6 +29,23 @@ export const MESSAGES = {
     submit: 'ログイン',
     submitting: 'ログイン中…',
     failed: 'ユーザーIDまたはパスワードが正しくありません',
+  },
+  changePassword: {
+    title: 'パスワードの変更',
+    lead: '現在のパスワードを入力して、新しいパスワードを決めます。変更すると、ほかの端末のログインは、解除されます',
+    forcedNotice:
+      '管理者が決めたパスワードは、一時のものです。新しいパスワードを決めてください。変更するまで、ほかの操作はできません',
+    current: '現在のパスワード',
+    next: '新しいパスワード',
+    confirm: '新しいパスワード（確認）',
+    policyHint: '8文字以上で、英大文字・英小文字・数字を含めてください',
+    submit: 'パスワードを変更する',
+    submitting: '変更中…',
+    currentRequired: '現在のパスワードを入力してください',
+    newRequired: '新しいパスワードを入力してください',
+    confirmMismatch: '新しいパスワード（確認）が一致しません',
+    sameAsCurrent: '新しいパスワードは、現在のパスワードと違うものにしてください',
+    link: 'パスワードの変更',
   },
   layout: {
     skipToContent: '本文へ移動',
@@ -136,6 +154,8 @@ export const MESSAGES = {
     sortValue: '値',
     sortCategory: 'カテゴリ',
     sourceDataEmpty: '該当するデータがありません',
+    sourceDataPeriodNote: `並べ替え・検索の対象は、診断期間のうち、終了日時から ${String(MAX_LIST_PERIOD_DAYS)} 日分です`,
+    sourceDataPeriodGuidance: '診断（評価）がまだないため、並べ替え・キーワード検索は使えません',
     previousPage: '前へ',
     nextPage: '次へ',
     observedAt: '計測日時',

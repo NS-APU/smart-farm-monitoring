@@ -83,6 +83,11 @@ function build(
     clock,
     sessions: auth,
     pushSubscriptions: repositories.pushSubscriptions,
+    // 新しいセッションが有効になるのを待つ間（実際は待つ）、時計を進める（凍結した時計では、待っても、時間が進まないため）
+    delay: (milliseconds) => {
+      clock.advance(milliseconds);
+      return Promise.resolve();
+    },
   });
   return { auth, credentials, users: repositories.users, clock, userService };
 }
@@ -101,25 +106,32 @@ const LOCAL: Factory = {
     })),
 };
 
-const COGNITO: Factory = {
-  name: 'Cognito（偽）',
-  create: () =>
-    build((users, clock) => {
-      const fake = createFakeCognito({
-        userPoolId: 'pool',
-        clientId: 'client',
-        now: () => clock.now(),
-      });
-      return createCognitoIdentity({
-        client: fake,
-        userPoolId: 'pool',
-        clientId: 'client',
-        users,
-        clock,
-        throttle: createInMemoryLoginThrottle(clock),
-      });
-    }),
-};
+function cognitoFactory(name: string, revokeSameSecond: boolean): Factory {
+  return {
+    name,
+    create: () =>
+      build((users, clock) => {
+        const fake = createFakeCognito({
+          userPoolId: 'pool',
+          clientId: 'client',
+          now: () => clock.now(),
+          revokeSameSecond,
+        });
+        return createCognitoIdentity({
+          client: fake,
+          userPoolId: 'pool',
+          clientId: 'client',
+          users,
+          clock,
+          throttle: createInMemoryLoginThrottle(clock),
+        });
+      }),
+  };
+}
+
+const COGNITO: Factory = cognitoFactory('Cognito（偽）', false);
+/** 全セッションの失効と同じ秒に発行したトークンも、失効として扱う Cognito（実際の挙動。Issue #245）。 */
+const COGNITO_SAME_SECOND: Factory = cognitoFactory('Cognito（偽。同じ秒の失効あり）', true);
 
 const FACTORIES: readonly Factory[] = [LOCAL, COGNITO];
 
@@ -151,7 +163,12 @@ describe.each(FACTORIES)('認証・資格情報の契約（$name）', ({ create 
       'client-a',
     );
 
-    expect(session.principal).toEqual({ userId: ADMIN.userId, userName: '管理者', role: 'worker' });
+    expect(session.principal).toEqual({
+      userId: ADMIN.userId,
+      userName: '管理者',
+      role: 'worker',
+      mustChangePassword: false,
+    });
     expect(session.accessTokenExpiresAt.getTime()).toBe(
       NOW.getTime() + ACCESS_TOKEN_TTL_MINUTES * MS_PER_MINUTE,
     );
@@ -451,6 +468,147 @@ describe('実装ごとに違う振る舞い（ADR-0008）', () => {
       subject.auth.login({ userId: ADMIN.userId, password: 'Dummy-Passw0rd-3' }, 'client-a'),
     ).resolves.toBeDefined();
   });
+
+  describe.each([LOCAL, COGNITO_SAME_SECOND])(
+    '管理者が決めたパスワードは、一時のもの。本人が変更する（Issue #245。D-45。$name）',
+    ({ create }) => {
+      const TEMPORARY = 'Dummy-Passw0rd-temp';
+      const OWN = 'Dummy-Passw0rd-own';
+
+      async function registered(create: () => Subject) {
+        const subject = await seeded(create);
+        await subject.userService.create(
+          {
+            userId: toUserId('member-1'),
+            userName: '利用者1',
+            password: TEMPORARY,
+            role: 'worker',
+          },
+          toUserId(ADMIN.userId),
+        );
+        return subject;
+      }
+
+      it('管理者が登録した利用者の、ログインのセッションは、パスワードの変更が必要な旨を示す。変更すると、外れる', async () => {
+        const { auth, userService } = await registered(create);
+        const temporary = await auth.login({ userId: 'member-1', password: TEMPORARY }, 'client-a');
+
+        const changed = await userService.changeOwnPassword(
+          toUserId('member-1'),
+          { currentPassword: TEMPORARY, newPassword: OWN },
+          'client-a',
+        );
+
+        expect(temporary.principal.mustChangePassword).toBe(true);
+        expect(changed.principal.mustChangePassword).toBe(false);
+        expect((await auth.verifyAccessToken(changed.accessToken))?.mustChangePassword).toBe(false);
+      });
+
+      it('変更すると、管理者が決めたパスワードは使えず、本人が決めたパスワードで、ログインできる。ほかのセッションは、失効する', async () => {
+        const { auth, userService } = await registered(create);
+        const other = await auth.login({ userId: 'member-1', password: TEMPORARY }, 'client-b');
+        const current = await auth.login({ userId: 'member-1', password: TEMPORARY }, 'client-a');
+
+        const changed = await userService.changeOwnPassword(
+          toUserId('member-1'),
+          { currentPassword: TEMPORARY, newPassword: OWN },
+          'client-a',
+        );
+
+        expect(
+          (await rejection(auth.login({ userId: 'member-1', password: TEMPORARY }, 'client-a')))
+            .code,
+        ).toBe('UNAUTHENTICATED');
+        await expect(
+          auth.login({ userId: 'member-1', password: OWN }, 'client-a'),
+        ).resolves.toBeDefined();
+        expect(await auth.verifyAccessToken(other.accessToken)).toBeNull();
+        expect(await auth.verifyAccessToken(current.accessToken)).toBeNull();
+        expect(await auth.verifyAccessToken(changed.accessToken)).not.toBeNull();
+      });
+
+      it('現在のパスワードの誤りは、currentPassword のエラー。変更しない。ログインの失敗と同じく、接続元ごとの制限に数える', async () => {
+        const { auth, userService } = await registered(create);
+
+        const wrong = await rejection(
+          userService.changeOwnPassword(
+            toUserId('member-1'),
+            { currentPassword: 'Dummy-Passw0rd-bad', newPassword: OWN },
+            'client-a',
+          ),
+        );
+        for (let count = 1; count < LOGIN_FAILURE_LIMIT; count += 1) {
+          await userService
+            .changeOwnPassword(
+              toUserId('member-1'),
+              { currentPassword: 'Dummy-Passw0rd-bad', newPassword: OWN },
+              'client-a',
+            )
+            .catch(() => undefined);
+        }
+        const locked = await rejection(
+          userService.changeOwnPassword(
+            toUserId('member-1'),
+            { currentPassword: TEMPORARY, newPassword: OWN },
+            'client-a',
+          ),
+        );
+
+        expect(wrong.code).toBe('VALIDATION_ERROR');
+        expect(wrong.fields.map((field) => field.name)).toEqual(['currentPassword']);
+        expect(locked.code).toBe('RATE_LIMITED');
+        // 別の接続元からは、現在のパスワード（管理者が決めたもの）のまま、ログインできる
+        await expect(
+          auth.login({ userId: 'member-1', password: TEMPORARY }, 'client-z'),
+        ).resolves.toBeDefined();
+      });
+
+      it('新しいパスワードが、現在のパスワードと同じなら、newPassword のエラー（一時のパスワードのままにできない）', async () => {
+        const { userService } = await registered(create);
+
+        const same = await rejection(
+          userService.changeOwnPassword(
+            toUserId('member-1'),
+            { currentPassword: TEMPORARY, newPassword: TEMPORARY },
+            'client-a',
+          ),
+        );
+
+        expect(same.fields.map((field) => field.name)).toEqual(['newPassword']);
+      });
+
+      it('管理者が、他の利用者のパスワードを再設定すると、一時のもの。自分自身の再設定は、強制しない', async () => {
+        const { auth, userService } = await registered(create);
+        const admin = toUserId(ADMIN.userId);
+        const member = toUserId('member-1');
+        await userService.changeOwnPassword(
+          member,
+          { currentPassword: TEMPORARY, newPassword: OWN },
+          'client-a',
+        );
+
+        await userService.update(
+          member,
+          { userName: '利用者1', role: 'worker', password: 'Dummy-Passw0rd-reset' },
+          admin,
+        );
+        await userService.update(
+          admin,
+          { userName: '管理者', role: 'worker', password: 'Dummy-Passw0rd-self' },
+          admin,
+        );
+
+        expect(
+          (await auth.login({ userId: 'member-1', password: 'Dummy-Passw0rd-reset' }, 'client-a'))
+            .principal.mustChangePassword,
+        ).toBe(true);
+        expect(
+          (await auth.login({ userId: ADMIN.userId, password: 'Dummy-Passw0rd-self' }, 'client-a'))
+            .principal.mustChangePassword,
+        ).toBe(false);
+      });
+    },
+  );
 
   it('ログアウトは、Cognito では、そのユーザーのすべての端末のセッションを終了し、ローカルでは、その端末だけ', async () => {
     const local = await seeded(LOCAL.create);

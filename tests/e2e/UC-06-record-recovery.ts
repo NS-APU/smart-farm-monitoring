@@ -26,6 +26,7 @@ import {
   unreadBadge,
 } from './support/app.ts';
 import {
+  allSatisfactionStars,
   expectRelatedStatus,
   fieldError,
   fillEntryForm,
@@ -147,7 +148,7 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
       equipment: HOUSE_ID,
       category: 'SATISFACTION',
       observedAt: RECOVERY_AT,
-      items: { '満足度（メンテナンス性）': '4' },
+      stars: allSatisfactionStars(3, { '満足度（メンテナンス性）': 4 }),
       note: '復旧の手順が分かりやすく、短時間で対応できた',
     });
     await shot(page, testInfo, 'uc06-evaluation-form');

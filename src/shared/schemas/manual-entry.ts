@@ -168,6 +168,15 @@ export function validateManualEntry(draft: ManualEntryDraft, now: Date): FieldEr
     }
   }
 
+  if (category === 'SATISFACTION') {
+    // 満足度は、9観点すべてを揃えて保存する（一部だけの入力を、そもそも保存させない。D-18）
+    for (const item of allowed ?? []) {
+      if (!(item.itemKey in draft.items)) {
+        errors.push({ name: `items.${item.itemKey}`, message: `${item.label}を選択してください` });
+      }
+    }
+  }
+
   if (draft.note.length > MAX_NOTE_LENGTH) {
     errors.push({
       name: 'note',

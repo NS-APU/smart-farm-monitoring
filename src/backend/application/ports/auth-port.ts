@@ -11,6 +11,8 @@ export interface AuthPrincipal {
   readonly userId: UserId;
   readonly userName: string;
   readonly role: string;
+  /** 管理者が決めたパスワードを、本人が、まだ変更していない（D-45）。 */
+  readonly mustChangePassword: boolean;
 }
 
 export interface AuthSession {

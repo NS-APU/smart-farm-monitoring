@@ -2,7 +2,7 @@
 
 - ステータス: 承認（2026-10-21。ユーザーの判断。Issue #78）。実装は、Issue #115・#116（未実装）。Issue #117（本番サイト）は、IaC・ワークフロー・手順を用意し、AWS に作成した（2026-10-22。operations.md 9.9）
 - 日付: 2026-10-21
-- 更新（2026-10-27。#148）: 開発サイトでの、実データによる結合確認の条件を、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md) に記録した（6 章の TODO を置き換えた）。
+- 更新（2026-10-26。#148）: 開発サイトでの、実データによる結合確認の条件を、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md) に記録した（6 章の TODO を置き換えた）。
 - 関連: [ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0008](./0008-cognito-authentication.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0010](./0010-client-ip-from-cloudfront-function.md)、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)、[security.md](../../20_development/security.md)、[functional-requirements.md](../requirements/functional-requirements.md) の FR-9
 
 目的: 評価する人が見る環境について、「どこから・どのデータで・どう更新するか」と、アクセス制御（ログイン・ロール・初期ユーザー）の方針を決めた記録を残す。

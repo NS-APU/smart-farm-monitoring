@@ -300,11 +300,32 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 - 環境変数: `SMOKE_BASE_URL`（`https://` で始まる URL。パス・末尾のスラッシュは付けない）・`SMOKE_USER_ID`・`SMOKE_PASSWORD`（すべて必須。足りなければ、実行の最初にエラー。エラーに、パスワードは出ない）。値は、コード・ログ・結果に残らない。動画・トレースも取らない（パスワードが残るため）
 - テスト（`tests/smoke/`）: `smoke-01-flow.ts`（流れの確認。環境の**センサー（`SENSOR-01`）に、正常の範囲の値（温度 23℃・湿度 60%）の手動入力を 1 件保存し、終わりに削除する**。論理削除で、変更履歴には残る。途中で失敗して残ったときは、入力済みデータで「スモークテスト」を検索して削除する）、`smoke-02-performance.ts`（初期表示 5 回・自動更新 3 回・推移 3 回・取り込みの実行時間）、`smoke-03-cold-start.ts`（`SMOKE_COLD_START=1` のときだけ動く）。デモデータ（`ROBOT-01`・`SENSOR-01`）がある環境が前提
 - **推移の実測（NFR-3.5）には、1 か月分のデータが要る**。測る前に、`pnpm demo-data reset --yes` → `pnpm demo-data seed --days 30`（上の「デモデータの投入とリセット」）で、30 日分にする。測ったあとは、`reset --yes` → `seed` で、既定（3 日分）に戻す。評価する人が使っている間は、行わない
-- コールドスタートの実測は、API の Lambda が停止した状態が要る。**60 分以上、環境にアクセスしない**状態にしてから、`smoke-03` だけを実行する（ほかのテストを先に実行すると、温まる）。Lambda の停止の時期は、AWS が決めるため、確実ではない。Lambda 側の起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7）
+- コールドスタートの実測は、API の Lambda が停止した状態が要る。**60 分以上、環境にアクセスしない**状態にしてから、`smoke-03` だけを実行する（ほかのテストを先に実行すると、温まる）。Lambda の停止の時期は、AWS が決めるため、確実ではない。Lambda 側の起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7）。**判定は、1 回目（コールドスタート）が 6 秒以内、2 回目（ウォーム）が 3 秒以内**（NFR-3.4。Issue #168）
 - 出力: `./test-result/smoketest.result.log`（操作ごとの応答時間・次の操作が可能になるまでの時間・判定、集計、取り込みの実行時間。環境の URL・ユーザーは、載せない）、`./test-result/smoke/`（HTML レポート。Git 管理外）。時間は、**端末のブラウザから見た時間**（端末と環境の間の通信を含む）
 - 許容時間は `tests/stress/support/limits.ts`（負荷テストと同じ。NFR-3.x）。超えた操作があると、テストは失敗する。倍率の環境変数 `STRESS_LIMIT_FACTOR` も、同じように使える（NFR の確認は、既定の 1）
 - 構成の詳細は dev_spec.md 6.6
-- **状態: 実行済み**（2026-10-21。AWS の評価環境。スモークテスト・初期表示・自動更新・推移・取り込みの実行時間。結果は test.spec.md 13.3・`test-result/smoketest.result.log`）。コールドスタート（`smoke-03`）も、実行済み（2026-10-21。コールドは、次の操作可能まで 3.21 秒で、許容 3 秒を約 0.2 秒超過。**既知の制約として許容**。test.spec.md 13.3）
+- **状態: 実行済み**（2026-10-21。AWS の評価環境。スモークテスト・初期表示・自動更新・推移・取り込みの実行時間。結果は test.spec.md 13.3・`test-result/smoketest.result.log`）。コールドスタート（`smoke-03`）も、実行済み（2026-10-21。コールドは、次の操作可能まで 3.21 秒で、通常の 3 秒を約 0.2 秒超過。コールドスタートの許容（6 秒以内）の範囲内。2026-10-28 に、NFR-3.4 に明記し、対策はしないと決めた。test.spec.md 13.3・Issue #168）
+
+### 認証の確認（評価環境。Issue #243〜#245。D-44・D-45）
+
+Cognito を偽にした自動テストでは確かめられない、実際の経路（CloudFront・API の Lambda・Cognito・DynamoDB）での動きを、確かめる。**手動で実行する**（CI には載せない）。性能の実測（`pnpm test:smoke`）とは、設定を分けている（`playwright.smoke-auth.config.ts`。結果ログ `test-result/smoketest.result.log` を上書きしない）。
+
+```powershell
+# PowerShell の例。接続先・ユーザー（管理者。ユーザーの登録・削除ができること）は、上の「サーバーレス環境のスモークテスト」と同じ
+$env:SMOKE_BASE_URL = '<SiteUrl>'
+$env:SMOKE_USER_ID = '<管理者のユーザーID>'
+$env:SMOKE_PASSWORD = (Read-Host 'パスワード' -MaskInput)   # 履歴に残さない
+
+pnpm test:smoke:auth
+
+# 終わったら、必ず消す
+Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE_LOGIN_LIMIT -ErrorAction SilentlyContinue
+```
+
+- **確認する内容**（`tests/smoke/auth/auth-01-password-change.ts`）: 管理者が決めたパスワードで、最初にログインすると、変更が必要（ほかの API は 403 `PASSWORD_CHANGE_REQUIRED`）→ 現在のパスワードの誤りは 400 → 本人が変更すると、新しいセッションが返り、変更が必要な旨が外れる → 古いセッション（変更に使った端末・別の端末）のアクセストークン・リフレッシュトークンは、すぐに使えなくなる → 管理者が決めたパスワードでは、ログインできない → 管理者が再設定したパスワードも、一時のもの（管理者自身のセッションは、そのまま）→ 変更履歴に、パスワードの変更が残り、パスワードは残らない。これで、Lambda の IAM の権限（`AdminSetUserPassword`・`AdminInitiateAuth`・`AdminUserGlobalSignOut`）が足りること、Cognito が、全セッションの失効を、すぐに反映することを確かめる
+- **環境に書き込む**: 確認用のユーザー（`smoke-pw-<乱数>`）を 1 人登録し、終わりに削除する（変更履歴には残る）。途中で失敗しても、削除を試みる。削除できなかったときは、ユーザー管理で、`smoke-pw-` で始まるユーザーを削除する
+- **任意: ログインの失敗の制限（D-44）の確認**: `$env:SMOKE_LOGIN_LIMIT = '<回数>'` を指定すると、その回数の失敗のあと、429 になることを確かめる（存在しないユーザーの失敗を、接続元ごとに数える）。**この端末の接続元が、制限の時間（既定 15 分）、ログインできなくなる**ため、最後に行う（確認用のユーザーの削除のあと）。回数を変えて確かめるには、GitHub の Environment（development）の変数 `SFM_LOGIN_FAILURE_LIMIT`・`SFM_LOGIN_FAILURE_WINDOW_MINUTES` を設定し、「Deploy development」を実行したあと、同じ回数を `SMOKE_LOGIN_LIMIT` に指定する。確認したら、変数を消して（既定の 5 回 / 15 分に戻す）、もう一度デプロイする
+- **状態**: ローカル（メモリ・ローカル認証。`LOGIN_FAILURE_LIMIT=3`）で、テストの論理は確認済み（2026-11-02。2 件成功）。**AWS の評価環境での 1 回目（2026-11-02。ユーザーが実行）で、不具合を見つけた**: パスワード変更の直後に返した、新しいセッションのアクセストークンが、401 になった（Cognito が、全セッションの失効と同じ秒に発行したトークンも、失効として扱うと推定）。新しいセッションが有効になるまで、間隔を置いて、ログインし直す修正を入れた（dev_spec.md 4章。偽の Cognito に、同じ秒の失効を再現するオプションを加えて、再現・回帰のテストにした）。**修正後の再実行（2026-11-02。ユーザーが実行。PR #277 のデプロイ後）で、1 件目が成功**（1 passed・1 skipped。9.8 秒。確認した内容: 管理者が決めたパスワードの強制変更・本人による変更・古いセッションの失効・再設定後の一時のパスワード・変更履歴にパスワードを残さないこと。これで、Lambda の IAM の権限が足りること、Cognito が全セッションの失効を反映することを、確認した）。**2 件目（ログインの失敗の制限）も、AWS で確認済み**（2026-11-02。ユーザーが実行）: 既定（失敗 5 回 / 15 分。`SMOKE_LOGIN_LIMIT=5`）で、2 passed。**制限値の変更も確認済み**: GitHub の Environment（development）の変数 `SFM_LOGIN_FAILURE_LIMIT=3`・`SFM_LOGIN_FAILURE_WINDOW_MINUTES=1` を設定して「Deploy development」を実行 → `SMOKE_LOGIN_LIMIT=3` で、2 passed（3 回の失敗のあと、429）。確認後、変数を削除し、再デプロイして、既定（5 回 / 15 分）に戻した
 
 ## CI（GitHub Actions）
 

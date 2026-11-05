@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from
 import {
   CATEGORY_LABELS,
   MANUAL_INPUT_CATEGORIES,
+  SATISFACTION_MAX_STARS,
   type Category,
 } from '@smart-farm/shared/constants/items';
 import {
@@ -29,6 +30,7 @@ import { isoToJstDateTimeInput, jstDateTimeToIso } from './jst.ts';
 import { normalizeNumberText } from './number-text.ts';
 import { notifyUnreadChanged } from './unread-events.ts';
 import { Icon } from './icon.tsx';
+import { StarRating } from './star-rating.tsx';
 
 const TEXT = MESSAGES.entry;
 const REMEMBER_KEY = 'smart-farm:last-entry-target';
@@ -71,6 +73,12 @@ export interface ManualEntryFormProps {
   readonly entry?: ManualEntry | undefined;
   readonly onSaved: (response: ManualEntrySaveResponse) => void;
   readonly onCancel?: (() => void) | undefined;
+}
+
+/** スターで選んだ値（文字列で保持）。未選択なら undefined。 */
+function starValue(text: string | undefined): number | undefined {
+  const value = Number(text);
+  return text === undefined || text === '' || Number.isNaN(value) ? undefined : value;
 }
 
 function categoryOf(value: string): Category | undefined {
@@ -239,7 +247,9 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
           <legend>
             {TEXT.items}（{CATEGORY_LABELS[selectedCategory]}）
           </legend>
-          <p className="muted">{TEXT.itemsHint}</p>
+          <p className="muted">
+            {selectedCategory === 'SATISFACTION' ? TEXT.itemsHintSatisfaction : TEXT.itemsHint}
+          </p>
           {errors.items === undefined ? null : (
             <div data-field="items">
               <p className="field-error">
@@ -249,27 +259,42 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
             </div>
           )}
           <div className="form-grid">
-            {items.map((item) => (
-              <Field
-                key={item.itemKey}
-                label={item.unit === '' ? item.label : `${item.label}（${item.unit}）`}
-                name={`items.${item.itemKey}`}
-                error={errors[`items.${item.itemKey}`]}
-                hint={describeRange(item)}
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={values[item.itemKey] ?? ''}
-                    onChange={(event) => {
-                      setValues({ ...values, [item.itemKey]: event.target.value });
-                    }}
-                  />
-                )}
-              </Field>
-            ))}
+            {items.map((item) =>
+              selectedCategory === 'SATISFACTION' ? (
+                // 満足度は、数値の文字入力ではなく、スターで選ぶ（D-18。9観点すべてが必須）
+                <StarRating
+                  key={item.itemKey}
+                  label={item.label}
+                  name={`items.${item.itemKey}`}
+                  max={SATISFACTION_MAX_STARS}
+                  value={starValue(values[item.itemKey])}
+                  error={errors[`items.${item.itemKey}`]}
+                  onChange={(stars) => {
+                    setValues({ ...values, [item.itemKey]: String(stars) });
+                  }}
+                />
+              ) : (
+                <Field
+                  key={item.itemKey}
+                  label={item.unit === '' ? item.label : `${item.label}（${item.unit}）`}
+                  name={`items.${item.itemKey}`}
+                  error={errors[`items.${item.itemKey}`]}
+                  hint={describeRange(item)}
+                >
+                  {(control) => (
+                    <input
+                      {...control}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value={values[item.itemKey] ?? ''}
+                      onChange={(event) => {
+                        setValues({ ...values, [item.itemKey]: event.target.value });
+                      }}
+                    />
+                  )}
+                </Field>
+              ),
+            )}
           </div>
         </fieldset>
       )}

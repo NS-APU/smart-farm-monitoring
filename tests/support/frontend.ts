@@ -80,6 +80,7 @@ export const WORKER_LOGIN: LoginResponse = {
     userName: '農作業者A',
     role: 'worker',
     permissions: ['equipment:manage', 'user:manage'],
+    mustChangePassword: false,
   },
 };
 

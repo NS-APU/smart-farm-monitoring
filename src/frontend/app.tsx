@@ -8,6 +8,7 @@ import type { SessionAccess } from './api/client.ts';
 import { AuthProvider, useAuth } from './auth/auth-context.tsx';
 import { AppLayout } from './components/app-layout.tsx';
 import { ErrorBoundary } from './components/error-boundary.tsx';
+import { ChangePasswordPage } from './pages/change-password-page.tsx';
 import { LoadingView } from './components/state-views.tsx';
 import { DashboardPage } from './pages/dashboard-page.tsx';
 import { LoginPage, loginRedirectPath } from './pages/login-page.tsx';
@@ -72,6 +73,7 @@ export const SCREEN_ROUTES: readonly RouteDefinition[] = [
   { path: PATHS.settingsStatusCodes, render: () => <StatusCodesPage /> },
   { path: PATHS.settingsUsers, render: () => <UsersPage /> },
   { path: PATHS.settingsPush, render: () => <PushSettingsPage /> },
+  { path: PATHS.changePassword, render: () => <ChangePasswordPage /> },
 ];
 
 function Redirect(props: { readonly to: string }): ReactNode {
@@ -92,6 +94,10 @@ function AppRoutes(): ReactNode {
     }
     // 未認証のアクセスは、ログイン画面へ誘導する（戻り先を保持）
     return <Redirect to={loginRedirectPath(pathname, search)} />;
+  }
+  // 管理者が決めたパスワードの変更が済むまでは、変更の画面だけを表示する（ほかの画面・メニューへ移れない。D-45）
+  if (user.mustChangePassword) {
+    return <ChangePasswordPage forced />;
   }
   if (pathname === PATHS.login) {
     return <Redirect to={PATHS.dashboard} />;

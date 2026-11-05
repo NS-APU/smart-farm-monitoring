@@ -20,6 +20,8 @@ import {
   VIEWER,
   accessToken,
   addUser,
+  addUserWithTemporaryPassword,
+  settlePassword,
   alignBrowserClock,
   confirmDialog,
   goToMenu,
@@ -27,7 +29,7 @@ import {
   openAs,
   prepareApp,
 } from './support/app.ts';
-import { loginViaUi } from './support/helpers.ts';
+import { changePasswordViaUi, loginViaUi } from './support/helpers.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 import { locatorOf, rowBy } from './support/pages.ts';
@@ -71,7 +73,8 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     request,
   }, testInfo) => {
     await prepareApp(request);
-    await addUser(request, USER_B);
+    // 一度もログインしていない利用者（管理者が決めた、一時のパスワードのまま）を、「未ログイン」として示す
+    await addUserWithTemporaryPassword(request, USER_B);
     await openUsers(page);
 
     await expect(rows(page)).toHaveCount(2);
@@ -115,9 +118,15 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await expect(rowOf(page, 'worker-new')).toContainText('未ログイン');
     // 入力欄はクリアされる（パスワードを画面に残さない）
     await expect(addForm(page).getByLabel('パスワード')).toHaveValue('');
-    // 登録したユーザーが、別のブラウザでログインできる（UC-13）
+    // 登録したユーザーが、別のブラウザで、そのパスワードでログインできる（UC-13）。管理者が決めたパスワードは、一時のもの
+    // （最初のログインでは、パスワードの変更の画面だけが表示される。変更すると、使える。Issue #245。D-45）
     const other = await newUserSession(browser, testInfo, 'new-user');
     await tryLogin(other.page, { userId: 'worker-new', password: 'Abcdef12' });
+    await expect(
+      other.page.getByRole('heading', { name: 'パスワードの変更', level: 1 }),
+    ).toBeVisible();
+    await expect(other.page.getByRole('banner')).toHaveCount(0);
+    await changePasswordViaUi(other.page, 'Abcdef12', 'Newpass-12');
     await expect(other.page.getByText('新しい作業者', { exact: true })).toBeVisible();
     // 最終ログイン日時が記録される
     await page.reload();
@@ -141,6 +150,8 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await expect(notice(page)).toHaveText('登録しました');
     await expect(rowOf(page, 'viewer-new')).toContainText('閲覧者');
 
+    // 管理者が決めたパスワードの変更を済ませて（Issue #245。D-45）、権限の確認に進む
+    await settlePassword(request, { userId: 'viewer-new', password: 'Abcdef12' });
     const other = await newUserSession(browser, testInfo, 'viewer');
     await tryLogin(other.page, { userId: 'viewer-new', password: 'Abcdef12' });
 
@@ -182,7 +193,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await other.context.close();
   });
 
-  test('パスワードを変更すると、古いパスワードではログインできず、新しいパスワードでログインできる', async ({
+  test('パスワードを再設定すると、古いパスワードではログインできず、新しいパスワードでログインできる。再設定したパスワードも、一時のもの（変更を求められる）', async ({
     page,
     request,
     browser,
@@ -202,6 +213,11 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
       'ユーザーIDまたはパスワードが正しくありません',
     );
     await tryLogin(other.page, { userId: USER_B.userId, password: 'Changed-Pw1' });
+    // 管理者が再設定したパスワードも、一時のもの: 変更するまで、ほかの操作はできない（Issue #245。D-45）
+    await expect(
+      other.page.getByRole('heading', { name: 'パスワードの変更', level: 1 }),
+    ).toBeVisible();
+    await changePasswordViaUi(other.page, 'Changed-Pw1', 'Own-Passw0rd');
     await expect(other.page.getByRole('banner')).toBeVisible();
     await other.context.close();
   });

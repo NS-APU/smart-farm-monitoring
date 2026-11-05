@@ -40,7 +40,12 @@ describe('認可の方針（ロール → 権限）', () => {
 });
 
 describe('認証サービス', () => {
-  const principal = { userId: toUserId('user-1'), userName: 'ユーザー', role: 'viewer' };
+  const principal = {
+    userId: toUserId('user-1'),
+    userName: 'ユーザー',
+    role: 'viewer',
+    mustChangePassword: false,
+  };
   const session = {
     accessToken: 'a',
     refreshToken: 'r',
@@ -71,7 +76,13 @@ describe('認証サービス', () => {
       refreshToken: 'r',
       accessTokenExpiresAt: '2026-10-09T03:30:00.000Z',
       refreshTokenExpiresAt: '2026-10-16T03:00:00.000Z',
-      user: { userId: 'user-1', userName: 'ユーザー', role: 'viewer', permissions: ['audit:read'] },
+      user: {
+        userId: 'user-1',
+        userName: 'ユーザー',
+        role: 'viewer',
+        permissions: ['audit:read'],
+        mustChangePassword: false,
+      },
     });
     expect(refreshed).toEqual(login);
     expect(auth.login).toHaveBeenCalledWith({ userId: 'user-1', password: 'pw' }, 'client');

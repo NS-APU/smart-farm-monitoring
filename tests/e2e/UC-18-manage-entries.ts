@@ -36,7 +36,13 @@ import {
   openAs,
   prepareApp,
 } from './support/app.ts';
-import { fieldError, fillEntryForm, saveEntry } from './support/entry.ts';
+import {
+  allSatisfactionStars,
+  fieldError,
+  fillEntryForm,
+  satisfactionApiItems,
+  saveEntry,
+} from './support/entry.ts';
 import { hoursAgo, shot } from './support/viewpoint-scenarios.ts';
 import { locatorOf, userIdText } from './support/pages.ts';
 
@@ -95,7 +101,7 @@ async function prepareThree(request: Parameters<typeof prepareApp>[0]): Promise<
     equipmentId: HOUSE_ID,
     category: 'SATISFACTION',
     observedAt: hoursAgo(1),
-    items: { 'satisfaction.safety': 4 },
+    items: satisfactionApiItems(3, { safety: 4 }),
   });
 }
 
@@ -431,7 +437,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
         equipment: HOUSE_ID,
         category: 'SATISFACTION',
         observedAt: '2026-10-09T10:30',
-        items: { '満足度（収穫精度）': '5' },
+        stars: allSatisfactionStars(3, { '満足度（収穫精度）': 5 }),
       },
       editor(page),
     );

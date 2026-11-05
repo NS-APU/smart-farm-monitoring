@@ -6,7 +6,11 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { AuthenticatedUser } from '@smart-farm/shared/schemas/auth';
 import { createApiClient, type ApiClient, type SessionAccess } from '../api/client.ts';
-import { login as loginRequest, logout as logoutRequest } from '../api/endpoints.ts';
+import {
+  changePassword as changePasswordRequest,
+  login as loginRequest,
+  logout as logoutRequest,
+} from '../api/endpoints.ts';
 
 export interface AuthContextValue {
   readonly api: ApiClient;
@@ -14,6 +18,8 @@ export interface AuthContextValue {
   readonly user: AuthenticatedUser | null;
   readonly login: (userId: string, password: string) => Promise<void>;
   readonly logout: () => Promise<void>;
+  /** 本人によるパスワードの変更。成功すると、新しいセッションに替わる（変更が必要な旨も、外れる）。 */
+  readonly changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -49,6 +55,11 @@ export function AuthProvider(props: AuthProviderProps): ReactNode {
       user,
       async login(userId, password) {
         const response = await loginRequest(api, userId, password);
+        session.set(response);
+        setUser(response.user);
+      },
+      async changePassword(currentPassword, newPassword) {
+        const response = await changePasswordRequest(api, currentPassword, newPassword);
         session.set(response);
         setUser(response.user);
       },

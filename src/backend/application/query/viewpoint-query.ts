@@ -10,6 +10,7 @@ import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
 import {
   SATISFACTION_TARGET_VIEWPOINT_IDS,
+  defaultPeriodDays,
   findViewpointMeta,
   viewpointsForEquipmentType,
   type ViewpointMeta,
@@ -41,7 +42,8 @@ export interface ViewpointQueryParams {
   readonly equipmentId: EquipmentId;
   readonly viewpointId: string;
   readonly horizon: Horizon;
-  readonly periodDays: PeriodDays;
+  /** 長期の期間。指定しなければ、観点の既定の期間（満足度は 30 日、ほかは 7 日）。 */
+  readonly periodDays?: PeriodDays | undefined;
 }
 
 export interface ViewpointQuery {
@@ -115,8 +117,9 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
   return {
     async detail(params) {
       const { meta, definition } = await resolveTarget(params);
+      const periodDays = params.periodDays ?? defaultPeriodDays(meta.id);
       const latest = await repositories.evaluations.listLatest(params.equipmentId);
-      const { shortResult, longResult } = findHorizonResults(latest, definition, params.periodDays);
+      const { shortResult, longResult } = findHorizonResults(latest, definition, periodDays);
       const { display, horizonUsed } = selectDisplayedResult(
         params.horizon,
         shortResult,
@@ -135,7 +138,7 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
         viewpointId: meta.id,
         name: meta.name,
         horizon: params.horizon,
-        periodDays: params.periodDays,
+        periodDays,
         horizonUsed,
         hasShortHorizon: definition.hasShortHorizon,
         status:
@@ -157,7 +160,8 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
       const { equipment, allEquipment, meta, definition } = await resolveTarget(params);
       const horizonUsed: Horizon =
         params.horizon === 'SHORT' && definition.hasShortHorizon ? 'SHORT' : 'LONG';
-      const periodDays = horizonUsed === 'SHORT' ? null : params.periodDays;
+      const requestedPeriodDays = params.periodDays ?? defaultPeriodDays(meta.id);
+      const periodDays = horizonUsed === 'SHORT' ? null : requestedPeriodDays;
       const now = clock.now();
       const scope = resolveEvaluationScope(equipment, allEquipment);
 
@@ -185,7 +189,11 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
       const fromIso = result.from.toISOString();
       const initial = history.filter((entry) => entry.changedAt < fromIso).at(-1)?.status ?? null;
       const latest = await repositories.evaluations.listLatest(params.equipmentId);
-      const { shortResult, longResult } = findHorizonResults(latest, definition, params.periodDays);
+      const { shortResult, longResult } = findHorizonResults(
+        latest,
+        definition,
+        requestedPeriodDays,
+      );
 
       return {
         equipmentId: params.equipmentId,

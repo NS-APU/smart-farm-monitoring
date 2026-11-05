@@ -23,6 +23,11 @@ export const UserRecordSchema = z.object({
    */
   passwordHash: z.string().min(1).optional(),
   lastLoginAt: IsoDateTimeSchema.optional(),
+  /**
+   * 管理者が決めた（登録・再設定の）パスワードを、本人が、まだ変更していない（D-45）。登録時と、管理者が他の利用者の
+   * パスワードを再設定したときに true。本人が変更すると false。記録にない（既存のユーザー・初期ユーザー）は、false と同じ。
+   */
+  mustChangePassword: z.boolean().optional(),
   createdAt: IsoDateTimeSchema,
 });
 export type UserRecord = z.infer<typeof UserRecordSchema>;

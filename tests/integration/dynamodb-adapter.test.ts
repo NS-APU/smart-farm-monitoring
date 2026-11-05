@@ -3,7 +3,7 @@
  * 時刻の正規化・複数のパーティションの併合・カウンター・読み取りの上限・競合の少ない更新などを、DynamoDB Local で確かめる。
  */
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@smart-farm/shared/errors';
 import { NotificationIdSchema, toUserId } from '@smart-farm/shared/schemas/common';
 import type { Notification } from '@smart-farm/shared/schemas/notification';
@@ -494,7 +494,13 @@ describe('連携（DynamoDB）', () => {
     await federation.update({ ...item('f-1', 'FAILED', 1), attempts: 2 });
     await federation.update(item('f-2', 'SENT', 2));
 
-    expect(await federation.countByStatus()).toEqual({ PENDING: 0, SENT: 1, FAILED: 1, HELD: 0 });
+    expect(await federation.countByStatus()).toEqual({
+      PENDING: 0,
+      SENT: 1,
+      FAILED: 1,
+      HELD: 0,
+      EXPIRED: 0,
+    });
   });
 
   it('送信してよい項目は、読む 1 回の件数より多くても、積んだ順に、上限の件数だけ返す', async () => {
@@ -508,6 +514,44 @@ describe('連携（DynamoDB）', () => {
     expect(due.map((entry) => entry.federationItemId)).toEqual(
       Array.from({ length: 30 }, (_, minute) => `f-${String(minute).padStart(2, '0')}`),
     );
+  });
+
+  it('次の試行の日時が先の項目は、読まない（送信してよい項目・戻す項目の取り出しが、溜まった件数に比例しない。#203）', async () => {
+    const database = createDynamoTestDatabase();
+    await database.ready;
+    const { federation } = createDynamoRepositories({
+      client: database.client,
+      tables: database.tables,
+    });
+    const future = '2026-10-09T09:00:00.000Z';
+    for (let minute = 0; minute < 30; minute += 1) {
+      await federation.enqueue({
+        ...item(`h-${String(minute).padStart(2, '0')}`, 'HELD', minute, future),
+        attempts: 1,
+      });
+    }
+    await federation.enqueue(item('p-1', 'PENDING', 40));
+    const now = new Date('2026-10-09T01:00:00.000Z');
+    const send = vi.spyOn(database.client, 'send');
+
+    const due = await federation.listDue(now, 10);
+    const waiting = await federation.listWaiting(now, 5);
+
+    // 取り出しで読んだ件数（Query の結果）。期限が来ていない 30 件を、読み飛ばさずに読んでいれば、この件数を超える
+    const readItems = (
+      await Promise.all(send.mock.results.map((result) => result.value as unknown))
+    )
+      .map((output) => (output as { Items?: unknown[] }).Items?.length ?? 0)
+      .reduce((total, count) => total + count, 0);
+    expect(due.map((entry) => entry.federationItemId)).toEqual(['p-1']);
+    expect(waiting.map((entry) => entry.federationItemId)).toEqual([
+      'h-00',
+      'h-01',
+      'h-02',
+      'h-03',
+      'h-04',
+    ]);
+    expect(readItems).toBeLessThanOrEqual(1 + 5);
   });
 
   it('連携ログは、カーソルでページを送れる（新しい順）', async () => {

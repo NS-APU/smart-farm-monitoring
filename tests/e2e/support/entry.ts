@@ -1,6 +1,10 @@
 /** 手動入力（SC-06）の画面操作の補助: フォームの入力・保存・エラーの確認。 */
 
 import { expect, type Locator, type Page } from '@playwright/test';
+import {
+  SATISFACTION_TARGET_VIEWPOINT_IDS,
+  findViewpointMeta,
+} from '../../../src/shared/constants/viewpoints.ts';
 
 export interface EntryFormValues {
   /** 設備の識別子（例: ROBOT-01）。 */
@@ -11,7 +15,43 @@ export interface EntryFormValues {
   readonly observedAt?: string;
   /** 項目の表示名（単位を除く） → 入力する文字列。 */
   readonly items?: Readonly<Record<string, string>>;
+  /** スターで選ぶ項目（満足度）の表示名 → スターの数（1〜5）。 */
+  readonly stars?: Readonly<Record<string, number>>;
   readonly note?: string;
+}
+
+/** 満足度の項目の表示名（例: 満足度（収穫精度））。9観点の表示順。 */
+export const SATISFACTION_LABELS: readonly string[] = SATISFACTION_TARGET_VIEWPOINT_IDS.map(
+  (viewpointId) => `満足度（${findViewpointMeta(viewpointId)?.name ?? viewpointId}）`,
+);
+
+/** 満足度の 9 観点すべての、スターの数（既定は `stars`。`overrides` で観点ごとに変える）。 */
+export function allSatisfactionStars(
+  stars: number,
+  overrides: Readonly<Record<string, number>> = {},
+): Record<string, number> {
+  return {
+    ...Object.fromEntries(SATISFACTION_LABELS.map((label) => [label, stars])),
+    ...overrides,
+  };
+}
+
+/** 満足度の入力の API の本文の項目（9観点すべて。D-18）。観点ごとの値は、`overrides`（観点の識別子 → スター）で変える。 */
+export function satisfactionApiItems(
+  stars: number,
+  overrides: Readonly<Record<string, number>> = {},
+): Record<string, number> {
+  return Object.fromEntries(
+    SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => [
+      `satisfaction.${viewpointId}`,
+      overrides[viewpointId] ?? stars,
+    ]),
+  );
+}
+
+/** 満足度の観点のスターのグループ（ラジオ）。 */
+export function starGroup(form: Locator, label: string): Locator {
+  return form.getByTestId('entry-items').getByRole('radiogroup', { name: label });
 }
 
 /** 画面の本文（ヘッダーの設備の選択と区別する）。 */
@@ -34,6 +74,13 @@ export async function fillEntryForm(
   }
   for (const [label, text] of Object.entries(values.items ?? {})) {
     await form.getByTestId('entry-items').getByLabel(label).fill(text);
+  }
+  for (const [label, stars] of Object.entries(values.stars ?? {})) {
+    // 利用者の操作と同じく、スター（ラベル）を押す
+    await starGroup(form, label)
+      .locator('label.star')
+      .nth(stars - 1)
+      .click();
   }
   if (values.note !== undefined) {
     await form.getByLabel('備考（所感・補足情報）').fill(values.note);

@@ -13,7 +13,7 @@ import {
   ViewpointDetailResponseSchema,
 } from '../../src/shared/schemas/evaluation.ts';
 import { ObservationListResponseSchema } from '../../src/shared/schemas/observation.ts';
-import { toEquipmentId } from '../../src/shared/schemas/common.ts';
+import { toEquipmentId, toUserId, type UserId } from '../../src/shared/schemas/common.ts';
 import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import {
@@ -414,7 +414,14 @@ describe('観点の詳細（UC-02。GET /viewpoints/{id}）', () => {
 });
 
 describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
-  function stars(scores: readonly number[], observedAt = hoursAgo(1)): ObservationOverrides[] {
+  const WORKER_A = toUserId('worker-a');
+  const WORKER_B = toUserId('worker-b');
+
+  function stars(
+    scores: readonly number[],
+    observedAt = hoursAgo(1),
+    enteredBy?: UserId,
+  ): ObservationOverrides[] {
     return SATISFACTION_TARGET_VIEWPOINT_IDS.flatMap((viewpointId, index) => {
       const score = scores[index];
       return score === undefined
@@ -426,6 +433,7 @@ describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
               value: score,
               observedAt,
               source: 'MANUAL' as const,
+              ...(enteredBy === undefined ? {} : { enteredBy }),
             },
           ];
     });
@@ -503,11 +511,11 @@ describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
     expect(detail.radar).toHaveLength(9);
   });
 
-  it('期間を選ぶと、その期間の満足度の平均で判定する', async () => {
+  it('期間を選ぶと、その期間に入力した人の満足度の平均で判定する', async () => {
     const context = await setup();
     await seed(context, [
-      ...stars([5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(1)),
-      ...stars([1, 1, 1, 1, 1, 1, 1, 1, 1], hoursAgo(10 * 24)),
+      ...stars([5, 5, 5, 5, 5, 5, 5, 5, 5], hoursAgo(1), WORKER_A),
+      ...stars([1, 1, 1, 1, 1, 1, 1, 1, 1], hoursAgo(10 * 24), WORKER_B),
     ]);
 
     const week = await detailOf(context, 'periodDays=7', 'satisfaction');
@@ -517,6 +525,173 @@ describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
     expect(week.status).toBe('NORMAL');
     expect(month.radar?.[0]?.score).toBe(3);
     expect(month.status).toBe('CAUTION');
+  });
+});
+
+describe('満足度の既定の期間は 30 日（D-18）。期間を選べば、選んだ期間で評価する', () => {
+  /** 20 日前の、9 観点すべて 5 の満足度（7 日の期間の外。30 日の期間の中）。 */
+  function oldSatisfaction(): ObservationOverrides[] {
+    return SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => ({
+      equipmentId: FACILITY_ID,
+      itemKey: satisfactionItemKey(viewpointId),
+      value: 5,
+      observedAt: hoursAgo(20 * 24),
+      source: 'MANUAL' as const,
+    }));
+  }
+
+  it('観点の詳細: 期間を選ばないと、30 日で評価する（20 日前の入力が、評価に入る）', async () => {
+    const context = await setup();
+    await seed(context, oldSatisfaction());
+
+    const detail = await detailOf(context, '', 'satisfaction');
+
+    expect(detail.periodDays).toBe(30);
+    expect(detail.status).toBe('NORMAL');
+    expect(detail.radar?.every((point) => point.score === 5)).toBe(true);
+    expect(detail.long?.periodDays).toBe(30);
+  });
+
+  it.each([
+    [1, 'UNKNOWN'],
+    [7, 'UNKNOWN'],
+    [30, 'NORMAL'],
+    [60, 'NORMAL'],
+    [90, 'NORMAL'],
+  ] as const)(
+    '観点の詳細: 期間（%s 日）を選ぶと、その期間で評価する（20 日前の入力は、期間による）→ %s',
+    async (periodDays, expected) => {
+      const context = await setup();
+      await seed(context, oldSatisfaction());
+
+      const detail = await detailOf(context, `periodDays=${String(periodDays)}`, 'satisfaction');
+
+      expect(detail.periodDays).toBe(periodDays);
+      expect(detail.status).toBe(expected);
+    },
+  );
+
+  it('観点の詳細: 満足度以外の観点は、期間を選ばないと、従来どおり 7 日で評価する', async () => {
+    const context = await setup();
+    await seed(context, environment(20, hoursAgo(20 * 24)));
+
+    const unspecified = await detailOf(context, '', 'environmentalAdaptability');
+    const month = await detailOf(context, 'periodDays=30', 'environmentalAdaptability');
+
+    expect(unspecified.periodDays).toBe(7);
+    expect(unspecified.status).toBe('UNKNOWN');
+    expect(month.status).toBe('NORMAL');
+  });
+
+  it('推移: 満足度は、期間を選ばないと、30 日（日ごと 30 区間）。期間を選べば、その期間', async () => {
+    const context = await setup();
+    await seed(context, oldSatisfaction());
+
+    const unspecified = await seriesOf(context, '', 'satisfaction');
+    const week = await seriesOf(context, 'periodDays=7', 'satisfaction');
+
+    expect(unspecified.periodDays).toBe(30);
+    expect(unspecified.metrics[0]?.points).toHaveLength(30);
+    expect(week.periodDays).toBe(7);
+    expect(week.metrics[0]?.points).toHaveLength(7);
+  });
+
+  it('ダッシュボード: 期間を選ばないと、満足度のカードだけ 30 日で、ほかのカードは 7 日で評価する', async () => {
+    const context = await setup();
+    await seed(context, [...oldSatisfaction(), ...environment(20, hoursAgo(20 * 24))]);
+
+    const dashboard = DashboardResponseSchema.parse((await get(context, '/dashboard')).body);
+
+    const cardOf = (viewpointId: string) =>
+      dashboard.viewpoints.find((card) => card.viewpointId === viewpointId);
+    expect(dashboard.periodDays).toBe(7);
+    expect(cardOf('satisfaction')?.status).toBe('NORMAL');
+    expect(cardOf('environmentalAdaptability')?.status).toBe('UNKNOWN');
+  });
+
+  it.each([
+    [7, 'UNKNOWN', 'UNKNOWN'],
+    [30, 'NORMAL', 'NORMAL'],
+  ] as const)(
+    'ダッシュボード: 期間（%s 日）を選ぶと、すべてのカードを、その期間で評価する（満足度 %s・環境適応性 %s）',
+    async (periodDays, satisfaction, environmental) => {
+      const context = await setup();
+      await seed(context, [...oldSatisfaction(), ...environment(20, hoursAgo(20 * 24))]);
+
+      const dashboard = DashboardResponseSchema.parse(
+        (await get(context, `/dashboard?periodDays=${String(periodDays)}`)).body,
+      );
+
+      const cardOf = (viewpointId: string) =>
+        dashboard.viewpoints.find((card) => card.viewpointId === viewpointId);
+      expect(dashboard.periodDays).toBe(periodDays);
+      expect(cardOf('satisfaction')?.status).toBe(satisfaction);
+      expect(cardOf('environmentalAdaptability')?.status).toBe(environmental);
+    },
+  );
+});
+
+describe('満足度の集計: 入力者ごとの最新の平均（1 人 1 票。D-18）', () => {
+  const WORKER_A = toUserId('worker-a');
+  const WORKER_B = toUserId('worker-b');
+
+  function entry(score: number, observedAt: string, enteredBy: UserId): ObservationOverrides[] {
+    return SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) => ({
+      equipmentId: FACILITY_ID,
+      itemKey: satisfactionItemKey(viewpointId),
+      value: score,
+      observedAt,
+      source: 'MANUAL' as const,
+      enteredBy,
+    }));
+  }
+
+  it('同じ入力者が複数回入力したときは、最新の入力だけを使う', async () => {
+    const context = await setup();
+    await seed(context, [...entry(5, hoursAgo(5), WORKER_A), ...entry(2, hoursAgo(1), WORKER_A)]);
+
+    const detail = await detailOf(context, '', 'satisfaction');
+
+    expect(detail.radar?.every((point) => point.score === 2)).toBe(true);
+    expect(detail.metrics.find((row) => row.metricId === 'overallSatisfaction')).toMatchObject({
+      value: 2,
+      indicatorStatus: 'ERROR',
+    });
+    expect(detail.status).toBe('ERROR');
+  });
+
+  it('入力の回数が違う入力者は、1 人 1 票で平均する（入力の多い人の意見が重くならない）', async () => {
+    const context = await setup();
+    // A は 5 を 4 回、B は 1 を 1 回。全入力の平均なら 4.2（正常）、1 人 1 票なら 3（注意）
+    await seed(context, [
+      ...entry(5, hoursAgo(5), WORKER_A),
+      ...entry(5, hoursAgo(4), WORKER_A),
+      ...entry(5, hoursAgo(3), WORKER_A),
+      ...entry(5, hoursAgo(2), WORKER_A),
+      ...entry(1, hoursAgo(1), WORKER_B),
+    ]);
+
+    const detail = await detailOf(context, '', 'satisfaction');
+
+    expect(detail.radar?.[0]?.score).toBe(3);
+    expect(detail.metrics.find((row) => row.metricId === 'overallSatisfaction')?.value).toBe(3);
+    expect(detail.status).toBe('CAUTION');
+  });
+
+  it('期間を選ぶと、その期間に入力した人だけで集計する（期間内に入力のない人は含まれない）', async () => {
+    const context = await setup();
+    await seed(context, [
+      ...entry(5, hoursAgo(5 * 24), WORKER_A),
+      ...entry(1, hoursAgo(20 * 24), WORKER_B),
+      ...entry(3, hoursAgo(10 * 24), WORKER_B),
+    ]);
+
+    const week = await detailOf(context, 'periodDays=7', 'satisfaction');
+    const month = await detailOf(context, 'periodDays=30', 'satisfaction');
+
+    // 7 日: A だけ。30 日: A の 5 と、B の最新（10 日前の 3）→ 4
+    expect(week.radar?.[0]?.score).toBe(5);
+    expect(month.radar?.[0]?.score).toBe(4);
   });
 });
 
@@ -836,6 +1011,9 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
     return ObservationListResponseSchema.parse(body);
   }
 
+  /** 値・カテゴリの順、キーワード検索で必須の期間（31 日以内。#91）。データ（1〜5 時間前）を含む 7 日間。 */
+  const PERIOD = `from=${encodeURIComponent(hoursAgo(7 * 24))}&to=${encodeURIComponent(hoursAgo(0))}`;
+
   it('設備を省略すると全設備、ハウスは配下のロボット・センサーを含み、ロボットはそのロボットのみ。新しい順', async () => {
     const context = await withData();
 
@@ -906,7 +1084,7 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
   ])('キーワード（%s）で検索できる', async (_name, keyword, expectedItems) => {
     const context = await withData();
 
-    const result = await list(context, `q=${encodeURIComponent(keyword)}`);
+    const result = await list(context, `q=${encodeURIComponent(keyword)}&${PERIOD}`);
 
     expect(result.items.map((item) => item.itemKey).sort()).toEqual([...expectedItems].sort());
   });
@@ -914,9 +1092,9 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
   it('キーワードに一致するデータがなければ、空の一覧を返す。空白だけのキーワードは、絞り込まない', async () => {
     const context = await withData();
 
-    expect((await list(context, 'q=%E5%AD%98%E5%9C%A8%E3%81%97%E3%81%AA%E3%81%84')).items).toEqual(
-      [],
-    );
+    expect(
+      (await list(context, `q=%E5%AD%98%E5%9C%A8%E3%81%97%E3%81%AA%E3%81%84&${PERIOD}`)).items,
+    ).toEqual([]);
     expect((await list(context, 'q=%20%20')).items).toHaveLength(8);
   });
 
@@ -930,9 +1108,66 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
   ] as const)('並べ替え（%s・%s）の先頭は %s', async (sort, direction, firstItem) => {
     const context = await withData();
 
-    const result = await list(context, `sort=${sort}&direction=${direction}`);
+    const result = await list(
+      context,
+      sort === 'observedAt'
+        ? `sort=${sort}&direction=${direction}`
+        : `sort=${sort}&direction=${direction}&${PERIOD}`,
+    );
 
     expect(result.items[0]?.itemKey).toBe(firstItem);
+  });
+
+  describe('並べ替え（値・カテゴリ）・キーワード検索は、期間（31 日以内）が必須（#91）', () => {
+    const start = '2020-01-01T00:00:00.000Z';
+    const end = (days: number, extraMs = 0) =>
+      new Date(Date.parse(start) + days * 86_400_000 + extraMs).toISOString();
+    const period = (to: string) => `from=${encodeURIComponent(start)}&to=${encodeURIComponent(to)}`;
+
+    async function fieldsOf(context: Context, query: string) {
+      const { status, body } = await get(context, `/observations?${query}`);
+      expect(status).toBe(400);
+      const error = (body as { error: { code: string; fields?: { name: string }[] } }).error;
+      expect(error.code).toBe('VALIDATION_ERROR');
+      return (error.fields ?? []).map((field) => field.name).sort();
+    }
+
+    it.each([
+      ['値の順', 'sort=value'],
+      ['カテゴリの順', 'sort=category'],
+      ['キーワード', 'q=%E5%8F%8E%E7%A9%AB'],
+    ])('%s で、期間（from・to）がなければ、400（項目ごとのエラーつき）', async (_name, query) => {
+      const context = await withData();
+
+      expect(await fieldsOf(context, query)).toEqual(['from', 'to']);
+    });
+
+    it('片方だけでも、400（指定していない方の項目のエラー）', async () => {
+      const context = await withData();
+
+      expect(await fieldsOf(context, `sort=value&from=${encodeURIComponent(start)}`)).toEqual([
+        'to',
+      ]);
+      expect(await fieldsOf(context, `q=x&to=${encodeURIComponent(start)}`)).toEqual(['from']);
+    });
+
+    it('境界: ちょうど 31 日は、受け付ける。31 日と 1 ミリ秒は、400', async () => {
+      const context = await withData();
+
+      await list(context, `sort=value&${period(end(31))}`);
+      expect(await fieldsOf(context, `sort=value&${period(end(31, 1))}`)).toEqual(['from', 'to']);
+      expect(await fieldsOf(context, `q=x&${period(end(32))}`)).toEqual(['from', 'to']);
+    });
+
+    it('計測日時の順（既定）は、期間がなくても、全期間をページで送れる。空白だけのキーワードも、期間は不要', async () => {
+      const context = await withData();
+
+      expect((await list(context)).items).toHaveLength(8);
+      expect((await list(context, 'sort=observedAt&direction=asc')).items).toHaveLength(8);
+      expect((await list(context, 'q=%20%20')).items).toHaveLength(8);
+      // 期間が 31 日を超えても、計測日時の順なら、受け付ける
+      expect((await list(context, period(end(90)))).items).toHaveLength(0);
+    });
   });
 
   it('ページ分割（limit・cursor）で、全件を重複なく返す。不正なカーソルは 400', async () => {

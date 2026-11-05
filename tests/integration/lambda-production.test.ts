@@ -75,7 +75,7 @@ function functionUrlEvent(
   };
 }
 
-async function productionHandler() {
+async function productionHandler(extraEnv: Readonly<Record<string, string>> = {}) {
   const database = createDynamoTestDatabase();
   await database.ready;
   const fake = createFakeCognito({
@@ -94,6 +94,7 @@ async function productionHandler() {
     COGNITO_CLIENT_ID: 'client-1',
     CLIENT_IP_HEADER,
     LOG_LEVEL: 'error',
+    ...extraEnv,
   };
   // 最初のユーザーは、Lambda ではなく、手元で `pnpm initial-user` を実行して作る（ADR-0008）
   await runInitialUserCli(
@@ -159,6 +160,25 @@ describe('Lambda のハンドラ（本番の設定: DynamoDB・Cognito）', () =
     expect(reset.statusCode).toBe(404);
     expect(equipment.statusCode).toBe(200);
     expect(JSON.parse(equipment.body)).toMatchObject({ facilities: [] });
+  });
+
+  it('ログインの試行回数の制限は、環境変数（LOGIN_FAILURE_LIMIT・LOGIN_FAILURE_WINDOW_MINUTES）で変えられる。本番の組み立て（DynamoDB・Cognito）でも、効く（Issue #244）', async () => {
+    const { call } = await productionHandler({
+      LOGIN_FAILURE_LIMIT: '2',
+      LOGIN_FAILURE_WINDOW_MINUTES: '30',
+    });
+    const login = (password: string) =>
+      call('POST', '/api/v1/auth/login', {
+        body: { userId: 'first-user', password },
+        headers: { [CLIENT_IP_HEADER]: '198.51.100.20' },
+      });
+
+    const first = await login('wrong');
+    const second = await login('wrong');
+    const blocked = await login(PASSWORD);
+
+    expect([first.statusCode, second.statusCode]).toEqual([401, 401]);
+    expect(blocked.statusCode).toBe(429);
   });
 
   it('ログインの試行回数の制限は、利用者の IP（CloudFront Function が入れるヘッダー）ごと。関数の URL が切り詰める X-Forwarded-For・エッジごとに変わる接続元には、よらない（Issue #100）', async () => {

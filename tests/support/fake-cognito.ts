@@ -18,6 +18,11 @@ export interface FakeCognitoOptions {
   readonly clientId: string;
   /** 現在の時刻（トークンの期限の判定）。 */
   readonly now: () => Date;
+  /**
+   * 全セッションの失効（AdminUserGlobalSignOut・GlobalSignOut・パスワードの再設定）と、同じ秒（以前）に発行したトークンも、
+   * 失効として扱う（実際の Cognito の挙動。評価環境で、パスワードの変更の直後の新しいセッションが 401 になった。Issue #245）。既定は、扱わない。
+   */
+  readonly revokeSameSecond?: boolean;
 }
 
 export interface RecordedCall {
@@ -32,6 +37,8 @@ interface FakeUser {
 interface FakeToken {
   readonly username: string;
   readonly expiresAt: number;
+  /** 発行した秒（エポック秒）。 */
+  readonly issuedAtSeconds: number;
   revoked: boolean;
 }
 
@@ -92,16 +99,25 @@ export function createFakeCognito(options: FakeCognitoOptions): FakeCognito {
     return options.now().getTime();
   }
 
+  /** ユーザーごとの、全セッションを失効した秒（revokeSameSecond のとき、これ以前に発行したトークンを、失効として扱う）。 */
+  const signedOutAtSeconds = new Map<string, number>();
+
   function isActive(token: FakeToken | undefined): token is FakeToken {
     return (
       token !== undefined &&
       !token.revoked &&
       nowMs() < token.expiresAt &&
-      users.has(token.username)
+      users.has(token.username) &&
+      !(
+        options.revokeSameSecond === true &&
+        token.issuedAtSeconds <=
+          (signedOutAtSeconds.get(token.username) ?? Number.NEGATIVE_INFINITY)
+      )
     );
   }
 
   function revokeAll(username: string): void {
+    signedOutAtSeconds.set(username, Math.floor(nowMs() / 1000));
     for (const token of [...accessTokens.values(), ...refreshTokens.values()]) {
       if (token.username === username) {
         token.revoked = true;
@@ -114,6 +130,7 @@ export function createFakeCognito(options: FakeCognitoOptions): FakeCognito {
     accessTokens.set(token, {
       username,
       expiresAt: nowMs() + ACCESS_TOKEN_SECONDS * 1000,
+      issuedAtSeconds: Math.floor(nowMs() / 1000),
       revoked: false,
     });
     return token;
@@ -149,6 +166,7 @@ export function createFakeCognito(options: FakeCognitoOptions): FakeCognito {
         refreshTokens.set(refreshToken, {
           username,
           expiresAt: nowMs() + REFRESH_TOKEN_SECONDS * 1000,
+          issuedAtSeconds: Math.floor(nowMs() / 1000),
           revoked: false,
         });
         return {

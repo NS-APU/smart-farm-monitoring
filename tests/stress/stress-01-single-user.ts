@@ -380,13 +380,6 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
     respond: () => expectListShown(page, 'observation-row'),
   });
-  await m('UC-20', '期間の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
-    act: async () => {
-      await page.getByLabel('期間（開始日）').fill('');
-      await page.getByLabel('期間（終了日）').fill('');
-    },
-    respond: () => expectListShown(page, 'observation-row'),
-  });
   await m('UC-20', 'キーワード「温度」で検索する', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill('温度'),
     respond: () => expectEveryRowContains(observationRows, '温度'),
@@ -410,6 +403,14 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     act: async () => {
       await page.getByLabel('並べ替え', { exact: true }).selectOption('observedAt');
       await page.getByLabel('並べ替えの向き').selectOption('desc');
+    },
+    respond: () => expectListShown(page, 'observation-row'),
+  });
+  // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（#91）のため、ここまで、直近 30 日の期間を指定したまま計測した
+  await m('UC-20', '期間の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
+    act: async () => {
+      await page.getByLabel('期間（開始日）').fill('');
+      await page.getByLabel('期間（終了日）').fill('');
     },
     respond: () => expectListShown(page, 'observation-row'),
   });

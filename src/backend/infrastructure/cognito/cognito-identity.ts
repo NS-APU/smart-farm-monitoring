@@ -90,7 +90,12 @@ export function createCognitoIdentity(deps: CognitoIdentityDeps): CognitoIdentit
   const { client, userPoolId, clientId, users, clock, throttle } = deps;
 
   function toPrincipal(user: UserRecord): AuthPrincipal {
-    return { userId: user.userId, userName: user.userName, role: user.role };
+    return {
+      userId: user.userId,
+      userName: user.userName,
+      role: user.role,
+      mustChangePassword: user.mustChangePassword === true,
+    };
   }
 
   /** アクセストークンの持ち主（Cognito が検証）の記録（ロール）。トークンが無効、または記録がなければ null。 */

@@ -36,6 +36,13 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
   const names = STACK_NAMES[config.environment];
   // 本番サイトは、合成データを生成しない（実データを扱う環境に、合成データを入れない。ADR-0013）
   const includeDemoFeed = config.environment === 'development';
+  // 接続元ごとのログインの失敗の制限（環境変数で指定したときだけ。未指定は、スタックの既定の 5 回 / 15 分）
+  const loginFailurePolicy = {
+    ...(config.loginFailureLimit === undefined ? {} : { limit: config.loginFailureLimit }),
+    ...(config.loginFailureWindowMinutes === undefined
+      ? {}
+      : { windowMinutes: config.loginFailureWindowMinutes }),
+  };
   const stackEnv =
     config.account === undefined ? undefined : { account: config.account, region: REGION };
   // データは、評価環境と別のスタックにする（評価環境を削除・再作成しても、データを失わない）
@@ -47,6 +54,7 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
       frontendAssetPath,
       data,
       includeDemoFeed,
+      loginFailurePolicy,
     });
     return app;
   }
@@ -61,6 +69,7 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
     frontendAssetPath,
     data,
     includeDemoFeed,
+    loginFailurePolicy,
     domainName,
     hostedZoneName,
     certificate: certificateStack.certificate,

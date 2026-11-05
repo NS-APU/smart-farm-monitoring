@@ -1,7 +1,8 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { type App } from 'aws-cdk-lib';
+import { type App, type Stack } from 'aws-cdk-lib';
+import { Template } from 'aws-cdk-lib/assertions';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createEvaluationApp, createGithubOidcApp } from '../lib/apps.ts';
 import { GITHUB_SUBJECT_PREFIX } from '../lib/config.ts';
@@ -30,6 +31,39 @@ describe('CDK アプリの組み立て', () => {
   it('評価環境: 設定がなければ、データと評価環境のスタックだけを作る（アカウントに依存しない）', () => {
     const app = createEvaluationApp({}, assets());
     expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
+  });
+
+  it('評価環境: ログインの失敗の制限（SFM_LOGIN_FAILURE_LIMIT・SFM_LOGIN_FAILURE_WINDOW_MINUTES）を、API の Lambda の環境変数に渡す。指定しなければ、5 回 / 15 分（Issue #244）', () => {
+    const variablesOf = (app: App): Record<string, unknown> => {
+      const stack = app.node.findChild('SfmEvaluation') as Stack;
+      const functions = Object.values(
+        Template.fromStack(stack).findResources('AWS::Lambda::Function') as Record<
+          string,
+          { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+        >,
+      );
+      return (
+        functions.find((resource) => resource.Properties.Environment?.Variables.APP_MODE)
+          ?.Properties.Environment?.Variables ?? {}
+      );
+    };
+
+    const specified = variablesOf(
+      createEvaluationApp(
+        { SFM_LOGIN_FAILURE_LIMIT: '12', SFM_LOGIN_FAILURE_WINDOW_MINUTES: '45' },
+        assets(),
+      ),
+    );
+    const unspecified = variablesOf(createEvaluationApp({}, assets()));
+
+    expect(specified).toMatchObject({
+      LOGIN_FAILURE_LIMIT: '12',
+      LOGIN_FAILURE_WINDOW_MINUTES: '45',
+    });
+    expect(unspecified).toMatchObject({
+      LOGIN_FAILURE_LIMIT: '5',
+      LOGIN_FAILURE_WINDOW_MINUTES: '15',
+    });
   });
 
   it('評価環境: アカウントだけを指定しても、証明書のスタックは作らない', () => {

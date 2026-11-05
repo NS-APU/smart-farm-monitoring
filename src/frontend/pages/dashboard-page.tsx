@@ -29,15 +29,22 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 
-/** 観点の詳細へのパス。満足度は、専用の詳細（SC-04）へ。 */
+/**
+ * 観点の詳細へのパス。満足度は、専用の詳細（SC-04）へ。満足度は、期間を選んでいなければ、期間を付けない
+ * （満足度の既定の 30 日で開く）。
+ */
 export function viewpointPath(
   viewpointId: string,
   horizon: Horizon,
   periodDays: PeriodDays,
+  selectedPeriodDays: PeriodDays | undefined,
 ): string {
-  return viewpointId === 'satisfaction'
-    ? `${PATHS.satisfaction}?${new URLSearchParams({ periodDays: String(periodDays) }).toString()}`
-    : `${PATHS.viewpoint(viewpointId)}?${horizonQueryString(horizon, periodDays)}`;
+  if (viewpointId !== 'satisfaction') {
+    return `${PATHS.viewpoint(viewpointId)}?${horizonQueryString(horizon, periodDays)}`;
+  }
+  return selectedPeriodDays === undefined
+    ? PATHS.satisfaction
+    : `${PATHS.satisfaction}?${new URLSearchParams({ periodDays: String(selectedPeriodDays) }).toString()}`;
 }
 
 function MetricMark(props: { readonly status: EvaluationStatus | undefined }): ReactNode {
@@ -56,9 +63,15 @@ function ViewpointCardView(props: {
   readonly card: ViewpointCard;
   readonly horizon: Horizon;
   readonly periodDays: PeriodDays;
+  readonly selectedPeriodDays: PeriodDays | undefined;
 }): ReactNode {
   const { card } = props;
-  const path = viewpointPath(card.viewpointId, props.horizon, props.periodDays);
+  const path = viewpointPath(
+    card.viewpointId,
+    props.horizon,
+    props.periodDays,
+    props.selectedPeriodDays,
+  );
   const metrics = Object.entries(card.metrics);
   return (
     <li
@@ -127,14 +140,20 @@ export function DashboardPage(): ReactNode {
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentTree, equipmentNames, equipmentError, setDataStatus } =
     useAppState();
-  const { horizon, periodDays, setHorizon, setPeriodDays } = useHorizonSelection();
+  const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
+    useHorizonSelection();
 
   const fetchDashboard = useCallback(async () => {
     if (selectedEquipmentId === undefined) {
       return undefined;
     }
-    return getDashboard(api, { equipmentId: selectedEquipmentId, horizon, periodDays });
-  }, [api, selectedEquipmentId, horizon, periodDays]);
+    // 期間は、選んだときだけ送る（選んでいなければ、観点ごとの既定の期間。満足度は 30 日、ほかは 7 日）
+    return getDashboard(api, {
+      equipmentId: selectedEquipmentId,
+      horizon,
+      periodDays: selectedPeriodDays,
+    });
+  }, [api, selectedEquipmentId, horizon, selectedPeriodDays]);
   const { data, error, refreshError, reload } = usePolling(fetchDashboard);
 
   // 最終のデータ取得日時を、共通のヘッダーに反映する
@@ -187,7 +206,12 @@ export function DashboardPage(): ReactNode {
             {MESSAGES.common.staleData}
           </p>
         )}
-        <DashboardContent data={data} horizon={horizon} periodDays={periodDays} />
+        <DashboardContent
+          data={data}
+          horizon={horizon}
+          periodDays={periodDays}
+          selectedPeriodDays={selectedPeriodDays}
+        />
       </>
     );
   }
@@ -224,6 +248,7 @@ function DashboardContent(props: {
   readonly data: DashboardResponse;
   readonly horizon: Horizon;
   readonly periodDays: PeriodDays;
+  readonly selectedPeriodDays: PeriodDays | undefined;
 }): ReactNode {
   const { data } = props;
   return (
@@ -273,6 +298,7 @@ function DashboardContent(props: {
             card={card}
             horizon={props.horizon}
             periodDays={props.periodDays}
+            selectedPeriodDays={props.selectedPeriodDays}
           />
         ))}
       </ul>

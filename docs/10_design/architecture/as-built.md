@@ -97,7 +97,7 @@
 | I-06 | **Web Push の配信状態が、通知ごとに 1 つ**（購読ごとではない）。購読が複数あり、一部だけ失敗すると、通知全体が `FAILURE` となり、次の JB-04 で、すでに届いた購読にも再配信される（二重配信。`.speccheck/UC-10`・`UC-23` にも記載）                                                                                                                                                                                                     | `notification-service.ts`（`deliverPending`）                                                                    |
 | I-07 | **通知の作成時に購読がなくても、JB-04 の次の実行で、Web Push は `SUCCESS`（試行 1）になる**。その後に購読した端末へは、その通知は配信されない                                                                                                                                                                                                                                                                                          | `notification-service.ts`（`deliverPending`。購読がない場合、`failure` が未設定のまま `SUCCESS` として保存する） |
 | I-08 | **取り込みの再試行は、ファイルの一覧の取得（`listFiles`）のみ**。個々のファイルの読み取り（`readFile`）の失敗は、再試行せず、そのファイルを失敗として数える（取り込み済みの記録は残さないため、次回の取り込みで再び対象になる）                                                                                                                                                                                                        | `ingestion-service.ts`（`listFilesWithRetry`・`processFile`）                                                    |
-| I-09 | **連携キューの 1 回の送信は、項目ごとではなく、バッチ全体で 1 つの結果**（成功・保留・失敗）になる。保留（`HELD`）と失敗（`FAILED`）は、同じ間隔（倍々・上限 12 時間）で、回数の上限なしに再試行される                                                                                                                                                                                                                                 | `federation-service.ts`（`runPending`）・`local-repositories.ts`（`listDue`）                                    |
+| I-09 | **連携キューの 1 回の送信は、項目ごとではなく、バッチ全体で 1 つの結果**（成功・保留・失敗）になる。保留（`HELD`）と失敗（`FAILED`）は、同じ間隔（倍々・上限 12 時間）で、回数の上限なしに再試行される。**送信に成功すると、溜まった保留・失敗の項目の次の試行を、今に戻す**（古い順に、1 回の成功につき最大でバッチの件数。#203）                                                                                                                                                                                                                                 | `federation-service.ts`（`runPending`）・`ingestion-repositories.ts`（`listDue`・`listWaiting`）                                    |
 | I-10 | **取り込みのログは、取り込みごとに 1 件、ファイルが 0 件でも追加される**。保存期間・件数の上限の定めはない（ローカルは無制限。`.speccheck/UC-16` にも記載）                                                                                                                                                                                                                                                                            | `ingestion-service.ts`（`runSourceUnlocked`）                                                                    |
 | I-11 | （**緩和。手順9後半・手順10**: 1年分（約63万件・ハウス3）で、全設備の評価は約 530 ms（手順9: 1年分約35万件の1ハウスで 2,510 ms → 約 310〜480 ms）。手順10の負荷テストで、手動入力の保存が、同時接続の10名で 8.8 秒かかり、保存後の評価を、データが変わった設備とハウスだけにして（`evaluateAffected`）、評価をイベントループへ制御を戻しながら実行し、同じ回にまとめることで、約 1.6 秒に短縮した。日次の集計・差分の評価は未実施。結果は `test-result/stresstest.report.md`） **評価の処理量**: `evaluateAll` は、設備ごとに最大 90 日分の観測値を読み、観点ごとに最大 6 窓（長期 5、短期評価を持つ観点は短期 1 を加える）を計算する。設備や基準の変更・定期の評価では全設備、取り込み・手動入力の保存後は、変わった設備とハウスだけを、リクエストの中で同期的に実行する                                                                                                                          | `evaluation-service.ts`                                                                                          |
 | I-12 | （解消。手順8のリファクタリング）`createDefaultFormatProfileRegistry()` は、`container.ts` の `buildAdapters` で1回だけ作り、取り込みと取り込み設定の参照で共有する | `runtime/container.ts` |
@@ -543,7 +543,7 @@ classDiagram
 - **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。削除は論理削除（`isDeleted`）
 - **Observation**: 共通形式の観測値。一意キーは `設備ID#項目#計測日時#取得元`（`observationKey`）。欠損は `null`（0 で代用しない）。取り込みの観測値は `sourceFileId`・`formatProfileVersion`、手動入力の観測値は `enteredBy`・`note`・`manualEntryId` を持つ
 - **ManualEntry**: 1 回の入力（設備・カテゴリ・計測日時・項目の値・備考）。項目ごとの観測値（取得元 `MANUAL`・品質 `VALID`）としても保存される
-- **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`STATUS`）・取得元（自動・手動）を持つ
+- **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`RATING`・`STATUS`）・取得元（自動・手動）を持つ
 - **StatusCodeDefinition**: ロボットのステータスコード。コード値は `^[A-Z][A-Z0-9_]*$`、カテゴリは正常・注意・異常。初期データとして 8 件を投入（`INITIAL_STATUS_CODES`）
 
 ### 項目カタログ（ItemDefinition）の内訳
@@ -560,7 +560,7 @@ classDiagram
 | COST コスト情報         | `robotCostYenPerHour`・`laborCostYenPerHour`（円/時間）                                                                                   | 手動       | LEVEL        |
 |                         | `maintenanceCostYen`・`electricityCostYen`（円）                                                                                          | 手動       | TOTAL        |
 | FAILURE 故障情報        | `failureCount`・`recoveryMinutes`                                                                                                         | 手動       | TOTAL        |
-| SATISFACTION 満足度情報 | `satisfaction.<観点ID>`（9 観点。1〜5 の整数）                                                                                            | 手動       | LEVEL        |
+| SATISFACTION 満足度情報 | `satisfaction.<観点ID>`（9 観点。1〜5 の整数）                                                                                            | 手動       | RATING       |
 
 `harvestSecondsPerFruit`・`standbyHours`・`harvestAttemptCount`・`harvestSuccessCount`・`misrecognitionCount` は、取り込み・入力できるが、どの観点のメトリクスの算出にも使われていない（コードの参照が、カタログと FormatProfile・合成データのみ）。
 
@@ -739,6 +739,7 @@ classDiagram
     +string role
     +string passwordHash? ローカルのみ。Cognito では持たない
     +IsoDateTime lastLoginAt?
+    +boolean mustChangePassword? 管理者が決めたパスワードを、本人が、まだ変更していない（D-45）
     +IsoDateTime createdAt
   }
   class Session {
@@ -824,18 +825,18 @@ classDiagram
 | `EvaluationStatus`                  | `NORMAL`（正常）・`CAUTION`（注意）・`ERROR`（異常）・`UNKNOWN`（不明）                                                                                                                 | `shared/constants/status.ts`      |
 | `JudgedStatus`                      | `NORMAL`・`CAUTION`・`ERROR`（「不明」を除く。ステータスコードのカテゴリも同じ）                                                                                                        | 同上                              |
 | `Horizon`                           | `SHORT`（短期）・`LONG`（長期）                                                                                                                                                         | 同上                              |
-| `PeriodDays`                        | 1・7・30・60・90（既定 7）                                                                                                                                                              | 同上                              |
+| `PeriodDays`                        | 1・7・30・60・90（既定 7。満足度は 30）                                                                                                                                                            | 同上                              |
 | `EquipmentType`                     | `FACILITY`・`ROBOT`・`SENSOR`                                                                                                                                                           | 同上                              |
 | `ObservationSource`                 | `AUTO_IMPORT`・`MANUAL`                                                                                                                                                                 | 同上                              |
 | `ObservationQuality`                | `VALID`・`MISSING`・`LATE`・`INVALID`                                                                                                                                                   | 同上                              |
-| `NotificationKind`                  | `STATUS_CHANGE`・`INGESTION_FAILURE`                                                                                                                                                    | 同上                              |
+| `NotificationKind`                  | `STATUS_CHANGE`・`INGESTION_FAILURE`・`FEDERATION_EXPIRED`                                                                                                                                                    | 同上                              |
 | `ReadState`                         | `UNREAD`・`READ`                                                                                                                                                                        | 同上                              |
-| `FederationStatus`                  | `PENDING`・`SENT`・`FAILED`・`HELD`                                                                                                                                                     | 同上                              |
+| `FederationStatus`                  | `PENDING`・`SENT`・`FAILED`・`HELD`・`EXPIRED`                                                                                                                                                     | 同上                              |
 | `Category`（9）                     | `HARVEST`・`OPERATION`・`STATUS`・`ENVIRONMENT`・`OPERABILITY`・`SAFETY`・`COST`・`FAILURE`・`SATISFACTION`。手動入力できるのは、`OPERATION`・`STATUS` を除く 7 つ                      | `shared/constants/items.ts`       |
 | `ViewpointId`（10）                 | `harvestAccuracy`・`harvestSpeed`・`environmentalAdaptability`・`operability`・`maintainability`・`costEfficiency`・`safety`・`dataUtilization`・`durability`・`satisfaction`（表示順） | `shared/constants/viewpoints.ts`  |
 | `ViewpointTarget`                   | `ROBOT`・`HOUSE`・`OPERATION`（運用面はハウス単位で評価）                                                                                                                               | 同上                              |
 | `Permission`（8）                   | 上記                                                                                                                                                                                    | `shared/constants/permissions.ts` |
-| `ErrorCode`（9）                    | `VALIDATION_ERROR`・`UNAUTHENTICATED`・`FORBIDDEN`・`NOT_FOUND`・`CONFLICT`・`RATE_LIMITED`・`NOT_IMPLEMENTED`・`INTERNAL_ERROR`・`SERVICE_UNAVAILABLE`                                 | `shared/errors.ts`                |
+| `ErrorCode`（10）                   | `VALIDATION_ERROR`・`UNAUTHENTICATED`・`FORBIDDEN`・`PASSWORD_CHANGE_REQUIRED`（403。D-45）・`NOT_FOUND`・`CONFLICT`・`RATE_LIMITED`・`NOT_IMPLEMENTED`・`INTERNAL_ERROR`・`SERVICE_UNAVAILABLE`                                 | `shared/errors.ts`                |
 | `AuditOperation`                    | `CREATE`・`UPDATE`・`DELETE`                                                                                                                                                            | `shared/schemas/audit.ts`         |
 | `DeliveryChannel`・`DeliveryResult` | `IN_APP`・`WEB_PUSH`／`PENDING`・`SUCCESS`・`FAILURE`                                                                                                                                   | `shared/schemas/notification.ts`  |
 | `IngestionResult`                   | `SUCCESS`・`PARTIAL`・`FAILURE`                                                                                                                                                         | `shared/schemas/ingestion.ts`     |
@@ -1097,7 +1098,7 @@ flowchart LR
   PM -->|"持っていない 403"| X["FORBIDDEN"]
 ```
 
-- **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回に達すると、`RATE_LIMITED`（429）
+- **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回（既定。環境変数で変えられる）に達すると、`RATE_LIMITED`（429）
 - **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、1 ロール `worker`（農作業者。全 8 権限）
 - **ルートごとの宣言**: `route-table.ts` の `access`（`PUBLIC`・`LOGIN`・権限名）。`createApp` は、すべてのルートにハンドラがなければ起動時にエラーにする（認可の宣言だけが残ることを防ぐ）
 - **ロール・権限の変更**: `verifyAccessToken` が、リクエストごとにユーザーを引き直し、`permissionsOf` が、設定から権限を導く。ユーザーの削除・ロールの変更は、次のリクエストから効く。画面の権限（メニュー・ボタンの表示）は、ログイン・セッション更新時の値
@@ -1139,6 +1140,7 @@ flowchart LR
 | `LOG_LEVEL`                                                     | `info`                    | `debug`／`info`／`warn`／`error`                                                                                                                |
 | `DEFAULT_INGESTION_INTERVAL_MINUTES`                            | `15`                      | 取得間隔の既定（5・15・30・60・360・1440）。データ活用度合いのスロットの幅にも使う                                                              |
 | `STALE_AFTER_INTERVALS`                                         | `3`                       | 「データが古い」の基準（取得間隔の何倍か）                                                                                                      |
+| `FEDERATION_EXPIRY_DAYS`                                         | `30`                      | 連携の破棄の期限（日。1〜365）。積んでからこの日数を過ぎても送れていない項目を、破棄する（#204）                                                |
 | `INGESTION_RETRY_BASE_DELAY_MS`                                 | `1000`                    | 取り込みの再試行の待ち時間の基準（E2E では 10）                                                                                                 |
 | `WEB_PUSH_PUBLIC_KEY`                                           | なし                      | VAPID の公開鍵。なければ、Web Push の購読を受け付けない（503）                                                                                  |
 | `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版）。現状、読み出す処理がない                                                                                            |
@@ -1154,9 +1156,9 @@ flowchart LR
 | Web Push の配信の試行回数        | 3 回                                | `settings.ts`                               |
 | 連携の 1 回の件数・再試行の間隔  | 100 件、5 分の倍々、上限 720 分     | `settings.ts`・`federation-service.ts`      |
 | 短期視点の対象期間               | 直近 24 時間                        | `scope-evaluator.ts`                        |
-| 長期視点の期間                   | 1・7・30・60・90 日（既定 7）       | `shared/constants/status.ts`                |
+| 長期視点の期間                   | 1・7・30・60・90 日（既定 7。満足度は 30） | `shared/constants/status.ts`・`viewpoints.ts`（`defaultPeriodDays`） |
 | セッション                       | アクセス 30 分、リフレッシュ 7 日   | `local-auth.ts`                             |
-| ログインの失敗の上限             | 5 回／15 分／接続元                 | `local-auth.ts`                             |
+| ログインの失敗の上限             | 5 回／15 分／接続元（既定。環境変数 `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` で変えられる） | `auth-policy.ts`・`config.ts`               |
 | リクエスト本文の上限             | 1 MiB                               | `request-parsing.ts`（`MAX_BODY_BYTES`）     |
 | 一覧の件数                       | 既定 20、最大 100                   | `shared/schemas/api.ts`                     |
 | 画面の読み直し                   | 10 秒（設備の階層は 60 秒）         | `use-polling.ts`・`app-state.tsx`           |
@@ -1574,7 +1576,7 @@ sequenceDiagram
   SCH->>JR: run JB-03 5 分ごと
   JR->>FED: runPending
   FED->>FR: listDue(now, 100)
-  Note over FR: status が SENT 以外 かつ<br>nextAttemptAt が now 以前を<br>enqueuedAt の古い順に
+  Note over FR: status が SENT 以外 かつ<br>nextAttemptAt が now 以前を<br>nextAttemptAt の古い順に 同じなら<br>enqueuedAt の古い順
   alt 該当なし
     FED-->>JR: sent 0 failed 0 held 0
   else 該当あり
@@ -1590,13 +1592,17 @@ sequenceDiagram
       FED->>FR: update status と updatedAt を更新<br>SENT 以外は attempts を 1 増やし<br>nextAttemptAt を倍々で後ろへ
     end
     FED->>FR: addLog result と itemCount と<br>message
+    opt result SENT
+      FED->>FR: listWaiting(now, 100) HELD と FAILED で<br>nextAttemptAt が now より先
+      FED->>FR: update nextAttemptAt を now に戻す<br>attempts は変えない
+    end
     FED-->>JR: 件数の概要
   end
 ```
 
-- 項目が積まれるのは、取り込み（`IngestionService`）・手動入力の登録・修正・削除（`ManualEntryService`）・観点ステータスの変化（`EvaluationService`）の保存時（`FederationService.enqueue`。`PENDING`・`attempts` 0・`nextAttemptAt` は積んだ時刻）
-- 農業情報基盤が停止中（`HELD`）でも、他の処理は止まらない。復旧後は、`nextAttemptAt` が来た項目から、積んだ順に送られる（再送の間隔の計算は、「特徴的アルゴリズム説明」の連携の再送）
-- 画面（SC-11）は、`GET /federation/logs` で、結果の記録（新しい順）と、連携キューの状態ごとの件数（`PENDING`・`SENT`・`FAILED`・`HELD`）を表示する
+- 項目が積まれるのは、取り込み（`IngestionService`）・手動入力の登録・修正・削除（`ManualEntryService`）・観点ステータスの変化（`EvaluationService`）の保存時（`FederationService.enqueue`。`PENDING`・`attempts` 0・`nextAttemptAt` は積んだ時刻）。観測値の配列（`payload.observations`）が 1,000 件を超えるときは、1,000 件ごとの複数の項目に分けて積む（参照は `{元の参照}#part-{番号}-of-{総数}`、内容に `part: { index, total }`。`splitObservationPayload`。DynamoDB の 1 項目の上限（約 400 KB）に収めるため。#205）
+- 農業情報基盤が停止中（`HELD`）でも、他の処理は止まらない。復旧後は、最初に送信に成功したとき、溜まった保留・失敗の項目の次の試行が今に戻り（1 回の成功につき最大でバッチの件数）、次の実行（5 分以内）で送られる（再送の間隔の計算は、「特徴的アルゴリズム説明」の連携の再送）
+- 画面（SC-11）は、`GET /federation/logs` で、結果の記録（新しい順）と、連携キューの状態ごとの件数（`PENDING`・`SENT`・`FAILED`・`HELD`・`EXPIRED`）を表示する
 
 ## 4.10 通知の生成と配信（UC-05・UC-10・UC-22・UC-24。JB-04）
 
@@ -1842,6 +1848,7 @@ stateDiagram-v2
 - 一意キーは `設備ID#項目#計測日時#取得元`。同じキーを保存すると上書きされる（内容が変わったファイルの取り込み、手動入力の修正）
 - 手動入力の観測値は、手動入力と一体で管理する（修正で、修正前の観測値を `isDeleted: true` にしてから、修正後を保存する。削除で、観測値も `isDeleted: true`）。取り込みの観測値には、修正・削除の操作がない
 - 取り込み済みデータ一覧（`GET /observations`）は、論理削除でない観測値を、`INVALID`・`MISSING` も含めて表示する
+- `GET /observations` は、`sort` が `category`・`value`、または、`q`（空白だけは除く）の指定があるとき、`from`・`to` が必須で、`to − from` は 31 日以内でなければならない（`viewpoint-handlers.ts` のクエリのスキーマ。判定は `@smart-farm/shared/observation-list-period`。ローカル・DynamoDB の実装に共通。違反は `VALIDATION_ERROR`（400）で、`from`・`to` の項目ごとのエラー）。SC-09 は、足りないとき案内を示し、API を呼ばない。SC-02 の元データは、診断期間が 31 日を超えるとき、並べ替え・検索の間だけ、終了日時から 31 日分に絞る（診断期間がないときは、使えない）（#91）
 
 ## 手動入力（ManualEntry）
 
@@ -1955,6 +1962,7 @@ stateDiagram-v2
   state "SENT 送信済み" as SENT
   state "HELD 保留 農業情報基盤が停止中" as HELD
   state "FAILED 失敗 相手が受け付けない" as FAILED
+  state "EXPIRED 期限切れ 破棄の期限を過ぎて破棄" as EXPIRED
 
   [*] --> PENDING : 取り込み 手動入力 観点ステータスの変化で積む
   PENDING --> SENT : JB-03 で送信に成功
@@ -1962,15 +1970,21 @@ stateDiagram-v2
   PENDING --> FAILED : JB-03 で受け付けられない
   HELD --> SENT : nextAttemptAt が来て送信に成功
   FAILED --> SENT : nextAttemptAt が来て送信に成功
+  HELD --> HELD : 別の項目の送信に成功すると nextAttemptAt を今に戻す
+  FAILED --> FAILED : 別の項目の送信に成功すると nextAttemptAt を今に戻す
   HELD --> HELD : 再び停止中 attempts を増やし間隔を広げる
   FAILED --> FAILED : 再び失敗 attempts を増やし間隔を広げる
   HELD --> FAILED : 再試行で別の理由で失敗
   FAILED --> HELD : 再試行で停止中
+  PENDING --> EXPIRED : 積んでから破棄の期限を過ぎている
+  HELD --> EXPIRED : 積んでから破棄の期限を過ぎている
+  FAILED --> EXPIRED : 積んでから破棄の期限を過ぎている
   SENT --> [*]
+  EXPIRED --> [*]
 ```
 
-- 項目は削除されない。`SENT` 以外は、`nextAttemptAt` が来るたびに再び送信の対象になる（試行回数の上限はない）
-- 結果は、送信のたびに連携の記録（`FederationLogEntry`。成功・失敗・保留、件数、メッセージ）として、追記のみで残る
+- 項目は削除されない。`SENT` 以外は、`nextAttemptAt` が来るたびに再び送信の対象になる（試行回数の上限はない）。ほかの項目の送信に成功すると、保留・失敗の項目の `nextAttemptAt` が、今に戻る（`attempts` は変わらない）
+- 結果は、送信のたびに連携の記録（`FederationLogEntry`。成功・失敗・保留・期限切れ、件数、メッセージ）として、追記のみで残る
 
 ## ステータスコード（StatusCodeDefinition）
 
@@ -2112,7 +2126,8 @@ for 項目 in グループ:
     if 定義.aggregation == STATUS: continue
     数値の点 = 値が数値の点
     最新 = 計測日時が最大の点（同時刻なら後に現れた点）
-    if 定義.aggregation == LEVEL and 視点 == SHORT:   値 = 最新.値
+    if 定義.aggregation == RATING:                     値 = 入力者ごとの最新.値 の平均（視点によらない）
+    elif 定義.aggregation == LEVEL and 視点 == SHORT:  値 = 最新.値
     elif 定義.aggregation == TOTAL:                    値 = 合計
     else (LEVEL かつ LONG):                            値 = 平均
     values[itemKey] = round6(値)
@@ -2122,7 +2137,7 @@ status = resolveStatus(...)                              （1.5 の「ステー�
 
 - **未取得の項目は、結果に含めない**（0 で代用しない）。後段で「不明」になる
 - 数値は、小数第 6 位に丸める（`normalizeMetric`。`roundTo(value + Number.EPSILON, 6)`）。90% ちょうどのような境界が、浮動小数点の誤差で外れないようにするため
-- 集計の種類: `TOTAL`（期間内の発生量の合計。短期・長期とも）、`LEVEL`（状態値。短期は最新、長期は平均）、`STATUS`（ステータスコード）
+- 集計の種類: `TOTAL`（期間内の発生量の合計。短期・長期とも）、`LEVEL`（状態値。短期は最新、長期は平均）、`RATING`（満足度。各入力者の、期間内の最新の入力を取り、入力者の平均を取る＝1 人 1 票。観点（項目）ごとに選ぶ。入力者の記録（`enteredBy`）がない入力は、1 人として扱う。短期・長期とも同じ。D-18）、`STATUS`（ステータスコード）
 
 **ステータスコードの集計**（`resolveStatus`）: 値が文字列で、定義があり、論理削除でないものだけを対象にする。短期は、最新の点のコード。長期は、期間内で**最も悪いカテゴリ**（異常 > 注意 > 正常）の点のうち、最新のもの。
 
@@ -2199,7 +2214,7 @@ combineHorizonStatuses(短期, 長期):
 ```
 
 - 「不明」は比較に使わない。片方が「不明」なら、もう片方を採る。両方が「不明」（短期評価を持たない観点は長期のみ）なら「不明」
-- **通知・連携・状態変化の基準**は、短期と、**長期 7 日**（`DEFAULT_PERIOD_DAYS`）の合成。ダッシュボードのカードの最終ステータスは、短期と、**選んだ期間**の長期の合成（`DashboardQuery`）。期間を 7 日以外にすると、カードのステータスは、通知の基準と異なりうる
+- **通知・連携・状態変化の基準**は、短期と、**観点ごとの既定の期間の長期**（`defaultPeriodDays`。満足度は 30 日、ほかは 7 日）の合成。ダッシュボードのカードの最終ステータスは、短期と、**選んだ期間**（選んでいなければ、観点ごとの既定の期間）の長期の合成（`DashboardQuery`）。期間を選ぶと、カードのステータスは、通知の基準と異なりうる
 - 評価結果がまだ保存されていない観点（設備の登録直後など）は、ダッシュボード・詳細で「不明」（診断メッセージ: `評価がまだ行われていません`）
 - 「不明」への変化は、通知しない（暫定仕様）が、状態変化の記録と連携キューには積む
 
@@ -2239,6 +2254,7 @@ isNotifiableTransition(前, 次) = (次 が CAUTION または ERROR) and (前 !=
 
 dedupKey（状態変化）   = "STATUS_CHANGE#" + 観点ID + "#" + 設備ID + "#" + ステータス
 dedupKey（取り込み失敗）= "INGESTION_FAILURE#" + 取り込み元ID
+dedupKey（連携の期限切れ）= "FEDERATION_EXPIRED"
 
 isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) = (now − 作成日時) < 60分
 ```
@@ -2284,9 +2300,11 @@ nextAttemptAt = now + 遅延
 | ------------------------ | --- | --- | --- | --- | --- | --- | --- | --- | -------------- |
 | 次の送信までの間隔（分） | 5   | 10  | 20  | 40  | 80  | 160 | 320 | 640 | 720（12 時間） |
 
-- 送信の対象は、`status != SENT` かつ `nextAttemptAt ≤ now` の項目を、積んだ順に最大 100 件。**バッチ全体が 1 つの結果**（成功・保留・失敗）を共有する
-- 保留（`HELD`）と失敗（`FAILED`）は、同じ間隔で、回数の上限なしに再試行する。成功した項目は、`SENT` になり、`nextAttemptAt` は変わらない
+- 送信の対象は、`status != SENT` かつ `nextAttemptAt ≤ now` の項目を、`nextAttemptAt` の順（同じなら積んだ順）に最大 100 件。DynamoDB では、未送信の項目の GSI1 を、`nextAttemptAt` の範囲で読む（期限が来た項目だけを読む）。**バッチ全体が 1 つの結果**（成功・保留・失敗）を共有する
+- 保留（`HELD`）と失敗（`FAILED`）は、同じ間隔で、回数の上限なしに再試行する（積んでから破棄の期限（既定 30 日）を過ぎるまで）。成功した項目は、`SENT` になり、`nextAttemptAt` は変わらない
+- **破棄の期限**: 取り出した項目（`nextAttemptAt ≤ now`）のうち、`now − enqueuedAt > expiryDays × 1 日` のものは、送らずに、`status = EXPIRED`・`payload = {}` にして、連携の記録（結果 `EXPIRED`・件数）を追記し、通知（`FEDERATION_EXPIRED`。dedupKey は `FEDERATION_EXPIRED`。60 分に 1 件）を作る（#204）
 - JB-03 は 5 分ごとに起動するため、実際の送信は、間隔が来た後の最初の起動
+- **送信に成功した実行の最後**に、保留・失敗の項目で `nextAttemptAt > now` のものを、`nextAttemptAt` の順（同じなら積んだ順）に最大 100 件、`nextAttemptAt = now` に戻す（`attempts` は変えない）。次の実行で送られ、成功すれば、また次の 100 件が戻る（追いつく速さの目安: 1 時間に最大 1,200 件）。送信に失敗した実行では、戻さない（#203。ADR-0016 の D-06）
 
 ## 6. データ活用度合いのスロット計算
 
@@ -2427,7 +2445,7 @@ for 区間:
 | 並べ替えの安定化       | 同じ値のときは、計測日時 → 一意キーの順で並べ、ページ分割の結果を安定させる                                                                                    | `compareObservations` ほか                         |
 | 取得間隔の「古い」判定 | `最短の有効な取得間隔 × STALE_AFTER_INTERVALS（3）`（既定 15 × 3 ＝ 45 分）を超えて、最終の受信から経った場合 `STALE`、受信が 1 件もなければ `NONE`            | `dashboard-query.ts`                               |
 | パスワードのハッシュ   | `scrypt`（ソルト 16 バイト、鍵 64 バイト）。形式 `scrypt$<salt>$<hash>`。比較は `timingSafeEqual`                                                              | `password-hasher.ts`                               |
-| ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、15 分の窓の中で 5 回に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
+| ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、窓（既定 15 分。`LOGIN_FAILURE_WINDOW_MINUTES`）の中で、上限（既定 5 回。`LOGIN_FAILURE_LIMIT`）に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
 | 評価の単位             | ハウス＝ハウスと配下の観測値をまとめて評価。ロボット・センサー＝その設備のみ                                                                                   | `scope.ts`                                         |
 | 観点の絞り込み         | ハウス 10 観点、ロボット 7 観点、センサー 1 観点（環境適応性）                                                                                                 | `viewpointsForEquipmentType`                       |
 | 満足度の集計           | 長期（平均）の入力値の平均。短期評価はない。期間内に複数回入力されると、スターは平均（小数）になり、画面は四捨五入して示す                                     | `operation-viewpoints.ts`・`satisfaction-page.tsx` |

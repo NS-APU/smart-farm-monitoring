@@ -15,10 +15,11 @@
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（決定。ADR-0013。実装は #115） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
+| `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` | 既定は、失敗 5 回 / 15 分（IaC が、API の Lambda に、この値を設定する）。**共有の IP などで、誤ってロックされる事例が出たら、回数を増やす・時間を短くする**。変えるときは、GitHub の Environment（development・production）の変数 `SFM_LOGIN_FAILURE_LIMIT`（1〜100）・`SFM_LOGIN_FAILURE_WINDOW_MINUTES`（1〜1440 分）を設定して、デプロイし直す（ワークフローが、そのまま CDK に渡す。未設定なら 5 回 / 15 分。コードの変更は、要らない。手元からのデプロイは、同名の環境変数を指定する）。ローカルは、`LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` を指定する | ログインの試行回数の制限（接続元ごと。FR-9.2。D-44）。アカウント単位のロックは、Cognito が持つ（値は、設定できない）。回数を大きくするほど、総当たりに弱くなる |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
 | `EVALUATION_ON_WRITE` | 評価環境の API の Lambda は、`deferred`（IaC が指定する）。ローカル・E2E は、既定の `sync` | `deferred` は、手動入力の保存・削除の応答の前に、評価を再計算せず、定期の評価（JB-02。5 分ごと）が更新する。反映は最大 5 分遅れる。データが増えると、評価の再計算（直近 90 日の読み出し）が重くなり、保存・削除が遅くなるため（Issue #79・#123。ADR-0014） |
-| `INITIAL_USER_*` | ローカルのみ（`AUTH_PROVIDER=cognito` では、使えない。最初のユーザーは、手元で `pnpm initial-user` を 1 回だけ実行して作る。commands.md）。初回のみ。初回のログイン後に、パスワードを変更する（ユーザー管理）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
+| `INITIAL_USER_*` | ローカルのみ（`AUTH_PROVIDER=cognito` では、使えない。最初のユーザーは、手元で `pnpm initial-user` を 1 回だけ実行して作る。commands.md）。初回のみ。初回のログイン後に、ヘッダーの「パスワードの変更」から、自分でパスワードを変更する（最初のユーザーは、変更を強制しない。2 人目以降の、管理者が決めたパスワードは、本人が最初のログインで変更する。D-45）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
 
 起動時のログに、警告（「開発用 API が有効です」「既定のロール…で動作しています」）が出ていないことを確認する。
 
@@ -123,7 +124,7 @@
 
 - `SfmData` の出力（`UserPoolId`・`UserPoolClientId`・`ObservationsTableName`・`MainTableName`）を、環境変数に入れ、`pnpm initial-user` を実行する
 - ユーザーが 1 人でもいれば、何もしない（既存のユーザーを上書きしない）
-- 実行したら、`INITIAL_USER_*`（特にパスワード）を、すべて消す。初回のログイン後に、パスワードを変更する
+- 実行したら、`INITIAL_USER_*`（特にパスワード）を、すべて消す。初回のログイン後に、ヘッダーの「パスワードの変更」から、パスワードを変更する（最初のユーザーは、変更を強制しない）
 - 2 人目以降は、画面の「ユーザー管理」で作る。**管理者は、2 名以上にする**（管理者が 1 人だけで、パスワードを忘れると、アプリからは復旧できず、AWS の管理者の操作が要る。決定。[ADR-0020](../10_design/adr/0020-authentication-rules.md)）。忘れたときは、管理者が再設定する
 
 ### 7.5 データの初期化
@@ -170,7 +171,7 @@
 |------|--------------|
 | ログインできない | `auth.login.failed`・`auth.login.locked`（3 章）。Cognito のユーザーが存在するか（AWS のコンソール） |
 | API が遅い・タイムアウトする | Lambda のタイムアウトは 29 秒（CloudFront の上限 30 秒の内側）。ログの `OperationTimeoutError`。DynamoDB の調整（スロットリング）のエラー |
-| 長時間アクセスがないあと、最初のログイン・画面の表示が遅い（約 3 秒） | Lambda のコールドスタート（既知の制約。2 回目以降は約 1.4 秒。Issue #79）。毎回遅い場合は、Logs Insights（7.7）で、Init Duration と実行時間を確認する |
+| 長時間アクセスがないあと、最初のログイン・画面の表示が遅い（約 3 秒） | Lambda のコールドスタート（許容している。NFR-3.4 は、コールドスタートなら 6 秒以内。2 回目以降は約 1.4 秒。Issue #79・#168）。毎回遅い場合は、Logs Insights（7.7）で、Init Duration と実行時間を確認する |
 | デプロイの直後から、おかしい | 7.3 のロールバック |
 
 - 障害時の連絡先・エスカレーション（運用体制）: 利用者 → システムの管理者（受注者）→ 運用・保守の担当（受注者）。**連絡先は、リポジトリの外で管理する**（公開のため。決定。[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md)）
@@ -196,7 +197,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 ```
 
 - 見方: `maxDurationMs` は、Lambda のタイムアウト（API は 29 秒、ジョブは 300 秒。7.6）に対する余裕を見る。`maxMemoryUsedMB` は、設定したメモリ（1024 MB）に対する余裕を見る。`@initDuration` は、コールドスタートのときだけ出る
-- 画面の初期表示の許容時間（NFR-3.4）は 3 秒。コールドスタートの起動の時間が長く、超える場合は、メモリの設定・処理の分割・キャッシュなどで対応する（対応は別の Issue にする）。**実測（2026-10-21。Issue #79）**: 長時間アクセスがないあとの最初のログインは、約 3.2 秒（NFR-3.4 を約 0.2 秒超過）。起動（Init Duration）は約 0.4〜0.5 秒。既知の制約として許容している（改善の案は、test.spec.md 13.3）
+- 画面の初期表示の許容時間（NFR-3.4）は、**通常は 3 秒以内。長時間アクセスがなく、サーバー（Lambda）が停止したあとの最初の表示（コールドスタート）は、6 秒以内を許容する**（2026-10-28。Issue #168）。通常の表示が 3 秒を超える場合や、コールドスタートが 6 秒を超える場合は、メモリの設定・処理の分割・キャッシュなどで対応する（対応は別の Issue にする）。**実測（2026-10-21。Issue #79）**: 長時間アクセスがないあとの最初のログインは、約 3.2 秒（通常の 3 秒を約 0.2 秒超過。コールドスタートの許容の 6 秒以内）。起動（Init Duration）は約 0.4〜0.5 秒。**対策は、しない**（Issue #168 で、初期化の前倒し・メモリ増・温め・プロビジョンド同時実行を比べ、効果が約 0.5 秒と見込まれ、費用対効果が薄いため、見送った。見直しの条件は、ADR-0021 の更新メモ。比べた内容は、test.spec.md 13.3）
 
 ## 8. 開発サイトと本番サイト（評価環境の運用方針）
 
@@ -337,5 +338,6 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | GitHub の Environment `development`・`production` の設定 | **確認済み**（2026-10-22。`gh api` で確認）。`development`: デプロイできるブランチ `develop`・`feature/*`・`release/*`・`hotfix/*`・シークレット `AWS_DEPLOY_ROLE_ARN`。`production`: ブランチ `main` のみ・承認者 T-Ishikawa-R・シークレット `AWS_DEPLOY_ROLE_ARN`（本番のロール）。本番のデプロイは、未実施 |
 | 9.5 最初のユーザー | **確認済み**（2026-10-22。ユーザーが実行）。最初のユーザーを作成し、ログインできた |
 | 9.7 データの削除と、再作成 | **確認済み**（2026-10-22。ユーザーが実行。データが空の状態）。評価環境のスタック（`SfmProductionEvaluation`）の削除 → 保護の解除 → データのスタック（`SfmProductionData`）の削除 → DynamoDB のテーブル 2 つの削除 → Cognito のユーザープールの削除（コンソール）が成功した。削除の確認（スタックがない・本番のテーブルがない）と、**開発サイトが無事なこと**（スタックの状態・`/health`）も確認した。続けて「Deploy production」で再作成し、`/health`・最初のユーザーの作成・ログイン・ダッシュボードの表示・ジョブのログにエラーがないことを確認した（IaC で同じ環境を再作成できる。`SiteUrl` は新しくなる）。**削除のコマンドは、`SFM_ENVIRONMENT=production` を指定しないと、開発サイトを消す**。実行の前に、`diff` の `Stack` の行が、本番の 2 スタックだけであることを確認する（`pnpm --filter @smart-farm/infra run diff`） |
+| `main` への push による本番サイトの自動デプロイ（承認待ち → 承認 → 成功） | **確認済み**（2026-10-26。Issue #167。v0.3.0 のリリース〔PR #251〕。承認は、ユーザーが実行）。`release/0.3.0` → `main` のマージ（Merge commit）の直後に、「Deploy production」が、`push` で、**自動で始まり**、**承認待ち**（Environment `production` の Review deployments）になった。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していた。承認で、デプロイが進み、**成功した**。`<SiteUrl>/health` が `{"status":"ok",…}` を返した。同じ `main` への push のあとの、タグ `v0.3.0` の push・GitHub Release の作成・`main` → `develop` の反映 PR の作成は、承認待ちのデプロイと干渉しなかった（待機のまま） |
 | `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
 | 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |

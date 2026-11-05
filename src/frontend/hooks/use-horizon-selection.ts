@@ -4,25 +4,40 @@
  */
 
 import { useCallback } from 'react';
-import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
+import {
+  DEFAULT_PERIOD_DAYS,
+  type Horizon,
+  type PeriodDays,
+} from '@smart-farm/shared/constants/status';
 import { horizonQueryString, readHorizonQuery } from '../components/horizon-controls.tsx';
 import { navigate, useLocation } from '../router/router.tsx';
 
 export interface HorizonSelection {
   readonly horizon: Horizon;
+  /** 表示と取得に使う期間。選んでいなければ、既定の期間。 */
   readonly periodDays: PeriodDays;
+  /** 利用者が選んだ期間（選んでいなければ undefined。観点ごとの既定の期間で評価する）。 */
+  readonly selectedPeriodDays: PeriodDays | undefined;
   readonly setHorizon: (horizon: Horizon) => void;
   readonly setPeriodDays: (periodDays: PeriodDays) => void;
 }
 
-export function useHorizonSelection(): HorizonSelection {
+/**
+ * @param defaultPeriodDays 期間を選んでいないときの期間（観点ごとの既定。満足度は 30 日、ほかは 7 日）。
+ *   ダッシュボードは、観点が複数あるため、既定（7 日）を表示に使い、取得には、選んだ期間だけを送る。
+ */
+export function useHorizonSelection(
+  defaultPeriodDays: PeriodDays = DEFAULT_PERIOD_DAYS,
+): HorizonSelection {
   const { pathname, search } = useLocation();
-  const { horizon, periodDays } = readHorizonQuery(search);
+  const { horizon, periodDays: selectedPeriodDays } = readHorizonQuery(search);
+  const periodDays = selectedPeriodDays ?? defaultPeriodDays;
   const setHorizon = useCallback(
     (next: Horizon) => {
-      navigate(`${pathname}?${horizonQueryString(next, periodDays)}`, { replace: true });
+      // 期間を選んでいなければ、視点を切り替えても、選んだことにしない
+      navigate(`${pathname}?${horizonQueryString(next, selectedPeriodDays)}`, { replace: true });
     },
-    [pathname, periodDays],
+    [pathname, selectedPeriodDays],
   );
   const setPeriodDays = useCallback(
     (next: PeriodDays) => {
@@ -30,5 +45,5 @@ export function useHorizonSelection(): HorizonSelection {
     },
     [pathname, horizon],
   );
-  return { horizon, periodDays, setHorizon, setPeriodDays };
+  return { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays };
 }

@@ -3,7 +3,8 @@ import {
   aggregateMeasures,
   type AggregationInput,
 } from '../../../../src/backend/domain/evaluation/measures.ts';
-import { observation, SENSOR_ID, statusCodeMap } from '../../../support/builders.ts';
+import { toUserId } from '../../../../src/shared/schemas/common.ts';
+import { FACILITY_ID, observation, SENSOR_ID, statusCodeMap } from '../../../support/builders.ts';
 
 const NOW = new Date('2026-10-09T03:00:00Z');
 const DAY_MS = 86_400_000;
@@ -197,6 +198,174 @@ describe('観測値の集計: 集計の種類', () => {
   });
 });
 
+describe('観測値の集計: 満足度（入力者ごとの最新の平均。1 人 1 票。D-18）', () => {
+  const KEY = 'satisfaction.safety';
+  const A = toUserId('worker-a');
+  const B = toUserId('worker-b');
+
+  function rating(
+    value: number,
+    observedAt: string,
+    enteredBy?: ReturnType<typeof toUserId>,
+    itemKey = KEY,
+  ) {
+    return observation({
+      equipmentId: FACILITY_ID,
+      itemKey,
+      value,
+      observedAt,
+      source: 'MANUAL',
+      ...(enteredBy === undefined ? {} : { enteredBy }),
+    });
+  }
+
+  it('同じ入力者が、期間内に複数回入力したときは、最新の入力だけを使う', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(5, '2026-10-09T01:00:00Z', A),
+          rating(1, '2026-10-09T02:00:00Z', A),
+          rating(4, '2026-10-08T12:00:00Z', A),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(1);
+  });
+
+  it('入力者が複数のときは、各入力者の最新の値の平均にする（入力の回数が多い人の意見が重くならない）', () => {
+    // A は 5 を 3 回、B は 1 を 1 回。全入力の平均（3.8）ではなく、1 人 1 票の平均（3）
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(5, '2026-10-07T01:00:00Z', A),
+          rating(5, '2026-10-08T01:00:00Z', A),
+          rating(5, '2026-10-09T01:00:00Z', A),
+          rating(1, '2026-10-09T02:00:00Z', B),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(3);
+  });
+
+  it('期間内に入力のない人は含めない（期間の外の入力は、その人の票にしない）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [rating(5, '2026-10-09T01:00:00Z', A), rating(1, '2026-10-01T01:00:00Z', B)],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(5);
+  });
+
+  it('論理削除した入力は使わず、その人の、削除されていない最新の入力に戻る', () => {
+    const deleted = observation({
+      equipmentId: FACILITY_ID,
+      itemKey: KEY,
+      value: 1,
+      observedAt: '2026-10-09T02:00:00Z',
+      source: 'MANUAL',
+      enteredBy: A,
+      isDeleted: true,
+    });
+
+    const measures = aggregateMeasures(
+      input({ observations: [rating(4, '2026-10-09T01:00:00Z', A), deleted] }),
+    );
+
+    expect(measures.values[KEY]).toBe(4);
+  });
+
+  it('観点ごとに、入力者の最新の入力を選ぶ（観点によって、最新の入力の日時が違ってもよい）', () => {
+    const other = 'satisfaction.durability';
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(2, '2026-10-08T01:00:00Z', A),
+          rating(4, '2026-10-09T01:00:00Z', A),
+          rating(5, '2026-10-08T01:00:00Z', A, other),
+          rating(3, '2026-10-09T01:00:00Z', B, other),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(4);
+    expect(measures.values[other]).toBe(4);
+  });
+
+  it('入力者が分からない入力（入力者の記録がない）は、1 人の入力として扱い、その最新を使う', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(5, '2026-10-09T00:00:00Z'),
+          rating(3, '2026-10-09T01:00:00Z'),
+          rating(1, '2026-10-09T02:00:00Z', A),
+        ],
+      }),
+    );
+
+    // 入力者不明の最新 3 と、A の 1 → 平均 2
+    expect(measures.values[KEY]).toBe(2);
+  });
+
+  it('同じ入力者の同じ日時の入力が複数あるときは、後のものを使う。平均は、小数第 6 位に丸める', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          rating(2, '2026-10-09T01:00:00Z', A),
+          rating(4, '2026-10-09T01:00:00Z', A),
+          rating(5, '2026-10-09T01:00:00Z', B),
+          rating(5, '2026-10-09T01:00:00Z', toUserId('worker-c')),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(4.666667);
+  });
+
+  it('短期視点でも、同じ規則（入力者ごとの最新の平均）にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        horizon: 'SHORT',
+        from: new Date('2026-10-08T03:00:00Z'),
+        observations: [
+          rating(5, '2026-10-09T01:00:00Z', A),
+          rating(1, '2026-10-09T02:00:00Z', A),
+          rating(3, '2026-10-09T02:00:00Z', B),
+        ],
+      }),
+    );
+
+    expect(measures.values[KEY]).toBe(2);
+  });
+
+  it('満足度以外の状態値は、従来どおり、入力者に関わらず、長期は全入力の平均にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          observation({
+            itemKey: 'robotCostYenPerHour',
+            value: 100,
+            observedAt: '2026-10-09T01:00:00Z',
+            source: 'MANUAL',
+            enteredBy: A,
+          }),
+          observation({
+            itemKey: 'robotCostYenPerHour',
+            value: 200,
+            observedAt: '2026-10-09T02:00:00Z',
+            source: 'MANUAL',
+            enteredBy: A,
+          }),
+        ],
+      }),
+    );
+
+    expect(measures.values.robotCostYenPerHour).toBe(150);
+  });
+});
+
 describe('観測値の集計: 手動入力と自動取り込みの重なり', () => {
   it('同じ設備・項目・計測日時では、手動入力を使い、自動取り込みの値は二重に数えない', () => {
     const measures = aggregateMeasures(
@@ -358,5 +527,53 @@ describe('観測値の集計: データ活用度合いの入力', () => {
     const measures = aggregateMeasures(input({ observations: [] }));
 
     expect(measures.values).not.toHaveProperty('totalDataCount');
+  });
+});
+
+describe('観測値の集計: 大量のステータスコード（Issue #266）', () => {
+  // ロボットが 1 分間隔で、24 時間連続のデータが 90 日分（129,600 件）。引数の展開の上限（Node で約 12.4 万件）を超える
+  const MINUTE_MS = 60_000;
+  const COUNT = 90 * 24 * 60;
+  const FROM = new Date(NOW.getTime() - 90 * DAY_MS);
+
+  function statusPoints(codeAt: (index: number) => string) {
+    return Array.from({ length: COUNT }, (_, index) =>
+      observation({
+        itemKey: 'statusCode',
+        value: codeAt(index),
+        observedAt: new Date(FROM.getTime() + index * MINUTE_MS).toISOString(),
+      }),
+    );
+  }
+
+  it('ステータスコードの点が 12 万件を超えても、長期評価が失敗せず、最も悪いカテゴリになる', () => {
+    const observations = statusPoints((index) => (index === 1000 ? 'FALLEN' : 'RUNNING'));
+
+    const measures = aggregateMeasures(input({ observations, from: FROM }));
+
+    expect(observations.length).toBeGreaterThan(124_000);
+    expect(measures.status).toEqual({
+      code: 'FALLEN',
+      name: '転倒（姿勢異常）',
+      category: 'ERROR',
+    });
+  });
+
+  it('最も悪いカテゴリの点が複数あるときは、その中で最新の点を選ぶ（少ない件数のときと同じ）', () => {
+    // 停止中（注意）→ バッテリー不足（注意）。どちらも、最も悪いカテゴリ。最新は、バッテリー不足
+    const observations = statusPoints((index) => {
+      if (index === 1000) {
+        return 'STOPPED';
+      }
+      return index === 5000 ? 'LOW_BATTERY' : 'RUNNING';
+    });
+
+    const measures = aggregateMeasures(input({ observations, from: FROM }));
+
+    expect(measures.status).toEqual({
+      code: 'LOW_BATTERY',
+      name: 'バッテリー不足',
+      category: 'CAUTION',
+    });
   });
 });
