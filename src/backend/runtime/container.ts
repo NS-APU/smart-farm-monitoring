@@ -78,6 +78,7 @@ import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { S3Client } from '@aws-sdk/client-s3';
+import { SSMClient } from '@aws-sdk/client-ssm';
 import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
@@ -104,6 +105,9 @@ import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
 import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
+import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
+import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
+import type { SecretPort } from '../application/ports/secret-port.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
 import {
   DEMO_ROBOT_ID,
@@ -152,6 +156,8 @@ export interface Container {
   readonly jobRunner: JobRunner;
   /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
   readonly jobLock: JobLockPort;
+  /** 秘密情報の保管先（接続先の認証情報・Web Push の秘密鍵。値は、ログ・画面・履歴に出さない）。 */
+  readonly secrets: SecretPort;
   readonly scheduler: Scheduler;
   /** 開発用の操作（時計・モック・リセット）。環境変数 DEV_API_ENABLED で明示した場合だけ有効（既定・本番では undefined）。 */
   readonly dev: DevApiDeps | undefined;
@@ -174,6 +180,8 @@ export interface ContainerOverrides {
   readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
   /** S3 のクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly s3Client?: Pick<S3Client, 'send'>;
+  /** パラメータストアのクライアント（テストで、偽のクライアントに差し替える）。 */
+  readonly ssmClient?: SsmCommandSender;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -329,6 +337,15 @@ function buildAdapters(
           client: overrides.s3Client ?? new S3Client({}),
           bucket: config.fileServerBucket,
         });
+  // 秘密情報の保管先: パラメータストア（本番・開発サイト）、または、メモリ（ローカル・テスト）。使う場所は、#119・#207・#241 など
+  const secrets: SecretPort =
+    config.secrets.provider === 'ssm' && config.secrets.pathPrefix !== undefined
+      ? createSsmSecretPort({
+          client: overrides.ssmClient ?? new SSMClient({}),
+          pathPrefix: config.secrets.pathPrefix,
+          logger,
+        })
+      : createMemorySecretPort();
   const policy = createAccessPolicy(config.roles);
   const { auth, credentials }: Identity =
     config.cognito === undefined
@@ -351,6 +368,7 @@ function buildAdapters(
     faults,
     mocks,
     fileSource,
+    secrets,
     policy,
     auth,
     credentials,
@@ -659,6 +677,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     ingestionSettings: services.ingestionSettings,
     jobRunner: services.jobRunner,
     jobLock: adapters.jobLock,
+    secrets: adapters.secrets,
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,

@@ -82,6 +82,16 @@ const EnvSchema = z.object({
    * S3 の `<バケット>/<取り込み元>/` を使う。Lambda には、ローカルのディレクトリがないため、評価環境は、これを指定する。
    */
   FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
+  /**
+   * 秘密情報（接続先の認証情報・Web Push の秘密鍵）の保管先（Issue #206。D-55）。memory = メモリ（ローカル・テスト）、
+   * ssm = パラメータストア（SecureString。本番・開発サイト）。名前に SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
+   */
+  CREDENTIAL_STORE: z.enum(['memory', 'ssm']).default('memory'),
+  /** ssm のときの、パスの接頭辞（環境ごと。先頭と末尾が /。例: /sfm/development/）。 */
+  CREDENTIAL_PATH_PREFIX: z
+    .string()
+    .regex(/^\/([a-z0-9][a-z0-9._-]*\/)+$/)
+    .optional(),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
   /**
    * 手動入力の保存・修正・削除の応答の前に、評価を再計算するか（Issue #123。ADR-0014）。`sync`（既定。ローカル・E2E）は、再計算する。
@@ -194,6 +204,11 @@ export interface AppConfig {
   readonly fileServerDirectory: string;
   /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
   readonly fileServerBucket: string | undefined;
+  /** 秘密情報の保管先。ssm のときは、パスの接頭辞が要る。 */
+  readonly secrets: {
+    readonly provider: 'memory' | 'ssm';
+    readonly pathPrefix?: string;
+  };
   readonly seedMode: SeedMode;
   /** 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。 */
   readonly evaluationOnWrite: EvaluationOnWrite;
@@ -323,6 +338,16 @@ function parseCognito(parsed: z.infer<typeof EnvSchema>): CognitoConfig | undefi
   };
 }
 
+function parseSecrets(parsed: z.infer<typeof EnvSchema>): AppConfig['secrets'] {
+  if (parsed.CREDENTIAL_STORE === 'memory') {
+    return { provider: 'memory' };
+  }
+  if (parsed.CREDENTIAL_PATH_PREFIX === undefined) {
+    throw new ConfigError('CREDENTIAL_STORE=ssm では、CREDENTIAL_PATH_PREFIX の指定が必要です');
+  }
+  return { provider: 'ssm', pathPrefix: parsed.CREDENTIAL_PATH_PREFIX };
+}
+
 function parseEnv(env: Readonly<Record<string, string | undefined>>): z.infer<typeof EnvSchema> {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
@@ -378,6 +403,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     cognito,
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
+    secrets: parseSecrets(parsed),
     seedMode: parsed.SEED_MODE,
     evaluationOnWrite: parsed.EVALUATION_ON_WRITE,
     demoSeedDays: parsed.DEMO_SEED_DAYS,

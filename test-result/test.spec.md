@@ -11309,3 +11309,28 @@ Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch L
 | `tests/stress/stress-01-single-user.ts`・`stress-02-concurrent-users.ts`（負荷テスト） | stress-01: 直近 30 日の期間の指定を、キーワード・値・カテゴリの並べ替えの計測が済むまで続け、期間の絞り込みの解除は、そのあとに移した。stress-02: 値の昇順の並べ替えの前に、直近 30 日の期間を入力する | 同上。**Issue #91 の PR で、負荷テストへの反映を漏らし、リリースの PR（`main` 宛ての CI の stress）で、失敗して見つかった。** 修正後、手元で、CI と同じ倍率（`STRESS_LIMIT_FACTOR=1.5`）で、4 件成功 |
 
 実測（手元（Windows））: 上の変更の確認として、E2E の UC-20・UC-07・UC-09・UC-02 の 189 件が成功（別ポート 18787・15173）。`pnpm test:unit` は、99 ファイル・2171 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.41%・Branches 95.86%・Functions 99.73%・Lines 99.39%。**途中の 1 回の全体実行で、2 件（`entry-pages.test.tsx` の満足度の修正・`demo-data-cli.test.ts` の reset）が失敗したが、単独で再実行すると成功し、再度の全体実行も成功した（全体実行時の負荷による不安定さ。この変更とは無関係）**。結合・単体は、先に失敗を確認してから実装した。E2E の追加分は、実装のあとに実行した。
+
+## 18. 認証情報の登録と SecretPort の AWS 実装のうち、SecretPort のパラメータストア実装（Issue #206。ADR-0016 の D-55）で変更・追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+### 18.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/backend/application/secret-reference.test.ts`（新規） | 参照名の検証: 正しい形式（5）、不正（空・絶対パス・末尾の `/`・`..`・空の階層・大文字・空白・日本語・5 階層・65 文字・先頭の記号の 13）、境界（64 文字・4 階層）（1）、エラーに参照名を含めない（1） |
+| 単体: `tests/unit/backend/infrastructure/ssm-secret.test.ts`（新規。クライアントの偽物） | 読み取り: 接頭辞・復号つき・未設定・不正な参照名はパラメータストアに送らない（3）。キャッシュ: 5 分以内は呼ばない・5 分ちょうどで取り直す・`refresh` ですぐ取り直す・未設定もキャッシュ・書き込みでキャッシュが新しい値になる（5）。書き込み: SecureString・上書き・標準・空と 4 KB 超の拒否と 4 KB ちょうど（2）。状態: 設定済み・更新日時・復号しない・未設定・キャッシュしない（3）。失敗: 読み取り・書き込み・状態の確認のエラーに、値・AWS のエラーの内容が出ない・失敗はキャッシュしない（4。合計 17） |
+| 単体: `tests/unit/backend/infrastructure/local-secret.test.ts`（新規） | メモリ: 書き込み・読み取り・状態・上書きと更新日時・不正な入力の拒否（3）。環境変数: 参照名の変換・書き込みはメモリだけで環境変数が優先されない・状態に値を含めない（3） |
+| 単体: `tests/unit/backend/runtime/config.test.ts` | `CREDENTIAL_STORE`・`CREDENTIAL_PATH_PREFIX`: 既定はメモリ（1）、ssm はパスの接頭辞が必須（1）、接頭辞の不正（先頭・末尾の `/`・大文字・空の階層・`..`・空白）は設定エラー（6）、不明な保管先（1）、メモリでは接頭辞を使わない（1） |
+| 結合: `tests/integration/secret-store-wiring.test.ts`（新規） | コンテナの組み立て: 既定はメモリ（1）。`CREDENTIAL_STORE=ssm` は、環境のパスの下に SecureString で書き込み・読み取る（1）。失敗しても、エラーの種類の名前だけをログに残し、値・AWS のエラーの内容は、ログにもエラーにも出ない（1） |
+| IaC: `infra/test/evaluation-stack.test.ts` | 環境変数: `CREDENTIAL_STORE=ssm`・環境ごとのパスの接頭辞が、API・ジョブの両方に入る（1）。IAM（API）: パスの下の `ssm:GetParameter`・`ssm:PutParameter`、暗号化の鍵は `kms:ViaService` に限る・全リソースの権限はない（1）。IAM（ジョブ）: 読み取りだけで、書き込み・暗号化の権限はない（1） |
+| IaC: `infra/test/apps.test.ts` | パスの接頭辞が、サイトの環境ごとに分かれ（開発 `/sfm/development/`・本番 `/sfm/production/`）、IAM のリソースも、環境のパスの下だけ（1） |
+
+### 18.2 変更した既存のテスト（仕様の変更に伴う。ユーザーの承認済み）
+
+| ファイル | 変更の内容 | 理由 |
+| -------- | ---------- | ---- |
+| `tests/unit/backend/infrastructure/adapters.test.ts` | 環境変数の SecretPort のテスト 1 件: 非同期（`await`）にし、参照名を `FILE_SERVER` から `file-server`（環境変数は `SECRET_FILE_SERVER` のまま）にした。期待する値は、変えていない | `SecretPort` を、非同期の読み取り・書き込み・状態を持つ形に作り直した（D-55）。参照名を、小文字の形式に限った（パスの安全のため） |
+| `infra/test/evaluation-stack.test.ts` | ジョブの IAM のテスト 1 件: 許可する操作に、パラメータストアの読み取りと、復号を加え（`SSM_JOB_ACTIONS`・`KMS_SSM_JOB_ACTIONS`）、ステートメントの数を 3 から 5 にした。書き込み・暗号化の操作が、ないことの確認を加えた | ジョブの Lambda に、秘密情報の読み取りの権限を付けたため（最小権限は、保つ） |
+
+実測（手元（Windows））: `pnpm test:unit` は、103 ファイル・2231 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.41%・Branches 95.83%・Functions 99.73%・Lines 99.39%。**AWS での実環境の確認（IaC の適用後の、IAM のシミュレーター。operations.md 10.3）は、開発サイトで、確認済み**（2026-11-05。ユーザーが実行。環境変数・パラメータストアの権限・暗号化の鍵の権限が、すべて期待どおり）。実際の暗号化・復号は、#207・#241 で確認する。本番サイトは、未実施。

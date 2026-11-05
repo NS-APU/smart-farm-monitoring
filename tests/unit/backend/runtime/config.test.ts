@@ -262,6 +262,43 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('秘密情報の保管（CREDENTIAL_STORE・CREDENTIAL_PATH_PREFIX。#206。D-55）', () => {
+    it('既定は、メモリ（ローカル・テスト）。接頭辞は、なし', () => {
+      expect(parseConfig({}).secrets).toEqual({ provider: 'memory' });
+    });
+
+    it('ssm（パラメータストア）は、パスの接頭辞が要る', () => {
+      expect(
+        parseConfig({ CREDENTIAL_STORE: 'ssm', CREDENTIAL_PATH_PREFIX: '/sfm/development/' })
+          .secrets,
+      ).toEqual({ provider: 'ssm', pathPrefix: '/sfm/development/' });
+      expect(() => parseConfig({ CREDENTIAL_STORE: 'ssm' })).toThrow('CREDENTIAL_PATH_PREFIX');
+    });
+
+    it.each([
+      ['先頭が / でない', 'sfm/development/'],
+      ['末尾が / でない', '/sfm/development'],
+      ['大文字', '/SFM/development/'],
+      ['空の階層', '/sfm//development/'],
+      ['上の階層への移動', '/sfm/../development/'],
+      ['空白を含む', '/sfm/dev elopment/'],
+    ])('パスの接頭辞が不正なときは、設定エラー: %s', (_name, prefix) => {
+      expect(() =>
+        parseConfig({ CREDENTIAL_STORE: 'ssm', CREDENTIAL_PATH_PREFIX: prefix }),
+      ).toThrow('CREDENTIAL_PATH_PREFIX');
+    });
+
+    it('不明な保管先は、設定エラー', () => {
+      expect(() => parseConfig({ CREDENTIAL_STORE: 'vault' })).toThrow('CREDENTIAL_STORE');
+    });
+
+    it('メモリのときは、接頭辞を指定しても、使わない（設定エラーにしない）', () => {
+      expect(parseConfig({ CREDENTIAL_PATH_PREFIX: '/sfm/development/' }).secrets).toEqual({
+        provider: 'memory',
+      });
+    });
+  });
+
   it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {
     expect(parseConfig({ DEMO_SEED_DAYS: '30' }).demoSeedDays).toBe(30);
     expect(parseConfig({ DEMO_SEED_DAYS: '1' }).demoSeedDays).toBe(1);

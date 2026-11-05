@@ -20,6 +20,10 @@ import { DataStack } from '../lib/data-stack.ts';
 import {
   COGNITO_ACTIONS,
   DYNAMODB_ACTIONS,
+  KMS_SSM_API_ACTIONS,
+  KMS_SSM_JOB_ACTIONS,
+  SSM_API_ACTIONS,
+  SSM_JOB_ACTIONS,
   CLIENT_IP_HEADER,
   FILE_SERVER_RETENTION_DAYS,
   S3_READ_ACTIONS,
@@ -362,6 +366,81 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     );
   });
 
+  it('環境変数: 秘密情報の保管先は、パラメータストア（環境ごとのパスの接頭辞）。API とジョブの両方に、同じ設定を持つ（#206。D-55）', () => {
+    const dev = plainStack();
+    const app = newApp();
+    const production = new EvaluationStack(app, 'Evaluation', {
+      frontendAssetPath: frontendAssets(),
+      data: new DataStack(app, 'Data'),
+      siteEnvironment: 'production',
+    });
+    const functions = (template: Template) =>
+      Object.values(
+        template.findResources('AWS::Lambda::Function') as Record<
+          string,
+          { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+        >,
+      ).filter((resource) => resource.Properties.Environment?.Variables.APP_MODE !== undefined);
+
+    for (const resource of functions(dev.template)) {
+      expect(resource.Properties.Environment?.Variables).toMatchObject({
+        CREDENTIAL_STORE: 'ssm',
+        CREDENTIAL_PATH_PREFIX: '/sfm/development/',
+      });
+    }
+    const productionFunctions = functions(Template.fromStack(production));
+    expect(productionFunctions).toHaveLength(2);
+    for (const resource of productionFunctions) {
+      expect(resource.Properties.Environment?.Variables).toMatchObject({
+        CREDENTIAL_STORE: 'ssm',
+        CREDENTIAL_PATH_PREFIX: '/sfm/production/',
+      });
+    }
+  });
+
+  it('IAM（API）: パラメータストアは、環境のパスの下だけ（読み取り・書き込み）。復号・暗号化は、SSM 経由の利用に限る。ワイルドカードの全リソースはない（#206）', () => {
+    const { template } = plainStack();
+    const statements = roleStatements(template);
+    const actionsOf = (statement: PolicyStatementJson): string[] => [statement.Action].flat();
+    const ssm = statements.filter((statement) =>
+      actionsOf(statement).some((action) => action.startsWith('ssm:')),
+    );
+    const kms = statements.filter((statement) =>
+      actionsOf(statement).some((action) => action.startsWith('kms:')),
+    );
+
+    expect(ssm).toHaveLength(1);
+    expect(kms).toHaveLength(1);
+    const [ssmStatement] = ssm;
+    const [kmsStatement] = kms;
+    if (ssmStatement === undefined || kmsStatement === undefined) {
+      throw new Error('テストの前提');
+    }
+    expect(actionsOf(ssmStatement).sort()).toEqual([...SSM_API_ACTIONS].sort());
+    expect(JSON.stringify(ssmStatement.Resource)).toContain('parameter/sfm/development/*');
+    expect(actionsOf(kmsStatement).sort()).toEqual([...KMS_SSM_API_ACTIONS].sort());
+    expect(JSON.stringify(kmsStatement)).toContain('kms:ViaService');
+    expect(JSON.stringify(kmsStatement)).toContain('ssm.');
+    for (const statement of statements) {
+      expect(statement.Resource).not.toBe('*');
+    }
+  });
+
+  it('IAM（ジョブ）: パラメータストアは、読み取りだけ。書き込み・削除はない（#206）', () => {
+    const { template } = plainStack();
+    const statements = roleStatements(template, 'JobFunction');
+    const actions = statements.flatMap((statement) => [statement.Action].flat());
+
+    expect(actions).toEqual(expect.arrayContaining([...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS]));
+    expect(actions.filter((action) => action.startsWith('ssm:'))).toEqual([...SSM_JOB_ACTIONS]);
+    expect(actions).not.toContain('kms:Encrypt');
+    expect(actions).not.toContain('kms:GenerateDataKey');
+    const ssm = statements.find((statement) =>
+      [statement.Action].flat().some((action) => action.startsWith('ssm:')),
+    );
+    expect(JSON.stringify(ssm?.Resource)).toContain('parameter/sfm/development/*');
+  });
+
   it('秘密情報（パスワード・トークン・キー・シークレット）を、環境変数に持たない。開発用 API・デモデータ・初期ユーザーの設定もない', () => {
     const { template } = plainStack();
     const names = Object.keys(environmentOf(template));
@@ -528,10 +607,14 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
       [statement.Action].flat().some((action) => action.startsWith('dynamodb:')),
     );
 
-    // 許可する操作は、DynamoDB の必要な操作と、ファイルサーバーのモックの読み取りだけ（Cognito・書き込み・削除はない）
-    expect(actions.sort()).toEqual([...DYNAMODB_ACTIONS, ...S3_READ_ACTIONS].sort());
+    // 許可する操作は、DynamoDB の必要な操作と、ファイルサーバーのモックの読み取りと、秘密情報（パラメータストア）の読み取り・復号だけ
+    // （Cognito・書き込み・削除はない。パラメータストアの書き込みは、API だけ。#206）
+    expect(actions.sort()).toEqual(
+      [...DYNAMODB_ACTIONS, ...S3_READ_ACTIONS, ...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS].sort(),
+    );
     expect(actions).not.toContain('dynamodb:Scan');
-    expect(statements).toHaveLength(3);
+    expect(actions).not.toContain('ssm:PutParameter');
+    expect(statements).toHaveLength(5);
     expect(dynamodb).toHaveLength(1);
     expect(dynamodb[0]?.Resource).toHaveLength(4);
     for (const statement of statements) {
