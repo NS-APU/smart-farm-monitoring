@@ -11,6 +11,7 @@ import {
   READ_ONLY_LOGIN,
   callsOf,
   errorBody,
+  loginWith,
   renderApp,
   type Routes,
 } from '../../support/management-frontend.ts';
@@ -320,18 +321,6 @@ describe('接続テストと認証情報', () => {
     expect(result.textContent).toContain('認証情報が設定されていません');
     expect(result.className).toContain('form-error');
   });
-
-  it('認証情報（パスワード・トークン・API キー）の値の入力欄は、この画面にはない。値は、表示しない', async () => {
-    renderApp('/settings/ingestion', routes([source({ connection: HTTP_CONNECTION })]));
-    const robot = await robotCard();
-
-    expect(within(robot).queryByLabelText('パスワード', { exact: false })).toBeNull();
-    expect(within(robot).queryByLabelText('トークン', { exact: false })).toBeNull();
-    expect(within(robot).queryByLabelText('API キー', { exact: true })).toBeNull();
-    expect(within(robot).getByTestId('credentials-note-robot').textContent).toContain(
-      '認証情報の値は、この画面では入力・表示しません',
-    );
-  });
 });
 
 describe('参照のみ（権限がない）', () => {
@@ -347,5 +336,247 @@ describe('参照のみ（権限がない）', () => {
     expect(
       within(robot).getByLabelText<HTMLInputElement>('ホスト', { exact: false }).readOnly,
     ).toBe(true);
+  });
+});
+
+describe('認証情報の登録（Issue #207。D-47。書き込み専用）', () => {
+  const BASIC = { ...HTTP_CONNECTION, authMethod: 'BASIC' };
+  const BEARER = { ...HTTP_CONNECTION, authMethod: 'BEARER' };
+  const DUMMY_PASSWORD = 'dummy-password-0123';
+  const UPDATED_AT = '2026-11-09T02:00:00.000Z';
+
+  it('状態を示す: 未設定・設定済み（更新日時つき）・確認できない。認証が不要（モック・認証なし）は、登録の欄を出さない', async () => {
+    renderApp(
+      '/settings/ingestion',
+      routes([
+        source({ connection: BASIC, credentials: { state: 'NOT_CONFIGURED' } }),
+        source({
+          sourceId: 'environment-sensor',
+          connection: BEARER,
+          credentials: { state: 'CONFIGURED', updatedAt: UPDATED_AT },
+        }),
+        source({ sourceId: 'custom-1', connection: { ...HTTP_CONNECTION, authMethod: 'NONE' } }),
+        source({ sourceId: 'custom-2', connection: { type: 'MOCK' } }),
+        source({ sourceId: 'custom-3', connection: BEARER, credentials: { state: 'UNAVAILABLE' } }),
+      ]),
+    );
+
+    expect((await screen.findByTestId('credentials-status-robot')).textContent).toContain('未設定');
+    const configured = screen.getByTestId('credentials-status-environment-sensor').textContent;
+    expect(configured).toContain('設定済み');
+    expect(configured).toContain('2026');
+    expect(screen.getByTestId('credentials-status-custom-3').textContent).toContain(
+      '確認できません',
+    );
+    expect(screen.queryByTestId('credentials-status-custom-1')).toBeNull();
+    expect(screen.queryByTestId('credentials-status-custom-2')).toBeNull();
+  });
+
+  it('Basic: ユーザー名とパスワード（伏せ字）を入力して保存する。値を送り、入力欄を空に戻し、画面に値を残さない', async () => {
+    let saved = false;
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      routes([], {
+        'PUT /ingestion/robot/credentials': () => {
+          saved = true;
+          return jsonResponse({ state: 'CONFIGURED', updatedAt: UPDATED_AT });
+        },
+        'GET /ingestion/settings': () =>
+          jsonResponse({
+            sources: [
+              source({
+                connection: BASIC,
+                credentials: saved
+                  ? { state: 'CONFIGURED', updatedAt: UPDATED_AT }
+                  : { state: 'NOT_CONFIGURED' },
+              }),
+            ],
+          }),
+      }),
+    );
+    const robot = await robotCard();
+    const password = within(robot).getByLabelText<HTMLInputElement>('パスワード', {
+      exact: false,
+    });
+    expect(password.type).toBe('password');
+    expect(password.autocomplete).toBe('new-password');
+
+    fireEvent.change(within(robot).getByLabelText('ユーザー名', { exact: false }), {
+      target: { value: 'dummy-user' },
+    });
+    fireEvent.change(password, { target: { value: DUMMY_PASSWORD } });
+    fireEvent.click(within(robot).getByRole('button', { name: '認証情報を保存' }));
+
+    expect((await screen.findByTestId('result-robot')).textContent).toBe('認証情報を保存しました');
+    expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')[0]?.body).toEqual({
+      authMethod: 'BASIC',
+      username: 'dummy-user',
+      password: DUMMY_PASSWORD,
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('credentials-status-robot').textContent).toContain('設定済み');
+    });
+    expect(
+      within(robot).getByLabelText<HTMLInputElement>('パスワード', { exact: false }).value,
+    ).toBe('');
+    expect(
+      within(robot).getByLabelText<HTMLInputElement>('ユーザー名', { exact: false }).value,
+    ).toBe('');
+    expect(document.body.innerHTML).not.toContain(DUMMY_PASSWORD);
+  });
+
+  it('Bearer・API キー: トークン・API キーの入力は、伏せ字で、保存して、送る', async () => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      routes(
+        [
+          source({ connection: BEARER, credentials: { state: 'NOT_CONFIGURED' } }),
+          source({
+            sourceId: 'environment-sensor',
+            connection: { ...HTTP_CONNECTION, authMethod: 'API_KEY' },
+            credentials: { state: 'CONFIGURED', updatedAt: UPDATED_AT },
+          }),
+        ],
+        {
+          'PUT /ingestion/robot/credentials': () => jsonResponse({ state: 'CONFIGURED' }),
+          'PUT /ingestion/environment-sensor/credentials': () =>
+            jsonResponse({ state: 'CONFIGURED' }),
+        },
+      ),
+    );
+    const robot = await robotCard();
+    const sensor = await screen.findByTestId('source-environment-sensor');
+    const token = within(robot).getByLabelText<HTMLInputElement>('トークン', { exact: false });
+    const apiKey = within(sensor).getByLabelText<HTMLInputElement>('API キー', { exact: true });
+    expect(token.type).toBe('password');
+    expect(apiKey.type).toBe('password');
+
+    fireEvent.change(token, { target: { value: 'dummy-token' } });
+    fireEvent.click(within(robot).getByRole('button', { name: '認証情報を保存' }));
+    await screen.findByTestId('result-robot');
+    fireEvent.change(apiKey, { target: { value: 'dummy-api-key' } });
+    fireEvent.click(within(sensor).getByRole('button', { name: '認証情報を保存' }));
+    await screen.findByTestId('result-environment-sensor');
+
+    expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')[0]?.body).toEqual({
+      authMethod: 'BEARER',
+      token: 'dummy-token',
+    });
+    expect(callsOf(calls, 'PUT', '/ingestion/environment-sensor/credentials')[0]?.body).toEqual({
+      authMethod: 'API_KEY',
+      apiKey: 'dummy-api-key',
+    });
+  });
+
+  it.each([
+    ['ユーザー名が空', { ユーザー名: '', パスワード: 'p' }, 'ユーザー名を入力してください'],
+    ['パスワードが空', { ユーザー名: 'u', パスワード: '' }, 'パスワードを入力してください'],
+    [
+      'ユーザー名に : を含む',
+      { ユーザー名: 'a:b', パスワード: 'p' },
+      'ユーザー名に : は使えません',
+    ],
+  ])('不正な入力（%s）は、送らず、項目にエラーを表示する', async (_name, values, message) => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      routes([source({ connection: BASIC, credentials: { state: 'NOT_CONFIGURED' } })]),
+    );
+    const robot = await robotCard();
+
+    for (const [label, value] of Object.entries(values)) {
+      fireEvent.change(within(robot).getByLabelText(label, { exact: false }), {
+        target: { value },
+      });
+    }
+    fireEvent.click(within(robot).getByRole('button', { name: '認証情報を保存' }));
+
+    expect(await within(robot).findByText(message)).toBeDefined();
+    expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')).toHaveLength(0);
+  });
+
+  it('トークンに空白を含むときは、送らず、エラーを表示する', async () => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      routes([source({ connection: BEARER, credentials: { state: 'NOT_CONFIGURED' } })]),
+    );
+    const robot = await robotCard();
+
+    fireEvent.change(within(robot).getByLabelText('トークン', { exact: false }), {
+      target: { value: 'dummy token' },
+    });
+    fireEvent.click(within(robot).getByRole('button', { name: '認証情報を保存' }));
+
+    expect(
+      await within(robot).findByText('英数字と記号だけで入力してください', { exact: false }),
+    ).toBeDefined();
+    expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')).toHaveLength(0);
+  });
+
+  it('サーバーが項目のエラーを返したら、その項目に表示する。入力は、そのまま残す（再入力させない）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      routes([source({ connection: BEARER, credentials: { state: 'NOT_CONFIGURED' } })], {
+        'PUT /ingestion/robot/credentials': () =>
+          errorBody(400, 'VALIDATION_ERROR', '入力内容に誤りがあります', [
+            { name: 'authMethod', message: '認証方式が、保存済みの設定と違います' },
+          ]),
+      }),
+    );
+    const robot = await robotCard();
+    const token = within(robot).getByLabelText<HTMLInputElement>('トークン', { exact: false });
+
+    fireEvent.change(token, { target: { value: 'dummy-token' } });
+    fireEvent.click(within(robot).getByRole('button', { name: '認証情報を保存' }));
+
+    expect(await within(robot).findByText('認証方式が、保存済みの設定と違います')).toBeDefined();
+    expect(token.value).toBe('dummy-token');
+  });
+
+  it('認証方式を変えて、まだ保存していないときは、先に設定を保存するよう案内し、登録できない', async () => {
+    renderApp(
+      '/settings/ingestion',
+      routes([source({ connection: BEARER, credentials: { state: 'NOT_CONFIGURED' } })]),
+    );
+    const robot = await robotCard();
+
+    choose(robot, '認証方式', 'BASIC');
+
+    expect(within(robot).getByTestId('credentials-unsaved-robot').textContent).toContain(
+      '先に設定を保存',
+    );
+    expect(
+      within(robot).getByRole<HTMLButtonElement>('button', { name: '認証情報を保存' }).disabled,
+    ).toBe(true);
+  });
+
+  it('新しく HTTP・認証方式を選んだだけ（未保存）のときは、登録の欄を出さず、保存後に登録できる旨を案内する', async () => {
+    renderApp('/settings/ingestion', routes([source()]));
+    const robot = await robotCard();
+
+    choose(robot, '接続方式', 'HTTP');
+    choose(robot, '認証方式', 'BASIC');
+
+    expect(within(robot).queryByRole('button', { name: '認証情報を保存' })).toBeNull();
+    expect(within(robot).getByTestId('credentials-note-robot').textContent).toContain(
+      '設定を保存したあとに、登録できます',
+    );
+  });
+
+  it('権限がない利用者（実行のみ）には、状態だけを示し、入力欄・保存のボタンは出さない', async () => {
+    renderApp(
+      '/settings/ingestion',
+      routes([
+        source({
+          connection: BASIC,
+          credentials: { state: 'CONFIGURED', updatedAt: UPDATED_AT },
+        }),
+      ]),
+      { login: loginWith(['ingestion:run']) },
+    );
+    const robot = await robotCard();
+
+    expect(within(robot).getByTestId('credentials-status-robot').textContent).toContain('設定済み');
+    expect(within(robot).queryByLabelText('パスワード', { exact: false })).toBeNull();
+    expect(within(robot).queryByRole('button', { name: '認証情報を保存' })).toBeNull();
   });
 });

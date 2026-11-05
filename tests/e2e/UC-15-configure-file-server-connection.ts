@@ -8,7 +8,8 @@
  *
  * 値の同値分割: 接続方式（モック・HTTP）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
  * ホスト（正常・スキームつき）、ファイルパス（正常・不正）、認証方式（なし・認証情報が未設定）、接続テスト（成功・ファイルなし）。
- * 認証情報の値の入力は、画面にない（Issue #207）。値を使う接続テストの成功は、結合テスト（http-file-source.test.ts）で確かめる。
+ * 認証情報の登録（Issue #207。D-47）: 認証方式（Basic）を選んで保存したあと、ユーザー名・パスワードを書き込み専用で登録し、
+ * 「設定済み」と更新日時を示す。保存後は、値を再表示しない。登録した認証情報で、接続テストが成功する。
  * 内部のアドレスの拒否（SSRF の対策）は、E2E では、手元のサーバーに接続するため許可している（HTTP_FILE_SOURCE_ALLOW_PRIVATE）。
  * 拒否そのものは、単体テスト（address-guard・http-probe）と結合テストで確かめる。
  * 取り込み（ファイルの一覧・取得）は、Issue #119。
@@ -22,6 +23,11 @@ import { sourceCard, testConnection } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
 const FILE_PATH = '/data/robot/latest.json';
+/** 認証を要求するファイル（Basic 認証。ダミーの認証情報）。 */
+const SECURE_PATH = '/secure/data.json';
+const DUMMY_USER = 'dummy-user';
+const DUMMY_PASSWORD = 'dummy-password-0123';
+const DUMMY_BASIC = `Basic ${Buffer.from(`${DUMMY_USER}:${DUMMY_PASSWORD}`).toString('base64')}`;
 
 let server: Server;
 let port: number;
@@ -30,7 +36,11 @@ const requests: string[] = [];
 test.beforeAll(async () => {
   server = createServer((request, response) => {
     requests.push(`${request.method ?? ''} ${request.url ?? ''}`);
-    response.writeHead(request.url === FILE_PATH ? 200 : 404);
+    if (request.url === SECURE_PATH) {
+      response.writeHead(request.headers.authorization === DUMMY_BASIC ? 200 : 401);
+    } else {
+      response.writeHead(request.url === FILE_PATH ? 200 : 404);
+    }
     response.end();
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -197,7 +207,60 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
     await expect(tested).not.toContainText('/missing/file.json');
   });
 
-  test('認証方式を選び、認証情報が未設定のときは、「認証情報が設定されていません」を示し、接続しない。認証情報の入力欄は、ない', async ({
+  test('認証方式を選び、認証情報が未設定のときは、状態は「未設定」。接続テストは、「認証情報が設定されていません」を示し、接続しない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openIngestion(page);
+    await fillConnection(page, { auth: 'BASIC' });
+    await expect(page.getByTestId('credentials-note-robot')).toContainText(
+      '設定を保存したあとに、登録できます',
+    );
+    await save(page).click();
+    await expect(result(page)).toHaveText('設定を保存しました');
+    await expect(page.getByTestId('credentials-status-robot')).toContainText('未設定');
+
+    const tested = await testConnection(page, 'robot');
+
+    await expect(tested).toContainText('認証情報が設定されていません');
+    expect(requests).toEqual([]);
+  });
+
+  test('認証情報を、書き込み専用で登録する: 「設定済み」と更新日時を示し、入力を空に戻し、値を再表示しない。登録した認証情報で、接続テストが成功する', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openIngestion(page);
+    await fillConnection(page, { auth: 'BASIC', path: SECURE_PATH });
+    await save(page).click();
+    await expect(result(page)).toHaveText('設定を保存しました');
+    const credentials = page.getByTestId('credentials-robot');
+    await expect(credentials.getByLabel('パスワード')).toHaveAttribute('type', 'password');
+    const failed = await testConnection(page, 'robot');
+    await expect(failed).toContainText('認証情報が設定されていません');
+
+    await credentials.getByLabel('ユーザー名').fill(DUMMY_USER);
+    await credentials.getByLabel('パスワード').fill(DUMMY_PASSWORD);
+    await credentials.getByRole('button', { name: '認証情報を保存' }).click();
+
+    await expect(result(page)).toHaveText('認証情報を保存しました');
+    await expect(page.getByTestId('credentials-status-robot')).toContainText('設定済み（更新:');
+    await expect(credentials.getByLabel('ユーザー名')).toHaveValue('');
+    await expect(credentials.getByLabel('パスワード')).toHaveValue('');
+    await page.reload();
+    await expect(page.getByTestId('credentials-status-robot')).toContainText('設定済み（更新:');
+    await expect(credentials.getByLabel('パスワード')).toHaveValue('');
+    expect(await page.content()).not.toContain(DUMMY_PASSWORD);
+
+    const tested = await testConnection(page, 'robot');
+    await expect(tested).toHaveText('接続できました');
+    expect(requests).toEqual([`HEAD ${SECURE_PATH}`]);
+    await shot(page, testInfo, 'uc15-credentials');
+  });
+
+  test('認証方式を変えて、まだ保存していないときは、先に設定を保存するよう案内し、認証情報を登録できない', async ({
     page,
     request,
   }) => {
@@ -206,15 +269,13 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
     await fillConnection(page, { auth: 'BASIC' });
     await save(page).click();
     await expect(result(page)).toHaveText('設定を保存しました');
-    await expect(robot(page).locator('input[type="password"]')).toHaveCount(0);
-    await expect(page.getByTestId('credentials-note-robot')).toContainText(
-      '認証情報の値は、この画面では入力・表示しません',
-    );
 
-    const tested = await testConnection(page, 'robot');
+    await authMethod(page).selectOption('BEARER');
 
-    await expect(tested).toContainText('認証情報が設定されていません');
-    expect(requests).toEqual([]);
+    await expect(page.getByTestId('credentials-unsaved-robot')).toContainText('先に設定を保存');
+    await expect(
+      page.getByTestId('credentials-robot').getByRole('button', { name: '認証情報を保存' }),
+    ).toBeDisabled();
   });
 
   test('API キーを選ぶと、ヘッダー名の入力を表示する（既定は X-API-Key）', async ({

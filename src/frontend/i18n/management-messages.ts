@@ -312,8 +312,26 @@ export const MANAGEMENT_MESSAGES = {
     },
     apiKeyHeaderName: 'API キーのヘッダー名',
     apiKeyHeaderNameHint: 'API キーを送るリクエストヘッダーの名前です（既定は X-API-Key）',
-    credentialsNote:
-      '認証情報の値は、この画面では入力・表示しません。秘密情報の保管先に、別に設定します',
+    credentialsHeading: '認証情報',
+    credentialsLead:
+      '値は、書き込み専用です。保存すると、現在の値を上書きします。保存したあとは、表示しません',
+    credentialsStatusLabel: '状態',
+    credentialsStatus: {
+      NOT_CONFIGURED: '未設定',
+      UNAVAILABLE: '状態を確認できません',
+    },
+    credentialsConfigured: '設定済み',
+    credentialsUpdatedAt: (at: string) => `設定済み（更新: ${at}）`,
+    credentialsUsername: 'ユーザー名',
+    credentialsPassword: 'パスワード',
+    credentialsToken: 'トークン',
+    credentialsApiKey: 'API キー',
+    credentialsSave: '認証情報を保存',
+    credentialsSaving: '保存中…',
+    credentialsSaved: '認証情報を保存しました',
+    credentialsUnsaved:
+      '認証方式・接続方式を変更しました。先に設定を保存してから、認証情報を登録してください',
+    credentialsAfterSave: '認証情報は、設定を保存したあとに、登録できます',
     interval: '取得間隔',
     intervalLabels: {
       5: '5分',

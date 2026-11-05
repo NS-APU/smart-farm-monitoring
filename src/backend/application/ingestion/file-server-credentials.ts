@@ -8,7 +8,10 @@
  * 値は、エラー・ログに含めない（失敗は、理由だけを持つ FileSourceFailure）。
  */
 
-import type { HttpFileServerConnection } from '@smart-farm/shared/schemas/ingestion';
+import type {
+  HttpFileServerConnection,
+  IngestionCredentialsInput,
+} from '@smart-farm/shared/schemas/ingestion';
 import { FileSourceFailure } from '../ports/file-source-port.ts';
 import { parseSecretReference } from '../secret-reference.ts';
 
@@ -55,6 +58,18 @@ function basicCredentials(value: string | undefined): { username: string; passwo
     throw new FileSourceFailure('CREDENTIALS_INVALID');
   }
   return { username, password };
+}
+
+/** 登録の入力（画面から）を、秘密情報の値にする。形式は、上のとおり（buildAuthHeaders が読む形）。 */
+export function credentialsSecretValue(input: IngestionCredentialsInput): string {
+  switch (input.authMethod) {
+    case 'BASIC':
+      return JSON.stringify({ username: input.username, password: input.password });
+    case 'BEARER':
+      return input.token;
+    case 'API_KEY':
+      return input.apiKey;
+  }
 }
 
 /** 認証方式に合わせた、リクエストのヘッダー。認証なし（NONE）は、空。値がない・形式が違うときは、FileSourceFailure。 */
