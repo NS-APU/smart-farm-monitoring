@@ -282,8 +282,8 @@ export function robotJson(
   });
 }
 
-/** 環境センサーの CSV（合成データ）。 */
-export function sensorCsv(
+/** 環境センサーの JSON（合成データ。設備の識別子 sensorId + 記録の配列）。空の文字列は欠損（null）、数値の文字列は数値にする（数値でない文字列は、そのまま）。 */
+export function sensorJson(
   rows: readonly {
     hoursAgo: number;
     temperature: number | string;
@@ -293,13 +293,22 @@ export function sensorCsv(
   }[],
   sensorId: string = SENSOR_EXTERNAL_ID,
 ): string {
-  const lines = rows.map(
-    (row) =>
-      `${sensorId},${new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString()},${String(row.temperature)},${String(row.humidity)},${String(row.illuminance)},${String(row.co2)}`,
-  );
-  return ['sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm', ...lines].join(
-    '\n',
-  );
+  const value = (raw: number | string) => {
+    if (raw === '') {
+      return null;
+    }
+    return typeof raw === 'string' && Number.isFinite(Number(raw)) ? Number(raw) : raw;
+  };
+  return JSON.stringify({
+    sensorId,
+    records: rows.map((row) => ({
+      timestamp: new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString(),
+      temperatureCelsius: value(row.temperature),
+      humidityPercent: value(row.humidity),
+      illuminanceLux: value(row.illuminance),
+      co2Ppm: value(row.co2),
+    })),
+  });
 }
 
 // 準備・ブラウザ

@@ -25,6 +25,14 @@ export function sourceDisplayName(sourceId: string): string {
   }
 }
 
+/**
+ * 以前の設定に保存された FormatProfile の識別子と、いまの識別子（Issue #174。環境センサーを CSV から JSON に置き換えた）。
+ * 保存済みの設定を、読み出すときに読み替える（保存の移行は、要らない）。
+ */
+const LEGACY_PROFILE_IDS: Readonly<Record<string, string>> = {
+  'environment-sensor-csv': 'environment-sensor-json',
+};
+
 /** 既定の取り込み元。接続先は、ローカルではファイルサーバーのモック（Q-002 が確定するまで）。 */
 function defaultIngestionSources(
   intervalMinutes: IngestionSource['intervalMinutes'],
@@ -42,7 +50,7 @@ function defaultIngestionSources(
     {
       sourceId: ENVIRONMENT_SENSOR_SOURCE_ID,
       kind: 'SENSOR',
-      profileId: 'environment-sensor-csv',
+      profileId: 'environment-sensor-json',
       connectionRef: 'FILE_SERVER_MOCK',
       connection: { type: 'MOCK' },
       intervalMinutes,
@@ -66,7 +74,13 @@ export function createIngestionSettings(
       if (stored === undefined) {
         return defaultIngestionSources(defaultIntervalMinutes);
       }
-      return z.array(IngestionSourceSchema).parse(stored);
+      return z
+        .array(IngestionSourceSchema)
+        .parse(stored)
+        .map((source) => ({
+          ...source,
+          profileId: LEGACY_PROFILE_IDS[source.profileId] ?? source.profileId,
+        }));
     },
     saveSources: (sources) => settings.set(INGESTION_SETTINGS_KEY, sources),
   };

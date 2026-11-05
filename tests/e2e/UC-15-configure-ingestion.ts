@@ -79,10 +79,10 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
       await expect(card.locator('input[type="password"]')).toHaveCount(0);
     }
     await expect(sourceCard(page, 'robot')).toContainText(
-      '解釈に使っている仕様: robot-json@0.1.0(PROVISIONAL)（仮決め）',
+      '解釈に使っている仕様: robot-json@0.2.0(PROVISIONAL)（仮決め）',
     );
     await expect(sourceCard(page, 'environment-sensor')).toContainText(
-      'environment-sensor-csv@0.1.0(PROVISIONAL)（仮決め）',
+      'environment-sensor-json@0.1.0(PROVISIONAL)（仮決め）',
     );
     await expect(page.getByText('認証情報は、画面に表示しません')).toBeVisible();
     await shot(page, testInfo, 'uc15-settings');
@@ -355,9 +355,9 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     await expect(logRows(page).first()).toContainText('1件のファイルを取り込めませんでした');
   });
 
-  test('環境センサー（CSV）も、即時取得できる', async ({ page, request }) => {
+  test('環境センサー（JSON）も、即時取得できる', async ({ page, request }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await openIngestion(page);
 
     const ran = await runNow(page, 'environment-sensor');

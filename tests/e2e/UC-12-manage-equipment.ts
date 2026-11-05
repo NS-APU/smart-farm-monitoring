@@ -33,7 +33,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   settlePassword,
   unreadBadge,
 } from './support/app.ts';
@@ -186,8 +186,8 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     );
     placeFile(
       'environment-sensor',
-      'a.csv',
-      sensorCsv(
+      'a.json',
+      sensorJson(
         [{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }],
         'SENSOR-A-FILE',
       ),
@@ -772,8 +772,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     );
     placeFile(
       'environment-sensor',
-      'sensor.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');

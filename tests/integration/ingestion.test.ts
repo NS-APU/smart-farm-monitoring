@@ -17,6 +17,7 @@ import { createDefaultFormatProfileRegistry } from '../../src/backend/infrastruc
 import { FileSourceUnavailableError } from '../../src/backend/application/ports/file-source-port.ts';
 import { equipmentSet, ROBOT_ID, SENSOR_ID, FACILITY_ID } from '../support/builders.ts';
 import { createTestContext, TEST_NOW, TEST_USER } from '../support/test-context.ts';
+import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 
@@ -26,7 +27,7 @@ function stubFileSource(names: readonly string[]): FileSource {
     testConnection: () => Promise.resolve(),
     listFiles: () =>
       Promise.resolve(
-        names.map((name) => ({ fileId: name, name, modifiedAt: TEST_NOW, sizeBytes: 1 })),
+        names.map((name) => ({ fileId: name, name, modifiedAt: STUB_MODIFIED_AT, sizeBytes: 1 })),
       ),
     readFile: () => Promise.resolve('{}'),
   };
@@ -103,7 +104,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
       ),
     ).toBe(true);
     // 解釈に使った版（仮決め）を、観測値に残す
-    expect(observations[0]?.formatProfileVersion).toBe('robot-json@0.1.0(PROVISIONAL)');
+    expect(observations[0]?.formatProfileVersion).toBe('robot-json@0.2.0(PROVISIONAL)');
     const latest = await context.container.repositories.evaluations.listLatest(FACILITY_ID);
     expect(latest.length).toBeGreaterThan(0);
   });
@@ -120,7 +121,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
       result: 'SUCCESS',
       filesProcessed: 1,
       recordCount: 14,
-      formatProfileVersion: 'robot-json@0.1.0(PROVISIONAL)',
+      formatProfileVersion: 'robot-json@0.2.0(PROVISIONAL)',
     });
   });
 
@@ -308,9 +309,9 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 });
 
 describe('UC-09 環境センサーデータの自動取り込み', () => {
-  it('CSV を読み、センサーに紐づけて保存する。空の値は欠損として記録する', async () => {
+  it('JSON を読み、センサーに紐づけて保存する。null の値は欠損として記録する', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');
 
@@ -323,17 +324,19 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
     const observations = await observationsOf(context, SENSOR_ID);
     expect(observations).toHaveLength(12);
     expect(observations.filter((item) => item.quality === 'MISSING')).toHaveLength(1);
-    expect(observations[0]?.formatProfileVersion).toBe('environment-sensor-csv@0.1.0(PROVISIONAL)');
+    expect(observations[0]?.formatProfileVersion).toBe(
+      'environment-sensor-json@0.1.0(PROVISIONAL)',
+    );
   });
 
-  it('範囲外・数値でない値・列の欠けた行・未登録のセンサーを区別して扱う', async () => {
+  it('範囲外・数値でない値・計測日時のない記録を区別して扱う。項目の一部だけの記録は、読める', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-002-invalid.csv');
+    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-002-invalid.json');
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');
 
-    // 温度 abc、湿度 120 は不正。列数の違う行 1、未登録のセンサー 1 は読み取れなかった
-    expect(summary).toMatchObject({ recordCount: 2, rejectedCount: 4 });
+    // 1 件目: 温度 abc・湿度 120 は不正（照度・CO2 は有効）。2 件目: 温度だけ（有効）。3 件目: 計測日時がなく、読み取れなかった
+    expect(summary).toMatchObject({ recordCount: 3, rejectedCount: 3 });
     expect(
       (await observationsOf(context, SENSOR_ID))
         .filter((item) => item.quality === 'INVALID')
@@ -342,11 +345,27 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
     ).toEqual(['humidityPercent', 'temperatureCelsius']);
   });
 
-  it('見出しが仕様と異なる CSV は、形式違いとして扱う', async () => {
+  it('未登録のセンサーのデータは、読み取れなかったものとして数える', async () => {
+    const context = await setup();
+    context.placeFile(
+      'environment-sensor',
+      'unknown.json',
+      JSON.stringify({
+        sensorId: 'SENSOR-UNKNOWN-99',
+        records: [{ timestamp: '2026-10-09T02:00:00Z', temperatureCelsius: 22 }],
+      }),
+    );
+
+    const summary = await context.container.ingestionService.runSource('environment-sensor');
+
+    expect(summary).toMatchObject({ recordCount: 0, rejectedCount: 1 });
+  });
+
+  it('構造が仕様と異なる JSON は、形式違いとして扱う', async () => {
     const context = await setup();
     context.placeFixture(
       'environment-sensor',
-      'environment-sensor/sensor-sample-003-bad-header.csv',
+      'environment-sensor/sensor-sample-003-bad-structure.json',
     );
 
     expect(await context.container.ingestionService.runSource('environment-sensor')).toMatchObject({
@@ -356,7 +375,7 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 
   it('取り込んだ環境の値から、環境適応性が評価される', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
     context.clock.set(new Date('2026-10-09T01:45:00Z'));
 
     await context.container.ingestionService.runSource('environment-sensor');
@@ -420,7 +439,7 @@ describe('UC-24 取り込み失敗の通知（再試行・単独稼働）', () =
 
   it('接続できない取り込み元があっても、他の取り込み元の取り込みは継続できる（取り込み元ごとに独立）', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
     context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
     const failed = await context.container.ingestionService.runSource('robot');
     context.container.dev?.faults.fileServer.set({ mode: 'UP' });
@@ -575,7 +594,9 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
     const { service, repositories } = build({
       testConnection: () => Promise.resolve(),
       listFiles: () =>
-        Promise.resolve([{ fileId: 'a.json', name: 'a.json', modifiedAt: TEST_NOW, sizeBytes: 1 }]),
+        Promise.resolve([
+          { fileId: 'a.json', name: 'a.json', modifiedAt: STUB_MODIFIED_AT, sizeBytes: 1 },
+        ]),
       readFile: () => Promise.reject(new FileSourceUnavailableError('読めない')),
     });
 
@@ -611,7 +632,9 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
     const { service, repositories } = build({
       testConnection: () => Promise.resolve(),
       listFiles: () =>
-        Promise.resolve([{ fileId: 'a.json', name: 'a.json', modifiedAt: TEST_NOW, sizeBytes: 1 }]),
+        Promise.resolve([
+          { fileId: 'a.json', name: 'a.json', modifiedAt: STUB_MODIFIED_AT, sizeBytes: 1 },
+        ]),
       readFile: () => Promise.resolve(JSON.stringify({ robotId: 'R', records: [] })),
     });
     vi.spyOn(repositories.observations, 'saveMany').mockRejectedValue(new Error('保存の失敗'));

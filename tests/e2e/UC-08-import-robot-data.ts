@@ -35,7 +35,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   setMock,
   unreadBadge,
 } from './support/app.ts';
@@ -526,8 +526,8 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     placeFixture('robot', 'robot/robot-sample-003-broken.json');
     placeFile(
       'environment-sensor',
-      'sensor.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 20, humidity: 60, illuminance: 30000, co2: 800 }]),
+      'sensor.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 20, humidity: 60, illuminance: 30000, co2: 800 }]),
     );
 
     await runJob(request, 'JB-01');

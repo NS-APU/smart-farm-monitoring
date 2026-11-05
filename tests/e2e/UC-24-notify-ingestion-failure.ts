@@ -134,7 +134,7 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-header.csv');
+    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-structure.json');
     // ロボットは、接続でき、ファイルがなくても成功する
     const robot = await apiOk<{ result: string }>(request, 'POST', '/ingestion/robot/run');
     expect(robot.result).toBe('SUCCESS');

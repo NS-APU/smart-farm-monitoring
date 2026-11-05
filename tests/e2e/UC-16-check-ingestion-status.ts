@@ -56,7 +56,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
   }, testInfo) => {
     await prepareApp(request);
     placeFixture('robot', 'robot/robot-sample-001.json');
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await runIngestionApi(request, 'robot');
     await advanceMinutes(request, 15);
     await runIngestionApi(request, 'environment-sensor');
@@ -208,9 +208,9 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       error: '1件のファイルを取り込めませんでした',
     },
     {
-      name: '失敗（形式違い: 見出しの違う CSV）',
+      name: '失敗（形式違い: 構造の違う JSON）',
       sourceId: 'environment-sensor',
-      fixture: 'environment-sensor/sensor-sample-003-bad-header.csv',
+      fixture: 'environment-sensor/sensor-sample-003-bad-structure.json',
       result: '失敗',
       files: '1',
       records: '0',
@@ -218,13 +218,13 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       error: '1件のファイルを取り込めませんでした',
     },
     {
-      name: '一部成功（不正な値・登録のない識別子を含む CSV）',
+      name: '一部成功（不正な値・計測日時のない記録を含む JSON）',
       sourceId: 'environment-sensor',
-      fixture: 'environment-sensor/sensor-sample-002-invalid.csv',
+      fixture: 'environment-sensor/sensor-sample-002-invalid.json',
       result: '一部成功',
       files: '1',
-      records: '2',
-      rejected: '4',
+      records: '3',
+      rejected: '3',
       error: '—',
     },
   ];

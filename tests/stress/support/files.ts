@@ -1,9 +1,9 @@
 /**
- * ファイルサーバーのモックへ置く、合成データのファイル（ロボットの JSON・環境センサーの CSV）の生成。
+ * ファイルサーバーのモックへ置く、合成データのファイル（ロボット・環境センサーの JSON）の生成。
  * 形式は、仮決めの仕様（FormatProfile。dev_spec.md 4.2）。実データは使わない。乱数は種つき。
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createRandom } from '../../../src/backend/infrastructure/local/synthetic-data.ts';
 import { robotExternalId, sensorExternalId } from './scale.ts';
@@ -28,6 +28,15 @@ function sourceDirectory(sourceId: 'robot' | 'environment-sensor'): string {
   const directory = join(FILE_SERVER_ROOT, sourceId);
   mkdirSync(directory, { recursive: true });
   return directory;
+}
+
+/**
+ * ファイルの更新日時を、1 分前にする。更新日時が 1 秒以内のファイルは、書き換えの最中かもしれないため、読まずに次の周期に回す
+ * （ADR-0016 の D-08）。置いた直後に取り込みを実行する負荷テストで、回されないようにする。
+ */
+function markAsSettled(path: string): void {
+  const settledAt = new Date(Date.now() - MS_PER_MINUTE);
+  utimesSync(path, settledAt, settledAt);
 }
 
 /** 取り込み元のファイルを、すべて消す（ディレクトリは残す）。 */
@@ -65,6 +74,7 @@ export function placeRobotFiles(options: FileSetOptions): number {
         '{ "robotId": "ROBOT-STRESS-1-1", "records": [ { ',
         'utf8',
       );
+      markAsSettled(join(directory, name));
       continue;
     }
     const records = Array.from({ length: options.recordsPerFile }, (_, record) => ({
@@ -82,36 +92,37 @@ export function placeRobotFiles(options: FileSetOptions): number {
       JSON.stringify({ robotId: robotExternalId(0, 0), records }),
       'utf8',
     );
+    markAsSettled(join(directory, name));
   }
   return options.count;
 }
 
-/** 環境センサーのデータ（CSV。1ファイルが1つのセンサー・複数の行）を置く。 */
+/** 環境センサーのデータ（JSON。1ファイルが1つのセンサー・複数の記録）を置く。 */
 export function placeSensorFiles(options: FileSetOptions): number {
   const directory = sourceDirectory('environment-sensor');
   const now = Date.now();
   const random = createRandom(20_261_200 + options.startIndex);
   for (let offset = 0; offset < options.count; offset += 1) {
     const index = options.startIndex + offset;
-    const name = `sensor-stress-${String(index).padStart(5, '0')}.csv`;
+    const name = `sensor-stress-${String(index).padStart(5, '0')}.json`;
     if (offset >= options.count - (options.brokenCount ?? 0)) {
-      writeFileSync(join(directory, name), 'unknown_column,another_column\n1,2\n', 'utf8');
+      writeFileSync(join(directory, name), '{ "unknown": [ { "column": 1 } ] }', 'utf8');
+      markAsSettled(join(directory, name));
       continue;
     }
-    const lines = ['sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm'];
-    for (let record = 0; record < options.recordsPerFile; record += 1) {
-      lines.push(
-        [
-          sensorExternalId(0, 0),
-          timestampOf(now, index, options.recordsPerFile, record),
-          (20 + random() * 4).toFixed(1),
-          (55 + random() * 10).toFixed(1),
-          String(Math.round(28_000 + random() * 6000)),
-          String(Math.round(850 + random() * 100)),
-        ].join(','),
-      );
-    }
-    writeFileSync(join(directory, name), `${lines.join('\n')}\n`, 'utf8');
+    const records = Array.from({ length: options.recordsPerFile }, (_, record) => ({
+      timestamp: timestampOf(now, index, options.recordsPerFile, record),
+      temperatureCelsius: Math.round((20 + random() * 4) * 10) / 10,
+      humidityPercent: Math.round((55 + random() * 10) * 10) / 10,
+      illuminanceLux: Math.round(28_000 + random() * 6000),
+      co2Ppm: Math.round(850 + random() * 100),
+    }));
+    writeFileSync(
+      join(directory, name),
+      JSON.stringify({ sensorId: sensorExternalId(0, 0), records }),
+      'utf8',
+    );
+    markAsSettled(join(directory, name));
   }
   return options.count;
 }

@@ -31,7 +31,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   setMock,
 } from './support/app.ts';
 import { federationRows } from './support/ingestion.ts';
@@ -67,8 +67,8 @@ async function produceData(request: Parameters<typeof prepareApp>[0]): Promise<v
   placeFile('robot', 'robot.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
   placeFile(
     'environment-sensor',
-    'sensor.csv',
-    sensorCsv([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+    'sensor.json',
+    sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
   );
   await apiOk(request, 'POST', '/ingestion/robot/run');
   await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -493,8 +493,8 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
     await setMock(request, 'federation', 'DOWN');
     placeFile(
       'environment-sensor',
-      'sensor.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');

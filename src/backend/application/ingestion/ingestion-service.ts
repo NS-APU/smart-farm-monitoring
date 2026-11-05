@@ -125,6 +125,13 @@ function decideResult(counts: {
   return counts.recordCount > 0 ? 'PARTIAL' : 'FAILURE';
 }
 
+/**
+ * 更新日時がこの時間（ミリ秒）以内のファイルは、書き換えの最中かもしれないため、読まずに、次の周期に回す（D-08）。
+ * 同じファイルを、続けて回すのは、この回数まで。時計のずれ・書き換えが続くファイルで、永遠に取り込まれないのを避ける安全策。
+ */
+const RECENT_WRITE_WINDOW_MS = 1000;
+const MAX_CONSECUTIVE_DEFERRALS = 2;
+
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
@@ -133,6 +140,8 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
   const { repositories, ingestionSettings, fileSource, profiles, clock, ids, settings, logger } =
     deps;
   const running = new Set<string>();
+  /** 続けて次の周期に回したファイルの回数（取り込み元・ファイルごと。プロセスの中だけ。プロセスが替わると、数え直す）。 */
+  const deferrals = new Map<string, number>();
 
   async function findSource(sourceId: string): Promise<IngestionSource> {
     const source = (await ingestionSettings.listSources()).find(
@@ -228,6 +237,45 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     return new Map(list.map((definition) => [definition.code, definition]));
   }
 
+  /**
+   * 更新日時が 1 秒以内のファイルは、次の周期に回す（書き換えの最中の、途中までのファイルを読まない。D-08）。
+   * 安全策: 更新日時が、こちらの現在時刻より未来のとき、または、同じファイルを続けて 2 周期回したときは、回さずに読む。
+   */
+  function shouldDeferRecentlyWritten(sourceId: string, file: FileMeta): boolean {
+    const key = `${sourceId}\u0000${file.fileId}`;
+    const ageMs = clock.now().getTime() - file.modifiedAt.getTime();
+    const recentlyWritten = ageMs >= 0 && ageMs <= RECENT_WRITE_WINDOW_MS;
+    const count = deferrals.get(key) ?? 0;
+    if (!recentlyWritten || count >= MAX_CONSECUTIVE_DEFERRALS) {
+      deferrals.delete(key);
+      return false;
+    }
+    deferrals.set(key, count + 1);
+    return true;
+  }
+
+  /**
+   * 変わった観測値だけを選ぶ（D-08）。同じ一意キー（設備・項目・計測日時・取得元）で、値と品質が同じものは、触らない
+   * （受信日時も、そのまま。「新しい計測がない」ことを、受信日時で検知できるように）。
+   */
+  async function selectChanged(observations: readonly Observation[]): Promise<Observation[]> {
+    const changed: Observation[] = [];
+    for (const observation of observations) {
+      const existing = await repositories.observations.findByKey(
+        observation.equipmentId,
+        observation.itemKey,
+        observation.observedAt,
+        observation.source,
+      );
+      const isSame =
+        existing?.value === observation.value && existing.quality === observation.quality;
+      if (!isSame) {
+        changed.push(observation);
+      }
+    }
+    return changed;
+  }
+
   async function processFile(
     source: IngestionSource,
     profile: FormatProfile,
@@ -244,6 +292,13 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         sizeBytes: file.sizeBytes,
       });
       return failedOutcome('TOO_LARGE');
+    }
+    if (shouldDeferRecentlyWritten(source.sourceId, file)) {
+      logger.info('ファイルが書き換えられた直後のため、次の周期に回します', {
+        sourceId: source.sourceId,
+        fileId: file.fileId,
+      });
+      return null;
     }
     let content: string;
     try {
@@ -266,7 +321,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     }
 
     try {
-      const { observations, rejectedCount } = toObservations(
+      const parsed = toObservations(
         profile,
         file.fileId,
         content,
@@ -274,6 +329,8 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         statusCodes,
         fetchedAt,
       );
+      const { rejectedCount } = parsed;
+      const observations = await selectChanged(parsed.observations);
       await repositories.observations.saveMany(observations);
       const savedCount = observations.filter((observation) =>
         isUsableQuality(observation.quality),
