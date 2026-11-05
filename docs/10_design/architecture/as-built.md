@@ -267,7 +267,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）。実サーバーのアダプタは未実装（Issue #119） |
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
 | Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
-| 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
+| 秘密情報                 | シークレット管理サービス                  | `SecretPort`（非同期の `get`・`set`・`status`）の、パラメータストア版（SecureString。#206）と、メモリ・環境変数版がある。使う場所は、まだない（#207・#119・#241 で使う）                                                                      |
 | ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-development.yml`・`deploy-production.yml`（手動実行。本番サイトは `main` だけ・承認が必要。Issue #117。本番サイトは、AWS に未作成）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
 | スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測も、実行済み（長時間アクセスがないあとの最初のログインは、約 3.2 秒。既知の制約として許容。test.spec.md 13.3） |
@@ -977,7 +977,7 @@ flowchart LR
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON・CSV の FormatProfile）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | 農業情報基盤用（Q-005）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
-| `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**どこにも接続されていない**                                                                                        | シークレット管理サービス                      |
+| `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**パラメータストア版は、コンテナが保管先として組み立てる（#206）。使う場所は、まだない**                                                                                        | シークレット管理サービス                      |
 
 ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 実装に、同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
 
@@ -1143,7 +1143,9 @@ flowchart LR
 | `FEDERATION_EXPIRY_DAYS`                                         | `30`                      | 連携の破棄の期限（日。1〜365）。積んでからこの日数を過ぎても送れていない項目を、破棄する（#204）                                                |
 | `INGESTION_RETRY_BASE_DELAY_MS`                                 | `1000`                    | 取り込みの再試行の待ち時間の基準（E2E では 10）                                                                                                 |
 | `WEB_PUSH_PUBLIC_KEY`                                           | なし                      | VAPID の公開鍵。なければ、Web Push の購読を受け付けない（503）                                                                                  |
-| `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版）。現状、読み出す処理がない                                                                                            |
+| `CREDENTIAL_STORE`                                              | `memory`                  | 秘密情報の保管先（`memory`・`ssm`＝パラメータストア）。`ssm` は、本番・開発サイト（#206）。名前に、SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
+| `CREDENTIAL_PATH_PREFIX`                                        | なし                      | `ssm` のときの、パスの接頭辞（先頭と末尾が `/`。例: `/sfm/development/`）。`ssm` では、必須
+| `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版。テスト用）。参照名の `/`・`-` は `_` になる（例: `file-server/robot` → `SECRET_FILE_SERVER_ROBOT`）。コンテナは、使わない                                                                                            |
 
 アプリケーション層の動作設定（`application/settings.ts` の `DEFAULT_APP_SETTINGS`）と、その他のコード内の定数は次のとおり。
 

@@ -340,4 +340,59 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | 9.7 データの削除と、再作成 | **確認済み**（2026-10-22。ユーザーが実行。データが空の状態）。評価環境のスタック（`SfmProductionEvaluation`）の削除 → 保護の解除 → データのスタック（`SfmProductionData`）の削除 → DynamoDB のテーブル 2 つの削除 → Cognito のユーザープールの削除（コンソール）が成功した。削除の確認（スタックがない・本番のテーブルがない）と、**開発サイトが無事なこと**（スタックの状態・`/health`）も確認した。続けて「Deploy production」で再作成し、`/health`・最初のユーザーの作成・ログイン・ダッシュボードの表示・ジョブのログにエラーがないことを確認した（IaC で同じ環境を再作成できる。`SiteUrl` は新しくなる）。**削除のコマンドは、`SFM_ENVIRONMENT=production` を指定しないと、開発サイトを消す**。実行の前に、`diff` の `Stack` の行が、本番の 2 スタックだけであることを確認する（`pnpm --filter @smart-farm/infra run diff`） |
 | `main` への push による本番サイトの自動デプロイ（承認待ち → 承認 → 成功） | **確認済み**（2026-10-26。Issue #167。v0.3.0 のリリース〔PR #251〕。承認は、ユーザーが実行）。`release/0.3.0` → `main` のマージ（Merge commit）の直後に、「Deploy production」が、`push` で、**自動で始まり**、**承認待ち**（Environment `production` の Review deployments）になった。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していた。承認で、デプロイが進み、**成功した**。`<SiteUrl>/health` が `{"status":"ok",…}` を返した。同じ `main` への push のあとの、タグ `v0.3.0` の push・GitHub Release の作成・`main` → `develop` の反映 PR の作成は、承認待ちのデプロイと干渉しなかった（待機のまま） |
 | `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
+| 10 秘密情報（パラメータストア）の IAM の権限（Issue #206） | 未実施（IaC の適用後に、10.3 の IAM のシミュレーターで確認する。ユーザーが実行） |
 | 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
+
+## 10. 秘密情報（パラメータストア）の運用手順（Issue #206。ADR-0016 の D-55・ADR-0009）
+
+接続先の認証情報（ファイルサーバー・農業情報基盤）と、Web Push の秘密鍵（VAPID）は、**AWS Systems Manager パラメータストアの SecureString（標準）**に保管する。値は、AWS の管理の鍵で暗号化される。**AWS への接続・値の登録は、ユーザーが行う**（AGENTS.md 12 章。値を、チャット・Issue・PR・リポジトリに書かない）。
+
+### 10.1 構成
+
+| 項目 | 内容 |
+|------|------|
+| パス | `/sfm/<環境>/<種類>/<名前>`。環境は、`development`（開発サイト）・`production`（本番サイト）。種類の例: `file-server`・`federation`・`web-push` |
+| 参照名（アプリ） | `<種類>/<名前>`（例: `file-server/robot`・`web-push/vapid-private-key`）。小文字・数字・`.`・`_`・`-` の 1〜4 階層（1 階層 64 文字まで）。それ以外は、アプリが、拒否する |
+| 権限（IaC） | API の Lambda: そのパスの下の `ssm:GetParameter`・`ssm:PutParameter`。ジョブの Lambda: `ssm:GetParameter` だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由（`kms:ViaService`）の利用に限る。**開発サイトの権限では、本番のパス（`/sfm/production/`）を読めない** |
+| 環境変数（Lambda） | `CREDENTIAL_STORE=ssm`・`CREDENTIAL_PATH_PREFIX=/sfm/<環境>/`（秘密ではない。IaC が設定する） |
+| キャッシュ | アプリは、読み取りの結果を、5 分、Lambda の実行環境の中で持つ。値を更新したあと、ほかの実行環境が、新しい値を使うまで、最長 5 分。接続先の認証に失敗したときは、アプリが、すぐ取り直す |
+| 上限 | 1 つの値は、4 KB まで（標準のパラメータの上限）。空の値は、保存できない |
+
+### 10.2 値の登録・更新（画面〔#207〕ができるまでの、手動の手順）
+
+- 値は、コマンドの履歴に残らない方法で渡す（例: PowerShell で、`Read-Host -AsSecureString` で受け取った値を使う。値を、コマンドの引数に直接書かない）。
+- 作成・更新の例（`<値のファイル>` は、値だけを書いた、一時のファイル。登録後に、安全に削除する）:
+
+```powershell
+aws ssm put-parameter --name /sfm/development/web-push/vapid-private-key --type SecureString --tier Standard --overwrite --value file://<値のファイル>
+```
+
+- 状態の確認（**値は、復号しない**。`--with-decryption` を付けない）:
+
+```powershell
+aws ssm get-parameter --name /sfm/development/web-push/vapid-private-key --query "Parameter.LastModifiedDate"
+```
+
+- 本番サイトは、パスを `/sfm/production/…` にして、同じ手順で登録する。**開発サイトと本番サイトで、同じ値を使い回さない**（security.md）。
+- 削除は、アプリからは、しない（ユーザーが、AWS で行う）。
+
+### 10.3 IaC の適用後の確認（IAM。値を使わずに確認できる）
+
+アプリが、秘密情報を使う処理（#207・#241・#119 など）が入るまで、実行時の確認はできない。**適用後は、IAM のシミュレーターで、権限を確認する**（ユーザーが実行。`<ロール名>` は、API・ジョブの Lambda の実行ロール）:
+
+```powershell
+aws iam simulate-principal-policy --policy-source-arn <ロールの ARN> --action-names ssm:GetParameter ssm:PutParameter --resource-arns arn:aws:ssm:ap-northeast-1:<アカウント ID>:parameter/sfm/development/file-server/robot
+```
+
+| 確認 | 期待する結果 |
+|------|--------------|
+| API のロール × `/sfm/development/…` | `ssm:GetParameter`・`ssm:PutParameter` が、allowed |
+| ジョブのロール × `/sfm/development/…` | `ssm:GetParameter` が allowed。`ssm:PutParameter` は、implicitDeny |
+| 開発のロール × `/sfm/production/…` | どちらも、implicitDeny |
+
+アカウント ID は、記録しない（リポジトリ・Issue・PR に書かない）。
+
+### 10.4 障害時
+
+- 「秘密情報を読み取れませんでした」「秘密情報を保存できませんでした」が出るとき: ログの `errorName`（エラーの種類の名前だけ。値・AWS のエラーの内容は、ログに出さない）を確認する。`AccessDeniedException` なら、10.3 の IAM と、暗号化の鍵の権限を確認する。`ThrottlingException` は、時間をおいて、再び試す。
+- 認証に失敗する（接続先の認証情報を、AWS で更新した直後）: アプリは、認証の失敗で、すぐ取り直す。それでも失敗するときは、最長 5 分待つ。

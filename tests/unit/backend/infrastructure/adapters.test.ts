@@ -144,11 +144,11 @@ describe('識別子の生成・秘密情報・停止の再現', () => {
     expect(ids.next()).not.toBe(ids.next());
   });
 
-  it('秘密情報は、参照名に対応する環境変数 SECRET_<参照名> から読む', () => {
+  it('秘密情報は、参照名に対応する環境変数 SECRET_<参照名> から読む（非同期。#206 で、参照名を小文字の形式にした）', async () => {
     const secrets = createEnvSecretPort({ SECRET_FILE_SERVER: 'dummy-secret' });
 
-    expect(secrets.get('FILE_SERVER')).toBe('dummy-secret');
-    expect(secrets.get('OTHER')).toBeUndefined();
+    expect(await secrets.get('file-server')).toBe('dummy-secret');
+    expect(await secrets.get('other')).toBeUndefined();
   });
 
   it('停止・遅延の設定を、一部だけ変更できる', () => {

@@ -17,7 +17,7 @@
  */
 
 import { join } from 'node:path';
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { ArnFormat, CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import { type ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { type IUserPool, type IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { type ITable } from 'aws-cdk-lib/aws-dynamodb';
@@ -66,6 +66,7 @@ import {
   LOGIN_FAILURE_WINDOW_MINUTES,
   type LoginFailurePolicy,
 } from '../../src/backend/infrastructure/common/auth-policy.ts';
+import { DEFAULT_SITE_ENVIRONMENT, type SiteEnvironment } from './config.ts';
 import { bundledLambdaCode } from './bundle-lambda.ts';
 
 /** ファイルの拡張子がないパス（SPA の画面のパス）を、index.html に書き換える。API のパスには、付けない。 */
@@ -108,6 +109,20 @@ export const COGNITO_ACTIONS = [
   'cognito-idp:AdminDeleteUser',
   'cognito-idp:AdminUserGlobalSignOut',
 ] as const;
+
+/**
+ * 秘密情報（接続先の認証情報・Web Push の秘密鍵。パラメータストアの SecureString）に使う操作（Issue #206。ADR-0016 の D-55）。
+ * 環境ごとのパス（`/sfm/<環境>/`）の下だけ。API の Lambda（画面の登録・接続テスト）は、読み取りと書き込み。
+ * ジョブの Lambda（取り込み・連携）は、読み取りだけ。削除は、どちらにも付けない。
+ */
+export const SSM_API_ACTIONS = ['ssm:GetParameter', 'ssm:PutParameter'] as const;
+export const SSM_JOB_ACTIONS = ['ssm:GetParameter'] as const;
+/**
+ * パラメータストアの暗号化（AWS の管理の鍵）に使う操作。パラメータストア経由（kms:ViaService）の利用に限る。
+ * API は、復号と暗号化（書き込み）。ジョブは、復号だけ。
+ */
+export const KMS_SSM_API_ACTIONS = ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey'] as const;
+export const KMS_SSM_JOB_ACTIONS = ['kms:Decrypt'] as const;
 
 /** ファイルサーバーのモックのバケットの、ファイルの保持日数（合成データのファイル。古いファイルは、取り込みの対象に、残さない）。 */
 export const FILE_SERVER_RETENTION_DAYS = 3;
@@ -158,6 +173,11 @@ export interface EvaluationStackProps extends StackProps {
    * 既定は、失敗 5 回 / 15 分（Issue #244。D-44）。一部だけを指定すると、残りは、既定の値。
    */
   readonly loginFailurePolicy?: Partial<LoginFailurePolicy>;
+  /**
+   * サイトの環境（development・production。既定は development）。秘密情報の、パラメータストアのパスの接頭辞
+   * （`/sfm/<環境>/`）になる。環境ごとにパスを分け、開発サイトが、本番サイトの秘密情報を読めないようにする（Issue #206）。
+   */
+  readonly siteEnvironment?: SiteEnvironment;
 }
 
 export class EvaluationStack extends Stack {
@@ -204,6 +224,7 @@ export class EvaluationStack extends Stack {
     // メモリ・タイムアウトは、初期値（Issue #79 の実測で調整する）: CPU はメモリに比例するため 1024 MB、
     // タイムアウトは、CloudFront のオリジンの応答の上限（30 秒）の内側
     const { data } = props;
+    const credentialPathPrefix = `/sfm/${props.siteEnvironment ?? DEFAULT_SITE_ENVIRONMENT}/`;
     // API とジョブの Lambda が共有する、バックエンドの環境変数。秘密情報ではない（ID・テーブル名）。
     // 値は、データのスタックの出力から取る（リポジトリに ID を書かない）
     const backendEnvironment = {
@@ -215,6 +236,9 @@ export class EvaluationStack extends Stack {
       DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
       DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
       FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName,
+      // 秘密情報の保管先（パラメータストア）と、環境ごとのパスの接頭辞。値は、パスの名前で、秘密情報ではない（Issue #206）
+      CREDENTIAL_STORE: 'ssm',
+      CREDENTIAL_PATH_PREFIX: credentialPathPrefix,
       LOG_LEVEL: 'info',
     };
     // 最小権限: 2 つのテーブル（インデックスを含む）への、必要な操作だけ
@@ -235,6 +259,31 @@ export class EvaluationStack extends Stack {
       new PolicyStatement({
         actions: [S3_READ_ACTIONS[1]],
         resources: [fileServerBucket.arnForObjects('*')],
+      }),
+    ];
+    // 秘密情報（パラメータストア）: 環境のパスの下だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由の利用に限る
+    const credentialParametersArn = this.formatArn({
+      service: 'ssm',
+      resource: 'parameter',
+      resourceName: `${credentialPathPrefix.slice(1)}*`,
+      arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+    });
+    const credentialPolicies = (
+      ssmActions: readonly string[],
+      kmsActions: readonly string[],
+    ): PolicyStatement[] => [
+      new PolicyStatement({ actions: [...ssmActions], resources: [credentialParametersArn] }),
+      new PolicyStatement({
+        actions: [...kmsActions],
+        resources: [
+          this.formatArn({
+            service: 'kms',
+            resource: 'key',
+            resourceName: '*',
+            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+          }),
+        ],
+        conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
       }),
     ];
     const apiFunction = new LambdaFunction(this, 'ApiFunction', {
@@ -265,6 +314,9 @@ export class EvaluationStack extends Stack {
     for (const statement of fileServerReadPolicies()) {
       apiFunction.addToRolePolicy(statement);
     }
+    for (const statement of credentialPolicies(SSM_API_ACTIONS, KMS_SSM_API_ACTIONS)) {
+      apiFunction.addToRolePolicy(statement);
+    }
     apiFunction.addToRolePolicy(
       new PolicyStatement({
         actions: [...COGNITO_ACTIONS],
@@ -292,6 +344,9 @@ export class EvaluationStack extends Stack {
     });
     jobFunction.addToRolePolicy(dataTablesPolicy());
     for (const statement of fileServerReadPolicies()) {
+      jobFunction.addToRolePolicy(statement);
+    }
+    for (const statement of credentialPolicies(SSM_JOB_ACTIONS, KMS_SSM_JOB_ACTIONS)) {
       jobFunction.addToRolePolicy(statement);
     }
     for (const plan of DEFAULT_SCHEDULE) {

@@ -181,6 +181,27 @@ describe('CDK アプリの組み立て', () => {
     }
   });
 
+  it('秘密情報（パラメータストア）のパスの接頭辞は、サイトの環境ごとに分ける（開発 /sfm/development/・本番 /sfm/production/）。Lambda の環境変数と、IAM のリソースに入る（Issue #206）', () => {
+    const resourcesOf = (app: App, stackName: string) =>
+      Template.fromStack(app.node.findChild(stackName) as Stack).toJSON().Resources as Record<
+        string,
+        { Type: string; Properties: Record<string, unknown> }
+      >;
+    const development = resourcesOf(createEvaluationApp({}, assets()), 'SfmEvaluation');
+    const production = resourcesOf(
+      createEvaluationApp({ SFM_ENVIRONMENT: 'production' }, assets()),
+      'SfmProductionEvaluation',
+    );
+
+    expect(JSON.stringify(development)).toContain('/sfm/development/');
+    expect(JSON.stringify(development)).not.toContain('/sfm/production/');
+    expect(JSON.stringify(production)).toContain('/sfm/production/');
+    expect(JSON.stringify(production)).not.toContain('/sfm/development/');
+    // IAM のリソースは、環境のパスの下だけ
+    expect(JSON.stringify(development)).toContain('parameter/sfm/development/*');
+    expect(JSON.stringify(production)).toContain('parameter/sfm/production/*');
+  });
+
   it('本番サイト（SFM_ENVIRONMENT=production）: 開発サイトとは別の名前のスタックを作る（データ・ユーザー・URL を共有しない）', () => {
     const production = createEvaluationApp({ SFM_ENVIRONMENT: 'production' }, assets());
     const development = createEvaluationApp({}, assets());

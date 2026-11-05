@@ -144,7 +144,7 @@ smart-farm-monitoring/
 | `FederationPort` | 農業情報基盤への送信 | `mock-federation.ts`: 受け取りを記録。成功・停止・遅延・拒否を再現 | 農業情報基盤のアダプタ（Q-005） |
 | `AuthPort` | 認証（誰か）。ロールから権限への変換は、アプリケーション層の `AccessPolicy` | `local-auth.ts`: アプリ内のユーザーID・パスワード、セッション、試行回数の制限（3.6）。`cognito/cognito-identity.ts`: Amazon Cognito（ADR-0008。`AUTH_PROVIDER=cognito`） | Amazon Cognito（実装済み） |
 | `ClockPort` | 現在時刻と待機（`sleep`） | `clocks.ts`: システム時計、操作できる時計（固定・進行） | （同じ） |
-| `SecretPort` | 秘密情報の読み出し | `env-secret.ts`: 環境変数 `SECRET_<参照名>` | シークレット管理サービス |
+| `SecretPort` | 秘密情報の読み取り・書き込み・状態（非同期。#206） | `ssm/ssm-secret.ts`: パラメータストア（SecureString。5 分のキャッシュ。`get` の `refresh` で取り直す）。`local/env-secret.ts`: メモリ・環境変数 `SECRET_<参照名>`（ローカル・テスト） | Secrets Manager（自動のローテーションが要るとき） |
 | `PasswordHasherPort` | パスワードのハッシュ化（ローカルの資格情報が使う） | `password-hasher.ts`: scrypt（ソルトつき） | Cognito では、使わない（ユーザーのパスワードを持たない） |
 | `CredentialPort` | 資格情報（パスワード）の管理（作成・再設定・削除）。ユーザー管理（UC-14）・最初のユーザーが使う | `local-credentials.ts`: ハッシュを、ユーザーの記録に持つ | `cognito/cognito-identity.ts`: Cognito（`AdminCreateUser`・`AdminSetUserPassword`・`AdminDeleteUser`） |
 | `LoginThrottlePort` | ログインの試行回数の制限（接続元ごと。複数の実行環境で共有する実装が使う） | `in-memory-login-throttle.ts`: メモリ（ローカルの認証は、`local-auth.ts` が自前で持つ） | `dynamodb/login-throttle.ts`: DynamoDB（`LOGINFAIL`。TTL で自動削除） |
@@ -219,6 +219,8 @@ flowchart LR
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 1ロール `worker`（全権限。起動時に警告のログ） | ロールと権限の割り当て（4章 No.1）。初期ユーザーのロールの既定は、ユーザー管理の権限を持つ最初のロール（なければ、`INITIAL_USER_ROLE` の指定が必須） |
 | `DEV_API_ENABLED` | `false` | 開発用 API（3.8）を有効にするか。既定は無効。E2E（`playwright.config.ts`）・結合テスト（`tests/support/test-context.ts`）では、明示的に `true` にする。有効なときは、起動時に警告のログを出す。時刻を操作できる時計は、有効なときだけ作る（無効なときは、システム時計） |
 | `TRUSTED_PROXY_HOPS` | `0` | 信頼するプロキシの段数（0〜10）。0 は、`X-Forwarded-For` を信頼せず、接続情報（Node: 接続元のアドレス、Lambda: イベントの `sourceIp`）を使う。N は、`X-Forwarded-For` の末尾から N 番目の値（信頼するプロキシが付けた値）を、ログインの試行回数の制限の接続元とみなす（値の数が N に満たなければ使わない）。E2E は 1。**CloudFront → 関数の URL の構成では、`X-Forwarded-For` が切り詰められるため、使わない**（ADR-0010） |
+| `CREDENTIAL_STORE` | `memory` | 秘密情報の保管先（`memory`・`ssm`＝パラメータストア）。Lambda は、IaC が `ssm` を設定する（#206）。名前に SECRET・KEY を含めない |
+| `CREDENTIAL_PATH_PREFIX` | なし | `ssm` のときの、パスの接頭辞（先頭と末尾が `/`。`/sfm/<環境>/`。必須）。形式が不正なときは、設定エラー |
 | `LOGIN_FAILURE_LIMIT` | `5` | 接続元ごとのログインの失敗の制限の回数（1〜100 の整数。範囲外は設定エラー。4章 No.3。Issue #244） |
 | `LOGIN_FAILURE_WINDOW_MINUTES` | `15` | 同じ制限の時間（分。1〜1440 の整数。範囲外は設定エラー。失敗の記録は、この時間で期限が切れる） |
 | `CLIENT_IP_HEADER` | 未指定 | 利用者の IP が入っているヘッダーの名前（英数字とハイフン。小文字にして使う）。指定すると、そのヘッダーの値（IP として正しいときだけ）を、ログインの試行回数の制限の接続元とみなす（`TRUSTED_PROXY_HOPS`・接続情報より優先）。評価環境は、CloudFront の Function が入れる `x-sfm-viewer-ip`（ADR-0010） |
