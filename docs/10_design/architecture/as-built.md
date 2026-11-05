@@ -1848,6 +1848,7 @@ stateDiagram-v2
 - 一意キーは `設備ID#項目#計測日時#取得元`。同じキーを保存すると上書きされる（内容が変わったファイルの取り込み、手動入力の修正）
 - 手動入力の観測値は、手動入力と一体で管理する（修正で、修正前の観測値を `isDeleted: true` にしてから、修正後を保存する。削除で、観測値も `isDeleted: true`）。取り込みの観測値には、修正・削除の操作がない
 - 取り込み済みデータ一覧（`GET /observations`）は、論理削除でない観測値を、`INVALID`・`MISSING` も含めて表示する
+- `GET /observations` は、`sort` が `category`・`value`、または、`q`（空白だけは除く）の指定があるとき、`from`・`to` が必須で、`to − from` は 31 日以内でなければならない（`viewpoint-handlers.ts` のクエリのスキーマ。判定は `@smart-farm/shared/observation-list-period`。ローカル・DynamoDB の実装に共通。違反は `VALIDATION_ERROR`（400）で、`from`・`to` の項目ごとのエラー）。SC-09 は、足りないとき案内を示し、API を呼ばない。SC-02 の元データは、診断期間が 31 日を超えるとき、並べ替え・検索の間だけ、終了日時から 31 日分に絞る（診断期間がないときは、使えない）（#91）
 
 ## 手動入力（ManualEntry）
 

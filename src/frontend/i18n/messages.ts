@@ -3,6 +3,7 @@
  * ステータス・観点・項目の名称は、共通コード（src/shared）の定義を使う。
  */
 
+import { MAX_LIST_PERIOD_DAYS } from '@smart-farm/shared/observation-list-period';
 import { MANAGEMENT_MESSAGES } from './management-messages.ts';
 
 export const MESSAGES = {
@@ -153,6 +154,8 @@ export const MESSAGES = {
     sortValue: '値',
     sortCategory: 'カテゴリ',
     sourceDataEmpty: '該当するデータがありません',
+    sourceDataPeriodNote: `並べ替え・検索の対象は、診断期間のうち、終了日時から ${String(MAX_LIST_PERIOD_DAYS)} 日分です`,
+    sourceDataPeriodGuidance: '診断（評価）がまだないため、並べ替え・キーワード検索は使えません',
     previousPage: '前へ',
     nextPage: '次へ',
     observedAt: '計測日時',

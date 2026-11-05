@@ -885,6 +885,112 @@ describe('観点の詳細: 元データ（UC-02）', () => {
     expect(observationCalls().at(-1)?.query.get('sort')).toBe('value');
   });
 
+  describe('並べ替え（値・カテゴリ）・キーワード検索の期間は、診断期間の終了から 31 日以内（#91）', () => {
+    const ninetyDays = () => {
+      const long = diagnosis({ evaluatedFrom: '2026-07-11T03:00:00.000Z', periodDays: 90 });
+      return jsonResponse(detail({ long, selected: long, periodDays: 90 }));
+    };
+    const observationCalls = (calls: { path: string; query: URLSearchParams }[]) =>
+      calls.filter((call) => call.path === '/observations');
+
+    it('診断期間が 31 日を超えるとき、既定（日時順・キーワードなし）は、診断期間の全体で取得し、案内は出さない', async () => {
+      const { calls } = renderPath('/viewpoints/environmentalAdaptability', { detail: ninetyDays });
+      const source = await screen.findByTestId('source-data');
+      await within(source).findByText('27.5℃');
+
+      expect(observationCalls(calls)[0]?.query.get('from')).toBe('2026-07-11T03:00:00.000Z');
+      expect(observationCalls(calls)[0]?.query.get('to')).toBe('2026-10-09T03:00:00.000Z');
+      expect(within(source).queryByTestId('source-data-period-note')).toBeNull();
+    });
+
+    it.each([
+      ['値の順', 'sort'],
+      ['キーワード', 'keyword'],
+    ])(
+      '診断期間が 31 日を超えるとき、%s を使うと、終了から 31 日分に絞って取得し、その旨を示す。戻すと、診断期間の全体に戻る',
+      async (_name, kind) => {
+        const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
+          detail: ninetyDays,
+        });
+        const source = await screen.findByTestId('source-data');
+        await within(source).findByText('27.5℃');
+
+        if (kind === 'sort') {
+          fireEvent.change(within(source).getByLabelText('並べ替え', { selector: 'select' }), {
+            target: { value: 'value' },
+          });
+        } else {
+          fireEvent.change(within(source).getByLabelText('キーワード'), {
+            target: { value: '温度' },
+          });
+        }
+
+        await waitFor(() => {
+          expect(observationCalls(calls).at(-1)?.query.get('from')).toBe(
+            '2026-09-08T03:00:00.000Z',
+          );
+        });
+        expect(observationCalls(calls).at(-1)?.query.get('to')).toBe('2026-10-09T03:00:00.000Z');
+        expect(within(source).getByTestId('source-data-period-note').textContent).toBe(
+          '並べ替え・検索の対象は、診断期間のうち、終了日時から 31 日分です',
+        );
+
+        if (kind === 'sort') {
+          fireEvent.change(within(source).getByLabelText('並べ替え', { selector: 'select' }), {
+            target: { value: 'observedAt' },
+          });
+        } else {
+          fireEvent.change(within(source).getByLabelText('キーワード'), { target: { value: '' } });
+        }
+        await waitFor(() => {
+          expect(observationCalls(calls).at(-1)?.query.get('from')).toBe(
+            '2026-07-11T03:00:00.000Z',
+          );
+        });
+        expect(within(source).queryByTestId('source-data-period-note')).toBeNull();
+      },
+    );
+
+    it('診断期間が 31 日以内なら、並べ替え・キーワードを使っても、診断期間のまま取得し、案内は出さない', async () => {
+      const { calls } = renderPath('/viewpoints/environmentalAdaptability');
+      const source = await screen.findByTestId('source-data');
+      await within(source).findByText('27.5℃');
+
+      fireEvent.change(within(source).getByLabelText('並べ替え', { selector: 'select' }), {
+        target: { value: 'value' },
+      });
+
+      await waitFor(() => {
+        expect(observationCalls(calls).at(-1)?.query.get('sort')).toBe('value');
+      });
+      expect(observationCalls(calls).at(-1)?.query.get('from')).toBe('2026-10-02T03:00:00.000Z');
+      expect(within(source).queryByTestId('source-data-period-note')).toBeNull();
+    });
+
+    it('評価がまだなく、診断期間がないときは、キーワード・値・カテゴリの順を使えない（案内を示す）。日時順は使える', async () => {
+      const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
+        detail: () =>
+          jsonResponse(detail({ isEvaluated: false, selected: null, short: null, long: null })),
+      });
+      const source = await screen.findByTestId('source-data');
+      await waitFor(() => {
+        expect(observationCalls(calls)).not.toHaveLength(0);
+      });
+
+      expect(within(source).getByLabelText<HTMLInputElement>('キーワード').disabled).toBe(true);
+      expect(
+        within(source).getByLabelText<HTMLSelectElement>('並べ替え', { selector: 'select' })
+          .disabled,
+      ).toBe(true);
+      expect(within(source).getByTestId('source-data-period-guidance').textContent).toBe(
+        '診断（評価）がまだないため、並べ替え・キーワード検索は使えません',
+      );
+      expect(observationCalls(calls).every((call) => call.query.get('sort') === 'observedAt')).toBe(
+        true,
+      );
+    });
+  });
+
   it('ページ分割: 次へ・前へで、カーソルを進め・戻す。先頭では前へ、最後では次へを無効にする', async () => {
     const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
       observations: (request) =>

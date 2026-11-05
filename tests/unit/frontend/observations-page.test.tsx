@@ -149,7 +149,7 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
 
   it('ページ分割と、取得失敗の表示（再読み込み）', async () => {
     let failing = false;
-    const { calls } = renderApp('/observations', {
+    const { calls } = renderApp('/observations?from=2026-10-01&to=2026-10-09', {
       'GET /observations': (request) =>
         failing
           ? errorBody(500, 'INTERNAL_ERROR', '取得できません')
@@ -175,6 +175,78 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
     failing = false;
     fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
     expect(await screen.findAllByTestId('observation-row')).toHaveLength(1);
+  });
+});
+
+describe('並べ替え（値・カテゴリ）・キーワード検索は、期間（31 日以内）が必須（#91。SC-09）', () => {
+  const GUIDANCE = '並べ替え・検索は、期間（31 日以内）を指定してください';
+  const listRoute = {
+    'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
+  };
+
+  it.each([
+    ['値の順', '/observations?sort=value'],
+    ['カテゴリの順', '/observations?sort=category'],
+    ['キーワード', '/observations?q=%E6%B8%A9%E5%BA%A6'],
+    ['開始日だけ', '/observations?sort=value&from=2026-10-01'],
+    ['終了日だけ', '/observations?q=x&to=2026-10-09'],
+  ])('%s で、期間が足りなければ、案内を表示し、一覧の API を呼ばない', async (_name, path) => {
+    const { calls } = renderApp(path, listRoute);
+
+    const guidance = await screen.findByTestId('observations-period-guidance');
+
+    expect(guidance.textContent).toBe(GUIDANCE);
+    expect(screen.queryAllByTestId('observation-row')).toHaveLength(0);
+    expect(callsOf(calls, 'GET', '/observations')).toHaveLength(0);
+  });
+
+  it('期間が 31 日を超えるとき（10/1〜11/1 の 32 日分）も、案内を表示し、一覧の API を呼ばない', async () => {
+    const tooLong = renderApp('/observations?sort=value&from=2026-10-01&to=2026-11-01', listRoute);
+    expect((await screen.findByTestId('observations-period-guidance')).textContent).toBe(GUIDANCE);
+    expect(callsOf(tooLong.calls, 'GET', '/observations')).toHaveLength(0);
+  });
+
+  it('期間が 31 日以内なら、並べ替え・キーワードを付けて、一覧を取得する（案内は出さない）', async () => {
+    const { calls } = renderApp(
+      '/observations?sort=value&q=%E6%B8%A9%E5%BA%A6&from=2026-10-01&to=2026-10-31',
+      listRoute,
+    );
+
+    await screen.findAllByTestId('observation-row');
+
+    expect(screen.queryByTestId('observations-period-guidance')).toBeNull();
+    const query = callsOf(calls, 'GET', '/observations')[0]?.query;
+    expect(query?.get('sort')).toBe('value');
+    expect(query?.get('q')).toBe('温度');
+    expect(query?.get('from')).toBe('2026-09-30T15:00:00.000Z');
+    expect(query?.get('to')).toBe('2026-10-31T14:59:59.999Z');
+  });
+
+  it('計測日時の順で、キーワードがなければ、期間がなくても、一覧を表示する。空白だけのキーワードも同じ', async () => {
+    const { calls } = renderApp('/observations?q=%20', listRoute);
+
+    await screen.findAllByTestId('observation-row');
+
+    expect(screen.queryByTestId('observations-period-guidance')).toBeNull();
+    expect(callsOf(calls, 'GET', '/observations')).toHaveLength(1);
+  });
+
+  it('画面の操作: 並べ替えを「値」にすると案内が出て、期間（開始日・終了日）を入れると、一覧に戻る', async () => {
+    renderApp('/observations', listRoute);
+    await screen.findAllByTestId('observation-row');
+    const panel = screen.getByRole('region', { name: '検索' });
+
+    fireEvent.change(within(panel).getByLabelText('並べ替え'), { target: { value: 'value' } });
+    expect((await screen.findByTestId('observations-period-guidance')).textContent).toBe(GUIDANCE);
+
+    fireEvent.change(within(panel).getByLabelText('期間（開始日）'), {
+      target: { value: '2026-10-01' },
+    });
+    fireEvent.change(within(panel).getByLabelText('期間（終了日）'), {
+      target: { value: '2026-10-09' },
+    });
+    expect(await screen.findAllByTestId('observation-row')).toHaveLength(1);
+    expect(screen.queryByTestId('observations-period-guidance')).toBeNull();
   });
 });
 

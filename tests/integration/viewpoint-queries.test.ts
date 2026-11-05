@@ -1011,6 +1011,9 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
     return ObservationListResponseSchema.parse(body);
   }
 
+  /** 値・カテゴリの順、キーワード検索で必須の期間（31 日以内。#91）。データ（1〜5 時間前）を含む 7 日間。 */
+  const PERIOD = `from=${encodeURIComponent(hoursAgo(7 * 24))}&to=${encodeURIComponent(hoursAgo(0))}`;
+
   it('設備を省略すると全設備、ハウスは配下のロボット・センサーを含み、ロボットはそのロボットのみ。新しい順', async () => {
     const context = await withData();
 
@@ -1081,7 +1084,7 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
   ])('キーワード（%s）で検索できる', async (_name, keyword, expectedItems) => {
     const context = await withData();
 
-    const result = await list(context, `q=${encodeURIComponent(keyword)}`);
+    const result = await list(context, `q=${encodeURIComponent(keyword)}&${PERIOD}`);
 
     expect(result.items.map((item) => item.itemKey).sort()).toEqual([...expectedItems].sort());
   });
@@ -1089,9 +1092,9 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
   it('キーワードに一致するデータがなければ、空の一覧を返す。空白だけのキーワードは、絞り込まない', async () => {
     const context = await withData();
 
-    expect((await list(context, 'q=%E5%AD%98%E5%9C%A8%E3%81%97%E3%81%AA%E3%81%84')).items).toEqual(
-      [],
-    );
+    expect(
+      (await list(context, `q=%E5%AD%98%E5%9C%A8%E3%81%97%E3%81%AA%E3%81%84&${PERIOD}`)).items,
+    ).toEqual([]);
     expect((await list(context, 'q=%20%20')).items).toHaveLength(8);
   });
 
@@ -1105,9 +1108,66 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
   ] as const)('並べ替え（%s・%s）の先頭は %s', async (sort, direction, firstItem) => {
     const context = await withData();
 
-    const result = await list(context, `sort=${sort}&direction=${direction}`);
+    const result = await list(
+      context,
+      sort === 'observedAt'
+        ? `sort=${sort}&direction=${direction}`
+        : `sort=${sort}&direction=${direction}&${PERIOD}`,
+    );
 
     expect(result.items[0]?.itemKey).toBe(firstItem);
+  });
+
+  describe('並べ替え（値・カテゴリ）・キーワード検索は、期間（31 日以内）が必須（#91）', () => {
+    const start = '2020-01-01T00:00:00.000Z';
+    const end = (days: number, extraMs = 0) =>
+      new Date(Date.parse(start) + days * 86_400_000 + extraMs).toISOString();
+    const period = (to: string) => `from=${encodeURIComponent(start)}&to=${encodeURIComponent(to)}`;
+
+    async function fieldsOf(context: Context, query: string) {
+      const { status, body } = await get(context, `/observations?${query}`);
+      expect(status).toBe(400);
+      const error = (body as { error: { code: string; fields?: { name: string }[] } }).error;
+      expect(error.code).toBe('VALIDATION_ERROR');
+      return (error.fields ?? []).map((field) => field.name).sort();
+    }
+
+    it.each([
+      ['値の順', 'sort=value'],
+      ['カテゴリの順', 'sort=category'],
+      ['キーワード', 'q=%E5%8F%8E%E7%A9%AB'],
+    ])('%s で、期間（from・to）がなければ、400（項目ごとのエラーつき）', async (_name, query) => {
+      const context = await withData();
+
+      expect(await fieldsOf(context, query)).toEqual(['from', 'to']);
+    });
+
+    it('片方だけでも、400（指定していない方の項目のエラー）', async () => {
+      const context = await withData();
+
+      expect(await fieldsOf(context, `sort=value&from=${encodeURIComponent(start)}`)).toEqual([
+        'to',
+      ]);
+      expect(await fieldsOf(context, `q=x&to=${encodeURIComponent(start)}`)).toEqual(['from']);
+    });
+
+    it('境界: ちょうど 31 日は、受け付ける。31 日と 1 ミリ秒は、400', async () => {
+      const context = await withData();
+
+      await list(context, `sort=value&${period(end(31))}`);
+      expect(await fieldsOf(context, `sort=value&${period(end(31, 1))}`)).toEqual(['from', 'to']);
+      expect(await fieldsOf(context, `q=x&${period(end(32))}`)).toEqual(['from', 'to']);
+    });
+
+    it('計測日時の順（既定）は、期間がなくても、全期間をページで送れる。空白だけのキーワードも、期間は不要', async () => {
+      const context = await withData();
+
+      expect((await list(context)).items).toHaveLength(8);
+      expect((await list(context, 'sort=observedAt&direction=asc')).items).toHaveLength(8);
+      expect((await list(context, 'q=%20%20')).items).toHaveLength(8);
+      // 期間が 31 日を超えても、計測日時の順なら、受け付ける
+      expect((await list(context, period(end(90)))).items).toHaveLength(0);
+    });
   });
 
   it('ページ分割（limit・cursor）で、全件を重複なく返す。不正なカーソルは 400', async () => {

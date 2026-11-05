@@ -44,6 +44,9 @@ async function column(page: Page, index: number): Promise<string[]> {
   );
 }
 
+/** キーワード・値・カテゴリの順の並べ替えで必須の期間（31 日以内。日本時間の日付）。データ（9 時間前まで）を含む（#91）。 */
+const PERIOD = '?from=2026-10-08&to=2026-10-09';
+
 /** 9カテゴリそれぞれのデータ（自動取り込み・手動入力が混在）。 */
 const NINE_CATEGORIES: readonly SeededObservation[] = [
   { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 10, observedAt: hoursAgo(9) },
@@ -322,7 +325,7 @@ test.describe('基本フロー 3: カテゴリ・日時の期間・取得元・�
     }) => {
       await prepareApp(request);
       await seed(request, { observations: [...NINE_CATEGORIES] });
-      await openObservations(page);
+      await openObservations(page, PERIOD);
 
       await page.getByLabel('キーワード').fill(item.keyword);
 
@@ -351,6 +354,77 @@ test.describe('基本フロー 3: カテゴリ・日時の期間・取得元・�
     // 画面で条件を変えると、URL に反映される
     await page.getByLabel('カテゴリ').selectOption('HARVEST');
     await expect(page).toHaveURL(/category=HARVEST/);
+  });
+});
+
+test.describe('代替フロー: 並べ替え（値・カテゴリ）・キーワード検索は、期間（31 日以内）が必須（#91）', () => {
+  const GUIDANCE = '並べ替え・検索は、期間（31 日以内）を指定してください';
+
+  test('期間なしで、値の順・カテゴリの順・キーワードを選ぶと、案内を表示し、期間（31 日以内）を指定すると、一覧に戻る。日時順は、期間がなくても全期間を表示する', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...NINE_CATEGORIES] });
+    await openObservations(page);
+    await expect(rows(page)).toHaveCount(10);
+
+    await page.getByLabel('並べ替え', { exact: true }).selectOption('value');
+    await expect(page.getByTestId('observations-period-guidance')).toHaveText(GUIDANCE);
+    await expect(rows(page)).toHaveCount(0);
+    await shot(page, testInfo, 'uc20-period-guidance');
+    await page.getByLabel('並べ替え', { exact: true }).selectOption('category');
+    await expect(page.getByTestId('observations-period-guidance')).toBeVisible();
+    await page.getByLabel('並べ替え', { exact: true }).selectOption('observedAt');
+    await expect(rows(page)).toHaveCount(10);
+    await expect(page.getByTestId('observations-period-guidance')).toHaveCount(0);
+
+    await page.getByLabel('キーワード').fill('手動');
+    await expect(page.getByTestId('observations-period-guidance')).toHaveText(GUIDANCE);
+    await page.getByLabel('期間（開始日）').fill('2026-10-08');
+    await page.getByLabel('期間（終了日）').fill('2026-10-09');
+    await expect(rows(page)).toHaveCount(6);
+    await expect(page.getByTestId('observations-period-guidance')).toHaveCount(0);
+  });
+
+  test('期間が 31 日を超えると、案内を表示する（ちょうど 31 日は、一覧を表示する）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...NINE_CATEGORIES] });
+    await openObservations(page, '?sort=value&from=2026-09-08&to=2026-10-09');
+    await expect(page.getByTestId('observations-period-guidance')).toHaveText(GUIDANCE);
+
+    await page.getByLabel('期間（開始日）').fill('2026-09-09');
+
+    await expect(rows(page)).toHaveCount(10);
+  });
+
+  test('API は、期間のない・31 日を超える、値・カテゴリの順・キーワードを、400（項目ごとのエラーつき）で拒否する。日時順は、期間なしで受け付ける', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...NINE_CATEGORIES] });
+
+    const noPeriod = await api(request, 'GET', '/observations?sort=value');
+    const keyword = await api(request, 'GET', '/observations?q=%E6%89%8B%E5%8B%95');
+    const tooLong = await api(
+      request,
+      'GET',
+      '/observations?sort=category&from=2026-09-01T00:00:00.000Z&to=2026-10-09T00:00:00.000Z',
+    );
+    const byTime = await api(request, 'GET', '/observations');
+
+    for (const response of [noPeriod, keyword, tooLong]) {
+      expect(response.status()).toBe(400);
+      const body = (await response.json()) as {
+        error: { code: string; fields: { name: string }[] };
+      };
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(body.error.fields.map((field) => field.name).sort()).toEqual(['from', 'to']);
+    }
+    expect(byTime.status()).toBe(200);
   });
 });
 
@@ -390,7 +464,7 @@ test.describe('基本フロー 3: 並べ替え（日時・カテゴリ・値）�
     test(`並べ替え: ${item.name}`, async ({ page, request }) => {
       await prepareApp(request);
       await seed(request, { observations: [...NINE_CATEGORIES] });
-      await openObservations(page);
+      await openObservations(page, PERIOD);
 
       await page.getByLabel('並べ替え', { exact: true }).selectOption(item.sort);
       await page.getByLabel('並べ替えの向き').selectOption(item.direction);
@@ -407,7 +481,7 @@ test.describe('基本フロー 3: 並べ替え（日時・カテゴリ・値）�
   }) => {
     await prepareApp(request);
     await seed(request, { observations: [...NINE_CATEGORIES] });
-    await openObservations(page);
+    await openObservations(page, PERIOD);
 
     await page.getByLabel('並べ替え', { exact: true }).selectOption('category');
     await page.getByLabel('並べ替えの向き').selectOption('asc');
