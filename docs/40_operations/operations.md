@@ -340,7 +340,7 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | 9.7 データの削除と、再作成 | **確認済み**（2026-10-22。ユーザーが実行。データが空の状態）。評価環境のスタック（`SfmProductionEvaluation`）の削除 → 保護の解除 → データのスタック（`SfmProductionData`）の削除 → DynamoDB のテーブル 2 つの削除 → Cognito のユーザープールの削除（コンソール）が成功した。削除の確認（スタックがない・本番のテーブルがない）と、**開発サイトが無事なこと**（スタックの状態・`/health`）も確認した。続けて「Deploy production」で再作成し、`/health`・最初のユーザーの作成・ログイン・ダッシュボードの表示・ジョブのログにエラーがないことを確認した（IaC で同じ環境を再作成できる。`SiteUrl` は新しくなる）。**削除のコマンドは、`SFM_ENVIRONMENT=production` を指定しないと、開発サイトを消す**。実行の前に、`diff` の `Stack` の行が、本番の 2 スタックだけであることを確認する（`pnpm --filter @smart-farm/infra run diff`） |
 | `main` への push による本番サイトの自動デプロイ（承認待ち → 承認 → 成功） | **確認済み**（2026-10-26。Issue #167。v0.3.0 のリリース〔PR #251〕。承認は、ユーザーが実行）。`release/0.3.0` → `main` のマージ（Merge commit）の直後に、「Deploy production」が、`push` で、**自動で始まり**、**承認待ち**（Environment `production` の Review deployments）になった。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していた。承認で、デプロイが進み、**成功した**。`<SiteUrl>/health` が `{"status":"ok",…}` を返した。同じ `main` への push のあとの、タグ `v0.3.0` の push・GitHub Release の作成・`main` → `develop` の反映 PR の作成は、承認待ちのデプロイと干渉しなかった（待機のまま） |
 | `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
-| 10 秘密情報（パラメータストア）の IAM の権限（Issue #206） | 未実施（IaC の適用後に、10.3 の IAM のシミュレーターで確認する。ユーザーが実行） |
+| 10 秘密情報（パラメータストア）の IAM の権限（Issue #206） | **開発サイトで確認済み**（2026-11-05。ユーザーが実行。10.3 の IAM のシミュレーター。環境変数・パラメータストアの権限・暗号化の鍵の権限が、すべて期待どおり）。実際の暗号化・復号は、#207・#241 で、秘密情報を使うときに確認する。**本番サイトは、未実施** |
 | 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
 
 ## 10. 秘密情報（パラメータストア）の運用手順（Issue #206。ADR-0016 の D-55・ADR-0009）
@@ -378,19 +378,42 @@ aws ssm get-parameter --name /sfm/development/web-push/vapid-private-key --query
 
 ### 10.3 IaC の適用後の確認（IAM。値を使わずに確認できる）
 
-アプリが、秘密情報を使う処理（#207・#241・#119 など）が入るまで、実行時の確認はできない。**適用後は、IAM のシミュレーターで、権限を確認する**（ユーザーが実行。`<ロール名>` は、API・ジョブの Lambda の実行ロール）:
+アプリが、秘密情報を使う処理（#207・#241・#119 など）が入るまで、実行時の確認はできない。**適用後は、IAM のシミュレーターで、権限を確認する**（ユーザーが実行）。プロファイル（`$env:AWS_PROFILE`）とリージョン（`--region ap-northeast-1`）を指定し、対象が大学のアカウントであることを、`aws sts get-caller-identity` で確認してから行う。
+
+- **リソースは、1 つずつ**シミュレートする。**複数のリソースを渡すと、判定が、操作ごとに 1 つにまとめられ**（1 つでも許可されないと、全体が implicitDeny）、期待どおりの設定でも、すべて implicitDeny に見える。
+- API・ジョブの Lambda の実行ロールは、スタックの出力（`ApiFunctionName`・`JobFunctionName`）の関数から、`aws lambda get-function-configuration --query Role` で取る。
 
 ```powershell
-aws iam simulate-principal-policy --policy-source-arn <ロールの ARN> --action-names ssm:GetParameter ssm:PutParameter --resource-arns arn:aws:ssm:ap-northeast-1:<アカウント ID>:parameter/sfm/development/file-server/robot
+$env:AWS_PROFILE = '<プロファイル名>'
+$region = 'ap-northeast-1'
+$account = aws sts get-caller-identity --region $region --query Account --output text
+$dev  = "arn:aws:ssm:${region}:${account}:parameter/sfm/development/file-server/robot"
+$prod = "arn:aws:ssm:${region}:${account}:parameter/sfm/production/file-server/robot"
+foreach ($role in $apiRole, $jobRole) {
+  foreach ($target in @(@('development', $dev), @('production', $prod))) {
+    "---- $($role.Split('/')[-1]) × $($target[0])"
+    aws iam simulate-principal-policy --policy-source-arn $role --action-names ssm:GetParameter ssm:PutParameter ssm:DeleteParameter --resource-arns $target[1] --query "EvaluationResults[].[EvalActionName,EvalDecision]" --output text
+  }
+}
 ```
 
-| 確認 | 期待する結果 |
-|------|--------------|
-| API のロール × `/sfm/development/…` | `ssm:GetParameter`・`ssm:PutParameter` が、allowed |
-| ジョブのロール × `/sfm/development/…` | `ssm:GetParameter` が allowed。`ssm:PutParameter` は、implicitDeny |
-| 開発のロール × `/sfm/production/…` | どちらも、implicitDeny |
+| ロール × パス | GetParameter | PutParameter | DeleteParameter |
+|---------------|--------------|--------------|-----------------|
+| API × `/sfm/development/…` | allowed | allowed | implicitDeny |
+| API × `/sfm/production/…` | implicitDeny | implicitDeny | implicitDeny |
+| ジョブ × `/sfm/development/…` | allowed | implicitDeny | implicitDeny |
+| ジョブ × `/sfm/production/…` | implicitDeny | implicitDeny | implicitDeny |
 
-アカウント ID は、記録しない（リポジトリ・Issue・PR に書かない）。
+暗号化の鍵（`kms:ViaService` の条件）は、鍵の ARN（`arn:aws:kms:<リージョン>:<アカウント ID>:key/<任意の ID>`）に対して、`--context-entries "ContextKeyName=kms:ViaService,ContextKeyValues=ssm.<リージョン>.amazonaws.com,ContextKeyType=string"` を付けて、`kms:Decrypt`・`kms:Encrypt`・`kms:GenerateDataKey` を確認する。
+
+| ロール | 条件あり（パラメータストア経由） | 条件なし（直接の利用） |
+|--------|----------------------------------|------------------------|
+| API | `Decrypt`・`Encrypt`・`GenerateDataKey` が allowed | `Decrypt` は implicitDeny |
+| ジョブ | `Decrypt` が allowed。`Encrypt`・`GenerateDataKey` は implicitDeny | `Decrypt` は implicitDeny |
+
+**シミュレーターの限界**: 見るのは、ロールの IAM のポリシーだけ。AWS の管理の鍵（`alias/aws/ssm`）のキーポリシーは、評価しない。実際に、暗号化・復号できるかは、秘密情報を使う処理（#207・#241）が入ったときに、確かめる（足りなければ、`AccessDeniedException`）。
+
+**確認済み**: 開発サイトで、2026-11-05（ユーザーが実行。Issue #206。PR #290 のブランチの「Deploy development」のあと）。環境変数（`CREDENTIAL_STORE=ssm`・`CREDENTIAL_PATH_PREFIX=/sfm/development/`。API・ジョブの両方）、上の 2 つの表の、すべての判定が、期待どおりだった。アカウント ID は、記録しない（リポジトリ・Issue・PR に書かない）。**本番サイトは、本番のデプロイ（`main` へのマージ）のあとに、パスを `/sfm/production/` にして、同じ確認を行う**（未実施）。
 
 ### 10.4 障害時
 

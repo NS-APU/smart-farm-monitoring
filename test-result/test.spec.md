@@ -11333,4 +11333,4 @@ Lambda 側の実行時間・起動の時間（Init Duration）は、CloudWatch L
 | `tests/unit/backend/infrastructure/adapters.test.ts` | 環境変数の SecretPort のテスト 1 件: 非同期（`await`）にし、参照名を `FILE_SERVER` から `file-server`（環境変数は `SECRET_FILE_SERVER` のまま）にした。期待する値は、変えていない | `SecretPort` を、非同期の読み取り・書き込み・状態を持つ形に作り直した（D-55）。参照名を、小文字の形式に限った（パスの安全のため） |
 | `infra/test/evaluation-stack.test.ts` | ジョブの IAM のテスト 1 件: 許可する操作に、パラメータストアの読み取りと、復号を加え（`SSM_JOB_ACTIONS`・`KMS_SSM_JOB_ACTIONS`）、ステートメントの数を 3 から 5 にした。書き込み・暗号化の操作が、ないことの確認を加えた | ジョブの Lambda に、秘密情報の読み取りの権限を付けたため（最小権限は、保つ） |
 
-実測（手元（Windows））: `pnpm test:unit` は、103 ファイル・2231 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.41%・Branches 95.83%・Functions 99.73%・Lines 99.39%。**AWS での実環境の確認（IaC の適用後の、IAM のシミュレーター。operations.md 10.3）は、未実施**（ユーザーが、AWS に適用したあとに行う）。
+実測（手元（Windows））: `pnpm test:unit` は、103 ファイル・2231 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.41%・Branches 95.83%・Functions 99.73%・Lines 99.39%。**AWS での実環境の確認（IaC の適用後の、IAM のシミュレーター。operations.md 10.3）は、開発サイトで、確認済み**（2026-11-05。ユーザーが実行。環境変数・パラメータストアの権限・暗号化の鍵の権限が、すべて期待どおり）。実際の暗号化・復号は、#207・#241 で確認する。本番サイトは、未実施。
