@@ -121,7 +121,7 @@ smart-farm-monitoring/
 
 | モジュール | アプリケーション層のサービス | 主な責務 | UC |
 |------------|------------------------------|----------|----|
-| 取り込み | `ingestion/ingestion-service.ts`、`ingestion-admin-service.ts`（設定の参照・変更・状況）、`ingestion-settings.ts` | 取得 → 重複判定 → 解釈 → 検証 → 保存 → ログ → 評価の更新。再試行、失敗の通知。接続テスト。取り込み元ごとに独立して実行（定期の実行で、1つが想定外のエラーで失敗しても、他の取り込み元は実行し、エラーは、実行後にジョブへ伝える） | UC-08, 09, 15, 16, 24 |
+| 取り込み | `ingestion/ingestion-service.ts`、`ingestion-admin-service.ts`（設定の参照・変更・状況）、`ingestion-settings.ts`、`file-server-credentials.ts`（認証情報から認証のヘッダーを組み立てる）、`routing-file-source.ts`（接続方式で、モック・S3 と HTTP に振り分ける） | 取得 → 重複判定 → 解釈 → 検証 → 保存 → ログ → 評価の更新。再試行、失敗の通知。接続テスト。取り込み元ごとに独立して実行（定期の実行で、1つが想定外のエラーで失敗しても、他の取り込み元は実行し、エラーは、実行後にジョブへ伝える） | UC-08, 09, 15, 16, 24 |
 | 設備管理 | `equipment/equipment-service.ts`、`equipment/status-code-service.ts` | 設備の登録・編集・削除（論理）・階層の取得、ステータスコードの登録・編集・削除（論理）・一覧。変更後は、評価を更新し、変更履歴に記録 | UC-12, 17 |
 | 手動入力 | `manual-entry/manual-entry-service.ts`、`audit/audit-service.ts` | 検証・保存・修正・論理削除・一覧（検索・絞り込み・並べ替え・ページ分割）・変更履歴の記録と参照。保存後は、評価の更新・連携キューへの追加。項目のカタログと検証は `shared/constants/items.ts`・`shared/schemas/manual-entry.ts`（画面と共通） | UC-06, 07, 18 |
 | 評価 | `evaluation/evaluation-service.ts`、`criteria-service.ts`、`criteria-admin-service.ts`（判断基準の編集・既定値へ戻す）、`scope.ts` | 観測値の読み出し → 純粋関数の評価 → 保存 → 状態変化の検知 → 通知・連携キューへ | UC-01〜04, 19, 21 |
@@ -137,7 +137,7 @@ smart-farm-monitoring/
 
 | ポート | 役割 | ローカル（基礎部分で実装） | 本番（後で追加） |
 |--------|------|----------------------------|------------------|
-| `FileSourcePort` | ファイルの一覧・読み取り・接続テスト（読み取り専用） | `mock-file-server.ts`: ローカルのディレクトリ（`<ルート>/<取り込み元>/`）。停止・遅延を再現 | SFTP・S3・HTTPS 等（Q-002）。モックと同じ契約テストを適用 |
+| `FileSourcePort` | ファイルの一覧・読み取り・接続テスト（読み取り専用） | `mock-file-server.ts`: ローカルのディレクトリ（`<ルート>/<取り込み元>/`）。停止・遅延を再現。`infrastructure/http/`（`address-guard.ts`: 内部のアドレスの判定、`http-probe.ts`: HTTP の接続テスト。ADR-0022） | SFTP・S3・HTTPS 等（Q-002）。モックと同じ契約テストを適用 |
 | `FormatProfile` / `FormatProfileRegistry` | ファイルの解釈（レイアウトと項目の対応づけ。版と状態） | `format-profiles/declarative-profile.ts`: 宣言的な設定（JSON）で、ロボット JSON・環境センサー CSV を読む | 確定仕様の FormatProfile を追加・差し替え（FR-1.12） |
 | `Repository`（13種） | 永続化。`Repositories` にまとめる | `local/local-repositories.ts`（組み立て）と `local/repositories/`（集約ごとの実装）: メモリ + JSON ファイル（3.4） | `dynamodb/dynamodb-repositories.ts`（組み立て）と、集約ごとの実装: DynamoDB（物理設計は [data-model.md](../data/data-model.md) 2章・[ADR-0007](../adr/0007-dynamodb-table-design.md)。対応は 4.3） |
 | `NotifierPort` | Web Push の配信（画面内の通知は、通知の保存そのもの） | `dummy-web-push.ts`: 配信を記録。成功・失敗・購読無効を再現 | Web Push の配信サービス。メール等の追加 |
@@ -221,6 +221,7 @@ flowchart LR
 | `TRUSTED_PROXY_HOPS` | `0` | 信頼するプロキシの段数（0〜10）。0 は、`X-Forwarded-For` を信頼せず、接続情報（Node: 接続元のアドレス、Lambda: イベントの `sourceIp`）を使う。N は、`X-Forwarded-For` の末尾から N 番目の値（信頼するプロキシが付けた値）を、ログインの試行回数の制限の接続元とみなす（値の数が N に満たなければ使わない）。E2E は 1。**CloudFront → 関数の URL の構成では、`X-Forwarded-For` が切り詰められるため、使わない**（ADR-0010） |
 | `CREDENTIAL_STORE` | `memory` | 秘密情報の保管先（`memory`・`ssm`＝パラメータストア）。Lambda は、IaC が `ssm` を設定する（#206）。名前に SECRET・KEY を含めない |
 | `CREDENTIAL_PATH_PREFIX` | なし | `ssm` のときの、パスの接頭辞（先頭と末尾が `/`。`/sfm/<環境>/`。必須）。形式が不正なときは、設定エラー |
+| `HTTP_FILE_SOURCE_ALLOW_PRIVATE` | `false` | ファイルサーバー（HTTP）の接続先に、内部のアドレス（ループバック・プライベート・リンクローカル）を許可するか（#172。ADR-0022）。ローカル・E2E・テストで、手元の HTTP サーバーに接続するときだけ `true`。`APP_MODE=production` では、指定しても拒否する。開発サイト・本番には、設定しない |
 | `LOGIN_FAILURE_LIMIT` | `5` | 接続元ごとのログインの失敗の制限の回数（1〜100 の整数。範囲外は設定エラー。4章 No.3。Issue #244） |
 | `LOGIN_FAILURE_WINDOW_MINUTES` | `15` | 同じ制限の時間（分。1〜1440 の整数。範囲外は設定エラー。失敗の記録は、この時間で期限が切れる） |
 | `CLIENT_IP_HEADER` | 未指定 | 利用者の IP が入っているヘッダーの名前（英数字とハイフン。小文字にして使う）。指定すると、そのヘッダーの値（IP として正しいときだけ）を、ログインの試行回数の制限の接続元とみなす（`TRUSTED_PROXY_HOPS`・接続情報より優先）。評価環境は、CloudFront の Function が入れる `x-sfm-viewer-ip`（ADR-0010） |
@@ -531,8 +532,8 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | `PUT /manual-entries/{id}`、`DELETE /manual-entries/{id}` | 修正は登録と同じ入力・応答（200）。削除は論理削除（204）。存在しなければ 404。修正・削除も、評価の更新・変更履歴・連携キューに反映 |
 | `GET /audit-logs` | 権限 `audit:read`。クエリ `operation`（`CREATE`／`UPDATE`／`DELETE`）、`actor`、`targetType`（`manual-entry`・`criteria`・`equipment`・`status-code`・`user`・`ingestion-settings`）、`from`・`to`、`direction`、`limit`、`cursor`。1件は `{ auditId, occurredAt, operation, targetType, targetId, actor, before?, after? }` |
 | `GET /viewpoints/{id}/criteria`、`PUT /viewpoints/{id}/criteria`、`POST /viewpoints/{id}/criteria/reset` | 応答は、判断基準 `{ viewpointId, criteria[], version, isDefault, updatedAt?, updatedBy?, usesStatusIndicator }`（`usesStatusIndicator` は、ステータスコードでも判定する観点。その指標はここでは編集しない）。更新は `{ criteria[] }`（大小関係・数値・条件名を検証。不備は 400）。更新・リセットのたびに、現在の評価を更新し、変更履歴に記録 |
-| `GET /ingestion/settings`、`PUT /ingestion/settings` | 取り込み元ごとの `{ sourceId, kind, profileId, connectionRef, intervalMinutes, isEnabled, formatProfile: { versionLabel, status }, lastStartedAt, lastSuccessAt, isRunning }`。更新は `{ sources: [{ sourceId, connectionRef, intervalMinutes, isEnabled }] }`。認証情報の値は含めない（参照名のみ）。参照名は英数字・`_`・`.`・`-` |
-| `POST /ingestion/{sourceId}/test`、`POST /ingestion/{sourceId}/run` | 接続テストは `{ ok, message }`（200）。即時取得は、同期して実行し、`{ sourceId, result, filesProcessed, recordCount, rejectedCount, attempts }` を 202 で返す（4.1 No.29）。実行中は 409 |
+| `GET /ingestion/settings`、`PUT /ingestion/settings` | 取り込み元ごとの `{ sourceId, kind, profileId, connectionRef, connection, intervalMinutes, isEnabled, formatProfile: { versionLabel, status }, lastStartedAt, lastSuccessAt, isRunning }`。更新は `{ sources: [{ sourceId, connectionRef, connection?, intervalMinutes, isEnabled }] }`（`connection` を省略すると、現在の接続設定を保つ）。`connection` は、`{ type: 'MOCK' }` または `{ type: 'HTTP', protocol, host, port?, filePath, authMethod, apiKeyHeaderName }`（ADR-0022。検証・内部のアドレスの拒否は、400 の項目 `sources.N.connection.*`）。認証情報の値は含めない（参照名のみ）。参照名は英数字・`_`・`.`・`-` |
+| `POST /ingestion/{sourceId}/test`、`POST /ingestion/{sourceId}/run` | 接続テストは `{ ok, message }`（200。失敗は、理由だけを `message` に示す。接続先・認証情報を含まない。ADR-0022）。即時取得は、同期して実行し、`{ sourceId, result, filesProcessed, recordCount, rejectedCount, attempts }` を 202 で返す（4.1 No.29）。実行中は 409 |
 | `GET /ingestion/logs`、`GET /federation/logs` | クエリ `sourceId`（取り込みログのみ）、`limit`、`cursor`。連携は、`{ items[], nextCursor, queue: { PENDING, SENT, FAILED, HELD, EXPIRED } }`（連携キューの件数を含む） |
 | `GET /users`、`POST /users`、`PUT /users/{id}`、`DELETE /users/{id}` | 権限 `user:manage`。一覧は `{ items[], roles[] }`（`lastLoginAt` を含む。パスワードのハッシュは含めない）。登録は `{ userId, userName, password, role }`（201。重複は 409）、修正は `{ userName, role, password? }`、削除は 204（本人は 409） |
 | `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | 状態は、クエリ `endpoint`（端末の宛先）を指定すると、その端末の購読の有無。応答 `{ isAvailable, publicKey, isSubscribed }`。登録 `{ endpoint }`（公開鍵が未設定なら 503）、解除は本文 `{ endpoint? }`（なければ、利用者のすべての購読）。いずれも、ログイン中の利用者が対象 |

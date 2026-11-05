@@ -7,8 +7,15 @@
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { INGESTION_INTERVAL_MINUTES_OPTIONS } from '@smart-farm/shared/constants/status';
 import {
+  DEFAULT_API_KEY_HEADER_NAME,
+  FILE_SERVER_AUTH_METHODS,
+  FILE_SERVER_PROTOCOLS,
   IngestionSourceUpdateSchema,
+  defaultHttpPort,
   type FederationLogListResponse,
+  type FileServerAuthMethod,
+  type FileServerConnection,
+  type FileServerProtocol,
   type IngestionLogListResponse,
   type IngestionSourceStatus,
 } from '@smart-farm/shared/schemas/ingestion';
@@ -25,6 +32,7 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { SelectFilter } from '../components/filter-controls.tsx';
 import { Field, FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
+import { Icon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
@@ -41,6 +49,26 @@ const LOG_PAGE_SIZE = 10;
 function sourceName(sourceId: string): string {
   const names: Readonly<Record<string, string>> = TEXT.sourceNames;
   return names[sourceId] ?? sourceId;
+}
+
+/** 接続設定の内容が同じか（保存済みの接続設定を変えていないときは、送らない）。 */
+function isSameConnection(a: FileServerConnection, b: FileServerConnection): boolean {
+  if (a.type === 'HTTP' && b.type === 'HTTP') {
+    return (
+      a.protocol === b.protocol &&
+      a.host === b.host &&
+      a.port === b.port &&
+      a.filePath === b.filePath &&
+      a.authMethod === b.authMethod &&
+      a.apiKeyHeaderName === b.apiKeyHeaderName
+    );
+  }
+  return a.type === b.type;
+}
+
+/** ポートの入力が、数字でない（空は、省略として、有効）。 */
+function portIsInvalid(port: string): boolean {
+  return port.trim() !== '' && !/^[0-9]+$/.test(port.trim());
 }
 
 /** 項目のエラーのキー（`sources.0.connectionRef` → `connectionRef`）。 */
@@ -73,19 +101,50 @@ function SourceCard(props: SourceCardProps): ReactNode {
   /** 実行中の操作（実行中の表示を、その操作のボタンだけに出す）。 */
   const [operation, setOperation] = useState<'test' | 'run' | undefined>(undefined);
   const [connectionRef, setConnectionRef] = useState(source.connectionRef);
+  const saved = source.connection;
+  const savedHttp = saved.type === 'HTTP' ? saved : undefined;
+  const [connectionType, setConnectionType] = useState<FileServerConnection['type']>(saved.type);
+  const [protocol, setProtocol] = useState<FileServerProtocol>(savedHttp?.protocol ?? 'HTTPS');
+  const [host, setHost] = useState(savedHttp?.host ?? '');
+  const [port, setPort] = useState(savedHttp?.port === undefined ? '' : String(savedHttp.port));
+  const [filePath, setFilePath] = useState(savedHttp?.filePath ?? '');
+  const [authMethod, setAuthMethod] = useState<FileServerAuthMethod>(
+    savedHttp?.authMethod ?? 'NONE',
+  );
+  const [apiKeyHeaderName, setApiKeyHeaderName] = useState(
+    savedHttp?.apiKeyHeaderName ?? DEFAULT_API_KEY_HEADER_NAME,
+  );
   const [interval, setInterval] = useState(String(source.intervalMinutes));
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const { result, onResult: setResult } = props;
   const errors = { ...clientErrors, ...withoutSourcePrefix(submit.fieldErrors) };
+  const isHttp = connectionType === 'HTTP';
+  const canEdit = props.canConfigure;
   const locked = submit.busy || source.isRunning;
 
   async function handleSave(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
     setResult(undefined);
+    const portText = port.trim();
+    const connection =
+      connectionType === 'MOCK'
+        ? { type: 'MOCK' }
+        : {
+            type: 'HTTP',
+            protocol,
+            host,
+            ...(portText === ''
+              ? {}
+              : { port: portIsInvalid(portText) ? Number.NaN : Number(portText) }),
+            filePath,
+            authMethod,
+            apiKeyHeaderName,
+          };
     const parsed = IngestionSourceUpdateSchema.safeParse({
       sourceId: source.sourceId,
       connectionRef,
+      connection,
       intervalMinutes: Number(interval),
       isEnabled,
     });
@@ -94,8 +153,12 @@ function SourceCard(props: SourceCardProps): ReactNode {
       return;
     }
     setClientErrors({});
-    const saved = await submit.run(() => updateIngestionSettings(api, { sources: [parsed.data] }));
-    if (saved.ok) {
+    // 接続設定を変えていないときは、送らない（現在の接続設定を保つ）
+    const { connection: changed, ...unchanged } = parsed.data;
+    const payload =
+      changed === undefined || isSameConnection(changed, saved) ? unchanged : parsed.data;
+    const result = await submit.run(() => updateIngestionSettings(api, { sources: [payload] }));
+    if (result.ok) {
       setResult({ ok: true, text: TEXT.saved });
       props.onChanged();
     }
@@ -190,6 +253,156 @@ function SourceCard(props: SourceCardProps): ReactNode {
               />
             )}
           </Field>
+          <Field label={TEXT.connectionType} name="connectionType" required>
+            {(control) => (
+              <select
+                {...control}
+                value={connectionType}
+                disabled={!canEdit}
+                onChange={(event) => {
+                  setConnectionType(event.target.value === 'HTTP' ? 'HTTP' : 'MOCK');
+                }}
+              >
+                {(['MOCK', 'HTTP'] as const).map((type) => (
+                  <option key={type} value={type}>
+                    {TEXT.connectionTypeLabels[type]}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          {isHttp ? (
+            <>
+              <Field
+                label={TEXT.protocol}
+                name="connection.protocol"
+                error={errors['connection.protocol']}
+              >
+                {(control) => (
+                  <select
+                    {...control}
+                    value={protocol}
+                    disabled={!canEdit}
+                    onChange={(event) => {
+                      setProtocol(event.target.value === 'HTTP' ? 'HTTP' : 'HTTPS');
+                    }}
+                  >
+                    {FILE_SERVER_PROTOCOLS.map((value) => (
+                      <option key={value} value={value}>
+                        {TEXT.protocolLabels[value]}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+              <Field
+                label={TEXT.host}
+                name="connection.host"
+                error={errors['connection.host']}
+                hint={TEXT.hostHint}
+                required
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    value={host}
+                    readOnly={!canEdit}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(event) => {
+                      setHost(event.target.value);
+                    }}
+                  />
+                )}
+              </Field>
+              <Field
+                label={TEXT.port}
+                name="connection.port"
+                error={errors['connection.port']}
+                hint={TEXT.portHint}
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    inputMode="numeric"
+                    value={port}
+                    placeholder={String(defaultHttpPort(protocol))}
+                    readOnly={!canEdit}
+                    autoComplete="off"
+                    onChange={(event) => {
+                      setPort(event.target.value);
+                    }}
+                  />
+                )}
+              </Field>
+              <Field
+                label={TEXT.filePath}
+                name="connection.filePath"
+                error={errors['connection.filePath']}
+                hint={TEXT.filePathHint}
+                required
+              >
+                {(control) => (
+                  <input
+                    {...control}
+                    value={filePath}
+                    readOnly={!canEdit}
+                    autoComplete="off"
+                    spellCheck={false}
+                    onChange={(event) => {
+                      setFilePath(event.target.value);
+                    }}
+                  />
+                )}
+              </Field>
+              <Field
+                label={TEXT.authMethod}
+                name="connection.authMethod"
+                error={errors['connection.authMethod']}
+              >
+                {(control) => (
+                  <select
+                    {...control}
+                    value={authMethod}
+                    disabled={!canEdit}
+                    onChange={(event) => {
+                      setAuthMethod(
+                        FILE_SERVER_AUTH_METHODS.find((value) => value === event.target.value) ??
+                          'NONE',
+                      );
+                    }}
+                  >
+                    {FILE_SERVER_AUTH_METHODS.map((value) => (
+                      <option key={value} value={value}>
+                        {TEXT.authMethodLabels[value]}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+              {authMethod === 'API_KEY' ? (
+                <Field
+                  label={TEXT.apiKeyHeaderName}
+                  name="connection.apiKeyHeaderName"
+                  error={errors['connection.apiKeyHeaderName']}
+                  hint={TEXT.apiKeyHeaderNameHint}
+                >
+                  {(control) => (
+                    <input
+                      {...control}
+                      value={apiKeyHeaderName}
+                      readOnly={!canEdit}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) => {
+                        setApiKeyHeaderName(event.target.value);
+                      }}
+                    />
+                  )}
+                </Field>
+              ) : null}
+            </>
+          ) : null}
           <Field
             label={TEXT.interval}
             name="intervalMinutes"
@@ -227,6 +440,21 @@ function SourceCard(props: SourceCardProps): ReactNode {
             </label>
           </div>
         </div>
+        {isHttp && protocol === 'HTTP' ? (
+          <p
+            role="alert"
+            className="notice notice-warning"
+            data-testid={`plaintext-warning-${source.sourceId}`}
+          >
+            <Icon name="status-caution" size={18} />
+            {TEXT.plaintextWarning}
+          </p>
+        ) : null}
+        {isHttp && authMethod !== 'NONE' ? (
+          <p className="muted" data-testid={`credentials-note-${source.sourceId}`}>
+            {TEXT.credentialsNote}
+          </p>
+        ) : null}
         <FormError message={submit.formMessage} />
         {props.canConfigure || props.canRun ? (
           <div className="form-actions">
@@ -494,7 +722,7 @@ export function IngestionPage(): ReactNode {
       ) : (
         settings.data.sources.map((source) => (
           <SourceCard
-            key={`${source.sourceId}|${source.connectionRef}|${String(source.intervalMinutes)}|${String(source.isEnabled)}`}
+            key={`${source.sourceId}|${source.connectionRef}|${JSON.stringify(source.connection)}|${String(source.intervalMinutes)}|${String(source.isEnabled)}`}
             source={source}
             result={results[source.sourceId]}
             onResult={(result) => {

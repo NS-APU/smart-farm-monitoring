@@ -287,6 +287,33 @@ export const MANAGEMENT_MESSAGES = {
     sourceNames: { robot: 'ロボットデータ', 'environment-sensor': '環境センサーデータ' },
     connectionRef: '接続先（接続設定の参照名）',
     connectionRefHint: '認証情報は、環境変数・シークレット管理の参照名で指定します',
+    connectionType: '接続方式',
+    connectionTypeLabels: {
+      MOCK: 'モック（開発・検証用）',
+      HTTP: 'HTTP・HTTPS（ファイルサーバー）',
+    },
+    protocol: 'プロトコル',
+    protocolLabels: { HTTPS: 'HTTPS（推奨）', HTTP: 'HTTP（暗号化なし）' },
+    plaintextWarning:
+      'HTTP は、通信が暗号化されません。認証情報（パスワード・トークン・API キー）と取得するデータが、そのままネットワークを流れます。可能なら HTTPS を使ってください',
+    host: 'ホスト名（FQDN・IP アドレス）',
+    hostHint: 'スキーム（https://）・ポート・パスは含めません。内部のアドレスは、指定できません',
+    port: 'ポート番号',
+    portHint: '省略すると、HTTPS は 443、HTTP は 80 を使います',
+    portInvalid: 'ポート番号は、1〜65535 の数字で指定してください',
+    filePath: 'ファイルパス',
+    filePathHint: '取り込む 1 つのファイルを、/ から指定します（例: /data/robot/latest.json）',
+    authMethod: '認証方式',
+    authMethodLabels: {
+      NONE: 'なし',
+      BASIC: 'Basic 認証（ユーザー名・パスワード）',
+      BEARER: 'Bearer トークン',
+      API_KEY: 'API キー',
+    },
+    apiKeyHeaderName: 'API キーのヘッダー名',
+    apiKeyHeaderNameHint: 'API キーを送るリクエストヘッダーの名前です（既定は X-API-Key）',
+    credentialsNote:
+      '認証情報の値は、この画面では入力・表示しません。秘密情報の保管先に、別に設定します',
     interval: '取得間隔',
     intervalLabels: {
       5: '5分',

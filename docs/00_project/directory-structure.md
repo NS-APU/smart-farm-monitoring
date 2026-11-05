@@ -12,7 +12,7 @@ smart-farm-monitoring/
 │   ├── backend/   # バックエンド（Hono）
 │   │   ├── domain/          # ドメイン層（評価エンジン・通知の規則など。純粋なロジック）
 │   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）
-│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・ssm/（パラメータストアの秘密情報。ADR-0016 の D-55。Issue #206）・format-profiles/・logging/）
+│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・ssm/（パラメータストアの秘密情報。ADR-0016 の D-55。Issue #206）・http/（ファイルサーバー〔HTTP〕の接続先の検査と接続テスト。ADR-0022。Issue #172）・format-profiles/・logging/）
 │   │   ├── presentation/    # 提示層（Hono アプリ・ルート・領域ごとのハンドラ・認証認可・共通エラー）
 │   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）

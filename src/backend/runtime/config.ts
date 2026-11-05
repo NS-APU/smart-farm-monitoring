@@ -134,6 +134,11 @@ const EnvSchema = z.object({
    */
   DEV_API_ENABLED: BooleanFromString.default(false),
   /**
+   * ファイルサーバー（HTTP）の接続先に、内部のアドレス（ループバック・プライベート・リンクローカル）を許可するか（Issue #172。ADR-0022）。
+   * 既定は拒否（SSRF の対策）。ローカル・E2E・テストで、手元の HTTP サーバーに接続するときだけ指定する。本番（production）では、指定にかかわらず拒否。
+   */
+  HTTP_FILE_SOURCE_ALLOW_PRIVATE: BooleanFromString.default(false),
+  /**
    * 信頼するプロキシの段数。0（既定）なら、X-Forwarded-For を信頼せず、接続情報の接続元を使う。
    * N なら、X-Forwarded-For の末尾から N 番目（信頼するプロキシが付けた値）を、接続元とみなす（V-007）。
    */
@@ -228,6 +233,8 @@ export interface AppConfig {
   readonly webPushPublicKey: string | undefined;
   /** 開発用の API（時計・モック・リセット）を有効にするか。環境変数で明示したときだけ有効で、本番では常に無効。 */
   readonly devApiEnabled: boolean;
+  /** ファイルサーバー（HTTP）の接続先に、内部のアドレスを許可するか（本番は、常に false）。 */
+  readonly httpFileSourceAllowPrivate: boolean;
   /** 信頼するプロキシの段数（接続元の識別。0 なら X-Forwarded-For を信頼しない）。 */
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
@@ -420,6 +427,8 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
+    httpFileSourceAllowPrivate:
+      parsed.HTTP_FILE_SOURCE_ALLOW_PRIVATE && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
     clientIpHeader: parsed.CLIENT_IP_HEADER,
     loginFailurePolicy: {
