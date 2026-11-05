@@ -17,6 +17,11 @@ import {
 import { OBSERVATION_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
 import { OBSERVATION_SOURCES } from '@smart-farm/shared/constants/status';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
+import {
+  checkListPeriod,
+  LIST_PERIOD_GUIDANCE,
+  requiresListPeriod,
+} from '@smart-farm/shared/observation-list-period';
 import { listObservations } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
@@ -61,27 +66,51 @@ export function ObservationsPage(): ReactNode {
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
   const toIso = jstDateToIso(to, 'end');
+  // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（ADR-0007 の判断。#91）。足りないときは、案内を示し、API を呼ばない
+  const periodMissing =
+    requiresListPeriod({ sort, keyword }) &&
+    checkListPeriod({ from: fromIso ?? undefined, to: toIso ?? undefined }) !== null;
   const fetchPage = useCallback(
     () =>
-      listObservations(api, {
-        ...(keyword === '' ? {} : { q: keyword }),
-        ...(category === '' ? {} : { category }),
-        ...(source === '' ? {} : { source }),
-        ...(equipmentId === '' ? {} : { equipmentId }),
-        ...(fromIso === null ? {} : { from: fromIso }),
-        ...(toIso === null ? {} : { to: toIso }),
-        sort,
-        direction,
-        limit: PAGE_SIZE,
-        ...omitUndefined({ cursor }),
-      }),
-    [api, keyword, category, source, equipmentId, fromIso, toIso, sort, direction, cursor],
+      periodMissing
+        ? Promise.resolve({ items: [], nextCursor: null })
+        : listObservations(api, {
+            ...(keyword === '' ? {} : { q: keyword }),
+            ...(category === '' ? {} : { category }),
+            ...(source === '' ? {} : { source }),
+            ...(equipmentId === '' ? {} : { equipmentId }),
+            ...(fromIso === null ? {} : { from: fromIso }),
+            ...(toIso === null ? {} : { to: toIso }),
+            sort,
+            direction,
+            limit: PAGE_SIZE,
+            ...omitUndefined({ cursor }),
+          }),
+    [
+      api,
+      periodMissing,
+      keyword,
+      category,
+      source,
+      equipmentId,
+      fromIso,
+      toIso,
+      sort,
+      direction,
+      cursor,
+    ],
   );
   const { data, error, reload } = usePolling(fetchPage);
   const statusNames = useStatusNames();
 
   let body: ReactNode;
-  if (error !== undefined) {
+  if (periodMissing) {
+    body = (
+      <p className="state-view" role="status" data-testid="observations-period-guidance">
+        {LIST_PERIOD_GUIDANCE}
+      </p>
+    );
+  } else if (error !== undefined) {
     body = <ErrorView error={error} onRetry={reload} />;
   } else if (data === undefined) {
     body = <LoadingView />;

@@ -6,6 +6,12 @@
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { OBSERVATION_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
+import {
+  checkListPeriod,
+  LIST_PERIOD_GUIDANCE,
+  MAX_LIST_PERIOD_DAYS,
+  requiresListPeriod,
+} from '@smart-farm/shared/observation-list-period';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
 import {
   CategorySchema,
@@ -31,6 +37,34 @@ const ObservationListQuerySchema = PageQuerySchema.extend({
   q: z.string().max(100).optional(),
   sort: z.enum(OBSERVATION_SORT_KEYS).default('observedAt'),
   direction: SortDirectionSchema,
+}).superRefine((query, context) => {
+  // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（ADR-0007 の判断。#91）
+  if (!requiresListPeriod({ sort: query.sort, keyword: query.q })) {
+    return;
+  }
+  const problem = checkListPeriod(query);
+  if (problem === 'TOO_LONG') {
+    for (const field of ['from', 'to'] as const) {
+      context.addIssue({
+        code: 'custom',
+        path: [field],
+        message: `期間は ${String(MAX_LIST_PERIOD_DAYS)} 日以内にしてください`,
+      });
+    }
+  } else if (problem === 'MISSING') {
+    for (const [field, label] of [
+      ['from', '開始'],
+      ['to', '終了'],
+    ] as const) {
+      if (query[field] === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: [field],
+          message: `期間の${label}を指定してください。${LIST_PERIOD_GUIDANCE}`,
+        });
+      }
+    }
+  }
 });
 
 export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {

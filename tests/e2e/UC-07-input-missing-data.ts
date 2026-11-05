@@ -362,7 +362,7 @@ test.describe('代替フロー: 自動取り込みと手動入力で同じ項目
     // 手動入力が評価に使われる（異常）
     await expectRelatedStatus(page, 'environmentalAdaptability', '異常');
     // 両方を保持する（取得元で区別できる）
-    await page.goto('/observations?q=%E6%B8%A9%E5%BA%A6');
+    await page.goto('/observations?q=%E6%B8%A9%E5%BA%A6&from=2026-10-08&to=2026-10-09');
     const rows = page.getByTestId('observation-row');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: '自動取り込み' })).toContainText('20℃');
