@@ -15,6 +15,7 @@ import {
   expectDashboardShown,
   expectDetailShown,
   fillLogin,
+  jstInput,
   loadingView,
   mainArea,
   screenshot,
@@ -197,6 +198,11 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         'screen',
         {
           act: async () => {
+            // 値の順の並べ替えは、期間（31 日以内）が必須（#91）。直近 30 日を指定する
+            await page
+              .getByLabel('期間（開始日）')
+              .fill(jstInput(new Date(Date.now() - 30 * 86_400_000)).slice(0, 10));
+            await page.getByLabel('期間（終了日）').fill(jstInput(new Date()).slice(0, 10));
             await page.getByLabel('並べ替え', { exact: true }).selectOption('value');
             await page.getByLabel('並べ替えの向き').selectOption('asc');
           },
