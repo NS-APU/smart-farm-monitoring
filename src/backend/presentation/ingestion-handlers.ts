@@ -5,7 +5,10 @@
 
 import { z } from 'zod';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
-import { IngestionSettingsUpdateRequestSchema } from '@smart-farm/shared/schemas/ingestion';
+import {
+  IngestionCredentialsInputSchema,
+  IngestionSettingsUpdateRequestSchema,
+} from '@smart-farm/shared/schemas/ingestion';
 import type { ApiDeps } from './api-deps.ts';
 import { actorOf, pathParam } from './request-helpers.ts';
 import { parseJsonBody, parseQuery } from './request-parsing.ts';
@@ -23,6 +26,16 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
     async 'PUT /ingestion/settings'(c) {
       const input = await parseJsonBody(c, IngestionSettingsUpdateRequestSchema);
       return c.json(await deps.ingestionAdminService.update(input, actorOf(c)));
+    },
+    async 'PUT /ingestion/:sourceId/credentials'(c) {
+      const input = await parseJsonBody(c, IngestionCredentialsInputSchema);
+      return c.json(
+        await deps.ingestionAdminService.setCredentials(
+          pathParam(c, 'sourceId'),
+          input,
+          actorOf(c),
+        ),
+      );
     },
     async 'POST /ingestion/:sourceId/test'(c) {
       return c.json(await deps.ingestionService.testConnection(pathParam(c, 'sourceId')));

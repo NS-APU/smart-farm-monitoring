@@ -132,6 +132,12 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     useCases: ['UC-15'],
   },
   {
+    method: 'PUT',
+    path: '/ingestion/:sourceId/credentials',
+    access: 'ingestion:configure',
+    useCases: ['UC-15'],
+  },
+  {
     method: 'POST',
     path: '/ingestion/:sourceId/test',
     access: 'ingestion:run',

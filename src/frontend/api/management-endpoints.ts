@@ -25,9 +25,11 @@ import {
 import {
   ConnectionTestResponseSchema,
   FederationLogListResponseSchema,
+  IngestionCredentialStatusSchema,
   IngestionLogListResponseSchema,
   IngestionRunResponseSchema,
   IngestionSettingsResponseSchema,
+  type IngestionCredentialsInput,
   type IngestionSettingsUpdateRequest,
 } from '@smart-farm/shared/schemas/ingestion';
 import {
@@ -245,6 +247,19 @@ export function updateIngestionSettings(api: ApiClient, input: IngestionSettings
     method: 'PUT',
     body: input,
     schema: IngestionSettingsResponseSchema,
+  });
+}
+
+/** 認証情報を登録・上書きする（書き込み専用。応答は、状態だけ）。 */
+export function saveIngestionCredentials(
+  api: ApiClient,
+  sourceId: string,
+  input: IngestionCredentialsInput,
+) {
+  return api.request(API_PATHS.ingestionCredentials(sourceId), {
+    method: 'PUT',
+    body: input,
+    schema: IngestionCredentialStatusSchema,
   });
 }
 

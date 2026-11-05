@@ -17,5 +17,6 @@ export const API_PATHS = {
   statusCode: (code: string) => `/status-codes/${segment(code)}`,
   user: (userId: string) => `/users/${segment(userId)}`,
   ingestionTest: (sourceId: string) => `/ingestion/${segment(sourceId)}/test`,
+  ingestionCredentials: (sourceId: string) => `/ingestion/${segment(sourceId)}/credentials`,
   ingestionRun: (sourceId: string) => `/ingestion/${segment(sourceId)}/run`,
 } as const;

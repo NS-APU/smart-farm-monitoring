@@ -496,6 +496,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     ingestionService,
     profiles,
     audit: auditService,
+    secrets: adapters.secrets,
     isConnectionAllowed: (connection) =>
       connection.type !== 'HTTP' ||
       config.httpFileSourceAllowPrivate ||

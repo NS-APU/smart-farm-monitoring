@@ -224,6 +224,69 @@ export const IngestionSettingsUpdateRequestSchema = z.object({
 });
 export type IngestionSettingsUpdateRequest = z.infer<typeof IngestionSettingsUpdateRequestSchema>;
 
+/** 制御文字（0x00〜0x1f・0x7f）を含むか。 */
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** トークン・API キーの値にできる文字（表示できる ASCII。空白・改行・日本語を含めない。ヘッダーの注入を避ける）。 */
+const SECRET_TOKEN_PATTERN = /^[\x21-\x7e]+$/;
+const SECRET_TOKEN_MESSAGE = '英数字と記号だけで入力してください（空白・改行・日本語は使えません）';
+
+function secretTokenSchema(requiredMessage: string) {
+  return z
+    .string()
+    .trim()
+    .min(1, requiredMessage)
+    .max(2000, '2000文字以内で入力してください')
+    .regex(SECRET_TOKEN_PATTERN, SECRET_TOKEN_MESSAGE);
+}
+
+/**
+ * ファイルサーバーの認証情報の登録（Issue #207。D-47）。書き込み専用で、保存後は、値を再表示しない。
+ * 認証方式は、保存済みの接続設定と同じでなければならない。値は、SecretPort（file-server/<取り込み元>）に保存する。
+ */
+export const IngestionCredentialsInputSchema = z.discriminatedUnion('authMethod', [
+  z.object({
+    authMethod: z.literal('BASIC'),
+    username: z
+      .string()
+      .min(1, 'ユーザー名を入力してください')
+      .max(200, 'ユーザー名は200文字以内で入力してください')
+      .refine((value) => !value.includes(':'), 'ユーザー名に : は使えません')
+      .refine((value) => !hasControlCharacter(value), 'ユーザー名に制御文字は使えません'),
+    password: z
+      .string()
+      .min(1, 'パスワードを入力してください')
+      .max(1000, 'パスワードは1000文字以内で入力してください'),
+  }),
+  z.object({
+    authMethod: z.literal('BEARER'),
+    token: secretTokenSchema('トークンを入力してください'),
+  }),
+  z.object({
+    authMethod: z.literal('API_KEY'),
+    apiKey: secretTokenSchema('API キーを入力してください'),
+  }),
+]);
+export type IngestionCredentialsInput = z.infer<typeof IngestionCredentialsInputSchema>;
+
+/**
+ * 認証情報の状態。値は含めない。NOT_REQUIRED = 認証が不要（モック・認証なし）、NOT_CONFIGURED = 未設定、
+ * CONFIGURED = 設定済み（更新日時を持つ）、UNAVAILABLE = 保管先から状態を読み出せない。
+ */
+export const IngestionCredentialStatusSchema = z.object({
+  state: z.enum(['NOT_REQUIRED', 'NOT_CONFIGURED', 'CONFIGURED', 'UNAVAILABLE']),
+  updatedAt: IsoDateTimeSchema.optional(),
+});
+export type IngestionCredentialStatus = z.infer<typeof IngestionCredentialStatusSchema>;
+
 /** 取り込み元の設定と状況（解釈に使う仕様の版・状態、最終の取得）。認証情報の値は含めない。 */
 export const IngestionSourceStatusSchema = IngestionSourceSchema.extend({
   formatProfile: z.object({
@@ -233,6 +296,8 @@ export const IngestionSourceStatusSchema = IngestionSourceSchema.extend({
   lastStartedAt: IsoDateTimeSchema.nullable(),
   lastSuccessAt: IsoDateTimeSchema.nullable(),
   isRunning: z.boolean(),
+  /** 認証情報の状態（設定済み／未設定と更新日時。値は含めない）。 */
+  credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
 });
 export type IngestionSourceStatus = z.infer<typeof IngestionSourceStatusSchema>;
 

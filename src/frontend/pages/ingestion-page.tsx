@@ -4,12 +4,19 @@
  * 状況（成功・失敗・保留）。認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
  */
 
-import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
+import {
+  useCallback,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type SyntheticEvent,
+} from 'react';
 import { INGESTION_INTERVAL_MINUTES_OPTIONS } from '@smart-farm/shared/constants/status';
 import {
   DEFAULT_API_KEY_HEADER_NAME,
   FILE_SERVER_AUTH_METHODS,
   FILE_SERVER_PROTOCOLS,
+  IngestionCredentialsInputSchema,
   IngestionSourceUpdateSchema,
   defaultHttpPort,
   type FederationLogListResponse,
@@ -24,6 +31,7 @@ import {
   listFederationLogs,
   listIngestionLogs,
   runIngestion,
+  saveIngestionCredentials,
   testIngestionConnection,
   updateIngestionSettings,
   getIngestionSettings,
@@ -114,6 +122,11 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const [apiKeyHeaderName, setApiKeyHeaderName] = useState(
     savedHttp?.apiKeyHeaderName ?? DEFAULT_API_KEY_HEADER_NAME,
   );
+  // 認証情報の入力（書き込み専用。保存したら、空に戻す。保存済みの値は、受け取らない）
+  const [credentialUsername, setCredentialUsername] = useState('');
+  const [credentialPassword, setCredentialPassword] = useState('');
+  const [credentialSecret, setCredentialSecret] = useState('');
+  const [credentialErrors, setCredentialErrors] = useState<Readonly<Record<string, string>>>({});
   const [interval, setInterval] = useState(String(source.intervalMinutes));
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
@@ -121,6 +134,12 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const errors = { ...clientErrors, ...withoutSourcePrefix(submit.fieldErrors) };
   const isHttp = connectionType === 'HTTP';
   const canEdit = props.canConfigure;
+  // 認証情報の登録は、保存済みの設定の認証方式で行う（サーバーが、保存済みの設定と照合する）
+  const savedAuthMethod =
+    saved.type === 'HTTP' && saved.authMethod !== 'NONE' ? saved.authMethod : undefined;
+  const credentialsBlocked = !(isHttp && authMethod === savedAuthMethod);
+  const credentialStatus = source.credentials;
+  const credentialErrorsShown = { ...credentialErrors, ...errors };
   const locked = submit.busy || source.isRunning;
 
   async function handleSave(event: SyntheticEvent): Promise<void> {
@@ -160,6 +179,45 @@ function SourceCard(props: SourceCardProps): ReactNode {
     const result = await submit.run(() => updateIngestionSettings(api, { sources: [payload] }));
     if (result.ok) {
       setResult({ ok: true, text: TEXT.saved });
+      props.onChanged();
+    }
+  }
+
+  /** 認証情報の入力で Enter を押したときは、設定のフォームを送らず、認証情報を保存する。 */
+  function handleCredentialEnter(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (!credentialsBlocked) {
+        void handleSaveCredentials();
+      }
+    }
+  }
+
+  async function handleSaveCredentials(): Promise<void> {
+    if (savedAuthMethod === undefined) {
+      return;
+    }
+    setResult(undefined);
+    const candidate =
+      savedAuthMethod === 'BASIC'
+        ? { authMethod: 'BASIC', username: credentialUsername, password: credentialPassword }
+        : savedAuthMethod === 'BEARER'
+          ? { authMethod: 'BEARER', token: credentialSecret }
+          : { authMethod: 'API_KEY', apiKey: credentialSecret };
+    const parsed = IngestionCredentialsInputSchema.safeParse(candidate);
+    if (!parsed.success) {
+      setCredentialErrors(fieldErrorsOfZod(parsed.error));
+      return;
+    }
+    setCredentialErrors({});
+    const result = await submit.run(() =>
+      saveIngestionCredentials(api, source.sourceId, parsed.data),
+    );
+    if (result.ok) {
+      setCredentialUsername('');
+      setCredentialPassword('');
+      setCredentialSecret('');
+      setResult({ ok: true, text: TEXT.credentialsSaved });
       props.onChanged();
     }
   }
@@ -450,11 +508,121 @@ function SourceCard(props: SourceCardProps): ReactNode {
             {TEXT.plaintextWarning}
           </p>
         ) : null}
-        {isHttp && authMethod !== 'NONE' ? (
+        {isHttp && authMethod !== 'NONE' && savedAuthMethod === undefined ? (
           <p className="muted" data-testid={`credentials-note-${source.sourceId}`}>
-            {TEXT.credentialsNote}
+            {TEXT.credentialsAfterSave}
           </p>
         ) : null}
+        {savedAuthMethod === undefined ? null : (
+          <fieldset className="credentials-section" data-testid={`credentials-${source.sourceId}`}>
+            <legend>{TEXT.credentialsHeading}</legend>
+            <p data-testid={`credentials-status-${source.sourceId}`}>
+              {TEXT.credentialsStatusLabel}:{' '}
+              {credentialStatus.state === 'CONFIGURED'
+                ? credentialStatus.updatedAt === undefined
+                  ? TEXT.credentialsConfigured
+                  : TEXT.credentialsUpdatedAt(formatDateTimeJst(credentialStatus.updatedAt))
+                : credentialStatus.state === 'UNAVAILABLE'
+                  ? TEXT.credentialsStatus.UNAVAILABLE
+                  : TEXT.credentialsStatus.NOT_CONFIGURED}
+            </p>
+            {props.canConfigure ? (
+              <>
+                <p className="muted">{TEXT.credentialsLead}</p>
+                {credentialsBlocked ? (
+                  <p className="muted" data-testid={`credentials-unsaved-${source.sourceId}`}>
+                    {TEXT.credentialsUnsaved}
+                  </p>
+                ) : null}
+                <div className="form-grid">
+                  {savedAuthMethod === 'BASIC' ? (
+                    <>
+                      <Field
+                        label={TEXT.credentialsUsername}
+                        name="username"
+                        error={credentialErrorsShown.username}
+                      >
+                        {(control) => (
+                          <input
+                            {...control}
+                            value={credentialUsername}
+                            autoComplete="off"
+                            spellCheck={false}
+                            disabled={credentialsBlocked}
+                            onKeyDown={handleCredentialEnter}
+                            onChange={(event) => {
+                              setCredentialUsername(event.target.value);
+                            }}
+                          />
+                        )}
+                      </Field>
+                      <Field
+                        label={TEXT.credentialsPassword}
+                        name="password"
+                        error={credentialErrorsShown.password}
+                      >
+                        {(control) => (
+                          <input
+                            {...control}
+                            type="password"
+                            value={credentialPassword}
+                            autoComplete="new-password"
+                            disabled={credentialsBlocked}
+                            onKeyDown={handleCredentialEnter}
+                            onChange={(event) => {
+                              setCredentialPassword(event.target.value);
+                            }}
+                          />
+                        )}
+                      </Field>
+                    </>
+                  ) : (
+                    <Field
+                      label={
+                        savedAuthMethod === 'BEARER'
+                          ? TEXT.credentialsToken
+                          : TEXT.credentialsApiKey
+                      }
+                      name={savedAuthMethod === 'BEARER' ? 'token' : 'apiKey'}
+                      error={
+                        credentialErrorsShown[savedAuthMethod === 'BEARER' ? 'token' : 'apiKey']
+                      }
+                    >
+                      {(control) => (
+                        <input
+                          {...control}
+                          type="password"
+                          value={credentialSecret}
+                          autoComplete="new-password"
+                          spellCheck={false}
+                          disabled={credentialsBlocked}
+                          onKeyDown={handleCredentialEnter}
+                          onChange={(event) => {
+                            setCredentialSecret(event.target.value);
+                          }}
+                        />
+                      )}
+                    </Field>
+                  )}
+                </div>
+                {credentialErrorsShown.authMethod === undefined ? null : (
+                  <p className="field-error">{credentialErrorsShown.authMethod}</p>
+                )}
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    disabled={locked || credentialsBlocked}
+                    onClick={() => {
+                      void handleSaveCredentials();
+                    }}
+                  >
+                    {TEXT.credentialsSave}
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </fieldset>
+        )}
         <FormError message={submit.formMessage} />
         {props.canConfigure || props.canRun ? (
           <div className="form-actions">

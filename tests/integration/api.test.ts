@@ -295,13 +295,14 @@ describe('認証・認可（全ルート）', () => {
   const fill = (path: string) => path.replace(/:[A-Za-z]+/g, 'x');
   const protectedRoutes = ROUTE_TABLE.filter((spec) => spec.access !== 'PUBLIC');
 
-  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更（POST /auth/password。Issue #245）を網羅している（重複なし）', () => {
+  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更（POST /auth/password。Issue #245）・認証情報の登録（PUT /ingestion/{sourceId}/credentials。Issue #207）を網羅している（重複なし）', () => {
     const keys = ROUTE_TABLE.map(routeKey);
 
     expect(new Set(keys).size).toBe(keys.length);
-    expect(ROUTE_TABLE).toHaveLength(41);
+    expect(ROUTE_TABLE).toHaveLength(42);
     expect(keys).toContain('GET /push-subscription');
     expect(keys).toContain('POST /auth/password');
+    expect(keys).toContain('PUT /ingestion/:sourceId/credentials');
     expect(ROUTE_TABLE.filter((spec) => spec.access === 'PUBLIC').map(routeKey)).toEqual([
       'POST /auth/login',
       'POST /auth/refresh',
