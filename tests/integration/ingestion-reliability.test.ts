@@ -20,6 +20,7 @@ import {
   TEST_USER,
   type TestContext,
 } from '../support/test-context.ts';
+import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 
@@ -29,7 +30,7 @@ const ROBOT_FILE = JSON.stringify({
 });
 
 function metaOf(name: string, sizeBytes = 1) {
-  return { fileId: name, name, modifiedAt: TEST_NOW, sizeBytes };
+  return { fileId: name, name, modifiedAt: STUB_MODIFIED_AT, sizeBytes };
 }
 
 /** ポートをスタブにした取り込みサービス（外部通信・想定外の例外の検証用）。 */
@@ -266,12 +267,15 @@ describe('構造の変更の検出（V-019）', () => {
     expect(logs.items[0]?.errorMessage).toContain('取り込めませんでした');
   });
 
-  it('列名が変わった CSV も、形式違いとして失敗にする', async () => {
+  it('項目名が変わった JSON も、形式違いとして失敗にする', async () => {
     const context = await setup();
     context.placeFile(
       'environment-sensor',
-      'renamed.csv',
-      'sensor_id,timestamp,temp,humid\nSENSOR-SAMPLE-01,2026-10-09T01:00:00Z,20,50\n',
+      'renamed.json',
+      JSON.stringify({
+        sensorId: 'SENSOR-SAMPLE-01',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
+      }),
     );
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');

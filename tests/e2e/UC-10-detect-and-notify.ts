@@ -34,7 +34,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   setMock,
   unreadBadge,
 } from './support/app.ts';
@@ -533,8 +533,8 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     await prepareApp(request);
     placeFile(
       'environment-sensor',
-      'sensor-1.csv',
-      sensorCsv([{ hoursAgo: 1, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-1.json',
+      sensorJson([{ hoursAgo: 1, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
 
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -548,8 +548,8 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     // 異常が続く間は、増えない
     placeFile(
       'environment-sensor',
-      'sensor-2.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 41, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-2.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 41, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     expect(await environmentNotifications(request)).toHaveLength(2);
@@ -561,16 +561,16 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     await prepareApp(request);
     placeFile(
       'environment-sensor',
-      'normal.csv',
-      sensorCsv([{ hoursAgo: 2, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'normal.json',
+      sensorJson([{ hoursAgo: 2, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     expect(await environmentNotifications(request)).toHaveLength(0);
 
     placeFile(
       'environment-sensor',
-      'caution.csv',
-      sensorCsv([{ hoursAgo: 1, temperature: 28, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'caution.json',
+      sensorJson([{ hoursAgo: 1, temperature: 28, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
 

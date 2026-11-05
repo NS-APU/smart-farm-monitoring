@@ -121,7 +121,7 @@
 
 処理の骨格は次のとおり。
 
-1. **取り込む**: ファイルサーバー（実装はモック）のロボットデータ（JSON）・環境センサーデータ（CSV）を、定期（または即時）に取り込む。取り込めないデータは、農作業者が手動で入力する
+1. **取り込む**: ファイルサーバー（実装はモック）のロボットデータ（JSON）・環境センサーデータ（JSON）を、定期（または即時）に取り込む。取り込めないデータは、農作業者が手動で入力する
 2. **評価する**: 観測値を、10 の観点・短期と長期の視点で集計し、判断基準（上限型・下限型・範囲型の閾値）で「正常・注意・異常・不明」を判定する。診断メッセージと推奨アクションを付ける
 3. **見せる・知らせる**: ダッシュボード・観点の詳細・推移・満足度のレーダーチャートで示す。「注意」「異常」への変化を通知する（画面内＋ Web Push）
 4. **連携する**: 取り込んだデータ・手動入力・評価結果を、連携キューに積み、農業情報基盤へ非同期に送る（実装はモック）
@@ -786,7 +786,7 @@ classDiagram
 
 - **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル・ホスト・ポート・ファイルパス・認証方式・API キーのヘッダー名。保存がなければ `MOCK`。ADR-0022）で、認証情報の値は持たない。取得間隔は 5・15・30・60・360・1440 分のいずれか
 - **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID#内容のハッシュ`。形式違いのファイルは `FAILURE` で記録する
-- **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.1.0(PROVISIONAL)`・`environment-sensor-csv@0.1.0(PROVISIONAL)`）
+- **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
 - **Session**: `createLocalAuth` がメモリ上に持つ（アクセストークン・リフレッシュトークンの SHA-256 のみ保持。平文は持たない）。永続化しないため、再起動で全員が再ログインになる
 - **AuditLogEntry**: 変更履歴。対象の種類は `manual-entry`・`criteria`・`equipment`・`status-code`・`user`・`ingestion-settings` の 6 つ。`before`・`after` は、パスワードのハッシュを含まない形で記録する
@@ -975,7 +975,7 @@ flowchart LR
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
 | `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）・`s3/s3-file-source.ts`（S3 のモック。Lambda 用。`FILE_SERVER_S3_BUCKET` を指定したときに使う。Issue #77。ADR-0012）。取り込み元の接続方式で、`application/ingestion/routing-file-source.ts` が振り分ける。HTTP は、`http/http-probe.ts`（接続テストのみ。#172。ADR-0022）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
-| `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON・CSV の FormatProfile）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
+| `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON の FormatProfile。CSV は #174 で削除）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | 農業情報基盤用（Q-005）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
 | `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**パラメータストア版は、コンテナが保管先として組み立てる（#206）。使う場所は、まだない**                                                                                        | シークレット管理サービス                      |
@@ -2286,7 +2286,7 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 **対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。
 
-**FormatProfile の解釈**: JSON は、`recordsPath` の配列と `equipmentIdPath` の設備識別子、記録ごとの `timestampField`。CSV は、見出し行・区切り文字・設備列・時刻列。構造が仕様と異なるファイル全体は `FormatError`、読み取れない行・記録は拒否の件数に数える。
+**FormatProfile の解釈**: JSON は、`recordsPath` の配列と `equipmentIdPath` の設備識別子、記録ごとの `timestampField`（先頭の BOM は取り除く）。CSV は、扱わない（#174 で削除）。構造が仕様と異なるファイル全体は `FormatError`、読み取れない記録は拒否の件数に数える。**取り込みは、変わった観測値だけを保存・連携に積み**（同じ一意キーで値と品質が同じなら触らず、受信日時もそのまま）、**更新日時が 1 秒以内のファイルは次の周期に回す**（ADR-0016 の D-08。#174・#199）。
 
 ## 5. 連携の再送（倍々・上限 12 時間）
 
@@ -2468,7 +2468,7 @@ for 区間:
 | 単体テスト（frontend） | `tests/unit/frontend/`（14 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
 | 結合テスト             | `tests/integration/`（7 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 24 ファイル＋ `scenario-*.ts` の 6 ファイル。補助は `support/` の 8 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
-| 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に CSV 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-header`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
+| 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
 | 補助                   | `tests/support/`（6 ファイル）                                                                                   | -                          | `test-context.ts`（結合テストの組み立て）、`builders.ts`（データ生成）、`frontend.ts`・`management-frontend.ts`（画面の単体テストの API のスタブと描画）、`viewpoint-fixtures.ts`、`response.d.ts` |
 
 - 単体テストのファイル名は、対象のファイル名ではなく、テーマ別（例: `domain-rules.test.ts`・`measures.test.ts`・`application-misc.test.ts`）。`presentation/` には、対応する単体テストのディレクトリがなく、結合テスト（`app.request`）で検証する

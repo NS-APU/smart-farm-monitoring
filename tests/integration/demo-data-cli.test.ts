@@ -184,7 +184,7 @@ describe('pnpm demo-data reset', () => {
     await createLoginThrottle(db, clock).recordFailure('203.0.113.10');
     await createJobLock(db, clock).tryAcquire('job:JB-04', 600_000);
     context.s3.putObject('robot/robot-20261020T0000Z.json', '{}', new Date());
-    context.s3.putObject('environment-sensor/sensor-20261020T0000Z.csv', 'x', new Date());
+    context.s3.putObject('environment-sensor/latest.json', 'x', new Date());
     return { ...context, throttle: createLoginThrottle(db, clock), lock: createJobLock(db, clock) };
   }
 

@@ -1499,7 +1499,7 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
       intervalMinutes: 15,
       isEnabled: true,
       isRunning: false,
-      formatProfile: { versionLabel: 'robot-json@0.1.0(PROVISIONAL)', status: 'PROVISIONAL' },
+      formatProfile: { versionLabel: 'robot-json@0.2.0(PROVISIONAL)', status: 'PROVISIONAL' },
       lastStartedAt: TEST_NOW.toISOString(),
       lastSuccessAt: TEST_NOW.toISOString(),
     });

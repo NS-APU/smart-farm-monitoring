@@ -57,7 +57,7 @@ describe('S3 のファイルサーバーのモック（S3 固有の振る舞い�
     s3.putObject('robot/sub/b.json', '{}', MODIFIED);
     s3.putObject('robot/', '', MODIFIED);
     s3.putObject('robot-other/c.json', '{}', MODIFIED);
-    s3.putObject('environment-sensor/d.csv', 'x', MODIFIED);
+    s3.putObject('environment-sensor/d.json', 'x', MODIFIED);
 
     const files = await source.listFiles('robot');
 

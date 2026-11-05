@@ -38,6 +38,7 @@
 
 - 一度だけの投入では、データが古くなるため、**擬似のロボット・環境センサーが、定期的に、新しいファイルを S3 に置く**（EventBridge → 専用の Lambda。ジョブ（JB-01〜JB-04）とは別。要件のジョブではなく、評価環境のデモのための仕掛け）。取り込み（JB-01）が、それを読む（ユーザーの判断）。
 - **専用の Lambda**（`runtime/demo-feed-lambda.ts`）を、EventBridge の 1 つのルールが、**15 分ごと**に起動する（`DEMO_FEED_INTERVAL_MINUTES`。取り込みの既定の取得間隔と同じ）。**S3 への書き込みだけ**（`robot/*`・`environment-sensor/*` への `s3:PutObject` のみ。読み取り・削除・DynamoDB・Cognito は、使わない）。メモリ 256 MB・タイムアウト 60 秒。失敗は、次の周期で、再び置く（EventBridge・Lambda の再試行は 0）。
+- **（#174 で見直し）ファイルは、取り込み元ごとに 1 つ（`latest.json`）を、毎回、上書きする**（1 つのファイルを随時更新する方式。ADR-0016 の D-08）。ロボット・環境センサーとも JSON（`robot-json`・`environment-sensor-json`）。記録は、直近の区間（`DEMO_FEED_BUCKETS` 個）を、古い順に持つ。以下の「区間ごとにファイルを置く」記述は、見直し前の仕様（履歴）。
 - **ファイルは、区間（15 分）の時刻から決まる**: 区間ごとに、ロボットの JSON（`robot-20261020T0415Z.json`。FormatProfile `robot-json`）と、環境センサーの CSV（`sensor-20261020T0415Z.csv`。`environment-sensor-csv`）を 1 つずつ、記録は区間の開始の時刻の 1 件。値は、デモの投入と同じ生成の規則（`generateAutoSample`。乱数を消費する順序は、変えない）。温度の基準は、デモの投入と同じ 26℃（環境適応性が「注意」になる）。
 - **1 回の実行で、直近 4 区間を置く**（`DEMO_FEED_BUCKETS`）。同じ区間は、同じ名前・同じ内容のため、上書きしても、取り込みは、内容のハッシュで読み飛ばす（実行が数回、抜けても、直近の区間は、埋まる）。実データは、使わない（合成データのみ）。
 
@@ -88,7 +89,7 @@
 | 項目 | 結果 |
 |------|------|
 | 生成の Lambda の実行 | 15 分ごとの起動（`START`〜`END`）が並び、各回に、ファイルを 8 件置いた旨のログ（`files`: 8）が出ている。直近 30 分で `files` のログが 2 件、`level error`・`AccessDenied` は 0 件 |
-| S3 のファイル | `robot/robot-<時刻>.json`・`environment-sensor/sensor-<時刻>.csv`（例: `T0815Z`）が並ぶ。ロボットのファイルは、`robotId` が `ROBOT-SAMPLE-01`・記録が 1 件 |
+| S3 のファイル | （#174 以降）`robot/latest.json`・`environment-sensor/latest.json` の 2 つ（毎回、上書き）。（以前: `robot/robot-<時刻>.json`・`environment-sensor/sensor-<時刻>.csv`〔例: `T0815Z`〕が並ぶ。）ロボットのファイルは、`robotId` が `ROBOT-SAMPLE-01`・記録が 1 件 |
 | 取り込み（JB-01）が、置いたファイルを読むこと | 取り込みの記録の最新が `SUCCESS`（`filesProcessed` が 1 以上・`recordCount` が 0 より大きい。ロボットは 1 ファイルあたり 6 件・センサーは 4 件）で、**`rejectedCount` は 0**。ダッシュボードは `FRESH`で、`lastReceivedAt` が、取り込みを行った時刻 |
 | S3 のファイルがある状態での `reset --yes` | S3 のファイルが削除され、続けて `seed` で、設備が入る |
 | ジョブの継続 | 直近の窓で `EXECUTED` が 7 件・`level error` は 0 件 |

@@ -45,8 +45,10 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  START([スケジューラ：取得間隔ごと]) --> LIST[新しいファイルの一覧を取得<br>FileSourcePort]
-  LIST --> NEW{取り込み済みか<br>識別子・ハッシュ}
+  START([スケジューラ：取得間隔ごと]) --> LIST[ファイルの一覧を取得<br>FileSourcePort]
+  LIST --> RECENT{更新から 1 秒以内か}
+  RECENT -->|はい（続けて 2 周期まで）| DEFER[次の周期に回す]
+  RECENT -->|いいえ| NEW{取り込み済みか<br>識別子・ハッシュ}
   NEW -->|済み| SKIP[スキップ]
   NEW -->|未| READ[ファイルを読む]
   READ --> PARSE[FormatProfile で共通形式へ]

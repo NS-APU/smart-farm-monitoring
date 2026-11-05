@@ -77,7 +77,7 @@ export const STRESS_USER = {
 
 /** 即時取得・定期取り込みの大量実行の規模。 */
 export const BULK_INGESTION = {
-  /** 取り込み元ごとのファイル数（ロボット JSON・センサー CSV）。 */
+  /** 取り込み元ごとのファイル数（ロボット・センサーの JSON）。 */
   filesPerSource: 150,
   /** 1ファイルの記録数（1時間おき・約6日分）。 */
   recordsPerFile: 144,

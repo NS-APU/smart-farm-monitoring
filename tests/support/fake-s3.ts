@@ -123,6 +123,14 @@ export function createFakeS3(options: FakeS3Options) {
     putObject(key: string, content: string, modifiedAt: Date): void {
       objects.set(key, { content, modifiedAt });
     },
+    /** 置いたオブジェクトの更新日時を、指定した日時にする（PutObject は、実際の現在時刻にするため）。 */
+    setModifiedAt(key: string, modifiedAt: Date): void {
+      const object = objects.get(key);
+      if (object === undefined) {
+        throw new Error(`テストの前提: オブジェクトがある: ${key}`);
+      }
+      objects.set(key, { ...object, modifiedAt });
+    },
     /** 接続できない状態にする（すべての呼び出しが、失敗する）。 */
     setDown(): void {
       down = true;

@@ -25,7 +25,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   setMock,
   unreadBadge,
 } from './support/app.ts';
@@ -58,8 +58,8 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     // UC-09・UC-10: Aが、異常な温度のセンサーデータを取り込む（異常を検知し、通知を作る）
     placeFile(
       'environment-sensor',
-      'sensor.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await goToMenu(page, '取り込み');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');

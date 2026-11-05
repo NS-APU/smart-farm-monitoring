@@ -11385,3 +11385,43 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 | `tests/e2e/UC-15-configure-file-server-connection.ts` | #172 で追加した 1 件（認証情報が未設定のとき〜入力欄はない）を、「状態は未設定」「入力欄は、保存後に出る」に変更した。テスト用サーバーに、Basic 認証を要求するファイルを加えた | 同上 |
 
 実測（手元（Windows））: `pnpm test:unit`（`--maxWorkers=3`）は、112 ファイル・2585 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.21%・Branches 95.52%・Functions 99.6%・Lines 99.2%。E2E は、UC-15・UC-16 の既存 54 件と、UC-15-configure-file-server-connection.ts の 10 件が、すべて成功（空きポートで実行）。並列数を指定せずに全体を実行すると、`entry-pages.test.tsx`（満足度の入力）・`demo-data-cli.test.ts`・DynamoDB Local を使うテストが、負荷でタイムアウトすることがあった（単独・並列数を絞った実行では成功。この変更とは関係がない）。
+
+## 21. ファイル仕様の仮決めを、「1 つのファイルを随時更新する」方式に見直す（Issue #174・#199。ADR-0003・ADR-0016 の D-08）で変更・追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+### 21.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/ingestion-update-in-place.test.ts`（新規。13 件） | 変わった分だけ取り込む（初回は全件・新しい計測日時の記録が加わったら、その分だけ〔古い観測値の受信日時は変えない〕・同じ計測日時で値が違えば上書き・計測以外の部分だけが変わったときは何も保存せず受信日時も更新しない〔停止を検知できる〕・内容が同じなら何もしない・消えた行は反映しない・評価は変わった設備だけ・不正な値も同じ規則）。書き換えの最中のファイルを読まない（更新日時が 1 秒以内は次の周期に回す・境界〔ちょうど 1 秒〕・更新日時が未来なら読む・2 周期続けて回されたら 3 周期目は読む・読めたら数えをやり直す） |
+| 単体: `tests/unit/backend/application/ingestion-settings.test.ts`（新規。4 件） | 既定の FormatProfile（ロボット `robot-json`・環境センサー `environment-sensor-json`）、保存済みの設定の旧い識別子（`environment-sensor-csv`）の読み替え（ほかの項目は変えない・保存し直すと旧い識別子が残らない・未知の識別子はそのまま） |
+| 単体: `tests/unit/backend/infrastructure/adapters.test.ts`（1 件を追加） | UTF-8 の BOM つきの JSON も読める（ロボット・環境センサー） |
+| 結合: `tests/integration/ingestion.test.ts`（1 件を追加） | 未登録のセンサーのデータは、読み取れなかったものとして数える（CSV では、同じファイルに混ぜていた。JSON は 1 ファイル 1 設備のため、別に確認する） |
+| 結合: `tests/integration/demo-feed.test.ts`（1 件を追加） | 次の区間でファイルが上書きされたら、新しい区間の観測値だけを取り込む（消えた古い区間は反映しない） |
+
+### 21.2 変更した既存のテスト（仕様の変更に伴う。ユーザーの承認済み）
+
+仕様の変更: (1) 環境センサーの形式を、CSV から JSON に置き換えた（ユーザーの承認済み。CSV のプロファイル・サンプル・テストと、CSV の読み取りの実装を削除）。(2) 取り込みを、変わった観測値だけにした（D-08）。(3) 更新日時が 1 秒以内のファイルを、次の周期に回す（D-08）。(4) 合成データの生成を、取り込み元ごとに 1 つのファイル（`latest.json`）を上書きする方式にした。**テストの期待値を、通すためだけに書き換えてはいない**。
+
+| ファイル | 変更の内容 | 理由 |
+| -------- | ---------- | ---- |
+| `tests/unit/backend/infrastructure/csv-parsing.test.ts` | **削除** | CSV の読み取りの実装を削除したため（承認済み） |
+| `tests/fixtures/file-server/environment-sensor/` | CSV の 3 つ（`sensor-sample-001.csv`・`-002-invalid.csv`・`-003-bad-header.csv`）を削除し、JSON の 3 つ（`sensor-sample-001.json`・`-002-invalid.json`・`-003-bad-structure.json`）を新設 | (1) |
+| `tests/unit/backend/infrastructure/adapters.test.ts` | FormatProfile の環境センサーのテストを、CSV から JSON に書き換え。版の表記（ロボット `0.2.0`・環境センサー `environment-sensor-json@0.1.0`）を更新 | (1)・ADR-0003 の更新 |
+| `tests/integration/ingestion.test.ts` | 環境センサーのテスト（CSV を読む・不正・見出しの違い）を JSON に書き換え。**不正なサンプルの件数**: 取り込み 2 件・読み取れなかった 4 件 → 3 件・3 件（JSON は 1 ファイル 1 設備で、項目の一部だけの記録は読める。CSV の「列の不足」「未登録のセンサー」の行はない）。版の表記。**スタブのファイルの更新日時**を、時計の 1 分前に（`STUB_MODIFIED_AT`） | (1)・(3)。更新日時が時計と同じだと、次の周期に回されるため |
+| `tests/integration/ingestion-reliability.test.ts` | 列名が変わった CSV → 項目名が変わった JSON。スタブのファイルの更新日時を、時計の 1 分前に | (1)・(3) |
+| `tests/integration/management-api.test.ts` | 版の表記（`robot-json@0.2.0`） | ADR-0003 の更新 |
+| `tests/integration/s3-ingestion.test.ts` | 環境センサーのサンプルを JSON に。S3 のオブジェクトの更新日時を、時計の 1 分前に | (1)・(3) |
+| `tests/integration/federation-item-size.test.ts` | 700 行の CSV → 700 記録の JSON（件数・項目の分け方の期待は、同じ。2,800 件・1,000／1,000／800 件） | (1) |
+| `tests/integration/demo-feed.test.ts` | 区間ごとのファイル（`robot-<時刻>.json`・`sensor-<時刻>.csv`）の期待を、取り込み元ごとの `latest.json`（JSON。直近 4 区間の記録）に書き換え。同じ名前・同じ内容の確認は、上書きの確認に。取り込みの件数の期待は、ファイル数（4）→ 1 | (4) |
+| `tests/integration/demo-data-cli.test.ts`・`s3-file-source.test.ts`・`tests/unit/backend/infrastructure/clear-bucket.test.ts` | 置くオブジェクトの名前だけ（`.csv` → `.json`）。期待は、同じ | (1)・(4) |
+| `tests/support/fake-s3.ts`・`tests/support/test-constants.ts` | 偽の S3 に、更新日時を指定する補助（`setModifiedAt`）、スタブの更新日時の定数（`STUB_MODIFIED_AT`）を追加 | (3)・(4) |
+| `tests/e2e/support/app.ts`・`UC-08`〜`UC-12`・`UC-15`・`UC-16`・`UC-24`・`scenario-*` | センサーの CSV の生成（`sensorCsv`）を JSON の生成（`sensorJson`）に。ファイル名の `.csv` → `.json`。サンプルのファイル名。版の表記 | (1) |
+| `tests/e2e/UC-09-import-sensor-data.ts` | CSV 固有のテストを JSON に書き換え（BOM・CRLF つき CSV → BOM・CRLF つき JSON、ヘッダーのみの CSV → 記録が空の JSON、見出しの違う CSV → 構造の違う JSON）。**件数の期待**: 同じ名前で内容が訂正されたファイルの再取り込み 8 件 → 2 件（温度の 2 件だけが変わった。D-08）、不正なサンプル 取り込み 2 件・読み取れなかった 4 件 → 3 件・3 件 | (1)・(2) |
+| `tests/e2e/UC-16-check-ingestion-status.ts` | 不正なサンプル（一部成功）の件数 2・4 → 3・3 | (1) |
+| `tests/stress/support/files.ts`・`scale.ts`・`stress-03-bulk-ingestion.ts` | 環境センサーのファイルを JSON に。置いたファイルの更新日時を、1 分前にする（置いた直後に実行しても、次の周期に回されない） | (1)・(3) |
+
+### 21.3 実測
+
+手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、113 ファイル・2599 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.22%・Branches 95.54%・Functions 99.6%・Lines 99.21%。E2E（空きポートで実行）: UC-08（22 件）・UC-09（27 件。件数の期待を直したあと）、UC-05・UC-10〜UC-12・UC-15（2 ファイル）・UC-16・UC-17・UC-24・`scenario-configuration-changes`・`scenario-outage-recovery`・`scenario-scheduled-ingestion` の 210 件が成功。UC-16 の 1 件（不正なサンプルの件数）は、期待を直したあと、該当の 6 件（取り込みの結果の同値分割）を再実行して成功した（ファイル全体の再実行は、していない）。負荷テスト（`tests/stress/`）は、実行していない（ファイルの生成を JSON にしたのみ。型・lint は成功）。

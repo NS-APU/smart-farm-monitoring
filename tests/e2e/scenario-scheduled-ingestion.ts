@@ -24,7 +24,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   unreadBadge,
 } from './support/app.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
@@ -72,8 +72,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     placeFile('robot', 'robot-1.json', robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]));
     placeFile(
       'environment-sensor',
-      'sensor-1.csv',
-      sensorCsv([{ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-1.json',
+      sensorJson([{ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await runJob(request, 'JB-01');
     expect(await logCount(request, 'robot')).toBe(1);
@@ -105,8 +105,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     const robotLogsBefore = await logCount(request, 'robot');
     placeFile(
       'environment-sensor',
-      'sensor-2.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-2.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-01');
@@ -149,8 +149,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     );
     placeFile(
       'environment-sensor',
-      'sensor-3.csv',
-      sensorCsv([{ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-3.json',
+      sensorJson([{ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await advanceMinutes(request, 20);
     await runJob(request, 'JB-01');

@@ -10,7 +10,7 @@ function setup(pageSize?: number) {
   for (let index = 0; index < 5; index += 1) {
     s3.putObject(`robot/file-${String(index)}.json`, '{}', MODIFIED);
   }
-  s3.putObject('environment-sensor/a.csv', 'x', MODIFIED);
+  s3.putObject('environment-sensor/a.json', 'x', MODIFIED);
   return s3;
 }
 

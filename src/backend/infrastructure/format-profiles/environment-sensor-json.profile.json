@@ -1,0 +1,19 @@
+{
+  "profileId": "environment-sensor-json",
+  "version": "0.1.0",
+  "status": "PROVISIONAL",
+  "format": "JSON",
+  "basis": "環境センサーの機種・取得方式が未確定（Q-004。機種は特定しない。Raspberry Pi などで自作する可能性がある）のため、ロボットデータと同じ方式・形式に合わせた仮決め（#174。ADR-0003・ADR-0016 の D-08）。以前の仮決め（environment-sensor-csv@0.1.0。CSV）は、宇都宮大学から示された「取得方式・ファイルの形式・配置方法は、基本的にロボットデータと同様」に合わせて、置き換えた。ファイルは1台のセンサーの JSON（設備の識別子 sensorId + 記録の配列。1 つのファイルを随時更新し、中身は最新の値だけ）。温度・湿度・照度・CO2濃度の4項目（構想時の項目）。値のない項目は null（欠損）。タイムゾーンのない日時は、日本時間（+09:00）と推察した（utcOffsetMinutes）。",
+  "utcOffsetMinutes": 540,
+  "layout": {
+    "recordsPath": "records",
+    "equipmentIdPath": "sensorId",
+    "timestampField": "timestamp"
+  },
+  "fields": [
+    { "source": "temperatureCelsius", "itemKey": "temperatureCelsius" },
+    { "source": "humidityPercent", "itemKey": "humidityPercent" },
+    { "source": "illuminanceLux", "itemKey": "illuminanceLux" },
+    { "source": "co2Ppm", "itemKey": "co2Ppm" }
+  ]
+}
