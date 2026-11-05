@@ -262,6 +262,35 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('ファイルサーバー（HTTP）の内部のアドレスの許可（HTTP_FILE_SOURCE_ALLOW_PRIVATE。#172。ADR-0022）', () => {
+    it('既定は、拒否（SSRF の対策）', () => {
+      expect(parseConfig({}).httpFileSourceAllowPrivate).toBe(false);
+      expect(
+        parseConfig({ HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'false' }).httpFileSourceAllowPrivate,
+      ).toBe(false);
+    });
+
+    it('ローカル・テストでは、true を指定すると、許可する', () => {
+      expect(
+        parseConfig({ HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' }).httpFileSourceAllowPrivate,
+      ).toBe(true);
+      expect(
+        parseConfig({ APP_MODE: 'test', HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' })
+          .httpFileSourceAllowPrivate,
+      ).toBe(true);
+    });
+
+    it('本番（APP_MODE=production）では、指定しても、拒否する', () => {
+      expect(
+        parseConfig({
+          APP_MODE: 'production',
+          HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true',
+          ...PRODUCTION_ADAPTERS,
+        }).httpFileSourceAllowPrivate,
+      ).toBe(false);
+    });
+  });
+
   describe('秘密情報の保管（CREDENTIAL_STORE・CREDENTIAL_PATH_PREFIX。#206。D-55）', () => {
     it('既定は、メモリ（ローカル・テスト）。接頭辞は、なし', () => {
       expect(parseConfig({}).secrets).toEqual({ provider: 'memory' });

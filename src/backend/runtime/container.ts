@@ -105,6 +105,9 @@ import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
 import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
+import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
+import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
+import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
 import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
 import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
 import type { SecretPort } from '../application/ports/secret-port.ts';
@@ -424,10 +427,18 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     repositories.settings,
     settings.defaultIngestionIntervalMinutes,
   );
+  // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、接続テストのみ。Issue #172）
+  const routedFileSource = createRoutingFileSource({
+    base: fileSource,
+    ingestionSettings,
+    secrets: adapters.secrets,
+    probe: (input) =>
+      probeHttpFile({ ...input, allowPrivateAddresses: config.httpFileSourceAllowPrivate }),
+  });
   const ingestionService = createIngestionService({
     repositories,
     ingestionSettings,
-    fileSource,
+    fileSource: routedFileSource,
     profiles,
     evaluation: evaluationService,
     notifications: notificationService,
@@ -485,6 +496,10 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     ingestionService,
     profiles,
     audit: auditService,
+    isConnectionAllowed: (connection) =>
+      connection.type !== 'HTTP' ||
+      config.httpFileSourceAllowPrivate ||
+      !isBlockedConnectionHost(connection.host),
   });
   const pushSubscriptionService = createPushSubscriptionService({
     subscriptions: repositories.pushSubscriptions,

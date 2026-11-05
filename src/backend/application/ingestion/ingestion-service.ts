@@ -29,6 +29,7 @@ import type { FederationService } from '../federation/federation-service.ts';
 import type { NotificationService } from '../notification/notification-service.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import {
+  FileSourceFailure,
   FileSourceUnavailableError,
   type FileMeta,
   type FileSourcePort,
@@ -616,10 +617,12 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
           'ファイルサーバーへの接続テスト',
         );
         return { ok: true, message: '接続できました' };
-      } catch {
+      } catch (error) {
+        // 理由が分かる失敗（FileSourceFailure）は、理由を示す（接続先・認証情報を含まない固定の文言）
+        const reason = error instanceof FileSourceFailure ? `（${error.message}）` : '';
         return {
           ok: false,
-          message: '接続できませんでした。接続先と認証情報の設定を確認してください',
+          message: `接続できませんでした${reason}。接続先と認証情報の設定を確認してください`,
         };
       }
     },

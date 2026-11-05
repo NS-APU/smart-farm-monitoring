@@ -13,6 +13,7 @@ import type {
   IngestionLogListResponse,
   IngestionSettingsResponse,
   IngestionSettingsUpdateRequest,
+  FileServerConnection,
   IngestionSource,
 } from '@smart-farm/shared/schemas/ingestion';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
@@ -45,12 +46,15 @@ export interface IngestionAdminServiceDeps {
   readonly ingestionService: Pick<IngestionService, 'isRunning'>;
   readonly profiles: FormatProfileRegistry;
   readonly audit: AuditService;
+  /** 接続設定の接続先が、許可されるか（内部のアドレスを拒否する。Issue #172）。省略は、すべて許可。 */
+  readonly isConnectionAllowed?: (connection: FileServerConnection) => boolean;
 }
 
 export function createIngestionAdminService(
   deps: IngestionAdminServiceDeps,
 ): IngestionAdminService {
   const { ingestionSettings, ingestion, federation, ingestionService, profiles, audit } = deps;
+  const isConnectionAllowed = deps.isConnectionAllowed ?? (() => true);
 
   async function describe(): Promise<IngestionSettingsResponse> {
     const sources = await ingestionSettings.listSources();
@@ -93,9 +97,19 @@ export function createIngestionAdminService(
           ]);
         }
         seen.add(change.sourceId);
+        if (change.connection !== undefined && !isConnectionAllowed(change.connection)) {
+          throw validationError([
+            {
+              name: `sources.${String(index)}.connection.host`,
+              message:
+                '内部のアドレス（ループバック・プライベート・リンクローカルなど）は、接続先に指定できません',
+            },
+          ]);
+        }
         updated.push({
           ...source,
           connectionRef: change.connectionRef,
+          connection: change.connection ?? source.connection,
           intervalMinutes: change.intervalMinutes,
           isEnabled: change.isEnabled,
         });
