@@ -211,13 +211,13 @@ flowchart LR
 
 | 項目 | 内容 |
 |------|------|
-| 設定 | 取り込み元（ロボットデータ・環境センサーデータ）ごとに、接続先（接続設定の参照名）と、**ファイルサーバーの接続設定**（[ADR-0022](../adr/0022-file-server-http-connection-provisional.md)。#172）: 接続方式（モック／HTTP）・プロトコル（HTTPS が既定。HTTP を選ぶと、通信が暗号化されない旨を警告する）・ホスト名（FQDN・IP アドレス）・ポート番号（省略は、HTTPS 443・HTTP 80）・ファイルパス（1 取り込み元 = 1 ファイル）・認証方式（なし／Basic 認証／Bearer トークン／API キー。API キーは、送るヘッダー名）。内部のアドレスは、指定できない。**取得間隔は、設備ごと**（1分／5分／10分／15分／30分／1時間。既定は、ロボット 1分、環境センサー 5分。実装は #197）。**認証情報**は、管理者が、画面から**書き込み専用**で登録する（保存後は再表示せず、「設定済み／未設定」と更新日時を示す。画面・ログ・変更履歴に値を残さない。パラメータストアで管理。FR-1.4。実装は #196・D-01 の回答に合わせる）。[ADR-0016](../adr/0016-ingestion-federation-rules.md) |
+| 設定 | 取り込み元（ロボットデータ・環境センサーデータ）ごとに、接続先（接続設定の参照名）と、**ファイルサーバーの接続設定**（[ADR-0022](../adr/0022-file-server-http-connection-provisional.md)。#172）: 接続方式（モック／HTTP）・プロトコル（HTTPS が既定。HTTP を選ぶと、通信が暗号化されない旨を警告する）・ホスト名（FQDN・IP アドレス）・ポート番号（省略は、HTTPS 443・HTTP 80）・ファイルパス（1 取り込み元 = 1 ファイル）・認証方式（なし／Basic 認証／Bearer トークン／API キー。API キーは、送るヘッダー名）。内部のアドレスは、指定できない。**取得間隔は、設備ごと**（1分／5分／10分／15分／30分／1時間。既定は、ロボット 1分、環境センサー 5分。実装は #197）。**認証情報**は、管理者が、画面から**書き込み専用**で登録する（保存後は再表示せず、「設定済み／未設定」と更新日時を示す。画面・ログ・変更履歴に値を残さない。パラメータストアで管理。FR-1.4。**実装済み**: #207。認証方式〔Basic: ユーザー名・パスワード、Bearer: トークン、API キー〕ごとの入力欄〔伏せ字〕と「認証情報を保存」。**保存済みの設定の認証方式で登録する**〔認証方式・接続方式を変えたときは、先に設定を保存する〕。保存のたびに現在の値を上書きする。保存名は、環境と取り込み元から自動で決まる〔`file-server/<取り込み元>`〕。変更履歴には、「認証情報を更新した」という事実と認証方式だけを残す。権限のない利用者には、状態だけを示す）。[ADR-0016](../adr/0016-ingestion-federation-rules.md) |
 | 操作 | **接続テスト**（接続先に接続できるかを確認し、結果を表示。HTTP は、ファイルの有無を確かめる。失敗は、理由だけを示し、接続先・ファイルパス・認証情報は表示しない。取得〔一覧・読み取り〕は #119。認証情報の値の入力欄は、現状ない〔#207〕）、**即時取得**（手動で取り込みを実行）。実行中は、二重実行を防ぐ |
 | 取り込みの状況 | 取り込みログの一覧（日時、設備、成功／失敗、取得件数、エラー内容）。ログは、新しいデータがあった実行と、失敗した実行だけを残し、空振りは残さない。設備ごとに、最終の実行日時と結果を示す。設備・結果・期間で絞り込む（条件は URL に反映。1ページ 20 件。並べ替えは設けない）（[ADR-0016](../adr/0016-ingestion-federation-rules.md)。実装は #201。現状は、すべての実行を残し、取り込み元でだけ絞り込む） |
 | 連携の状況 | 連携の結果の一覧（成功／失敗／保留／期限切れ、日時、件数、内容）と、連携キューの状態ごとの件数（待機・送信済み・失敗・保留・期限切れ）。農業情報基盤の停止中は、保留を表示。破棄の期限を過ぎて破棄した項目は、期限切れとして表示（#204） |
 | 仕様の状態 | 解釈に使っている FormatProfile の版と状態（仮決め／確定）を表示する（FR-1.11） |
 | 狭い画面 | 長い値（接続先の参照名 100 文字）や 900px 以下の幅（タブレット・スマートフォン）でも、列が潰れず、ページが横にはみ出さない。900px 以下は、取り込み・連携のログの表を、ログ 1 件ごとのカード（項目名と値の縦並び）で表示し、横にスクロールしなくても、結果・エラー内容を読める（NFR-7.3） |
-| 関連API | `GET/PUT /api/v1/ingestion/settings`、`POST /api/v1/ingestion/{sourceId}/test`、`POST /api/v1/ingestion/{sourceId}/run`、`GET /api/v1/ingestion/logs`、`GET /api/v1/federation/logs` |
+| 関連API | `GET/PUT /api/v1/ingestion/settings`、`PUT /api/v1/ingestion/{sourceId}/credentials`、`POST /api/v1/ingestion/{sourceId}/test`、`POST /api/v1/ingestion/{sourceId}/run`、`GET /api/v1/ingestion/logs`、`GET /api/v1/federation/logs` |
 
 ### 3.11 SC-12 ステータスコード管理（FR-3 / UC-17）
 
@@ -308,6 +308,7 @@ flowchart LR
 | | `POST /notifications/{id}/read`、`POST /notifications/read-all` | 既読にする（個別・一括） | 要ログイン | FR-7.6 |
 | | `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | Web Push の購読の状態・購読・解除 | 要ログイン | FR-7.2 |
 | 取り込み | `GET /ingestion/settings`、`PUT /ingestion/settings` | 取り込み設定（参照名・間隔） | 要ログイン（決定: 管理者のみ） | FR-1.4、1.5 |
+| | `PUT /ingestion/{sourceId}/credentials` | 認証情報の登録・上書き（書き込み専用。応答は、状態〔設定済み／未設定・更新日時〕だけ） | 要ログイン（決定: 管理者のみ。`ingestion:configure`） | FR-1.4 |
 | | `POST /ingestion/{sourceId}/test` | 接続テスト | 要ログイン（決定: 管理者のみ） | FR-1.7 |
 | | `POST /ingestion/{sourceId}/run` | 即時取得 | 要ログイン（決定: 管理者のみ） | FR-1.7 |
 | | `GET /ingestion/logs` | 取り込みログ | 要ログイン | FR-1.8 |
@@ -348,6 +349,15 @@ flowchart LR
 |------|------|
 | クエリ | `kind`、`readState`（`UNREAD`／`READ`）、`limit`、`cursor` |
 | 応答 | `items[]`（`notificationId`、`kind`、`viewpointId`、`equipmentId`、`status`、`message`、`createdAt`、`readState`）、`nextCursor` |
+
+**`PUT /ingestion/{sourceId}/credentials`**（Issue #207。D-47。[ADR-0022](../adr/0022-file-server-http-connection-provisional.md)）
+
+| 項目 | 内容 |
+|------|------|
+| 入力 | `authMethod`（保存済みの設定の認証方式と同じ。`BASIC`／`BEARER`／`API_KEY`）と、認証方式ごとの値: `BASIC` は `username`（200 文字以内。`:` は不可）・`password`（1000 文字以内）、`BEARER` は `token`、`API_KEY` は `apiKey`（どちらも、表示できる ASCII で 2000 文字以内。空白・改行・日本語は不可） |
+| 応答 | 200。状態 `{ state, updatedAt? }`（値は含めない）。`state` は `CONFIGURED`（設定済み）。設定の取得（`GET /ingestion/settings`）の取り込み元ごとに、`credentials` として、状態（`NOT_REQUIRED`〔認証が不要〕・`NOT_CONFIGURED`〔未設定〕・`CONFIGURED`・`UNAVAILABLE`〔保管先から読み出せない〕）と更新日時を返す |
+| エラー | 400（入力不正、認証方式が保存済みの設定と違う、認証が不要な取り込み元。`fields` に理由。**値を含めない**）、403（権限なし）、404（取り込み元がない）、503（保管先に保存できない。原因・値を含めない） |
+| 記録 | 値は、画面・API の応答・ログ・エラー・変更履歴のどこにも残さない。変更履歴には、`credentials/<取り込み元>` の更新と、認証方式だけを残す |
 
 **`POST /ingestion/{sourceId}/test`・`/run`**
 
