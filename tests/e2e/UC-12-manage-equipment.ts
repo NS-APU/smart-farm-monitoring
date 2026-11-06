@@ -9,7 +9,7 @@
  *   代替フロー  ・構成の変更（追加・変更・削除）も可能とする（削除時の過去データの扱い: 論理削除。データは残り、評価の対象から外れる）
  *               ・同一の識別子を重複して登録しようとした場合は、エラーとする
  *
- * 値の同値分割: 設備の種別（ハウス・ロボット・環境センサー）、設備ID・名称の長さ（空・境界・超過）と文字種、データ上の識別子（なし・あり・重複）、
+ * 値の同値分割: 設備の種別（ハウス・ロボット・環境センサー）、設備ID・名称の長さ（空・境界・超過）と文字種、データ上の識別子（なし・あり・重複）、ファイルパス（なし・あり・重複・不正な形式。Issue #119）、
  * 削除（ロボット・センサー・ハウス（配下ごと）・確認の取り消し）、権限（変更できる・参照のみ）。
  * 関連するユースケース: UC-08・UC-09（構成にもとづく取り込み）、UC-01（表示の対象）、UC-11（連携）、UC-07（入力の対象）、UC-15。
  */
@@ -70,6 +70,7 @@ async function addChild(
     id: string;
     name: string;
     externalId?: string;
+    sourceFilePath?: string;
   },
 ): Promise<void> {
   const form = childForm(page);
@@ -78,6 +79,7 @@ async function addChild(
   await form.getByLabel('設備ID').fill(values.id);
   await form.getByLabel('名称').fill(values.name);
   await form.getByLabel('データ上の識別子').fill(values.externalId ?? '');
+  await form.getByLabel('ファイルパス').fill(values.sourceFilePath ?? '');
   await form.getByRole('button', { name: '登録する' }).click();
 }
 
@@ -103,6 +105,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       id: 'ROBOT-A',
       name: 'A収穫ロボット',
       externalId: 'ROBOT-A-FILE',
+      sourceFilePath: '/data/robot-a.json',
     });
     await expect(rowOf(page, 'ROBOT-A')).toBeVisible();
     await addChild(page, {
@@ -119,6 +122,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     await expect(rows(page).nth(0)).toContainText('Aハウス');
     await expect(rows(page).nth(1)).toContainText('ロボット');
     await expect(rows(page).nth(1)).toContainText('ROBOT-A-FILE');
+    await expect(rows(page).nth(1)).toContainText('/data/robot-a.json');
     await expect(rows(page).nth(2)).toContainText('環境センサー');
     await expect(rows(page).nth(1).locator('td').first()).toHaveClass(/tree-child/);
     await shot(page, testInfo, 'uc12-tree');
@@ -338,6 +342,45 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
 
     await expect(notice(page)).toHaveText('登録しました');
   });
+
+  test('ファイルパスは、同じ種別の設備の中で、重複を登録できない。形式が不正なら、登録できない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEquipment(page);
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-01',
+      id: 'ROBOT-02',
+      name: '2台目',
+      sourceFilePath: '/data/shared.json',
+    });
+    await expect(notice(page)).toHaveText('登録しました');
+
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-01',
+      id: 'ROBOT-03',
+      name: '3台目',
+      sourceFilePath: 'data/robot-03.json',
+    });
+    await expect(
+      childForm(page).locator('[data-field="sourceFilePath"] .field-error'),
+    ).toContainText('/ で始まるファイル 1 つを');
+    await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-01',
+      id: 'ROBOT-03',
+      name: '3台目',
+      sourceFilePath: '/data/shared.json',
+    });
+    await expect(childForm(page).locator('[data-field="sourceFilePath"] .field-error')).toHaveText(
+      '同じファイルパスがすでに登録されています',
+    );
+    await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+  });
 });
 
 test.describe('入力の検証（設備ID・名称・親のハウス）', () => {
@@ -448,7 +491,7 @@ test.describe('入力の検証（設備ID・名称・親のハウス）', () => 
 });
 
 test.describe('代替フロー: 構成の変更（修正・削除）', () => {
-  test('名称・データ上の識別子を修正できる。設備IDと種別は、変更できない', async ({
+  test('名称・データ上の識別子・ファイルパスを修正できる。設備IDと種別は、変更できない', async ({
     page,
     request,
   }, testInfo) => {
@@ -463,11 +506,13 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await shot(page, testInfo, 'uc12-edit');
     await edit.getByLabel('名称').fill('改名したロボット');
     await edit.getByLabel('データ上の識別子').fill('ROBOT-FILE-9');
+    await edit.getByLabel('ファイルパス').fill('/data/robot-01.json');
     await edit.getByRole('button', { name: '保存' }).click();
 
     await expect(notice(page)).toHaveText('修正しました');
     await expect(rowOf(page, 'ROBOT-01')).toContainText('改名したロボット');
     await expect(rowOf(page, 'ROBOT-01')).toContainText('ROBOT-FILE-9');
+    await expect(rowOf(page, 'ROBOT-01')).toContainText('/data/robot-01.json');
     await expect(page.getByTestId('equipment-edit')).toHaveCount(0);
     // ヘッダーの設備の選択にも反映される
     await expect(page.getByRole('banner').getByLabel('対象の設備')).toContainText(

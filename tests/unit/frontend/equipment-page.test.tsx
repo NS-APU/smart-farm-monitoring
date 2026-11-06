@@ -224,6 +224,110 @@ describe('設備管理（UC-12。SC-10）', () => {
     expect(within(childForm()).getByLabelText<HTMLInputElement>('データ上の識別子').value).toBe('');
   });
 
+  it('一覧に、ファイルパス（取得するファイルの場所）を表示する。ハウス・未設定は「—」', async () => {
+    const tree = equipmentTree();
+    const robot = tree.facilities[0]?.children[0];
+    if (robot !== undefined) {
+      Object.assign(robot, { sourceFilePath: '/data/robot-01.json' });
+    }
+    renderApp('/settings/equipment', { 'GET /equipment': () => jsonResponse(tree) });
+
+    const rows = await screen.findAllByTestId('equipment-row');
+
+    expect(rows[1]?.querySelectorAll('td')[4]?.textContent).toBe('/data/robot-01.json');
+    expect(rows[2]?.querySelectorAll('td')[4]?.textContent).toBe('—');
+    expect(rows[0]?.querySelectorAll('td')[4]?.textContent).toBe('—');
+  });
+
+  it('ファイルパスを入力すれば、登録の内容に含める。空なら送らない。不正な形式は、送らずに項目に表示する。登録後は、入力を空にする', async () => {
+    const { calls } = renderApp('/settings/equipment', {
+      'POST /equipment': () => jsonResponse(SAVED_EQUIPMENT, 201),
+    });
+    await screen.findAllByTestId('equipment-row');
+    const form = childForm();
+    fireEvent.change(within(form).getByLabelText('親のハウス', { exact: false }), {
+      target: { value: 'HOUSE-01' },
+    });
+    fireEvent.change(within(form).getByLabelText('設備ID', { exact: false }), {
+      target: { value: 'ROBOT-02' },
+    });
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: 'ロボット2' },
+    });
+
+    fireEvent.change(within(form).getByLabelText('ファイルパス'), {
+      target: { value: 'data/robot-02.json' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '登録する' }));
+    expect(
+      within(form).getByText('ファイルパスは、/ で始まるファイル 1 つを', { exact: false }),
+    ).toBeDefined();
+    expect(callsOf(calls, 'POST', '/equipment')).toHaveLength(0);
+
+    fireEvent.change(within(form).getByLabelText('ファイルパス'), {
+      target: { value: '/data/robot-02.json' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '登録する' }));
+
+    await screen.findByTestId('equipment-notice');
+    expect(callsOf(calls, 'POST', '/equipment')[0]?.body).toMatchObject({
+      equipmentType: 'ROBOT',
+      sourceFilePath: '/data/robot-02.json',
+    });
+    expect(within(childForm()).getByLabelText<HTMLInputElement>('ファイルパス').value).toBe('');
+  });
+
+  it('修正（ロボット）: ファイルパスを変更・解除できる。ハウスには、ファイルパスの項目がない', async () => {
+    const tree = equipmentTree();
+    const robot = tree.facilities[0]?.children[0];
+    if (robot !== undefined) {
+      Object.assign(robot, { sourceFilePath: '/data/robot-01.json' });
+    }
+    const { calls } = renderApp('/settings/equipment', {
+      'GET /equipment': () => jsonResponse(tree),
+      'PUT /equipment/ROBOT-01': () => jsonResponse(SAVED_EQUIPMENT),
+    });
+    const rows = await screen.findAllByTestId('equipment-row');
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    let form = await screen.findByTestId('equipment-edit');
+    expect(within(form).getByLabelText<HTMLInputElement>('ファイルパス').value).toBe(
+      '/data/robot-01.json',
+    );
+
+    fireEvent.change(within(form).getByLabelText('ファイルパス'), {
+      target: { value: '/data/robot-new.json' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+    await screen.findByTestId('equipment-notice');
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')[0]?.body).toMatchObject({
+      sourceFilePath: '/data/robot-new.json',
+    });
+
+    fireEvent.click(
+      within(at(await screen.findAllByTestId('equipment-row'), 1)).getByRole('button', {
+        name: '修正',
+      }),
+    );
+    form = await screen.findByTestId('equipment-edit');
+    fireEvent.change(within(form).getByLabelText('ファイルパス'), { target: { value: '' } });
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(2);
+    });
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')[1]?.body).toEqual({
+      name: '収穫ロボット1',
+      facilityId: 'HOUSE-01',
+    });
+
+    fireEvent.click(
+      within(at(await screen.findAllByTestId('equipment-row'), 0)).getByRole('button', {
+        name: '修正',
+      }),
+    );
+    form = await screen.findByTestId('equipment-edit');
+    expect(within(form).queryByLabelText('ファイルパス')).toBeNull();
+  });
+
   it('ロボット・センサーの登録で、サーバーが失敗を返した場合は、エラーを表示する', async () => {
     renderApp('/settings/equipment', {
       'POST /equipment': () => errorBody(500, 'INTERNAL_ERROR', '登録できませんでした'),

@@ -8,6 +8,7 @@ import {
   type FederationStatus,
 } from '../constants/status.ts';
 import { IsoDateTimeSchema } from './common.ts';
+import { FilePathSchema } from './file-path.ts';
 
 export const INGESTION_SOURCE_KINDS = ['ROBOT', 'SENSOR'] as const;
 
@@ -88,24 +89,6 @@ const HostSchema = z
   .refine(
     isValidHost,
     '接続先のホスト名は、FQDN・IPv4・[IPv6] で指定してください（スキーム・ポート・パスは含めません）',
-  );
-
-/** ファイルパス: / で始まるファイル 1 つ。クエリ・フラグメント・空白・.. ・% のエスケープは使えない。 */
-const FilePathSchema = z
-  .string()
-  .min(2, 'ファイルパスを入力してください')
-  .max(500, 'ファイルパスは500文字以内で指定してください')
-  .refine(
-    (path) =>
-      /^\/[A-Za-z0-9._~!$&'()*+,;=:@/-]+$/.test(path) &&
-      !path.endsWith('/') &&
-      path
-        .split('/')
-        .every(
-          (segment, index) =>
-            index === 0 || (segment !== '' && segment !== '.' && segment !== '..'),
-        ),
-    'ファイルパスは、/ で始まるファイル 1 つを、英数字と記号（. _ ~ - / など）で指定してください（..・?・#・空白・% は使えません）',
   );
 
 const ApiKeyHeaderNameSchema = z
