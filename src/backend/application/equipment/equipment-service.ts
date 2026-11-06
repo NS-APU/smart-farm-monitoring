@@ -86,6 +86,26 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     }
   }
 
+  /** ファイルのパス（sourceFilePath）は、同じ種別の設備の中で一意（1 つのファイルを 1 つの設備に対応づけるため。ADR-0023）。削除済みは、一覧に含まれないため、数えない。 */
+  async function assertSourceFilePathUnique(
+    equipmentType: Equipment['equipmentType'],
+    sourceFilePath: string | undefined,
+    ownId: EquipmentId | undefined,
+  ): Promise<void> {
+    if (sourceFilePath === undefined) {
+      return;
+    }
+    const duplicated = (await repository.list()).some(
+      (other) =>
+        other.equipmentType === equipmentType &&
+        other.sourceFilePath === sourceFilePath &&
+        other.equipmentId !== ownId,
+    );
+    if (duplicated) {
+      throw conflictError('sourceFilePath', '同じファイルパスがすでに登録されています');
+    }
+  }
+
   /** 評価の更新。失敗しても、設備の保存の結果には影響させない。 */
   const reevaluate = (): Promise<void> =>
     reevaluateSafely(evaluation, logger, 'EQUIPMENT_CHANGE', '設備の変更後の評価に失敗しました');
@@ -111,6 +131,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         await assertFacility(input.facilityId);
       }
       await assertExternalIdUnique(input.equipmentType, input.externalId, undefined);
+      await assertSourceFilePathUnique(input.equipmentType, input.sourceFilePath, undefined);
       const created: Equipment = {
         equipmentId: input.equipmentId,
         equipmentType: input.equipmentType,
@@ -118,6 +139,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         ...omitUndefined({
           facilityId: input.facilityId,
           externalId: input.externalId,
+          sourceFilePath: input.sourceFilePath,
         }),
         isDeleted: false,
         createdAt: clock.now().toISOString(),
@@ -139,12 +161,21 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       if (before.equipmentType === 'FACILITY' && input.facilityId !== undefined) {
         throw validationError([{ name: 'facilityId', message: 'ハウスは親を持てません' }]);
       }
+      if (before.equipmentType === 'FACILITY' && input.sourceFilePath !== undefined) {
+        throw validationError([
+          {
+            name: 'sourceFilePath',
+            message: 'ファイルパスは、ロボット・センサーだけに指定できます',
+          },
+        ]);
+      }
       const facilityId =
         before.equipmentType === 'FACILITY' ? undefined : (input.facilityId ?? before.facilityId);
       if (facilityId !== undefined) {
         await assertFacility(facilityId);
       }
       await assertExternalIdUnique(before.equipmentType, input.externalId, equipmentId);
+      await assertSourceFilePathUnique(before.equipmentType, input.sourceFilePath, equipmentId);
       const updated: Equipment = {
         equipmentId: before.equipmentId,
         equipmentType: before.equipmentType,
@@ -152,6 +183,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         ...omitUndefined({
           facilityId,
           externalId: input.externalId,
+          sourceFilePath: input.sourceFilePath,
         }),
         isDeleted: false,
         createdAt: before.createdAt,

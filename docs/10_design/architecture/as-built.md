@@ -454,6 +454,7 @@ classDiagram
     +string name
     +EquipmentId facilityId?
     +string externalId?
+    +string sourceFilePath?
     +boolean isDeleted
     +IsoDateTime createdAt
   }
@@ -540,7 +541,7 @@ classDiagram
   StatusCodeDefinition --> JudgedStatus
 ```
 
-- **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。削除は論理削除（`isDeleted`）
+- **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。`sourceFilePath` は、ファイルサーバー（HTTP）の、この設備のファイルの場所（ロボット・センサーだけ。同じ種別の中で一意。[ADR-0023](../adr/0023-http-file-source-per-equipment-file.md)）。削除は論理削除（`isDeleted`）
 - **Observation**: 共通形式の観測値。一意キーは `設備ID#項目#計測日時#取得元`（`observationKey`）。欠損は `null`（0 で代用しない）。取り込みの観測値は `sourceFileId`・`formatProfileVersion`、手動入力の観測値は `enteredBy`・`note`・`manualEntryId` を持つ
 - **ManualEntry**: 1 回の入力（設備・カテゴリ・計測日時・項目の値・備考）。項目ごとの観測値（取得元 `MANUAL`・品質 `VALID`）としても保存される
 - **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`RATING`・`STATUS`）・取得元（自動・手動）を持つ
@@ -1392,6 +1393,7 @@ sequenceDiagram
     ES->>REP: get(equipmentId)<br>削除済みを含め存在すれば CONFLICT<br>409
     ES->>REP: 親のハウスが有効かを<br>assertFacility<br>ロボット・センサーのみ
     ES->>REP: list で externalId<br>が同じ種別の中で一意かを<br>assertExternalIdUnique 重複は<br>CONFLICT
+    ES->>REP: list で sourceFilePath<br>が同じ種別の中で一意かを<br>assertSourceFilePathUnique<br>重複は CONFLICT
     ES->>REP: save(isDeleted false createdAt)
     ES->>AU: record CREATE
     ES->>EV: evaluateAll EQUIPMENT_CHANGE
@@ -1797,7 +1799,7 @@ sequenceDiagram
 
 | モデル                                   | 生成                                                             | 更新                                           | 削除                                                     |
 | ---------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------- |
-| 設備                                     | `EquipmentService.create`                                        | `update`（名称・親・データ上の識別子）         | 論理削除（ハウスは配下も）。同じ設備 ID は再登録できない |
+| 設備                                     | `EquipmentService.create`                                        | `update`（名称・親・データ上の識別子・ファイルパス）         | 論理削除（ハウスは配下も）。同じ設備 ID は再登録できない |
 | 観測値                                   | 取り込み（`IngestionService`）、手動入力（`ManualEntryService`） | 同じ一意キーは上書き                           | 手動入力の観測値のみ、論理削除                           |
 | 手動入力                                 | `ManualEntryService.create`                                      | `update`                                       | 論理削除（観測値も削除済みにする）                       |
 | 評価結果                                 | `EvaluationService.evaluateAll`                                  | 同じキーを上書き                               | なし（設備を削除しても残る）                             |
@@ -1818,13 +1820,13 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> Active : POST equipment で登録
-  Active --> Active : PUT equipment で名称 親のハウス データ上の識別子を修正
+  Active --> Active : PUT equipment で名称 親のハウス データ上の識別子 ファイルパスを修正
   Active --> Deleted : DELETE equipment で論理削除 ハウスは配下も
   Deleted --> [*]
 ```
 
 - 生成: 設備 ID（一意。削除済みの ID も重複として拒否）・種別・名称・親のハウス（ロボット・センサーは必須）・データ上の識別子（任意。同じ種別の中で一意）。`createdAt` は登録時刻
-- 更新: 名称・親のハウス（ロボット・センサーのみ）・データ上の識別子。設備 ID・種別は変えられない
+- 更新: 名称・親のハウス（ロボット・センサーのみ）・データ上の識別子・ファイルパス（ロボット・センサーのみ。ハウスに指定すると検証エラー）。設備 ID・種別は変えられない
 - 削除: `isDeleted: true`。ハウスを削除すると、配下の有効なロボット・センサーも同時に削除する。**復活の操作はない**（同じ設備 ID で再登録すると CONFLICT）。削除した設備のデータ上の識別子は、別の設備で使える（重複の検査が、削除済みを除くため）
 - いずれの変更も、変更履歴に記録し、評価を更新する。削除した設備の観測値・評価結果は残る
 

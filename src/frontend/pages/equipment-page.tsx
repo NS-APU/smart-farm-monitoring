@@ -115,6 +115,7 @@ function ChildForm(props: FormProps): ReactNode {
   const [equipmentId, setEquipmentId] = useState('');
   const [name, setName] = useState('');
   const [externalId, setExternalId] = useState('');
+  const [sourceFilePath, setSourceFilePath] = useState('');
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const errors = { ...clientErrors, ...submit.fieldErrors };
 
@@ -126,6 +127,7 @@ function ChildForm(props: FormProps): ReactNode {
       name,
       ...(facilityId === '' ? {} : { facilityId }),
       ...(externalId.trim() === '' ? {} : { externalId }),
+      ...(sourceFilePath.trim() === '' ? {} : { sourceFilePath: sourceFilePath.trim() }),
     });
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
@@ -137,6 +139,7 @@ function ChildForm(props: FormProps): ReactNode {
       setEquipmentId('');
       setName('');
       setExternalId('');
+      setSourceFilePath('');
       reloadEquipment();
       props.onDone(TEXT.created);
     }
@@ -226,6 +229,22 @@ function ChildForm(props: FormProps): ReactNode {
             />
           )}
         </Field>
+        <Field
+          label={TEXT.sourceFilePath}
+          name="sourceFilePath"
+          error={errors.sourceFilePath}
+          hint={TEXT.sourceFilePathHint}
+        >
+          {(control) => (
+            <input
+              {...control}
+              value={sourceFilePath}
+              onChange={(event) => {
+                setSourceFilePath(event.target.value);
+              }}
+            />
+          )}
+        </Field>
       </div>
       <FormError message={submit.formMessage} />
       <div className="form-actions">
@@ -248,6 +267,7 @@ function EditForm(
   const [name, setName] = useState(equipment.name);
   const [facilityId, setFacilityId] = useState(equipment.facilityId ?? '');
   const [externalId, setExternalId] = useState(equipment.externalId ?? '');
+  const [sourceFilePath, setSourceFilePath] = useState(equipment.sourceFilePath ?? '');
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const errors = { ...clientErrors, ...submit.fieldErrors };
   const isFacility = equipment.equipmentType === 'FACILITY';
@@ -258,6 +278,9 @@ function EditForm(
       name,
       ...(isFacility || facilityId === '' ? {} : { facilityId }),
       ...(externalId.trim() === '' ? {} : { externalId }),
+      ...(isFacility || sourceFilePath.trim() === ''
+        ? {}
+        : { sourceFilePath: sourceFilePath.trim() }),
     });
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
@@ -331,6 +354,24 @@ function EditForm(
             />
           )}
         </Field>
+        {isFacility ? null : (
+          <Field
+            label={TEXT.sourceFilePath}
+            name="sourceFilePath"
+            error={errors.sourceFilePath}
+            hint={TEXT.sourceFilePathHint}
+          >
+            {(control) => (
+              <input
+                {...control}
+                value={sourceFilePath}
+                onChange={(event) => {
+                  setSourceFilePath(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        )}
       </div>
       <FormError message={submit.formMessage} />
       <div className="form-actions">
@@ -392,6 +433,7 @@ export function EquipmentPage(): ReactNode {
         <td>{equipment.equipmentId}</td>
         <td>{equipment.name}</td>
         <td>{equipment.externalId ?? MESSAGES.common.missingValue}</td>
+        <td>{equipment.sourceFilePath ?? MESSAGES.common.missingValue}</td>
         {canManage ? (
           <td>
             <div className="row-actions">
@@ -443,6 +485,7 @@ export function EquipmentPage(): ReactNode {
               <th scope="col">{TEXT.id}</th>
               <th scope="col">{TEXT.name}</th>
               <th scope="col">{TEXT.externalId}</th>
+              <th scope="col">{TEXT.sourceFilePath}</th>
               {canManage ? <th scope="col">{TEXT.actions}</th> : null}
             </tr>
           </thead>

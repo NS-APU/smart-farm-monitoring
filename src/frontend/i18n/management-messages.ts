@@ -175,6 +175,9 @@ export const MANAGEMENT_MESSAGES = {
     name: '名称',
     externalId: 'データ上の識別子',
     externalIdHint: 'ファイルの中の機体ID・センサーIDと対応づけます（任意）',
+    sourceFilePath: 'ファイルパス',
+    sourceFilePathHint:
+      'ファイルサーバー（HTTP）の、この設備のファイルの場所です。例: /data/robot-01.json（任意）',
     facility: '親のハウス',
     addFacility: 'ハウスを登録',
     addChild: 'ロボット・環境センサーを登録',

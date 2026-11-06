@@ -127,6 +127,20 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.equipment.list({ includeDeleted: true })).toHaveLength(2);
   });
 
+  it('設備: ファイルパス（sourceFilePath）も、保存・取得できる（Issue #119）', async () => {
+    const { repositories } = create();
+    const robot = equipmentSet()[1];
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    const withPath = { ...robot, sourceFilePath: '/data/robot-01.json' };
+
+    await repositories.equipment.save(withPath);
+
+    expect(await repositories.equipment.get(withPath.equipmentId)).toEqual(withPath);
+    expect(await repositories.equipment.list()).toEqual([withPath]);
+  });
+
   it('ステータスコード: 保存・取得でき、論理削除は一覧から除く', async () => {
     const { repositories } = create();
     await repositories.statusCodes.save({
