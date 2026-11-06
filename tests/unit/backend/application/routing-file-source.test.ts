@@ -1,14 +1,15 @@
 /**
  * 接続方式で振り分けるファイルソース（Issue #172。ADR-0022）の単体テスト。
- * MOCK は、これまでのファイルソース（モック・S3）へ。HTTP は、秘密情報から認証のヘッダーを組み立て、接続テストをする。
- * HTTP の一覧・取得は、Issue #119 で実装する（それまでは、「まだ使えません」）。
+ * MOCK は、これまでのファイルソース（モック・S3）へ。HTTP は、秘密情報から認証のヘッダーを組み立て、設備ごとのファイルパス（ADR-0023。Issue #119）で、接続テスト・一覧・取得をする。
  */
 
 import { describe, expect, it } from 'vitest';
+import { toEquipmentId } from '../../../../src/shared/schemas/common.ts';
+import type { Equipment } from '../../../../src/shared/schemas/equipment.ts';
 import type { IngestionSource } from '../../../../src/shared/schemas/ingestion.ts';
 import {
   createRoutingFileSource,
-  type HttpFileProbe,
+  type HttpFileClient,
 } from '../../../../src/backend/application/ingestion/routing-file-source.ts';
 import {
   FileSourceFailure,
@@ -33,24 +34,46 @@ const HTTP_CONNECTION: IngestionSource['connection'] = {
   type: 'HTTP',
   protocol: 'HTTPS',
   host: 'fileserver.example.ac.jp',
-  filePath: '/data/robot/latest.json',
   authMethod: 'BEARER',
   apiKeyHeaderName: 'X-API-Key',
 };
 
+function robot(
+  id: string,
+  sourceFilePath: string | undefined,
+  overrides: Partial<Equipment> = {},
+): Equipment {
+  return {
+    equipmentId: toEquipmentId(id),
+    equipmentType: 'ROBOT',
+    name: id,
+    facilityId: toEquipmentId('HOUSE-01'),
+    ...(sourceFilePath === undefined ? {} : { sourceFilePath }),
+    isDeleted: false,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+/** 既定の設備: ファイルパスが設定されたロボット 1 台。 */
+const DEFAULT_EQUIPMENT = [robot('ROBOT-01', '/data/robot-01.json')];
+
 interface Harness {
   readonly calls: string[];
-  readonly probes: { headers: Record<string, string> }[];
+  readonly probes: { headers: Record<string, string>; path: string }[];
   readonly port: FileSourcePort;
 }
 
 function build(options: {
   sources: IngestionSource[];
   secrets?: SecretPort;
-  probe?: HttpFileProbe;
+  equipment?: Equipment[];
+  probe?: HttpFileClient['probe'];
+  stat?: HttpFileClient['stat'];
+  read?: HttpFileClient['read'];
 }): Harness {
   const calls: string[] = [];
-  const probes: { headers: Record<string, string> }[] = [];
+  const probes: { headers: Record<string, string>; path: string }[] = [];
   const base: FileSourcePort = {
     testConnection: (sourceId) => {
       calls.push(`base.test:${sourceId}`);
@@ -65,14 +88,20 @@ function build(options: {
       return Promise.resolve('content');
     },
   };
-  const probe: HttpFileProbe = options.probe ?? (() => Promise.resolve());
+  const probe = options.probe ?? (() => Promise.resolve());
   const port = createRoutingFileSource({
     base,
     ingestionSettings: { listSources: () => Promise.resolve(options.sources) },
     secrets: options.secrets ?? createMemorySecretPort(),
-    probe: (input) => {
-      probes.push({ headers: { ...input.headers } });
-      return probe(input);
+    equipment: { list: () => Promise.resolve(options.equipment ?? DEFAULT_EQUIPMENT) },
+    maxFileBytes: 1000,
+    http: {
+      probe: (input) => {
+        probes.push({ headers: { ...input.headers }, path: input.path });
+        return probe(input);
+      },
+      stat: options.stat ?? (() => Promise.resolve({})),
+      read: options.read ?? (() => Promise.resolve('')),
     },
   });
   return { calls, probes, port };
@@ -119,7 +148,9 @@ describe('接続方式 HTTP: 接続テスト', () => {
 
     await port.testConnection('robot');
 
-    expect(probes).toEqual([{ headers: { Authorization: 'Bearer dummy-token' } }]);
+    expect(probes).toEqual([
+      { headers: { Authorization: 'Bearer dummy-token' }, path: '/data/robot-01.json' },
+    ]);
     expect(calls).toEqual([]);
   });
 
@@ -136,7 +167,7 @@ describe('接続方式 HTTP: 接続テスト', () => {
 
     await port.testConnection('robot');
 
-    expect(probes).toEqual([{ headers: {} }]);
+    expect(probes).toEqual([{ headers: {}, path: '/data/robot-01.json' }]);
   });
 
   it('秘密情報が未設定なら、接続せずに、CREDENTIALS_MISSING', async () => {
@@ -251,12 +282,247 @@ describe('接続方式 HTTP: 接続テスト', () => {
   });
 });
 
-describe('接続方式 HTTP: 一覧・取得（Issue #119 で実装）', () => {
-  it('一覧・取得は、NOT_IMPLEMENTED（取り込みは、失敗として記録される）', async () => {
-    const { calls, port } = build({ sources: [source('robot', HTTP_CONNECTION)] });
+describe('接続方式 HTTP: 接続テスト（設備のファイル）', () => {
+  it('ファイルパスが設定された最初の設備（設備 ID の順）のファイルで、接続テストをする。ファイルパスのない設備・削除済みの設備・別の種別の設備は、使わない', async () => {
+    const { probes, port } = build({
+      sources: [source('robot', { ...HTTP_CONNECTION, authMethod: 'NONE' })],
+      equipment: [
+        robot('ROBOT-09', '/data/robot-09.json'),
+        robot('ROBOT-00', undefined),
+        robot('ROBOT-03', '/data/deleted.json', { isDeleted: true }),
+        robot('SENSOR-01', '/data/sensor-01.json', { equipmentType: 'SENSOR' }),
+        robot('ROBOT-02', '/data/robot-02.json'),
+      ],
+    });
 
-    expect((await failureOf(port.listFiles('robot'))).reason).toBe('NOT_IMPLEMENTED');
-    expect((await failureOf(port.readFile('robot', 'a.json'))).reason).toBe('NOT_IMPLEMENTED');
-    expect(calls).toEqual([]);
+    await port.testConnection('robot');
+
+    expect(probes.map((probe) => probe.path)).toEqual(['/data/robot-02.json']);
+  });
+
+  it('ファイルパスが設定された設備がなければ、接続せずに、NO_FILE_PATH', async () => {
+    const { probes, port } = build({
+      sources: [source('robot', { ...HTTP_CONNECTION, authMethod: 'NONE' })],
+      equipment: [robot('ROBOT-01', undefined)],
+    });
+
+    const failure = await failureOf(port.testConnection('robot'));
+
+    expect(failure.reason).toBe('NO_FILE_PATH');
+    expect(probes).toHaveLength(0);
+  });
+});
+
+describe('接続方式 HTTP: 一覧', () => {
+  const NONE = { ...HTTP_CONNECTION, authMethod: 'NONE' } as const;
+  const T = (iso: string): Date => new Date(iso);
+
+  it('ファイルパスが設定された設備ごとに、ファイル（識別子はファイルパス・名前は最後の区間）を、更新日時の古い順に返す。同じ更新日時は、識別子の順', async () => {
+    const stats: Record<string, { sizeBytes?: number; modifiedAt?: Date }> = {
+      '/data/a/robot-b.json': { sizeBytes: 20, modifiedAt: T('2026-10-09T01:00:00Z') },
+      '/data/a/robot-a.json': { sizeBytes: 10, modifiedAt: T('2026-10-09T01:00:00Z') },
+      '/data/robot-new.json': { sizeBytes: 30, modifiedAt: T('2026-10-09T02:00:00Z') },
+    };
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      equipment: [
+        robot('ROBOT-01', '/data/robot-new.json'),
+        robot('ROBOT-02', '/data/a/robot-b.json'),
+        robot('ROBOT-03', '/data/a/robot-a.json'),
+      ],
+      stat: (input) => Promise.resolve(stats[input.path] ?? {}),
+    });
+
+    const files = await port.listFiles('robot');
+
+    expect(files.map((file) => file.fileId)).toEqual([
+      '/data/a/robot-a.json',
+      '/data/a/robot-b.json',
+      '/data/robot-new.json',
+    ]);
+    expect(files[0]).toMatchObject({ name: 'robot-a.json', sizeBytes: 10 });
+    expect(files[2]?.modifiedAt.toISOString()).toBe('2026-10-09T02:00:00.000Z');
+  });
+
+  it('更新日時・大きさを示さないサーバーは、更新日時を 1970 年（書き換え直後とみなさない）、大きさを 0 として返す', async () => {
+    const { port } = build({ sources: [source('robot', NONE)], stat: () => Promise.resolve({}) });
+
+    const [file] = await port.listFiles('robot');
+
+    expect(file?.modifiedAt.getTime()).toBe(0);
+    expect(file?.sizeBytes).toBe(0);
+  });
+
+  it('ファイルが見つからない設備は、一覧から除く（ほかの設備のファイルは、返す）。それ以外の失敗は、一覧全体の失敗', async () => {
+    const equipment = [robot('ROBOT-01', '/data/missing.json'), robot('ROBOT-02', '/data/ok.json')];
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      equipment,
+      stat: (input) =>
+        input.path === '/data/missing.json'
+          ? Promise.reject(new FileSourceFailure('NOT_FOUND'))
+          : Promise.resolve({ sizeBytes: 1 }),
+    });
+    const failing = build({
+      sources: [source('robot', NONE)],
+      equipment,
+      stat: () => Promise.reject(new FileSourceFailure('SERVER_ERROR')),
+    });
+
+    expect((await port.listFiles('robot')).map((file) => file.fileId)).toEqual(['/data/ok.json']);
+    expect((await failureOf(failing.port.listFiles('robot'))).reason).toBe('SERVER_ERROR');
+  });
+
+  it('ファイルパスが設定された設備がなければ、空の一覧（接続しない）', async () => {
+    let requested = 0;
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      equipment: [robot('ROBOT-01', undefined)],
+      stat: () => {
+        requested += 1;
+        return Promise.resolve({});
+      },
+    });
+
+    expect(await port.listFiles('robot')).toEqual([]);
+    expect(requested).toBe(0);
+  });
+
+  it('取り込み元の種別（ロボット・センサー）に合う設備だけを対象にする', async () => {
+    const paths: string[] = [];
+    const sensorSource: IngestionSource = { ...source('environment-sensor', NONE), kind: 'SENSOR' };
+    const { port } = build({
+      sources: [source('robot', NONE), sensorSource],
+      equipment: [
+        robot('ROBOT-01', '/data/robot-01.json'),
+        robot('SENSOR-01', '/data/sensor-01.json', { equipmentType: 'SENSOR' }),
+      ],
+      stat: (input) => {
+        paths.push(input.path);
+        return Promise.resolve({});
+      },
+    });
+
+    await port.listFiles('environment-sensor');
+
+    expect(paths).toEqual(['/data/sensor-01.json']);
+  });
+
+  it('認証のヘッダーを付ける。認証に失敗したら、秘密情報を取り直して、値が変わっていれば、1 度だけ再試行する', async () => {
+    const secrets: SecretPort = {
+      get: (_reference, options) =>
+        Promise.resolve(options?.refresh === true ? 'new-token' : 'old-token'),
+      set: () => Promise.resolve(),
+      status: () => Promise.resolve({ configured: true }),
+    };
+    const used: (string | undefined)[] = [];
+    const { port } = build({
+      sources: [source('robot', HTTP_CONNECTION)],
+      secrets,
+      stat: (input) => {
+        used.push(input.headers.Authorization);
+        return input.headers.Authorization === 'Bearer new-token'
+          ? Promise.resolve({ sizeBytes: 1 })
+          : Promise.reject(new FileSourceFailure('AUTH_FAILED'));
+      },
+    });
+
+    await port.listFiles('robot');
+
+    expect(used).toEqual(['Bearer old-token', 'Bearer new-token']);
+  });
+
+  it('秘密情報が未設定なら、接続せずに、CREDENTIALS_MISSING', async () => {
+    let requested = 0;
+    const { port } = build({
+      sources: [source('robot', HTTP_CONNECTION)],
+      stat: () => {
+        requested += 1;
+        return Promise.resolve({});
+      },
+    });
+
+    expect((await failureOf(port.listFiles('robot'))).reason).toBe('CREDENTIALS_MISSING');
+    expect(requested).toBe(0);
+  });
+});
+
+describe('接続方式 HTTP: 取得', () => {
+  const NONE = { ...HTTP_CONNECTION, authMethod: 'NONE' } as const;
+
+  it('一覧に出るファイルの識別子（ファイルパス）で、内容を取得する。大きさの上限と、接続設定を渡す', async () => {
+    const inputs: { path: string; maxBytes: number; host: string }[] = [];
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      read: (input) => {
+        inputs.push({ path: input.path, maxBytes: input.maxBytes, host: input.connection.host });
+        return Promise.resolve('{"a":1}');
+      },
+    });
+
+    expect(await port.readFile('robot', '/data/robot-01.json')).toBe('{"a":1}');
+    expect(inputs).toEqual([
+      { path: '/data/robot-01.json', maxBytes: 1000, host: 'fileserver.example.ac.jp' },
+    ]);
+  });
+
+  it('設備のファイルパスにない識別子は、取得せずに、NOT_FOUND（任意のパスを取得させない）', async () => {
+    let requested = 0;
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      read: () => {
+        requested += 1;
+        return Promise.resolve('');
+      },
+    });
+
+    expect((await failureOf(port.readFile('robot', '/etc/passwd'))).reason).toBe('NOT_FOUND');
+    expect((await failureOf(port.readFile('robot', '/data/../robot-01.json'))).reason).toBe(
+      'NOT_FOUND',
+    );
+    expect(requested).toBe(0);
+  });
+
+  it('認証に失敗したら、秘密情報を取り直して、値が変わっていれば、1 度だけ再試行する。値が同じなら、再試行せずに AUTH_FAILED', async () => {
+    const secrets: SecretPort = {
+      get: (_reference, options) =>
+        Promise.resolve(options?.refresh === true ? 'new-token' : 'old-token'),
+      set: () => Promise.resolve(),
+      status: () => Promise.resolve({ configured: true }),
+    };
+    const { port } = build({
+      sources: [source('robot', HTTP_CONNECTION)],
+      secrets,
+      read: (input) =>
+        input.headers.Authorization === 'Bearer new-token'
+          ? Promise.resolve('ok')
+          : Promise.reject(new FileSourceFailure('AUTH_FAILED')),
+    });
+    let attempts = 0;
+    const same = build({
+      sources: [source('robot', HTTP_CONNECTION)],
+      secrets: createMemorySecretPort({ 'file-server/robot': 'dummy-token' }),
+      read: () => {
+        attempts += 1;
+        return Promise.reject(new FileSourceFailure('AUTH_FAILED'));
+      },
+    });
+
+    expect(await port.readFile('robot', '/data/robot-01.json')).toBe('ok');
+    expect((await failureOf(same.port.readFile('robot', '/data/robot-01.json'))).reason).toBe(
+      'AUTH_FAILED',
+    );
+    expect(attempts).toBe(1);
+  });
+
+  it('取得の失敗（大きすぎる・見つからない）は、そのまま伝える', async () => {
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      read: () => Promise.reject(new FileSourceFailure('TOO_LARGE')),
+    });
+
+    expect((await failureOf(port.readFile('robot', '/data/robot-01.json'))).reason).toBe(
+      'TOO_LARGE',
+    );
   });
 });

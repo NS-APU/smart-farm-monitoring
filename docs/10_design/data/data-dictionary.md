@@ -257,7 +257,7 @@ TODO: 入力できる項目は、ロボットから取得できない項目の�
 | パスワードの変更が必要 | `mustChangePassword` | 真偽値（省略可。省略は、偽と同じ） | 管理者が決めた（登録・他の利用者の再設定の）パスワードを、本人が、まだ変更していない（決定。ADR-0020。D-45）。本人が変更すると、偽。既存のユーザー・最初のユーザーは、省略（偽）。FR-9.4 |
 | Web Push 購読 | `pushSubscription` | 購読情報、有効／解除 | 通知の配信先。単位は、利用者 × 端末（決定。[ADR-0019](../adr/0019-notification-rules.md)） |
 | 操作履歴 | `auditLog` | 操作種別（登録／編集／削除）、対象、変更者、変更前後、日時 | FR-4.2.3、NFR-5.7 |
-| 取り込み設定 | `ingestionConfig` | 接続先の参照名、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル `HTTPS`／`HTTP`、ホスト、ポート〔省略可〕、ファイルパス、認証方式 `NONE`／`BASIC`／`BEARER`／`API_KEY`、API キーのヘッダー名。保存がなければ `MOCK`。[ADR-0022](../adr/0022-file-server-http-connection-provisional.md)。#172）、取得間隔（現状は、5分／15分／30分／1時間／6時間／日次。**決定: 設備ごとに、1分／5分／10分／15分／30分／1時間。既定は、ロボット 1分、環境センサー 5分。実装は #197**）、取り込み元の種別 | 認証情報の値は持たない（NFR-5.4。値は、秘密情報の保管先の `file-server/<取り込み元の識別子>` に置く。BASIC は JSON `{"username","password"}`、BEARER・API_KEY は文字列）。決定: 画面から書き込み専用で登録し、パラメータストアで管理する（現状は、参照名のみ。[ADR-0016](../adr/0016-ingestion-federation-rules.md)。実装済み: #206・#207） |
+| 取り込み設定 | `ingestionConfig` | 接続先の参照名、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル `HTTPS`／`HTTP`、ホスト、ポート〔省略可〕、認証方式 `NONE`／`BASIC`／`BEARER`／`API_KEY`、API キーのヘッダー名。保存がなければ `MOCK`。[ADR-0022](../adr/0022-file-server-http-connection-provisional.md)。#172）、取得間隔（現状は、5分／15分／30分／1時間／6時間／日次。**決定: 設備ごとに、1分／5分／10分／15分／30分／1時間。既定は、ロボット 1分、環境センサー 5分。実装は #197**）、取り込み元の種別 | 認証情報の値は持たない（NFR-5.4。値は、秘密情報の保管先の `file-server/<取り込み元の識別子>` に置く。BASIC は JSON `{"username","password"}`、BEARER・API_KEY は文字列）。決定: 画面から書き込み専用で登録し、パラメータストアで管理する（現状は、参照名のみ。[ADR-0016](../adr/0016-ingestion-federation-rules.md)。実装済み: #206・#207） |
 
 ## 10. 取り込み済みファイル・仮決め仕様の記録
 

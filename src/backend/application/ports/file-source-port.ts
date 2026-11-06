@@ -33,7 +33,8 @@ export const FILE_SOURCE_FAILURE_REASONS = {
   CERTIFICATE: 'ファイルサーバーの証明書を確認できません',
   TLS: 'ファイルサーバーとの暗号化通信に失敗しました',
   ADDRESS_BLOCKED: '内部のアドレスには接続できません',
-  NOT_IMPLEMENTED: 'このファイルサーバーからの取得は、まだ使えません（接続テストのみ）',
+  TOO_LARGE: 'ファイルが大きすぎます',
+  NO_FILE_PATH: 'ファイルパスが設定された設備がありません',
 } as const;
 export type FileSourceFailureReason = keyof typeof FILE_SOURCE_FAILURE_REASONS;
 
