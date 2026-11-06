@@ -213,7 +213,10 @@ describe('評価（V-044・V-052）', () => {
       notifications: context.container.notificationService,
       federation: { enqueue: vi.fn(), runPending: vi.fn() },
       clock: context.clock,
-      settings: { defaultIngestionIntervalMinutes: 15 },
+      settings: {
+        defaultIngestionIntervalMinutes: 15,
+        notification: DEFAULT_APP_SETTINGS.notification,
+      },
       logger: {
         ...NULL_LOGGER,
         error: (message, fields) => errors.push({ message, fields }),

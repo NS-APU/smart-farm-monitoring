@@ -8,12 +8,12 @@
  *               2. 観点のステータスが「注意」または「異常」と判定した場合、システムが農作業者へ通知する
  *               3. 通知には、ステータス・観点名・対象の設備・診断メッセージを含める
  *   代替フロー  ・データの欠損・異常値・遅延は、異常の判定と区別して扱う
- *               ・同じ異常を繰り返し通知しない（抑制。同じ観点・設備・ステータスは60分）
+ *               ・同じ異常を繰り返し通知しない（正常が15分以上続いたあとの悪化だけを新しい出来事として通知する。取り込み失敗は60分）
  *               ・「不明」は通知しない／通知に失敗した場合は、記録し、再送する（UC-23）
  *   事後条件    農作業者に通知が送られ、未読として記録されている
  *
  * 値の同値分割: ステータスの変化（正常のまま・注意・異常・注意 → 異常・異常 → 不明・不明 → 異常）、
- * データの品質（有効・遅延・欠損・不正）、抑制（期間内・期間後・境界）、対象（ハウス・センサー）、判定の経路（保存後・定期）、農業情報基盤の停止。
+ * データの品質（有効・遅延・欠損・不正）、出来事の判定（再発・短い行き来・改善・不明を挟んだ継続・境界の 14 分と 15 分）、対象（ハウス・センサー）、判定の経路（保存後・定期）、農業情報基盤の停止。
  * 入口: 手動入力（SC-06 の画面操作と API）、取り込み（UC-08・UC-09。ファイルを置いて即時取得）、定期の評価（JB-02・スケジューラの tick）。
  * 対象: 栽培環境（温度・湿度・照度・CO2濃度の4指標の境界値）とロボット（収穫精度・収穫速度）。通知の配信の失敗と再送（JB-04）も含む。
  * 関連するユースケース: UC-07（検知の元の入力）・UC-05・UC-22（通知の確認）・UC-23（Web Push）・UC-24（取り込み失敗の通知）・UC-19。
@@ -180,37 +180,64 @@ test.describe('ステータスの変化と通知（変化したときだけ通�
     expect(sensor.map((item) => item.status).sort()).toEqual(['CAUTION', 'ERROR']);
   });
 
-  test('異常 → 不明（入力の削除でデータがなくなる）では、通知しない。再び異常になると、通知を作ろうとするが、抑制の期間（60分）の内は、増やさない', async ({
+  test('異常 → 不明（入力の削除でデータがなくなる）では、通知しない。再び異常になっても、「不明」は状態の変化とみなさず、継続として、通知を増やさない（時間が経っても同じ。D-37）', async ({
     request,
   }) => {
     await prepareApp(request);
     const entryId = await enterTemperature(request, 40);
     expect(await environmentNotifications(request)).toHaveLength(2);
 
-    // データがなくなり「不明」になる → 通知しない
+    // データがなくなり「不明」になる → 通知しない（状態の変化の履歴は、時刻ごとに 1 件のため、時計を 1 分進めてから削除する）
+    await advanceMinutes(request, 1);
     expect((await api(request, 'DELETE', `/manual-entries/${entryId}`)).status()).toBe(204);
     expect(await environmentNotifications(request)).toHaveLength(2);
-    // 再び異常 → 同じ観点・設備・ステータスは、60分の内は、通知しない
+    // 再び異常 → 「不明」を挟んだだけの、同じ異常の継続（30 分後も、60 分後も、通知しない）
     await advanceMinutes(request, 30);
+    const second = await enterTemperature(request, 40);
+    expect(await environmentNotifications(request)).toHaveLength(2);
+    await api(request, 'DELETE', `/manual-entries/${second}`);
+    await advanceMinutes(request, 60);
     await enterTemperature(request, 40);
     expect(await environmentNotifications(request)).toHaveLength(2);
   });
 
-  test('抑制の期間（60分）が過ぎたあとに、再び異常になると、新しく通知する（境界: 59分は抑制、60分は通知）', async ({
-    request,
-  }) => {
+  for (const item of [
+    { minutes: 14, notifications: 2, text: '14 分は、同じ出来事（通知しない）' },
+    { minutes: 15, notifications: 4, text: '15 分は、新しい出来事（通知する）' },
+  ]) {
+    test(`再発: 異常 → 正常が続く → 異常。正常が 15 分以上続いたあとの悪化は、新しい出来事として通知する（境界: ${item.text}）`, async ({
+      request,
+    }) => {
+      await prepareApp(request);
+      const first = await enterTemperature(request, 40);
+      expect(await environmentNotifications(request)).toHaveLength(2);
+      // 入力を差し替えて、正常にする（異常の入力を削除 → 正常な値を入力）。履歴は時刻ごとに 1 件のため、時計を 1 分進めてから行う
+      await advanceMinutes(request, 1);
+      await api(request, 'DELETE', `/manual-entries/${first}`);
+      const normal = await enterTemperature(request, 22);
+      expect(await environmentNotifications(request)).toHaveLength(2);
+
+      // 正常が、指定の分だけ続いたあとに、再び異常にする
+      await advanceMinutes(request, item.minutes);
+      await api(request, 'DELETE', `/manual-entries/${normal}`);
+      await enterTemperature(request, 40);
+
+      expect(await environmentNotifications(request)).toHaveLength(item.notifications);
+    });
+  }
+
+  test('改善（異常 → 注意）は、通知しない', async ({ request }) => {
     await prepareApp(request);
-    const first = await enterTemperature(request, 40);
-    await api(request, 'DELETE', `/manual-entries/${first}`);
-    await advanceMinutes(request, 59);
-    const second = await enterTemperature(request, 40);
+    const error = await enterTemperature(request, 40);
     expect(await environmentNotifications(request)).toHaveLength(2);
-    await api(request, 'DELETE', `/manual-entries/${second}`);
+
     await advanceMinutes(request, 1);
+    await api(request, 'DELETE', `/manual-entries/${error}`);
+    await enterTemperature(request, 27);
 
-    await enterTemperature(request, 40);
-
-    expect(await environmentNotifications(request)).toHaveLength(4);
+    const notifications = await environmentNotifications(request);
+    expect(notifications).toHaveLength(2);
+    expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
   });
 
   test('判定が変わらない間は、保存を繰り返しても、通知を増やさない（異常のまま）', async ({

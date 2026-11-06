@@ -5,7 +5,10 @@
 
 import type { IngestionIntervalMinutes } from '@smart-farm/shared/constants/status';
 import { DEFAULT_LATE_AFTER_MINUTES } from '../domain/observation-quality.ts';
-import { DEFAULT_SUPPRESSION_MINUTES } from '../domain/notification-rules.ts';
+import {
+  DEFAULT_RECURRENCE_AFTER_NORMAL_MINUTES,
+  DEFAULT_SUPPRESSION_MINUTES,
+} from '../domain/notification-rules.ts';
 
 export interface AppSettings {
   /** 取得間隔の既定値（分）。FR-1.5 の既定値は TODO のため、構想時の15分を採用する。 */
@@ -34,7 +37,10 @@ export interface AppSettings {
     readonly stopAfterIntervals: number;
   };
   readonly notification: {
+    /** 取り込みの失敗・停止、連携の期限切れの通知を、同じ鍵で繰り返さない期間（分。D-38）。 */
     readonly suppressionMinutes: number;
+    /** 「正常が続いたあとの悪化」を、新しい出来事として通知する、正常が続いた時間（分。D-38）。 */
+    readonly recurrenceAfterNormalMinutes: number;
     /** Web Push の配信の試行回数の上限（初回を含む）。 */
     readonly maxDeliveryAttempts: number;
     /** Web Push への1回の配信のタイムアウト（ミリ秒）。 */
@@ -71,12 +77,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     lateAfterMinutes: DEFAULT_LATE_AFTER_MINUTES,
     ioTimeoutMs: DEFAULT_IO_TIMEOUT_MS,
     maxFileBytes: DEFAULT_MAX_FILE_BYTES,
-    notifyFileFailures: false,
+    notifyFileFailures: true,
     stopNotificationEnabled: true,
     stopAfterIntervals: 3,
   },
   notification: {
     suppressionMinutes: DEFAULT_SUPPRESSION_MINUTES,
+    recurrenceAfterNormalMinutes: DEFAULT_RECURRENCE_AFTER_NORMAL_MINUTES,
     maxDeliveryAttempts: 3,
     ioTimeoutMs: DEFAULT_IO_TIMEOUT_MS,
   },

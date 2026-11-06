@@ -129,7 +129,7 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     await expect(failureRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(1);
   });
 
-  test('一方の取り込み元だけが失敗する場合（ロボットは接続でき、センサーは形式違いのファイル）、形式違いは通知しない', async ({
+  test('一方の取り込み元だけが失敗する場合（ロボットは接続でき、センサーは形式違いのファイル）、形式違いも、既定で通知する（ADR-0019 の D-37。#236）', async ({
     page,
     request,
   }) => {
@@ -142,8 +142,10 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
 
-    // 形式違い・不正な値は、取り込みのログに記録する（UC-08・UC-09）。接続の失敗とは、区別して、通知しない
-    await expect(failureRows(page)).toHaveCount(0);
+    // 形式違いのファイルは、取り込みのログに記録し（UC-08・UC-09）、既定で、取り込み失敗として通知する（ファイル単位の失敗。D-37）
+    await expect(failureRows(page)).toHaveCount(1);
+    await expect(failureRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(1);
+    await expect(failureRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(0);
   });
 });
 

@@ -262,6 +262,16 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('ファイル単位の失敗の通知（INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED。#236。ADR-0019 の D-37）', () => {
+    it('既定は、通知する。false を指定すると、通知しない', () => {
+      expect(parseConfig({}).ingestionFileFailureNotificationEnabled).toBe(true);
+      expect(
+        parseConfig({ INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: 'false' })
+          .ingestionFileFailureNotificationEnabled,
+      ).toBe(false);
+    });
+  });
+
   describe('ファイルサーバー（HTTP）の内部のアドレスの許可（HTTP_FILE_SOURCE_ALLOW_PRIVATE。#172。ADR-0022）', () => {
     it('既定は、拒否（SSRF の対策）', () => {
       expect(parseConfig({}).httpFileSourceAllowPrivate).toBe(false);

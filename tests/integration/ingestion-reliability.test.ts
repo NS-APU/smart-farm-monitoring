@@ -126,8 +126,19 @@ describe('取り込み失敗の通知（V-017。FR-7.4）', () => {
     expect(notifications[0]?.message).toContain('形式が仕様と異なる');
   });
 
-  it('既定（設定なし）では、ファイル単位の失敗（形式違い）を通知しない（UC-24 の仕様。通知の条件は発注者の確認待ち）', async () => {
+  it('既定（設定なし）でも、ファイル単位の失敗（形式違い）を、取り込み失敗として通知する（ADR-0019 の D-37。Issue #236）', async () => {
     const context = await setup();
+    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
+
+    await context.container.ingestionService.runSource('robot');
+
+    const notifications = await notificationsOf(context);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({ kind: 'INGESTION_FAILURE', sourceId: 'robot' });
+  });
+
+  it('設定（INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED=false）で、ファイル単位の失敗の通知を、オフにできる', async () => {
+    const context = await setup({ INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: 'false' });
     context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
 
     await context.container.ingestionService.runSource('robot');
