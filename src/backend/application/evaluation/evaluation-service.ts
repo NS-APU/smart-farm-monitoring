@@ -20,7 +20,7 @@ import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { evaluateScope, type EvaluationDraft } from '../../domain/evaluation/scope-evaluator.ts';
-import { isNotifiableTransition } from '../../domain/notification-rules.ts';
+import { isNotifiableStatusChange } from '../../domain/notification-rules.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { errorLogFields } from '../error-fields.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -90,7 +90,7 @@ export interface EvaluationServiceDeps {
   readonly notifications: NotificationService;
   readonly federation: FederationService;
   readonly clock: ClockPort;
-  readonly settings: Pick<AppSettings, 'defaultIngestionIntervalMinutes'>;
+  readonly settings: Pick<AppSettings, 'defaultIngestionIntervalMinutes' | 'notification'>;
   readonly logger: Logger;
 }
 
@@ -176,7 +176,8 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
 
   /**
    * 観点の最終ステータス（短期・長期のうち「不明」を除いた悪い方）の変化を記録し、
-   * 変化があれば、連携キューに積み、「注意」「異常」への変化は通知する。
+   * 変化があれば、連携キューに積む。「注意」「異常」への悪化は、状態の変化の履歴から、
+   * 新しい出来事か（正常が一定時間続いたあとか）・より重い重大度かを判定して、通知する（D-37・D-38・D-42）。
    */
   async function recordStatusChanges(
     equipment: Equipment,
@@ -209,6 +210,18 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         continue;
       }
       changes += 1;
+      // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）
+      const notifiable =
+        (status === 'CAUTION' || status === 'ERROR') &&
+        isNotifiableStatusChange({
+          history: await repositories.evaluations.listStatusChanges(
+            equipment.equipmentId,
+            viewpointId,
+          ),
+          next: status,
+          now,
+          recurrenceMinutes: settings.notification.recurrenceAfterNormalMinutes,
+        });
       await repositories.evaluations.appendStatusChange({
         equipmentId: equipment.equipmentId,
         viewpointId,
@@ -230,16 +243,14 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
           evaluatedAt: basis.evaluatedAt,
         },
       });
-      if (isNotifiableTransition(previous?.status ?? null, status)) {
-        const created = await notifications.notifyStatusChange({
+      if (notifiable) {
+        await notifications.notifyStatusChange({
           equipment,
           viewpointId,
           status,
           diagnosticMessage: basis.diagnosticMessage,
         });
-        if (created !== null) {
-          notified += 1;
-        }
+        notified += 1;
       }
     }
     return { changes, notified };

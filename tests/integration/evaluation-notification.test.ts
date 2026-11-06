@@ -18,6 +18,7 @@ import {
 } from '../../src/backend/application/jobs/job-runner.ts';
 import { createScheduler, DEFAULT_SCHEDULE } from '../../src/backend/application/jobs/scheduler.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
+import { DEFAULT_APP_SETTINGS } from '../../src/backend/application/settings.ts';
 import {
   generateAutoObservations,
   generateManualObservations,
@@ -203,7 +204,10 @@ describe('評価（JB-02）', () => {
       notifications: context.container.notificationService,
       federation: { enqueue: vi.fn(), runPending: vi.fn() },
       clock: context.clock,
-      settings: { defaultIngestionIntervalMinutes: 15 },
+      settings: {
+        defaultIngestionIntervalMinutes: 15,
+        notification: DEFAULT_APP_SETTINGS.notification,
+      },
       logger: NULL_LOGGER,
     });
 
@@ -320,37 +324,111 @@ describe('異常検知と通知（UC-10）', () => {
     ).toHaveLength(2);
   });
 
-  it('状態が行き来しても、抑制の期間内の同じ状態の通知は繰り返さず、期間が過ぎたら通知する', async () => {
-    const context = await setup();
-    /** 指定した分だけ時計を進め、直前の時刻の温度を取り込んで、評価する。 */
-    async function evaluateAfter(minutes: number, celsius: number) {
+  describe('通知の条件（Issue #236。D-37・D-38・D-42）', () => {
+    /** 観測の日時は固定（同じ日時の値を上書きして、状態を切り替える。直近 24 時間・7 日の窓に入る）。 */
+    const OBSERVED_AT = new Date(TEST_NOW.getTime() - HOUR_MS).toISOString();
+
+    /** 指定した分だけ時計を進め、センサーの温度を上書きして、評価する。 */
+    async function evaluateAfter(context: Context, minutes: number, celsius: number) {
       context.clock.advance(minutes * 60_000);
       await context.container.repositories.observations.saveMany([
-        temperature(celsius, new Date(context.clock.now().getTime() - 60_000).toISOString()),
+        temperature(celsius, OBSERVED_AT),
       ]);
-      return (await context.container.evaluationService.evaluateAll('DEV')).notificationsCreated;
+      return context.container.evaluationService.evaluateAll('DEV');
     }
-    const environmentNotifications = async () =>
+
+    /** 環境適応性（ハウス・センサーの 2 設備）の通知。 */
+    const environmentNotifications = async (context: Context) =>
       (await notificationsOf(context)).filter(
         (item) => item.viewpointId === 'environmentalAdaptability',
       );
 
-    const first = await evaluateAfter(0, 30);
-    const backToNormal = await evaluateAfter(5, 15);
-    const cautionAgainSoon = await evaluateAfter(5, 30);
-    const countWhileSuppressed = (await environmentNotifications()).length;
-    await evaluateAfter(60, 15);
-    const cautionAfterSuppression = await evaluateAfter(5, 30);
+    it('再発: 異常 → 正常が 15 分以上続く → 異常 は、新しい出来事として通知する（60 分以内でも抑制しない）', async () => {
+      const context = await setup();
 
-    // 初回: 環境適応性（ハウス・センサー）と、データ活用度合い（ハウス）
-    expect(first).toBe(3);
-    expect(backToNormal).toBe(0);
-    // 10分後の同じ「注意」は、抑制の期間（60分）内のため、通知しない
-    expect(cautionAgainSoon).toBe(0);
-    expect(countWhileSuppressed).toBe(2);
-    // 抑制の期間が過ぎたあとの「注意」は、通知する
-    expect(cautionAfterSuppression).toBe(2);
-    expect(await environmentNotifications()).toHaveLength(4);
+      await evaluateAfter(context, 0, 45);
+      await evaluateAfter(context, 5, 15);
+      const recurred = await evaluateAfter(context, 20, 45);
+
+      // 正常は、5 分後から 20 分続いた。2 設備で、「異常」を再び通知する（直前の通知から 25 分）
+      expect(recurred.notificationsCreated).toBe(2);
+      expect(await environmentNotifications(context)).toHaveLength(4);
+    });
+
+    it('短い行き来: 異常 → 正常が 15 分未満 → 異常 は、同じ出来事として通知しない', async () => {
+      const context = await setup();
+
+      await evaluateAfter(context, 0, 45);
+      await evaluateAfter(context, 5, 15);
+      const again = await evaluateAfter(context, 10, 45);
+
+      expect(again.notificationsCreated).toBe(0);
+      expect(await environmentNotifications(context)).toHaveLength(2);
+    });
+
+    it('改善（異常 → 注意）は、通知しない', async () => {
+      const context = await setup();
+
+      await evaluateAfter(context, 0, 45);
+      const improved = await evaluateAfter(context, 5, 30);
+
+      expect(improved.statusChanges).toBeGreaterThan(0);
+      expect(improved.notificationsCreated).toBe(0);
+      const notifications = await environmentNotifications(context);
+      expect(notifications).toHaveLength(2);
+      expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
+    });
+
+    it('注意 → 異常 → 注意 → 異常: 悪化（注意 → 異常）は通知し、同じ出来事で、異常を繰り返さない', async () => {
+      const context = await setup();
+
+      const caution = await evaluateAfter(context, 0, 30);
+      const error = await evaluateAfter(context, 5, 45);
+      const improved = await evaluateAfter(context, 5, 30);
+      const errorAgain = await evaluateAfter(context, 5, 45);
+
+      expect(caution.notificationsCreated).toBe(3);
+      expect(error.notificationsCreated).toBe(2);
+      expect(improved.notificationsCreated).toBe(0);
+      expect(errorAgain.notificationsCreated).toBe(0);
+      expect(await environmentNotifications(context)).toHaveLength(4);
+    });
+
+    it('不明を挟んだ再通知はしない: 注意 → 不明（データなし）→ 注意 は、継続とみなす', async () => {
+      const context = await setup();
+      await evaluateAfter(context, 0, 30);
+
+      // 8 日後には、観測値が、短期・長期（7 日）の窓から外れ、「不明」になる
+      context.clock.advance(8 * 24 * HOUR_MS);
+      const unknown = await context.container.evaluationService.evaluateAll('DEV');
+      await context.container.repositories.observations.saveMany([
+        temperature(30, new Date(context.clock.now().getTime() - HOUR_MS).toISOString()),
+      ]);
+      const cautionAgain = await context.container.evaluationService.evaluateAll('DEV');
+
+      expect(unknown.notificationsCreated).toBe(0);
+      const last = await context.container.repositories.evaluations.getLastStatusChange(
+        SENSOR_ID,
+        'environmentalAdaptability',
+      );
+      expect(last?.status).toBe('CAUTION');
+      expect(cautionAgain.notificationsCreated).toBe(0);
+      expect(await environmentNotifications(context)).toHaveLength(2);
+    });
+
+    it('不明の記録は、状態の変化の履歴に残る（ステータスの推移・経過のため）', async () => {
+      const context = await setup();
+      await evaluateAfter(context, 0, 30);
+
+      context.clock.advance(8 * 24 * HOUR_MS);
+      await context.container.evaluationService.evaluateAll('DEV');
+
+      const history = await context.container.repositories.evaluations.listStatusChanges(
+        SENSOR_ID,
+        'environmentalAdaptability',
+      );
+      expect(history.map((entry) => entry.status)).toEqual(['CAUTION', 'UNKNOWN']);
+    });
   });
 
   it('正常・不明の評価では、通知を作らない（不明の通知は不要とする暫定）', async () => {

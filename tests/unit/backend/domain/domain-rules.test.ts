@@ -20,7 +20,6 @@ import {
   buildIngestionFailureMessage,
   buildStatusChangeDedupKey,
   buildStatusChangeMessage,
-  isNotifiableTransition,
   isWithinSuppression,
 } from '../../../../src/backend/domain/notification-rules.ts';
 import { describeRobotState } from '../../../../src/backend/domain/status-code.ts';
@@ -146,23 +145,6 @@ describe('ステータスコードの状態判定', () => {
 });
 
 describe('通知の規則', () => {
-  it.each([
-    [null, 'CAUTION', true],
-    [null, 'ERROR', true],
-    ['NORMAL', 'CAUTION', true],
-    ['CAUTION', 'ERROR', true],
-    ['ERROR', 'CAUTION', true],
-    ['UNKNOWN', 'ERROR', true],
-    ['CAUTION', 'CAUTION', false],
-    ['ERROR', 'ERROR', false],
-    ['CAUTION', 'NORMAL', false],
-    ['NORMAL', 'UNKNOWN', false],
-    [null, 'NORMAL', false],
-    [null, 'UNKNOWN', false],
-  ] as const)('直前が %s で、新しい状態が %s のとき、通知は %s', (previous, next, expected) => {
-    expect(isNotifiableTransition(previous, next)).toBe(expected);
-  });
-
   it('重複抑制のキーは、観点・対象・ステータスから作る', () => {
     expect(buildStatusChangeDedupKey('safety', 'ROBOT-1', 'ERROR')).toBe(
       'STATUS_CHANGE#safety#ROBOT-1#ERROR',

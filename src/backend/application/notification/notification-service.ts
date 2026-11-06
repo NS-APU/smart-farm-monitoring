@@ -56,8 +56,11 @@ export interface DeliveryRunSummary {
 }
 
 export interface NotificationService {
-  /** 「注意」「異常」への変化の通知を作る。抑制の期間内の重複は作らず、null を返す。 */
-  notifyStatusChange(input: StatusChangeNotificationInput): Promise<Notification | null>;
+  /**
+   * 「注意」「異常」への悪化の通知を作る。通知するかの判断（出来事・改善・不明）は、呼び出し側が行う
+   * （評価サービス。notification-rules.ts の `isNotifiableStatusChange`）。時間による抑制はしない（再発を通知するため。D-38）。
+   */
+  notifyStatusChange(input: StatusChangeNotificationInput): Promise<Notification>;
   /**
    * 取り込みの失敗（再試行後）、または、データ取得の停止（situation: 'STOPPED'。新しいデータが届かない）の通知を作る。
    * 抑制の期間内の重複は作らず、null を返す（失敗と停止は、別々に数える）。
@@ -135,16 +138,11 @@ function buildWebPushDelivery(
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { notifications, pushSubscriptions, webPush, clock, ids, settings, logger } = deps;
 
-  async function createIfNotSuppressed(
+  /** 通知を作って保存する（抑制の判断はしない）。 */
+  async function create(
     fields: Omit<Notification, 'notificationId' | 'createdAt' | 'deliveries'>,
-  ): Promise<Notification | null> {
-    const now = clock.now();
-    const latest = await notifications.findLatestByDedupKey(fields.dedupKey);
-    const lastCreatedAt = latest === undefined ? null : new Date(latest.createdAt);
-    if (isWithinSuppression(lastCreatedAt, now, settings.suppressionMinutes)) {
-      return null;
-    }
-    const createdAt = now.toISOString();
+  ): Promise<Notification> {
+    const createdAt = clock.now().toISOString();
     const notification: Notification = {
       ...fields,
       notificationId: NotificationIdSchema.parse(ids.next()),
@@ -157,6 +155,18 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     await notifications.add(notification);
     logger.info('通知を作成しました', { kind: notification.kind, dedupKey: notification.dedupKey });
     return notification;
+  }
+
+  /** 通知を作る。同じ鍵の通知が、抑制の期間内にあれば、作らず null を返す（取り込みの失敗・停止、連携の期限切れ。D-38）。 */
+  async function createIfNotSuppressed(
+    fields: Omit<Notification, 'notificationId' | 'createdAt' | 'deliveries'>,
+  ): Promise<Notification | null> {
+    const latest = await notifications.findLatestByDedupKey(fields.dedupKey);
+    const lastCreatedAt = latest === undefined ? null : new Date(latest.createdAt);
+    if (isWithinSuppression(lastCreatedAt, clock.now(), settings.suppressionMinutes)) {
+      return null;
+    }
+    return create(fields);
   }
 
   /**
@@ -198,7 +208,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
   return {
     notifyStatusChange(input) {
       const viewpointName = findViewpointMeta(input.viewpointId)?.name ?? input.viewpointId;
-      return createIfNotSuppressed({
+      return create({
         kind: 'STATUS_CHANGE',
         viewpointId: input.viewpointId,
         equipmentId: input.equipment.equipmentId,

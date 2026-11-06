@@ -122,8 +122,8 @@ const EnvSchema = z.object({
     .min(MIN_FEDERATION_EXPIRY_DAYS)
     .max(MAX_FEDERATION_EXPIRY_DAYS)
     .default(DEFAULT_FEDERATION_EXPIRY_DAYS),
-  /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知しない）。 */
-  INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(false),
+  /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知する。ADR-0019 の D-37）。 */
+  INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(true),
   /** 新しいデータが届かない取り込み元を、「データ取得の停止」として通知するか（V-018。暫定仕様）。 */
   INGESTION_STOP_NOTIFICATION_ENABLED: BooleanFromString.default(true),
   /** Web Push の購読に使う公開鍵（VAPID）。未指定なら、Web Push の購読を受け付けない（画面内の通知のみ）。 */
