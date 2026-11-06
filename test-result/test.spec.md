@@ -11451,3 +11451,39 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 ### 22.3 実測
 
 手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、115 ファイル・2635 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.23%・Branches 95.57%・Functions 99.6%・Lines 99.21%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-12 の 30 件が成功、追加した重複のテスト 1 件は、初回に失敗した（先に、サーバーの重複のエラーを出すと、そのエラー表示が残り、次の入力検証のエラーより優先して表示されるため。既存の画面の挙動で、今回の変更ではない）。確認の順序（入力検証 → 重複）を直して、この 1 件を単独で再実行し、成功した（UC-12 全体の再実行は、していない）。`scenario-responsive-layout`・`scenario-configuration-changes`・`scenario-user-onboarding` の 6 件が成功。
+
+## 23. HTTP のファイルサーバーの一覧・取得（Issue #119 の 2 つめの PR。ADR-0023）で変更・追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。設備ごとのファイルパス（1 つめの PR）は、22 章。
+
+### 23.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/backend/infrastructure/http-file-reader.test.ts`（新規。25 件。手元の HTTP サーバーに実際に接続） | メタデータ（HEAD で大きさ・更新日時・本文は取得しない／`Last-Modified`・`Content-Length` がなければ不明／不正な `Last-Modified` は不明／405 のとき GET の Range〔`Content-Range` の大きさ〕／空のファイル〔416〕は大きさ 0／認証のヘッダーと、引数のパス）、失敗の理由（401・403・404・500・302・418）、内部のアドレスの拒否。取得（日本語・分割して届く本文／空／上限を超える本文〔`Content-Length` なしでも途中で失敗・`Content-Length` が超過なら読まずに失敗〕／上限ちょうどは読める／状態コード 4 種とリダイレクトに従わない／応答が途中で切れる・応答しない／内部のアドレスの拒否／エラーの文言に接続先・ファイルパス・認証情報を含めない） |
+| 単体: `tests/unit/backend/application/routing-file-source.test.ts`（12 件を追加。11 → 23 件） | 接続テスト（ファイルパスが設定された最初の設備〔設備 ID の順。パスのない設備・削除済み・別の種別は使わない〕／設備がなければ接続せずに NO_FILE_PATH）。一覧（設備ごとのファイル・識別子はファイルパス・更新日時の古い順・同じなら識別子の順／更新日時・大きさが不明なら 1970 年・0／見つからない設備は除き、ほかの失敗は一覧全体の失敗／設備がなければ空・接続しない／取り込み元の種別に合う設備だけ／認証のヘッダーと、認証失敗時の取り直し〔1 度だけ〕／未設定なら接続しない）。取得（一覧のファイルパスで取得・上限と接続設定を渡す／設備にないパスは取得せずに NOT_FOUND／認証失敗時の取り直し〔値が同じなら再試行しない〕／TOO_LARGE を伝える） |
+| 結合: `tests/integration/http-file-source-contract.test.ts`（新規。5 件） | FileSourcePort の契約テスト（モック・S3 と同じ契約）を、HTTP のアダプタ（手元の HTTP サーバー・設備ごとのファイルパス）に適用 |
+| 結合: `tests/integration/http-file-source.test.ts`（取り込みの 1 件を、8 件に置き換え。29 → 34 件。ほかに、接続テスト・設定の保存は、ファイルパスの設備への移行に合わせて変更） | 取り込み（設備のファイルの取得・取り込みと、接続テスト／`Last-Modified` を返さないサーバーでも取り込める／同じ内容は取り込み直さず、書き換わったら変わった分だけ／Bearer の認証〔トークンなしは失敗・理由に値・接続先・ファイルパスを含めない〕／認証情報が違う〔401〕と何も取り込まない／サーバーにファイルがない設備は対象にならない／大きさの上限を超えるファイルは取得せずに失敗〔GET を送らない〕／ファイルパスが設定された設備がなければ接続テストは、その旨で失敗〔接続しない〕） |
+| 単体: `tests/unit/shared/file-server-connection.test.ts`（1 件を追加） | 接続設定は、ファイルパスを持たない。保存済みの設定に残る `filePath` は、読み出すときに、無視する（移行） |
+| 単体: `tests/unit/frontend/ingestion-connection.test.tsx`（既存の 2 件に確認を追加） | SC-11 に、ファイルパスの入力欄がなく、設備ごとという案内を表示する（HTTP のときだけ） |
+| E2E: `tests/e2e/UC-15-configure-file-server-connection.ts`（2 件を追加。10 → 12 件） | ファイルパスが設定された設備がないときの接続テスト／設備に設定したファイルパスのファイルを、即時取得で取り込む（同じ内容は取り込み直さない。サーバーには HEAD と GET だけが届く） |
+
+### 23.2 変更した既存のテスト（仕様の変更に伴う。ユーザーの承認済み）
+
+仕様の変更: (1) 取り込み元の接続設定から `filePath`（1 取り込み元 = 1 ファイル）を廃止し、設備ごとのファイルパスにした（ADR-0023）。(2) HTTP の一覧・取得を実装した（それまでは「まだ使えません」の失敗）。(3) 失敗の理由に `TOO_LARGE`・`NO_FILE_PATH` を追加し、`NOT_IMPLEMENTED` を削除した。**テストの期待値を、通すためだけに書き換えてはいない**。
+
+| ファイル | 変更の内容 | 理由 |
+| -------- | ---------- | ---- |
+| `tests/unit/shared/file-server-connection.test.ts` | 接続設定の入力から `filePath` を除く。「ファイルパス」の検証（有効 3 件・無効 12 件。77 → 63 件）を削除し、同じ事例を、共有のスキーマ（`FilePathSchema`）のテスト（`equipment-source-file-path.test.ts`。制御文字・バックスラッシュ・`/data/env.csv` を追加。18 → 21 件）に移した。接続先の表示（`describeConnectionTarget`）の期待から、パスを除く | (1)。検証の規則は、変えていない（設備のファイルパスで検証する） |
+| `tests/unit/backend/application/routing-file-source.test.ts` | 取り込み元に、設備（ファイルパスつきのロボット）を渡す。振り分けの依存の形を変更。HTTP の一覧・取得が「まだ使えません」になる確認（1 件）を、実際の一覧・取得の確認に置き換え | (1)(2) |
+| `tests/unit/backend/infrastructure/http-probe.test.ts` | 接続設定の `filePath` を、呼び出しの `path` 引数に（41 件のまま。期待は同じ） | (1) |
+| `tests/unit/frontend/ingestion-connection.test.tsx` | ファイルパスの入力・保存の内容・不正な入力（2 件）の確認を削除し、案内の確認に | (1) |
+| `tests/integration/http-file-source.test.ts` | 接続設定から `filePath` を除く。不正なファイルパス 2 件の確認を削除。接続テストの前提に、ファイルパスつきの設備を加える。取り込みの「まだ使えません」の確認を、実際の取り込みの確認に置き換え | (1)(2) |
+| `tests/integration/ingestion-credentials.test.ts` | 接続テストの 1 件で、ファイルパスつきの設備を準備する | (1)。接続テストは、設備のファイルで行うため |
+| `tests/unit/backend/application/file-server-credentials.test.ts` | 接続設定から `filePath` を除く | (1) |
+| `tests/support/file-source-contract.ts` | 契約に、名前から識別子を求める `fileIdOf`（省略は名前そのもの）を加える。モック・S3 の期待は、変えていない | HTTP では、ファイルの識別子がファイルパスのため |
+| `tests/e2e/UC-15-configure-file-server-connection.ts` | ファイルパスの入力・保存後の表示・不正な入力の確認を削除し、設備に API でファイルパスを設定する補助に置き換え。テスト用サーバーが、ファイルの内容と `Last-Modified` を返す。接続テストで届くリクエストの期待は、同じ（HEAD 1 件） | (1)(2) |
+
+### 23.3 実測
+
+手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、117 ファイル・2669 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.23%・Branches 95.57%・Functions 99.6%・Lines 99.22%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-15 の 12 件、UC-08・UC-09・UC-16 の 70 件が成功（モックの取り込みが、振り分けの変更後も動くことの確認）。
