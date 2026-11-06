@@ -8,7 +8,6 @@ import {
   type FederationStatus,
 } from '../constants/status.ts';
 import { IsoDateTimeSchema } from './common.ts';
-import { FilePathSchema } from './file-path.ts';
 
 export const INGESTION_SOURCE_KINDS = ['ROBOT', 'SENSOR'] as const;
 
@@ -114,7 +113,6 @@ export const FileServerConnectionSchema = z.discriminatedUnion('type', [
       .min(1, PORT_MESSAGE)
       .max(65535, PORT_MESSAGE)
       .optional(),
-    filePath: FilePathSchema,
     authMethod: z.enum(FILE_SERVER_AUTH_METHODS).default('NONE'),
     /** 認証方式が API_KEY のときに、API キーを送るヘッダー名。 */
     apiKeyHeaderName: ApiKeyHeaderNameSchema.default(DEFAULT_API_KEY_HEADER_NAME),
@@ -133,7 +131,7 @@ export function describeConnectionTarget(connection: FileServerConnection): stri
     connection.port === undefined || connection.port === defaultHttpPort(connection.protocol)
       ? ''
       : `:${String(connection.port)}`;
-  return `${scheme}://${connection.host}${port}${connection.filePath}`;
+  return `${scheme}://${connection.host}${port}`;
 }
 
 /**

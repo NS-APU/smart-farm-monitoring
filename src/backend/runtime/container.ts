@@ -106,6 +106,7 @@ import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
 import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
 import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
+import { readHttpFile, statHttpFile } from '../infrastructure/http/http-file-reader.ts';
 import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
 import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
 import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
@@ -427,13 +428,19 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     repositories.settings,
     settings.defaultIngestionIntervalMinutes,
   );
-  // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、接続テストのみ。Issue #172）
+  // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
+  const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
   const routedFileSource = createRoutingFileSource({
     base: fileSource,
     ingestionSettings,
+    equipment: repositories.equipment,
     secrets: adapters.secrets,
-    probe: (input) =>
-      probeHttpFile({ ...input, allowPrivateAddresses: config.httpFileSourceAllowPrivate }),
+    maxFileBytes: settings.ingestion.maxFileBytes,
+    http: {
+      probe: (input) => probeHttpFile({ ...input, allowPrivateAddresses }),
+      stat: (input) => statHttpFile({ ...input, allowPrivateAddresses }),
+      read: (input) => readHttpFile({ ...input, allowPrivateAddresses }),
+    },
   });
   const ingestionService = createIngestionService({
     repositories,

@@ -1,6 +1,6 @@
 /**
  * 取り込み設定（SC-11）のファイルサーバーの接続設定（Issue #172。ADR-0022）の画面テスト。
- * 接続方式（モック／HTTP）、プロトコル・ホスト・ポート・ファイルパス・認証方式の入力、平文 HTTP の警告、
+ * 接続方式（モック／HTTP）、プロトコル・ホスト・ポート・認証方式の入力、平文 HTTP の警告、ファイルパスは設備ごと（設備の画面）という案内、
  * 入力の検証、接続テストの失敗の理由の表示。認証情報の値は、画面で入力・表示しない。
  */
 
@@ -21,7 +21,6 @@ const HTTP_CONNECTION = {
   protocol: 'HTTPS',
   host: 'fileserver.example.ac.jp',
   port: 8443,
-  filePath: '/data/robot/latest.json',
   authMethod: 'API_KEY',
   apiKeyHeaderName: 'X-Auth-Token',
 };
@@ -74,7 +73,7 @@ function save(scope: HTMLElement): void {
 }
 
 describe('接続方式の切り替え', () => {
-  it('モック: ホスト・ポート・ファイルパス・認証方式の入力は、表示しない', async () => {
+  it('モック: ホスト・ポート・認証方式の入力と、ファイルパスの案内は、表示しない', async () => {
     renderApp('/settings/ingestion', routes([source()]));
     const robot = await robotCard();
 
@@ -84,10 +83,13 @@ describe('接続方式の切り替え', () => {
     expect(within(robot).queryByLabelText('ホスト', { exact: false })).toBeNull();
     expect(within(robot).queryByLabelText('ポート', { exact: false })).toBeNull();
     expect(within(robot).queryByLabelText('ファイルパス', { exact: false })).toBeNull();
+    expect(
+      within(robot).queryByText('取得するファイルは、設備ごとに', { exact: false }),
+    ).toBeNull();
     expect(within(robot).queryByLabelText('認証方式', { exact: false })).toBeNull();
   });
 
-  it('HTTP を選ぶと、プロトコル（既定は HTTPS）・ホスト・ポート・ファイルパス・認証方式の入力を表示する', async () => {
+  it('HTTP を選ぶと、プロトコル（既定は HTTPS）・ホスト・ポート・認証方式の入力を表示する。ファイルパスは、設備ごと（設備の画面）という案内を表示し、入力欄は持たない', async () => {
     renderApp('/settings/ingestion', routes([source()]));
     const robot = await robotCard();
 
@@ -98,7 +100,10 @@ describe('接続方式の切り替え', () => {
     ).toBe('HTTPS');
     expect(within(robot).getByLabelText('ホスト', { exact: false })).toBeDefined();
     expect(within(robot).getByLabelText('ポート', { exact: false })).toBeDefined();
-    expect(within(robot).getByLabelText('ファイルパス', { exact: false })).toBeDefined();
+    expect(within(robot).queryByLabelText('ファイルパス', { exact: false })).toBeNull();
+    expect(
+      within(robot).getByText('取得するファイルは、設備ごとに', { exact: false }),
+    ).toBeDefined();
     expect(
       within(robot).getByLabelText<HTMLSelectElement>('認証方式', { exact: false }).value,
     ).toBe('NONE');
@@ -114,9 +119,6 @@ describe('接続方式の切り替え', () => {
     expect(within(robot).getByLabelText<HTMLInputElement>('ポート', { exact: false }).value).toBe(
       '8443',
     );
-    expect(
-      within(robot).getByLabelText<HTMLInputElement>('ファイルパス', { exact: false }).value,
-    ).toBe('/data/robot/latest.json');
     expect(
       within(robot).getByLabelText<HTMLInputElement>('ヘッダー名', { exact: false }).value,
     ).toBe('X-Auth-Token');
@@ -169,7 +171,6 @@ describe('設定の保存', () => {
 
     choose(robot, '接続方式', 'HTTP');
     choose(robot, 'ホスト', 'fileserver.example.ac.jp');
-    choose(robot, 'ファイルパス', '/data/robot/latest.json');
     choose(robot, '認証方式', 'BASIC');
     save(robot);
 
@@ -183,7 +184,6 @@ describe('設定の保存', () => {
             type: 'HTTP',
             protocol: 'HTTPS',
             host: 'fileserver.example.ac.jp',
-            filePath: '/data/robot/latest.json',
             authMethod: 'BASIC',
             apiKeyHeaderName: 'X-API-Key',
           },
@@ -248,16 +248,6 @@ describe('設定の保存', () => {
       'ポートが数字でない',
       { name: 'ポート', value: 'abc' },
       'ポート番号は、1〜65535 の数字で指定してください',
-    ],
-    [
-      'ファイルパスが / で始まらない',
-      { name: 'ファイルパス', value: 'data/a.json' },
-      'ファイルパスは、/ で始まるファイル 1 つを',
-    ],
-    [
-      'ファイルパスに ..',
-      { name: 'ファイルパス', value: '/data/../a.json' },
-      'ファイルパスは、/ で始まるファイル 1 つを',
     ],
   ])('不正な入力（%s）は、送らず、項目にエラーを表示する', async (_name, change, message) => {
     const { calls } = renderApp(

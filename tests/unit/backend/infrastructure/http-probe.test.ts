@@ -63,7 +63,6 @@ function connection(
     protocol: 'HTTP',
     host: '127.0.0.1',
     port,
-    filePath: '/data/robot/latest.json',
     authMethod: 'NONE',
     apiKeyHeaderName: 'X-API-Key',
     ...overrides,
@@ -71,6 +70,7 @@ function connection(
 }
 
 const ALLOW = { allowPrivateAddresses: true } as const;
+const PATH = '/data/robot/latest.json';
 
 async function reasonOf(promise: Promise<unknown>): Promise<string> {
   try {
@@ -89,7 +89,7 @@ describe('接続テストの成功', () => {
       response.end();
     });
 
-    await probeHttpFile({ connection: connection(port), headers: {}, ...ALLOW });
+    await probeHttpFile({ path: PATH, connection: connection(port), headers: {}, ...ALLOW });
 
     expect(requests.map((request) => `${request.method} ${request.url}`)).toEqual([
       'HEAD /data/robot/latest.json',
@@ -107,7 +107,7 @@ describe('接続テストの成功', () => {
       response.end('x');
     });
 
-    await probeHttpFile({ connection: connection(port), headers: {}, ...ALLOW });
+    await probeHttpFile({ path: PATH, connection: connection(port), headers: {}, ...ALLOW });
 
     expect(requests.map((request) => request.method)).toEqual(['HEAD', 'GET']);
     expect(requests[1]?.headers.range).toBe('bytes=0-0');
@@ -120,7 +120,7 @@ describe('接続テストの成功', () => {
     });
 
     await expect(
-      probeHttpFile({ connection: connection(port), headers: {}, ...ALLOW }),
+      probeHttpFile({ path: PATH, connection: connection(port), headers: {}, ...ALLOW }),
     ).resolves.toBeUndefined();
   });
 
@@ -131,6 +131,7 @@ describe('接続テストの成功', () => {
     });
 
     await probeHttpFile({
+      path: PATH,
       connection: connection(port, { authMethod: 'API_KEY' }),
       headers: { 'X-API-Key': 'dummy-api-key' },
       ...ALLOW,
@@ -158,7 +159,9 @@ describe('接続テストの失敗の理由', () => {
     });
 
     expect(
-      await reasonOf(probeHttpFile({ connection: connection(port), headers: {}, ...ALLOW })),
+      await reasonOf(
+        probeHttpFile({ path: PATH, connection: connection(port), headers: {}, ...ALLOW }),
+      ),
     ).toBe(reason);
   });
 
@@ -173,7 +176,9 @@ describe('接続テストの失敗の理由', () => {
     });
 
     expect(
-      await reasonOf(probeHttpFile({ connection: connection(port), headers: {}, ...ALLOW })),
+      await reasonOf(
+        probeHttpFile({ path: PATH, connection: connection(port), headers: {}, ...ALLOW }),
+      ),
     ).toBe('REDIRECT');
     expect(target.requests).toHaveLength(0);
   });
@@ -190,7 +195,9 @@ describe('接続テストの失敗の理由', () => {
     );
 
     expect(
-      await reasonOf(probeHttpFile({ connection: connection(port), headers: {}, ...ALLOW })),
+      await reasonOf(
+        probeHttpFile({ path: PATH, connection: connection(port), headers: {}, ...ALLOW }),
+      ),
     ).toBe('UNREACHABLE');
   });
 
@@ -201,7 +208,13 @@ describe('接続テストの失敗の理由', () => {
 
     expect(
       await reasonOf(
-        probeHttpFile({ connection: connection(port), headers: {}, timeoutMs: 100, ...ALLOW }),
+        probeHttpFile({
+          path: PATH,
+          connection: connection(port),
+          headers: {},
+          timeoutMs: 100,
+          ...ALLOW,
+        }),
       ),
     ).toBe('TIMEOUT');
   });
@@ -213,6 +226,7 @@ describe('接続テストの失敗の理由', () => {
     });
 
     const error = await probeHttpFile({
+      path: PATH,
       connection: connection(port, { authMethod: 'BEARER' }),
       headers: { Authorization: 'Bearer dummy-token-value' },
       ...ALLOW,
@@ -243,7 +257,9 @@ describe('内部のアドレスの拒否（SSRF の対策）', () => {
     });
 
     expect(
-      await reasonOf(probeHttpFile({ connection: connection(port, { host }), headers: {} })),
+      await reasonOf(
+        probeHttpFile({ path: PATH, connection: connection(port, { host }), headers: {} }),
+      ),
     ).toBe('ADDRESS_BLOCKED');
     expect(requests).toHaveLength(0);
   });
@@ -260,6 +276,7 @@ describe('内部のアドレスの拒否（SSRF の対策）', () => {
     expect(
       await reasonOf(
         probeHttpFile({
+          path: PATH,
           connection: connection(port, { host: 'fileserver.example.ac.jp' }),
           headers: {},
           resolver,
@@ -280,6 +297,7 @@ describe('内部のアドレスの拒否（SSRF の対策）', () => {
     expect(
       await reasonOf(
         probeHttpFile({
+          path: PATH,
           connection: connection(443, { host: 'fileserver.example.ac.jp', protocol: 'HTTPS' }),
           headers: {},
           resolver,
@@ -295,7 +313,12 @@ describe('内部のアドレスの拒否（SSRF の対策）', () => {
     });
 
     await expect(
-      probeHttpFile({ connection: connection(port), headers: {}, allowPrivateAddresses: true }),
+      probeHttpFile({
+        path: PATH,
+        connection: connection(port),
+        headers: {},
+        allowPrivateAddresses: true,
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -307,6 +330,7 @@ describe('内部のアドレスの拒否（SSRF の対策）', () => {
     expect(
       await reasonOf(
         probeHttpFile({
+          path: PATH,
           connection: connection(443, { host: 'fileserver.example.ac.jp', protocol: 'HTTPS' }),
           headers: {},
           resolver,

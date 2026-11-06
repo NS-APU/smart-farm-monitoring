@@ -16,7 +16,6 @@ function connection(overrides: Partial<HttpFileServerConnection>): HttpFileServe
     type: 'HTTP',
     protocol: 'HTTPS',
     host: 'fileserver.example.ac.jp',
-    filePath: '/a.json',
     authMethod: 'NONE',
     apiKeyHeaderName: 'X-API-Key',
     ...overrides,

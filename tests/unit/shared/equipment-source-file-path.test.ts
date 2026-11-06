@@ -19,12 +19,15 @@ const ROBOT = {
 } as const;
 
 describe('ファイルパスのスキーマ（共有）', () => {
-  it.each(['/a.json', '/data/robot/latest.json', '/data/env.json', "/a/b'c(d).json"])(
-    '%s は、有効',
-    (path) => {
-      expect(FilePathSchema.safeParse(path).success).toBe(true);
-    },
-  );
+  it.each([
+    '/a.json',
+    '/data/robot/latest.json',
+    '/data/env.json',
+    '/data/env.csv',
+    "/a/b'c(d).json",
+  ])('%s は、有効', (path) => {
+    expect(FilePathSchema.safeParse(path).success).toBe(true);
+  });
 
   it.each([
     ['空', ''],
@@ -36,6 +39,8 @@ describe('ファイルパスのスキーマ（共有）', () => {
     ['フラグメント', '/a.json#x'],
     ['空白', '/data/a b.json'],
     ['% のエスケープ', '/data/%2e%2e/a.json'],
+    ['制御文字', '/data/a\nb.json'],
+    ['バックスラッシュ', '/data\\a.json'],
     ['500 文字を超える', `/${'a'.repeat(500)}`],
   ])('%s は、無効', (_name, path) => {
     expect(FilePathSchema.safeParse(path).success).toBe(false);

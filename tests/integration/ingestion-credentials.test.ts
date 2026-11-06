@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuditLogListResponseSchema } from '@smart-farm/shared/schemas/audit';
 import { IngestionSettingsResponseSchema } from '@smart-farm/shared/schemas/ingestion';
 import { createJsonLogger } from '../../src/backend/infrastructure/logging/json-logger.ts';
+import { equipmentSet } from '../support/builders.ts';
 import {
   addUserAndLogin,
   createTestContext,
@@ -82,7 +83,6 @@ function connection(authMethod: string, overrides: Record<string, unknown> = {})
     protocol: 'HTTP',
     host: '127.0.0.1',
     port: 8080,
-    filePath: '/data/robot/latest.json',
     authMethod,
     ...overrides,
   };
@@ -206,6 +206,15 @@ describe('登録（書き込み専用）', () => {
 
   it('登録した認証情報で、接続テストが成功する（保存から、接続まで）', async () => {
     const { context } = await setup();
+    // 接続テストは、ファイルパスが設定された設備のファイルで行う（ADR-0023）
+    const robot = equipmentSet().find((item) => item.equipmentType === 'ROBOT');
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({
+      ...robot,
+      sourceFilePath: '/data/robot-01.json',
+    });
     const seen: (string | undefined)[] = [];
     const server = await startServer((request) => {
       seen.push(request.headers.authorization);

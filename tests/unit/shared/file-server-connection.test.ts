@@ -1,6 +1,6 @@
 /**
  * ファイルサーバーの接続設定（Issue #172。ADR-0022）のスキーマの単体テスト。
- * 接続方式（MOCK／HTTP）、プロトコル・ホスト・ポート・ファイルパス・認証方式の検証。認証情報の値は持たない（NFR-5.4）。
+ * 接続方式（MOCK／HTTP）、プロトコル・ホスト・ポート・認証方式の検証。ファイルパスは、設備が持つ（ADR-0023。設備のテストで検証する）。認証情報の値は持たない（NFR-5.4）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -16,7 +16,6 @@ const VALID_HTTP = {
   type: 'HTTP',
   protocol: 'HTTPS',
   host: 'fileserver.example.ac.jp',
-  filePath: '/data/robot/latest.json',
   authMethod: 'BASIC',
 } as const;
 
@@ -31,14 +30,12 @@ describe('接続設定 HTTP の既定値', () => {
     const parsed = FileServerConnectionSchema.parse({
       type: 'HTTP',
       host: 'fileserver.example.ac.jp',
-      filePath: '/a.json',
       authMethod: 'API_KEY',
     });
     expect(parsed).toEqual({
       type: 'HTTP',
       protocol: 'HTTPS',
       host: 'fileserver.example.ac.jp',
-      filePath: '/a.json',
       authMethod: 'API_KEY',
       apiKeyHeaderName: 'X-API-Key',
     });
@@ -48,7 +45,6 @@ describe('接続設定 HTTP の既定値', () => {
     const parsed = FileServerConnectionSchema.parse({
       type: 'HTTP',
       host: 'files.example.com',
-      filePath: '/a.json',
     });
     expect(parsed).toMatchObject({ type: 'HTTP', authMethod: 'NONE' });
   });
@@ -116,26 +112,22 @@ describe('接続設定 HTTP: ポート・プロトコル', () => {
   });
 });
 
-describe('接続設定 HTTP: ファイルパス', () => {
-  it.each(['/a.json', '/data/robot/latest.json', '/data/env.csv'])('%s は、有効', (filePath) => {
-    expect(FileServerConnectionSchema.safeParse({ ...VALID_HTTP, filePath }).success).toBe(true);
-  });
+describe('接続設定 HTTP: ファイルパス（設備ごとに移した。ADR-0023）', () => {
+  it('接続設定は、ファイルパスを持たない。保存済みの設定に残る filePath は、読み出すときに、無視する（移行）', () => {
+    const parsed = FileServerConnectionSchema.parse({ ...VALID_HTTP, filePath: '/data/old.json' });
 
-  it.each([
-    ['空', ''],
-    ['/ で始まらない', 'data/a.json'],
-    ['/ だけ（ファイルではない）', '/'],
-    ['/ で終わる（ディレクトリ）', '/data/'],
-    ['上の階層への移動（..）', '/data/../secret.json'],
-    ['クエリを含む', '/a.json?token=x'],
-    ['フラグメントを含む', '/a.json#x'],
-    ['空白を含む', '/data/a b.json'],
-    ['制御文字を含む', '/data/a\nb.json'],
-    ['バックスラッシュを含む', '/data\\a.json'],
-    ['500 文字を超える', `/${'a'.repeat(500)}`],
-    ['% のエスケープを含む（二重の解釈を避ける）', '/data/%2e%2e/a.json'],
-  ])('%s は、無効', (_name, filePath) => {
-    expect(FileServerConnectionSchema.safeParse({ ...VALID_HTTP, filePath }).success).toBe(false);
+    expect(parsed).not.toHaveProperty('filePath');
+    expect(
+      IngestionSourceSchema.parse({
+        sourceId: 'robot',
+        kind: 'ROBOT',
+        profileId: 'robot-json',
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: { ...VALID_HTTP, filePath: '/data/old.json' },
+        intervalMinutes: 15,
+        isEnabled: true,
+      }).connection,
+    ).not.toHaveProperty('filePath');
   });
 });
 
@@ -247,18 +239,18 @@ describe('取り込み元の設定（connection の追加）', () => {
 });
 
 describe('接続先の表示（describeConnectionTarget）', () => {
-  it('HTTP: プロトコル・ホスト・ポート・パスを組み立てる。既定のポートは省略する', () => {
+  it('HTTP: プロトコル・ホスト・ポートを組み立てる（パスは、設備ごとのため含めない）。既定のポートは省略する', () => {
     expect(describeConnectionTarget(FileServerConnectionSchema.parse(VALID_HTTP))).toBe(
-      'https://fileserver.example.ac.jp/data/robot/latest.json',
+      'https://fileserver.example.ac.jp',
     );
     expect(
       describeConnectionTarget(FileServerConnectionSchema.parse({ ...VALID_HTTP, port: 8443 })),
-    ).toBe('https://fileserver.example.ac.jp:8443/data/robot/latest.json');
+    ).toBe('https://fileserver.example.ac.jp:8443');
     expect(
       describeConnectionTarget(
         FileServerConnectionSchema.parse({ ...VALID_HTTP, protocol: 'HTTP', port: 80 }),
       ),
-    ).toBe('http://fileserver.example.ac.jp/data/robot/latest.json');
+    ).toBe('http://fileserver.example.ac.jp');
   });
 
   it('MOCK は、undefined（接続先を持たない）', () => {

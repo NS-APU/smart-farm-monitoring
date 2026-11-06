@@ -66,7 +66,6 @@ function isSameConnection(a: FileServerConnection, b: FileServerConnection): boo
       a.protocol === b.protocol &&
       a.host === b.host &&
       a.port === b.port &&
-      a.filePath === b.filePath &&
       a.authMethod === b.authMethod &&
       a.apiKeyHeaderName === b.apiKeyHeaderName
     );
@@ -115,7 +114,6 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const [protocol, setProtocol] = useState<FileServerProtocol>(savedHttp?.protocol ?? 'HTTPS');
   const [host, setHost] = useState(savedHttp?.host ?? '');
   const [port, setPort] = useState(savedHttp?.port === undefined ? '' : String(savedHttp.port));
-  const [filePath, setFilePath] = useState(savedHttp?.filePath ?? '');
   const [authMethod, setAuthMethod] = useState<FileServerAuthMethod>(
     savedHttp?.authMethod ?? 'NONE',
   );
@@ -156,7 +154,6 @@ function SourceCard(props: SourceCardProps): ReactNode {
             ...(portText === ''
               ? {}
               : { port: portIsInvalid(portText) ? Number.NaN : Number(portText) }),
-            filePath,
             authMethod,
             apiKeyHeaderName,
           };
@@ -393,26 +390,7 @@ function SourceCard(props: SourceCardProps): ReactNode {
                   />
                 )}
               </Field>
-              <Field
-                label={TEXT.filePath}
-                name="connection.filePath"
-                error={errors['connection.filePath']}
-                hint={TEXT.filePathHint}
-                required
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    value={filePath}
-                    readOnly={!canEdit}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(event) => {
-                      setFilePath(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
+              <p className="field-note muted">{TEXT.filePathNotice}</p>
               <Field
                 label={TEXT.authMethod}
                 name="connection.authMethod"

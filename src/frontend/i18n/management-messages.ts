@@ -304,8 +304,8 @@ export const MANAGEMENT_MESSAGES = {
     port: 'ポート番号',
     portHint: '省略すると、HTTPS は 443、HTTP は 80 を使います',
     portInvalid: 'ポート番号は、1〜65535 の数字で指定してください',
-    filePath: 'ファイルパス',
-    filePathHint: '取り込む 1 つのファイルを、/ から指定します（例: /data/robot/latest.json）',
+    filePathNotice:
+      '取得するファイルは、設備ごとに、設備の画面（ロボット・環境センサー）で、ファイルパスを指定します',
     authMethod: '認証方式',
     authMethodLabels: {
       NONE: 'なし',
