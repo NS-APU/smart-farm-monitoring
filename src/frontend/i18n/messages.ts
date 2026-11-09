@@ -20,6 +20,7 @@ export const MESSAGES = {
       '最新の情報を取得できませんでした。表示は、前回取得した内容です（再接続を試みています）',
     newNotifications: (count: number) => `新しい通知が${String(count)}件あります`,
     renderFailed: '画面を表示できませんでした。ダッシュボードへ戻って、やり直してください',
+    updated: '新しい版に更新されました。画面を再読み込みしてください',
     backToDashboard: 'ダッシュボードへ戻る',
   },
   login: {
