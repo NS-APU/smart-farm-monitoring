@@ -6,7 +6,7 @@
 
 ```text
 smart-farm-monitoring/
-├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml）と、開発サイト・本番サイトのデプロイ（deploy-development.yml・deploy-production.yml））
+├── .github/       # GitHub 設定（ISSUE_TEMPLATE/ の Issue テンプレート、pull_request_template.md の PR テンプレート、workflows/ の CI（ci.yml）と、開発サイト・本番サイトのデプロイ（deploy-development.yml・deploy-production.yml）、日本語フォントのキャッシュを作る warm-font-cache.yml、actions/ の再利用できる手順〔install-japanese-fonts: E2E・負荷テストの日本語フォント〕）
 ├── docs/          # ドキュメント
 ├── src/
 │   ├── backend/   # バックエンド（Hono）
