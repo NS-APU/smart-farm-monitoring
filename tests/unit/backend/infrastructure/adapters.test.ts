@@ -663,7 +663,7 @@ describe('Web Push のダミー', () => {
   it('配信した内容を記録する。リセットで消える', async () => {
     const push = createDummyWebPush({ faults: createFaultController() });
 
-    expect(await push.deliver(notification, subscription)).toBe('DELIVERED');
+    expect(await push.deliver(notification, subscription, { ttlSeconds: 3600 })).toBe('DELIVERED');
 
     expect(push.delivered()).toEqual([{ notificationId: 'n-1', subscriptionId: 's-1' }]);
     push.reset();
@@ -675,12 +675,14 @@ describe('Web Push のダミー', () => {
     const push = createDummyWebPush({ faults });
 
     faults.set({ mode: 'DOWN' });
-    await expect(push.deliver(notification, subscription)).rejects.toBeInstanceOf(
-      NotificationDeliveryError,
-    );
+    await expect(
+      push.deliver(notification, subscription, { ttlSeconds: 3600 }),
+    ).rejects.toBeInstanceOf(NotificationDeliveryError);
     faults.set({ mode: 'REJECT' });
 
-    expect(await push.deliver(notification, subscription)).toBe('SUBSCRIPTION_GONE');
+    expect(await push.deliver(notification, subscription, { ttlSeconds: 3600 })).toBe(
+      'SUBSCRIPTION_GONE',
+    );
     expect(push.delivered()).toEqual([]);
   });
 });

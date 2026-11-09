@@ -9,6 +9,7 @@
  */
 
 import { NotificationSchema, type Notification } from '@smart-farm/shared/schemas/notification';
+import { needsWebPushDelivery } from '../../domain/notification-delivery.ts';
 import type {
   NotificationListFilter,
   NotificationRepository,
@@ -59,19 +60,13 @@ function matchesFilter(
   return !(filter.readState === 'UNREAD' && isRead);
 }
 
-/** Web Push の配信が、未完了（未配信、または失敗）か。再送の上限は、読み取り側で見る。 */
-function isUndelivered(notification: Notification): boolean {
-  const webPush = notification.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
-  return webPush !== undefined && (webPush.result === 'PENDING' || webPush.result === 'FAILURE');
-}
-
 export function createNotificationRepository(db: Database): NotificationRepository {
   const table = db.tables.main;
   const notifications = mainAggregate(db, NotificationSchema);
 
   /** 配信が未完了の通知だけが持つ、GSI1 のキー。 */
   const indexKeys = (notification: Notification, sortKey: string): Item =>
-    isUndelivered(notification) ? { gsi1pk: UNDELIVERED, gsi1sk: sortKey } : {};
+    needsWebPushDelivery(notification) ? { gsi1pk: UNDELIVERED, gsi1sk: sortKey } : {};
 
   async function pointedSortKey(partition: string): Promise<string | undefined> {
     const pointer = await getItem(db, table, { pk: partition, sk: 'P' });
@@ -277,7 +272,7 @@ export function createNotificationRepository(db: Database): NotificationReposito
       }
       return times;
     },
-    async listUndelivered(maxAttempts) {
+    async listUndelivered() {
       const found: Notification[] = [];
       for await (const item of queryItems(db, {
         table,
@@ -289,11 +284,8 @@ export function createNotificationRepository(db: Database): NotificationReposito
         pageSize: 1000,
       })) {
         const notification = notifications.parse(item);
-        const webPush = notification.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
-        if (
-          webPush?.result === 'PENDING' ||
-          (webPush?.result === 'FAILURE' && webPush.attempts < maxAttempts)
-        ) {
+        // 索引は、更新のたびに付け替える。念のため、条件を、読み取り側でも確かめる
+        if (needsWebPushDelivery(notification)) {
           found.push(notification);
         }
       }

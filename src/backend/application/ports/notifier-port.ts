@@ -13,6 +13,15 @@ export class NotificationDeliveryError extends namedErrorClass('NotificationDeli
 
 export type DeliveryOutcome = 'DELIVERED' | 'SUBSCRIPTION_GONE';
 
+/** 配信の指定。 */
+export interface DeliveryOptions {
+  /**
+   * Web Push の有効期限（秒）。配信の期限（通知を作ってから 1 時間。ADR-0019 の D-38）までの残りの時間。
+   * この時間を過ぎると、配信サービスは、端末へ届けずに、破棄する。
+   */
+  readonly ttlSeconds: number;
+}
+
 export interface NotifierPort {
   /**
    * 1つの購読へ配信する。購読が無効（解除・期限切れ）の場合は SUBSCRIPTION_GONE を返す
@@ -21,5 +30,6 @@ export interface NotifierPort {
   deliver(
     notification: Notification,
     subscription: PushSubscriptionRecord,
+    options: DeliveryOptions,
   ): Promise<DeliveryOutcome>;
 }

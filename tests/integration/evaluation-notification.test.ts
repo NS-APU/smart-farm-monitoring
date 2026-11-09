@@ -523,40 +523,59 @@ describe('通知の一覧・既読（UC-05, UC-22）', () => {
   });
 });
 
-describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04）', () => {
-  async function withSubscription() {
+describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。ADR-0019 の D-38）', () => {
+  const MINUTE_MS = 60_000;
+
+  async function withSubscriptions(subscriptionIds: readonly string[] = ['s-1']) {
     const context = await setup();
     await context.container.repositories.observations.saveMany([
       temperature(30, new Date(TEST_NOW.getTime() - HOUR_MS).toISOString()),
     ]);
     await context.container.evaluationService.evaluateAll('DEV');
-    await context.container.repositories.pushSubscriptions.save({
-      subscriptionId: 's-1',
-      userId: USER,
-      endpoint: 'https://push.invalid/1',
-      isActive: true,
-      createdAt: TEST_NOW.toISOString(),
-    });
+    for (const subscriptionId of subscriptionIds) {
+      await context.container.repositories.pushSubscriptions.save({
+        subscriptionId,
+        userId: USER,
+        endpoint: `https://push.invalid/${subscriptionId}`,
+        isActive: true,
+        createdAt: TEST_NOW.toISOString(),
+      });
+    }
     return context;
   }
 
-  async function pushDelivery(context: Context) {
-    const [notification] = await notificationsOf(context);
-    return notification?.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
+  const webPushOf = (notification: Awaited<ReturnType<typeof notificationsOf>>[number]) =>
+    notification.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
+
+  /** 最初の通知（古い順）。 */
+  async function firstNotification(context: Context) {
+    const notifications = await notificationsOf(context);
+    const first = notifications.toSorted((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    )[0];
+    if (first === undefined) {
+      throw new Error('テストの前提');
+    }
+    return first;
   }
 
-  it('購読している端末へ配信し、配信の結果を記録する', async () => {
-    const context = await withSubscription();
+  const deliver = (context: Context) => context.container.notificationService.deliverPending();
+  const failWith = (context: Context, mode: 'UP' | 'DOWN' | 'REJECT') =>
+    context.container.dev?.faults.webPush.set({ mode });
 
-    const summary = await context.container.notificationService.deliverPending();
+  it('購読している端末へ配信し、購読ごとの配信の状態と、まとめの状態を記録する。配信済みの通知は、再び配信しない', async () => {
+    const context = await withSubscriptions();
+
+    const summary = await deliver(context);
 
     expect(summary).toEqual({ notificationsProcessed: 3, delivered: 3, failed: 0 });
     expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(3);
-    expect(await pushDelivery(context)).toMatchObject({ result: 'SUCCESS', attempts: 1 });
-    // 配信済みの通知は、再び配信しない
-    expect(await context.container.notificationService.deliverPending()).toMatchObject({
-      notificationsProcessed: 0,
-    });
+    const notification = await firstNotification(context);
+    expect(webPushOf(notification)).toMatchObject({ result: 'SUCCESS', attempts: 1 });
+    expect(notification.webPushDeliveries).toMatchObject([
+      { subscriptionId: 's-1', result: 'SUCCESS', attempts: 1 },
+    ]);
+    expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
   });
 
   it('購読がなければ、配信する相手がなく、配信は完了とする（画面内の通知のみ）', async () => {
@@ -566,68 +585,247 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04）', () => {
     ]);
     await context.container.evaluationService.evaluateAll('DEV');
 
-    const summary = await context.container.notificationService.deliverPending();
+    const summary = await deliver(context);
 
-    expect(summary).toMatchObject({ delivered: 3, failed: 0 });
+    expect(summary).toEqual({ notificationsProcessed: 3, delivered: 0, failed: 0 });
+    expect(context.container.dev?.mocks.webPush.delivered()).toEqual([]);
+    expect(webPushOf(await firstNotification(context))).toMatchObject({
+      result: 'SUCCESS',
+      attempts: 0,
+    });
+    expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
+  });
+
+  it('配信の対象は、最初の配信の実行時点の購読。そのあとに購読した端末には、過去の通知を配信しない（I-07）', async () => {
+    const context = await setup();
+    await context.container.repositories.observations.saveMany([
+      temperature(30, new Date(TEST_NOW.getTime() - HOUR_MS).toISOString()),
+    ]);
+    await context.container.evaluationService.evaluateAll('DEV');
+    await deliver(context);
+
+    await context.container.repositories.pushSubscriptions.save({
+      subscriptionId: 's-late',
+      userId: USER,
+      endpoint: 'https://push.invalid/late',
+      isActive: true,
+      createdAt: context.clock.now().toISOString(),
+    });
+    const summary = await deliver(context);
+
+    expect(summary).toMatchObject({ notificationsProcessed: 0, delivered: 0 });
     expect(context.container.dev?.mocks.webPush.delivered()).toEqual([]);
   });
 
-  it('配信に失敗したら記録して再送し、試行回数の上限で止める。画面内の通知には影響しない', async () => {
-    const context = await withSubscription();
-    context.container.dev?.faults.webPush.set({ mode: 'DOWN' });
+  it('配信に失敗したら、購読ごとに記録して、1 分後に再送する。次の試行の日時の前は、再送しない。画面内の通知には影響しない', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
 
-    const first = await context.container.notificationService.deliverPending();
-    const delivery = await pushDelivery(context);
-    await context.container.notificationService.deliverPending();
-    await context.container.notificationService.deliverPending();
-    const afterLimit = await context.container.notificationService.deliverPending();
+    const first = await deliver(context);
+    const afterFailure = await firstNotification(context);
+    const tooSoon = await deliver(context);
+    context.clock.advance(MINUTE_MS);
+    const retry = await deliver(context);
 
-    expect(first).toMatchObject({ failed: 3 });
-    expect(delivery).toMatchObject({
-      result: 'FAILURE',
-      attempts: 1,
-      errorMessage: 'Web Push の配信サービスに接続できません',
+    expect(first).toMatchObject({ failed: 3, delivered: 0 });
+    expect(afterFailure.webPushDeliveries).toEqual([
+      {
+        subscriptionId: 's-1',
+        result: 'FAILURE',
+        attempts: 1,
+        nextAttemptAt: new Date(TEST_NOW.getTime() + MINUTE_MS).toISOString(),
+        updatedAt: TEST_NOW.toISOString(),
+        errorMessage: 'Web Push の配信サービスに接続できません',
+      },
+    ]);
+    expect(webPushOf(afterFailure)).toMatchObject({ result: 'PENDING', attempts: 1 });
+    // 次の試行の日時の前は、再送しない
+    expect(tooSoon).toMatchObject({ delivered: 0, failed: 0 });
+    expect(retry).toMatchObject({ failed: 3 });
+    expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
+      attempts: 2,
     });
-    expect(await pushDelivery(context)).toMatchObject({ result: 'FAILURE', attempts: 3 });
-    expect(afterLimit.notificationsProcessed).toBe(0);
     expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
   });
 
-  it('復旧後の再送で配信できる', async () => {
-    const context = await withSubscription();
-    context.container.dev?.faults.webPush.set({ mode: 'DOWN' });
-    await context.container.notificationService.deliverPending();
-    context.container.dev?.faults.webPush.set({ mode: 'UP' });
+  it('再送の間隔は、1 分から倍々（1・2・4・8・16・32 分）。通知を作ってから 1 時間（60 分）で、断念する。断念した通知は、画面内の通知として残る', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
+    const nextAttempts: number[] = [];
 
-    const retry = await context.container.notificationService.deliverPending();
+    // 失敗のたびに、次の試行の日時まで、時計を進めて、再送する
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      await deliver(context);
+      const entry = (await firstNotification(context)).webPushDeliveries?.[0];
+      const nextAt = Date.parse(entry?.nextAttemptAt ?? '');
+      nextAttempts.push((nextAt - context.clock.now().getTime()) / MINUTE_MS);
+      context.clock.advance(nextAt - context.clock.now().getTime());
+    }
 
-    expect(retry).toMatchObject({ delivered: 3, failed: 0 });
-    expect(await pushDelivery(context)).toMatchObject({ result: 'SUCCESS', attempts: 2 });
+    expect(nextAttempts).toEqual([1, 2, 4, 8, 16, 32]);
+    // 6 回目の失敗（31 分後）のあと、次の試行は 63 分後。作成から 60 分を過ぎているため、再送せずに、断念する
+    expect(context.clock.now().getTime() - TEST_NOW.getTime()).toBe(63 * MINUTE_MS);
+    const abandoned = await deliver(context);
+    expect(abandoned).toMatchObject({ delivered: 0, failed: 0 });
+    const notification = await firstNotification(context);
+    expect(notification.webPushDeliveries?.[0]).toMatchObject({
+      result: 'ABANDONED',
+      attempts: 6,
+    });
+    expect(webPushOf(notification)).toMatchObject({ result: 'FAILURE', attempts: 6 });
+    expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
+    expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
   });
 
-  it('購読が無効（解除・期限切れ）なら、購読を無効にする', async () => {
-    const context = await withSubscription();
-    context.container.dev?.faults.webPush.set({ mode: 'REJECT' });
+  it('失敗した購読にだけ、再送する。届いた購読には、再配信しない（二重配信がない）', async () => {
+    const context = await withSubscriptions(['s-ok', 's-ng']);
+    const webPush = context.container.dev?.mocks.webPush;
+    if (webPush === undefined) {
+      throw new Error('テストの前提');
+    }
+    const calls: string[] = [];
+    let recovered = false;
+    vi.spyOn(webPush, 'deliver').mockImplementation((_notification, subscription) => {
+      calls.push(subscription.subscriptionId);
+      return subscription.subscriptionId === 's-ng' && !recovered
+        ? Promise.reject(new Error('想定外'))
+        : Promise.resolve('DELIVERED');
+    });
 
-    await context.container.notificationService.deliverPending();
+    await deliver(context);
+    context.clock.advance(MINUTE_MS);
+    recovered = true;
+    await deliver(context);
+
+    // 通知 3 件 × 購読 2 件 = 6 回、そのあと、失敗した購読への再送が 3 回。届いた購読へは、1 通知につき 1 回だけ
+    expect(calls.filter((id) => id === 's-ok')).toHaveLength(3);
+    expect(calls.filter((id) => id === 's-ng')).toHaveLength(6);
+    const notification = await firstNotification(context);
+    expect(notification.webPushDeliveries).toMatchObject([
+      { subscriptionId: 's-ok', result: 'SUCCESS', attempts: 1 },
+      { subscriptionId: 's-ng', result: 'SUCCESS', attempts: 2 },
+    ]);
+    expect(webPushOf(notification)).toMatchObject({ result: 'SUCCESS', attempts: 3 });
+  });
+
+  it('復旧後の再送で配信できる', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
+    await deliver(context);
+    failWith(context, 'UP');
+    context.clock.advance(MINUTE_MS);
+
+    const retry = await deliver(context);
+
+    expect(retry).toMatchObject({ delivered: 3, failed: 0 });
+    expect(webPushOf(await firstNotification(context))).toMatchObject({
+      result: 'SUCCESS',
+      attempts: 2,
+    });
+  });
+
+  it('Web Push の有効期限（TTL）は、期限（通知を作ってから 1 時間）までの残りの秒数。再送が遅れると、短くなる', async () => {
+    const context = await withSubscriptions();
+    const webPush = context.container.dev?.mocks.webPush;
+    if (webPush === undefined) {
+      throw new Error('テストの前提');
+    }
+    const spy = vi.spyOn(webPush, 'deliver');
+    failWith(context, 'DOWN');
+    await deliver(context);
+    context.clock.advance(10 * MINUTE_MS);
+    await deliver(context);
+
+    const ttls = spy.mock.calls.map((call) => call[2].ttlSeconds);
+
+    expect(ttls.slice(0, 3)).toEqual([3600, 3600, 3600]);
+    expect(ttls.slice(3)).toEqual([3000, 3000, 3000]);
+  });
+
+  it('購読が無効（解除・期限切れ）なら、購読を無効にして、その購読への配信は断念する', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'REJECT');
+
+    await deliver(context);
 
     expect(await context.container.repositories.pushSubscriptions.listActive()).toEqual([]);
+    // 購読は、最初に配信した通知で、無効と分かる（以降の通知は、有効な購読がないため、配信する相手がない）
+    const abandoned = (await notificationsOf(context)).filter(
+      (item) => item.webPushDeliveries?.[0]?.result === 'ABANDONED',
+    );
+    expect(abandoned).toHaveLength(1);
+    expect(abandoned[0] === undefined ? undefined : webPushOf(abandoned[0])).toMatchObject({
+      result: 'FAILURE',
+    });
+  });
+
+  it('再送待ちの間に、購読が解除（無効に）されたら、その購読への配信は断念する', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
+    await deliver(context);
+    await context.container.repositories.pushSubscriptions.deactivate('s-1');
+    context.clock.advance(MINUTE_MS);
+
+    const summary = await deliver(context);
+
+    expect(summary).toMatchObject({ delivered: 0, failed: 0 });
+    expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
+      result: 'ABANDONED',
+    });
   });
 
   it('配信の失敗が通知のエラー以外（想定外）でも、記録して再送の対象にする', async () => {
-    const context = await withSubscription();
+    const context = await withSubscriptions();
     const webPush = context.container.dev?.mocks.webPush;
     if (webPush === undefined) {
       throw new Error('テストの前提');
     }
     vi.spyOn(webPush, 'deliver').mockRejectedValue(new Error('想定外'));
 
-    await context.container.notificationService.deliverPending();
+    await deliver(context);
 
-    expect(await pushDelivery(context)).toMatchObject({
+    expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
       result: 'FAILURE',
       errorMessage: '配信に失敗しました',
     });
+  });
+
+  it('購読ごとの状態を持たない、以前の形式の通知: 未完了なら、購読ごとの形式で配信する。失敗は、配信せずに終了させる', async () => {
+    const context = await setup();
+    const repository = context.container.repositories.notifications;
+    await context.container.repositories.pushSubscriptions.save({
+      subscriptionId: 's-1',
+      userId: USER,
+      endpoint: 'https://push.invalid/1',
+      isActive: true,
+      createdAt: TEST_NOW.toISOString(),
+    });
+    const legacy = (id: string, result: 'PENDING' | 'FAILURE') => ({
+      notificationId: NotificationIdSchema.parse(id),
+      kind: 'INGESTION_FAILURE' as const,
+      sourceId: 'robot',
+      message: '【データ取得失敗】ロボットデータ: 接続できません',
+      createdAt: TEST_NOW.toISOString(),
+      dedupKey: `INGESTION_FAILURE#${id}`,
+      deliveries: [
+        {
+          channel: 'WEB_PUSH' as const,
+          result,
+          attempts: result === 'PENDING' ? 0 : 3,
+          updatedAt: TEST_NOW.toISOString(),
+        },
+      ],
+    });
+    await repository.add(legacy('n-pending', 'PENDING'));
+    await repository.add(legacy('n-failure', 'FAILURE'));
+
+    const summary = await deliver(context);
+
+    expect(summary).toMatchObject({ notificationsProcessed: 2, delivered: 1, failed: 0 });
+    expect(context.container.dev?.mocks.webPush.delivered()).toMatchObject([
+      { notificationId: 'n-pending', subscriptionId: 's-1' },
+    ]);
+    expect(await repository.listUndelivered()).toEqual([]);
   });
 });
 

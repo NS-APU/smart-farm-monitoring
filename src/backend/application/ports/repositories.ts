@@ -170,8 +170,11 @@ export interface NotificationRepository {
   /** 絞り込みの範囲の未読を、すべて既読にする。既読にした件数を返す。 */
   markAllRead(userId: UserId, filter: NotificationListFilter, readAt: Date): Promise<number>;
   update(notification: Notification): Promise<void>;
-  /** 配信が未完了（PENDING、または再送の余地がある FAILURE）の通知。 */
-  listUndelivered(maxAttempts: number): Promise<Notification[]>;
+  /**
+   * Web Push の配信が必要な通知（まとめの状態が未完了〔PENDING〕のもの。購読ごとの状態を持たない以前の形式の失敗も、購読ごとの形式で終了させるため、含む）。
+   * 再送の上限・期限は、呼び出し側（通知サービス）が、購読ごとの状態で判断する（ADR-0019 の D-38）。
+   */
+  listUndelivered(): Promise<Notification[]>;
   /**
    * 指定した日時より新しい（その日時ちょうどは含めない）、状態変化の通知（STATUS_CHANGE）の、設備・観点・作成日時。古い順。
    * 通知の経過・回復日時の導出（ADR-0019 の D-42）で、同じ設備・観点の次の通知を探すために使う。

@@ -170,10 +170,13 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
     const summary = await service.deliverPending();
 
     expect(summary).toEqual({ notificationsProcessed: 1, delivered: 0, failed: 1 });
-    const pending = await repositories.notifications.listUndelivered(5);
-    const delivery = pending[0]?.deliveries.find((item) => item.channel === 'WEB_PUSH');
-    expect(delivery).toMatchObject({
-      result: 'FAILURE',
+    // 購読ごとの状態は、失敗（再送待ち）。通知のまとめの状態は、未完了（PENDING）のまま、再送の対象に残る
+    const pending = await repositories.notifications.listUndelivered();
+    expect(pending[0]?.webPushDeliveries).toMatchObject([
+      { result: 'FAILURE', attempts: 1, errorMessage: '配信がタイムアウトしました' },
+    ]);
+    expect(pending[0]?.deliveries.find((item) => item.channel === 'WEB_PUSH')).toMatchObject({
+      result: 'PENDING',
       errorMessage: '配信がタイムアウトしました',
     });
   });
