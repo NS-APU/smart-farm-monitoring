@@ -65,7 +65,7 @@
 画面は、ブラウザの History API でルーティングする SPA。静的配信（S3 + CloudFront。ADR-0006）で、次を満たす設定が必要になる。評価環境の IaC（`infra/lib/evaluation-stack.ts`）での実装状況を、各項目に示す。
 
 - 深い URL（例: `/viewpoints/harvest-accuracy`）の再読み込みを、`index.html` へ書き換える（404 にしない）: **実装済み**（CloudFront Function（viewer-request）で書き換える。API の 403・404 は書き換えない。ADR-0006）
-- `index.html` のキャッシュは短く、`assets/`（ハッシュつきのファイル名）は長く: **実装済み**（Issue #323）。画面のファイルを、2 つの `BucketDeployment` に分けて配置し、S3 のオブジェクトの `Cache-Control` を指定する。`assets/` は `public, max-age=31536000, immutable`（長期のキャッシュ）、それ以外（`index.html`・`sw.js`・`manifest.webmanifest`）は `no-cache`（毎回、`ETag` で更新を確認する。変わっていなければ 304）。新しい `index.html` は、新しい `assets/` を配置したあとに、公開する（依存関係）。CloudFront は、静的配信に `CACHING_OPTIMIZED` を使い、デプロイのたびに、`/*` を無効化する。注意: 内容が変わらず、再配置されないファイルは、`Cache-Control` が付き直らない（内容が変わった時点で、付く。`index.html` は、毎回、再配置される）。古い画面を開いたままの利用者への案内は、画面側で行う（PR #324。7.6）
+- `index.html` のキャッシュは短く、`assets/`（ハッシュつきのファイル名）は長く: **実装済み**（Issue #323）。画面のファイルを、2 つの `BucketDeployment` に分けて配置し、S3 のオブジェクトの `Cache-Control` を指定する。`assets/` は `public, max-age=31536000, immutable`（長期のキャッシュ）、それ以外（`index.html`・`sw.js`・`manifest.webmanifest`）は `no-cache`（毎回、`ETag` で更新を確認する。変わっていなければ 304）。新しい `index.html` は、新しい `assets/` を配置したあとに、公開する（依存関係）。CloudFront は、静的配信に `CACHING_OPTIMIZED` を使い、デプロイのたびに、`/*` を無効化する。注意: 内容が変わらず、再配置されないファイルは、`Cache-Control` が付き直らない（内容が変わった時点で、付く。`index.html` は、毎回、再配置される）。古い画面を開いたままの利用者へは、画面が、検出して、再読み込みを案内する（7.6）
 - サービスワーカー（`/sw.js`）・マニフェストは、サイトのルート（`/`）で配信する（サブパスでの配信は、ルーティング・Web Push が動かない）: **実装済み**（S3 のルートに置き、同じオリジンで配信する）
 - API（`/api/v1/*`）は、同じオリジンから配信する: **実装済み**（CloudFront が、`/api/*` と `/health` を、API の Lambda の関数の URL へ振り分ける。CORS は不要。ADR-0006）
 - セキュリティヘッダー（HSTS・CSP・`frame-ancestors`・`Referrer-Policy`）を、配信側にも設定する。API の応答には、バックエンドが付けている（V-015）: **一部**。CloudFront の応答ヘッダーポリシーは、AWS のマネージドポリシー `SECURITY_HEADERS` を使っている。画面（静的ファイル）の CSP・`frame-ancestors` は、設定していない（Issue #127）
@@ -173,6 +173,7 @@
 | API が遅い・タイムアウトする | Lambda のタイムアウトは 29 秒（CloudFront の上限 30 秒の内側）。ログの `OperationTimeoutError`。DynamoDB の調整（スロットリング）のエラー |
 | 長時間アクセスがないあと、最初のログイン・画面の表示が遅い（約 3 秒） | Lambda のコールドスタート（許容している。NFR-3.4 は、コールドスタートなら 6 秒以内。2 回目以降は約 1.4 秒。Issue #79・#168）。毎回遅い場合は、Logs Insights（7.7）で、Init Duration と実行時間を確認する |
 | デプロイの直後から、おかしい | 7.3 のロールバック |
+| 特定の画面だけ（例: 設定 > 取り込み・ステータスコード）が、「新しい版に更新されました。画面を再読み込みしてください」（または、「画面を表示できませんでした」）になる。ほかの画面は、開く | **デプロイのあとに、古い画面（古い `index.html`・バンドル）を使い続けている**。ブラウザのコンソールに `Failed to fetch dynamically imported module: …/assets/<画面>-<ハッシュ>.js`（その URL が 403）が出る。デプロイで、古い画面の部品が削除されるため。画面の「再読み込み」で直る（`index.html` を `no-cache` にしたため〔6 章。Issue #323〕、再読み込みで、新しい版になる）。直らなければ、強制再読み込み（`Ctrl + Shift + R`）、サイトの閲覧データの削除、iPhone のホーム画面のアプリは、完全に終了して、開き直す（Issue #323）。画面は、この失敗を検出して、1 回だけ、自動で再読み込みする |
 
 - 障害時の連絡先・エスカレーション（運用体制）: 利用者 → システムの管理者（受注者）→ 運用・保守の担当（受注者）。**連絡先は、リポジトリの外で管理する**（公開のため。決定。[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md)）
 

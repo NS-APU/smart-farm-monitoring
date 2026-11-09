@@ -635,3 +635,40 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
     expect(denied.status()).toBe(403);
   });
 });
+
+test.describe('古い画面の部品が取得できない場合（デプロイのあとに、古い画面を使い続けているとき。Issue #323）', () => {
+  test('画面の部品の取得に失敗すると、1 回だけ自動で再読み込みし、続けて失敗するときは、「新しい版に更新されました」と、再読み込みのボタンを示す。取得できるようになれば、再読み込みで、画面が開く', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    let blocked = true;
+    let attempts = 0;
+    // ステータスコードの画面の部品（遅延読み込み）の取得を、失敗させる（削除済みのファイルを取得しようとする状況の再現）
+    await page.route(/status-codes-page\.tsx/, async (route) => {
+      attempts += 1;
+      if (blocked) {
+        await route.abort();
+      } else {
+        await route.continue();
+      }
+    });
+    await alignBrowserClock(page);
+    await openAs(page, '/');
+
+    await goToMenu(page, 'ステータスコード');
+
+    // 失敗 → 自動で 1 回、再読み込み → 再び失敗 → 案内とボタン（繰り返さない）
+    const alert = page.getByRole('alert').filter({ hasText: '新しい版に更新されました' });
+    await expect(alert).toBeVisible();
+    await expect(page.getByText('画面を表示できませんでした')).toHaveCount(0);
+    await shot(page, test.info(), 'uc17-stale-chunk');
+
+    // 取得できるようになったあと（新しい版が配信された状態）は、ボタンで再読み込みすると、画面が開く
+    blocked = false;
+    const before = attempts;
+    await alert.getByRole('button', { name: '再読み込み' }).click();
+    await expect(page.getByRole('heading', { name: 'ステータスコード', level: 1 })).toBeVisible();
+    expect(attempts).toBeGreaterThan(before);
+  });
+});
