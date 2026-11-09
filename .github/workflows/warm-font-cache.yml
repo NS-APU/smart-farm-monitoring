@@ -1,0 +1,43 @@
+# 日本語フォントのキャッシュを、develop に作る・更新する（Issue #322）。
+# PR の CI（E2E・負荷テスト）は、日本語のフォント（.github/actions/install-japanese-fonts）を、GitHub の raw から取得する。
+# GitHub の障害で、その取得が失敗すると、E2E・負荷テストの全ジョブが、テストの前に止まる（2026-11-09）。
+# キャッシュは、作った PR の中でしか読めず、PR の CI は、基本のブランチ（develop）のキャッシュも読める。CI は、PR のときだけ動き、
+# develop では動かないため、このワークフローで、develop にキャッシュを作る。
+# - トリガ: develop・main への push（フォントのアクション、または、このファイルを変えたときだけ）、週 1 回（月曜の朝。
+#   キャッシュは、7 日間使われないと消えるため）、手動実行（workflow_dispatch）
+# - 内容: フォントを取得し、ハッシュを検証して、キャッシュに保存するだけ（フォントとしては入れない）
+# - 必須チェックではない（失敗しても、PR のマージには影響しない。取得の障害のときは、次の起動で、作り直される）
+name: Warm font cache
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - .github/actions/install-japanese-fonts/**
+      - .github/workflows/warm-font-cache.yml
+  schedule:
+    # 月曜 06:00（日本時間）。cron は UTC のため、日曜 21:00
+    - cron: '0 21 * * 0'
+  workflow_dispatch:
+
+# リポジトリの読み取りのみ（秘密情報は使わない）。キャッシュの保存は、この権限で行える。
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-font-cache
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    name: warm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # フォントとして入れる処理（root が必要）は、省く。取得・検証・キャッシュの保存だけを行う
+      - uses: ./.github/actions/install-japanese-fonts
+        with:
+          install: 'false'
