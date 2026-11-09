@@ -54,6 +54,8 @@ function build(fileSource: FileSource, profiles = createDefaultFormatProfileRegi
       unreadCount: vi.fn(),
       markRead: vi.fn(),
       markAllRead: vi.fn(),
+      addMemo: vi.fn(),
+      listMemos: vi.fn(),
       deliverPending: vi.fn(),
     },
     federation: { enqueue: vi.fn().mockResolvedValue(undefined), runPending: vi.fn() },

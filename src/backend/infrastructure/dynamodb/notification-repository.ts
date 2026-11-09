@@ -8,7 +8,11 @@
  * - 通知の作成日時は、変えない（ソートキーに入っているため、更新では、作成時のソートキーを使う）
  */
 
-import { NotificationSchema, type Notification } from '@smart-farm/shared/schemas/notification';
+import {
+  NotificationMemoSchema,
+  NotificationSchema,
+  type Notification,
+} from '@smart-farm/shared/schemas/notification';
 import { needsWebPushDelivery } from '../../domain/notification-delivery.ts';
 import type {
   NotificationListFilter,
@@ -25,6 +29,7 @@ import {
   getItem,
   isTransactionConditionFailed,
   mapConcurrent,
+  queryAll,
   queryItems,
   queryPages,
   transactWrite,
@@ -45,6 +50,9 @@ const idPartition = (notificationId: string): string => `NID#${notificationId}`;
 const dedupPartition = (dedupKey: string): string => `DEDUP#${dedupKey}`;
 const readPartition = (userId: string): string => `READ#${userId}`;
 const readCounter = (userId: string): string => `READ#${userId}`;
+/** 通知のメモ（#239）: `NMEMO#{通知ID}` / `{作成日時}#{メモID}`（入力の古い順に Query）。件数は、カウンター `NMEMO#{通知ID}`。 */
+const memoPartition = (notificationId: string): string => `NMEMO#${notificationId}`;
+const memoCounter = (notificationId: string): string => `NMEMO#${notificationId}`;
 
 function matchesFilter(
   notification: Notification,
@@ -63,6 +71,7 @@ function matchesFilter(
 export function createNotificationRepository(db: Database): NotificationRepository {
   const table = db.tables.main;
   const notifications = mainAggregate(db, NotificationSchema);
+  const memos = mainAggregate(db, NotificationMemoSchema);
 
   /** 配信が未完了の通知だけが持つ、GSI1 のキー。 */
   const indexKeys = (notification: Notification, sortKey: string): Item =>
@@ -271,6 +280,29 @@ export function createNotificationRepository(db: Database): NotificationReposito
         }
       }
       return times;
+    },
+    async addMemo(memo) {
+      // メモの項目と件数のカウンターを、同時に書く（同時の追記でも、失われない。通知の項目は、書き換えない）
+      await transactWrite(db, [
+        memos.putOperation(
+          memoPartition(memo.notificationId),
+          timedSortKey(memo.createdAt, memo.memoId),
+          memo,
+        ),
+        counterAdd(db, memoCounter(memo.notificationId), 1),
+      ]);
+    },
+    async listMemos(notificationId) {
+      return (await queryAll(db, table, memoPartition(notificationId), { consistent: true })).map(
+        memos.parse,
+      );
+    },
+    async memoCounts(notificationIds) {
+      if (notificationIds.length === 0) {
+        return new Map();
+      }
+      const counts = await readCounters(db, notificationIds.map(memoCounter));
+      return new Map(notificationIds.map((id) => [id, counts.get(memoCounter(id)) ?? 0]));
     },
     async listUndelivered() {
       const found: Notification[] = [];

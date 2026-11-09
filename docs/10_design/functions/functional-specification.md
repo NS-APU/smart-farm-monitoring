@@ -145,12 +145,12 @@ flowchart LR
 |------|------|
 | 表示 | 日時、種別（異常検知／データ取得失敗）、対象の観点、設備、ステータス、メッセージ、既読状態。新しい順 |
 | 絞り込み | 種別、既読／未読 |
-| 操作 | 通知を選ぶ → 対象の観点の詳細（SC-03）へ移り、通知を既読にする。個別に既読にする。一括で既読にする（絞り込み中の範囲、または全件。画面に読み込んだ時点までに届いた通知だけが対象で、件数つきの確認をする。決定。[ADR-0019](../adr/0019-notification-rules.md)。実装は #240）。通知ごとに、経過と回復日時、メモ（共有・追記のみ）を示す（決定。経過・回復日時は、API が返す〔実装済み。#238〕。メモは #239。画面の表示は #159） |
+| 操作 | 通知を選ぶ → 対象の観点の詳細（SC-03）へ移り、通知を既読にする。個別に既読にする。一括で既読にする（絞り込み中の範囲、または全件。画面に読み込んだ時点までに届いた通知だけが対象で、件数つきの確認をする。決定。[ADR-0019](../adr/0019-notification-rules.md)。実装は #240）。通知ごとに、経過と回復日時、メモ（共有・追記のみ）を示す（決定。経過・回復日時は、API が返す〔実装済み。#238〕。メモは、API が返す〔実装済み。#239〕。画面の表示は #159） |
 | 状態 | 未読／既読の2つのみ。対応状況（未対応／対応中／完了）の管理・承認はない（Q-018） |
 | 更新 | 未読の件数は、約10秒間隔で読み直す（ヘッダー） |
 | 空の状態 | 通知がない場合は、その旨を表示 |
 | 狭い画面 | 長い値（設備名 200 文字を含む対象・メッセージ）や 900px 以下の幅（タブレット・スマートフォン）でも、列が潰れず、ページが横にはみ出さない。900px 以下は、表を通知ごとのカード（項目名と値の縦並び）で表示し、横にスクロールしなくても「既読にする」「詳細を確認」を操作できる（NFR-7.3）。未読の件数（ヘッダー）は、3桁以上でも 1 行で収まる |
-| 関連API | `GET /api/v1/notifications`、`GET /api/v1/notifications/unread-count`、`POST /api/v1/notifications/{id}/read`、`POST /api/v1/notifications/read-all` |
+| 関連API | `GET /api/v1/notifications`、`GET /api/v1/notifications/unread-count`、`POST /api/v1/notifications/{id}/read`、`POST /api/v1/notifications/read-all`、`GET /api/v1/notifications/{id}/memos`、`POST /api/v1/notifications/{id}/memos` |
 
 ### 3.5 SC-06 データ入力（FR-4.1 / UC-06、UC-07）
 
@@ -305,6 +305,7 @@ flowchart LR
 | | `POST /status-codes`、`PUT /status-codes/{code}`、`DELETE /status-codes/{code}` | 登録・編集・削除（論理） | 要ログイン（決定: 管理者のみ） | FR-3.2 |
 | 通知 | `GET /notifications` | 通知の一覧（種別・既読で絞り込み） | 要ログイン | FR-7.5 |
 | | `GET /notifications/unread-count` | 未読の件数 | 要ログイン | FR-7.6 |
+| | `GET /notifications/{id}/memos`、`POST /notifications/{id}/memos` | 通知のメモの一覧（入力の古い順）・追記（共有・追記のみ。編集・削除はない。#239） | 一覧は要ログイン。追記は、手動入力と同じ権限（`manual-entry:write`） | FR-7.6 |
 | | `POST /notifications/{id}/read`、`POST /notifications/read-all` | 既読にする（個別・一括） | 要ログイン | FR-7.6 |
 | | `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | Web Push の購読の状態・購読・解除 | 要ログイン | FR-7.2 |
 | 取り込み | `GET /ingestion/settings`、`PUT /ingestion/settings` | 取り込み設定（参照名・間隔） | 要ログイン（決定: 管理者のみ） | FR-1.4、1.5 |
@@ -348,7 +349,7 @@ flowchart LR
 | 項目 | 内容 |
 |------|------|
 | クエリ | `kind`、`readState`（`UNREAD`／`READ`）、`limit`、`cursor` |
-| 応答 | `items[]`（`notificationId`、`kind`、`viewpointId`、`equipmentId`、`status`、`message`、`createdAt`、`readState`）、`nextCursor` |
+| 応答 | `items[]`（`notificationId`、`kind`、`viewpointId`、`equipmentId`、`status`、`message`、`createdAt`、`readState`、`memoCount`〔メモの件数。#239〕、`progress`〔状態変化の通知だけ。経過・回復日時。#238〕）、`nextCursor` |
 
 **`PUT /ingestion/{sourceId}/credentials`**（Issue #207。D-47。[ADR-0022](../adr/0022-file-server-http-connection-provisional.md)）
 

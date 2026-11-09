@@ -11576,3 +11576,32 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 ### 26.3 実測
 
 手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、120 ファイル・2735 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.22%・Branches 95.59%・Functions 99.56%・Lines 99.21%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-10・UC-23・UC-24・`scenario-outage-recovery` の 97 件が成功（初回に、再送のタイミングが変わった 3 件が失敗し、上のとおり修正したあと、全体を再実行して成功した）。
+
+## 27. 通知のメモ（Issue #239。ADR-0019 の D-42）で変更・追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様: 通知に、利用者がメモ（自由記述。前後の空白を除き、1〜2000 文字）を追記できる（`POST /notifications/{id}/memos`）。共有（全員が読める。`GET /notifications/{id}/memos`。入力の古い順）・追記のみ（編集・削除の API はない）。入力者（ユーザー ID）と日時を持つ。追記は、手動入力と同じ権限（`manual-entry:write`）。農業情報基盤には送らない。通知一覧の応答に、メモの件数（`memoCount`）を加えた。メモは、通知とは別の項目で持つ（DynamoDB: `NMEMO#{通知ID}` ＋ 件数のカウンター）。
+
+### 27.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/repository-contract.test.ts`（1 件 × 3 実装〔メモリ・ファイル・DynamoDB Local〕を追加。138 → 141 件） | メモ（`addMemo`・`listMemos`・`memoCounts`）: 追記の順と日時の順が違っても、入力の古い順（同じ日時は、メモの識別子の順）で取得できる・本文は、改行を含めて、そのまま保存される・通知ごとに件数を数える（メモがなければ 0）・メモがない通知は空・空の指定 |
+| 結合: `tests/integration/notification-memo.test.ts`（新規。14 件） | 追記（入力者・日時・入力の古い順・本文の前後の空白を除く・改行・2000 文字まで）、不正な本文（空・空白だけ・2001 文字は 400 で、保存しない。本文がない・型が違う）、通知がなければ 404（追記・一覧）、通知ごとに混ざらない、共有（別の利用者が追記でき、閲覧者も読める。入力者が分かる）、編集・削除の API がない（404）、権限（`manual-entry:write` がなければ追記は 403・読むのはできる・未ログインは 401）、通知一覧の `memoCount`、農業情報基盤の連携キューに積まない |
+| E2E: `tests/e2e/UC-22-manage-notifications.ts`（2 件を追加） | メモを追記すると、入力者・日時が残り、一覧は入力の古い順・通知一覧が件数を返す。不正な本文は 400・編集・削除はできない・通知がなければ 404 |
+
+### 27.2 変更した既存のテスト（仕様の変更に伴う。ユーザーの承認済み）
+
+**テストの期待値を、通すためだけに書き換えてはいない**。応答の項目（`memoCount`）の追加と、API の追加への追従。
+
+| ファイル | 変更の内容 | 理由 |
+| -------- | ---------- | ---- |
+| `tests/integration/api.test.ts` | ルート数の確認を、42 件から 44 件に（通知のメモの追記・一覧）。2 つのルートの存在を確認 | API の追加 |
+| `tests/support/management-frontend.ts`（画面の単体テストの通知の見本データ） | `memoCount: 0` を追加 | 通知一覧の応答の項目が増えたため |
+| `tests/e2e/support/notifications.ts` | 通知の型に `memoCount` を追加 | 同上 |
+| `tests/integration/evaluation-notification.test.ts`・`ingestion.test.ts`・`ingestion-reliability.test.ts` | 通知サービスの偽物に、`addMemo`・`listMemos` を追加（型の変更のみ） | 通知サービスのインターフェースの追加 |
+
+### 27.3 実測
+
+手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、121 ファイル・2756 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.23%・Branches 95.56%・Functions 99.56%・Lines 99.21%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-05・UC-10・UC-22・UC-23・UC-24 の 139 件が成功。

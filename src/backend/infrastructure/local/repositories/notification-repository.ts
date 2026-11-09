@@ -1,7 +1,11 @@
 /** 通知の Repository（ローカル実装）。通知の既読は、通知と利用者の組ごとに記録する。 */
 
 import { z } from 'zod';
-import { NotificationSchema, type Notification } from '@smart-farm/shared/schemas/notification';
+import {
+  NotificationMemoSchema,
+  NotificationSchema,
+  type Notification,
+} from '@smart-farm/shared/schemas/notification';
 import type {
   NotificationListFilter,
   NotificationRepository,
@@ -43,6 +47,11 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
   );
   const notificationReads = store.collection('notificationReads', NotificationReadSchema, (item) =>
     readKey(item.notificationId, item.userId),
+  );
+  const notificationMemos = store.collection(
+    'notificationMemos',
+    NotificationMemoSchema,
+    (item) => item.memoId,
   );
   const isReadBy = (notification: Notification, userId: string): boolean =>
     notificationReads.get(readKey(notification.notificationId, userId)) !== undefined;
@@ -115,6 +124,28 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
       return Promise.resolve(
         times.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
       );
+    },
+    addMemo: saverOf(notificationMemos),
+    listMemos: (notificationId) =>
+      Promise.resolve(
+        notificationMemos
+          .values()
+          .filter((item) => item.notificationId === notificationId)
+          .sort(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) ||
+              left.memoId.localeCompare(right.memoId),
+          ),
+      ),
+    memoCounts(notificationIds) {
+      const counts = new Map(notificationIds.map((id) => [id, 0]));
+      for (const item of notificationMemos.values()) {
+        const count = counts.get(item.notificationId);
+        if (count !== undefined) {
+          counts.set(item.notificationId, count + 1);
+        }
+      }
+      return Promise.resolve(counts);
     },
     update: saverOf(notifications),
     listUndelivered: () => Promise.resolve(notifications.values().filter(needsWebPushDelivery)),

@@ -15,6 +15,7 @@ import {
   RefreshRequestSchema,
 } from '@smart-farm/shared/schemas/auth';
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
+import { NotificationMemoInputSchema } from '@smart-farm/shared/schemas/notification';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { ApiDeps } from './api-deps.ts';
 import { createAdminHandlers } from './admin-handlers.ts';
@@ -113,6 +114,26 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
         }),
       );
       return c.body(null, 204);
+    },
+
+    // 通知のメモ（ADR-0019 の D-42。#239）。追記と一覧のみ（編集・削除はない）
+    async 'POST /notifications/:notificationId/memos'(c) {
+      const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
+      const input = await parseJsonBody(c, NotificationMemoInputSchema);
+      const memo = await deps.notificationService.addMemo(notificationId, actorOf(c), input);
+      if (memo === undefined) {
+        throw new AppError('NOT_FOUND', '通知が見つかりません');
+      }
+      return c.json(memo, 201);
+    },
+
+    async 'GET /notifications/:notificationId/memos'(c) {
+      const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
+      const items = await deps.notificationService.listMemos(notificationId);
+      if (items === undefined) {
+        throw new AppError('NOT_FOUND', '通知が見つかりません');
+      }
+      return c.json({ items });
     },
 
     async 'POST /notifications/:notificationId/read'(c) {

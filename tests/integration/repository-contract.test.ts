@@ -536,6 +536,45 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       ).toBeUndefined();
     });
 
+    it('通知のメモ: 追記でき、通知ごとに、入力の古い順に取得できる。件数は、通知ごとに数える（Issue #239）', async () => {
+      const { repositories } = create();
+      await repositories.notifications.add(notification('n-1'));
+      await repositories.notifications.add(notification('n-2'));
+      const memo = (id: string, notificationId: string, minute: number, body = `メモ ${id}`) => ({
+        memoId: id,
+        notificationId: NotificationIdSchema.parse(notificationId),
+        enteredBy: USER,
+        body,
+        createdAt: `2026-10-09T10:0${String(minute)}:00.000Z`,
+      });
+
+      const MULTILINE_BODY = '清掃して復旧した' + String.fromCharCode(10) + '（2 行目）';
+      // 追記の順と、日時の順を、一致させない（入力の古い順は、日時の順）
+      await repositories.notifications.addMemo(memo('m-2', 'n-1', 5));
+      await repositories.notifications.addMemo(memo('m-1', 'n-1', 0, MULTILINE_BODY));
+      await repositories.notifications.addMemo(memo('m-3', 'n-2', 1));
+      await repositories.notifications.addMemo({ ...memo('m-4', 'n-1', 5), enteredBy: OTHER_USER });
+
+      const first = await repositories.notifications.listMemos(NotificationIdSchema.parse('n-1'));
+      const counts = await repositories.notifications.memoCounts(
+        ['n-1', 'n-2', 'n-3'].map((id) => NotificationIdSchema.parse(id)),
+      );
+
+      // 同じ日時は、メモの識別子の順。本文は、そのまま保存される（改行を含む）
+      expect(first.map((item) => item.memoId)).toEqual(['m-1', 'm-2', 'm-4']);
+      expect(first[0]).toEqual(memo('m-1', 'n-1', 0, MULTILINE_BODY));
+      expect(first[2]?.enteredBy).toBe(OTHER_USER);
+      expect(
+        await repositories.notifications.listMemos(NotificationIdSchema.parse('n-none')),
+      ).toEqual([]);
+      expect([...counts]).toEqual([
+        ['n-1', 3],
+        ['n-2', 1],
+        ['n-3', 0],
+      ]);
+      expect(await repositories.notifications.memoCounts([])).toEqual(new Map());
+    });
+
     it('状態変化の通知の日時: 指定した日時より新しい状態変化の通知の、設備・観点・作成日時を、古い順に返す（Issue #238）', async () => {
       const { repositories } = create();
       await repositories.notifications.add(notification('n-1'));
