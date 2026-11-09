@@ -44,4 +44,6 @@ runs:
         BOLD_SHA256: faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb
         CACHE_DIR: ${{ runner.temp }}/noto-cjk
         INSTALL: ${{ inputs.install }}
-      run: bash "${{ github.action_path }}/install-fonts.sh"
+      # `${{ github.action_path }}` は、コンテナのジョブ（E2E・負荷テスト）では、ホストのパスになり、コンテナの中から見えない。
+      # 環境変数 GITHUB_ACTION_PATH は、コンテナの中のパスで、正しい
+      run: bash "$GITHUB_ACTION_PATH/install-fonts.sh"
