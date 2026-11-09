@@ -24,6 +24,24 @@ export const DeliverySchema = z.object({
 });
 export type Delivery = z.infer<typeof DeliverySchema>;
 
+/**
+ * Web Push の、購読ごとの配信の状態（Issue #237。ADR-0019 の D-38）。
+ * PENDING（未試行）・FAILURE（失敗。次の試行の日時に再送）・SUCCESS・ABANDONED（断念: 通知を作ってから 1 時間を過ぎた、または、購読が無効になった）。
+ */
+export const WEB_PUSH_DELIVERY_RESULTS = ['PENDING', 'SUCCESS', 'FAILURE', 'ABANDONED'] as const;
+
+export const WebPushDeliverySchema = z.object({
+  subscriptionId: z.string(),
+  result: z.enum(WEB_PUSH_DELIVERY_RESULTS),
+  attempts: z.number().int().nonnegative(),
+  /** 次の試行の日時（失敗のあと、再送する日時）。 */
+  nextAttemptAt: IsoDateTimeSchema.optional(),
+  updatedAt: IsoDateTimeSchema,
+  /** 失敗の内容。秘密情報・内部情報を含めない。 */
+  errorMessage: z.string().optional(),
+});
+export type WebPushDelivery = z.infer<typeof WebPushDeliverySchema>;
+
 export const NotificationSchema = z.object({
   notificationId: NotificationIdSchema,
   kind: NotificationKindSchema,
@@ -38,6 +56,11 @@ export const NotificationSchema = z.object({
   /** 重複抑制のキー（観点・対象・ステータス。FR-7.3）。 */
   dedupKey: z.string(),
   deliveries: z.array(DeliverySchema),
+  /**
+   * Web Push の、購読ごとの配信の状態。最初の配信の実行時点の、有効な購読ごとに持つ。
+   * ない通知は、まだ配信の対象を決めていない（または、以前の形式）。`deliveries` の WEB_PUSH は、そのまとめの状態。
+   */
+  webPushDeliveries: z.array(WebPushDeliverySchema).optional(),
 });
 export type Notification = z.infer<typeof NotificationSchema>;
 
@@ -62,6 +85,7 @@ export type NotificationProgress = z.infer<typeof NotificationProgressSchema>;
 export const NotificationItemSchema = NotificationSchema.omit({
   dedupKey: true,
   deliveries: true,
+  webPushDeliveries: true,
 }).extend({
   readState: ReadStateSchema,
   progress: NotificationProgressSchema.nullable().optional(),

@@ -13,13 +13,14 @@ import type {
 import type { NotificationId, UserId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
-  Delivery,
   Notification,
   NotificationListResponse,
   NotificationProgress,
+  WebPushDelivery,
 } from '@smart-farm/shared/schemas/notification';
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
+import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import {
   buildFederationExpiredDedupKey,
   buildFederationExpiredMessage,
@@ -30,6 +31,12 @@ import {
   buildStatusChangeMessage,
   isWithinSuppression,
 } from '../../domain/notification-rules.ts';
+import {
+  isWebPushExpired,
+  summarizeWebPushDeliveries,
+  webPushRetryDelayMinutes,
+  webPushTtlSeconds,
+} from '../../domain/notification-delivery.ts';
 import { buildNotificationProgress } from '../../domain/notification-progress.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
@@ -128,18 +135,6 @@ function toNotificationItem(
   };
 }
 
-/** Web Push の配信の状態（今回の試行の結果）。failure があれば失敗として、メッセージを残す。 */
-function buildWebPushDelivery(
-  previous: Delivery | undefined,
-  failure: string | undefined,
-  updatedAt: string,
-): Delivery {
-  const attempts = (previous?.attempts ?? 0) + 1;
-  return failure === undefined
-    ? { channel: 'WEB_PUSH', result: 'SUCCESS', attempts, updatedAt }
-    : { channel: 'WEB_PUSH', result: 'FAILURE', attempts, updatedAt, errorMessage: failure };
-}
-
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { notifications, evaluations, pushSubscriptions, webPush, clock, ids, settings, logger } =
     deps;
@@ -175,41 +170,82 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     return create(fields);
   }
 
-  /**
-   * 通知を、購読へ順に配信する。無効になった購読は無効化する。失敗は、記録して再送する
-   * （他の購読・機能には影響させない）。失敗があれば、最後の失敗のメッセージを返す。
-   */
-  async function deliverToSubscriptions(
+  /** 購読 1 件への、1 回の配信。結果を、購読ごとの状態にして返す（購読が無効なら、購読を無効にして、断念する）。 */
+  async function attemptDelivery(
     notification: Notification,
-    subscriptions: readonly PushSubscriptionRecord[],
-    gone: Set<string>,
-  ): Promise<string | undefined> {
-    let failure: string | undefined;
-    for (const subscription of subscriptions) {
-      try {
-        const outcome = await withTimeout(
-          () => webPush.deliver(notification, subscription),
-          settings.ioTimeoutMs,
-          'Web Push の配信',
-        );
-        if (outcome === 'SUBSCRIPTION_GONE') {
-          await pushSubscriptions.deactivate(subscription.subscriptionId);
-          gone.add(subscription.subscriptionId);
-        }
-      } catch (error) {
-        failure =
-          error instanceof NotificationDeliveryError
-            ? error.message
-            : error instanceof OperationTimeoutError
-              ? '配信がタイムアウトしました'
-              : '配信に失敗しました';
-        logger.warn('Web Push の配信に失敗しました', {
-          notificationId: notification.notificationId,
-        });
+    entry: WebPushDelivery,
+    subscription: PushSubscriptionRecord,
+    now: Date,
+  ): Promise<{ entry: WebPushDelivery; outcome: 'DELIVERED' | 'FAILED' | 'GONE' }> {
+    const attempts = entry.attempts + 1;
+    const updatedAt = now.toISOString();
+    try {
+      const outcome = await withTimeout(
+        () =>
+          webPush.deliver(notification, subscription, {
+            ttlSeconds: webPushTtlSeconds(
+              notification.createdAt,
+              now,
+              settings.webPushExpiryMinutes,
+            ),
+          }),
+        settings.ioTimeoutMs,
+        'Web Push の配信',
+      );
+      if (outcome === 'SUBSCRIPTION_GONE') {
+        await pushSubscriptions.deactivate(subscription.subscriptionId);
+        return {
+          entry: {
+            subscriptionId: entry.subscriptionId,
+            result: 'ABANDONED',
+            attempts,
+            updatedAt,
+            errorMessage: '購読が無効になりました',
+          },
+          outcome: 'GONE',
+        };
       }
+      return {
+        entry: { subscriptionId: entry.subscriptionId, result: 'SUCCESS', attempts, updatedAt },
+        outcome: 'DELIVERED',
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof NotificationDeliveryError
+          ? error.message
+          : error instanceof OperationTimeoutError
+            ? '配信がタイムアウトしました'
+            : '配信に失敗しました';
+      logger.warn('Web Push の配信に失敗しました', {
+        notificationId: notification.notificationId,
+        attempts,
+      });
+      const delayMinutes = webPushRetryDelayMinutes(
+        attempts,
+        settings.webPushRetryBaseMinutes,
+        settings.webPushRetryMaxMinutes,
+      );
+      return {
+        entry: {
+          subscriptionId: entry.subscriptionId,
+          result: 'FAILURE',
+          attempts,
+          nextAttemptAt: new Date(now.getTime() + delayMinutes * MS_PER_MINUTE).toISOString(),
+          updatedAt,
+          errorMessage,
+        },
+        outcome: 'FAILED',
+      };
     }
-    return failure;
   }
+
+  const abandon = (entry: WebPushDelivery, errorMessage: string, now: Date): WebPushDelivery => ({
+    subscriptionId: entry.subscriptionId,
+    result: 'ABANDONED',
+    attempts: entry.attempts,
+    updatedAt: now.toISOString(),
+    errorMessage,
+  });
 
   /**
    * ページ内の状態変化の通知の、経過・回復日時を導出する（ADR-0019 の D-42。新しい保存はない）。
@@ -336,34 +372,94 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     markAllRead: (userId, filter) => notifications.markAllRead(userId, filter, clock.now()),
 
     async deliverPending() {
-      const pending = await notifications.listUndelivered(settings.maxDeliveryAttempts);
+      const pending = await notifications.listUndelivered();
       let delivered = 0;
       let failed = 0;
       // 購読は、1回の実行につき1度だけ取得する。配信で無効になった購読（SUBSCRIPTION_GONE）は、以降の通知の配信先から除く
       let subscriptions = await pushSubscriptions.listActive();
       for (const notification of pending) {
-        const now = clock.now().toISOString();
-        const previous = notification.deliveries.find(
+        const now = clock.now();
+        const legacyWebPush = notification.deliveries.find(
           (delivery) => delivery.channel === 'WEB_PUSH',
         );
-        const gone = new Set<string>();
-        const failure = await deliverToSubscriptions(notification, subscriptions, gone);
-        if (gone.size > 0) {
-          subscriptions = subscriptions.filter((item) => !gone.has(item.subscriptionId));
+        // 配信の対象は、最初の配信の実行時点の、有効な購読。購読ごとの状態を持たない以前の形式の失敗は、配信せずに、終了させる
+        const isLegacyFailure =
+          notification.webPushDeliveries === undefined && legacyWebPush?.result === 'FAILURE';
+        const current: readonly WebPushDelivery[] =
+          notification.webPushDeliveries ??
+          (isLegacyFailure
+            ? []
+            : subscriptions.map((subscription) => ({
+                subscriptionId: subscription.subscriptionId,
+                result: 'PENDING' as const,
+                attempts: 0,
+                updatedAt: now.toISOString(),
+              })));
+        const expired = isWebPushExpired(
+          notification.createdAt,
+          now,
+          settings.webPushExpiryMinutes,
+        );
+        const active = new Map(
+          subscriptions.map((subscription) => [subscription.subscriptionId, subscription]),
+        );
+        const updated: WebPushDelivery[] = [];
+        for (const entry of current) {
+          if (entry.result === 'SUCCESS' || entry.result === 'ABANDONED') {
+            updated.push(entry);
+            continue;
+          }
+          const subscription = active.get(entry.subscriptionId);
+          if (expired) {
+            updated.push(
+              abandon(
+                entry,
+                `配信の期限（${String(settings.webPushExpiryMinutes)} 分）を過ぎたため、断念しました`,
+                now,
+              ),
+            );
+          } else if (subscription === undefined) {
+            updated.push(abandon(entry, '購読が無効になりました', now));
+          } else if (
+            entry.result === 'FAILURE' &&
+            Date.parse(entry.nextAttemptAt ?? '') > now.getTime()
+          ) {
+            // 次の試行の日時の前は、再送しない
+            updated.push(entry);
+          } else {
+            const attempt = await attemptDelivery(notification, entry, subscription, now);
+            updated.push(attempt.entry);
+            if (attempt.outcome === 'DELIVERED') {
+              delivered += 1;
+            } else if (attempt.outcome === 'FAILED') {
+              failed += 1;
+            } else {
+              subscriptions = subscriptions.filter(
+                (item) => item.subscriptionId !== entry.subscriptionId,
+              );
+            }
+          }
         }
-        const updated = buildWebPushDelivery(previous, failure, now);
+        // まとめの状態（画面内の通知は、別。配信が未完了の間は PENDING）。以前の形式の失敗は、失敗のまま終了させる
+        const summary = isLegacyFailure
+          ? { result: 'FAILURE' as const, attempts: legacyWebPush.attempts }
+          : summarizeWebPushDeliveries(updated);
         await notifications.update({
           ...notification,
+          webPushDeliveries: updated,
           deliveries: [
             ...notification.deliveries.filter((delivery) => delivery.channel !== 'WEB_PUSH'),
-            updated,
+            {
+              channel: 'WEB_PUSH',
+              result: summary.result,
+              attempts: summary.attempts,
+              updatedAt: now.toISOString(),
+              ...omitUndefined({
+                errorMessage: isLegacyFailure ? legacyWebPush.errorMessage : summary.errorMessage,
+              }),
+            },
           ],
         });
-        if (failure === undefined) {
-          delivered += 1;
-        } else {
-          failed += 1;
-        }
       }
       return { notificationsProcessed: pending.length, delivered, failed };
     },

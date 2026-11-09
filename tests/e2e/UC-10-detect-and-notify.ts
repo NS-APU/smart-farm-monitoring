@@ -745,6 +745,10 @@ test.describe('代替フロー: 通知に失敗した場合は、記録し、再
     await expect(environmentRows(page).first()).toHaveAttribute('data-read-state', 'UNREAD');
     await shot(page, testInfo, 'uc10-delivery-failed');
     await setMock(request, 'web-push', 'UP');
+    // 復旧しても、次の試行の日時（失敗の 1 分後）の前は、再送しない。1 分後の配信で、届く
+    await runJob(request, 'JB-04');
+    expect(await deliveredPushes(request)).toHaveLength(0);
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
     const delivered = await deliveredPushes(request);
     expect(delivered.map((item) => item.notificationId).sort()).toEqual(

@@ -329,8 +329,9 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     await expect(failureRows(page).first()).toHaveAttribute('data-read-state', 'UNREAD');
     await shot(page, testInfo, 'uc24-push-failed');
 
-    // 復旧後の再送で届く。再送を繰り返しても、二重には配信しない
+    // 復旧後の再送（次の試行の日時は、失敗の 1 分後）で届く。再送を繰り返しても、二重には配信しない
     await setMock(request, 'web-push', 'UP');
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
     const delivered = await deliveredPushes(request);
     expect(delivered.map((item) => item.notificationId)).toEqual([created?.notificationId]);
@@ -338,7 +339,7 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     expect(await deliveredPushes(request)).toHaveLength(1);
   });
 
-  test('再送は、最大3回（初回を含む）まで。3回失敗した取り込み失敗の通知は、復旧後も再送されないが、画面内の通知は残る', async ({
+  test('再送は、1 分から倍々の間隔で、通知を作ってから 1 時間まで。1 時間を過ぎた取り込み失敗の通知は、復旧後も配信されないが、画面内の通知は残る（Issue #237）', async ({
     page,
     request,
   }) => {
@@ -349,11 +350,17 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     await setMock(request, 'file-server', 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await setMock(request, 'web-push', 'DOWN');
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // 失敗のたびに、次の試行の日時まで進めて、再送する（0・1・3・7・15・31 分後の 6 回。次の試行の間隔は、1・2・4・8・16・32 分）。6 回目の失敗のあとの次の試行は、63 分後
+    for (const wait of [0, 1, 2, 4, 8, 16]) {
+      await advanceMinutes(request, wait);
       await runJob(request, 'JB-04');
     }
+    await advanceMinutes(request, 32);
 
+    // 通知を作ってから 63 分。1 時間を過ぎたため、復旧しても、断念して、配信しない
     await setMock(request, 'web-push', 'UP');
+    await runJob(request, 'JB-04');
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
 
     expect(await deliveredPushes(request)).toHaveLength(0);

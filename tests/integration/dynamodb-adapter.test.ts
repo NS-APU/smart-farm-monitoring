@@ -458,12 +458,30 @@ describe('通知（DynamoDB）', () => {
     ];
     await notifications.add(notification('n-1', { deliveries: delivery('SUCCESS', 1) }));
 
-    expect(await notifications.listUndelivered(3)).toEqual([]);
-    await notifications.update(notification('n-1', { deliveries: delivery('FAILURE', 1) }));
-    expect((await notifications.listUndelivered(3)).map((item) => item.notificationId)).toEqual([
+    expect(await notifications.listUndelivered()).toEqual([]);
+    await notifications.update(notification('n-1', { deliveries: delivery('PENDING', 0) }));
+    expect((await notifications.listUndelivered()).map((item) => item.notificationId)).toEqual([
       'n-1',
     ]);
-    expect(await notifications.listUndelivered(1)).toEqual([]);
+    // 以前の形式の失敗（購読ごとの状態がない）は、載る。断念して終了した失敗（購読ごとの状態がある）は、載らなくなる
+    await notifications.update(notification('n-1', { deliveries: delivery('FAILURE', 1) }));
+    expect((await notifications.listUndelivered()).map((item) => item.notificationId)).toEqual([
+      'n-1',
+    ]);
+    await notifications.update(
+      notification('n-1', {
+        deliveries: delivery('FAILURE', 7),
+        webPushDeliveries: [
+          {
+            subscriptionId: 's-1',
+            result: 'ABANDONED',
+            attempts: 7,
+            updatedAt: '2026-10-09T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    expect(await notifications.listUndelivered()).toEqual([]);
   });
 });
 

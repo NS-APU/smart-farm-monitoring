@@ -582,10 +582,18 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       ).toEqual([]);
     });
 
-    it('配信が未完了の通知: 未配信、または試行回数が上限未満の失敗のみ返す', async () => {
+    it('配信が未完了の通知: Web Push のまとめの状態が未完了（PENDING）の通知と、購読ごとの状態を持たない以前の形式の失敗だけを返す（Issue #237）', async () => {
       const { repositories } = create();
       const delivery = (result: 'PENDING' | 'SUCCESS' | 'FAILURE', attempts: number) => [
         { channel: 'WEB_PUSH' as const, result, attempts, updatedAt: '2026-10-09T00:00:00.000Z' },
+      ];
+      const perSubscription = (result: 'FAILURE' | 'ABANDONED') => [
+        {
+          subscriptionId: 's-1',
+          result,
+          attempts: 3,
+          updatedAt: '2026-10-09T00:00:00.000Z',
+        },
       ];
       await repositories.notifications.add(
         notification('n-1', { deliveries: delivery('PENDING', 0) }),
@@ -593,22 +601,38 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       await repositories.notifications.add(
         notification('n-2', { deliveries: delivery('SUCCESS', 1) }),
       );
+      // 以前の形式の失敗（購読ごとの状態がない）は、購読ごとの形式で終了させるため、返す
       await repositories.notifications.add(
         notification('n-3', { deliveries: delivery('FAILURE', 2) }),
       );
+      // 断念して終了した失敗（購読ごとの状態がある）は、返さない
       await repositories.notifications.add(
-        notification('n-4', { deliveries: delivery('FAILURE', 3) }),
+        notification('n-4', {
+          deliveries: delivery('FAILURE', 7),
+          webPushDeliveries: perSubscription('ABANDONED'),
+        }),
       );
       await repositories.notifications.add(notification('n-5', { deliveries: [] }));
+      // 再送待ちの購読があり、まとめの状態が未完了の通知は、返す
+      await repositories.notifications.add(
+        notification('n-6', {
+          deliveries: delivery('PENDING', 3),
+          webPushDeliveries: perSubscription('FAILURE'),
+        }),
+      );
 
-      const undelivered = await repositories.notifications.listUndelivered(3);
+      const undelivered = await repositories.notifications.listUndelivered();
       await repositories.notifications.update(
         notification('n-1', { deliveries: delivery('SUCCESS', 1) }),
       );
-      const afterUpdate = await repositories.notifications.listUndelivered(3);
+      const afterUpdate = await repositories.notifications.listUndelivered();
 
-      expect(undelivered.map((item) => item.notificationId).sort()).toEqual(['n-1', 'n-3']);
-      expect(afterUpdate.map((item) => item.notificationId)).toEqual(['n-3']);
+      expect(undelivered.map((item) => item.notificationId).sort()).toEqual(['n-1', 'n-3', 'n-6']);
+      expect(afterUpdate.map((item) => item.notificationId).sort()).toEqual(['n-3', 'n-6']);
+      // 購読ごとの状態は、保存・取得できる
+      expect(undelivered.find((item) => item.notificationId === 'n-6')?.webPushDeliveries).toEqual(
+        perSubscription('FAILURE'),
+      );
     });
   });
 

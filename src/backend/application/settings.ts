@@ -6,6 +6,11 @@
 import type { IngestionIntervalMinutes } from '@smart-farm/shared/constants/status';
 import { DEFAULT_LATE_AFTER_MINUTES } from '../domain/observation-quality.ts';
 import {
+  DEFAULT_DELIVERY_EXPIRY_MINUTES,
+  DEFAULT_RETRY_BASE_MINUTES,
+  DEFAULT_RETRY_MAX_MINUTES,
+} from '../domain/notification-delivery.ts';
+import {
   DEFAULT_RECURRENCE_AFTER_NORMAL_MINUTES,
   DEFAULT_SUPPRESSION_MINUTES,
 } from '../domain/notification-rules.ts';
@@ -41,8 +46,12 @@ export interface AppSettings {
     readonly suppressionMinutes: number;
     /** 「正常が続いたあとの悪化」を、新しい出来事として通知する、正常が続いた時間（分。D-38）。 */
     readonly recurrenceAfterNormalMinutes: number;
-    /** Web Push の配信の試行回数の上限（初回を含む）。 */
-    readonly maxDeliveryAttempts: number;
+    /** Web Push の再送の最初の間隔（分）。失敗のたびに倍にする（ADR-0019 の D-38）。 */
+    readonly webPushRetryBaseMinutes: number;
+    /** Web Push の再送の間隔の上限（分）。 */
+    readonly webPushRetryMaxMinutes: number;
+    /** Web Push の配信を断念する期限（通知を作ってからの分）。Web Push の有効期限（TTL）も、この期限にそろえる。 */
+    readonly webPushExpiryMinutes: number;
     /** Web Push への1回の配信のタイムアウト（ミリ秒）。 */
     readonly ioTimeoutMs: number;
   };
@@ -84,7 +93,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   notification: {
     suppressionMinutes: DEFAULT_SUPPRESSION_MINUTES,
     recurrenceAfterNormalMinutes: DEFAULT_RECURRENCE_AFTER_NORMAL_MINUTES,
-    maxDeliveryAttempts: 3,
+    webPushRetryBaseMinutes: DEFAULT_RETRY_BASE_MINUTES,
+    webPushRetryMaxMinutes: DEFAULT_RETRY_MAX_MINUTES,
+    webPushExpiryMinutes: DEFAULT_DELIVERY_EXPIRY_MINUTES,
     ioTimeoutMs: DEFAULT_IO_TIMEOUT_MS,
   },
   federation: {

@@ -7,6 +7,7 @@ import type {
   NotificationRepository,
   StatusChangeNotificationTime,
 } from '../../../application/ports/repositories.ts';
+import { needsWebPushDelivery } from '../../../domain/notification-delivery.ts';
 import type { LocalStore } from '../local-store.ts';
 import { paginated, readKey, saverOf } from './collection-helpers.ts';
 
@@ -116,16 +117,6 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
       );
     },
     update: saverOf(notifications),
-    listUndelivered: (maxAttempts) =>
-      Promise.resolve(
-        notifications.values().filter((item) => {
-          const webPush = item.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
-          return (
-            webPush !== undefined &&
-            (webPush.result === 'PENDING' ||
-              (webPush.result === 'FAILURE' && webPush.attempts < maxAttempts))
-          );
-        }),
-      ),
+    listUndelivered: () => Promise.resolve(notifications.values().filter(needsWebPushDelivery)),
   };
 }
