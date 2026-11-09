@@ -147,6 +147,13 @@ export interface NotificationWithReadState {
   readonly isRead: boolean;
 }
 
+/** 状態変化の通知の、設備・観点・作成日時（通知の経過を導出するとき、同じ設備・観点の「次の通知」を探すために使う。Issue #238）。 */
+export interface StatusChangeNotificationTime {
+  readonly equipmentId: EquipmentId;
+  readonly viewpointId: ViewpointId;
+  readonly createdAt: string;
+}
+
 export interface NotificationRepository {
   add(notification: Notification): Promise<void>;
   get(notificationId: NotificationId): Promise<Notification | undefined>;
@@ -165,6 +172,11 @@ export interface NotificationRepository {
   update(notification: Notification): Promise<void>;
   /** 配信が未完了（PENDING、または再送の余地がある FAILURE）の通知。 */
   listUndelivered(maxAttempts: number): Promise<Notification[]>;
+  /**
+   * 指定した日時より新しい（その日時ちょうどは含めない）、状態変化の通知（STATUS_CHANGE）の、設備・観点・作成日時。古い順。
+   * 通知の経過・回復日時の導出（ADR-0019 の D-42）で、同じ設備・観点の次の通知を探すために使う。
+   */
+  listStatusChangeTimes(since: Date): Promise<StatusChangeNotificationTime[]>;
 }
 
 export interface IngestionRepository {

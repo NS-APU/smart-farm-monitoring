@@ -41,12 +41,30 @@ export const NotificationSchema = z.object({
 });
 export type Notification = z.infer<typeof NotificationSchema>;
 
-/** API の応答の1件。既読状態は、ログイン中の利用者ごと（暫定。dev_spec.md 4章）。 */
+/**
+ * 通知の経過・回復日時（状態変化の通知だけ。ADR-0019 の D-42）。状態の変化の履歴から導出する（新しい保存はない）。
+ * - `changes`（経過）: 通知の時点から、同じ観点・設備の次の通知（なければ現在）までの、状態の変化（古い順）。
+ *   「不明」は含めず、同じ状態が続くものは 1 件にまとめる。次の通知の時点の状態も含む
+ * - `recovery`（回復日時）: 経過の中で、最初に「正常」に戻った日時と、通知の時点からの経過時間（秒）。正常がなければ null（未回復）
+ */
+export const NotificationProgressSchema = z.object({
+  changes: z.array(z.object({ status: EvaluationStatusSchema, changedAt: IsoDateTimeSchema })),
+  recovery: z
+    .object({ recoveredAt: IsoDateTimeSchema, elapsedSeconds: z.number().int().nonnegative() })
+    .nullable(),
+});
+export type NotificationProgress = z.infer<typeof NotificationProgressSchema>;
+
+/**
+ * API の応答の1件。既読状態は、ログイン中の利用者ごと（暫定。dev_spec.md 4章）。
+ * `progress` は、状態変化の通知だけ。経過を示せない（設備を削除した、など）ときは null（「不明」）。
+ */
 export const NotificationItemSchema = NotificationSchema.omit({
   dedupKey: true,
   deliveries: true,
 }).extend({
   readState: ReadStateSchema,
+  progress: NotificationProgressSchema.nullable().optional(),
 });
 export type NotificationItem = z.infer<typeof NotificationItemSchema>;
 

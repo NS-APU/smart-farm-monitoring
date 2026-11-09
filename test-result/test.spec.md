@@ -11520,3 +11520,30 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 ### 24.3 実測
 
 手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、118 ファイル・2685 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.24%・Branches 95.59%・Functions 99.6%・Lines 99.23%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-05・UC-06・UC-07・UC-08・UC-09・UC-10・UC-11・UC-16・UC-19・UC-21・UC-22・UC-23・UC-24 と、`scenario-outage-recovery`・`scenario-scheduled-ingestion`・`scenario-criteria-change`・`scenario-manual-entry-sharing`・`scenario-configuration-changes` が成功（2 回に分けて実行。初回に失敗した UC-10・UC-24 の 3 件は、上のテストの修正のあと、全体を再実行して成功した）。
+
+## 25. 通知の経過・回復日時（Issue #238。ADR-0019 の D-42）で変更・追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様: 通知一覧の API が、状態変化の通知ごとに、経過（通知の時点から、同じ観点・設備の次の通知〔なければ現在〕までの、状態の変化。「不明」を除き、同じ状態が続くものは 1 件にまとめる）と、回復日時（最初に「正常」に戻った日時と、通知の時点からの経過秒数。なければ未回復）を返す。状態の変化の履歴から導出し、新しい保存はない。
+
+### 25.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/backend/domain/notification-progress.test.ts`（新規。15 件） | 導出（`buildNotificationProgress`）: 経過（10:00 異常 → 10:20 正常 → 10:40 異常・次の通知がなければ現在まで・次の通知より後と通知より前は含めない・次の通知の時点ちょうどは含め 1 分後は含めない・不明を除き同じ状態を 1 件にまとめる・通知の作成日時が変化の日時よりミリ秒だけ後でも通知の時点の状態とする・順不同の履歴）、回復日時（最初に正常に戻った日時と秒数・注意 → 異常 → 正常・未回復・端数の切り捨て・次の通知より後の回復は数えない）、経過を示せない（履歴なし・不明だけ・通知の時点以前の履歴なし） |
+| 結合: `tests/integration/repository-contract.test.ts`（1 件 × 3 実装〔メモリ・ファイル・DynamoDB Local〕を追加。135 → 138 件） | 状態変化の通知の日時（`listStatusChangeTimes`）: 指定した日時より新しい（ちょうどは含めない）状態変化の通知だけの、設備・観点・作成日時を、古い順に返す（取り込み失敗の通知は含めない） |
+| 結合: `tests/integration/evaluation-notification.test.ts`（4 件を追加。49 → 53 件） | 通知ごとの経過・回復日時（異常 → 正常 5 分 → 異常: 最初の通知は経過 3 件と回復 300 秒・最新の通知は未回復）、1 件ずつのページで読んでも同じ（次の通知が別のページにあっても導出できる）、注意 → 異常（注意の通知の経過に異常が入る）、取り込み失敗の通知には付けない・履歴がない状態変化の通知は null |
+| E2E: `tests/e2e/UC-22-manage-notifications.ts`（2 件を追加） | 通知一覧の API が、経過（異常 → 正常 → 異常）と回復（300 秒）・未回復を返す。取り込み失敗の通知には、経過を付けない |
+
+### 25.2 変更した既存のテスト
+
+仕様の変更に伴う、期待値の変更はない（**既存の期待値は、書き換えていない**）。
+
+| ファイル | 変更の内容 | 理由 |
+| -------- | ---------- | ---- |
+| `tests/integration/federation-expiry.test.ts`・`runtime-resilience.test.ts` | 通知サービスの組み立てに、状態変化の履歴（`evaluations`）を渡す（型の変更のみ） | 通知サービスが、経過の導出に履歴を使うようになったため |
+
+### 25.3 実測
+
+手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、119 ファイル・2707 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.23%・Branches 95.59%・Functions 99.61%・Lines 99.22%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-05・UC-10・UC-22・UC-23・UC-24 が成功。

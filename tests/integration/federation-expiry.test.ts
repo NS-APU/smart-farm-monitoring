@@ -26,6 +26,7 @@ function setup(overrides: { expiryDays?: number; batchSize?: number } = {}) {
   const sent: string[] = [];
   const notifications = createNotificationService({
     notifications: repositories.notifications,
+    evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
     webPush: { deliver: () => Promise.resolve('DELIVERED') },
     clock,
