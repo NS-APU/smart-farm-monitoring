@@ -129,6 +129,16 @@ const EnvSchema = z.object({
   /** Web Push の購読に使う公開鍵（VAPID）。未指定なら、Web Push の購読を受け付けない（画面内の通知のみ）。 */
   WEB_PUSH_PUBLIC_KEY: z.string().min(1).optional(),
   /**
+   * Web Push の配信の方式（#241）。dummy（既定）: 実際には送らず、記録だけ（ローカル・テスト）。
+   * vapid: プッシュサービスへ実際に送る（VAPID。秘密鍵は、秘密情報の web-push/vapid-private-key）。公開鍵・連絡先が必要。
+   */
+  WEB_PUSH_DELIVERY: z.enum(['dummy', 'vapid']).default('dummy'),
+  /** Web Push の VAPID の連絡先（アプリの https の URL。個人のメールアドレスは、設定に持たない）。 */
+  WEB_PUSH_SUBJECT: z
+    .url({ protocol: /^https$/ })
+    .max(500)
+    .optional(),
+  /**
    * 開発用 API（時計・モック・リセット・ジョブの強制実行）を有効にするか。既定は無効。
    * E2E・負荷テストの設定で、明示的に有効にする。本番（production）では、指定にかかわらず無効（V-001）。
    */
@@ -231,6 +241,10 @@ export interface AppConfig {
   readonly ingestionStopNotificationEnabled: boolean;
   readonly ingestionFileFailureNotificationEnabled: boolean;
   readonly webPushPublicKey: string | undefined;
+  /** Web Push の配信の方式（dummy: 記録だけ／vapid: 実際に送る）。 */
+  readonly webPushDelivery: 'dummy' | 'vapid';
+  /** VAPID の連絡先（https の URL）。vapid のときは必ずある。 */
+  readonly webPushSubject: string | undefined;
   /** 開発用の API（時計・モック・リセット）を有効にするか。環境変数で明示したときだけ有効で、本番では常に無効。 */
   readonly devApiEnabled: boolean;
   /** ファイルサーバー（HTTP）の接続先に、内部のアドレスを許可するか（本番は、常に false）。 */
@@ -345,6 +359,21 @@ function parseCognito(parsed: z.infer<typeof EnvSchema>): CognitoConfig | undefi
   };
 }
 
+/** Web Push を実際に送る（vapid）には、公開鍵と連絡先が要る（足りないまま、起動しない）。 */
+function assertWebPushDelivery(parsed: z.infer<typeof EnvSchema>): void {
+  if (parsed.WEB_PUSH_DELIVERY !== 'vapid') {
+    return;
+  }
+  for (const [name, value] of [
+    ['WEB_PUSH_PUBLIC_KEY', parsed.WEB_PUSH_PUBLIC_KEY],
+    ['WEB_PUSH_SUBJECT', parsed.WEB_PUSH_SUBJECT],
+  ] as const) {
+    if (value === undefined) {
+      throw new ConfigError(`WEB_PUSH_DELIVERY=vapid では、${name} の指定が必要です`);
+    }
+  }
+}
+
 function parseSecrets(parsed: z.infer<typeof EnvSchema>): AppConfig['secrets'] {
   if (parsed.CREDENTIAL_STORE === 'memory') {
     return { provider: 'memory' };
@@ -400,6 +429,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
   const dynamodb = parseDynamoDb(parsed);
   const cognito = parseCognito(parsed);
   assertProductionAdapters(parsed.APP_MODE, cognito, dynamodb);
+  assertWebPushDelivery(parsed);
   return {
     mode: parsed.APP_MODE,
     host: parsed.HOST,
@@ -426,6 +456,8 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     ingestionStopNotificationEnabled: parsed.INGESTION_STOP_NOTIFICATION_ENABLED,
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
+    webPushDelivery: parsed.WEB_PUSH_DELIVERY,
+    webPushSubject: parsed.WEB_PUSH_SUBJECT,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     httpFileSourceAllowPrivate:
       parsed.HTTP_FILE_SOURCE_ALLOW_PRIVATE && parsed.APP_MODE !== 'production',

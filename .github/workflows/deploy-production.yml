@@ -10,6 +10,7 @@
 #   このロールを引き受けられるのは、Environment「production」のジョブだけ（開発サイトのジョブは、引き受けられない）
 # - 独自のサブドメインを使うときは、Environment「production」の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する
 # - ログインの失敗の制限（接続元ごと）を変えるときは、Environment の変数 SFM_LOGIN_FAILURE_LIMIT（1〜100）・SFM_LOGIN_FAILURE_WINDOW_MINUTES（1〜1440 分）を設定する（未設定なら、5 回 / 15 分。Issue #244）
+# - Web Push の実配信（#241）を使うときは、Environment の変数 SFM_WEB_PUSH_PUBLIC_KEY（VAPID の公開鍵。公開の値）・SFM_WEB_PUSH_SUBJECT（連絡先。アプリの https の URL）を設定する（2 つとも。未設定なら、ダミー）。秘密鍵は、変数にせず、パラメータストアに置く（operations.md 8.6）
 #   （2 つとも。開発サイトとは別のサブドメイン。未設定なら cloudfront.net）
 name: Deploy production
 
@@ -76,4 +77,6 @@ jobs:
           SFM_HOSTED_ZONE_NAME: ${{ vars.SFM_HOSTED_ZONE_NAME }}
           SFM_LOGIN_FAILURE_LIMIT: ${{ vars.SFM_LOGIN_FAILURE_LIMIT }}
           SFM_LOGIN_FAILURE_WINDOW_MINUTES: ${{ vars.SFM_LOGIN_FAILURE_WINDOW_MINUTES }}
+          SFM_WEB_PUSH_PUBLIC_KEY: ${{ vars.SFM_WEB_PUSH_PUBLIC_KEY }}
+          SFM_WEB_PUSH_SUBJECT: ${{ vars.SFM_WEB_PUSH_SUBJECT }}
         run: pnpm --filter @smart-farm/infra run deploy

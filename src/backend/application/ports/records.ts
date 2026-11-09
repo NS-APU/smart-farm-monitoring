@@ -11,6 +11,7 @@ import {
   ViewpointIdSchema,
   EquipmentIdSchema,
 } from '@smart-farm/shared/schemas/common';
+import { PushKeysSchema } from '@smart-farm/shared/schemas/notification';
 
 /** ユーザー（パスワードのハッシュを含む。API には出さない）。 */
 export const UserRecordSchema = z.object({
@@ -58,6 +59,8 @@ export const PushSubscriptionRecordSchema = z.object({
   subscriptionId: z.string(),
   userId: UserIdSchema,
   endpoint: z.string().min(1),
+  /** 本文つきの配信に使う暗号鍵（#241）。鍵の保存より前に登録した購読は、持たない（本文なしで送る）。 */
+  keys: PushKeysSchema.optional(),
   isActive: z.boolean(),
   createdAt: IsoDateTimeSchema,
 });

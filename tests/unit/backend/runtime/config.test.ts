@@ -272,6 +272,64 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('Web Push の実配信（WEB_PUSH_DELIVERY・WEB_PUSH_SUBJECT。#241。ADR-0019 の D-36）', () => {
+    const VAPID = {
+      WEB_PUSH_DELIVERY: 'vapid',
+      WEB_PUSH_PUBLIC_KEY: 'dummy-public-key',
+      WEB_PUSH_SUBJECT: 'https://monitoring.example.test/',
+    };
+
+    it('既定は dummy（実際には送らない）。連絡先は、持たない', () => {
+      const config = parseConfig({});
+
+      expect(config.webPushDelivery).toBe('dummy');
+      expect(config.webPushSubject).toBeUndefined();
+    });
+
+    it('vapid: 公開鍵と、連絡先（https の URL）があれば、実配信にする', () => {
+      const config = parseConfig(VAPID);
+
+      expect(config.webPushDelivery).toBe('vapid');
+      expect(config.webPushPublicKey).toBe('dummy-public-key');
+      expect(config.webPushSubject).toBe('https://monitoring.example.test/');
+    });
+
+    it('dummy のまま、公開鍵・連絡先を指定してもよい（購読は、受け付ける。配信は、しない）', () => {
+      const config = parseConfig({ ...VAPID, WEB_PUSH_DELIVERY: 'dummy' });
+
+      expect(config.webPushDelivery).toBe('dummy');
+      expect(config.webPushPublicKey).toBe('dummy-public-key');
+    });
+
+    it.each([
+      ['公開鍵がない', { WEB_PUSH_PUBLIC_KEY: undefined }, 'WEB_PUSH_PUBLIC_KEY'],
+      ['連絡先がない', { WEB_PUSH_SUBJECT: undefined }, 'WEB_PUSH_SUBJECT'],
+    ])('vapid で、%s場合は、設定エラー', (_name, override, variable) => {
+      expect(() => parseConfig({ ...VAPID, ...override })).toThrow(ConfigError);
+      expect(() => parseConfig({ ...VAPID, ...override })).toThrow(variable);
+    });
+
+    it.each(['mailto:person@example.test', 'http://monitoring.example.test/', 'monitoring'])(
+      '連絡先は、https の URL のみ（%s は、設定エラー。個人のメールアドレスを、設定に持たない）',
+      (subject) => {
+        expect(() => parseConfig({ ...VAPID, WEB_PUSH_SUBJECT: subject })).toThrow(ConfigError);
+      },
+    );
+
+    it('不正な WEB_PUSH_DELIVERY は、設定エラー', () => {
+      expect(() => parseConfig({ WEB_PUSH_DELIVERY: 'real' })).toThrow(ConfigError);
+    });
+
+    it('Lambda の設定でも、同じ（vapid は、公開鍵・連絡先が必要）', () => {
+      const lambda = { APP_MODE: 'local', PERSISTENCE: 'memory' };
+
+      expect(parseLambdaConfig({ ...lambda, ...VAPID }).webPushDelivery).toBe('vapid');
+      expect(() => parseLambdaConfig({ ...lambda, WEB_PUSH_DELIVERY: 'vapid' })).toThrow(
+        ConfigError,
+      );
+    });
+  });
+
   describe('ファイルサーバー（HTTP）の内部のアドレスの許可（HTTP_FILE_SOURCE_ALLOW_PRIVATE。#172。ADR-0022）', () => {
     it('既定は、拒否（SSRF の対策）', () => {
       expect(parseConfig({}).httpFileSourceAllowPrivate).toBe(false);

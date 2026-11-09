@@ -111,6 +111,12 @@ import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
 import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
 import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
 import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
+import { createLibrarySender } from '../infrastructure/web-push/library-sender.ts';
+import {
+  createWebPushNotifier,
+  type WebPushSender,
+} from '../infrastructure/web-push/web-push-notifier.ts';
+import type { NotifierPort } from '../application/ports/notifier-port.ts';
 import type { SecretPort } from '../application/ports/secret-port.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
 import {
@@ -186,6 +192,8 @@ export interface ContainerOverrides {
   readonly s3Client?: Pick<S3Client, 'send'>;
   /** パラメータストアのクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly ssmClient?: SsmCommandSender;
+  /** Web Push の送信の関数（テストで、偽物に差し替える。WEB_PUSH_DELIVERY=vapid のとき使う）。 */
+  readonly webPushSender?: WebPushSender;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -350,6 +358,19 @@ function buildAdapters(
           logger,
         })
       : createMemorySecretPort();
+  // Web Push の配信: vapid なら、プッシュサービスへ実際に送る（秘密鍵は、秘密情報から読む）。それ以外は、ダミー（記録だけ）
+  const webPush: NotifierPort =
+    config.webPushDelivery === 'vapid' &&
+    config.webPushPublicKey !== undefined &&
+    config.webPushSubject !== undefined
+      ? createWebPushNotifier({
+          secrets,
+          publicKey: config.webPushPublicKey,
+          subject: config.webPushSubject,
+          send: overrides.webPushSender ?? createLibrarySender(),
+          logger,
+        })
+      : mocks.webPush;
   const policy = createAccessPolicy(config.roles);
   const { auth, credentials }: Identity =
     config.cognito === undefined
@@ -371,6 +392,7 @@ function buildAdapters(
     jobLock: storage.jobLock,
     faults,
     mocks,
+    webPush,
     fileSource,
     secrets,
     policy,
@@ -393,7 +415,8 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, mocks, fileSource, policy, auth, credentials, profiles } = adapters;
+  const { repositories, mocks, webPush, fileSource, policy, auth, credentials, profiles } =
+    adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
@@ -401,7 +424,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
-    webPush: mocks.webPush,
+    webPush,
     clock,
     ids,
     settings: settings.notification,

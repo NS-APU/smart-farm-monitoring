@@ -49,6 +49,7 @@ import {
   type StatusCodeCreateRequest,
   type StatusCodeUpdateRequest,
 } from '@smart-farm/shared/schemas/status-code';
+import type { PushSubscriptionDetails } from '../push/browser-push.ts';
 import type { ApiClient } from './client.ts';
 import { API_PATHS } from './paths.ts';
 
@@ -102,8 +103,9 @@ export function getPushStatus(api: ApiClient, endpoint?: string) {
   });
 }
 
-export function subscribePush(api: ApiClient, endpoint: string) {
-  return api.command('/push-subscription', { method: 'PUT', body: { endpoint } });
+/** 購読を登録する。暗号鍵（keys）は、サーバーが本文つきで配信するために保存する（なければ、本文なし）。 */
+export function subscribePush(api: ApiClient, subscription: PushSubscriptionDetails) {
+  return api.command('/push-subscription', { method: 'PUT', body: subscription });
 }
 
 export function unsubscribePush(api: ApiClient, endpoint?: string) {

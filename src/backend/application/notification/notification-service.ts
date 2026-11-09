@@ -239,9 +239,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           : error instanceof OperationTimeoutError
             ? '配信がタイムアウトしました'
             : '配信に失敗しました';
+      // 理由（HTTP の状態コード・設定の不足など）は、運用で原因を切り分けるために残す。メッセージは、秘密情報・宛先を含まない
       logger.warn('Web Push の配信に失敗しました', {
         notificationId: notification.notificationId,
         attempts,
+        reason: errorMessage,
       });
       const delayMinutes = webPushRetryDelayMinutes(
         attempts,

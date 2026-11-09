@@ -44,6 +44,11 @@ export async function stubPush(page: Page, options: PushStubOptions = {}): Promi
       }
       const subscriptionObject = () => ({
         endpoint,
+        // 実際のブラウザの購読と同じく、宛先と暗号鍵（p256dh・auth。#241）を返す。値は、ダミー
+        toJSON: () => ({
+          endpoint,
+          keys: { p256dh: 'e2e_p256dh-key', auth: 'e2e_auth-secret' },
+        }),
         unsubscribe: () => {
           window.localStorage.removeItem(storageKey);
           return Promise.resolve(true);

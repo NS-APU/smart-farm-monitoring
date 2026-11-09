@@ -79,6 +79,25 @@ test.describe('基本フロー: Web Push 通知を有効にし、以降の通知
     await expect(state(page)).toContainText('有効');
   });
 
+  test('有効にすると、購読の宛先に加えて、暗号鍵（p256dh・auth）を、サーバーへ送る（本文つきの配信のため。#241）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openPushSettings(page);
+    const registration = page.waitForRequest(
+      (candidate) => candidate.url().endsWith('/push-subscription') && candidate.method() === 'PUT',
+    );
+
+    await enable(page).click();
+
+    expect((await registration).postDataJSON()).toEqual({
+      endpoint: `${ENDPOINT_PREFIX}device-1`,
+      keys: { p256dh: 'e2e_p256dh-key', auth: 'e2e_auth-secret' },
+    });
+    await expect(state(page)).toContainText('有効');
+  });
+
   test('有効にした後に作られた通知（UC-10）は、画面内の通知に加えて、Web Push で配信される。解除すると、配信されない（UC-23 の基本フロー全体）', async ({
     page,
     request,
