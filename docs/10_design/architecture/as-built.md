@@ -64,7 +64,7 @@
 | D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito で確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | 実装済み（手元から AWS で確認済み） |
 | D-03 | ホスティング・ジョブ起動 | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章） | **Amplify は使わず**、IaC（`infra/`。AWS CDK）で、画面（S3 + CloudFront）・API の Lambda（`runtime/lambda.ts`。本番の組み立て。ADR-0009）・ジョブの Lambda と EventBridge の 4 つのルール（`runtime/job-lambda.ts`。ADR-0011）・データ（DynamoDB・Cognito）・合成データの生成の Lambda（ADR-0012）を作る（ADR-0006。Issue #71・#75・#76・#77）。デプロイは、GitHub Actions + OIDC（手動実行） | 実装済み（AWS で確認済み。画面のホスティングは、Amplify ではなく S3 + CloudFront） |
 | D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリを見立てたモック（`mock-file-server.ts`）と、S3 を見立てたモック（`s3/s3-file-source.ts`。評価環境の Lambda 用。ADR-0012）。**HTTP のアダプタ**（Issue #119。ADR-0023）がある: 取り込み元ごとの接続設定（`connection`。接続方式 MOCK／HTTP。ADR-0022。#172）と、設備ごとのファイルパス（`sourceFilePath`）で、**接続テスト・一覧（HEAD）・取得（GET。大きさの上限）**をする（`infrastructure/http/`: `http-client.ts`〔共通。内部のアドレスを拒否・リダイレクトに従わない〕・`http-probe.ts`・`http-file-reader.ts`）。`routing-file-source.ts` が、接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイル）。**宇都宮大学のサーバーとは、未接続**（接続先・認証情報・実ファイルの形式は、別の Issue。#298）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。認証情報は、`SecretPort`（`file-server/<取り込み元>`）から読む。値は、SC-11 から、管理者が書き込み専用で登録する（#207） | 一部（HTTP のアダプタは、汎用のサーバーで確認。宇都宮大学のサーバーへの接続は #298） |
-| D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信はダミー（`dummy-web-push.ts`。記録のみ）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は実装済み。VAPID の秘密鍵・送信ライブラリはない                                                                           | 未実装                           |
+| D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信は、`WEB_PUSH_DELIVERY=vapid` で、実配信（`web-push/web-push-notifier.ts`。送信は `library-sender.ts`〔`web-push` 3.6.7〕。秘密鍵は SecretPort）。既定の `dummy` は、ダミー（`dummy-web-push.ts`。記録のみ。ローカル・テスト）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は、購読の暗号鍵（p256dh・auth）も送る                                                                           | 実装済み（#241。実機の確認は、運用手順 8.6） |
 | D-06 | 農業情報基盤との連携       | 連携方式は Q-005 で未確定（architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）のみ                                                                                                                                                                         | 未実装（仕様も未確定）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
 | D-08 | 評価の対象                 | 「影響を受ける設備・観点に絞って行う」（architecture.md 7章）                                                                                             | `EvaluationService` が、設備ごとに、全観点×全期間（長期 5 窓、短期評価を持つ観点はさらに短期 1 窓）を評価し、保存する。取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけ（`evaluateAffected`）、設備・ステータスコード・判断基準の変更後・定期（JB-02）は、全設備（`evaluateAll`）                      | 一部実装（保存後は絞り込み済み。手順10）                             |
@@ -266,8 +266,8 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | 実行                     | Lambda＋ EventBridge                      | API の Lambda（`createLambdaHandler`。`@hono/aws-lambda` の `handle`。ADR-0009）と、ジョブの Lambda（`createJobLambdaHandler`。EventBridge の 4 つのルールが起動する。Issue #76。ADR-0011） |
 | ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）と、HTTP（設備ごとのファイルパスで、一覧・取得・接続テスト。ADR-0023。#119）。宇都宮大学のサーバーへの接続は、別の Issue（#298） |
 | 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
-| Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
-| 秘密情報                 | シークレット管理サービス                  | `SecretPort`（非同期の `get`・`set`・`status`）の、パラメータストア版（SecureString。#206）と、メモリ・環境変数版がある。使う場所は、ファイルサーバーの認証情報の登録と接続テスト（#207）。HTTP の取得（#119）でも、認証のヘッダーの組み立てに使う。これから使う場所は、#241）                                                                      |
+| Web Push                 | 外部の配信サービス                        | `vapid`: プッシュサービスへ実際に送る（#241）。`dummy`（既定）: 配信の記録のみ。購読と受信のブラウザ側は実装済み                                                                          |
+| 秘密情報                 | シークレット管理サービス                  | `SecretPort`（非同期の `get`・`set`・`status`）の、パラメータストア版（SecureString。#206）と、メモリ・環境変数版がある。使う場所は、ファイルサーバーの認証情報の登録と接続テスト（#207）。HTTP の取得（#119）でも、認証のヘッダーの組み立てに使う。Web Push の VAPID の秘密鍵の読み出し（#241。`web-push/vapid-private-key`））                                                                      |
 | ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-development.yml`・`deploy-production.yml`（手動実行。本番サイトは `main` だけ・承認が必要。Issue #117。本番サイトは、AWS に未作成）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
 | スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測も、実行済み（長時間アクセスがないあとの最初のログインは、約 3.2 秒。既知の制約として許容。test.spec.md 13.3） |
@@ -406,7 +406,7 @@ flowchart LR
   UC10 -. "状態変化をキューに積む" .-> UC11
 ```
 
-- 「Web Push の配信先」は、`NotifierPort` の先。実装はダミー（配信の記録のみ）
+- 「Web Push の配信先」は、`NotifierPort` の先。実装は、`WEB_PUSH_DELIVERY` で選ぶ: `vapid`（プッシュサービスへ実際に送る。#241）、`dummy`（配信の記録のみ。既定）
 - 取り込み（UC-08・UC-09）の評価の更新は、取り込んだ件数が 1 件以上のときに行う。取得失敗は、一覧の取得を 3 回試しても失敗した場合のみ通知する（UC-24）。形式違いのファイルは通知しない
 
 ## UC と画面・API・ジョブの対応表
@@ -978,7 +978,7 @@ flowchart LR
 | `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）・`s3/s3-file-source.ts`（S3 のモック。Lambda 用。`FILE_SERVER_S3_BUCKET` を指定したときに使う。Issue #77。ADR-0012）。取り込み元の接続方式で、`application/ingestion/routing-file-source.ts` が振り分ける。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON の FormatProfile。CSV は #174 で削除）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | 農業情報基盤用（Q-005）                       |
-| `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
+| `NotifierPort`                             | `ports/notifier-port.ts`        | `web-push/web-push-notifier.ts`（実配信。#241。結果: 2xx 配信・404/410 購読が無効・それ以外 失敗）、`local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
 | `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**パラメータストア版は、コンテナが保管先として組み立てる（#206）。使う場所は、まだない**                                                                                        | シークレット管理サービス                      |
 
 ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 実装に、同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
@@ -1145,6 +1145,8 @@ flowchart LR
 | `FEDERATION_EXPIRY_DAYS`                                         | `30`                      | 連携の破棄の期限（日。1〜365）。積んでからこの日数を過ぎても送れていない項目を、破棄する（#204）                                                |
 | `INGESTION_RETRY_BASE_DELAY_MS`                                 | `1000`                    | 取り込みの再試行の待ち時間の基準（E2E では 10）                                                                                                 |
 | `WEB_PUSH_PUBLIC_KEY`                                           | なし                      | VAPID の公開鍵。なければ、Web Push の購読を受け付けない（503）                                                                                  |
+| `WEB_PUSH_DELIVERY`                                             | `dummy`                   | Web Push の配信の方式（#241）。`vapid` は、公開鍵・`WEB_PUSH_SUBJECT` が必須（足りなければ、起動しない）                                                                                  |
+| `WEB_PUSH_SUBJECT`                                              | なし                      | VAPID の連絡先（https の URL。個人のメールアドレスは使わない）                                                                                  |
 | `CREDENTIAL_STORE`                                              | `memory`                  | 秘密情報の保管先（`memory`・`ssm`＝パラメータストア）。`ssm` は、本番・開発サイト（#206）。名前に、SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
 | `CREDENTIAL_PATH_PREFIX`                                        | なし                      | `ssm` のときの、パスの接頭辞（先頭と末尾が `/`。例: `/sfm/development/`）。`ssm` では、必須
 | `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版。テスト用）。参照名の `/`・`-` は `_` になる（例: `file-server/robot` → `SECRET_FILE_SERVER_ROBOT`）。コンテナは、使わない                                                                                            |
@@ -2066,7 +2068,7 @@ stateDiagram-v2
   Deleted --> [*]
 ```
 
-- 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）
+- 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）。登録の入力は `{ endpoint, keys? }`（`keys` は p256dh・auth。本文つきの配信に使う。#241）
 - ユーザーを削除しても、その購読は削除されない（課題 I-02）
 
 ## 変更履歴（AuditLogEntry）
