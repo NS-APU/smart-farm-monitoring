@@ -72,7 +72,7 @@ smart-farm-monitoring/
 | TypeScript | 6.0.3（`~6.0.3`）。ADR-0005 は「6系または7系。周辺ツールの対応を確認して決める」。typescript-eslint 8.71 が TypeScript 6.1 未満のみ対応のため、6.0 系を採用した |
 | ESLint | 9.39.5（flat config、typescript-eslint 8.71 の `strictTypeChecked` + `stylisticTypeChecked`、react-hooks 7）。ESLint 10 は採用していない（以前は、`eslint-plugin-jsx-a11y` が未対応だったため。同プラグインは、ライセンス対応で外した。ほかの依存の ESLint 10 への対応は、未確認） |
 | oxlint | 1.84（`~1.84.0`）。`jsx-a11y` のルール（アクセシビリティ）の検査のみに使う。`eslint-plugin-jsx-a11y` は、axe-core（MPL-2.0）に依存するため、使わない。設定は `.oxlintrc.json`（1.4・1.5） |
-| Vitest / Vite | Vitest 4.1.11（ADR-0005 の 4系）、Vite 8.3 系（`~8.3.1`）、`@vitest/coverage-v8`。CSS の最小化は esbuild（`esbuild ^0.28.0`。`src/frontend/vite.config.ts` の `build.cssMinify: 'esbuild'`。Vite の既定の lightningcss は、MPL-2.0 のため使わない） |
+| Vitest / Vite | Vitest 4.1.12（ADR-0005 の 4系）、Vite 8.3 系（`~8.3.1`）、`@vitest/coverage-v8`。CSS の最小化は esbuild（`esbuild ^0.28.0`。`src/frontend/vite.config.ts` の `build.cssMinify: 'esbuild'`。Vite の既定の lightningcss は、MPL-2.0 のため使わない） |
 | Playwright | 1.64（chromium） |
 | React | 19.3、`react-dom` 19.3 |
 | Hono | 4.13、`@hono/node-server` 2.1、`@hono/aws-lambda` 1.0（`hono/aws-lambda` が非推奨のため、同じ Hono プロジェクトのアダプタを使う） |

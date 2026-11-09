@@ -226,13 +226,13 @@
 |                | `@hono/node-server`                     | `^2.1.4`                        | 2.1.4                                         |
 |                | `@hono/aws-lambda`                      | `^1.0.1`                        | 1.0.1                                         |
 | AWS SDK（バックエンドの本番のアダプタ） | `@aws-sdk/client-dynamodb`・`lib-dynamodb`・`client-cognito-identity-provider`・`client-s3` | `^3.1147.0`・`^3.1147.0`・`^3.1148.0`・`^3.1148.0` | 3.1147.0・3.1147.0・3.1148.0・3.1148.0 |
-| スキーマ・検証 | Zod                                     | `^4.6.5`                        | 4.6.5                                         |
+| スキーマ・検証 | Zod                                     | `^4.6.6`                        | 4.6.7                                         |
 | フロントエンド | React・React DOM                        | `^19.3.0`                       | 19.3.0                                        |
 |                | Vite                                    | `~8.3.1`                        | 8.3.3                                         |
 |                | `@vitejs/plugin-react`                  | `^6.1.2`                        | 6.1.2                                         |
-| テスト         | Vitest・`@vitest/coverage-v8`           | `^4.1.11`                       | 4.1.11                                        |
+| テスト         | Vitest・`@vitest/coverage-v8`           | `^4.1.12`                       | 4.1.12                                        |
 |                | Playwright（`@playwright/test`）        | `^1.64.0`                       | 1.64.0                                        |
-|                | Testing Library（react・dom）・jsdom    | `^16.3.3`・`^10.4.2`・`^30.1.2` | 16.3.3・10.4.2・30.1.2                        |
+|                | Testing Library（react・dom）・jsdom    | `^16.3.3`・`^10.4.2`・`^30.1.3` | 16.3.3・10.4.2・30.1.3                        |
 | 静的解析       | ESLint・typescript-eslint・各プラグイン | `^9.39.5`・`^8.71.1`            | 9.39.5・8.71.1                                |
 |                | oxlint（jsx-a11y の検査のみ）           | `~1.84.0`                       | 1.84.0                                        |
 | ビルド         | esbuild（CSS の最小化。Lambda のコードのまとめ）   | `^0.28.0`                       | 0.28.2                                        |
