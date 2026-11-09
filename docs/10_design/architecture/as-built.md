@@ -1662,6 +1662,7 @@ sequenceDiagram
 
   UI->>NS: API 経由で GET<br>/notifications/unread-count を約<br>10 秒ごと
   UI->>NS: GET /notifications<br>絞り込みとカーソル
+  NS->>NR: 状態変化の通知は、listStatusChangeTimes<br>で次の通知を探し、状態変化の履歴<br>（EvaluationRepository の listStatusChanges）<br>から経過・回復日時 progress を導出（#238）
   UI->>NS: POST /notifications/:id/read 個別<br>または POST read-all 範囲指定
   NS->>NR: markRead(notificationId, userId,<br>now) 既読は通知と利用者の組で保存
   UI->>UI: notifyUnreadChanged<br>で未読件数を読み直す
