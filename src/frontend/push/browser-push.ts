@@ -6,6 +6,12 @@
 
 export type PushPermission = NotificationPermission | 'unsupported';
 
+/** ブラウザの購読の内容。`keys` は、p256dh・auth の両方があるときだけ。 */
+export interface PushSubscriptionDetails {
+  readonly endpoint: string;
+  readonly keys?: { readonly p256dh: string; readonly auth: string };
+}
+
 export interface PushBrowser {
   /** このブラウザが、Web Push（サービスワーカー・Push API・通知）に対応しているか。 */
   isSupported(): boolean;
@@ -15,8 +21,11 @@ export interface PushBrowser {
   requestPermission(): Promise<PushPermission>;
   /** この端末（ブラウザ）の購読の宛先。購読していない・未対応なら undefined。 */
   currentEndpoint(): Promise<string | undefined>;
-  /** サービスワーカーを登録し、購読して、宛先（endpoint）を返す。 */
-  subscribe(publicKey: string): Promise<string>;
+  /**
+   * サービスワーカーを登録し、購読して、宛先（endpoint）と暗号鍵（p256dh・auth）を返す。
+   * 鍵は、サーバーが、本文つきで配信するために使う（#241）。ブラウザが返さなければ、鍵なし（本文なしで配信される）。
+   */
+  subscribe(publicKey: string): Promise<PushSubscriptionDetails>;
   /** 購読を解除する。解除した購読の宛先を返す（購読がなければ undefined）。 */
   unsubscribe(): Promise<string | undefined>;
 }
@@ -31,7 +40,11 @@ export interface BrowserEnvironment {
           subscribe(options: {
             userVisibleOnly: boolean;
             applicationServerKey: Uint8Array<ArrayBuffer>;
-          }): Promise<{ readonly endpoint: string; unsubscribe(): Promise<boolean> }>;
+          }): Promise<{
+            readonly endpoint: string;
+            unsubscribe(): Promise<boolean>;
+            toJSON(): { endpoint?: string; keys?: Record<string, string> };
+          }>;
           getSubscription(): Promise<{
             readonly endpoint: string;
             unsubscribe(): Promise<boolean>;
@@ -123,7 +136,11 @@ export function createBrowserPush(env: BrowserEnvironment): PushBrowser {
         userVisibleOnly: true,
         applicationServerKey: decodePublicKey(publicKey),
       });
-      return subscription.endpoint;
+      const { p256dh, auth } = subscription.toJSON().keys ?? {};
+      return {
+        endpoint: subscription.endpoint,
+        ...(p256dh === undefined || auth === undefined ? {} : { keys: { p256dh, auth } }),
+      };
     },
 
     async unsubscribe() {

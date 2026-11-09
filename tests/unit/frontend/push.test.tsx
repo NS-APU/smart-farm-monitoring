@@ -17,7 +17,11 @@ const PUBLIC_KEY = 'ZHVtbXktcHVibGljLWtleQ';
 interface FakeSubscription {
   readonly endpoint: string;
   unsubscribe: () => Promise<boolean>;
+  /** ブラウザの購読の JSON（宛先と、暗号鍵 p256dh・auth。#241）。鍵を返さない購読もある。 */
+  toJSON: () => { endpoint?: string; keys?: Record<string, string> };
 }
+
+const SUBSCRIPTION_KEYS = { p256dh: 'dummy_p256dh-key', auth: 'dummy_auth-secret' };
 
 function fakeEnvironment(
   options: {
@@ -27,11 +31,17 @@ function fakeEnvironment(
     readonly withWorker?: boolean;
     readonly withPushManager?: boolean;
     readonly withNotification?: boolean;
+    readonly withoutKeys?: boolean;
+    readonly keys?: Record<string, string>;
   } = {},
 ) {
   const subscription: FakeSubscription = {
     endpoint: 'https://push.example.invalid/dummy-1',
     unsubscribe: vi.fn(() => Promise.resolve(true)),
+    toJSON: () => ({
+      endpoint: 'https://push.example.invalid/dummy-1',
+      ...(options.withoutKeys === true ? {} : { keys: options.keys ?? SUBSCRIPTION_KEYS }),
+    }),
   };
   let current: FakeSubscription | null = options.existing ?? null;
   const subscribe = vi.fn(() => {
@@ -103,6 +113,7 @@ describe('createBrowserPush（ブラウザの Web Push の窓口）', () => {
     const existing: FakeSubscription = {
       endpoint: 'https://push.example.invalid/existing',
       unsubscribe: () => Promise.resolve(true),
+      toJSON: () => ({ endpoint: 'https://push.example.invalid/existing' }),
     };
     expect(await createBrowserPush(fakeEnvironment({ existing }).env).currentEndpoint()).toBe(
       existing.endpoint,
@@ -110,14 +121,30 @@ describe('createBrowserPush（ブラウザの Web Push の窓口）', () => {
     expect(await createBrowserPush(fakeEnvironment().env).currentEndpoint()).toBeUndefined();
   });
 
-  it('購読する: サービスワーカーを登録し、公開鍵で購読して、宛先を返す', async () => {
+  it('購読する: サービスワーカーを登録し、公開鍵で購読して、宛先と暗号鍵（p256dh・auth）を返す（#241）', async () => {
     const { env, subscribe, register } = fakeEnvironment();
 
-    const endpoint = await createBrowserPush(env).subscribe(PUBLIC_KEY);
+    const result = await createBrowserPush(env).subscribe(PUBLIC_KEY);
 
-    expect(endpoint).toBe('https://push.example.invalid/dummy-1');
+    expect(result).toEqual({
+      endpoint: 'https://push.example.invalid/dummy-1',
+      keys: SUBSCRIPTION_KEYS,
+    });
     expect(register).toHaveBeenCalledWith('/sw.js');
     expect(subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('購読が暗号鍵を返さない（片方だけの場合を含む）ときは、鍵なしで、宛先だけを返す（サーバーは、本文なしで送る）', async () => {
+    const withoutKeys = await createBrowserPush(
+      fakeEnvironment({ withoutKeys: true }).env,
+    ).subscribe(PUBLIC_KEY);
+
+    const partial = await createBrowserPush(
+      fakeEnvironment({ keys: { p256dh: 'dummy_p256dh-key' } }).env,
+    ).subscribe(PUBLIC_KEY);
+
+    expect(withoutKeys).toEqual({ endpoint: 'https://push.example.invalid/dummy-1' });
+    expect(partial).toEqual({ endpoint: 'https://push.example.invalid/dummy-1' });
   });
 
   it('サービスワーカーに対応していなければ、購読・解除は、エラーになる', async () => {
@@ -130,6 +157,7 @@ describe('createBrowserPush（ブラウザの Web Push の窓口）', () => {
     const existing: FakeSubscription = {
       endpoint: 'https://push.example.invalid/existing',
       unsubscribe: vi.fn(() => Promise.resolve(true)),
+      toJSON: () => ({ endpoint: 'https://push.example.invalid/existing' }),
     };
     expect(await createBrowserPush(fakeEnvironment({ existing }).env).unsubscribe()).toBe(
       existing.endpoint,
@@ -152,6 +180,8 @@ interface FakePushOptions {
   endpoint?: string | undefined;
   currentEndpointFails?: boolean;
   subscribeFails?: boolean;
+  /** 購読が暗号鍵を返さない。 */
+  withoutKeys?: boolean;
 }
 
 function fakePush(options: FakePushOptions = {}) {
@@ -171,7 +201,10 @@ function fakePush(options: FakePushOptions = {}) {
         return Promise.reject(new Error('内部の詳細'));
       }
       endpoint = 'https://push.example.invalid/new';
-      return Promise.resolve(endpoint);
+      return Promise.resolve({
+        endpoint,
+        ...(options.withoutKeys === true ? {} : { keys: SUBSCRIPTION_KEYS }),
+      });
     },
     unsubscribe: () => {
       const previous = endpoint;
@@ -214,11 +247,32 @@ describe('通知の設定（UC-23。SC-15）', () => {
     expect(pushBrowser.subscribeCalls).toEqual([PUBLIC_KEY]);
     expect(callsOf(calls, 'PUT', '/push-subscription')[0]?.body).toEqual({
       endpoint: 'https://push.example.invalid/new',
+      keys: SUBSCRIPTION_KEYS,
     });
     await waitFor(() => {
       expect(screen.getByTestId('push-state').textContent).toContain('有効');
     });
     expect(screen.getByRole('button', { name: '解除する' })).toBeDefined();
+  });
+
+  it('購読が暗号鍵を返さない場合は、宛先だけを登録する（鍵のない購読。本文なしで配信される）', async () => {
+    const { calls } = renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () => jsonResponse({ ...AVAILABLE, isSubscribed: false }),
+        'PUT /push-subscription': () => noContent(),
+      },
+      { pushBrowser: fakePush({ withoutKeys: true }) },
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '有効にする' }));
+
+    await waitFor(() => {
+      expect(callsOf(calls, 'PUT', '/push-subscription')).toHaveLength(1);
+    });
+    expect(callsOf(calls, 'PUT', '/push-subscription')[0]?.body).toEqual({
+      endpoint: 'https://push.example.invalid/new',
+    });
   });
 
   it('宛先は、この端末のものでサーバーに問い合わせる。サーバーが有効でも、この端末が購読していなければ無効', async () => {

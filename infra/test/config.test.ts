@@ -31,6 +31,42 @@ describe('IaC の設定（環境変数）', () => {
     });
   });
 
+  describe('Web Push の実配信（#241。ADR-0019 の D-36）', () => {
+    const PUBLIC_KEY = 'dummy-vapid-public-key';
+    const SUBJECT = 'https://monitoring.example.test/';
+
+    it('指定しなければ、設定に含めない（Web Push は、これまでどおり、購読を受け付けない。空白は、未指定として扱う）', () => {
+      expect(readConfig({})).not.toHaveProperty('webPush');
+      expect(readConfig({ SFM_WEB_PUSH_PUBLIC_KEY: ' ', SFM_WEB_PUSH_SUBJECT: '' })).toEqual({
+        environment: 'development',
+      });
+    });
+
+    it('SFM_WEB_PUSH_PUBLIC_KEY（公開鍵）と SFM_WEB_PUSH_SUBJECT（連絡先の https の URL）を、読み取る', () => {
+      expect(
+        readConfig({ SFM_WEB_PUSH_PUBLIC_KEY: PUBLIC_KEY, SFM_WEB_PUSH_SUBJECT: SUBJECT }),
+      ).toMatchObject({ webPush: { publicKey: PUBLIC_KEY, subject: SUBJECT } });
+    });
+
+    it('どちらか片方だけの指定は、エラー（実配信には、2 つとも必要）', () => {
+      expect(() => readConfig({ SFM_WEB_PUSH_PUBLIC_KEY: PUBLIC_KEY })).toThrow(
+        'SFM_WEB_PUSH_PUBLIC_KEY と SFM_WEB_PUSH_SUBJECT',
+      );
+      expect(() => readConfig({ SFM_WEB_PUSH_SUBJECT: SUBJECT })).toThrow(
+        'SFM_WEB_PUSH_PUBLIC_KEY と SFM_WEB_PUSH_SUBJECT',
+      );
+    });
+
+    it.each(['mailto:person@example.test', 'http://monitoring.example.test/', 'monitoring'])(
+      '連絡先は、https の URL のみ（%s は、エラー。個人のメールアドレスを、設定に持たない）',
+      (subject) => {
+        expect(() =>
+          readConfig({ SFM_WEB_PUSH_PUBLIC_KEY: PUBLIC_KEY, SFM_WEB_PUSH_SUBJECT: subject }),
+        ).toThrow('SFM_WEB_PUSH_SUBJECT');
+      },
+    );
+  });
+
   describe('ログインの失敗の制限（接続元ごと。Issue #244。D-44）', () => {
     it('指定しなければ、設定に含めない（アプリの既定の、失敗 5 回 / 15 分）。空白は、未指定として扱う', () => {
       expect(readConfig({})).not.toHaveProperty('loginFailureLimit');

@@ -11636,3 +11636,37 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 ### 28.3 実測
 
 手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`）は、122 ファイル・2782 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.22%・Branches 95.57%・Functions 99.57%・Lines 99.20%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-05・UC-12・UC-22 と、障害からの復旧のシナリオの 78 件が成功（UC-22 は 39 件。3 件を追加）。負荷テスト（`stress-01-single-user.ts`）は、実行していない（型の確認と lint のみ）。
+
+## 29. Web Push の実配信（Issue #241。ADR-0019 の D-36）で変更・追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様: 設定 `WEB_PUSH_DELIVERY=vapid`（既定は `dummy`）で、プッシュサービスへ実際に送る配信アダプタを使う。購読の暗号鍵（p256dh・auth）を、購読の登録（`PUT /push-subscription` の `keys`。任意）で保存し、本文つきで送る（鍵のない購読は、本文なし）。VAPID の秘密鍵は、配信のたびに SecretPort（`web-push/vapid-private-key`）から読む。結果は、2xx が配信・404/410 が購読の無効・それ以外（429・5xx・400 台・接続できない）が一時的な失敗（再送）。失敗の理由（秘密情報を含まない）を、ログにも残す。実際のプッシュサービスへの送信は、自動テストでは行わない（送信の関数を偽物にして検証する。実機の確認は、運用手順 8.6）。
+
+### 29.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/backend/infrastructure/web-push-notifier.test.ts`（新規。24 件） | 送る内容（宛先・鍵・本文・VAPID・有効期限・緊急度）、見出しは種別の表示名（3 種別）、鍵のない購読は本文なし、長いメッセージは切り詰め、負の有効期限は 0。結果: 2xx は配信（3 値）、404・410 は購読が無効、429・500・502・503 と 400・401・403・413 は失敗（HTTP の状態コードを含む）、例外は「接続できません」（宛先・例外の内容を含めない）。秘密鍵: 未設定は送らずに失敗、読み取りの失敗は例外の内容を含めない、エラーに秘密鍵・購読の鍵・宛先を含めない |
+| 単体: `tests/unit/backend/infrastructure/web-push-library-sender.test.ts`（新規。5 件） | ライブラリの呼び出し（購読・本文・TTL・緊急度・待ち時間・VAPID）、鍵・本文がない場合、2xx 以外（WebPushError）は状態コードとして返す、それ以外の例外はそのまま投げる。**実物のライブラリ**で、実在の形式の VAPID 鍵・購読の鍵から、暗号化した本文・VAPID の署名つきのリクエストを組み立てられる（送信はしない） |
+| 単体: `tests/unit/backend/application/push-payload.test.ts`（新規。2 件） | 見出し・本文・識別子が、共有のスキーマに適合する、300 文字の上限（ちょうどは、そのまま。超えると「…」で切る） |
+| 単体: `tests/unit/backend/runtime/config.test.ts`（10 件を追加） | `WEB_PUSH_DELIVERY` の既定（dummy）・vapid（公開鍵・連絡先が必要。足りなければ設定エラー）・連絡先は https の URL のみ・不正な値・Lambda の設定でも同じ |
+| 結合: `tests/integration/web-push-delivery.test.ts`（新規。16 件） | vapid の組み立て: 購読の宛先・鍵・本文つきで送る（ダミーへは配信しない）・購読ごとに送る・410 で購読を無効にする・503 は失敗として記録し再送の対象・秘密鍵が未設定なら送らず失敗として記録・失敗の理由をログに残す（秘密情報を含まない）・ログに秘密鍵・鍵・宛先を出さない。購読の登録: 鍵を保存し、状態の応答に出さない・鍵なしの登録も受け付け本文なしで送る・不正な鍵（5 通り）は 400 で保存しない・再登録で鍵を上書き。既定（dummy）は、ダミーに配信し、送信の関数は使わない |
+| 単体: `tests/unit/frontend/push.test.tsx`（2 件を追加） | 購読が暗号鍵を返さない（片方だけを含む）ときは、宛先だけを返す。鍵を返さない場合は、宛先だけを登録する |
+| 結合（IaC）: `infra/test/config.test.ts`（6 件）・`infra/test/apps.test.ts`（1 件）を追加 | `SFM_WEB_PUSH_PUBLIC_KEY`・`SFM_WEB_PUSH_SUBJECT`（未指定は含めない・両方を読む・片方だけはエラー・連絡先は https のみ）。両方を指定すると、API・ジョブの両方の Lambda の環境変数に `WEB_PUSH_DELIVERY=vapid`・公開鍵・連絡先が入る。指定しなければ、入らない |
+| E2E: `tests/e2e/UC-23-configure-web-push.ts`（1 件を追加） | 有効にすると、購読の宛先に加えて、暗号鍵（p256dh・auth）を、サーバーへ送る |
+
+### 29.2 変更した既存のテスト（仕様の変更に伴う。PR で、理由を示して、ユーザーに確認する）
+
+**テストの期待値を、通すためだけに書き換えてはいない**。購読の登録に暗号鍵が加わった（ブラウザの購読の窓口が、宛先に加えて鍵を返す）ことへの追従。
+
+| ファイル | 変更の内容 | 理由 |
+| -------- | ---------- | ---- |
+| `tests/unit/frontend/push.test.tsx` | ブラウザの購読の見本に `toJSON`（宛先・鍵）を追加。「購読する」は、宛先に加えて鍵を返すこと、画面の「有効にする」は、`PUT /push-subscription` の本文が `{ endpoint, keys }` になることを確認するよう変更 | 購読の窓口（`PushBrowser.subscribe`）の戻り値が、宛先の文字列から、宛先と鍵になったため |
+| `tests/e2e/support/push.ts` | ブラウザの購読のスタブに `toJSON`（宛先・ダミーの鍵）を追加 | 同上 |
+| `tests/support/test-context.ts` | 送信の関数の偽物（`webPushSender`）を渡せるようにした（既存のテストには、影響しない） | 実配信のアダプタの組み立てのテストのため |
+| `tests/tsconfig.json` | ライブラリ（`web-push`）の型の宣言ファイルを、型検査の対象に加えた | 配布物に型定義がないため、自前の宣言を使う |
+
+### 29.3 実測
+
+手元（Windows）: `pnpm test:unit`（`--maxWorkers=3`。IaC のテストを含む）は、126 ファイル・2848 件成功・2 件スキップ（Windows で実行しないファイル権限のテスト）。カバレッジは、Statements 99.22%・Branches 95.56%・Functions 99.57%・Lines 99.21%。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は成功。E2E（空きポート 18787・15173 で実行）: UC-23 の 31 件が成功（1 件を追加）。**実際のプッシュサービス・実機への配信は、未確認**（運用手順 8.6。ユーザーが実行）。

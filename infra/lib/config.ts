@@ -7,6 +7,10 @@
  * - SFM_LOGIN_FAILURE_LIMIT・SFM_LOGIN_FAILURE_WINDOW_MINUTES: 接続元ごとのログインの失敗の制限（失敗の回数・時間（分））。
  *   API の Lambda の環境変数 LOGIN_FAILURE_LIMIT・LOGIN_FAILURE_WINDOW_MINUTES になる。指定しなければ、5 回 / 15 分
  *   （Issue #244。D-44）。値を変えるときは、環境変数を指定して、デプロイし直す（コードの変更は、要らない）
+ * - SFM_WEB_PUSH_PUBLIC_KEY・SFM_WEB_PUSH_SUBJECT: Web Push の実配信（#241。ADR-0019 の D-36）。2 つとも指定したときだけ、
+ *   API・ジョブの Lambda の環境変数 WEB_PUSH_DELIVERY=vapid・WEB_PUSH_PUBLIC_KEY・WEB_PUSH_SUBJECT になる。
+ *   公開鍵は、VAPID の公開鍵（公開の値）。連絡先は、アプリの https の URL（個人のメールアドレスは使わない）。
+ *   秘密鍵は、ここには指定しない（パラメータストアの `<環境のパス>web-push/vapid-private-key`。手順は、operations.md）
  */
 import {
   MAX_LOGIN_FAILURE_LIMIT,
@@ -66,6 +70,8 @@ export interface InfraConfig {
   readonly loginFailureLimit?: number;
   /** 接続元ごとのログインの失敗の制限の時間（分）。未指定は、アプリの既定（15 分）。 */
   readonly loginFailureWindowMinutes?: number;
+  /** Web Push の実配信（公開鍵と連絡先）。未指定は、ダミー（購読も受け付けない）。 */
+  readonly webPush?: { readonly publicKey: string; readonly subject: string };
 }
 
 function optional(
@@ -124,6 +130,7 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): I
     MIN_LOGIN_FAILURE_WINDOW_MINUTES,
     MAX_LOGIN_FAILURE_WINDOW_MINUTES,
   );
+  const webPush = readWebPush(env);
   if ((domainName === undefined) !== (hostedZoneName === undefined)) {
     throw new Error(
       'SFM_DOMAIN_NAME と SFM_HOSTED_ZONE_NAME は、2 つとも指定するか、2 つとも指定しないでください',
@@ -141,5 +148,24 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): I
     ...(existingOidcProviderArn === undefined ? {} : { existingOidcProviderArn }),
     ...(loginFailureLimit === undefined ? {} : { loginFailureLimit }),
     ...(loginFailureWindowMinutes === undefined ? {} : { loginFailureWindowMinutes }),
+    ...(webPush === undefined ? {} : { webPush }),
   };
+}
+
+/** Web Push の公開鍵と連絡先。2 つとも指定するか、2 つとも指定しない。連絡先は、https の URL のみ。 */
+function readWebPush(env: Readonly<Record<string, string | undefined>>): InfraConfig['webPush'] {
+  const publicKey = optional(env, 'SFM_WEB_PUSH_PUBLIC_KEY');
+  const subject = optional(env, 'SFM_WEB_PUSH_SUBJECT');
+  if (publicKey === undefined && subject === undefined) {
+    return undefined;
+  }
+  if (publicKey === undefined || subject === undefined) {
+    throw new Error(
+      'SFM_WEB_PUSH_PUBLIC_KEY と SFM_WEB_PUSH_SUBJECT は、2 つとも指定するか、2 つとも指定しないでください',
+    );
+  }
+  if (!subject.startsWith('https://') || !URL.canParse(subject)) {
+    throw new Error('SFM_WEB_PUSH_SUBJECT は、https の URL にしてください');
+  }
+  return { publicKey, subject };
 }

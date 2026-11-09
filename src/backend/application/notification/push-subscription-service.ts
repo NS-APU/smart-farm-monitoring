@@ -7,15 +7,18 @@
 import { createHash } from 'node:crypto';
 import { AppError } from '@smart-farm/shared/errors';
 import type { UserId } from '@smart-farm/shared/schemas/common';
-import type { PushStatusResponse } from '@smart-farm/shared/schemas/notification';
+import type { PushKeys, PushStatusResponse } from '@smart-farm/shared/schemas/notification';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { PushSubscriptionRepository } from '../ports/repositories.ts';
 
 export interface PushSubscriptionService {
   /** 購読の状態。endpoint を指定すれば、その端末の購読が有効か。指定しなければ、利用者のいずれかの端末が有効か。 */
   status(userId: UserId, endpoint?: string): Promise<PushStatusResponse>;
-  /** 購読を登録する（同じ利用者・端末は上書き）。公開鍵の設定がなければ SERVICE_UNAVAILABLE。 */
-  subscribe(userId: UserId, endpoint: string): Promise<void>;
+  /**
+   * 購読を登録する（同じ利用者・端末は上書き）。公開鍵の設定がなければ SERVICE_UNAVAILABLE。
+   * `keys` は、本文つきの配信に使う暗号鍵（#241）。なければ、本文なしで配信する。
+   */
+  subscribe(userId: UserId, endpoint: string, keys?: PushKeys): Promise<void>;
   /** 購読を解除する。endpoint を指定しなければ、利用者の購読をすべて解除する。 */
   unsubscribe(userId: UserId, endpoint?: string): Promise<void>;
 }
@@ -49,7 +52,7 @@ export function createPushSubscriptionService(
       };
     },
 
-    async subscribe(userId, endpoint) {
+    async subscribe(userId, endpoint, keys) {
       if (publicKey === undefined) {
         throw new AppError('SERVICE_UNAVAILABLE', 'このサーバーでは、Web Push を利用できません');
       }
@@ -57,6 +60,7 @@ export function createPushSubscriptionService(
         subscriptionId: pushSubscriptionId(userId, endpoint),
         userId,
         endpoint,
+        ...(keys === undefined ? {} : { keys }),
         isActive: true,
         createdAt: clock.now().toISOString(),
       });

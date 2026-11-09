@@ -166,8 +166,21 @@ export const PushEndpointSchema = z
   })
   .max(2000);
 
+/**
+ * 購読の暗号鍵（#241）。本文つきの Web Push を送るために、ブラウザの購読が持つ公開鍵（p256dh）と認証の秘密（auth）を保存する。
+ * どちらも base64url。認証の秘密は、購読ごとの値（機密として扱い、ログ・エラー・画面に出さない）。
+ */
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+export const PushKeysSchema = z.object({
+  p256dh: z.string().min(1).max(128).regex(BASE64URL, '購読の鍵（p256dh）が正しくありません'),
+  auth: z.string().min(1).max(64).regex(BASE64URL, '購読の鍵（auth）が正しくありません'),
+});
+export type PushKeys = z.infer<typeof PushKeysSchema>;
+
+/** `keys` は任意（鍵を送らない以前の画面からの登録も受け付ける。その購読には、本文なしで送る）。 */
 export const PushSubscriptionRequestSchema = z.object({
   endpoint: PushEndpointSchema,
+  keys: PushKeysSchema.optional(),
 });
 export type PushSubscriptionRequest = z.infer<typeof PushSubscriptionRequestSchema>;
 

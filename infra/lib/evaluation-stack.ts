@@ -174,6 +174,12 @@ export interface EvaluationStackProps extends StackProps {
    */
   readonly loginFailurePolicy?: Partial<LoginFailurePolicy>;
   /**
+   * Web Push の実配信（#241）。指定すると、API・ジョブの Lambda が、プッシュサービスへ実際に送る（WEB_PUSH_DELIVERY=vapid）。
+   * 公開鍵は、VAPID の公開鍵（公開の値）。連絡先は、アプリの https の URL。秘密鍵は、パラメータストア（SecretPort）に置く。
+   * 指定しなければ、ダミー（購読も受け付けない）。
+   */
+  readonly webPush?: { readonly publicKey: string; readonly subject: string };
+  /**
    * サイトの環境（development・production。既定は development）。秘密情報の、パラメータストアのパスの接頭辞
    * （`/sfm/<環境>/`）になる。環境ごとにパスを分け、開発サイトが、本番サイトの秘密情報を読めないようにする（Issue #206）。
    */
@@ -240,6 +246,14 @@ export class EvaluationStack extends Stack {
       CREDENTIAL_STORE: 'ssm',
       CREDENTIAL_PATH_PREFIX: credentialPathPrefix,
       LOG_LEVEL: 'info',
+      // Web Push の実配信（#241）。公開鍵と連絡先（公開の値）。秘密鍵は、環境変数に持たず、パラメータストアから読む
+      ...(props.webPush === undefined
+        ? {}
+        : {
+            WEB_PUSH_DELIVERY: 'vapid',
+            WEB_PUSH_PUBLIC_KEY: props.webPush.publicKey,
+            WEB_PUSH_SUBJECT: props.webPush.subject,
+          }),
     };
     // 最小権限: 2 つのテーブル（インデックスを含む）への、必要な操作だけ
     const dataTablesPolicy = (): PolicyStatement =>

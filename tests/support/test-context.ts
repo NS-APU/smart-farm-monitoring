@@ -14,6 +14,7 @@ import {
 } from '../../src/backend/infrastructure/local/clocks.ts';
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { hashPassword } from '../../src/backend/infrastructure/local/password-hasher.ts';
+import type { WebPushSender } from '../../src/backend/infrastructure/web-push/web-push-notifier.ts';
 import { ErrorResponseSchema } from '../../src/shared/schemas/api.ts';
 import { LoginResponseSchema } from '../../src/shared/schemas/auth.ts';
 import { toUserId } from '../../src/shared/schemas/common.ts';
@@ -58,6 +59,8 @@ export interface TestContextOptions {
   readonly now?: Date;
   /** ログの出力先（ログに秘密情報が含まれないことの検証用）。省略すると、何も出力しない。 */
   readonly logger?: Logger;
+  /** Web Push の送信の関数の偽物（WEB_PUSH_DELIVERY=vapid のとき、プッシュサービスへの送信の代わりに使う）。 */
+  readonly webPushSender?: WebPushSender;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -79,6 +82,7 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     clock,
     ids: createSequentialIdGenerator('test'),
     logger: options.logger ?? NULL_LOGGER,
+    ...(options.webPushSender === undefined ? {} : { webPushSender: options.webPushSender }),
   });
   await container.initialize();
   const app = createApp(container);

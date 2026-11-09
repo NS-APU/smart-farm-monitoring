@@ -42,10 +42,10 @@ export function PushSettingsPage(): ReactNode {
         return false;
       }
       // ブラウザの機能の失敗（購読できない等）は、内部の情報を含まない案内にする
-      const endpoint = await push.subscribe(publicKey).catch(() => {
+      const subscription = await push.subscribe(publicKey).catch(() => {
         throw new ApiError(0, 'INTERNAL_ERROR', TEXT.failed);
       });
-      await subscribePush(api, endpoint);
+      await subscribePush(api, subscription);
       return true;
     });
     if (result.ok && result.value) {
