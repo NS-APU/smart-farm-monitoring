@@ -50,7 +50,7 @@ import { RetentionDays, LogGroup } from 'aws-cdk-lib/aws-logs';
 import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
-import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
+import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
 import {
   DEMO_FEED_INTERVAL_MINUTES,
@@ -426,18 +426,37 @@ export class EvaluationStack extends Stack {
     });
 
     // 画面のファイルを配置し、CloudFront のキャッシュを無効化する（デプロイのたびに、最新の画面になる）。
-    // 配置の補助の Lambda のログも、保持期間を絞り、スタックを消すと一緒に消す（CDK の既定は 731 日・残る。Issue #80）
-    new BucketDeployment(this, 'SiteDeployment', {
+    // 配置の補助の Lambda のログも、保持期間を絞り、スタックを消すと一緒に消す（CDK の既定は 731 日・残る。Issue #80）。
+    // ブラウザのキャッシュの指定（Cache-Control。Issue #323）のため、2 つに分けて配置する:
+    // - assets/（ファイル名にハッシュがある。内容が変わればファイル名も変わる）: 長期のキャッシュ（immutable）
+    // - それ以外（index.html・sw.js・manifest）: 毎回、更新を確認する（no-cache。ETag で、変わっていなければ 304）。
+    //   古い index.html を使い続けて、デプロイで削除された古い部品を取得しにいく（画面が開かない）ことを防ぐ
+    // どちらも、prune（配置元にないファイルの削除）を使う。include・exclude で、互いのファイルを、削除しない範囲にする
+    const siteLogGroup = new LogGroup(this, 'SiteDeploymentLogGroup', {
+      retention: RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    const assetsDeployment = new BucketDeployment(this, 'SiteAssetsDeployment', {
       sources: [Source.asset(props.frontendAssetPath)],
       destinationBucket: siteBucket,
+      exclude: ['*'],
+      include: ['assets/*'],
+      cacheControl: [CacheControl.fromString('public, max-age=31536000, immutable')],
+      prune: true,
+      logGroup: siteLogGroup,
+    });
+    const siteDeployment = new BucketDeployment(this, 'SiteDeployment', {
+      sources: [Source.asset(props.frontendAssetPath)],
+      destinationBucket: siteBucket,
+      exclude: ['assets/*'],
+      cacheControl: [CacheControl.noCache()],
       distribution,
       distributionPaths: ['/*'],
       prune: true,
-      logGroup: new LogGroup(this, 'SiteDeploymentLogGroup', {
-        retention: RetentionDays.ONE_MONTH,
-        removalPolicy: RemovalPolicy.DESTROY,
-      }),
+      logGroup: siteLogGroup,
     });
+    // 新しい index.html は、新しい assets/ を配置したあとに、公開する（部品がない時間を作らない）
+    siteDeployment.node.addDependency(assetsDeployment);
 
     if (domainName !== undefined && hostedZoneName !== undefined) {
       const zone = HostedZone.fromLookup(this, 'HostedZone', { domainName: hostedZoneName });

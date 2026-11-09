@@ -8,8 +8,13 @@ packages:
 # ライセンス対応（.license-check/license-report.md）:
 # lightningcss（MPL-2.0。弱いコピーレフト）は、Vite 8 が必須の依存として宣言しているが、
 # CSS の最小化を esbuild にする（src/frontend/vite.config.ts の build.cssMinify）ことで使わないため、導入しない。
+#
+# minimatch@10（typescript-eslint の @typescript-eslint/typescript-estree が、^10.2.2 を要求）は、GHSA-g3hv-75wg-m249
+# （globparts の増幅による DoS）の修正版が 11.0.1 以上のため、^11.0.1 に上げる（#315。開発のみの依存。上流が 11 に対応するまでの措置。
+# 上流が対応したら、この上書きを外す。lint・typecheck で動作を確認済み）。minimatch@3（eslint など）は、対象外。
 overrides:
   lightningcss: '-'
+  'minimatch@^10.2.2': '^11.0.1'
 
 # esbuild のインストール時スクリプト（postinstall）は実行しない。
 # プラットフォーム別のバイナリ（@esbuild/*）は、スクリプトなしで使える。
