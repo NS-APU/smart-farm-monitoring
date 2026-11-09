@@ -145,7 +145,7 @@ flowchart LR
 |------|------|
 | 表示 | 日時、種別（異常検知／データ取得失敗）、対象の観点、設備、ステータス、メッセージ、既読状態。新しい順 |
 | 絞り込み | 種別、既読／未読 |
-| 操作 | 通知を選ぶ → 対象の観点の詳細（SC-03）へ移り、通知を既読にする。個別に既読にする。一括で既読にする（絞り込み中の範囲、または全件。画面に読み込んだ時点までに届いた通知だけが対象で、件数つきの確認をする。決定。[ADR-0019](../adr/0019-notification-rules.md)。実装は #240）。通知ごとに、経過と回復日時、メモ（共有・追記のみ）を示す（決定。経過・回復日時は、API が返す〔実装済み。#238〕。メモは、API が返す〔実装済み。#239〕。画面の表示は #159） |
+| 操作 | 通知を選ぶ → 対象の観点の詳細（SC-03）へ移り、通知を既読にする。個別に既読にする。一括で既読にする（絞り込み中の範囲、または全件。画面に読み込んだ時点までに届いた通知だけが対象で、件数つきの確認ダイアログで実行する。確認の件数と実行の範囲は同じ。0 件のときは、確認を開かず、その旨を示す。決定。[ADR-0019](../adr/0019-notification-rules.md)。実装済み。#240）。通知ごとに、経過と回復日時、メモ（共有・追記のみ）を示す（決定。経過・回復日時は、API が返す〔実装済み。#238〕。メモは、API が返す〔実装済み。#239〕。画面の表示は #159） |
 | 状態 | 未読／既読の2つのみ。対応状況（未対応／対応中／完了）の管理・承認はない（Q-018） |
 | 更新 | 未読の件数は、約10秒間隔で読み直す（ヘッダー） |
 | 空の状態 | 通知がない場合は、その旨を表示 |
@@ -304,9 +304,9 @@ flowchart LR
 | ステータスコード | `GET /status-codes` | 一覧 | 要ログイン | FR-3 |
 | | `POST /status-codes`、`PUT /status-codes/{code}`、`DELETE /status-codes/{code}` | 登録・編集・削除（論理） | 要ログイン（決定: 管理者のみ） | FR-3.2 |
 | 通知 | `GET /notifications` | 通知の一覧（種別・既読で絞り込み） | 要ログイン | FR-7.5 |
-| | `GET /notifications/unread-count` | 未読の件数 | 要ログイン | FR-7.6 |
+| | `GET /notifications/unread-count` | 未読の件数（`kind`・`until` を指定すると、その範囲の件数。一括既読の確認の件数。#240） | 要ログイン | FR-7.6 |
 | | `GET /notifications/{id}/memos`、`POST /notifications/{id}/memos` | 通知のメモの一覧（入力の古い順）・追記（共有・追記のみ。編集・削除はない。#239） | 一覧は要ログイン。追記は、手動入力と同じ権限（`manual-entry:write`） | FR-7.6 |
-| | `POST /notifications/{id}/read`、`POST /notifications/read-all` | 既読にする（個別・一括） | 要ログイン | FR-7.6 |
+| | `POST /notifications/{id}/read`、`POST /notifications/read-all` | 既読にする（個別・一括。一括は、読み込んだ時点 `until` までの未読だけ。件数を返す。#240） | 要ログイン | FR-7.6 |
 | | `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | Web Push の購読の状態・購読・解除 | 要ログイン | FR-7.2 |
 | 取り込み | `GET /ingestion/settings`、`PUT /ingestion/settings` | 取り込み設定（参照名・間隔） | 要ログイン（決定: 管理者のみ） | FR-1.4、1.5 |
 | | `PUT /ingestion/{sourceId}/credentials` | 認証情報の登録・上書き（書き込み専用。応答は、状態〔設定済み／未設定・更新日時〕だけ） | 要ログイン（決定: 管理者のみ。`ingestion:configure`） | FR-1.4 |
