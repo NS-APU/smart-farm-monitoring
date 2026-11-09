@@ -108,9 +108,17 @@ export interface NotificationService {
       cursor?: string | undefined;
     },
   ): Promise<NotificationListResponse>;
-  unreadCount(userId: UserId): Promise<number>;
+  /**
+   * 未読の件数。範囲（`kind`・`until`）を指定すると、その範囲の件数（一括既読の確認の件数。D-39）。
+   * 指定がなければ、すべての未読（ヘッダーの未読数）。
+   */
+  unreadCount(
+    userId: UserId,
+    range?: { kind?: NotificationKind | undefined; until?: Date | undefined },
+  ): Promise<number>;
   /** 既読にする。通知がなければ false。 */
   markRead(notificationId: NotificationId, userId: UserId): Promise<boolean>;
+  /** 絞り込みの範囲（`until` 以前に届いた通知だけ）の未読を、すべて既読にする。新しく既読にした件数を返す（ADR-0019 の D-39）。 */
   markAllRead(userId: UserId, filter: NotificationListFilter): Promise<number>;
   /** 配信が未完了の通知を、Web Push の購読へ配信する（JB-04）。 */
   deliverPending(): Promise<DeliveryRunSummary>;
@@ -386,6 +394,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
             : {}),
         })),
         nextCursor: page.nextCursor,
+        asOf: clock.now().toISOString(),
       };
     },
 
@@ -412,7 +421,15 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       return notifications.listMemos(notificationId);
     },
 
-    unreadCount: (userId) => notifications.unreadCount(userId),
+    unreadCount(userId, range) {
+      if (range === undefined || (range.kind === undefined && range.until === undefined)) {
+        return notifications.unreadCount(userId);
+      }
+      return notifications.countUnread(
+        userId,
+        omitUndefined({ kind: range.kind, until: range.until }),
+      );
+    },
     markRead: (notificationId, userId) =>
       notifications.markRead(notificationId, userId, clock.now()),
     markAllRead: (userId, filter) => notifications.markAllRead(userId, filter, clock.now()),

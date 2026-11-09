@@ -21,8 +21,17 @@ const FAILURE = notification({
   readState: 'READ',
 });
 
+/** サーバーが通知を読み込んだ時点（一括既読の until に使う。#240）。 */
+const AS_OF = '2026-10-09T03:00:00.000Z';
+
 function listOf(items: ReturnType<typeof notification>[], nextCursor: string | null = null) {
-  return () => jsonResponse({ items, nextCursor });
+  return () => jsonResponse({ items, nextCursor, asOf: AS_OF });
+}
+
+/** 一括既読の確認の件数（範囲を指定した未読の件数）。範囲の指定がなければ、ヘッダーの未読数。 */
+function unreadCountOf(rangeCount: number, headerCount = 0) {
+  return (request: { readonly query: URLSearchParams }) =>
+    jsonResponse({ unreadCount: request.query.has('until') ? rangeCount : headerCount });
 }
 
 beforeEach(() => {
@@ -153,6 +162,7 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
         jsonResponse({
           items: [notification({ readState: read ? 'READ' : 'UNREAD' })],
           nextCursor: null,
+          asOf: AS_OF,
         }),
       'POST /notifications/n-1/read': () => {
         read = true;
@@ -186,42 +196,65 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('通知が見つかりません');
   });
 
-  it('絞り込みの範囲を既読にする: 条件を指定して API を呼ぶ。絞り込みがなければ、選べない', async () => {
+  it('絞り込みの範囲を既読にする: 読み込んだ時点までの範囲の未読の件数を確認してから、条件と時点を指定して API を呼ぶ（D-39）', async () => {
     const { calls } = renderApp('/notifications?kind=STATUS_CHANGE', {
       'GET /notifications': listOf([notification()]),
-      'POST /notifications/read-all': () => noContent(),
+      'GET /notifications/unread-count': unreadCountOf(2),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 2 }),
     });
     const button = await screen.findByRole('button', { name: '絞り込みの範囲を既読にする' });
 
     fireEvent.click(button);
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText(/未読の通知 2 件を既読にします/)).toBeDefined();
+    const countCall = callsOf(calls, 'GET', '/notifications/unread-count').find((call) =>
+      call.query.has('until'),
+    );
+    expect(countCall?.query.get('kind')).toBe('STATUS_CHANGE');
+    expect(countCall?.query.get('until')).toBe(AS_OF);
+    // 確認するまでは、既読にしない
+    expect(callsOf(calls, 'POST', '/notifications/read-all')).toHaveLength(0);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '既読にする' }));
 
     await waitFor(() => {
       expect(callsOf(calls, 'POST', '/notifications/read-all')).toHaveLength(1);
     });
     expect(callsOf(calls, 'POST', '/notifications/read-all')[0]?.body).toEqual({
       kind: 'STATUS_CHANGE',
+      until: AS_OF,
     });
+    expect((await screen.findByTestId('notifications-notice')).textContent).toContain(
+      '2 件の通知を既読にしました',
+    );
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('既読状態の絞り込みの範囲も、条件に含めて、既読にする', async () => {
     const { calls } = renderApp('/notifications?readState=UNREAD', {
       'GET /notifications': listOf([notification()]),
-      'POST /notifications/read-all': () => noContent(),
+      'GET /notifications/unread-count': unreadCountOf(1),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 1 }),
     });
 
     fireEvent.click(await screen.findByRole('button', { name: '絞り込みの範囲を既読にする' }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '既読にする' }));
 
     await waitFor(() => {
       expect(callsOf(calls, 'POST', '/notifications/read-all')[0]?.body).toEqual({
         readState: 'UNREAD',
+        until: AS_OF,
       });
     });
   });
 
-  it('すべての通知を既読にする: 条件なしで API を呼ぶ。絞り込みがないときは、絞り込みの範囲の操作は選べない', async () => {
+  it('すべての通知を既読にする: 読み込んだ時点までの未読の件数を確認してから、時点だけを指定して API を呼ぶ。絞り込みがないときは、絞り込みの範囲の操作は選べない', async () => {
     const { calls } = renderApp('/notifications', {
       'GET /notifications': listOf([notification()]),
-      'POST /notifications/read-all': () => noContent(),
+      'GET /notifications/unread-count': unreadCountOf(5, 7),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 5 }),
     });
     await screen.findAllByTestId('notification-row');
     expect(
@@ -231,20 +264,120 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'すべての通知を既読にする' }));
 
+    const dialog = await screen.findByRole('alertdialog');
+    // ヘッダーの未読数（7 件）ではなく、読み込んだ時点までの件数（5 件）を示す
+    expect(within(dialog).getByText(/未読の通知 5 件を既読にします/)).toBeDefined();
+    expect(
+      within(dialog).getByText(/読み込んだ時点より後に届いた通知は、既読にしません/),
+    ).toBeDefined();
+    fireEvent.click(within(dialog).getByRole('button', { name: '既読にする' }));
+
     await waitFor(() => {
       expect(callsOf(calls, 'POST', '/notifications/read-all')).toHaveLength(1);
     });
-    expect(callsOf(calls, 'POST', '/notifications/read-all')[0]?.body).toEqual({});
+    expect(callsOf(calls, 'POST', '/notifications/read-all')[0]?.body).toEqual({ until: AS_OF });
+  });
+
+  it('確認で、やめると、既読にしない（API を呼ばない）', async () => {
+    const { calls } = renderApp('/notifications', {
+      'GET /notifications': listOf([notification()]),
+      'GET /notifications/unread-count': unreadCountOf(3),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 3 }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'すべての通知を既読にする' }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+    });
+    expect(callsOf(calls, 'POST', '/notifications/read-all')).toHaveLength(0);
+    expect(screen.queryByTestId('notifications-notice')).toBeNull();
+  });
+
+  it('既読にする未読の通知がない（0 件）ときは、確認せず、その旨を示す（API を呼ばない）', async () => {
+    const { calls } = renderApp('/notifications', {
+      'GET /notifications': listOf([notification()]),
+      'GET /notifications/unread-count': unreadCountOf(0, 4),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 0 }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'すべての通知を既読にする' }));
+
+    expect((await screen.findByTestId('notifications-notice')).textContent).toContain(
+      '既読にする未読の通知はありません',
+    );
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(callsOf(calls, 'POST', '/notifications/read-all')).toHaveLength(0);
+  });
+
+  it('既読の通知だけの範囲（既読状態「既読」の絞り込み）は、件数を問い合わせず、既読にする対象がない旨を示す', async () => {
+    const { calls } = renderApp('/notifications?readState=READ', {
+      'GET /notifications': listOf([FAILURE]),
+      'GET /notifications/unread-count': unreadCountOf(9),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 0 }),
+    });
+    await screen.findAllByTestId('notification-row');
+
+    fireEvent.click(screen.getByRole('button', { name: '絞り込みの範囲を既読にする' }));
+
+    expect((await screen.findByTestId('notifications-notice')).textContent).toContain(
+      '既読にする未読の通知はありません',
+    );
+    expect(
+      callsOf(calls, 'GET', '/notifications/unread-count').filter((call) =>
+        call.query.has('until'),
+      ),
+    ).toHaveLength(0);
+    expect(callsOf(calls, 'POST', '/notifications/read-all')).toHaveLength(0);
+  });
+
+  it('確認したあとに届いた通知を、既読にしない: 確認の件数を数えた時点（読み込んだ時点）を、そのまま実行に使う', async () => {
+    let asOf = AS_OF;
+    const { calls } = renderApp('/notifications', {
+      'GET /notifications': () => jsonResponse({ items: [notification()], nextCursor: null, asOf }),
+      'GET /notifications/unread-count': unreadCountOf(2),
+      'POST /notifications/read-all': () => jsonResponse({ markedCount: 2 }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'すべての通知を既読にする' }));
+    const dialog = await screen.findByRole('alertdialog');
+    // ダイアログを開いている間に、画面が読み直されて、読み込んだ時点が進んでも、確認した範囲は変わらない
+    asOf = '2026-10-09T04:00:00.000Z';
+    fireEvent.click(within(dialog).getByRole('button', { name: '既読にする' }));
+
+    await waitFor(() => {
+      expect(callsOf(calls, 'POST', '/notifications/read-all')[0]?.body).toEqual({ until: AS_OF });
+    });
+  });
+
+  it('件数の確認に失敗した場合は、エラーを表示し、確認を開かない', async () => {
+    renderApp('/notifications', {
+      'GET /notifications': listOf([notification()]),
+      'GET /notifications/unread-count': (request) =>
+        request.query.has('until')
+          ? errorBody(500, 'INTERNAL_ERROR', 'サーバーでエラーが発生しました')
+          : jsonResponse({ unreadCount: 0 }),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'すべての通知を既読にする' }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('サーバーでエラーが発生しました');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('一括の既読に失敗した場合は、エラーを表示する', async () => {
     renderApp('/notifications', {
       'GET /notifications': listOf([notification()]),
+      'GET /notifications/unread-count': unreadCountOf(1),
       'POST /notifications/read-all': () =>
         errorBody(500, 'INTERNAL_ERROR', 'サーバーでエラーが発生しました'),
     });
 
     fireEvent.click(await screen.findByRole('button', { name: 'すべての通知を既読にする' }));
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '既読にする' }));
 
     expect((await screen.findByRole('alert')).textContent).toBe('サーバーでエラーが発生しました');
   });
@@ -295,8 +428,8 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     const { calls } = renderApp('/notifications', {
       'GET /notifications': (request) =>
         request.query.get('cursor') === 'c-2'
-          ? jsonResponse({ items: [FAILURE], nextCursor: null })
-          : jsonResponse({ items: [notification()], nextCursor: 'c-2' }),
+          ? jsonResponse({ items: [FAILURE], nextCursor: null, asOf: AS_OF })
+          : jsonResponse({ items: [notification()], nextCursor: 'c-2', asOf: AS_OF }),
     });
     await screen.findAllByTestId('notification-row');
 
@@ -318,7 +451,7 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
       'GET /notifications': () =>
         failing
           ? errorBody(500, 'INTERNAL_ERROR', '一覧を取得できません')
-          : jsonResponse({ items: [notification()], nextCursor: null }),
+          : jsonResponse({ items: [notification()], nextCursor: null, asOf: AS_OF }),
     });
     expect((await screen.findByRole('alert')).textContent).toContain('一覧を取得できません');
 

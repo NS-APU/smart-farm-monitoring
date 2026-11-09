@@ -33,6 +33,9 @@ function matchesNotification(
   if (filter.kind !== undefined && notification.kind !== filter.kind) {
     return false;
   }
+  if (filter.until !== undefined && Date.parse(notification.createdAt) > filter.until.getTime()) {
+    return false;
+  }
   if (filter.readState === 'READ' && !isRead) {
     return false;
   }
@@ -91,6 +94,13 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
       }
       return Promise.resolve(true);
     },
+    countUnread: (userId, filter) =>
+      Promise.resolve(
+        notifications
+          .values()
+          .filter((item) => !isReadBy(item, userId) && matchesNotification(item, false, filter))
+          .length,
+      ),
     markAllRead(userId, filter, readAt) {
       let count = 0;
       for (const item of notifications.values()) {

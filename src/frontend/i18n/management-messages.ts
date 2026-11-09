@@ -54,6 +54,11 @@ export const MANAGEMENT_MESSAGES = {
     markRead: '既読にする',
     markFilteredRead: '絞り込みの範囲を既読にする',
     markAllRead: 'すべての通知を既読にする',
+    confirmMarkTitle: '通知を既読にする',
+    confirmMarkMessage: (count: number) =>
+      `未読の通知 ${String(count)} 件を既読にします。この画面に読み込んだ時点より後に届いた通知は、既読にしません。`,
+    nothingToMark: '既読にする未読の通知はありません',
+    markedNotice: (count: number) => `${String(count)} 件の通知を既読にしました`,
     empty: '通知はありません',
     emptyFiltered: '条件に合う通知はありません',
   },

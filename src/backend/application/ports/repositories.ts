@@ -140,6 +140,8 @@ export interface EvaluationRepository {
 export interface NotificationListFilter {
   readonly kind?: NotificationKind;
   readonly readState?: ReadState;
+  /** この日時以前（ちょうどを含む）に作成された通知だけ。一括既読が、画面を読み込んだあとに届いた通知を、既読にしないための上限（#240）。 */
+  readonly until?: Date;
 }
 
 export interface NotificationWithReadState {
@@ -167,7 +169,9 @@ export interface NotificationRepository {
   unreadCount(userId: UserId): Promise<number>;
   /** 既読にする。通知がなければ false。 */
   markRead(notificationId: NotificationId, userId: UserId, readAt: Date): Promise<boolean>;
-  /** 絞り込みの範囲の未読を、すべて既読にする。既読にした件数を返す。 */
+  /** 絞り込みの範囲（`until` 以前を含む）の未読の件数。一括既読の確認の件数で、`markAllRead` が既読にする件数と一致する。 */
+  countUnread(userId: UserId, filter: NotificationListFilter): Promise<number>;
+  /** 絞り込みの範囲（`until` 以前を含む）の未読を、すべて既読にする。新しく既読にした件数を返す。 */
   markAllRead(userId: UserId, filter: NotificationListFilter, readAt: Date): Promise<number>;
   update(notification: Notification): Promise<void>;
   /** メモを追記する（追記のみ。編集・削除はない。ADR-0019 の D-42。#239）。通知の存在は、呼び出し側が確かめる。 */

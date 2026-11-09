@@ -31,7 +31,8 @@ function renderApp(unread = 0) {
     'GET /equipment': () => jsonResponse(equipmentTree()),
     'GET /dashboard': () => jsonResponse(dashboard()),
     'GET /notifications/unread-count': () => jsonResponse({ unreadCount: unread }),
-    'GET /notifications': () => jsonResponse({ items: [], nextCursor: null }),
+    'GET /notifications': () =>
+      jsonResponse({ items: [], nextCursor: null, asOf: '2026-10-09T01:00:00.000Z' }),
   });
   const { fetchFn } = createFakeFetch(routes);
   return render(<App session={createMemorySession(WORKER_LOGIN)} fetchFn={fetchFn} />);

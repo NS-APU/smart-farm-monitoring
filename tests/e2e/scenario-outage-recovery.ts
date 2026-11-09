@@ -18,6 +18,7 @@ import {
   advanceMinutes,
   alignBrowserClock,
   apiOk,
+  confirmDialog,
   goToMenu,
   newUserSession,
   openAs,
@@ -160,6 +161,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     ).toHaveAttribute('data-read-state', 'UNREAD');
     const unreadForB = await unreadOf(b.page);
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(page, '既読にする');
     await expect(unreadBadge(page)).toHaveText('0');
     await b.page.reload();
     await expect(unreadBadge(b.page)).toHaveText(String(unreadForB));

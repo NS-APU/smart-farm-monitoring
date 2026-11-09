@@ -681,26 +681,33 @@ describe('通知（UC-05, UC-22）', () => {
     expect(readList.items.map((item) => item.notificationId)).toEqual([first?.notificationId]);
   });
 
-  it('一括で既読にでき、本文で範囲を絞れる（本文なしは全件）', async () => {
+  it('一括で既読にでき、本文で範囲を絞れる。読み込んだ時点（until）が必須で、既読にした件数を返す（#240）', async () => {
     const context = await withNotifications();
     const token = await context.login();
+    const until = '2099-01-01T00:00:00.000Z';
 
-    const none = await context.request('/notifications/read-all', {
+    const filtered = await context.request('/notifications/read-all', {
       method: 'POST',
       token,
-      body: { kind: 'INGESTION_FAILURE' },
+      body: { kind: 'INGESTION_FAILURE', until },
     });
     const countAfterFilter = await (
       await context.request('/notifications/unread-count', { token })
     ).json();
-    const all = await context.request('/notifications/read-all', { method: 'POST', token });
+    const all = await context.request('/notifications/read-all', {
+      method: 'POST',
+      token,
+      body: { until },
+    });
     const countAfterAll = await (
       await context.request('/notifications/unread-count', { token })
     ).json();
 
-    expect(none.status).toBe(204);
+    expect(filtered.status).toBe(200);
+    expect(await filtered.json()).toEqual({ markedCount: 0 });
     expect(countAfterFilter).toEqual({ unreadCount: 3 });
-    expect(all.status).toBe(204);
+    expect(all.status).toBe(200);
+    expect(await all.json()).toEqual({ markedCount: 3 });
     expect(countAfterAll).toEqual({ unreadCount: 0 });
   });
 
@@ -716,14 +723,19 @@ describe('通知（UC-05, UC-22）', () => {
       body: 'x',
       headers: { authorization: `Bearer ${await context.login()}` },
     });
-    const withFilter = await context.request('/notifications/read-all', {
+    const withoutUntil = await context.request('/notifications/read-all', {
       method: 'POST',
       body: { readState: 'UNREAD' },
+    });
+    const withFilter = await context.request('/notifications/read-all', {
+      method: 'POST',
+      body: { readState: 'UNREAD', until: '2099-01-01T00:00:00.000Z' },
     });
 
     expect(invalidBody.status).toBe(400);
     expect(notJson.status).toBe(400);
-    expect(withFilter.status).toBe(204);
+    expect(withoutUntil.status).toBe(400);
+    expect(withFilter.status).toBe(200);
   });
 });
 

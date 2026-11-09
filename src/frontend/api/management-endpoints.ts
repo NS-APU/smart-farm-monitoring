@@ -40,6 +40,9 @@ import {
 import {
   NotificationListResponseSchema,
   PushStatusResponseSchema,
+  ReadAllResponseSchema,
+  UnreadCountResponseSchema,
+  type ReadAllRequest,
 } from '@smart-farm/shared/schemas/notification';
 import {
   StatusCodeDefinitionSchema,
@@ -70,11 +73,24 @@ export function markNotificationRead(api: ApiClient, notificationId: string) {
   });
 }
 
-export function markAllNotificationsRead(
+/** 一括既読の範囲（種別・読み込んだ時点まで）の未読の件数（確認ダイアログの件数。D-39）。 */
+export function countUnreadNotifications(
   api: ApiClient,
-  filter: { readonly kind?: NotificationKind; readonly readState?: ReadState },
+  range: { readonly kind?: NotificationKind; readonly until: string },
 ) {
-  return api.command('/notifications/read-all', { method: 'POST', body: filter });
+  return api.request('/notifications/unread-count', {
+    query: { ...range },
+    schema: UnreadCountResponseSchema,
+  });
+}
+
+/** 読み込んだ時点（`until`）までの未読を、既読にする。新しく既読にした件数を返す。 */
+export function markAllNotificationsRead(api: ApiClient, request: ReadAllRequest) {
+  return api.request('/notifications/read-all', {
+    method: 'POST',
+    body: request,
+    schema: ReadAllResponseSchema,
+  });
 }
 
 // Web Push（SC-15）
