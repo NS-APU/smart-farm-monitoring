@@ -11,7 +11,7 @@
 ### 1.1 目的と対象
 
 - 目的: 収穫ロボット・スマートハウス向け稼働モニタリング基盤の、すべてのテストの仕様（何を、どの前提・操作で、何を期待して検証しているか）を、ユースケース（[use-cases.md](../docs/10_design/requirements/use-cases.md)）との対応つきで示す。
-- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の24ファイルと `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。`pnpm test:smoke`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
+- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の25ファイル〔UC-15 が 2 ファイル〕と `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。4 ファイル・4 件。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。3 ファイル・5 件と、認証の `tests/smoke/auth/`。1 ファイル・2 件。`pnpm test:smoke`・`pnpm test:smoke:auth`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
 - 方針の出典: [test-policy.md](../docs/30_quality/test-policy.md)（種類と役割・配置・カバレッジ目標）、[dev_spec.md](../docs/10_design/functions/dev_spec.md) 5章（UC と画面・API・ジョブの対応）・6章（テスト構成）、[as-built.md](../docs/10_design/architecture/as-built.md) の「テストアーキテクチャ」。
 - テストの種類の役割（test-policy.md・dev_spec.md 6.1）:
 
@@ -21,66 +21,68 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値）
+### 1.2 テストの件数（抽出した値。2026-11-09 の実測。`develop` の `352367a`）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
-| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         24 |        754 |
+| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        799 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
-| 単体: shared                               |          8 |        118 |
-| 単体: backend/domain                       |          6 |        223 |
-| 単体: backend/application                  |          3 |         17 |
+| 単体: shared                               |         12 |        245 |
+| 単体: backend/domain                       |         10 |        284 |
+| 単体: backend/application                  |          9 |         92 |
 | 単体: backend/presentation                 |          1 |          3 |
-| 単体: backend/infrastructure               |         12 |        208 |
-| 単体: backend/runtime                      |          3 |         76 |
-| 単体: frontend                             |         19 |        375 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |         73 |
-| 結合（`tests/integration/`）               |         27 |        818 |
-| 合計                                       |        116 |       2675 |
+| 単体: backend/infrastructure               |         18 |        410 |
+| 単体: backend/runtime                      |          3 |        122 |
+| 単体: frontend                             |         28 |        523 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
+| 結合（`tests/integration/`）               |         40 |       1083 |
+| 合計                                       |        159 |       3672 |
 
-内訳: E2E 764 件（UC ごと 754 件、シナリオ 10 件。`playwright test --list` の件数）、単体 1093 件、結合 818 件（単体と結合の合計 1911 件。`vitest list` の件数。Issue #73〜#79・#95・#100・#107・#117・#123 の実装後の値。実測（DynamoDB Local あり。2026-10-22）は、85 ファイル・1913 件で、1911 件が成功し、2 件は、Windows では実行しないファイル権限のテストとしてスキップする。カバレッジ: 行 99.46%・分岐 95.70%・関数 99.83%・文 99.48%）。
-（Sprint 3 の変更のうち、満足度の見直し（Issue #211）で変更・追加したテストは、14 章に記録した。この表の件数は、更新していない。）この件数は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
+内訳（2026-11-09 の実測。Issue #318）: E2E 809 件（UC ごと 799 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 2863 件・127 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、127 ファイル・2862 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.21%・Branches 95.58%・Functions 99.52%・Lines 99.20%（一覧の件数との 1 件の差は、集計の方法の違い）。E2E・負荷テストは、CI（Linux。`ci:full`）で、全件成功（PR #327 の CI。E2E は 4 シャード）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜32 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
 
 Sprint 2 の実装後の実測値（2026-10-21。`develop` の 21098db。手元（Windows）: 単体・結合。E2E・負荷テストは、GitHub Actions（Linux。PR #124）。詳細は commands.md の「実行結果」）: `pnpm test:unit`（カバレッジの閾値つき）は、85 ファイル・1901 件（成功 1899・スキップ 2）で成功（約 123 秒）。カバレッジは、行 99.46%・分岐 95.69%・関数 99.83%・文 99.47%（すべて閾値 95% 以上）。CI（Linux）は、1901 件すべて成功。`pnpm test:e2e` は、764 件すべて成功（CI。22.7 分）。`pnpm test:stress` は、4 件成功（CI。1.7 分）。サーバーレス環境（AWS）の実測（`pnpm test:smoke`）は、13 章。
 
-E2E のファイル別の件数:
+E2E のファイル別の件数（2026-11-09 の実測。Issue #318）:
 
-| UC           | テストファイル                                | 件数 | shot() の呼び出し箇所 | 画面の幅の変更（setViewportSize の箇所） |
-| ------------ | --------------------------------------------- | ---: | --------------------: | ---------------------------------------: |
-| UC-01        | `tests/e2e/UC-01-view-dashboard.ts`           |   33 |                    17 |                                        1 |
-| UC-02        | `tests/e2e/UC-02-view-viewpoint-detail.ts`    |   78 |                    17 |                                        2 |
-| UC-03        | `tests/e2e/UC-03-view-trend.ts`               |   23 |                    11 |                                        2 |
-| UC-04        | `tests/e2e/UC-04-view-recommended-action.ts`  |   20 |                     5 |                                        0 |
-| UC-05        | `tests/e2e/UC-05-check-alert.ts`              |    7 |                     6 |                                        0 |
-| UC-06        | `tests/e2e/UC-06-record-recovery.ts`          |   31 |                     5 |                                        0 |
-| UC-07        | `tests/e2e/UC-07-input-missing-data.ts`       |   36 |                     4 |                                        0 |
-| UC-08        | `tests/e2e/UC-08-import-robot-data.ts`        |   22 |                     4 |                                        0 |
-| UC-09        | `tests/e2e/UC-09-import-sensor-data.ts`       |   27 |                     4 |                                        0 |
-| UC-10        | `tests/e2e/UC-10-detect-and-notify.ts`        |   44 |                    10 |                                        0 |
-| UC-11        | `tests/e2e/UC-11-federate-data.ts`            |   13 |                     3 |                                        0 |
-| UC-12        | `tests/e2e/UC-12-manage-equipment.ts`         |   30 |                     9 |                                        0 |
-| UC-13        | `tests/e2e/UC-13-login-logout.ts`             |   31 |                     6 |                                        1 |
-| UC-14        | `tests/e2e/UC-14-manage-users.ts`             |   32 |                    10 |                                        2 |
-| UC-15        | `tests/e2e/UC-15-configure-ingestion.ts`      |   33 |                     5 |                                        0 |
-| UC-16        | `tests/e2e/UC-16-check-ingestion-status.ts`   |   21 |                     6 |                                        0 |
-| UC-17        | `tests/e2e/UC-17-manage-status-codes.ts`      |   29 |                     8 |                                        0 |
-| UC-18        | `tests/e2e/UC-18-manage-entries.ts`           |   52 |                    11 |                                        3 |
-| UC-19        | `tests/e2e/UC-19-edit-criteria.ts`            |   43 |                    11 |                                        2 |
-| UC-20        | `tests/e2e/UC-20-view-observations.ts`        |   38 |                     5 |                                        2 |
-| UC-21        | `tests/e2e/UC-21-view-satisfaction.ts`        |   29 |                     4 |                                        1 |
-| UC-22        | `tests/e2e/UC-22-manage-notifications.ts`     |   32 |                     7 |                                        2 |
-| UC-23        | `tests/e2e/UC-23-configure-web-push.ts`       |   30 |                    10 |                                        1 |
-| UC-24        | `tests/e2e/UC-24-notify-ingestion-failure.ts` |   20 |                     6 |                                        2 |
-| （シナリオ） | `tests/e2e/scenario-configuration-changes.ts` |    1 |                     4 |                                        0 |
-| （シナリオ） | `tests/e2e/scenario-criteria-change.ts`       |    1 |                     5 |                                        0 |
-| （シナリオ） | `tests/e2e/scenario-manual-entry-sharing.ts`  |    1 |                     5 |                                        0 |
-| （シナリオ） | `tests/e2e/scenario-outage-recovery.ts`       |    1 |                     4 |                                        0 |
-| （シナリオ） | `tests/e2e/scenario-scheduled-ingestion.ts`   |    1 |                     4 |                                        0 |
-| （シナリオ） | `tests/e2e/scenario-user-onboarding.ts`       |    1 |                     5 |                                        0 |
+| UC           | テストファイル                                               | 件数 | shot() の呼び出し箇所 | 画面の幅の変更（setViewportSize の箇所） |
+| ------------ | ----------------------------------------------------- | ---: | --------------------: | ---------------------------------------: |
+| UC-01        | `tests/e2e/UC-01-view-dashboard.ts`                   |   33 |                    17 |                                        1 |
+| UC-02        | `tests/e2e/UC-02-view-viewpoint-detail.ts`            |   78 |                    17 |                                        2 |
+| UC-03        | `tests/e2e/UC-03-view-trend.ts`                       |   23 |                    11 |                                        2 |
+| UC-04        | `tests/e2e/UC-04-view-recommended-action.ts`          |   20 |                     5 |                                        0 |
+| UC-05        | `tests/e2e/UC-05-check-alert.ts`                      |    7 |                     6 |                                        0 |
+| UC-06        | `tests/e2e/UC-06-record-recovery.ts`                  |   31 |                     5 |                                        0 |
+| UC-07        | `tests/e2e/UC-07-input-missing-data.ts`               |   43 |                     6 |                                        1 |
+| UC-08        | `tests/e2e/UC-08-import-robot-data.ts`                |   22 |                     4 |                                        0 |
+| UC-09        | `tests/e2e/UC-09-import-sensor-data.ts`               |   27 |                     4 |                                        0 |
+| UC-10        | `tests/e2e/UC-10-detect-and-notify.ts`                |   46 |                    10 |                                        0 |
+| UC-11        | `tests/e2e/UC-11-federate-data.ts`                    |   14 |                     4 |                                        0 |
+| UC-12        | `tests/e2e/UC-12-manage-equipment.ts`                 |   31 |                     9 |                                        0 |
+| UC-13        | `tests/e2e/UC-13-login-logout.ts`                     |   37 |                     8 |                                        2 |
+| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   32 |                    10 |                                        2 |
+| UC-15        | `tests/e2e/UC-15-configure-file-server-connection.ts` |   12 |                     3 |                                        0 |
+| UC-15        | `tests/e2e/UC-15-configure-ingestion.ts`              |   33 |                     5 |                                        0 |
+| UC-16        | `tests/e2e/UC-16-check-ingestion-status.ts`           |   21 |                     6 |                                        0 |
+| UC-17        | `tests/e2e/UC-17-manage-status-codes.ts`              |   30 |                     9 |                                        0 |
+| UC-18        | `tests/e2e/UC-18-manage-entries.ts`                   |   52 |                    11 |                                        3 |
+| UC-19        | `tests/e2e/UC-19-edit-criteria.ts`                    |   43 |                    11 |                                        2 |
+| UC-20        | `tests/e2e/UC-20-view-observations.ts`                |   41 |                     6 |                                        2 |
+| UC-21        | `tests/e2e/UC-21-view-satisfaction.ts`                |   33 |                     4 |                                        1 |
+| UC-22        | `tests/e2e/UC-22-manage-notifications.ts`             |   39 |                     7 |                                        2 |
+| UC-23        | `tests/e2e/UC-23-configure-web-push.ts`               |   31 |                    10 |                                        1 |
+| UC-24        | `tests/e2e/UC-24-notify-ingestion-failure.ts`         |   20 |                     6 |                                        2 |
+| （シナリオ）       | `tests/e2e/scenario-configuration-changes.ts`         |    1 |                     4 |                                        0 |
+| （シナリオ）       | `tests/e2e/scenario-criteria-change.ts`               |    1 |                     5 |                                        0 |
+| （シナリオ）       | `tests/e2e/scenario-manual-entry-sharing.ts`          |    1 |                     5 |                                        0 |
+| （シナリオ）       | `tests/e2e/scenario-outage-recovery.ts`               |    1 |                     4 |                                        0 |
+| （シナリオ）       | `tests/e2e/scenario-responsive-layout.ts`             |    4 |                     2 |                                        2 |
+| （シナリオ）       | `tests/e2e/scenario-scheduled-ingestion.ts`           |    1 |                     4 |                                        0 |
+| （シナリオ）       | `tests/e2e/scenario-user-onboarding.ts`               |    1 |                     5 |                                        0 |
 
 「shot() の呼び出し箇所」は、`await shot(` の記述の数（ループの中の呼び出しは、1か所と数える。実行時の撮影枚数ではない）。
 
@@ -128,6 +130,30 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
+
+### 1.4 14〜32 章（変更・追加したテストの記録）の索引
+
+14〜32 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+
+| 章 | 内容 | Issue |
+| -- | ---- | ----- |
+| 14 | 満足度の見直し | #211（#221〜#223。D-18） |
+| 15 | 認証の見直し | #243（#244・#245。D-44・D-45） |
+| 16 | 連携の見直し | #195（#203〜#205。D-06） |
+| 17 | 観測値の一覧の並べ替え・検索に、期間を必須にする | #91 |
+| 18 | 秘密情報（SecretPort）のパラメータストア実装 | #206 |
+| 19 | ファイルサーバーの接続（HTTP）の暫定設計 | #172 |
+| 20 | ファイルサーバーの認証情報の登録（書き込み専用） | #207 |
+| 21 | ファイル仕様の見直し（1 つのファイルを随時更新） | #174・#199 |
+| 22・23 | 設備ごとのファイルパス・HTTP の一覧・取得 | #119 |
+| 24 | 通知の条件の見直し | #236 |
+| 25 | 通知の経過・回復日時 | #238 |
+| 26 | Web Push の配信を購読ごとに・再送の見直し | #237 |
+| 27 | 通知のメモ | #239 |
+| 28 | 一括既読の確認 | #240 |
+| 29 | Web Push の実配信 | #241 |
+| 30 | 負荷テストの UC-10 を、通知の出来事の判定に合わせる | #320 |
+| 31・32 | 古い画面の部品の取得の失敗への対応・配信のキャッシュの指定 | #323 |
 
 ## 2. UC 別のテスト仕様
 
@@ -10737,23 +10763,23 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-04 | 推奨アクションを確認する                           | `UC-04-view-recommended-action.ts`（20 件）  | `unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/charts.test.tsx`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/evaluation-notification.test.ts`、`integration/viewpoint-queries.test.ts`                                                                                         |
 | UC-05 | 異常の通知を受けて状況を確認する                   | `UC-05-check-alert.ts`（7 件）               | `unit/frontend/notifications-page.test.tsx`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                              |
 | UC-06 | 復旧対応の結果を記録する                           | `UC-06-record-recovery.ts`（31 件）          | `unit/frontend/entry-pages.test.tsx`、`integration/management-api.test.ts`                                                                                                                                                                                                                                    |
-| UC-07 | 取得できないデータを手動で入力・補完する           | `UC-07-input-missing-data.ts`（36 件）       | `unit/shared/manual-entry.test.ts`、`unit/shared/shared.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                             |
+| UC-07 | 取得できないデータを手動で入力・補完する           | `UC-07-input-missing-data.ts`（43 件）       | `unit/shared/manual-entry.test.ts`、`unit/shared/shared.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                             |
 | UC-08 | ロボットデータを自動で取り込む                     | `UC-08-import-robot-data.ts`（22 件）        | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`integration/ingestion.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                        |
 | UC-09 | 環境センサーデータを自動で取り込む                 | `UC-09-import-sensor-data.ts`（27 件）       | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`integration/ingestion.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                        |
-| UC-10 | 異常・注意を検知して通知する                       | `UC-10-detect-and-notify.ts`（44 件）        | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/grading.test.ts`、`unit/backend/domain/measures.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`integration/evaluation-notification.test.ts`、`integration/management-api.test.ts`                                            |
-| UC-11 | 農業情報基盤へデータを連携する                     | `UC-11-federate-data.ts`（13 件）            | `unit/backend/infrastructure/adapters.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                      |
-| UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（29 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
-| UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（31 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
+| UC-10 | 異常・注意を検知して通知する                       | `UC-10-detect-and-notify.ts`（46 件）        | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/grading.test.ts`、`unit/backend/domain/measures.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`integration/evaluation-notification.test.ts`、`integration/management-api.test.ts`                                            |
+| UC-11 | 農業情報基盤へデータを連携する                     | `UC-11-federate-data.ts`（14 件）            | `unit/backend/infrastructure/adapters.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                      |
+| UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（31 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
+| UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（37 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
 | UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（32 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
-| UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
+| UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）・`UC-15-configure-file-server-connection.ts`（12 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
 | UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（21 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
-| UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（29 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
+| UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（30 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
 | UC-18 | 入力済みデータを管理する（一覧・修正・削除・履歴） | `UC-18-manage-entries.ts`（52 件）           | `unit/shared/manual-entry.test.ts`、`unit/frontend/entry-pages.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                     |
 | UC-19 | 判断基準を編集する                                 | `UC-19-edit-criteria.ts`（43 件）            | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/criteria-edit-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`               |
-| UC-20 | 取り込み済みデータを一覧で確認する                 | `UC-20-view-observations.ts`（38 件）        | `unit/shared/criteria-text.test.ts`、`unit/backend/infrastructure/seeded-data.test.ts`、`unit/frontend/observations-page.test.tsx`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/repository-contract.test.ts`、`integration/viewpoint-queries.test.ts`                                              |
-| UC-21 | 満足度をレーダーチャートで確認する                 | `UC-21-view-satisfaction.ts`（29 件）        | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/viewpoint-queries.test.ts`                                                                                                      |
-| UC-22 | 通知を一覧で確認し、既読にする                     | `UC-22-manage-notifications.ts`（32 件）     | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/notifications-page.test.tsx`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                              |
-| UC-23 | Web Push 通知を設定する                            | `UC-23-configure-web-push.ts`（30 件）       | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/push.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                |
+| UC-20 | 取り込み済みデータを一覧で確認する                 | `UC-20-view-observations.ts`（41 件）        | `unit/shared/criteria-text.test.ts`、`unit/backend/infrastructure/seeded-data.test.ts`、`unit/frontend/observations-page.test.tsx`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/repository-contract.test.ts`、`integration/viewpoint-queries.test.ts`                                              |
+| UC-21 | 満足度をレーダーチャートで確認する                 | `UC-21-view-satisfaction.ts`（33 件）        | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/viewpoint-queries.test.ts`                                                                                                      |
+| UC-22 | 通知を一覧で確認し、既読にする                     | `UC-22-manage-notifications.ts`（39 件）     | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/notifications-page.test.tsx`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                              |
+| UC-23 | Web Push 通知を設定する                            | `UC-23-configure-web-push.ts`（31 件）       | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/push.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                |
 | UC-24 | データ取り込みの失敗を通知する                     | `UC-24-notify-ingestion-failure.ts`（20 件） | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/ingestion.test.ts`                                                                                                         |
 
 E2E のシナリオ（`scenario-*.ts`）が通る UC は、3章の表を参照する。

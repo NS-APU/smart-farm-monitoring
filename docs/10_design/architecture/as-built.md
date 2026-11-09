@@ -2517,13 +2517,14 @@ for 区間:
 
 | 種類                   | 配置                                                                                                             | 実行                       | 対象と外部依存                                                                                                                                                                                     |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 単体テスト（shared）   | `tests/unit/shared/`（3 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
-| 単体テスト（backend）  | `tests/unit/backend/{domain,application,infrastructure,runtime}/`（10 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
-| 単体テスト（frontend） | `tests/unit/frontend/`（14 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（7 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
-| E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 24 ファイル＋ `scenario-*.ts` の 6 ファイル。補助は `support/` の 8 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
+| 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
+| 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
+| 単体テスト（frontend） | `tests/unit/frontend/`（28 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
+| 結合テスト             | `tests/integration/`（40 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
+| E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
-| 補助                   | `tests/support/`（6 ファイル）                                                                                   | -                          | `test-context.ts`（結合テストの組み立て）、`builders.ts`（データ生成）、`frontend.ts`・`management-frontend.ts`（画面の単体テストの API のスタブと描画）、`viewpoint-fixtures.ts`、`response.d.ts` |
+| 補助                   | `tests/support/`（15 ファイル）                                                                                   | -                          | `test-context.ts`（結合テストの組み立て）、`builders.ts`（データ生成）、`frontend.ts`・`management-frontend.ts`（画面の単体テストの API のスタブと描画）、`viewpoint-fixtures.ts`、`response.d.ts` |
 
 - 単体テストのファイル名は、対象のファイル名ではなく、テーマ別（例: `domain-rules.test.ts`・`measures.test.ts`・`application-misc.test.ts`）。`presentation/` には、対応する単体テストのディレクトリがなく、結合テスト（`app.request`）で検証する
 - テストケース名は、「条件と期待結果」がわかる日本語（`describe` と `it`）。1 つのテストで 1 つの振る舞いを確かめる方針
@@ -2642,23 +2643,25 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-02     | `UC-02-view-viewpoint-detail.ts`                                  | `viewpoint-queries`（観点の詳細・元データ）                                                                  | `frontend/viewpoint-pages.test.tsx`                                                                                                              |
 | UC-03     | `UC-03-view-trend.ts`                                             | `viewpoint-queries`（推移）                                                                                  | `backend/domain/series.test.ts`・`frontend/charts.test.tsx`                                                                                      |
 | UC-04     | `UC-04-view-recommended-action.ts`                                | `viewpoint-queries`                                                                                          | `backend/domain/viewpoint-evaluation.test.ts`（診断メッセージと推奨アクション）                                                                  |
-| UC-05     | `UC-05-check-alert.ts`                                            | `evaluation-notification`（通知の一覧・既読）                                                                | `frontend/notifications-page.test.tsx`                                                                                                           |
+| UC-05     | `UC-05-check-alert.ts`                                            | `evaluation-notification`（通知の一覧・既読）・`notification-read-all`（一括既読。#240）                      | `frontend/notifications-page.test.tsx`                                                                                                           |
 | UC-06・07 | `UC-06-record-recovery.ts`・`UC-07-input-missing-data.ts`         | `management-api`（手動入力の登録）                                                                           | `shared/manual-entry.test.ts`・`frontend/entry-pages.test.tsx`                                                                                   |
 | UC-08・09 | `UC-08-import-robot-data.ts`・`UC-09-import-sensor-data.ts`       | `ingestion`                                                                                                  | `backend/infrastructure/adapters.test.ts`（FormatProfile・ファイルサーバーのモック）・`backend/domain/domain-rules.test.ts`（品質判定）          |
-| UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知）                                                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
+| UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知。出来事の判定・再発・抑制。#236）                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
 | UC-14     | `UC-14-manage-users.ts`                                           | `management-api`                                                                                             | `frontend/users-page.test.tsx`                                                                                                                   |
-| UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`                                                                                | `frontend/ingestion-page.test.tsx`                                                                                                               |
-| UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`                                                                                                            |
+| UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`ingestion-connection.test.tsx`                                                                                                               |
+| UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`・`frontend/stale-chunk.test.tsx`（古い画面の部品の取得の失敗。#323）                                                                                                            |
 | UC-18     | `UC-18-manage-entries.ts`                                         | `management-api`（入力済みデータの管理・変更履歴）                                                           | `frontend/entry-pages.test.tsx`                                                                                                                  |
 | UC-19     | `UC-19-edit-criteria.ts`                                          | `management-api`                                                                                             | `frontend/criteria-edit-page.test.tsx`・`shared/criteria-text.test.ts`・`shared/shared.test.ts`（判断基準の検証）                                |
 | UC-20     | `UC-20-view-observations.ts`                                      | `viewpoint-queries`（観測値の一覧）                                                                          | `frontend/observations-page.test.tsx`                                                                                                            |
 | UC-21     | `UC-21-view-satisfaction.ts`                                      | `viewpoint-queries`（満足度の詳細）                                                                          | `frontend/viewpoint-pages.test.tsx`・`charts.test.tsx`（レーダーチャート）                                                                       |
-| UC-22     | `UC-22-manage-notifications.ts`                                   | `evaluation-notification`                                                                                    | `frontend/notifications-page.test.tsx`                                                                                                           |
-| UC-23     | `UC-23-configure-web-push.ts`                                     | `management-api`（購読）・`evaluation-notification`（Web Push の配信と再送）                                 | `frontend/push.test.tsx`                                                                                                                         |
+| UC-22     | `UC-22-manage-notifications.ts`                                   | `evaluation-notification`・`notification-read-all`（#240）・`notification-memo`（#239）                      | `frontend/notifications-page.test.tsx`                                                                                                           |
+| UC-23     | `UC-23-configure-web-push.ts`                                     | `management-api`（購読）・`evaluation-notification`（Web Push の配信と再送）・`web-push-delivery`（実配信・購読の暗号鍵。#241） | `frontend/push.test.tsx`・`backend/infrastructure/web-push-notifier.test.ts`・`web-push-library-sender.test.ts`                                                                                                                         |
 | UC-24     | `UC-24-notify-ingestion-failure.ts`                               | `ingestion`（取り込み失敗の通知）                                                                            | -                                                                                                                                                |
+
+新しいテストの記録（追加・変更の経緯と、仮の ID）は、test.spec.md の 14〜32 章（索引は 1.4）。IaC のテスト（`infra/test/`）・負荷テスト（`tests/stress/`）・スモークテスト（`tests/smoke/`）は、上の表に含めない。
 
 そのほか: `runtime.test.ts`・`config.test.ts`（組み立て・Node サーバー・Lambda ハンドラ・設定）、`router-polling.test.tsx`（ルーター・ポーリング・日時の表示）、`seeded-data.test.ts`・`dev-seed.test.ts`（開発用 API のデータ投入）、`repository-contract.test.ts`（Repository の契約）。
 
@@ -2681,39 +2684,39 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。生成日時 2026-10-11 01:33）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-09 の実測。PR #324 の時点）
 
-計測対象は 160 ファイル。生成は、`src/` の最終更新（2026-10-11 01:30）より後。
+計測対象は 274 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（127 ファイル・2862 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.6%  | 4,039／4,055         | 95% 以上 |
-| 文   | 99.61% | 4,191／4,207         | 95% 以上 |
-| 関数 | 99.76% | 1,300／1,303         | 95% 以上 |
-| 分岐 | 96.29% | 2,442／2,536         | 95% 以上 |
+| 行   | 99.2%  | 6,968／7,024         | 95% 以上 |
+| 文   | 99.21% | 7,203／7,260         | 95% 以上 |
+| 関数 | 99.52% | 2,102／2,112         | 95% 以上 |
+| 分岐 | 95.58% | 4,305／4,504         | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
 | 対象                         | 行     | 文     | 関数   | 分岐   |
 | ---------------------------- | ------ | ------ | ------ | ------ |
-| `src/shared`                 | 100%   | 100%   | 100%   | 100%   |
-| `src/backend/domain`         | 99.72% | 99.73% | 100%   | 96.12% |
-| `src/backend/application`    | 99.6%  | 99.61% | 100%   | 95.46% |
-| `src/backend/infrastructure` | 99.68% | 99.69% | 100%   | 97.94% |
-| `src/backend/presentation`   | 99.25% | 99.27% | 100%   | 94.9%  |
-| `src/backend/runtime`        | 99.24% | 99.25% | 100%   | 95.24% |
-| `src/frontend`               | 99.58% | 99.6%  | 99.53% | 96.02% |
+| `src/shared`                 | 100.0% | 100.0% | 100.0% | 99.46% |
+| `src/backend/domain`         | 98.92% | 98.97% | 99.12% | 96.05% |
+| `src/backend/application`    | 99.34% | 99.28% | 99.07% | 96.76% |
+| `src/backend/infrastructure` | 98.98% | 99.01% | 100.0% | 94.56% |
+| `src/backend/presentation`   | 99.39% | 99.4% | 100.0% | 94.12% |
+| `src/backend/runtime`        | 99.17% | 99.18% | 98.51% | 93.16% |
+| `src/frontend`               | 99.17% | 99.2% | 99.36% | 95.62% |
 
-分岐が 90% を下回るファイルは、`access-policy.ts`（71.42%）・`ingestion-settings.ts`（60%）・`node-server.ts`（71.42%）・`jst.ts`（65%）・`use-permission.ts`（50%）・`auth-context.tsx`（75%）・`state-views.tsx`（75%）ほか、分岐の数が少ない（2〜28）ファイル。行が 0% のファイルは、未使用の `placeholder-page.tsx`（1 行）。
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`auth-context.tsx`（66.66%）・`access-policy.ts`（71.42%）ほか（計 25 ファイル。分岐の数が少ないファイルが多い）。行が 0% のファイル: `placeholder-page.tsx`。
 
-### E2E（Playwright。`test-result/playwright-report/`・`test-result/e2e/.last-run.json`。生成日時 2026-10-11 01:43）
+### E2E（Playwright）
 
-- 直近の実行（`.last-run.json`）は、`status: passed`・失敗なし。レポートに含まれるのは、**`UC-24-notify-ingestion-failure.ts` の 1 ファイルのみ**で、20 件（期待どおり 20・失敗 0・不安定 0・スキップ 0）
-- 全 E2E（30 ファイル）の件数・結果は、`test-result/` に直近の全件の出力がなく、**確認できない**（`outputDir` は実行のたびに上書きされるため）
+- 全 E2E は、32 ファイル・809 件（UC ごと 25 ファイル・799 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-テストの成功・失敗の件数は、`test-result/` に出力がなく（カバレッジのみ）、**確認できない**。[commands.md](../../00_project/commands.md) に件数の記載があるが、本書では確認していないため、転記しない。テストファイルの数は、`tests/unit` 27（shared 3・backend 10・frontend 14）＋ `tests/integration` 7 ＝ 34 ファイル（本書の解析時のファイル数）。
+2026-11-09 の実測: 127 ファイル・**2862 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 2863 件（集計の方法の違いで、1 件の差）。内訳（test.spec.md 1.2）: 単体 shared 12・backend 41（domain 10・application 9・presentation 1・infrastructure 18・runtime 3）・frontend 28・infra（IaC）6 ファイルと、結合 40 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 
