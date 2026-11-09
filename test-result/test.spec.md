@@ -11692,3 +11692,23 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 ### 30.3 実測
 
 負荷テスト（`pnpm test:stress`）: 修正前（`develop`）は、UC-10 の 1 手順が NG（ローカル・CI とも）。修正後は、ローカル（Windows。空きポート 18787・15173）で、4 件すべて成功（NG なし）。CI（`ci:full`）の結果は、PR に記載する。
+
+## 32. 画面の配信のキャッシュの指定（Issue #323。案 B）で追加したテスト
+
+この章は、ほかの変更を含まない（1.2 節の件数は、更新していない）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様: 画面のファイルを、2 つの `BucketDeployment` に分けて配置する。ハッシュつきの `assets/` は、`Cache-Control: public, max-age=31536000, immutable`、それ以外（`index.html`・`sw.js`・`manifest.webmanifest`）は、`no-cache`。互いのファイルを削除しない（`exclude`・`include`）。新しい `index.html` は、新しい `assets/` を配置したあとに、公開する。キャッシュの無効化は、全ファイルを配置したあとの 1 回。
+
+### 32.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| IaC: `infra/test/evaluation-stack.test.ts`（1 件を追加） | 配置が 2 つに分かれる。`assets/` の配置は、`exclude: ['*']`・`include: ['assets/*']`・`immutable` の長期のキャッシュ。それ以外の配置は、`exclude: ['assets/*']`・`no-cache`。どちらも prune。キャッシュの無効化（`/*`）は、それ以外の配置だけ。それ以外の配置は、`assets/` の配置に依存する |
+
+### 32.2 変更した既存のテスト
+
+なし（既存の「画面のファイルを配置し、CloudFront のキャッシュを無効化する」〔prune・`/*`〕と、ロググループの数〔4。配置の補助の Lambda のログは、2 つの配置で共有〕は、そのまま成功）。
+
+### 32.3 実測
+
+手元（Windows）: `infra/test/evaluation-stack.test.ts` 37 件成功。IaC のテスト全体は、PR に記載する。**AWS での実際のデプロイ・配信されるヘッダーは、未確認**（AWS の操作は、ユーザーが行う。PR の確認手順を参照）。
