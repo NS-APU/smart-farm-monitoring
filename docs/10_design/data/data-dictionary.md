@@ -234,6 +234,7 @@ TODO: 入力できる項目は、ロボットから取得できない項目の�
 | 重複抑制のキー | `dedupKey` | 文字列 | 観点・対象・ステータスから作る。同じ状態の間は通知を繰り返さない（FR-7.3） |
 | 既読状態 | `readState` | 列挙: `UNREAD`／`READ` | 未読・既読の2状態のみ（FR-7.6）。単位は、利用者ごと（決定。[ADR-0019](../adr/0019-notification-rules.md)） |
 | 配信の結果 | `deliveries` | 配列（手段、結果、試行回数、日時） | 画面内・Web Push の配信（FR-7.7）。Web Push は、`webPushDeliveries` のまとめの状態（未完了の間は PENDING。すべて成功か、配信する相手がなければ SUCCESS。断念があれば FAILURE で終了） |
+| メモ | 通知のメモ（別の項目。API: `memoId`・`notificationId`・`enteredBy`・`body`・`createdAt`） | `body`: 文字列（前後の空白を除き、1〜2000 文字）。`enteredBy`: 入力者のユーザー ID（手動入力の `enteredBy` と同じ）。`createdAt`: 追記した日時 | 通知ごとに、複数のメモを追記できる（追記のみ。編集・削除はない）。共有（全員が読める）。農業情報基盤には送らない。通知の API の応答の `memoCount`（件数）（決定。[ADR-0019](../adr/0019-notification-rules.md) の D-42。#239） |
 | 購読ごとの配信の結果 | `webPushDeliveries` | 配列（購読の識別子、結果、試行回数、次の試行の日時、日時、失敗の内容） | 任意（最初の配信の実行時点の、有効な購読ごと）。結果: PENDING（未試行）・FAILURE（失敗。次の試行の日時に再送）・SUCCESS・ABANDONED（断念: 通知を作ってから 1 時間を過ぎた、または、購読が無効になった）。API の応答には含めない（ADR-0019 の D-38。#237） |
 | 経過・回復日時 | `progress`（API の応答だけ。保存しない） | オブジェクト: `changes`（配列: ステータス、日時）、`recovery`（回復日時と、通知からの経過秒数。未回復は null） | 状態変化の通知だけ。状態の変化の履歴から導出する。通知の時点から、同じ観点・設備の次の通知（なければ現在）まで。「不明」は含めない。履歴がなければ `progress` は null（決定。[ADR-0019](../adr/0019-notification-rules.md) の D-42。#238） |
 

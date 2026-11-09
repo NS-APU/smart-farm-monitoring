@@ -179,7 +179,7 @@
 |                                | `GET /audit-logs`                                                                                                                   | `audit:read`                          |
 | ステータスコード               | `GET /status-codes`                                                                                                                 | LOGIN                                 |
 |                                | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`                                                                           | `status-code:manage`                  |
-| 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`POST /notifications/:notificationId/read` | LOGIN                                 |
+| 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET`・`POST /notifications/:notificationId/memos`（#239）・`POST /notifications/:notificationId/read` | LOGIN                                 |
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`                                                            | LOGIN                                 |
 |                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`                                                                   | `ingestion:configure`                 |
