@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
-import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
+import { NotificationIdSchema, toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import { createEvaluationService } from '../../src/backend/application/evaluation/evaluation-service.ts';
@@ -1098,3 +1098,121 @@ function createSteppingClock(context: Context) {
     sleep: () => Promise.resolve(),
   };
 }
+
+describe('通知の経過・回復日時（Issue #238。ADR-0019 の D-42）', () => {
+  /** 観測の日時は固定（同じ日時の値を上書きして、状態を切り替える）。 */
+  const OBSERVED_AT = new Date(TEST_NOW.getTime() - HOUR_MS).toISOString();
+  const MINUTE_MS = 60_000;
+
+  /** 指定した分だけ時計を進め、センサーの温度を上書きして、評価する。 */
+  async function evaluateAfter(context: Context, minutes: number, celsius: number) {
+    context.clock.advance(minutes * MINUTE_MS);
+    await context.container.repositories.observations.saveMany([temperature(celsius, OBSERVED_AT)]);
+    return context.container.evaluationService.evaluateAll('DEV');
+  }
+
+  /** 通知の一覧（新しい順）を、1 件ずつのページで、最後まで読む。 */
+  async function listAll(context: Context, limit = 100) {
+    const items = [];
+    let cursor: string | undefined;
+    do {
+      const page = await context.container.notificationService.list(USER, {
+        limit,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      items.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    return items;
+  }
+
+  const sensorNotifications = async (context: Context, limit?: number) =>
+    (await listAll(context, limit)).filter(
+      (item) => item.equipmentId === SENSOR_ID && item.viewpointId === 'environmentalAdaptability',
+    );
+
+  const isoAfter = (minutes: number) =>
+    new Date(TEST_NOW.getTime() + minutes * MINUTE_MS).toISOString();
+
+  it('通知ごとに、次の通知までの経過と、最初に正常に戻った日時（通知の時点からの経過時間つき）を返す（10:00 異常 → 10:20 正常 → 10:40 異常）', async () => {
+    const context = await setup();
+    await evaluateAfter(context, 0, 45);
+    await evaluateAfter(context, 5, 15);
+    await evaluateAfter(context, 20, 45);
+
+    const [latest, oldest] = await sensorNotifications(context);
+
+    expect(oldest?.progress?.changes).toEqual([
+      { status: 'ERROR', changedAt: isoAfter(0) },
+      { status: 'NORMAL', changedAt: isoAfter(5) },
+      { status: 'ERROR', changedAt: isoAfter(25) },
+    ]);
+    expect(oldest?.progress?.recovery).toEqual({ recoveredAt: isoAfter(5), elapsedSeconds: 300 });
+    // 最新の通知は、現在までの経過。まだ、正常に戻っていない（未回復）
+    expect(latest?.progress?.changes).toEqual([{ status: 'ERROR', changedAt: isoAfter(25) }]);
+    expect(latest?.progress?.recovery).toBeNull();
+  });
+
+  it('1 件ずつのページで読んでも、同じ（次の通知が、別のページにあっても、経過を導出する）', async () => {
+    const context = await setup();
+    await evaluateAfter(context, 0, 45);
+    await evaluateAfter(context, 5, 15);
+    await evaluateAfter(context, 20, 45);
+
+    const paged = await sensorNotifications(context, 1);
+    const whole = await sensorNotifications(context);
+
+    expect(paged).toHaveLength(2);
+    expect(paged.map((item) => item.progress)).toEqual(whole.map((item) => item.progress));
+    expect(paged[1]?.progress?.recovery).toEqual({
+      recoveredAt: isoAfter(5),
+      elapsedSeconds: 300,
+    });
+  });
+
+  it('注意 → 異常 の通知: 注意の通知の経過に、異常への変化が入る。どちらも、未回復', async () => {
+    const context = await setup();
+    await evaluateAfter(context, 0, 30);
+    await evaluateAfter(context, 5, 45);
+
+    const [error, caution] = await sensorNotifications(context);
+
+    expect(caution?.status).toBe('CAUTION');
+    expect(caution?.progress?.changes.map((item) => item.status)).toEqual(['CAUTION', 'ERROR']);
+    expect(caution?.progress?.recovery).toBeNull();
+    expect(error?.progress?.changes.map((item) => item.status)).toEqual(['ERROR']);
+  });
+
+  it('取り込み失敗の通知には、経過を付けない。履歴がない状態変化の通知（設備を削除した、など）は、経過を示せない（null）', async () => {
+    const context = await setup();
+    const repository = context.container.repositories.notifications;
+    await repository.add({
+      notificationId: NotificationIdSchema.parse('n-ingestion'),
+      kind: 'INGESTION_FAILURE',
+      sourceId: 'robot',
+      message: '【データ取得失敗】ロボットデータ: 接続できません',
+      createdAt: TEST_NOW.toISOString(),
+      dedupKey: 'INGESTION_FAILURE#robot',
+      deliveries: [],
+    });
+    await repository.add({
+      notificationId: NotificationIdSchema.parse('n-no-history'),
+      kind: 'STATUS_CHANGE',
+      viewpointId: 'safety',
+      equipmentId: ROBOT_ID,
+      status: 'ERROR',
+      message: '【異常】安全性（テストロボット）: 異常',
+      createdAt: TEST_NOW.toISOString(),
+      dedupKey: 'STATUS_CHANGE#safety#ROBOT#ERROR',
+      deliveries: [],
+    });
+
+    const items = await listAll(context);
+
+    const ingestion = items.find((item) => item.kind === 'INGESTION_FAILURE');
+    const noHistory = items.find((item) => item.kind === 'STATUS_CHANGE');
+    expect(ingestion).toBeDefined();
+    expect('progress' in (ingestion ?? {})).toBe(false);
+    expect(noHistory?.progress).toBeNull();
+  });
+});

@@ -399,6 +399,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const criteria = createCriteriaService({ criteria: repositories.criteria });
   const notificationService = createNotificationService({
     notifications: repositories.notifications,
+    evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
     webPush: mocks.webPush,
     clock,

@@ -16,6 +16,7 @@ import type {
   Delivery,
   Notification,
   NotificationListResponse,
+  NotificationProgress,
 } from '@smart-farm/shared/schemas/notification';
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
@@ -29,16 +30,18 @@ import {
   buildStatusChangeMessage,
   isWithinSuppression,
 } from '../../domain/notification-rules.ts';
+import { buildNotificationProgress } from '../../domain/notification-progress.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
 import { NotificationDeliveryError, type NotifierPort } from '../ports/notifier-port.ts';
 import type {
+  EvaluationRepository,
   NotificationListFilter,
   NotificationRepository,
   PushSubscriptionRepository,
 } from '../ports/repositories.ts';
-import type { PushSubscriptionRecord } from '../ports/records.ts';
+import type { PushSubscriptionRecord, StatusChangeEntry } from '../ports/records.ts';
 import type { AppSettings } from '../settings.ts';
 import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
 
@@ -95,6 +98,8 @@ export interface NotificationService {
 
 export interface NotificationServiceDeps {
   readonly notifications: NotificationRepository;
+  /** 状態の変化の履歴（通知の経過・回復日時の導出に使う。ADR-0019 の D-42）。 */
+  readonly evaluations: Pick<EvaluationRepository, 'listStatusChanges'>;
   readonly pushSubscriptions: PushSubscriptionRepository;
   readonly webPush: NotifierPort;
   readonly clock: ClockPort;
@@ -136,7 +141,8 @@ function buildWebPushDelivery(
 }
 
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
-  const { notifications, pushSubscriptions, webPush, clock, ids, settings, logger } = deps;
+  const { notifications, evaluations, pushSubscriptions, webPush, clock, ids, settings, logger } =
+    deps;
 
   /** 通知を作って保存する（抑制の判断はしない）。 */
   async function create(
@@ -205,6 +211,65 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     return failure;
   }
 
+  /**
+   * ページ内の状態変化の通知の、経過・回復日時を導出する（ADR-0019 の D-42。新しい保存はない）。
+   * 同じ観点・設備の次の通知は、ページより新しい通知も含めて探す（ページ内で最も古い通知より新しい、状態変化の通知を、1 回で読む）。
+   * 状態の変化の履歴は、観点・設備の組ごとに、1 回だけ読む。
+   */
+  async function progressOfPage(
+    page: readonly Notification[],
+  ): Promise<ReadonlyMap<string, NotificationProgress | null>> {
+    const targets = page.filter(
+      (notification) =>
+        notification.kind === 'STATUS_CHANGE' &&
+        notification.equipmentId !== undefined &&
+        notification.viewpointId !== undefined,
+    );
+    const result = new Map<string, NotificationProgress | null>();
+    if (targets.length === 0) {
+      return result;
+    }
+    const oldest = Math.min(...targets.map((notification) => Date.parse(notification.createdAt)));
+    const newer = await notifications.listStatusChangeTimes(new Date(oldest));
+    const pairKey = (equipmentId: string, viewpointId: string): string =>
+      `${equipmentId}#${viewpointId}`;
+    const histories = new Map<string, Promise<StatusChangeEntry[]>>();
+    const now = clock.now();
+    await Promise.all(
+      targets.map(async (notification) => {
+        const equipmentId = notification.equipmentId;
+        const viewpointId = notification.viewpointId;
+        if (equipmentId === undefined || viewpointId === undefined) {
+          return;
+        }
+        const key = pairKey(equipmentId, viewpointId);
+        let history = histories.get(key);
+        if (history === undefined) {
+          history = evaluations.listStatusChanges(equipmentId, viewpointId);
+          histories.set(key, history);
+        }
+        // 同じ観点・設備の、次の通知（この通知より新しい通知のうち、最も古いもの）
+        const createdAt = Date.parse(notification.createdAt);
+        const next = newer.find(
+          (time) =>
+            time.equipmentId === equipmentId &&
+            time.viewpointId === viewpointId &&
+            Date.parse(time.createdAt) > createdAt,
+        );
+        result.set(
+          notification.notificationId,
+          buildNotificationProgress({
+            history: await history,
+            notifiedAt: new Date(createdAt),
+            nextNotifiedAt: next === undefined ? null : new Date(next.createdAt),
+            now,
+          }),
+        );
+      }),
+    );
+    return result;
+  }
+
   return {
     notifyStatusChange(input) {
       const viewpointName = findViewpointMeta(input.viewpointId)?.name ?? input.viewpointId;
@@ -253,10 +318,14 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         limit: query.limit,
         cursor: query.cursor,
       });
+      const progress = await progressOfPage(page.items.map(({ notification }) => notification));
       return {
-        items: page.items.map(({ notification, isRead }) =>
-          toNotificationItem(notification, isRead),
-        ),
+        items: page.items.map(({ notification, isRead }) => ({
+          ...toNotificationItem(notification, isRead),
+          ...(progress.has(notification.notificationId)
+            ? { progress: progress.get(notification.notificationId) ?? null }
+            : {}),
+        })),
         nextCursor: page.nextCursor,
       };
     },

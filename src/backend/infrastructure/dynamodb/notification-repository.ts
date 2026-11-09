@@ -14,9 +14,10 @@ import type {
   NotificationRepository,
   NotificationWithReadState,
   Page,
+  StatusChangeNotificationTime,
 } from '../../application/ports/repositories.ts';
 import { decodeKeyCursor, encodeKeyCursor } from './key-cursor.ts';
-import { timedSortKey } from './keys.ts';
+import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
 import {
   batchGetItems,
@@ -247,6 +248,34 @@ export function createNotificationRepository(db: Database): NotificationReposito
         notification,
         indexKeys(notification, sortKey),
       );
+    },
+    async listStatusChangeTimes(since) {
+      // 通知は、1 つのパーティションに、作成日時順（`{日時}#{通知ID}`）で入っている。指定した日時より後（ちょうどは含めない）を、古い順に読む
+      const times: StatusChangeNotificationTime[] = [];
+      for await (const item of queryItems(db, {
+        table,
+        hashName: 'pk',
+        hashValue: NOTIFICATION,
+        sortName: 'sk',
+        lower: upperBoundOf(instantKey(since.toISOString())),
+        forward: true,
+        pageSize: LIST_PAGE_SIZE,
+        consistent: true,
+      })) {
+        const notification = notifications.parse(item);
+        if (
+          notification.kind === 'STATUS_CHANGE' &&
+          notification.equipmentId !== undefined &&
+          notification.viewpointId !== undefined
+        ) {
+          times.push({
+            equipmentId: notification.equipmentId,
+            viewpointId: notification.viewpointId,
+            createdAt: notification.createdAt,
+          });
+        }
+      }
+      return times;
     },
     async listUndelivered(maxAttempts) {
       const found: Notification[] = [];

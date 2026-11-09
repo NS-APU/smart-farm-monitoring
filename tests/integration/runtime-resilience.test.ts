@@ -146,6 +146,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
     const clock = createControllableClock(TEST_NOW);
     const service = createNotificationService({
       notifications: repositories.notifications,
+      evaluations: repositories.evaluations,
       pushSubscriptions: repositories.pushSubscriptions,
       webPush: { deliver: () => NEVER },
       clock,

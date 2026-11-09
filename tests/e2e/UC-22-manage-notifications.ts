@@ -11,6 +11,7 @@
  *
  * 値の同値分割: 種別（すべて・異常検知・データ取得失敗）× 既読状態（すべて・未読・既読）の9通り、既読にする範囲
  * （個別・絞り込みの範囲・すべて）、件数（0件・1ページ・複数ページ）、利用者（既読は利用者ごと）。
+ * 通知の経過・回復日時（Issue #238。D-42）: 通知一覧の API が、通知ごとに、次の通知までの経過と、最初に正常に戻った日時を返す。
  * 関連するユースケース: UC-05（通知から対象の確認へ）、UC-10・UC-24（通知の発生）。
  */
 
@@ -35,7 +36,8 @@ import {
   markReadViaApi,
   seedAbnormalEnvironment,
 } from './support/notifications.ts';
-import { shot } from './support/viewpoint-scenarios.ts';
+import { advanceMinutes } from './support/app.ts';
+import { environmentData, seed, shot } from './support/viewpoint-scenarios.ts';
 import { expectHeaderIntact, locatorOf } from './support/pages.ts';
 
 const rows = locatorOf('notification-row');
@@ -581,3 +583,41 @@ for (const viewport of NOTIFICATION_VIEWPORTS) {
     });
   });
 }
+
+test.describe('通知の経過・回復日時（API。Issue #238。D-42）', () => {
+  test('異常 → 正常（5 分後）→ 異常（25 分後）: 最初の通知は、経過（異常 → 正常 → 異常）と回復（5 分）を返し、最新の通知は、未回復', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 40 }));
+    await advanceMinutes(request, 5);
+    await seed(request, environmentData({ temperature: 22 }));
+    await advanceMinutes(request, 20);
+    await seed(request, environmentData({ temperature: 40 }));
+
+    const sensor = (await listNotifications(request)).filter(
+      (item) => item.equipmentId === SENSOR_ID && item.viewpointId === 'environmentalAdaptability',
+    );
+    const [latest, oldest] = sensor;
+
+    expect(sensor).toHaveLength(2);
+    expect(oldest?.progress?.changes.map((change) => change.status)).toEqual([
+      'ERROR',
+      'NORMAL',
+      'ERROR',
+    ]);
+    expect(oldest?.progress?.recovery?.elapsedSeconds).toBe(300);
+    expect(latest?.progress?.changes.map((change) => change.status)).toEqual(['ERROR']);
+    expect(latest?.progress?.recovery).toBeNull();
+  });
+
+  test('取り込み失敗の通知には、経過を付けない', async ({ request }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+
+    const [failure] = await listNotifications(request);
+
+    expect(failure?.kind).toBe('INGESTION_FAILURE');
+    expect(failure !== undefined && 'progress' in failure).toBe(false);
+  });
+});

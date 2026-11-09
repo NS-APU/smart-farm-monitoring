@@ -5,6 +5,7 @@ import { NotificationSchema, type Notification } from '@smart-farm/shared/schema
 import type {
   NotificationListFilter,
   NotificationRepository,
+  StatusChangeNotificationTime,
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
 import { paginated, readKey, saverOf } from './collection-helpers.ts';
@@ -93,6 +94,26 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
         }
       }
       return Promise.resolve(count);
+    },
+    listStatusChangeTimes(since) {
+      const times: StatusChangeNotificationTime[] = [];
+      for (const item of notifications.values()) {
+        if (
+          item.kind === 'STATUS_CHANGE' &&
+          item.equipmentId !== undefined &&
+          item.viewpointId !== undefined &&
+          Date.parse(item.createdAt) > since.getTime()
+        ) {
+          times.push({
+            equipmentId: item.equipmentId,
+            viewpointId: item.viewpointId,
+            createdAt: item.createdAt,
+          });
+        }
+      }
+      return Promise.resolve(
+        times.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+      );
     },
     update: saverOf(notifications),
     listUndelivered: (maxAttempts) =>

@@ -536,6 +536,52 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       ).toBeUndefined();
     });
 
+    it('状態変化の通知の日時: 指定した日時より新しい状態変化の通知の、設備・観点・作成日時を、古い順に返す（Issue #238）', async () => {
+      const { repositories } = create();
+      await repositories.notifications.add(notification('n-1'));
+      await repositories.notifications.add(
+        notification('n-2', { viewpointId: 'durability', equipmentId: SENSOR_ID }),
+      );
+      await repositories.notifications.add(
+        notification('n-3', {
+          kind: 'INGESTION_FAILURE',
+          sourceId: 'robot',
+          dedupKey: 'INGESTION_FAILURE#robot',
+          viewpointId: undefined,
+          equipmentId: undefined,
+          status: undefined,
+        }),
+      );
+      await repositories.notifications.add(notification('n-4'));
+
+      const all = await repositories.notifications.listStatusChangeTimes(
+        new Date('2026-10-09T00:00:00.000Z'),
+      );
+      const afterSecond = await repositories.notifications.listStatusChangeTimes(
+        new Date('2026-10-09T02:00:00.000Z'),
+      );
+
+      // 取り込み失敗の通知（n-3）は含めない。古い順
+      expect(all).toEqual([
+        { equipmentId: ROBOT_ID, viewpointId: 'safety', createdAt: '2026-10-09T01:00:00.000Z' },
+        {
+          equipmentId: SENSOR_ID,
+          viewpointId: 'durability',
+          createdAt: '2026-10-09T02:00:00.000Z',
+        },
+        { equipmentId: ROBOT_ID, viewpointId: 'safety', createdAt: '2026-10-09T04:00:00.000Z' },
+      ]);
+      // 指定した日時ちょうどの通知は、含めない（より新しいもの）
+      expect(afterSecond).toEqual([
+        { equipmentId: ROBOT_ID, viewpointId: 'safety', createdAt: '2026-10-09T04:00:00.000Z' },
+      ]);
+      expect(
+        await repositories.notifications.listStatusChangeTimes(
+          new Date('2026-10-10T00:00:00.000Z'),
+        ),
+      ).toEqual([]);
+    });
+
     it('配信が未完了の通知: 未配信、または試行回数が上限未満の失敗のみ返す', async () => {
       const { repositories } = create();
       const delivery = (result: 'PENDING' | 'SUCCESS' | 'FAILURE', attempts: number) => [
