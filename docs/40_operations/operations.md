@@ -65,7 +65,7 @@
 画面は、ブラウザの History API でルーティングする SPA。静的配信（S3 + CloudFront。ADR-0006）で、次を満たす設定が必要になる。評価環境の IaC（`infra/lib/evaluation-stack.ts`）での実装状況を、各項目に示す。
 
 - 深い URL（例: `/viewpoints/harvest-accuracy`）の再読み込みを、`index.html` へ書き換える（404 にしない）: **実装済み**（CloudFront Function（viewer-request）で書き換える。API の 403・404 は書き換えない。ADR-0006）
-- `index.html` のキャッシュは短く、`assets/`（ハッシュつきのファイル名）は長く: **一部**。CloudFront は、静的配信に `CACHING_OPTIMIZED` を使い、デプロイのたびに、`/*` を無効化する（`BucketDeployment`。`index.html` は、デプロイの直後に、新しい版になる）。S3 のオブジェクトの `Cache-Control` は、設定していない（ブラウザ側のキャッシュの指定。Issue #127）
+- `index.html` のキャッシュは短く、`assets/`（ハッシュつきのファイル名）は長く: **実装済み**（Issue #323）。画面のファイルを、2 つの `BucketDeployment` に分けて配置し、S3 のオブジェクトの `Cache-Control` を指定する。`assets/` は `public, max-age=31536000, immutable`（長期のキャッシュ）、それ以外（`index.html`・`sw.js`・`manifest.webmanifest`）は `no-cache`（毎回、`ETag` で更新を確認する。変わっていなければ 304）。新しい `index.html` は、新しい `assets/` を配置したあとに、公開する（依存関係）。CloudFront は、静的配信に `CACHING_OPTIMIZED` を使い、デプロイのたびに、`/*` を無効化する。注意: 内容が変わらず、再配置されないファイルは、`Cache-Control` が付き直らない（内容が変わった時点で、付く。`index.html` は、毎回、再配置される）。古い画面を開いたままの利用者への案内は、画面側で行う（PR #324。7.6）
 - サービスワーカー（`/sw.js`）・マニフェストは、サイトのルート（`/`）で配信する（サブパスでの配信は、ルーティング・Web Push が動かない）: **実装済み**（S3 のルートに置き、同じオリジンで配信する）
 - API（`/api/v1/*`）は、同じオリジンから配信する: **実装済み**（CloudFront が、`/api/*` と `/health` を、API の Lambda の関数の URL へ振り分ける。CORS は不要。ADR-0006）
 - セキュリティヘッダー（HSTS・CSP・`frame-ancestors`・`Referrer-Policy`）を、配信側にも設定する。API の応答には、バックエンドが付けている（V-015）: **一部**。CloudFront の応答ヘッダーポリシーは、AWS のマネージドポリシー `SECURITY_HEADERS` を使っている。画面（静的ファイル）の CSP・`frame-ancestors` は、設定していない（Issue #127）

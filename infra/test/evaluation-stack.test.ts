@@ -190,6 +190,51 @@ describe('評価環境のスタック: 画面の配信（S3 + CloudFront）', ()
       DistributionPaths: ['/*'],
     });
   });
+
+  it('画面のファイルは、2 つに分けて配置する。ハッシュ付きの assets/ は、長期のキャッシュ（immutable）、それ以外（index.html・sw.js・manifest）は、毎回、更新を確認する（no-cache）。Issue #323', () => {
+    const { template } = plainStack();
+    const deployments = Object.entries(
+      template.findResources('Custom::CDKBucketDeployment') as Record<
+        string,
+        {
+          DependsOn?: string[];
+          Properties: {
+            Exclude?: string[];
+            Include?: string[];
+            Prune?: boolean;
+            DistributionPaths?: string[];
+            SystemMetadata?: Record<string, string>;
+          };
+        }
+      >,
+    );
+
+    expect(deployments).toHaveLength(2);
+    const assets = deployments.find(([, deployment]) =>
+      deployment.Properties.Include?.includes('assets/*'),
+    );
+    const rest = deployments.find(([, deployment]) =>
+      deployment.Properties.Exclude?.includes('assets/*'),
+    );
+    expect(assets).toBeDefined();
+    expect(rest).toBeDefined();
+    // ハッシュ付きの部品: ファイル名が変わらない限り、内容は変わらない。長く、キャッシュしてよい
+    expect(assets?.[1].Properties.Exclude).toEqual(['*']);
+    expect(assets?.[1].Properties.Include).toEqual(['assets/*']);
+    expect(assets?.[1].Properties.SystemMetadata?.['cache-control']).toBe(
+      'public, max-age=31536000, immutable',
+    );
+    // index.html など: 毎回、更新を確認する（変わっていなければ、304）。古い index.html を使い続けない
+    expect(rest?.[1].Properties.Include).toBeUndefined();
+    expect(rest?.[1].Properties.SystemMetadata?.['cache-control']).toBe('no-cache');
+    // 互いのファイルを、削除（prune）しない。キャッシュの無効化は、全ファイルを配置したあとの 1 回だけ
+    expect(assets?.[1].Properties.Prune).toBe(true);
+    expect(rest?.[1].Properties.Prune).toBe(true);
+    expect(rest?.[1].Properties.DistributionPaths).toEqual(['/*']);
+    expect(assets?.[1].Properties.DistributionPaths).toBeUndefined();
+    // 新しい index.html は、新しい assets/ を配置したあとに、公開する（先に、index.html が新しくなって、部品がない時間を作らない）
+    expect(rest?.[1].DependsOn).toContain(assets?.[0]);
+  });
 });
 
 describe('評価環境のスタック: API（Lambda の関数の URL）', () => {
