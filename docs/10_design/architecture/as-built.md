@@ -48,7 +48,7 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 宇都宮大学のファイルサーバーへの接続（HTTP のアダプタは、#119 で実装済み。接続先・認証情報は #298）・実農業情報基盤・実 Web Push 配信（Secrets は、パラメータストア版が実装済み。#206。評価環境では、ファイルサーバー・農業情報基盤・Web Push は、既定ではモックのまま）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
+- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 宇都宮大学のファイルサーバーへの接続（HTTP のアダプタは、#119 で実装済み。接続先・認証情報は #298）・実農業情報基盤（Secrets は、パラメータストア版が実装済み。#206。**実 Web Push 配信も、実装済み**〔#241。`WEB_PUSH_DELIVERY=vapid`。開発サイトで、実機への配信を確認済み〕。評価環境では、ファイルサーバー・農業情報基盤は、既定ではモックのまま）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
 - 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
@@ -179,7 +179,7 @@
 |                                | `GET /audit-logs`                                                                                                                   | `audit:read`                          |
 | ステータスコード               | `GET /status-codes`                                                                                                                 | LOGIN                                 |
 |                                | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`                                                                           | `status-code:manage`                  |
-| 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET`・`POST /notifications/:notificationId/memos`（#239）・`POST /notifications/:notificationId/read` | LOGIN                                 |
+| 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET /notifications/:notificationId/memos`・`POST /notifications/:notificationId/read` | LOGIN。メモの追記 `POST /notifications/:notificationId/memos`（#239）は `manual-entry:write`                                 |
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`                                                            | LOGIN                                 |
 |                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`                                                                   | `ingestion:configure`                 |
@@ -407,7 +407,7 @@ flowchart LR
 ```
 
 - 「Web Push の配信先」は、`NotifierPort` の先。実装は、`WEB_PUSH_DELIVERY` で選ぶ: `vapid`（プッシュサービスへ実際に送る。#241）、`dummy`（配信の記録のみ。既定）
-- 取り込み（UC-08・UC-09）の評価の更新は、取り込んだ件数が 1 件以上のときに行う。取得失敗は、一覧の取得を 3 回試しても失敗した場合のみ通知する（UC-24）。形式違いのファイルは通知しない
+- 取り込み（UC-08・UC-09）の評価の更新は、取り込んだ件数が 1 件以上のときに行う。取得失敗（一覧の取得を 3 回試しても失敗）に加えて、ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、既定で通知する（`INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED`。UC-24。ADR-0019 の D-37）。旧: 形式違いのファイルは通知しない
 
 ## UC と画面・API・ジョブの対応表
 
@@ -622,6 +622,22 @@ classDiagram
     +IsoDateTime createdAt
     +string dedupKey
     +Delivery deliveries
+    +WebPushDelivery webPushDeliveries?
+  }
+  class WebPushDelivery {
+    +string subscriptionId
+    +WebPushDeliveryResult result
+    +number attempts
+    +IsoDateTime nextAttemptAt?
+    +IsoDateTime updatedAt
+    +string errorMessage?
+  }
+  class NotificationMemo {
+    +string memoId
+    +NotificationId notificationId
+    +UserId enteredBy
+    +string body
+    +IsoDateTime createdAt
   }
   class Delivery {
     +DeliveryChannel channel
@@ -672,7 +688,7 @@ classDiagram
 - **Criterion**: 指標ごとの条件。`UPPER`（`cautionFrom`・`errorFrom`）・`LOWER`（`errorBelow`・`cautionBelow`）・`RANGE`（`errorLower`・`normalLower`・`normalUpper`・`errorUpper`）の 3 形。閾値の大小関係は Zod の `superRefine` で検証する
 - **EvaluationResult**: 設備×観点×視点×期間ごとの**最新の結果を上書き**して保存する。保存の一意キーは `設備ID#観点ID#視点#期間（短期は 0）`。履歴は持たない（ステータスの推移は `StatusChangeEntry` から作る）
 - **StatusChangeEntry**: 観点の最終ステータス（短期・長期（7 日）のうち「不明」を除いた悪い方）が変わったときに追記する。最新の 1 件（`lastStatusChanges`）と履歴（`statusChangeHistory`）の 2 コレクションに保存する
-- **Notification**: 重複抑制のキー `dedupKey` と、配信の状態 2 つ（画面内は作成時に `SUCCESS`、Web Push は `PENDING` から始まる）を持つ。既読は、通知とは別の `NotificationRead`（通知×利用者）で持つ
+- **Notification**: 重複抑制のキー `dedupKey`（取り込みの失敗・停止、連携の期限切れの 60 分の抑制に使う。状態変化の通知には使わない）と、配信の状態 2 つ（画面内は作成時に `SUCCESS`、Web Push は `PENDING` から始まる。`deliveries`）、Web Push の**購読ごとの状態** `webPushDeliveries`（`WebPushDelivery`。#237）を持つ。**メモ**（`NotificationMemo`。共有・追記のみ。#239）は、通知とは別の項目で持ち、通知一覧の応答に件数 `memoCount` を返す。既読は、通知とは別の `NotificationRead`（通知×利用者）で持つ
 
 ## 取り込み・連携・利用者・監査
 
@@ -756,8 +772,13 @@ classDiagram
     +string subscriptionId
     +UserId userId
     +string endpoint
+    +PushKeys keys?
     +boolean isActive
     +IsoDateTime createdAt
+  }
+  class PushKeys {
+    +string p256dh
+    +string auth
   }
   class AuditLogEntry {
     +string auditId
@@ -795,7 +816,7 @@ classDiagram
 
 ## 永続化のコレクション（ローカルの Repository）
 
-`createLocalRepositories`（`local-repositories.ts`。集約ごとの実装は `local/repositories/`）が、`LocalStore` に 18 のコレクションを登録する。読み込み時に、Zod のスキーマで検証する（壊れたデータを内部に渡さない）。
+`createLocalRepositories`（`local-repositories.ts`。集約ごとの実装は `local/repositories/`）が、`LocalStore` に 19 のコレクションを登録する。読み込み時に、Zod のスキーマで検証する（壊れたデータを内部に渡さない）。
 
 | コレクション          | 型                     | キー                                        |
 | --------------------- | ---------------------- | ------------------------------------------- |
@@ -808,6 +829,7 @@ classDiagram
 | `statusChangeHistory` | StatusChangeEntry      | `設備ID#観点ID#changedAt`                   |
 | `notifications`       | Notification           | `notificationId`                            |
 | `notificationReads`   | 通知×利用者の既読      | `通知ID#利用者ID`                           |
+| `notificationMemos`   | NotificationMemo       | `memoId`（#239）                            |
 | `ingestedFiles`       | IngestedFileRecord     | `取り込み元#ファイルID#ハッシュ`            |
 | `ingestionLogs`       | IngestionLog           | `logId`                                     |
 | `federationItems`     | FederationItem         | `federationItemId`                          |
@@ -1038,7 +1060,7 @@ flowchart LR
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。設定は `parseLambdaConfig`（`APP_MODE`・`PERSISTENCE` の明示が必須。`SEED_MODE` は使えない。開発用 API・スケジューラは常に無効）。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009）
-- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS で確認済み**（2026-10-20。4 つのルールが周期どおりに起動し、ジョブが `EXECUTED` で終わる。ADR-0011 の「検証」））。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
+- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS で確認済み**（2026-10-20。4 つのルールが周期どおりに起動し、ジョブが `EXECUTED` で終わる。ADR-0011 の「検証」））。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77。**Web Push は、公開鍵・連絡先を設定すると、実配信にできる**〔#241〕。既定はモック）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
 
 ## フロントエンドの構成
 
@@ -1336,7 +1358,7 @@ sequenceDiagram
       else 変わった
         EV->>REP: evaluations.appendStatusChange
         EV->>FS: enqueue EVALUATION 設備と観点
-        opt 注意または異常へ変わった isNotifiableTransition
+        opt 注意・異常へ変わり isNotifiableStatusChange<br>履歴から出来事で判定 を通った
           EV->>NS: notifyStatusChange 4.10
         end
       end
@@ -1614,28 +1636,37 @@ sequenceDiagram
 
 ## 4.10 通知の生成と配信（UC-05・UC-10・UC-22・UC-24。JB-04）
 
-**生成**（評価の状態変化、または取り込みの失敗から）
+**生成**（評価の状態変化、または取り込みの失敗・停止、連携の期限切れから）
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant SRC as EvaluationService または IngestionService
+  participant EV as EvaluationService
+  participant ING as IngestionService または FederationService
   participant NS as NotificationService
   participant NR as NotificationRepository
+  participant ER as EvaluationRepository
 
-  SRC->>NS: notifyStatusChange または<br>notifyIngestionFailure
-  NS->>NS: メッセージと dedupKey を作る<br>観点と設備とステータス または<br>取り込み元
+  EV->>ER: 「注意」「異常」へ変わったとき<br>listStatusChanges 履歴 今回の変化を含めない
+  EV->>EV: isNotifiableStatusChange(履歴, 次, now, 15)<br>不明は通知しない 正常が 15 分以上続いたあとの<br>悪化は新しい出来事 同じ出来事は重くなるときだけ<br>改善は通知しない
+  alt 通知する
+    EV->>NS: notifyStatusChange
+    NS->>NR: add 時間による抑制はしない<br>配信は IN_APP が SUCCESS<br>WEB_PUSH が PENDING attempts 0
+  else 通知しない
+    EV->>EV: 何もしない 状態の変化の履歴には追記する
+  end
+  ING->>NS: notifyIngestionFailure または<br>notifyFederationExpired
   NS->>NR: findLatestByDedupKey(dedupKey)
   NS->>NS: isWithinSuppression(最新の<br>createdAt, now, 60 分)
   alt 60 分未満
-    NS-->>SRC: null 作らない
+    NS-->>ING: null 作らない
   else 60 分以上 または 初回
     NS->>NR: add 配信は IN_APP が SUCCESS<br>WEB_PUSH が PENDING attempts 0
-    NS-->>SRC: Notification
+    NS-->>ING: Notification
   end
 ```
 
-**配信（JB-04）と、画面での確認**
+**配信（JB-04）と、画面での確認**（Web Push の配信は、購読ごと。ADR-0019 の D-38。#237・#241）
 
 ```mermaid
 sequenceDiagram
@@ -1648,23 +1679,33 @@ sequenceDiagram
   participant UI as ヘッダーと SC-05
 
   SCH->>NS: JB-04 の deliverPending 1 分ごと
-  NS->>NR: listUndelivered(3) WEB_PUSH が<br>PENDING または FAILURE で試行 3<br>回未満
+  NS->>NR: listUndelivered() Web Push のまとめが<br>PENDING の通知 疎な索引 UNDELIVERED
+  NS->>PR: listActive 1 回の実行で 1 度
   loop 通知ごと
-    NS->>PR: listActive<br>利用者を区別せず有効な購読すべて
-    loop 購読ごと
-      NS->>WP: deliver(notification,<br>subscription)
-      alt SUBSCRIPTION_GONE
-        NS->>PR: deactivate(subscriptionId)
-      else NotificationDeliveryError
-        NS->>NS: failure に理由を記録
+    NS->>NS: 購読ごとの状態 webPushDeliveries<br>なければ 有効な購読ごとに PENDING を作る<br>購読がなければ配信は完了 SUCCESS
+    loop 未完了の購読ごと
+      alt 通知を作ってから 60 分を過ぎた または 購読が無効になった
+        NS->>NS: ABANDONED 断念
+      else FAILURE で 次の試行の日時の前
+        NS->>NS: 再送しない
+      else
+        NS->>WP: deliver(notification, subscription,<br>ttlSeconds 期限までの残り)
+        alt SUBSCRIPTION_GONE
+          NS->>PR: deactivate(subscriptionId)
+          NS->>NS: ABANDONED
+        else NotificationDeliveryError または<br>タイムアウト
+          NS->>NS: FAILURE 理由と<br>次の試行の日時 1 分から倍々 上限 60 分<br>ログ warn に reason
+        else 配信できた
+          NS->>NS: SUCCESS
+        end
       end
     end
-    NS->>NR: update WEB_PUSH を SUCCESS または<br>FAILURE にして attempts を 1<br>増やす
+    NS->>NR: update webPushDeliveries と まとめの状態<br>未完了の間は PENDING すべて成功 または<br>相手なしで SUCCESS 断念があれば FAILURE
   end
 
   UI->>NS: API 経由で GET<br>/notifications/unread-count を約<br>10 秒ごと
-  UI->>NS: GET /notifications<br>絞り込みとカーソル
-  NS->>NR: 状態変化の通知は、listStatusChangeTimes<br>で次の通知を探し、状態変化の履歴<br>（EvaluationRepository の listStatusChanges）<br>から経過・回復日時 progress を導出（#238）
+  UI->>NS: GET /notifications<br>絞り込みとカーソル 応答に asOf 読み込んだ時点
+  NS->>NR: 状態変化の通知は、listStatusChangeTimes<br>で次の通知を探し、状態変化の履歴<br>（EvaluationRepository の listStatusChanges）<br>から経過・回復日時 progress を導出（#238）<br>memoCounts で メモの件数 memoCount（#239）
   UI->>NS: POST /notifications/:id/read 個別<br>または 一括: GET unread-count?until で件数を確認し<br>POST read-all（until 必須。読み込み時点まで。#240）
   NS->>NR: markRead(notificationId, userId,<br>now) 既読は通知と利用者の組で保存
   UI->>UI: notifyUnreadChanged<br>で未読件数を読み直す
@@ -1690,11 +1731,11 @@ sequenceDiagram
     PG->>PB: requestPermission ブラウザの確認
     PG->>PB: subscribe(publicKey)
     PB->>SW: register /sw.js と<br>pushManager.subscribe<br>applicationServerKey
-    PB-->>PG: endpoint
-    PG->>APP: PUT /push-subscription に<br>endpoint を送る
-    APP->>PS: subscribe(userId, endpoint)
+    PB-->>PG: endpoint と 暗号鍵<br>keys p256dh・auth
+    PG->>APP: PUT /push-subscription に<br>endpoint と keys を送る
+    APP->>PS: subscribe(userId, endpoint, keys)
     Note over PS: publicKey が未設定なら<br>SERVICE_UNAVAILABLE 503
-    PS->>PR: save subscriptionId<br>は利用者と宛先の SHA-256 isActive<br>true
+    PS->>PR: save subscriptionId<br>は利用者と宛先の SHA-256 keys isActive<br>true
   else 解除する
     PG->>PB: unsubscribe 解除した宛先
     PG->>APP: DELETE /push-subscription に<br>endpoint を送る
@@ -1887,11 +1928,11 @@ stateDiagram-v2
 
   [*] --> UNKNOWN : 設備の登録直後 評価前は評価結果なし
   UNKNOWN --> NORMAL : データがそろい 基準に収まる
-  UNKNOWN --> CAUTION : データがそろい 注意の範囲 通知する
-  UNKNOWN --> ERROR : データがそろい 異常の範囲 通知する
-  NORMAL --> CAUTION : 指標が注意の範囲へ 通知する
-  CAUTION --> ERROR : 指標が異常の範囲へ 通知する
-  ERROR --> CAUTION : 異常から注意へ 通知する
+  UNKNOWN --> CAUTION : データがそろい 注意の範囲 出来事の判定で通知
+  UNKNOWN --> ERROR : データがそろい 異常の範囲 出来事の判定で通知
+  NORMAL --> CAUTION : 指標が注意の範囲へ 出来事の判定で通知
+  CAUTION --> ERROR : 指標が異常の範囲へ 出来事の判定で通知
+  ERROR --> CAUTION : 異常から注意へ 改善のため通知しない
   CAUTION --> NORMAL : 基準に戻る 通知しない
   ERROR --> NORMAL : 基準に戻る 通知しない
   NORMAL --> UNKNOWN : 必要なデータが足りない 通知しない
@@ -1907,20 +1948,21 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  state "PENDING 配信待ち attempts 0" as PENDING
+  state "PENDING 未試行" as PENDING
   state "SUCCESS 配信済み" as SUCCESS
-  state "FAILURE 失敗 attempts が 1 または 2" as FAILURE
-  state "FAILURE 失敗 attempts が 3 で再送しない" as GAVEUP
+  state "FAILURE 失敗 次の試行の日時に再送" as FAILURE
+  state "ABANDONED 断念" as ABANDONED
 
-  [*] --> PENDING : 通知の作成 画面内の配信は作成時に SUCCESS
-  PENDING --> SUCCESS : JB-04 の deliverPending で失敗なし 購読が無い場合も
-  PENDING --> FAILURE : JB-04 で配信に失敗
+  [*] --> PENDING : 最初の配信の実行 有効な購読ごとに作る 画面内の配信は作成時に SUCCESS
+  PENDING --> SUCCESS : 配信できた
+  PENDING --> FAILURE : 配信に失敗
+  PENDING --> ABANDONED : 購読が無効 または 作成から 60 分経過
   FAILURE --> SUCCESS : 再送に成功
-  FAILURE --> FAILURE : 再送に失敗 attempts が 3 未満
-  FAILURE --> GAVEUP : 再送に失敗し attempts が 3 に達する
+  FAILURE --> FAILURE : 再送に失敗 間隔は 1 分から倍々 上限 60 分
+  FAILURE --> ABANDONED : 購読が無効 または 作成から 60 分経過
 ```
 
-上は、通知の **Web Push の配信状態**（`deliveries` の `WEB_PUSH`）。画面内の配信（`IN_APP`）は、作成時に `SUCCESS`（試行 1）で固定。
+上は、**購読ごと**の配信の状態（通知の `webPushDeliveries`。ADR-0019 の D-38。#237）。通知の `deliveries` の `WEB_PUSH` は、そのまとめ（未完了の購読がある間は `PENDING`。すべて `SUCCESS`、または配信する相手がなければ `SUCCESS`。断念があれば `FAILURE` で終了）。画面内の配信（`IN_APP`）は、作成時に `SUCCESS`（試行 1）で固定。
 
 ```mermaid
 stateDiagram-v2
@@ -1930,7 +1972,7 @@ stateDiagram-v2
 
 - 既読は、**利用者ごと**（`NotificationRead` が通知×利用者の組を持つ）。ある利用者が既読にしても、他の利用者の未読は変わらない。未読に戻す操作はない
 - 通知は削除されない。作成は、状態変化の通知は、出来事の判定（`isNotifiableStatusChange`）を通った場合のみ、取り込みの失敗・停止・連携の期限切れの通知は、重複抑制（同じ `dedupKey` の最新の通知から 60 分未満は作らない）を通った場合のみ
-- Web Push は、利用者を区別せず、有効な購読すべてへ配信する。購読が無効（`SUBSCRIPTION_GONE`）と返ると、その購読を無効にする
+- Web Push は、**最初の配信の実行時点の、有効な購読**（利用者を区別しない。宛先の制御は #116）へ、購読ごとに配信する（そのあとに購読した端末には、過去の通知を配信しない）。失敗した購読にだけ再送する（1 分から倍々・上限 60 分。通知を作ってから 60 分で断念）。購読が無効（`SUBSCRIPTION_GONE`）と返ると、その購読を無効にして断念する。有効期限（TTL）は、期限までの残りの秒数。実配信（`WEB_PUSH_DELIVERY=vapid`）の本文は、購読の暗号鍵で暗号化する（#241）
 
 ## 取り込み設定・取り込みログ・取り込み済みファイル（UC-15・UC-16）
 
@@ -2069,7 +2111,7 @@ stateDiagram-v2
 ```
 
 - 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）。登録の入力は `{ endpoint, keys? }`（`keys` は p256dh・auth。本文つきの配信に使う。#241）
-- ユーザーを削除しても、その購読は削除されない（課題 I-02）
+- ユーザーを削除すると、その購読も削除される（`UserService.delete` が `deleteByUser` を呼ぶ。課題 I-02 は解消）
 
 ## 変更履歴（AuditLogEntry）
 
@@ -2225,7 +2267,7 @@ combineHorizonStatuses(短期, 長期):
 - 「不明」は比較に使わない。片方が「不明」なら、もう片方を採る。両方が「不明」（短期評価を持たない観点は長期のみ）なら「不明」
 - **通知・連携・状態変化の基準**は、短期と、**観点ごとの既定の期間の長期**（`defaultPeriodDays`。満足度は 30 日、ほかは 7 日）の合成。ダッシュボードのカードの最終ステータスは、短期と、**選んだ期間**（選んでいなければ、観点ごとの既定の期間）の長期の合成（`DashboardQuery`）。期間を選ぶと、カードのステータスは、通知の基準と異なりうる
 - 評価結果がまだ保存されていない観点（設備の登録直後など）は、ダッシュボード・詳細で「不明」（診断メッセージ: `評価がまだ行われていません`）
-- 「不明」への変化は、通知しない（暫定仕様）が、状態変化の記録と連携キューには積む
+- 「不明」への変化は、通知しない（決定。ADR-0019 の D-37）が、状態変化の記録と連携キューには積む
 
 ### 1.7 判断基準の検証（保存前）
 

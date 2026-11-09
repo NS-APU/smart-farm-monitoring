@@ -118,7 +118,7 @@ flowchart LR
 flowchart LR
   EV[評価結果の状態変化<br>注意・異常] --> RULE[通知規則]
   FAIL[取り込みの失敗<br>再試行後] --> RULE
-  RULE --> DED[重複抑制<br>観点・対象・ステータス]
+  RULE --> DED[出来事の判定・重複抑制<br>状態変化は出来事で判定 取り込み系は 60 分]
   DED --> NS[(通知を保存<br>未読)]
   NS --> N1[画面内通知]
   NS --> N2[Web Push]
