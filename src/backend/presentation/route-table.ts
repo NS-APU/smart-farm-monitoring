@@ -120,6 +120,19 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'LOGIN',
     useCases: ['UC-05', 'UC-22'],
   },
+  // 通知のメモ（追記は、手動入力と同じ権限。読むのは、ログインしていれば、できる。ADR-0019 の D-42）
+  {
+    method: 'POST',
+    path: '/notifications/:notificationId/memos',
+    access: 'manual-entry:write',
+    useCases: ['UC-22'],
+  },
+  {
+    method: 'GET',
+    path: '/notifications/:notificationId/memos',
+    access: 'LOGIN',
+    useCases: ['UC-22'],
+  },
   { method: 'GET', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'PUT', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'DELETE', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },

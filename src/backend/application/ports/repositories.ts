@@ -29,7 +29,7 @@ import type {
   FederationLog,
   IngestionLog,
 } from '@smart-farm/shared/schemas/ingestion';
-import type { Notification } from '@smart-farm/shared/schemas/notification';
+import type { Notification, NotificationMemo } from '@smart-farm/shared/schemas/notification';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import type {
@@ -170,6 +170,12 @@ export interface NotificationRepository {
   /** 絞り込みの範囲の未読を、すべて既読にする。既読にした件数を返す。 */
   markAllRead(userId: UserId, filter: NotificationListFilter, readAt: Date): Promise<number>;
   update(notification: Notification): Promise<void>;
+  /** メモを追記する（追記のみ。編集・削除はない。ADR-0019 の D-42。#239）。通知の存在は、呼び出し側が確かめる。 */
+  addMemo(memo: NotificationMemo): Promise<void>;
+  /** 通知のメモ。入力の古い順（同じ日時は、メモの識別子の順）。なければ空。 */
+  listMemos(notificationId: NotificationId): Promise<NotificationMemo[]>;
+  /** 通知ごとのメモの件数（通知の識別子 → 件数）。メモがなければ 0。 */
+  memoCounts(notificationIds: readonly NotificationId[]): Promise<Map<NotificationId, number>>;
   /**
    * Web Push の配信が必要な通知（まとめの状態が未完了〔PENDING〕のもの。購読ごとの状態を持たない以前の形式の失敗も、購読ごとの形式で終了させるため、含む）。
    * 再送の上限・期限は、呼び出し側（通知サービス）が、購読ごとの状態で判断する（ADR-0019 の D-38）。

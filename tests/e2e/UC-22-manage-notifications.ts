@@ -12,6 +12,7 @@
  * 値の同値分割: 種別（すべて・異常検知・データ取得失敗）× 既読状態（すべて・未読・既読）の9通り、既読にする範囲
  * （個別・絞り込みの範囲・すべて）、件数（0件・1ページ・複数ページ）、利用者（既読は利用者ごと）。
  * 通知の経過・回復日時（Issue #238。D-42）: 通知一覧の API が、通知ごとに、次の通知までの経過と、最初に正常に戻った日時を返す。
+ * 通知のメモ（Issue #239。D-42）: 利用者が、通知にメモを追記でき（共有・追記のみ）、入力者と日時が残る。通知一覧が、メモの件数を返す。
  * 関連するユースケース: UC-05（通知から対象の確認へ）、UC-10・UC-24（通知の発生）。
  */
 
@@ -23,6 +24,7 @@ import {
   USER_B,
   addUser,
   alignBrowserClock,
+  api,
   apiOk,
   newUserSession,
   openAs,
@@ -619,5 +621,68 @@ test.describe('通知の経過・回復日時（API。Issue #238。D-42）', () 
 
     expect(failure?.kind).toBe('INGESTION_FAILURE');
     expect(failure !== undefined && 'progress' in failure).toBe(false);
+  });
+});
+
+test.describe('通知のメモ（API。Issue #239。D-42）', () => {
+  test('通知にメモを追記すると、入力者と日時が残り、一覧は入力の古い順。通知一覧が、メモの件数を返す', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+    const [notification] = await listNotifications(request);
+    expect(notification?.memoCount).toBe(0);
+    const id = notification?.notificationId ?? '';
+
+    const first = await apiOk<{ memoId: string; enteredBy: string; body: string }>(
+      request,
+      'POST',
+      `/notifications/${id}/memos`,
+      { body: '  ファイルサーバーを再起動して復旧した  ' },
+    );
+    await advanceMinutes(request, 5);
+    await apiOk(request, 'POST', `/notifications/${id}/memos`, { body: '復旧を確認した' });
+
+    expect(first.body).toBe('ファイルサーバーを再起動して復旧した');
+    expect(first.enteredBy).not.toBe('');
+    const memos = await apiOk<{ items: { body: string; createdAt: string }[] }>(
+      request,
+      'GET',
+      `/notifications/${id}/memos`,
+    );
+    expect(memos.items.map((item) => item.body)).toEqual([
+      'ファイルサーバーを再起動して復旧した',
+      '復旧を確認した',
+    ]);
+    expect(
+      Date.parse(memos.items[1]?.createdAt ?? '') - Date.parse(memos.items[0]?.createdAt ?? ''),
+    ).toBe(5 * 60_000);
+    expect((await listNotifications(request))[0]?.memoCount).toBe(2);
+  });
+
+  test('不正な本文（空・2001 文字）は 400。編集・削除はできない（追記のみ）。通知がなければ 404', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+    const id = (await listNotifications(request))[0]?.notificationId ?? '';
+    const memo = await apiOk<{ memoId: string }>(request, 'POST', `/notifications/${id}/memos`, {
+      body: 'メモ',
+    });
+
+    const empty = await api(request, 'POST', `/notifications/${id}/memos`, { body: '  ' });
+    const tooLong = await api(request, 'POST', `/notifications/${id}/memos`, {
+      body: 'あ'.repeat(2001),
+    });
+    const update = await api(request, 'PUT', `/notifications/${id}/memos/${memo.memoId}`, {
+      body: '修正',
+    });
+    const remove = await api(request, 'DELETE', `/notifications/${id}/memos/${memo.memoId}`);
+    const missing = await api(request, 'POST', '/notifications/none/memos', { body: 'メモ' });
+
+    expect([empty.status(), tooLong.status()]).toEqual([400, 400]);
+    expect([update.status(), remove.status()]).toEqual([404, 404]);
+    expect(missing.status()).toBe(404);
+    expect((await listNotifications(request))[0]?.memoCount).toBe(1);
   });
 });

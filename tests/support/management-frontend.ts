@@ -100,6 +100,7 @@ export function notification(overrides: Partial<NotificationItem> = {}): Notific
     message: '【異常】環境適応性（ハウス1）: 環境適応性: 異常。温度 40.0℃（異常）',
     createdAt: '2026-10-09T02:00:00.000Z',
     readState: 'UNREAD',
+    memoCount: 0,
     ...overrides,
   };
 }

@@ -15,6 +15,8 @@ import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
   Notification,
   NotificationListResponse,
+  NotificationMemo,
+  NotificationMemoInput,
   NotificationProgress,
   WebPushDelivery,
 } from '@smart-farm/shared/schemas/notification';
@@ -86,6 +88,17 @@ export interface NotificationService {
    * （抑制の間に破棄した分は、連携のログに残る）。
    */
   notifyFederationExpired(input: { expiryDays: number }): Promise<Notification | null>;
+  /**
+   * 通知にメモ（自由記述）を追記する（ADR-0019 の D-42。共有・追記のみ）。入力者と日時を記録する。通知がなければ undefined。
+   * 農業情報基盤には送らない。変更履歴（監査ログ）にも載せない（メモ自体が、入力者と日時の記録）。
+   */
+  addMemo(
+    notificationId: NotificationId,
+    enteredBy: UserId,
+    input: NotificationMemoInput,
+  ): Promise<NotificationMemo | undefined>;
+  /** 通知のメモ（入力の古い順。全件）。通知がなければ undefined。 */
+  listMemos(notificationId: NotificationId): Promise<NotificationMemo[] | undefined>;
   list(
     userId: UserId,
     query: {
@@ -119,6 +132,7 @@ export interface NotificationServiceDeps {
 function toNotificationItem(
   notification: Notification,
   isRead: boolean,
+  memoCount: number,
 ): NotificationListResponse['items'][number] {
   return {
     notificationId: notification.notificationId,
@@ -132,6 +146,7 @@ function toNotificationItem(
     message: notification.message,
     createdAt: notification.createdAt,
     readState: isRead ? 'READ' : 'UNREAD',
+    memoCount,
   };
 }
 
@@ -355,15 +370,46 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         cursor: query.cursor,
       });
       const progress = await progressOfPage(page.items.map(({ notification }) => notification));
+      // メモの件数は、ページ内の通知を、まとめて読む（1 回）
+      const memoCounts = await notifications.memoCounts(
+        page.items.map(({ notification }) => notification.notificationId),
+      );
       return {
         items: page.items.map(({ notification, isRead }) => ({
-          ...toNotificationItem(notification, isRead),
+          ...toNotificationItem(
+            notification,
+            isRead,
+            memoCounts.get(notification.notificationId) ?? 0,
+          ),
           ...(progress.has(notification.notificationId)
             ? { progress: progress.get(notification.notificationId) ?? null }
             : {}),
         })),
         nextCursor: page.nextCursor,
       };
+    },
+
+    async addMemo(notificationId, enteredBy, input) {
+      if ((await notifications.get(notificationId)) === undefined) {
+        return undefined;
+      }
+      const memo: NotificationMemo = {
+        memoId: ids.next(),
+        notificationId,
+        enteredBy,
+        body: input.body,
+        createdAt: clock.now().toISOString(),
+      };
+      await notifications.addMemo(memo);
+      logger.info('通知のメモを追記しました', { notificationId });
+      return memo;
+    },
+
+    async listMemos(notificationId) {
+      if ((await notifications.get(notificationId)) === undefined) {
+        return undefined;
+      }
+      return notifications.listMemos(notificationId);
     },
 
     unreadCount: (userId) => notifications.unreadCount(userId),

@@ -1,6 +1,7 @@
 /** 通知のスキーマ。data-dictionary.md 9.1、FR-7。 */
 
 import { z } from 'zod';
+import { MAX_NOTE_LENGTH } from '../constants/limits.ts';
 import {
   EquipmentIdSchema,
   EvaluationStatusSchema,
@@ -8,6 +9,7 @@ import {
   NotificationIdSchema,
   NotificationKindSchema,
   ReadStateSchema,
+  UserIdSchema,
   ViewpointIdSchema,
 } from './common.ts';
 
@@ -79,6 +81,35 @@ export const NotificationProgressSchema = z.object({
 export type NotificationProgress = z.infer<typeof NotificationProgressSchema>;
 
 /**
+ * 通知のメモ（利用者が入力する自由記述。ADR-0019 の D-42。#239）。共有（全員が読める）・追記のみ（編集・削除はない）。
+ * 入力者（ユーザー ID）と日時を持つ。農業情報基盤には送らない。
+ */
+export const NotificationMemoSchema = z.object({
+  memoId: z.string().min(1),
+  notificationId: NotificationIdSchema,
+  enteredBy: UserIdSchema,
+  body: z.string().min(1).max(MAX_NOTE_LENGTH),
+  createdAt: IsoDateTimeSchema,
+});
+export type NotificationMemo = z.infer<typeof NotificationMemoSchema>;
+
+/** POST /notifications/:id/memos の入力。前後の空白を除き、1〜2000 文字（手動入力のメモと同じ上限）。 */
+export const NotificationMemoInputSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, 'メモを入力してください')
+    .max(MAX_NOTE_LENGTH, `メモは${String(MAX_NOTE_LENGTH)}文字以内で入力してください`),
+});
+export type NotificationMemoInput = z.infer<typeof NotificationMemoInputSchema>;
+
+/** GET /notifications/:id/memos の応答（入力の古い順。全件）。 */
+export const NotificationMemoListResponseSchema = z.object({
+  items: z.array(NotificationMemoSchema),
+});
+export type NotificationMemoListResponse = z.infer<typeof NotificationMemoListResponseSchema>;
+
+/**
  * API の応答の1件。既読状態は、ログイン中の利用者ごと（暫定。dev_spec.md 4章）。
  * `progress` は、状態変化の通知だけ。経過を示せない（設備を削除した、など）ときは null（「不明」）。
  */
@@ -88,6 +119,8 @@ export const NotificationItemSchema = NotificationSchema.omit({
   webPushDeliveries: true,
 }).extend({
   readState: ReadStateSchema,
+  /** 通知に付いたメモの件数（#239）。 */
+  memoCount: z.number().int().nonnegative(),
   progress: NotificationProgressSchema.nullable().optional(),
 });
 export type NotificationItem = z.infer<typeof NotificationItemSchema>;

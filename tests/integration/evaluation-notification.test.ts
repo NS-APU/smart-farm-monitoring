@@ -1276,6 +1276,8 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
         unreadCount: vi.fn(),
         markRead: vi.fn(),
         markAllRead: vi.fn(),
+        addMemo: vi.fn(),
+        listMemos: vi.fn(),
         deliverPending: vi
           .fn()
           .mockResolvedValue({ notificationsProcessed: 0, delivered: 0, failed: 0 }),
