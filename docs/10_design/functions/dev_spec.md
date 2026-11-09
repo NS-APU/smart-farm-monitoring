@@ -126,7 +126,7 @@ smart-farm-monitoring/
 | 設備管理 | `equipment/equipment-service.ts`、`equipment/status-code-service.ts` | 設備の登録・編集・削除（論理）・階層の取得、ステータスコードの登録・編集・削除（論理）・一覧。変更後は、評価を更新し、変更履歴に記録 | UC-12, 17 |
 | 手動入力 | `manual-entry/manual-entry-service.ts`、`audit/audit-service.ts` | 検証・保存・修正・論理削除・一覧（検索・絞り込み・並べ替え・ページ分割）・変更履歴の記録と参照。保存後は、評価の更新・連携キューへの追加。項目のカタログと検証は `shared/constants/items.ts`・`shared/schemas/manual-entry.ts`（画面と共通） | UC-06, 07, 18 |
 | 評価 | `evaluation/evaluation-service.ts`、`criteria-service.ts`、`criteria-admin-service.ts`（判断基準の編集・既定値へ戻す）、`scope.ts` | 観測値の読み出し → 純粋関数の評価 → 保存 → 状態変化の検知 → 通知・連携キューへ | UC-01〜04, 19, 21 |
-| 通知 | `notification/notification-service.ts`、`push-subscription-service.ts` | 作成（重複抑制）、一覧、既読、Web Push の購読の登録・解除・状態、配信と再送 | UC-05, 10, 22, 23, 24 |
+| 通知 | `notification/notification-service.ts`、`push-subscription-service.ts` | 作成（状態変化は出来事で判定。取り込み系は 60 分の抑制）、一覧（経過・回復日時・メモの件数・読み込み時点）、既読（個別・一括〔`until` まで。件数つきの確認〕）、メモの追記・一覧、Web Push の購読の登録（暗号鍵つき）・解除・状態、配信（実配信・ダミー）と再送 | UC-05, 10, 22, 23, 24 |
 | 連携 | `federation/federation-service.ts` | 連携キューへの追加、非同期の送信、保留・再試行、結果の記録 | UC-11 |
 | 参照 | `query/dashboard-query.ts`、`viewpoint-query.ts`、`observation-query.ts` | ダッシュボード・観点の詳細・推移・満足度・取り込み済みデータの一覧（保存済みの評価結果・観測値を読むだけ） | UC-01〜03, 20, 21 |
 | 認証 | `auth/access-policy.ts`、`auth/auth-service.ts`、`auth/user-service.ts` | ロール → 権限の方針、ログイン・更新・ログアウト、認証済みの利用者（権限つき）、ユーザーの登録・編集・削除（一覧は最終ログイン日時つき） | UC-13, 14 |
@@ -541,7 +541,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | `POST /ingestion/{sourceId}/test`、`POST /ingestion/{sourceId}/run` | 接続テストは `{ ok, message }`（200。失敗は、理由だけを `message` に示す。接続先・認証情報を含まない。ADR-0022）。即時取得は、同期して実行し、`{ sourceId, result, filesProcessed, recordCount, rejectedCount, attempts }` を 202 で返す（4.1 No.29）。実行中は 409 |
 | `GET /ingestion/logs`、`GET /federation/logs` | クエリ `sourceId`（取り込みログのみ）、`limit`、`cursor`。連携は、`{ items[], nextCursor, queue: { PENDING, SENT, FAILED, HELD, EXPIRED } }`（連携キューの件数を含む） |
 | `GET /users`、`POST /users`、`PUT /users/{id}`、`DELETE /users/{id}` | 権限 `user:manage`。一覧は `{ items[], roles[] }`（`lastLoginAt` を含む。パスワードのハッシュは含めない）。登録は `{ userId, userName, password, role }`（201。重複は 409）、修正は `{ userName, role, password? }`、削除は 204（本人は 409） |
-| `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | 状態は、クエリ `endpoint`（端末の宛先）を指定すると、その端末の購読の有無。応答 `{ isAvailable, publicKey, isSubscribed }`。登録 `{ endpoint }`（公開鍵が未設定なら 503）、解除は本文 `{ endpoint? }`（なければ、利用者のすべての購読）。いずれも、ログイン中の利用者が対象 |
+| `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | 状態は、クエリ `endpoint`（端末の宛先）を指定すると、その端末の購読の有無。応答 `{ isAvailable, publicKey, isSubscribed }`。登録 `{ endpoint, keys? }`（`keys` は `{ p256dh, auth }`。保存し、応答には出さない。公開鍵が未設定なら 503）、解除は本文 `{ endpoint? }`（なければ、利用者のすべての購読）。いずれも、ログイン中の利用者が対象 |
 | 開発用 API | 3.8 |
 
 ## 8. 実装した範囲と、申し送り
