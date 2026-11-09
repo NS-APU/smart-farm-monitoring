@@ -1,10 +1,10 @@
 /**
  * SC-05 通知一覧（UC-05、UC-22。FR-7.5、FR-7.6）。通知の一覧（新しい順）、種別・既読状態での絞り込み、
- * 個別・一括の既読化。通知から、対象の観点の詳細（SC-03）または取り込みの状況（SC-11）へ移る。
+ * 個別・一括の既読化（一括は、画面に読み込んだ時点までの未読に限り、件数つきの確認をする。ADR-0019 の D-39）。通知から、対象の観点の詳細（SC-03）または取り込みの状況（SC-11）へ移る。
  * 状態は、未読・既読の2つのみ（対応状況の管理・承認はない。Q-018）。
  */
 
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import {
   NOTIFICATION_KINDS,
   READ_STATES,
@@ -12,16 +12,18 @@ import {
   type ReadState,
 } from '@smart-farm/shared/constants/status';
 import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
-import type { NotificationItem } from '@smart-farm/shared/schemas/notification';
+import type { NotificationItem, ReadAllRequest } from '@smart-farm/shared/schemas/notification';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import {
+  countUnreadNotifications,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
-import { FormError, Pager } from '../components/form-controls.tsx';
+import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx';
+import { Icon } from '../components/icon.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -51,6 +53,12 @@ function targetLabel(item: NotificationItem, equipmentNames: ReadonlyMap<string,
   );
 }
 
+/** 確認待ちの一括既読: 確認で示した件数と、実行する範囲（読み込んだ時点まで）。 */
+interface PendingMark {
+  readonly count: number;
+  readonly request: ReadAllRequest;
+}
+
 export function NotificationsPage(): ReactNode {
   const { api } = useAuth();
   const { equipmentNames, selectEquipment } = useAppState();
@@ -59,6 +67,8 @@ export function NotificationsPage(): ReactNode {
   const readState = READ_STATES.find((candidate) => candidate === query.get('readState')) ?? '';
   const paging = useCursorPaging(`${kind}|${readState}`);
   const submit = useSubmit();
+  const [pending, setPending] = useState<PendingMark | undefined>(undefined);
+  const [notice, setNotice] = useState<string | undefined>(undefined);
 
   const { cursor } = paging;
   const fetchPage = useCallback(
@@ -81,12 +91,45 @@ export function NotificationsPage(): ReactNode {
     }
   }
 
-  async function markMany(filter: {
+  /**
+   * 一括既読の確認: 画面に読み込んだ時点（asOf）までの、範囲の未読の件数を示す。0 件なら、確認せず、その旨だけを示す。
+   * 確認の件数と、実行する範囲（読み込んだ時点まで）は、同じにする（確認したあとに届いた通知は、既読にしない）。
+   */
+  async function requestMarkMany(scope: {
     kind?: NotificationKind;
     readState?: ReadState;
   }): Promise<void> {
-    const result = await submit.run(() => markAllNotificationsRead(api, filter));
+    if (data === undefined) {
+      return;
+    }
+    setNotice(undefined);
+    const until = data.asOf;
+    // 既読だけの範囲は、既読にする対象がない（サーバーへ問い合わせない）
+    if (scope.readState === 'READ') {
+      setNotice(TEXT.nothingToMark);
+      return;
+    }
+    const counted = await submit.run(() =>
+      countUnreadNotifications(api, {
+        ...(scope.kind === undefined ? {} : { kind: scope.kind }),
+        until,
+      }),
+    );
+    if (!counted.ok) {
+      return;
+    }
+    if (counted.value.unreadCount === 0) {
+      setNotice(TEXT.nothingToMark);
+      return;
+    }
+    setPending({ count: counted.value.unreadCount, request: { ...scope, until } });
+  }
+
+  async function confirmMarkMany(target: PendingMark): Promise<void> {
+    const result = await submit.run(() => markAllNotificationsRead(api, target.request));
+    setPending(undefined);
     if (result.ok) {
+      setNotice(TEXT.markedNotice(result.value.markedCount));
       notifyUnreadChanged();
       reload();
     }
@@ -254,9 +297,9 @@ export function NotificationsPage(): ReactNode {
             <button
               type="button"
               className="button-secondary"
-              disabled={submit.busy || !hasFilter}
+              disabled={submit.busy || data === undefined || !hasFilter}
               onClick={() => {
-                void markMany({
+                void requestMarkMany({
                   ...(kind === '' ? {} : { kind }),
                   ...(readState === '' ? {} : { readState }),
                 });
@@ -266,9 +309,9 @@ export function NotificationsPage(): ReactNode {
             </button>
             <button
               type="button"
-              disabled={submit.busy}
+              disabled={submit.busy || data === undefined}
               onClick={() => {
-                void markMany({});
+                void requestMarkMany({});
               }}
             >
               {TEXT.markAllRead}
@@ -276,10 +319,30 @@ export function NotificationsPage(): ReactNode {
           </div>
         </div>
         <FormError message={submit.formMessage} />
+        {notice === undefined ? null : (
+          <p role="status" className="form-success" data-testid="notifications-notice">
+            <Icon name="status-normal" size={16} />
+            {notice}
+          </p>
+        )}
       </section>
       <section className="panel" aria-label={TEXT.title}>
         {body}
       </section>
+      {pending === undefined ? null : (
+        <ConfirmDialog
+          title={TEXT.confirmMarkTitle}
+          message={TEXT.confirmMarkMessage(pending.count)}
+          confirmLabel={TEXT.markRead}
+          busy={submit.busy}
+          onConfirm={() => {
+            void confirmMarkMany(pending);
+          }}
+          onCancel={() => {
+            setPending(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

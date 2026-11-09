@@ -128,11 +128,32 @@ export type NotificationItem = z.infer<typeof NotificationItemSchema>;
 export const NotificationListResponseSchema = z.object({
   items: z.array(NotificationItemSchema),
   nextCursor: z.string().nullable(),
+  /** サーバーが通知を読み込んだ時点（#240）。画面は、これを一括既読の `until` に使う（以降に届いた通知を、既読にしない）。 */
+  asOf: IsoDateTimeSchema,
 });
 export type NotificationListResponse = z.infer<typeof NotificationListResponseSchema>;
 
 export const UnreadCountResponseSchema = z.object({ unreadCount: z.number().int().nonnegative() });
 export type UnreadCountResponse = z.infer<typeof UnreadCountResponseSchema>;
+
+/**
+ * 一括既読の範囲（#240。ADR-0019 の D-39）。`until`（読み込んだ時点）以前に届いた通知だけが対象。
+ * `GET /notifications/unread-count` のクエリ（`kind`・`until`）と、`POST /notifications/read-all` の本文で共通。
+ */
+export const NotificationReadRangeSchema = z.object({
+  kind: NotificationKindSchema.optional(),
+  until: IsoDateTimeSchema,
+});
+
+/** POST /notifications/read-all の入力。絞り込み（`kind`・`readState`）と、読み込んだ時点（`until`。必須）。 */
+export const ReadAllRequestSchema = NotificationReadRangeSchema.extend({
+  readState: ReadStateSchema.optional(),
+});
+export type ReadAllRequest = z.infer<typeof ReadAllRequestSchema>;
+
+/** POST /notifications/read-all の応答。新しく既読にした件数。 */
+export const ReadAllResponseSchema = z.object({ markedCount: z.number().int().nonnegative() });
+export type ReadAllResponse = z.infer<typeof ReadAllResponseSchema>;
 
 /** PUT /push-subscription の入力（端末ごとの購読。FR-7.2）。 */
 /** Web Push の購読の宛先。https のみ（サーバーが宛先へ送信する実装では、内部のアドレスへの接続の経路になるため、制限する。V-016）。 */

@@ -26,6 +26,7 @@ import {
   alignBrowserClock,
   api,
   apiOk,
+  confirmDialog,
   newUserSession,
   openAs,
   prepareApp,
@@ -229,6 +230,8 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     await expect(rows(page)).toHaveCount(2);
 
     await page.getByRole('button', { name: '絞り込みの範囲を既読にする' }).click();
+    await expect(page.getByTestId('confirm-dialog')).toContainText('未読の通知 2 件を既読にします');
+    await confirmDialog(page, '既読にする');
 
     await expect(rows(page).first()).toHaveAttribute('data-read-state', 'READ');
     await expect(rows(page).nth(1)).toHaveAttribute('data-read-state', 'READ');
@@ -248,12 +251,43 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     await expect(page.getByRole('button', { name: '絞り込みの範囲を既読にする' })).toBeDisabled();
 
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await expect(page.getByTestId('confirm-dialog')).toContainText('未読の通知 5 件を既読にします');
+    await confirmDialog(page, '既読にする');
 
     await expect(unreadBadge(page)).toHaveText('0');
     for (const row of await rows(page).all()) {
       await expect(row).toHaveAttribute('data-read-state', 'READ');
     }
     await shot(page, testInfo, 'uc22-all-read');
+  });
+
+  test('一括既読の確認で「キャンセル」を選ぶと、既読にならない。既読にする未読がないときは、確認せず、その旨を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareFiveNotifications(request);
+    await openNotifications(page);
+
+    await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    const dialog = page.getByTestId('confirm-dialog');
+    await expect(dialog).toContainText('未読の通知 5 件を既読にします');
+    await expect(dialog).toContainText('読み込んだ時点より後に届いた通知は、既読にしません');
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(unreadBadge(page)).toHaveText('5');
+    // 既読にしたあとは、既読にする未読がない（確認は開かず、その旨を示す）
+    await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(page, '既読にする');
+    await expect(page.getByTestId('notifications-notice')).toContainText(
+      '5 件の通知を既読にしました',
+    );
+    await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await expect(page.getByTestId('notifications-notice')).toContainText(
+      '既読にする未読の通知はありません',
+    );
+    await expect(dialog).toBeHidden();
+    await expect(unreadBadge(page)).toHaveText('0');
   });
 
   test('既読にした通知を、未読の絞り込みで探すと、表示されない', async ({ page, request }) => {
@@ -391,6 +425,7 @@ test.describe('シナリオ: 複数の利用者（A・B）が、同じ通知を�
     }
     // 利用者B: 全件を既読にする
     await b.page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(b.page, '既読にする');
     await expect(unreadBadge(b.page)).toHaveText('0');
     await shot(b.page, testInfo, 'uc22-user-b-all-read');
 
@@ -580,6 +615,7 @@ for (const viewport of NOTIFICATION_VIEWPORTS) {
       await expectUnreadBadgeIntact(page, '104');
       await page.getByRole('button', { name: 'すべての通知を既読にする' }).scrollIntoViewIfNeeded();
       await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+      await confirmDialog(page, '既読にする');
       await expectUnreadBadgeIntact(page, '0');
       await expectNotificationTableNotCrushed(page);
     });
@@ -684,5 +720,54 @@ test.describe('通知のメモ（API。Issue #239。D-42）', () => {
     expect([update.status(), remove.status()]).toEqual([404, 404]);
     expect(missing.status()).toBe(404);
     expect((await listNotifications(request))[0]?.memoCount).toBe(1);
+  });
+});
+
+test.describe('一括既読は、読み込んだ時点までに限る（API。Issue #240。D-39）', () => {
+  test('一覧の読み込んだ時点（asOf）までの未読だけを既読にし、件数を返す。あとに届いた通知は、未読のまま', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+    const loaded = await apiOk<{ items: unknown[]; asOf: string }>(
+      request,
+      'GET',
+      '/notifications?limit=100',
+    );
+    expect(loaded.items).toHaveLength(1);
+    // 画面を読み込んだあとに、別の通知が届く
+    await advanceMinutes(request, 1);
+    await failIngestion(request, ['environment-sensor']);
+
+    const counted = await apiOk<{ unreadCount: number }>(
+      request,
+      'GET',
+      `/notifications/unread-count?until=${encodeURIComponent(loaded.asOf)}`,
+    );
+    const marked = await apiOk<{ markedCount: number }>(
+      request,
+      'POST',
+      '/notifications/read-all',
+      {
+        until: loaded.asOf,
+      },
+    );
+
+    expect(counted.unreadCount).toBe(1);
+    expect(marked.markedCount).toBe(1);
+    const rest = await listNotifications(request, '&readState=UNREAD');
+    expect(rest).toHaveLength(1);
+    expect(rest[0]?.message).toContain('環境センサーデータ');
+  });
+
+  test('読み込んだ時点（until）がない一括既読は、400。何も既読にしない', async ({ request }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+
+    const withoutUntil = await api(request, 'POST', '/notifications/read-all', {});
+    const invalid = await api(request, 'POST', '/notifications/read-all', { until: 'きのう' });
+
+    expect([withoutUntil.status(), invalid.status()]).toEqual([400, 400]);
+    expect(await listNotifications(request, '&readState=UNREAD')).toHaveLength(1);
   });
 });

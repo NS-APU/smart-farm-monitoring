@@ -113,16 +113,18 @@ export function createNotificationRepository(db: Database): NotificationReposito
     }
   }
 
-  /** 通知のページを、新しい順に読み、利用者ごとの既読を付ける。 */
+  /** 通知のページを、新しい順に読み、利用者ごとの既読を付ける。`until` があれば、その日時以前（ちょうどを含む）だけを読む。 */
   async function* newestFirst(
     userId: string,
     startAfter: Item | undefined,
+    until?: Date,
   ): AsyncGenerator<{ readonly sortKey: string; readonly entry: NotificationWithReadState }> {
     for await (const items of queryPages(db, {
       table,
       hashName: 'pk',
       hashValue: NOTIFICATION,
       sortName: 'sk',
+      upper: until === undefined ? undefined : upperBoundOf(instantKey(until.toISOString())),
       forward: false,
       pageSize: LIST_PAGE_SIZE,
       consistent: true,
@@ -148,6 +150,20 @@ export function createNotificationRepository(db: Database): NotificationReposito
         yield { sortKey, entry: { notification, isRead: reads.has(notification.notificationId) } };
       }
     }
+  }
+
+  /** 絞り込みの範囲（`until` 以前を含む）の、未読の通知の識別子。既読だけの範囲（`readState=READ`）は、なし。 */
+  async function unreadIdsIn(userId: string, filter: NotificationListFilter): Promise<string[]> {
+    const unread: string[] = [];
+    if (filter.readState === 'READ') {
+      return unread;
+    }
+    for await (const found of newestFirst(userId, undefined, filter.until)) {
+      if (!found.entry.isRead && matchesFilter(found.entry.notification, false, filter)) {
+        unread.push(found.entry.notification.notificationId);
+      }
+    }
+    return unread;
   }
 
   const repository: NotificationRepository = {
@@ -196,6 +212,7 @@ export function createNotificationRepository(db: Database): NotificationReposito
       for await (const found of newestFirst(
         userId,
         after === undefined ? undefined : { pk: NOTIFICATION, sk: after },
+        filter.until,
       )) {
         if (matchesFilter(found.entry.notification, found.entry.isRead, filter)) {
           collected.push(found);
@@ -225,16 +242,9 @@ export function createNotificationRepository(db: Database): NotificationReposito
       await markReadOnce(notificationId, userId, readAt);
       return true;
     },
+    countUnread: async (userId, filter) => (await unreadIdsIn(userId, filter)).length,
     async markAllRead(userId, filter, readAt) {
-      if (filter.readState === 'READ') {
-        return 0;
-      }
-      const unread: string[] = [];
-      for await (const found of newestFirst(userId, undefined)) {
-        if (!found.entry.isRead && matchesFilter(found.entry.notification, false, filter)) {
-          unread.push(found.entry.notification.notificationId);
-        }
-      }
+      const unread = await unreadIdsIn(userId, filter);
       const results = await mapConcurrent(unread, CONCURRENCY, (notificationId) =>
         markReadOnce(notificationId, userId, readAt),
       );

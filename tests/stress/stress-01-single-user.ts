@@ -1048,7 +1048,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     respond: () => expect(page.getByTestId('unread-count')).not.toHaveText(unreadBefore),
   });
   await m('UC-22', '絞り込みの範囲（未読）を、まとめて既読にする', '通知（SC-05）', 'operation', {
-    act: () => page.getByRole('button', { name: '絞り込みの範囲を既読にする' }).click(),
+    act: async () => {
+      await page.getByRole('button', { name: '絞り込みの範囲を既読にする' }).click();
+      await page.getByTestId('confirm-dialog').getByRole('button', { name: '既読にする' }).click();
+    },
     respond: () => expect(page.getByTestId('unread-count')).toHaveText('0'),
   });
   await m(
@@ -1059,9 +1062,13 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     {
       act: async () => {
         await page.getByLabel('既読状態').selectOption('');
+        // 直前の操作で、未読はなくなっているため、確認は開かず、既読にする通知がない旨が示される（D-39）
         await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
       },
       respond: async () => {
+        await expect(page.getByTestId('notifications-notice')).toContainText(
+          '既読にする未読の通知はありません',
+        );
         await expect(page.getByTestId('unread-count')).toHaveText('0');
         await expectListShown(page, 'notification-row');
       },

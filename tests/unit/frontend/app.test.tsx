@@ -278,7 +278,7 @@ describe('共通のヘッダー・ナビゲーション', () => {
     renderApp({
       handler: (request) =>
         request.path === '/notifications'
-          ? jsonResponse({ items: [], nextCursor: null })
+          ? jsonResponse({ items: [], nextCursor: null, asOf: '2026-10-09T01:00:00.000Z' })
           : base(request),
     });
     await screen.findByText('農作業者A');

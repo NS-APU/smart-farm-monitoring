@@ -15,7 +15,11 @@ import {
   RefreshRequestSchema,
 } from '@smart-farm/shared/schemas/auth';
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
-import { NotificationMemoInputSchema } from '@smart-farm/shared/schemas/notification';
+import {
+  NotificationMemoInputSchema,
+  NotificationReadRangeSchema,
+  ReadAllRequestSchema,
+} from '@smart-farm/shared/schemas/notification';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { ApiDeps } from './api-deps.ts';
 import { createAdminHandlers } from './admin-handlers.ts';
@@ -23,9 +27,9 @@ import { bearerTokenOf } from './auth-guards.ts';
 import { clientAddressOf } from './client-address.ts';
 import { jsonWithEtag } from './etag.ts';
 import { createManualEntryHandlers } from './manual-entry-handlers.ts';
-import { HorizonQuerySchema, NotificationFilterSchema } from './query-schemas.ts';
+import { HorizonQuerySchema, NotificationFilterSchema, toOptionalDate } from './query-schemas.ts';
 import { actorOf, resolveEquipmentId } from './request-helpers.ts';
-import { parseInput, parseJsonBody, parseOptionalJsonBody, parseQuery } from './request-parsing.ts';
+import { parseInput, parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 import { createViewpointHandlers } from './viewpoint-handlers.ts';
 
@@ -98,22 +102,28 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
     },
 
     async 'GET /notifications/unread-count'(c) {
+      // 範囲（種別・読み込んだ時点）の指定があれば、その範囲の未読の件数（一括既読の確認の件数）。なければ、すべての未読
+      const range = parseQuery(c, NotificationReadRangeSchema.partial());
       return c.json({
-        unreadCount: await deps.notificationService.unreadCount(actorOf(c)),
+        unreadCount: await deps.notificationService.unreadCount(actorOf(c), {
+          kind: range.kind,
+          until: toOptionalDate(range.until),
+        }),
       });
     },
 
     async 'POST /notifications/read-all'(c) {
-      // 絞り込みの範囲（任意）を、本文で受ける。本文がなければ、全件
-      const filter = await parseOptionalJsonBody(c, NotificationFilterSchema);
-      await deps.notificationService.markAllRead(
+      // 読み込んだ時点（until）は必須（画面を開いたあとに届いた通知まで、既読にしない。D-39）
+      const request = await parseJsonBody(c, ReadAllRequestSchema);
+      const markedCount = await deps.notificationService.markAllRead(
         actorOf(c),
         omitUndefined({
-          kind: filter.kind,
-          readState: filter.readState,
+          kind: request.kind,
+          readState: request.readState,
+          until: new Date(request.until),
         }),
       );
-      return c.body(null, 204);
+      return c.json({ markedCount });
     },
 
     // 通知のメモ（ADR-0019 の D-42。#239）。追記と一覧のみ（編集・削除はない）

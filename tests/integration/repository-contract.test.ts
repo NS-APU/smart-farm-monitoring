@@ -521,6 +521,54 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(await repositories.notifications.unreadCount(USER)).toBe(0);
     });
 
+    it('一括既読は、until 以前（ちょうどを含む）に作成された通知だけを既読にする。範囲の未読の件数と一致する（Issue #240）', async () => {
+      const repositories = await seeded();
+      const until = new Date('2026-10-09T02:00:00.000Z');
+
+      const counted = await repositories.notifications.countUnread(USER, { until });
+      const countedStatusChanges = await repositories.notifications.countUnread(USER, {
+        kind: 'STATUS_CHANGE',
+        until,
+      });
+      const marked = await repositories.notifications.markAllRead(USER, { until }, new Date());
+
+      expect([counted, countedStatusChanges, marked]).toEqual([2, 1, 2]);
+      // until より後の通知（n-3）は、未読のまま。ほかの利用者は、変わらない
+      const unread = await repositories.notifications.list(
+        USER,
+        { readState: 'UNREAD' },
+        { limit: 10 },
+      );
+      expect(unread.items.map((entry) => entry.notification.notificationId)).toEqual(['n-3']);
+      expect(await repositories.notifications.unreadCount(USER)).toBe(1);
+      expect(await repositories.notifications.unreadCount(OTHER_USER)).toBe(3);
+      expect(await repositories.notifications.countUnread(USER, { until })).toBe(0);
+    });
+
+    it('範囲の未読の件数: 絞り込みなしは、すべての未読。既読だけの範囲（READ）は、0。通知一覧も until で絞れる（Issue #240）', async () => {
+      const repositories = await seeded();
+      await repositories.notifications.markRead(
+        NotificationIdSchema.parse('n-1'),
+        USER,
+        new Date(),
+      );
+
+      expect(await repositories.notifications.countUnread(USER, {})).toBe(2);
+      expect(await repositories.notifications.countUnread(USER, { readState: 'READ' })).toBe(0);
+      expect(
+        await repositories.notifications.markAllRead(USER, { readState: 'READ' }, new Date()),
+      ).toBe(0);
+      const upToSecond = await repositories.notifications.list(
+        USER,
+        { until: new Date('2026-10-09T02:00:00.000Z') },
+        { limit: 10 },
+      );
+      expect(upToSecond.items.map((entry) => entry.notification.notificationId)).toEqual([
+        'n-2',
+        'n-1',
+      ]);
+    });
+
     it('同じ重複抑制のキーの、最新の通知を取得できる', async () => {
       const repositories = await seeded();
 

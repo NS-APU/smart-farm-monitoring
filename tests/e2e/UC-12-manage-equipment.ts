@@ -890,6 +890,7 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await openAs(b.page, '/notifications', USER_B);
     await expect(unreadBadge(b.page)).toHaveText(String(unreadForA + 1));
     await b.page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(b.page, '既読にする');
     await expect(unreadBadge(b.page)).toHaveText('0');
     await page.reload();
     await expect(unreadBadge(page)).toHaveText(String(unreadForA));

@@ -27,6 +27,7 @@ import {
   addUser,
   advanceMinutes,
   alignBrowserClock,
+  confirmDialog,
   goToMenu,
   newUserSession,
   openAs,
@@ -323,6 +324,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
       rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: 'ハウス1' }),
     ).toHaveAttribute('data-read-state', 'UNREAD');
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(page, '既読にする');
     await expect(unreadBadge(page)).toHaveText('0');
     // 利用者B: 自分の既読は、そのまま（Aが全件を既読にしても、Bの既読・未読には影響しない）
     await b.page.goto('/notifications');
