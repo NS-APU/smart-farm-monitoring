@@ -35,12 +35,12 @@
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         18 |        410 |
 | 単体: backend/runtime                      |          3 |        122 |
-| 単体: frontend                             |         30 |        543 |
+| 単体: frontend                             |         30 |        548 |
 | 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
 | 結合（`tests/integration/`）               |         44 |       1184 |
-| 合計                                       |        166 |       3809 |
+| 合計                                       |        166 |       3814 |
 
-内訳（2026-11-10 の実測。Issue #318・#115・#330）: E2E 813 件（UC ごと 803 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 2996 件・134 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、134 ファイル・2996 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.19%・Branches 95.55%・Functions 99.45%・Lines 99.18%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#330〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜34 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115・#330）: E2E 813 件（UC ごと 803 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3001 件・134 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、134 ファイル・3001 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.2%・Branches 95.51%・Functions 99.45%・Lines 99.18%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#330〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜34 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -62,9 +62,9 @@ E2E のファイル別の件数（2026-11-10 の実測。Issue #318・#115）:
 | UC-09        | `tests/e2e/UC-09-import-sensor-data.ts`               |   27 |                     4 |                                        0 |
 | UC-10        | `tests/e2e/UC-10-detect-and-notify.ts`                |   46 |                    10 |                                        0 |
 | UC-11        | `tests/e2e/UC-11-federate-data.ts`                    |   14 |                     4 |                                        0 |
-| UC-12        | `tests/e2e/UC-12-manage-equipment.ts`                 |   31 |                     9 |                                        0 |
+| UC-12        | `tests/e2e/UC-12-manage-equipment.ts`                 |   32 |                    10 |                                        0 |
 | UC-13        | `tests/e2e/UC-13-login-logout.ts`                     |   37 |                     8 |                                        2 |
-| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   36 |                    14 |                                        2 |
+| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   35 |                    13 |                                        2 |
 | UC-15        | `tests/e2e/UC-15-configure-file-server-connection.ts` |   12 |                     3 |                                        0 |
 | UC-15        | `tests/e2e/UC-15-configure-ingestion.ts`              |   33 |                     5 |                                        0 |
 | UC-16        | `tests/e2e/UC-16-check-ingestion-status.ts`           |   21 |                     6 |                                        0 |
@@ -2874,7 +2874,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 #### 対応するテストファイル
 
-- `tests/e2e/UC-12-manage-equipment.ts`（テスト 30 件。E12-001 から E12-029 と、最終テスト（手順11）で追加した 1 件〔E12-030。ファイル内では、「確認でキャンセルすると、削除しない」の次。11章〕。E12-029 は、複数の UC をまたぐ運用の一連のシナリオで、利用者 A・B を切り替える）
+- `tests/e2e/UC-12-manage-equipment.ts`（テスト 31 件。E12-001 から E12-029 と、E12-031（閲覧の割り当て。#330）と、最終テスト（手順11）で追加した 1 件〔E12-030。ファイル内では、「確認でキャンセルすると、削除しない」の次。11章〕。E12-029 は、複数の UC をまたぐ運用の一連のシナリオで、利用者 A・B を切り替える）
 
 #### テストの概要
 
@@ -3111,7 +3111,19 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 - 操作: (1) 閲覧者として、設備の画面を開く（ログインする）。スクリーンショットを撮る。(2) 閲覧者として API ログインし、`DELETE /api/v1/equipment/ROBOT-01` を呼ぶ。
 - 期待結果: (1) 権限の表示（`permission-notice`）が「設備を変更する権限がありません。参照のみできます」。行が 3 件。「修正」ボタンが 0 個、「削除」ボタンが 0 個。ハウスの登録フォームが 0 個。(2) 応答の状態が 403。
 - 観点: 権限（閲覧者。参照のみ）
-- データ: 上記。スクリーンショットの名前は `uc12-readonly`（レイアウトの検査あり（shot））。
+- データ: 上記。スクリーンショットの名前は `uc12-readonly`（レイアウトの検査あり（shot））。閲覧の割り当て（#330）の列 `閲覧できるユーザー`・ボタン `閲覧の割り当て` も、表示しない（ユーザーを管理する権限がないため）。
+
+##### 閲覧の割り当て（ハウスごと）。Issue #330。ADR-0013。FR-9.8。ハウス側から、一般ユーザーを個別に割り当てる
+
+**E12-031 管理者が、ハウスの行から、閲覧できる一般ユーザーを割り当てると、その一般ユーザーは、そのハウスだけを閲覧できる。外すと、すぐに見えなくなる**
+
+- 検証内容: 設備管理のハウスの行の「閲覧できるユーザー」の列と「閲覧の割り当て」のパネル、一般ユーザーの閲覧範囲（画面・API）。
+- 前提: ハウス 2（`HOUSE-02`）と、そのロボット（`ROBOT-02`）を API で登録。一般ユーザー `e2e-general` を API で追加。管理者で設備管理を開く。
+- 操作: 一覧を確認する。ハウス 2 の「閲覧の割り当て」を開き、一般ユーザーにチェックして「割り当てを保存」を押す。読み直す。別のブラウザで一般ユーザーとして、ヘッダーの設備の選択を確認する。API（一般のトークン）で `/dashboard?equipmentId=HOUSE-01`・`HOUSE-02`、`/observations?equipmentId=ROBOT-01` を呼ぶ。管理者が、チェックを外して保存し、同じ API を呼ぶ。
+- 期待結果: 列見出し `閲覧できるユーザー` が見える。ハウス 1 の行は `なし`。ロボットの行に、割り当てのボタンがない。パネルの見出しに `ハウス2`、保存ボタンは無効（変更なし）。保存後、通知（`equipment-notice`）が `「ハウス2」の閲覧の割り当てを保存しました`、ハウス 2 の行に一般ユーザー名。読み直しても同じ。一般ユーザーの設備の選択に `ハウス2`・`収穫ロボット2` があり、`ハウス1`・`収穫ロボット1` がない。API は、`HOUSE-01` が 404、`HOUSE-02` が 200、`ROBOT-01` の観測値が 404。割り当てを外すと、行が `なし` になり、`HOUSE-02` が 404（すぐに反映される）。
+- 観点: 権限（管理者の割り当て）・閲覧範囲（一般）。
+- データ: `e2e-general`・`HOUSE-02`・`ROBOT-02`。
+- レイアウトの検査あり（shot）: `uc12-facility-access`。
 
 ##### シナリオ: 構成の登録から、取り込み・確認・復旧の記録・連携までの運用の一連（UC-13 → UC-14 → UC-12 → UC-15 → UC-08・09 → UC-01 → UC-10 → UC-05 → UC-02・04 → UC-06 → UC-18 → UC-11・16 → UC-22 → UC-13）
 
@@ -3436,7 +3448,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 #### 対応するテストファイル
 
-- `tests/e2e/UC-14-manage-users.ts`（テスト 36 件。E14-001 から E14-036）
+- `tests/e2e/UC-14-manage-users.ts`（テスト 35 件。E14-001 から E14-035）
 
 #### テストの概要
 
@@ -3707,19 +3719,9 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 - データ: `e2e-general`。
 - レイアウトの検査あり（shot）: `uc14-profile-saved`。
 
-##### 閲覧の割り当て（ハウスごと）。Issue #330。ADR-0013。FR-9.8
+##### 閲覧できるハウスがない一般ユーザー（閲覧の割り当て。Issue #330。ADR-0013。FR-9.8。割り当ての操作は、UC-12 の E12-031）
 
-**E14-035 管理者が、表（行がハウス、列が一般ユーザー）で割り当てると、一般ユーザーは、割り当てられたハウスだけを閲覧できる。外すと、すぐに見えなくなる**
-
-- 検証内容: 閲覧の割り当ての表と、一般ユーザーの閲覧範囲（画面・API）。
-- 前提: ハウス 2（`HOUSE-02`）と、そのロボット（`ROBOT-02`）を API で登録。一般ユーザー `e2e-general` を API で追加。管理者でユーザー管理を開く。
-- 操作: 表を確認する。「ハウス2」×一般ユーザーにチェックして「割り当てを保存」を押す。読み直す。別のブラウザで一般ユーザーとして、ヘッダーの設備の選択を確認する。API（一般のトークン）で `/dashboard?equipmentId=HOUSE-01`・`HOUSE-02`、`/observations?equipmentId=ROBOT-01` を呼ぶ。管理者が、チェックを外して保存し、同じ API を呼ぶ。
-- 期待結果: 見出し `閲覧の割り当て`、列見出し `ハウス`・一般ユーザー名、行が 2 件、保存ボタンは無効（変更なし）。チェック後は有効。保存後、`facility-access-saved` が `保存しました`。読み直しても、ハウス 2 だけがチェック済み。一般ユーザーの設備の選択に `ハウス2`・`収穫ロボット2` があり、`ハウス1`・`収穫ロボット1` がない。API は、`HOUSE-01` が 404、`HOUSE-02` が 200、`ROBOT-01` の観測値が 404。割り当てを外すと、`HOUSE-02` が 404（すぐに反映される）。
-- 観点: 権限（管理者の割り当て）・閲覧範囲（一般）。
-- データ: `e2e-general`・`HOUSE-02`。
-- レイアウトの検査あり（shot）: `uc14-facility-access`。
-
-**E14-036 割り当てがない一般ユーザーは、何も閲覧できず、閲覧できるハウスがない旨が示される。範囲外の設備への手動入力も、できない（404）**
+**E14-035 割り当てがない一般ユーザーは、何も閲覧できず、閲覧できるハウスがない旨が示される。範囲外の設備への手動入力も、できない（404）**
 
 - 検証内容: 割り当てなしの一般ユーザー（安全側）。
 - 前提: 一般ユーザー `e2e-general` を API で追加（割り当てなし）。一般でログインする。
@@ -10816,9 +10818,9 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-09 | 環境センサーデータを自動で取り込む                 | `UC-09-import-sensor-data.ts`（27 件）       | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`integration/ingestion.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                        |
 | UC-10 | 異常・注意を検知して通知する                       | `UC-10-detect-and-notify.ts`（46 件）        | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/grading.test.ts`、`unit/backend/domain/measures.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`integration/evaluation-notification.test.ts`、`integration/management-api.test.ts`                                            |
 | UC-11 | 農業情報基盤へデータを連携する                     | `UC-11-federate-data.ts`（14 件）            | `unit/backend/infrastructure/adapters.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                      |
-| UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（31 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
+| UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（32 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
 | UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（37 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
-| UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（36 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
+| UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（35 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
 | UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）・`UC-15-configure-file-server-connection.ts`（12 件）・`UC-15-configure-file-server-connection.ts`（12 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
 | UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（21 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
 | UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（30 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
@@ -11862,8 +11864,8 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 | 結合: `tests/integration/api.test.ts`（4 件を追加） | 新しいルート（`GET /facility-access`・`PUT /facility-access/{facilityId}`）の、未認証・無効なトークンは 401 と、3 ロールの設定での、ロールごとの権限 |
 | 結合: `tests/integration/role-access.test.ts`（2 件を追加） | ルート一覧から導く、管理者のみのルートが増えた分（2 ルート）。一般が閲覧できるのは、割り当てたハウスだけ（既存の 1 件を更新） |
 | 単体: `tests/unit/backend/application/facility-scope.test.ts`（新規。7 件） | 閲覧範囲の判定: 全設備を閲覧する権限の利用者は全設備。割り当てたハウスと配下だけ閲覧できる。割り当てなしは何も閲覧できない（ほかのユーザーの割り当ては影響しない）。複数のハウス。削除済み・存在しないハウス、削除済みの配下の設備の割り当ては無効。割り当ての変更は、次の判定から反映（キャッシュしない）。設備の階層の絞り込み |
-| 単体: `tests/unit/frontend/facility-access-section.test.tsx`（新規。9 件） | 閲覧の割り当ての表: 行がハウス・列が一般ユーザーで、割り当て済みのセルはチェック済み。変更したハウスだけを、全ユーザーで保存し、保存した旨を示して、保存ボタンは無効に戻る。もとに戻すと変更なし。保存の失敗は表に示し、チェックはそのまま。一般ユーザー・ハウスがないときの案内。表の取得に失敗しても、ユーザーの一覧は表示する。閲覧できるハウスがない一般ユーザーへの案内（ダッシュボード・データ入力。管理者には、これまでの案内） |
-| E2E: `tests/e2e/UC-14-manage-users.ts`（2 件を追加。E14-035・E14-036） | 管理者が表で割り当てると、一般ユーザーは、割り当てられたハウスだけを閲覧でき（設備の選択・API の 404）、外すと、すぐに見えなくなる。割り当てがない一般ユーザーは、何も閲覧できず、案内が示され、手動入力の登録は 404 |
+| 単体: `tests/unit/frontend/facility-access-panel.test.tsx`（新規。14 件） | 設備管理のハウスの行の閲覧の割り当て: ハウスの行に、閲覧できる一般ユーザー（なければ「なし」）を示す（ロボット・センサーの行にはない）。ボタンで、そのハウスを閲覧できる一般ユーザーを選ぶパネルが開き、割り当て済みはチェック済み。保存で、そのハウスの全ユーザーを送り、保存した旨を示し、パネルを閉じ、行の表示が新しくなる。もとに戻すと変更なし・「閉じる」で保存せずに閉じる。保存の失敗はチェックそのまま。対象の一般ユーザーがいない旨。取得に失敗しても、設備の一覧は表示する。ユーザーを管理する権限がない利用者・参照のみの利用者には、列・ボタン・API の呼び出しがない。ユーザー管理には、表を出さない。閲覧できるハウスがない一般ユーザーへの案内（ダッシュボード・データ入力。管理者には、これまでの案内） |
+| E2E: `tests/e2e/UC-12-manage-equipment.ts`（1 件を追加。E12-031）・`tests/e2e/UC-14-manage-users.ts`（1 件を追加。E14-035） | UC-12: 管理者が、ハウスの行から、一般ユーザーを割り当てると、一般ユーザーは、割り当てられたハウスだけを閲覧でき（設備の選択・API の 404）、外すと、すぐに見えなくなる（閲覧者には、割り当ての操作を出さない。E12-028 に追加）。UC-14: 割り当てがない一般ユーザーは、何も閲覧できず、案内が示され、手動入力の登録は 404 |
 
 ### 34.2 変更した既存のテスト
 
@@ -11873,12 +11875,13 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - フロントエンドのテスト用の利用者 `WORKER_LOGIN`（`tests/support/frontend.ts`）に、全設備の閲覧権限（`equipment:view-all`）を加えた
 - E2E: 参照のみの確認用の `viewer` に、`equipment:view-all` を加えた（`e2e-user.ts`）。UC-18 の長い名前の利用者を、管理者のロールにした（設備への登録に、閲覧範囲が要るため）
 - 履歴の画面の、対象の種類の表示名に、「閲覧の割り当て」を加えた
+- **画面の場所の変更（ユーザーの指摘）**: 当初は、ユーザー管理に、行がハウス・列が一般ユーザーの表を置いたが（`facility-access-section.test.tsx` の 9 件・E2E E14-035）、意図と異なったため、**設備管理のハウスの行**に移した（`facility-access-panel.test.tsx` の 14 件・E2E E12-031）。データ・API・閲覧範囲のテストは、変わらない
 
 ### 34.3 実測
 
 手元（Windows。2026-11-10）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **134 ファイル・2996 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.19%・Branches 95.55%・Functions 99.45%・Lines 99.18%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **134 ファイル・3001 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.2%・Branches 95.51%・Functions 99.45%・Lines 99.18%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
-- E2E（空きポート 18787・15173。`playwright test --workers=1`）: UC-01・05・07・12・13・14（36 件。追加した E14-035・E14-036 を含む）・16・17・18・19・シナリオ（ユーザーの受け入れ）の **334 件が、すべて成功**。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
+- E2E（空きポート 18787・15173。`playwright test --workers=1`）: 画面の場所を変えたあと、UC-01・12（E12-031 を含む）・14（E14-035 を含む）・シナリオ（ユーザーの受け入れ）の **101 件が、すべて成功**（変更前の画面〔ユーザー管理の表〕では、UC-01・05・07・12・13・14・16〜19・シナリオの 334 件が、すべて成功）。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認（割り当て・閲覧範囲）は、未確認**（AWS の操作は、ユーザーが行う）

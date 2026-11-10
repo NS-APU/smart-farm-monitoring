@@ -152,11 +152,11 @@
 | SC-07 | 入力データ一覧（検索・修正・削除）                       | `/data-entry/list`                  | `entry-list-page.tsx`                          | 参照は要ログイン、修正・削除は `manual-entry:write`                                    |
 | SC-08 | 変更履歴                                                 | `/data-entry/history`               | `entry-history-page.tsx`                       | `audit:read`                                                                           |
 | SC-09 | 取り込み済みデータ一覧                                   | `/observations`                     | `observations-page.tsx`                        | 要ログイン                                                                             |
-| SC-10 | 設備管理                                                 | `/settings/equipment`               | `equipment-page.tsx`                           | 参照は要ログイン、変更は `equipment:manage`                                            |
+| SC-10 | 設備管理                                                 | `/settings/equipment`               | `equipment-page.tsx`・`facility-access-panel.tsx` | 参照は要ログイン、変更は `equipment:manage`。ハウスの行の閲覧の割り当て（#330）は `user:manage` |
 | SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 閲覧は `ingestion:read`（ないと、権限がない旨だけを示す。メニューにも出ない）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
 | SC-12 | ステータスコード管理                                     | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
 | SC-13 | 判断基準の編集                                           | `/viewpoints/:viewpointId/criteria` | `criteria-edit-page.tsx`                       | 参照は要ログイン、編集は `criteria:edit`                                               |
-| SC-14 | ユーザー管理（と、閲覧の割り当て）                       | `/settings/users`                   | `users-page.tsx`・`facility-access-section.tsx` | `user:manage`（権限がないとメニューにも出ない）。閲覧の割り当て（ハウス×一般ユーザーの表。#330）を含む |
+| SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
 共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・未読の通知の件数・最終のデータ取得日時・メニュー・ログイン中のユーザー・ログアウトがある。
@@ -2654,7 +2654,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
-| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`facility-access`・`facility-scope-api`（閲覧の割り当て・閲覧範囲の絞り込み。#330）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）・`frontend/facility-access-section.test.tsx`（閲覧の割り当ての表。#330）                                                                                                                   |
+| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`facility-access`・`facility-scope-api`（閲覧の割り当て・閲覧範囲の絞り込み。#330）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）                                                                                                                   |
 | UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`ingestion-connection.test.tsx`                                                                                                               |
 | UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`・`frontend/stale-chunk.test.tsx`（古い画面の部品の取得の失敗。#323）                                                                                                            |
 | UC-18     | `UC-18-manage-entries.ts`                                         | `management-api`（入力済みデータの管理・変更履歴）                                                           | `frontend/entry-pages.test.tsx`                                                                                                                  |
@@ -2690,14 +2690,14 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #330 の後）
 
-計測対象は 282 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（134 ファイル・2996 件成功・2 件スキップ）。
+計測対象は 282 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（134 ファイル・3001 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.18% | 7,191／7,250 | 95% 以上 |
-| 文   | 99.19% | 7,436／7,496 | 95% 以上 |
-| 関数 | 99.45% | 2,182／2,194 | 95% 以上 |
-| 分岐 | 95.55% | 4,432／4,638 | 95% 以上 |
+| 行   | 99.18% | 7,194／7,253 | 95% 以上 |
+| 文   | 99.2% | 7,440／7,500 | 95% 以上 |
+| 関数 | 99.45% | 2,188／2,200 | 95% 以上 |
+| 分岐 | 95.51% | 4,452／4,661 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2709,7 +2709,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `src/backend/infrastructure` | 98.98% | 99.02% | 100.0% | 94.64% |
 | `src/backend/presentation` | 99.4% | 99.41% | 100.0% | 94.31% |
 | `src/backend/runtime` | 98.48% | 98.5% | 95.83% | 93.33% |
-| `src/frontend` | 99.2% | 99.23% | 99.39% | 95.58% |
+| `src/frontend` | 99.2% | 99.24% | 99.39% | 95.46% |
 
 分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`lambda.ts`（80%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`ingestion-repositories.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
@@ -2720,7 +2720,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-10 の実測（Issue #330 の後）: 134 ファイル・**2996 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 2996 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 30・infra（IaC）6 ファイルと、結合 44 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-10 の実測（Issue #330 の後）: 134 ファイル・**3001 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3001 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 30・infra（IaC）6 ファイルと、結合 44 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

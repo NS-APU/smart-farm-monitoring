@@ -4,6 +4,7 @@
 - 日付: 2026-10-21
 - 更新（2026-11-10。#115）: ロールの分割（管理者 `admin`・一般 `general`）と、自身のユーザー名の編集を実装した。取り込みの状況・ログ、連携のログの閲覧は、設備ごとに絞れるようになる（#116）まで、**管理者のみ**にした（新しい権限 `ingestion:read`）。既存ユーザー（ロール `worker`）は、`pnpm migrate-user-roles` で移す（[operations.md](../../40_operations/operations.md) 8.7）。
 - 更新（2026-11-10。#330）: **閲覧できる設備の割り当て**を実装した（Issue #116 の子 Issue #330。#331 通知・#332 ログは、続けて実装）。**割り当ては、ユーザーごとではなく、ハウス側から行う**（ユーザーの判断。ハウスは数が少なく、ユーザーごとの作業を避けるため）。データは、ハウスごとの専用の記録（`facilityAccess`。DynamoDB は Main の `FACACC`。[ADR-0007](./0007-dynamodb-table-design.md)）で、設備の記録には持たない（設備の階層は、全員に返すため、ほかのユーザーの ID が漏れる）。管理者かどうかは、**権限 `equipment:view-all`**（全設備を閲覧する。既定では、管理者）で判定する。
+- 更新（2026-11-10。#330）: 割り当ての**画面は、設備管理（SC-10）のハウスの行**に置く（ユーザーの判断。当初は、ユーザー管理に、ハウス×一般ユーザーの表を置いたが、意図と異なったため、ハウスごとに、一般ユーザーを個別に選ぶ形に直した）。データ・API・閲覧範囲の判定は、変わらない。
 - 更新（2026-10-26。#148）: 開発サイトでの、実データによる結合確認の条件を、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md) に記録した（6 章の TODO を置き換えた）。
 - 関連: [ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0008](./0008-cognito-authentication.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0010](./0010-client-ip-from-cloudfront-function.md)、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)、[security.md](../../20_development/security.md)、[functional-requirements.md](../requirements/functional-requirements.md) の FR-9
 
