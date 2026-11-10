@@ -21,33 +21,33 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値。2026-11-09 の実測。`develop` の `352367a`）
+### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `da976b0` に、Issue #115 の変更を加えた状態）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
-| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        799 |
+| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        801 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
 | 単体: shared                               |         12 |        245 |
 | 単体: backend/domain                       |         10 |        284 |
-| 単体: backend/application                  |          9 |         92 |
+| 単体: backend/application                  |          9 |         97 |
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         18 |        410 |
 | 単体: backend/runtime                      |          3 |        122 |
-| 単体: frontend                             |         28 |        523 |
+| 単体: frontend                             |         29 |        534 |
 | 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
-| 結合（`tests/integration/`）               |         40 |       1083 |
-| 合計                                       |        159 |       3672 |
+| 結合（`tests/integration/`）               |         42 |       1150 |
+| 合計                                       |        162 |       3757 |
 
-内訳（2026-11-09 の実測。Issue #318）: E2E 809 件（UC ごと 799 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 2863 件・127 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、127 ファイル・2862 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.21%・Branches 95.58%・Functions 99.52%・Lines 99.20%（一覧の件数との 1 件の差は、集計の方法の違い）。E2E・負荷テストは、CI（Linux。`ci:full`）で、全件成功（PR #327 の CI。E2E は 4 シャード）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜32 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115）: E2E 811 件（UC ごと 801 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 2946 件・130 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、130 ファイル・2946 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.18%・Branches 95.53%・Functions 99.43%・Lines 99.16%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#115〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜33 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
 
 Sprint 2 の実装後の実測値（2026-10-21。`develop` の 21098db。手元（Windows）: 単体・結合。E2E・負荷テストは、GitHub Actions（Linux。PR #124）。詳細は commands.md の「実行結果」）: `pnpm test:unit`（カバレッジの閾値つき）は、85 ファイル・1901 件（成功 1899・スキップ 2）で成功（約 123 秒）。カバレッジは、行 99.46%・分岐 95.69%・関数 99.83%・文 99.47%（すべて閾値 95% 以上）。CI（Linux）は、1901 件すべて成功。`pnpm test:e2e` は、764 件すべて成功（CI。22.7 分）。`pnpm test:stress` は、4 件成功（CI。1.7 分）。サーバーレス環境（AWS）の実測（`pnpm test:smoke`）は、13 章。
 
-E2E のファイル別の件数（2026-11-09 の実測。Issue #318）:
+E2E のファイル別の件数（2026-11-10 の実測。Issue #318・#115）:
 
 | UC           | テストファイル                                               | 件数 | shot() の呼び出し箇所 | 画面の幅の変更（setViewportSize の箇所） |
 | ------------ | ----------------------------------------------------- | ---: | --------------------: | ---------------------------------------: |
@@ -64,7 +64,7 @@ E2E のファイル別の件数（2026-11-09 の実測。Issue #318）:
 | UC-11        | `tests/e2e/UC-11-federate-data.ts`                    |   14 |                     4 |                                        0 |
 | UC-12        | `tests/e2e/UC-12-manage-equipment.ts`                 |   31 |                     9 |                                        0 |
 | UC-13        | `tests/e2e/UC-13-login-logout.ts`                     |   37 |                     8 |                                        2 |
-| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   32 |                    10 |                                        2 |
+| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   34 |                    12 |                                        2 |
 | UC-15        | `tests/e2e/UC-15-configure-file-server-connection.ts` |   12 |                     3 |                                        0 |
 | UC-15        | `tests/e2e/UC-15-configure-ingestion.ts`              |   33 |                     5 |                                        0 |
 | UC-16        | `tests/e2e/UC-16-check-ingestion-status.ts`           |   21 |                     6 |                                        0 |
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜32 章（変更・追加したテストの記録）の索引
+### 1.4 14〜33 章（変更・追加したテストの記録）の索引
 
-14〜32 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜33 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -154,6 +154,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 29 | Web Push の実配信 | #241 |
 | 30 | 負荷テストの UC-10 を、通知の出来事の判定に合わせる | #320 |
 | 31・32 | 古い画面の部品の取得の失敗への対応・配信のキャッシュの指定 | #323 |
+| 33 | ロールの分割（管理者・一般）と、自身のユーザー名の編集 | #115 |
 
 ## 2. UC 別のテスト仕様
 
@@ -1450,7 +1451,7 @@ E04-011〜E04-019 は、for ループで生成された同じ手順。`prepare` 
 **E05-007 利用者Aの入力で異常になり、利用者Bが通知を確認して、根拠・推奨アクションを見て、復旧の結果を記録する。それぞれの既読は、利用者ごと**
 
 - 検証内容: 利用者 A の手動入力で異常になり、利用者 B が通知から根拠・推奨アクションを確認し、復旧後に対応結果を記録し、通知の既読が利用者ごとに独立している。
-- 前提: `prepareApp`。`addUser`（API `POST /users`）で利用者 B（userId `e2e-user-b`、userName `E2E利用者B`、ロール worker）を追加する。利用者 A は、既定の E2E ユーザー（e2e-user）。利用者 B は `newUserSession` で別のブラウザコンテキスト（動画つき）を開く（A はテストの `page`）。ブラウザの時計は両方とも 2026-10-09 12:00 JST に固定。
+- 前提: `prepareApp`。`addUser`（API `POST /users`）で利用者 B（userId `e2e-user-b`、userName `E2E利用者B`、ロール admin）を追加する。利用者 A は、既定の E2E ユーザー（e2e-user）。利用者 B は `newUserSession` で別のブラウザコンテキスト（動画つき）を開く（A はテストの `page`）。ブラウザの時計は両方とも 2026-10-09 12:00 JST に固定。
 - 操作（利用者の切替の流れ）:
   1. 利用者 A（`page`）: `/data-entry` を開き、設備 `SENSOR-01`、カテゴリ `ENVIRONMENT`、計測日時 `2026-10-09T10:00`、温度 40・湿度 60・照度 30000・CO2濃度 900、備考「現場の温度計で、40℃を確認した」を入力し、保存する（UC-07 → UC-10）。
   2. 利用者 B（`b.page`）: `/` を開き、B でログインする。ヘッダーの未読の件数を `unreadForB` として取得する。リンク「未読の通知」から通知の一覧を開き、行（「環境適応性」と「ハウス1」を含む）を確認する（UC-05 の基本フロー 1・2）。
@@ -1469,7 +1470,7 @@ E04-011〜E04-019 は、for ループで生成された同じ手順。`prepare` 
   - 手順 7: A から見て、その行が `UNREAD`（B が既読にした影響を受けない）。ボタンをクリックした後、A のヘッダーの未読の件数が「0」。
   - 手順 8: B から見て、行（ハウス1）が `READ`（B が手順 3 で既読にしたもの）、行（環境センサー1）が `UNREAD`（A が全件を既読にしても、B の既読・未読に影響しない）。
   - レイアウトの検査あり（shot は 1 回: `uc05-scenario-b-detail`。B の画面）。
-- 観点: 複数の利用者（A・B。ロール worker）。既読の状態が利用者ごとに独立。
+- 観点: 複数の利用者（A・B。ロール admin）。既読の状態が利用者ごとに独立。
 - データ: 温度 40℃（A の手動入力）。復旧後の温度 20℃（10 分間隔の系列）。復旧の記録（故障回数 1・復旧 45 分）。
 
 #### テスト名と検証内容の差
@@ -3116,10 +3117,10 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 **E12-029 ログイン → 利用者・構成の登録 → 取り込みの設定 → 取り込み → 状態の確認 → 異常の通知 → 復旧の記録 → 連携 → 別の利用者の既読 → ログアウトまで、続けて行える**
 
 - 検証内容: 設備のない状態から、複数の UC をまたぐ運用の一連を、1 つのテストで続けて行えること。最後に、別の利用者 B が、同じ通知を自分の未読として見て、既読にしても、利用者 A の既読の件数が変わらないこと。
-- 前提: 設備なし（`equipment: false`。ファイルサーバーのモックは空）。ブラウザの時計を固定する。利用者 A は、E2E 用ユーザー（`e2e-user`。ユーザー名「E2Eテスト用ユーザー」）。利用者 B は、`USER_B`（ユーザーID `e2e-user-b`、ユーザー名「E2E利用者B」、パスワード `Dummy-Passw0rd-b1`、ロール worker）。
+- 前提: 設備なし（`equipment: false`。ファイルサーバーのモックは空）。ブラウザの時計を固定する。利用者 A は、E2E 用ユーザー（`e2e-user`。ユーザー名「E2Eテスト用ユーザー」）。利用者 B は、`USER_B`（ユーザーID `e2e-user-b`、ユーザー名「E2E利用者B」、パスワード `Dummy-Passw0rd-b1`、ロール admin）。
 - 操作（利用者 A が、ひとつのブラウザ（page）で行う。利用者 B は、手順 12 で、新しいブラウザのコンテキストを開く）:
   1. UC-13: `/` を開き、ログインする。ユーザー名が表示される。
-  2. UC-14: メニューの「ユーザー」を開き、利用者 B（ユーザーID、ユーザー名、パスワード、ロール worker）を登録する（`user-add` のフォーム）。
+  2. UC-14: メニューの「ユーザー」を開き、利用者 B（ユーザーID、ユーザー名、パスワード、ロール admin）を登録する（`user-add` のフォーム）。
   3. UC-12: メニューの「設備」を開き、ハウス `HOUSE-01`（ハウス1）を登録する。ロボット `ROBOT-01`（収穫ロボット1。データ上の識別子 `ROBOT-SAMPLE-01`）とセンサー `SENSOR-01`（環境センサー1。データ上の識別子 `SENSOR-SAMPLE-01`）を登録する。スクリーンショットを撮る。
   4. UC-15: メニューの「取り込み」を開き、ロボットの接続テストを行う。
   5. UC-08・UC-09: `robot.json`（機体ID `ROBOT-SAMPLE-01`。1 時間前に、収穫数 10、稼働時間 0.25、ステータスコード HARVESTING）と、`sensor.csv`（30 分前に温度 40、湿度 60、照度 30000、CO2 900）を置く。ロボット、環境センサーの順に「即時取得」を押す。
@@ -3145,7 +3146,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
   11. 連携の結果の先頭行の結果（`.log-result`）が「成功」。キューの保留（`queue-HELD`）が「0」を含む。
   12. 利用者 A の再読み込み後の未読の件数が「0」でない（この値を A の未読とする）。B の未読の件数が（A の未読 + 1）（A が読んだ 1 件も、B には未読）。B が既読にすると、B の未読が「0」。A の再読み込み後の未読の件数が、A の未読と同じ（B の既読は、A に影響しない）。
   13. ログイン画面の見出し（h2「ログイン」）が表示される。
-- 観点: 運用の一連（複数の利用者 A・B。ロールは、B が worker）。通常ケースだけ（異常値の入力は、手順 5 の温度 40 の 1 件）
+- 観点: 運用の一連（複数の利用者 A・B。ロールは、B が admin）。通常ケースだけ（異常値の入力は、手順 5 の温度 40 の 1 件）
 - データ: 上記。スクリーンショットの名前は `uc12-scenario-equipment`（手順 3）、`uc12-scenario-dashboard`（手順 6）、`uc12-scenario-federation`（手順 11）（いずれもレイアウトの検査あり（shot））。
 
 #### テスト名と検証内容の差
@@ -3434,7 +3435,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 #### 対応するテストファイル
 
-- `tests/e2e/UC-14-manage-users.ts`（テスト 32 件。E14-001 から E14-032）
+- `tests/e2e/UC-14-manage-users.ts`（テスト 34 件。E14-001 から E14-034）
 
 #### テストの概要
 
@@ -3462,7 +3463,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 - 検証内容: 一覧の列、自分の行の表示内容、自分の削除ボタンが無効なこと、未ログインのユーザーの表示。
 - 前提: 利用者 B を API で追加する。`openUsers` で一覧を開く。
 - 操作: なし（表示の確認）。
-- 期待結果: 行（`user-row`）が 2 件。列見出しが `ユーザーID`、`ユーザー名`、`ロール`、`最終ログイン`、`操作` の順。自分の行に、`E2Eテスト用ユーザー`、`農作業者`、`（ログイン中）`、`2026/10/09 12:00:00` を含み、「削除」ボタンが無効。B の行に `未ログイン` を含み、「削除」ボタンが有効。
+- 期待結果: 行（`user-row`）が 2 件。列見出しが `ユーザーID`、`ユーザー名`、`ロール`、`最終ログイン`、`操作` の順。自分の行に、`E2Eテスト用ユーザー`、`管理者`、`（ログイン中）`、`2026/10/09 12:00:00` を含み、「削除」ボタンが無効。B の行に `未ログイン` を含み、「削除」ボタンが有効。
 - 観点: 通常ケース。
 - データ: 時計 2026-10-09 12:00:00（JST）、ユーザー `e2e-user`・`e2e-user-b`。
 - レイアウトの検査あり（shot）: `uc14-list`。
@@ -3472,7 +3473,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 - 検証内容: 登録の結果の表示、入力欄のクリア、登録したユーザーのログインと、最終ログイン日時の記録。
 - 前提: `openUsers`。
 - 操作: ユーザーID `worker-new`、ユーザー名 `新しい作業者`、パスワード `Abcdef12`、ロール `worker` で「登録する」を押す。別のブラウザコンテキストで `/login` から、そのユーザーでログインする。元のページを再読み込みする。
-- 期待結果: 通知（`users-notice`）が `登録しました`。`worker-new` の行に `新しい作業者`、`農作業者`、`未ログイン` を含む。登録フォームのパスワード欄が空。別のコンテキストに `新しい作業者` が表示される。再読み込み後、`worker-new` の行が `未ログイン` を含まない。
+- 期待結果: 通知（`users-notice`）が `登録しました`。`worker-new` の行に `新しい作業者`、`一般`、`未ログイン` を含む。登録フォームのパスワード欄が空。別のコンテキストに `新しい作業者` が表示される。再読み込み後、`worker-new` の行が `未ログイン` を含まない。
 - 観点: 通常ケース。
 - データ: `worker-new` / `Abcdef12`。
 
@@ -3528,7 +3529,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 - 検証内容: 既存のユーザーID での登録がエラーになる。
 - 前提: `openUsers`（ユーザーは `e2e-user` のみ）。
-- 操作: ユーザーID `e2e-user`、ユーザー名 `重複`、パスワード `Abcdef12`、ロール `worker` で登録する。
+- 操作: ユーザーID `e2e-user`、ユーザー名 `重複`、パスワード `Abcdef12`、ロール `general` で登録する。
 - 期待結果: 登録フォームのユーザーID欄のエラー（`[data-field="userId"] .field-error`）が `同じユーザーIDがすでに登録されています`。行が 1 件のまま。
 - 観点: 無効（重複）。
 - データ: `e2e-user`。
@@ -3566,12 +3567,12 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 | E14-021 | パスワードが空: エラーを表示し、登録しない                | `` （空）                    | エラー `パスワードは8文字以上で指定してください`              |
 | E14-022 | パスワードが記号を含む長いパスワード: 登録できる          | `Abc-def_12345!?`（15 文字） | 通知 `登録しました`                                           |
 
-**E14-023 ロールが未選択ならエラー。ロールの選択肢は、定義済みのもの（農作業者・閲覧者）のみ**
+**E14-023 ロールが未選択ならエラー。ロールの選択肢は、定義済みのもの（管理者・一般・閲覧者）のみ**
 
 - 検証内容: ロールの選択肢の内容と、未選択での登録エラー。
 - 前提: `openUsers`。
 - 操作: ロール欄の選択肢を確認する。ユーザーID `user-r`、ユーザー名 `名前`、パスワード `Abcdef12`、ロール `''`（未選択）で登録する。
-- 期待結果: ロール欄の選択肢が、順に `ロールを選択してください`、`農作業者`、`閲覧者`。ロール欄のエラー（`[data-field="role"] .field-error`）が見える（文言は検証していない）。行が 1 件のまま。
+- 期待結果: ロール欄の選択肢が、順に `ロールを選択してください`、`管理者`、`一般`、`閲覧者`。ロール欄のエラー（`[data-field="role"] .field-error`）が見える（文言は検証していない）。行が 1 件のまま。
 - 観点: 無効（未選択）。
 - データ: ロール `''`。
 
@@ -3613,7 +3614,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 - 検証内容: 登録・編集・削除の結果が、再読み込み後も残る。
 - 前提: 利用者 B と閲覧者を追加。`openUsers`。
 - 操作: (1) ユーザーID `saved-user`、ユーザー名 `保存の確認`、パスワード `short` で登録してエラーを出す。(2) パスワードを `Abcdef12`、ロールを `viewer` にして登録する。(3) B の行の「修正」を押し、編集フォームを確認し、ユーザー名を `保存された名前` にして保存する。(4) 閲覧者の行の「削除」を押し、ダイアログで「削除」を押す。(5) ページを再読み込みする。
-- 期待結果: (1) パスワード欄のエラーが見える。(2) 通知が `登録しました`。(3) 編集フォームのユーザー名が B の `E2E利用者B`、パスワード欄が空、ロールが `worker`。保存後、通知が `修正しました`、編集フォームが 0 件。(4) 通知が `削除しました`。(5) 行が 3 件。`saved-user` の行が `保存の確認` と `閲覧者` を含む。B の行が `保存された名前` を含む。閲覧者の行が 0 件。
+- 期待結果: (1) パスワード欄のエラーが見える。(2) 通知が `登録しました`。(3) 編集フォームのユーザー名が B の `E2E利用者B`、パスワード欄が空、ロールが `admin`。保存後、通知が `修正しました`、編集フォームが 0 件。(4) 通知が `削除しました`。(5) 行が 3 件。`saved-user` の行が `保存の確認` と `閲覧者` を含む。B の行が `保存された名前` を含む。閲覧者の行が 0 件。
 - 観点: 通常ケース。
 - データ: `saved-user`、`e2e-user-b`、`e2e-viewer`。
 - レイアウトの検査あり（shot）: `uc14-validation-error`、`uc14-registered`、`uc14-edit`。
@@ -3642,7 +3643,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 - 検証内容: 幅 375px で、横にはみ出さず、表が押しつぶされず、登録できる。
 - 前提: 利用者 B を追加。ビューポートを 375x667 にし、`openUsers`。
-- 操作: 一覧を確認する。ユーザーID `narrow-user`、ユーザー名 `狭い画面の人`、パスワード `Abcdef12`、ロール `worker` で登録する。
+- 操作: 一覧を確認する。ユーザーID `narrow-user`、ユーザー名 `狭い画面の人`、パスワード `Abcdef12`、ロール `general` で登録する。
 - 期待結果: 行が 2 件。`document.documentElement.scrollWidth <= window.innerWidth`。列見出しの高さの最大が 48px 未満。最初の行の高さが 96px 未満。登録後、通知が `登録しました`。
 - 観点: 境界（画面の幅 375px）。
 - データ: 幅 375px。
@@ -3654,7 +3655,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 - 検証内容: 上限ちょうどの長さで登録でき、表の枠から操作ボタンがはみ出さない。
 - 前提: `openUsers`。
-- 操作: ユーザーID `u` + `a` を 99 個（100 文字）、ユーザー名 `あ` を 200 個、パスワード `Abcdef12`、ロール `worker` で登録する。
+- 操作: ユーザーID `u` + `a` を 99 個（100 文字）、ユーザー名 `あ` を 200 個、パスワード `Abcdef12`、ロール `general` で登録する。
 - 期待結果: 通知が `登録しました`。その行がユーザー名を含む。その行の「削除」ボタンの右端が、表の枠（`.table-scroll`）の右端（1px の許容）以内。
 - 観点: 境界（ユーザーID 100 文字、ユーザー名 200 文字）。
 - データ: ID 100 文字、名前 200 文字。
@@ -3682,6 +3683,28 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 #### 読み切れなかった範囲
 
 なし
+
+##### 権限: 一般ユーザー（手動入力のみ）。ロール・権限の分割（Issue #115。ADR-0013。FR-9.5・FR-9.7）
+
+**E14-033 一般には、メニューに「取り込み」「ユーザー」を表示せず、直接開いても権限がない旨を示す。サーバー側でも拒否し、手動入力はできる**
+
+- 検証内容: 一般ユーザー（手動入力の権限だけ）の、画面での非表示・権限メッセージ、サーバー側の拒否（ロール `general`）。
+- 前提: 一般ユーザー `e2e-general` を API で追加（パスワードの変更は済ませる）。ブラウザの時計を固定し、一般でログインする。
+- 操作: メニューを確認する。`/settings/ingestion`・`/settings/users` を直接開く。API で一般としてログインし、`GET /api/v1/users`・`/ingestion/settings`・`/ingestion/logs`・`/federation/logs` を呼ぶ。`/data-entry` を開く。
+- 期待結果: メニューの「ユーザー」「取り込み」が 0 件、「設備」が見える。`permission-notice` が、取り込みは `取り込みの設定・状況・ログを閲覧する権限がありません`、ユーザーは `ユーザーを管理する権限がありません`。API は、4 つとも HTTP 403。手動入力の画面には、権限がない旨の表示がない。
+- 観点: 権限なし（一般）。
+- データ: `e2e-general`。
+- レイアウトの検査あり（shot）: `uc14-general-forbidden`。
+
+**E14-034 一般も、ヘッダーの「ユーザー名の変更」から、自分のユーザー名を変えられる。ロール・ユーザー ID は、変わらず、ユーザー管理の一覧にも反映される**
+
+- 検証内容: 本人によるユーザー名の編集（`PUT /auth/profile`。一般を含む）。
+- 前提: 一般ユーザー `e2e-general`（ユーザー名 `E2E一般ユーザー`）を API で追加。一般でログインする。
+- 操作: ヘッダーの「ユーザー名の変更」を開く。ユーザー名を `E2E一般ユーザー（改）` にして「ユーザー名を変更する」を押す。画面を読み直す。管理者の API（`GET /users`）で一覧を取得する。
+- 期待結果: 見出し `ユーザー名の変更`、ユーザー ID の表示が `e2e-general`、ユーザー名の入力欄の値が `E2E一般ユーザー`、ロールの入力欄は 0 件。変更後、`profile-saved` が `ユーザー名を変更しました`、ヘッダーのユーザー名が `E2E一般ユーザー（改）`。読み直しても同じ。一覧の `e2e-general` が、`E2E一般ユーザー（改）`・ロール `general`。
+- 観点: 一般ユーザー（権限なしの操作として、自身の情報の編集）。
+- データ: `e2e-general`。
+- レイアウトの検査あり（shot）: `uc14-profile-saved`。
 
 ### UC-15 取り込みを設定し、接続テスト・即時取得を行う
 
@@ -6146,7 +6169,7 @@ E22-003〜E22-011 は、共通の前提・手順。
   - 画面の幅（1280px・768px・375px。NFR-7.3）: E24-015〜E24-020（SC-05 と SC-11。長い接続先の参照名 100 文字・失敗のログ 13 件）。
 - 共通の前提の作り方
   - 各テストの最初に `prepareApp`（ファイルサーバーのモックのファイルを空にし、`POST /dev/reset`（seed: `EQUIPMENT`。デモの設備 HOUSE-01・ROBOT-01・SENSOR-01）で初期化し、`PUT /dev/clock`（`FREEZE`）で時計を 2026-10-09 12:00 JST（`2026-10-09T03:00:00.000Z`）に固定する）を呼ぶ。サーバーの時計は、`POST /dev/clock/advance`（`advanceMinutes`）で進める。
-  - 画面のテストは、`alignBrowserClock`（ブラウザの時計を同じ時刻に固定）のあと `openAs`（E2E ユーザー `e2e-user` でログイン）で開く。利用者 B は、`addUser`（`POST /users`。userId `e2e-user-b`・ロール worker・ダミーのパスワード）で追加し、別のブラウザのコンテキスト（`newUserSession`）で開く。
+  - 画面のテストは、`alignBrowserClock`（ブラウザの時計を同じ時刻に固定）のあと `openAs`（E2E ユーザー `e2e-user` でログイン）で開く。利用者 B は、`addUser`（`POST /users`。userId `e2e-user-b`・ロール admin・ダミーのパスワード）で追加し、別のブラウザのコンテキスト（`newUserSession`）で開く。
   - 共通のヘルパー: `failureRows(page)` = 通知の行（`notification-row`）のうち、文字「データ取得失敗」を含む行。`openIngestion` = `/settings/ingestion` を開き、見出し（level 1）「取り込み設定・状況」が表示されること。`runNow(page, 取り込み元)` = 取り込み元のカードの「即時取得」を押し、結果の表示（`result-<取り込み元>`）を待つ。`logRows` = 取り込みのログの行（`ingestion-log-row`。新しい順）。`unreadBadge` = ヘッダーの未読の件数（`unread-count`）。`listNotifications` = `GET /notifications?limit=100`（ログイン中の利用者。E2E ユーザー）の `items`。
   - 取り込み元は 2 つ: `robot`（ロボットデータ）・`environment-sensor`（環境センサーデータ）。失敗の理由の文言は「ファイルサーバーに接続できませんでした」。通知のメッセージは「【データ取得失敗】<取り込み元の名称>」で始まる。
   - Web Push は、購読の登録（`PUT /push-subscription`。endpoint は `https://push.example.invalid/e2e/...` のダミー）と、Web Push のモックの状態（`PUT /dev/mocks/web-push`）、ジョブ JB-04（`POST /dev/jobs/JB-04/run`）、配信の記録（`GET /dev/mocks/web-push/delivered`）で確認する。
@@ -6423,15 +6446,15 @@ E22-003〜E22-011 は、共通の前提・手順。
 
 #### 利用者 A・B の切替の流れ
 
-- A: 初期ユーザー（`e2e-user`。ロール worker）。Playwright の既定の `page`（フィクスチャ）を使う。`openAs(page, '/')` でログイン（`E2E_USER`）
-- B: テストの中で、画面の操作で登録するユーザー（`USER_B`: userId `e2e-user-b`、userName `E2E利用者B`、password `Dummy-Passw0rd-b1`、ロール worker）。A がユーザー管理の画面（メニュー「ユーザー」）から登録する（API の `addUser` は使わない）。B のブラウザは `newUserSession(browser, testInfo, 'user-b')` で作る別のコンテキスト（動画つき、1280x720、時計は NOW に固定）。`openAs(b.page, '/', USER_B)` でログインする
+- A: 初期ユーザー（`e2e-user`。ロール admin）。Playwright の既定の `page`（フィクスチャ）を使う。`openAs(page, '/')` でログイン（`E2E_USER`）
+- B: テストの中で、画面の操作で登録するユーザー（`USER_B`: userId `e2e-user-b`、userName `E2E利用者B`、password `Dummy-Passw0rd-b1`、ロール admin）。A がユーザー管理の画面（メニュー「ユーザー」）から登録する（API の `addUser` は使わない）。B のブラウザは `newUserSession(browser, testInfo, 'user-b')` で作る別のコンテキスト（動画つき、1280x720、時計は NOW に固定）。`openAs(b.page, '/', USER_B)` でログインする
 - 前提の準備: `prepareApp(request, { equipment: false })`（設備が1つもない状態。時計は NOW = 2026-10-09 12:00 JST に固定）、`alignBrowserClock(page)`（A のページ）
 - 切替: A（登録）→ B（ログイン・設備の登録）→ A（ダッシュボード・最終ログイン日時・ロール変更）→ B（ログアウトして再ログイン・参照のみ）→ A（削除）→ B（ログイン画面へ戻る・再ログイン失敗）→ A（設備の確認・ログアウト）。最後に B のコンテキストを閉じる（`b.context.close()`。A の最後の操作の前）
 
 #### 検証内容（ステップ順）
 
 1. A がログインする（`openAs(page, '/')`）。期待: テキスト「設備が登録されていません。設備を登録してください」が表示される
-2. A がメニュー「ユーザー」を開き、ユーザー追加フォーム（`user-add`）に、ユーザーID `e2e-user-b`、ユーザー名 `E2E利用者B`、パスワード `Dummy-Passw0rd-b1` を入力し、ロール `worker` を選び、「登録する」を押す。期待: `users-notice` が「登録しました」。B の行（`user-row`、`data-user-id="e2e-user-b"`）に「農作業者」と「未ログイン」が含まれる。shot `scenario-onboarding-a-registered`（レイアウトの検査あり）
+2. A がメニュー「ユーザー」を開き、ユーザー追加フォーム（`user-add`）に、ユーザーID `e2e-user-b`、ユーザー名 `E2E利用者B`、パスワード `Dummy-Passw0rd-b1` を入力し、ロール `admin` を選び、「登録する」を押す。期待: `users-notice` が「登録しました」。B の行（`user-row`、`data-user-id="e2e-user-b"`）に「農作業者」と「未ログイン」が含まれる。shot `scenario-onboarding-a-registered`（レイアウトの検査あり）
 3. B のブラウザを開き、`USER_B` でログインする。期待: ユーザー名「E2E利用者B」（完全一致）のテキストが表示される。「設備が登録されていません。設備を登録してください」が表示される
 4. B がメニュー「設備」を開き、フォーム「ハウスを登録」に設備ID `HOUSE-N`、名称 `B新設ハウス` を入れて「登録する」を押す。期待: `equipment-notice` が「登録しました」
 5. B がフォーム「ロボット・環境センサーを登録」で、種別 `ROBOT`、親のハウス `HOUSE-N`、設備ID `ROBOT-N`、名称 `B新設ロボット`、データ上の識別子 `ROBOT-NEW-01` を入れて「登録する」を押す。期待: `equipment-row` が 2 件。shot `scenario-onboarding-b-equipment`
@@ -6468,7 +6491,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 #### 利用者 A・B の切替の流れ
 
 - A: 初期ユーザー（`e2e-user`）。既定の `page`。`openAs(page, '/data-entry')` でログイン
-- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、worker）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)` でログイン
+- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、admin）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)` でログイン
 - 前提: `prepareApp(request)`（デモの設備。時計は NOW = 2026-10-09 12:00 JST に固定）、`addUser`、`alignBrowserClock(page)`
 - 切替: A（入力）→ B（ログイン・通知・一覧・詳細・修正）→ A（ダッシュボード・一覧・履歴・削除）→ B（一覧・ダッシュボード・履歴）→ A（通知の既読状態）。最後に B のコンテキストを閉じる
 - `advanceMinutes(request, 1)` を B の修正の前と A の削除の前に呼び、履歴が日時の順に並ぶようにする（サーバーの時計を 1 分ずつ進める）
@@ -6513,7 +6536,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 #### 利用者 A・B の切替の流れ
 
 - A: 初期ユーザー（`e2e-user`）。既定の `page`。`openAs(page, '/')` でログイン
-- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、worker）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)`
+- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、admin）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)`
 - 前提: `prepareApp(request)`（デモの設備。時計は NOW = 2026-10-09 12:00 JST に固定）、`addUser`、`seed`（下のデータ）、`alignBrowserClock(page)`
 - 切替: A（ログイン）→ B（変更前の確認）→ A（緩める）→ B（正常・満足度・推移）→ A（厳しくする）→ B（通知・詳細）→ A（既定値へ戻す）→ B（注意へ戻る・推移）→ A（履歴）。最後に B のコンテキストを閉じる
 - A の各変更の前に、サーバーの時計を `advanceMinutes(request, 1)` で 1 分進める（3 回）
@@ -6563,7 +6586,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 #### 利用者 A・B の切替の流れ
 
 - A: 初期ユーザー（`e2e-user`）。既定の `page`。`stubPush(page, { device: 'a-phone' })` で、ブラウザの Notification・PushManager をスタブにして、ログイン（`openAs(page, '/settings/push')`）。API の呼び出し（`request`）は、A の権限（E2E_USER）で行う（`api`・`apiOk`・`listNotifications`・`deliveredPushes` は A として呼ぶ）
-- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、worker）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)`。B は Web Push のスタブも有効化もしない
+- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、admin）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)`。B は Web Push のスタブも有効化もしない
 - 前提: `prepareApp(request)`（デモの設備。時計は NOW = 2026-10-09 12:00 JST に固定）、`addUser`。A のページには `alignBrowserClock(page)`
 - 切替: A（Web Push の有効化・センサーの取り込み・失敗の確認）→ B（ログイン・通知・状況・ダッシュボード・復旧の取り込み・連携の結果）→ A（通知の既読）→ B（再読み込み）。最後に B のコンテキストを閉じる
 - モックの操作は、API で行う: `setMock`（`file-server`・`federation` の UP・DOWN）、`runJob`（JB-03＝連携、JB-04＝通知の作成・配信）、`advanceMinutes`
@@ -6611,7 +6634,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 #### 利用者 A・B の切替の流れ
 
 - A: 初期ユーザー（`e2e-user`）。既定の `page`。`openAs(page, '/')` でログイン
-- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、worker）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで `openAs(b.page, '/', USER_B)`
+- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、admin）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで `openAs(b.page, '/', USER_B)`
 - 前提: `prepareApp(request)`（デモの設備。時計は NOW = 2026-10-09 12:00 JST に固定）、`addUser`、`alignBrowserClock(page)`
 - 切替: A（コードの登録・取り込み）→ B（ダッシュボード・一覧）→ A（カテゴリの変更）→ B（異常・通知）→ A（名称の変更）→ B（新しい名称）→ A（削除）→ B（不明・一覧）→ A（履歴）。最後に B のコンテキストを閉じる
 - A の各変更の前に、サーバーの時計を `advanceMinutes(request, 1)` で 1 分進める（3 回。履歴が日時の順に並ぶため）
@@ -6655,7 +6678,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 #### 利用者 A・B の切替の流れ
 
 - A: 初期ユーザー（`e2e-user`）。既定の `page`。`openAs(page, '/')` でログイン。画面の操作は、メニュー「取り込み」の設定のみ（取得間隔・有効／無効）。ジョブの実行・時計・ファイルの配置は、API・ファイル操作（`request`、`placeFile`）で行う
-- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、worker）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)`
+- B: `addUser(request, USER_B)`（API）で追加したユーザー（`e2e-user-b`、`Dummy-Passw0rd-b1`、admin）。`newUserSession(browser, testInfo, 'user-b')` の別のコンテキストで、`openAs(b.page, '/', USER_B)`
 - 前提: `prepareApp(request)`（デモの設備。時計は NOW = 2026-10-09 12:00 JST に固定）、`addUser`、`alignBrowserClock(page)`
 - 切替: A（取得間隔の設定）→（API でファイル・JB-01）→ B（最新の評価・古い旨・異常の通知）→ A（ロボットの無効化）→（API でファイル・JB-01）→ B（取り込みのログ・連携の結果）。最後に B のコンテキストを閉じる
 - 補助の関数（ファイル内）: `staleWarning(page)` は role=alert で「データが古くなっています」を含むもの。`environmentBadge(page)` は環境適応性のカードの `.status-badge`。`logCount(request, sourceId)` は `GET /ingestion/logs?sourceId=<id>&limit=100` の `items.length`
@@ -7644,7 +7667,9 @@ UC-13（根拠: `.speccheck/UC-13-login-logout.md`。認証サービス）。ロ
 | ---------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | U-auth-001 | ロールに割り当てた権限だけを持つ          | 前提: ロール admin（権限 user:manage・criteria:edit）と、viewer（権限なし）の方針。操作: `permissionsOf`・`can`・`roleIds` を呼ぶ。期待結果: `permissionsOf('admin')` は ['user:manage','criteria:edit']。`can('admin','user:manage')` は true。`can('admin','equipment:manage')`（割り当てていない権限）は false。`can('viewer','user:manage')` は false。`roleIds()` は ['admin','viewer']。 |
 | U-auth-002 | 未知のロールは、権限を持たない            | 前提: 同じ方針。操作: 'admin'・'unknown'・'toString' で `isKnownRole`、'unknown' で `permissionsOf`・`can` を呼ぶ。期待結果: `isKnownRole('admin')` は true。'unknown' は false。'toString'（Object のプロトタイプにある名前）も false。`permissionsOf('unknown')` は []。`can('unknown','user:manage')` は false。                                                                            |
-| U-auth-003 | 既定は、1ロール（農作業者）が全権限を持つ | 前提: `DEFAULT_ROLE_CONFIG` から方針を作る。操作: `roleIds`・`permissionsOf('worker')` を呼ぶ。期待結果: `roleIds()` は ['worker']。`permissionsOf('worker')` は `PERMISSIONS`（全権限の定数）と等しい。                                                                                                                                                                                       |
+| U-auth-003 | 既定は、管理者（全権限）と一般（手動入力のみ）の 2 ロール | 前提: `DEFAULT_ROLE_CONFIG` から方針を作る。操作: `roleIds`・`roleOptions`・`permissionsOf` を呼ぶ。期待結果: `roleIds()` は ['admin', 'general']。`roleOptions()` は 管理者（admin）・一般（general）。`permissionsOf('admin')` は `PERMISSIONS`（全権限）。`permissionsOf('general')` は ['manual-entry:write']。（#115） |
+| U-auth-004 | 既定のロールに、農作業者（worker）はない。以前のロールの値は、未知のロールとして、権限を持たない | 前提: 同じ方針。操作: `isKnownRole('worker')`・`permissionsOf('worker')`。期待結果: false・[]。（#115） |
+| U-auth-005 | 取り込みの状況・ログの閲覧の権限（ingestion:read）は、管理者だけが持つ | 前提: 同じ方針。操作: `can('admin', 'ingestion:read')`・`can('general', 'ingestion:read')`。期待結果: true・false。`PERMISSIONS` に `ingestion:read` を含む。（#115） |
 
 ##### 認証サービス
 
@@ -7956,7 +7981,7 @@ API のエラー処理（共通のエラー応答）の単体テスト。もと�
 #### 対象のコード
 
 - `src/backend/runtime/config.ts`（実行設定。環境変数をスキーマ（zod）で検証して `AppConfig` にする `parseConfig`、設定エラー `ConfigError`。エラーには変数名だけを含め、値を含めない）
-- `src/backend/application/auth/access-policy.ts`（`DEFAULT_ROLE_CONFIG`。ロール定義の指定がないときの既定。1ロール worker）
+- `src/backend/application/auth/access-policy.ts`（`DEFAULT_ROLE_CONFIG`。ロール定義の指定がないときの既定。2 ロール admin・general（Issue #115））
 
 #### 概要
 
@@ -7972,7 +7997,7 @@ UC-13、UC-14（根拠: `.speccheck/UC-13-login-logout.md` が、このファイ
 
 | ID           | テスト名                                                                                           | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------ | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-config-001 | 何も指定しなければ、ローカルの既定値になる（メモリ上のデータ、初期ユーザーなし、スケジューラ無効） | 前提: 環境変数なし（`{}`）。操作: `parseConfig({})`。期待結果: mode 'local'、host '127.0.0.1'、port 8787、persistence 'memory'、seedMode 'NONE'、schedulerEnabled false、defaultIngestionIntervalMinutes 15、staleAfterIntervals 3、logLevel 'info'、devApiEnabled true を含む。`initialUser` は undefined。`roles` のキーは ['worker']（既定の1ロール）。                                                                                                                                                                                                                                                                                                 |
+| U-config-001 | 何も指定しなければ、ローカルの既定値になる（メモリ上のデータ、初期ユーザーなし、スケジューラ無効） | 前提: 環境変数なし（`{}`）。操作: `parseConfig({})`。期待結果: mode 'local'、host '127.0.0.1'、port 8787、persistence 'memory'、seedMode 'NONE'、schedulerEnabled false、defaultIngestionIntervalMinutes 15、staleAfterIntervals 3、logLevel 'info'、devApiEnabled true を含む。`initialUser` は undefined。`roles` のキーは ['admin', 'general']（既定の 2 ロール。#115）。                                                                                                                                                                                                                                                                                                 |
 | U-config-002 | 指定した値を読み込む                                                                               | 前提: APP_MODE 'test'、PORT '9000'、PERSISTENCE 'file'、DATA_FILE 'x/store.json'、FILE_SERVER_DIR 'x/fs'、SEED_MODE 'DEMO'、SCHEDULER_ENABLED 'true'、SCHEDULER_TICK_SECONDS '5'、LOG_LEVEL 'debug'、DEFAULT_INGESTION_INTERVAL_MINUTES '30'、STALE_AFTER_INTERVALS '2'、INGESTION_RETRY_BASE_DELAY_MS '0'。操作: `parseConfig`。期待結果: mode 'test'、port 9000（数値）、persistence 'file'、dataFile 'x/store.json'、fileServerDirectory 'x/fs'、seedMode 'DEMO'、schedulerEnabled true（真偽値）、schedulerTickSeconds 5、logLevel 'debug'、defaultIngestionIntervalMinutes 30、staleAfterIntervals 2、ingestionRetryBaseDelayMs 0（境界: 下限の 0）。 |
 | U-config-003 | 本番では、開発用 API を無効にする | 前提: APP_MODE 'production' と、本番に必須の設定（`AUTH_PROVIDER=cognito`・`PERSISTENCE=dynamodb`・テーブル名・Cognito の ID。ダミー値）。操作: `parseConfig`。期待結果: `devApiEnabled` は false。**（Issue #75 で、前提に、本番に必須の設定を追加した。期待結果は、そのまま）** |
 
@@ -7993,7 +8018,7 @@ UC-13、UC-14（根拠: `.speccheck/UC-13-login-logout.md` が、このファイ
 
 | ID           | テスト名                                                             | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                    |
 | ------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| U-config-010 | 3つの変数がそろっていれば、既定のロールで読み込む                    | 前提: `INITIAL_USER` の3変数（ロール定義の指定なし）。操作: `parseConfig`。期待結果: `initialUser` は {userId 'first-user'、userName '最初のユーザー'、password 'Dummy-Passw0rd-1'、role 'worker'} と等しい。                                                                       |
+| U-config-010 | 3つの変数がそろっていれば、既定のロール（管理者）で読み込む                    | 前提: `INITIAL_USER` の3変数（ロール定義の指定なし）。操作: `parseConfig`。期待結果: `initialUser` は {userId 'first-user'、userName '最初のユーザー'、password 'Dummy-Passw0rd-1'、role 'admin'} と等しい。                                                                       |
 | U-config-011 | 一部だけの指定は、設定エラーにする                                   | 前提: INITIAL_USER_ID 'a' のみ（名前・パスワードなし。無効）。操作: `parseConfig`。期待結果: 'すべて指定してください' を含むエラーを投げる。                                                                                                                                        |
 | U-config-012 | ユーザーIDの形式・パスワードの条件を満たさなければ、設定エラーにする | 前提: (a) INITIAL_USER_ID '日本語'（ユーザーIDの形式に合わない）。(b) INITIAL_USER_PASSWORD 'weak'（パスワードの条件を満たさない）。ほかは `INITIAL_USER`。操作: `parseConfig`。期待結果: (a) 'INITIAL_USER_ID' を含むエラーを投げる。(b) 'パスワードの条件' を含むエラーを投げる。 |
 
@@ -9161,7 +9186,7 @@ UC-13（認証）、UC-01（ダッシュボード）、UC-05・UC-22（通知）
 
 | ID        | テスト名                                                                                                                         | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I-api-006 | ログインすると、アクセストークン・リフレッシュトークン・有効期限・利用者（権限つき）を返す                                       | 操作: POST /api/v1/auth/login に TEST_USER の userId・パスワード。期待: 200。本文が LoginResponseSchema に適合。user が userId `test-user`・userName `テストユーザー`・role `worker`。permissions が 8 件（既定は 1 ロールで全権限）。accessTokenExpiresAt が TEST_NOW の 30 分後                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| I-api-006 | ログインすると、アクセストークン・リフレッシュトークン・有効期限・利用者（権限つき）を返す                                       | 操作: POST /api/v1/auth/login に TEST_USER の userId・パスワード。期待: 200。本文が LoginResponseSchema に適合。user が userId `test-user`・userName `テストユーザー`・role `admin`。permissions が 9 件（既定の最初のユーザーは、管理者で、全権限。#115）。accessTokenExpiresAt が TEST_NOW の 30 分後                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | I-api-007 | 認証に失敗したら、原因を特定できないメッセージで 401 を返す                                                                      | 操作: ログインを 2 回（正しいユーザーで誤ったパスワード `wrong`、存在しないユーザー `nobody` でパスワード `wrong`）。期待: 前者が 401。2 つのエラー本文が完全に等しい。メッセージが `ユーザーIDまたはパスワードが正しくありません`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | I-api-008 | 入力が不正なら、項目ごとのエラーつきの 400 を返す                                                                                | 操作: ログインに本文 `{}`、および本文 `{`（JSON として不正）。期待: `{}` は 400 で、fields に name が userId の要素と password の要素を含む。`{` は 400 で code が VALIDATION_ERROR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | I-api-009 | 同じ接続元（X-Forwarded-For）からの失敗が続くと、429 で一時的に拒否する                                                          | 操作: x-forwarded-for `192.0.2.1, 10.0.0.1` から、誤ったパスワードで LOGIN_FAILURE_LIMIT 回（5 回）ログイン。次に、x-forwarded-for `192.0.2.1` から正しいパスワードでログイン、x-forwarded-for `192.0.2.2` から正しいパスワードでログイン。期待: 失敗 5 回は各 401。`192.0.2.1` の正しいパスワードのログインは 429。`192.0.2.2` は 200                                                                                                                                                                                                                                                                                                                                                                     |
@@ -9702,7 +9727,7 @@ UC-08（ロボットデータの自動取り込み）、UC-09（環境センサ�
 #### 概要
 
 - 手動入力・変更履歴・設備・ステータスコード・判断基準・ユーザー・取り込み設定と状況・Web Push の購読の API を、Hono アプリに `app.request` で直接リクエストして検証する結合テスト（153 件）。ファイル先頭のコメントのとおり、画面と同じ検証を共有するため、入力の同値分割（正常・各項目の不正・境界値）を網羅している。
-- 共通の準備: `createTestContext()` で、メモリ上のデータ、固定した時計（TEST_NOW = 2026-10-09T03:00:00Z）、連番の識別子、ログ出力なしのコンテナと Hono アプリを作る。初期ユーザーは test-user（ロール worker）。`withEquipment()` は、これに加えて設備 3 件を保存する（ハウス HOUSE-T1、ロボット ROBOT-T1（外部の識別子 ROBOT-SAMPLE-01）、センサー SENSOR-T1（外部の識別子 SENSOR-SAMPLE-01））。設備が不要なテストは `createTestContext()` だけを使う。
+- 共通の準備: `createTestContext()` で、メモリ上のデータ、固定した時計（TEST_NOW = 2026-10-09T03:00:00Z）、連番の識別子、ログ出力なしのコンテナと Hono アプリを作る。初期ユーザーは test-user（ロール admin）。`withEquipment()` は、これに加えて設備 3 件を保存する（ハウス HOUSE-T1、ロボット ROBOT-T1（外部の識別子 ROBOT-SAMPLE-01）、センサー SENSOR-T1（外部の識別子 SENSOR-SAMPLE-01））。設備が不要なテストは `createTestContext()` だけを使う。
 - リクエストは `send(context, メソッド, パス, 本文, トークン)`。トークンを省略すると、test-user でログインして取得したトークンを、`Authorization: Bearer` で付ける。パスは `/api/v1` を除いた形で書く（以降の表のパスも同様）。
 - `errorOf(response)` は、応答を `ErrorResponseSchema` で解釈して `error`（code・fields）を返す。項目ごとのエラーの検証は、`error.fields` の `name` に期待する項目名が含まれることで行う。
 - `entryBody()` の既定: equipmentId=ROBOT-T1、category=OPERABILITY、observedAt=2026-10-09T02:00:00.000Z、items={operationStepCount:4, operationMinutes:8, operationErrorCount:0}。`createEntry()` は、`POST /manual-entries` が 201 であることと、応答を `ManualEntrySaveResponseSchema` で解釈できることを確認して返す。
@@ -9915,11 +9940,11 @@ UC-06・UC-07（手動入力の登録）、UC-10（通知。I-management-api-002
 
 ##### ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）
 
-共通の前提: `NEW_USER` = {userId:'worker-2', userName:'作業者2', password:'Dummy-Passw0rd-new', role:'worker'}。ログインは `POST /api/v1/auth/login`（userId・password）。
+共通の前提: `NEW_USER` = {userId:'worker-2', userName:'作業者2', password:'Dummy-Passw0rd-new', role:'general'}。ログインは `POST /api/v1/auth/login`（userId・password）。
 
 | ID                   | テスト名                                                                         | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                    |
 | -------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I-management-api-101 | 一覧は、ロールの選択肢つきで、パスワードのハッシュを含めずに返す                 | 前提: `createTestContext()`。操作: `GET /users`。期待結果: `UserListResponseSchema` に合う。items が 1 件で userId=test-user・role=worker、lastLoginAt が定義済み。roles が [{roleId:'worker', name:'農作業者'}] と一致。応答の JSON 文字列に 'scrypt' を含まない。 |
+| I-management-api-101 | 一覧は、ロールの選択肢つきで、パスワードのハッシュを含めずに返す                 | 前提: `createTestContext()`。操作: `GET /users`。期待結果: `UserListResponseSchema` に合う。items が 1 件で userId=test-user・role=admin、lastLoginAt が定義済み。roles が [{roleId:'admin', name:'管理者'}, {roleId:'general', name:'一般'}] と一致。応答の JSON 文字列に 'scrypt' を含まない。 |
 | I-management-api-102 | 登録したユーザーは、そのパスワードでログインでき、変更履歴にパスワードを残さない | 前提: `createTestContext()`。操作: NEW_USER を `POST /users`、NEW_USER の userId・password でログイン、`GET /audit-logs`。期待結果: 登録は 201、ログインは 200。変更履歴の JSON 文字列に、パスワード（Dummy-Passw0rd-new）も 'scrypt' も含まない。                  |
 
 不正な登録（it.each。`createTestContext()` の状態で `POST /users`。期待結果は、表のステータスコードで、`error.fields` の name に「期待する項目名」を含む）:
@@ -9938,21 +9963,21 @@ UC-06・UC-07（手動入力の登録）、UC-10（通知。I-management-api-002
 | ID                   | テスト名                                                         | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | -------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | I-management-api-111 | パスワードが8文字（境界値）なら登録できる                        | 前提: `createTestContext()`。操作: NEW_USER の password='Abcdef1x'（8 文字）で `POST /users`。期待結果: 201。                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| I-management-api-112 | ユーザー名・ロールを変更でき、パスワードは指定したときだけ変わる | 前提: 環境変数 ROLE_DEFINITIONS_JSON で、worker（権限 user:manage）と viewer（権限なし）の 2 ロールを定義。NEW_USER を `POST`。操作: `PUT /users/worker-2`（userName='改名'・role='viewer'。パスワードなし）、続けて `PUT`（同じ + password='Dummy-Passw0rd-changed'）。その後、旧パスワードと新パスワードでログイン。期待結果: 2 回の `PUT` とも 200。旧パスワード（Dummy-Passw0rd-new）のログインは 401、新パスワードのログインは 200。（パスワードなしの 1 回目の直後には、ログインを確認していない。「テスト名と検証内容の差」を参照） |
+| I-management-api-112 | ユーザー名・ロールを変更でき、パスワードは指定したときだけ変わる | 前提: 環境変数 ROLE_DEFINITIONS_JSON で、admin（権限 user:manage）・general・viewer（権限なし）の 3 ロールを定義。NEW_USER を `POST`。操作: `PUT /users/worker-2`（userName='改名'・role='viewer'。パスワードなし）、続けて `PUT`（同じ + password='Dummy-Passw0rd-changed'）。その後、旧パスワードと新パスワードでログイン。期待結果: 2 回の `PUT` とも 200。旧パスワード（Dummy-Passw0rd-new）のログインは 401、新パスワードのログインは 200。（パスワードなしの 1 回目の直後には、ログインを確認していない。「テスト名と検証内容の差」を参照） |
 
 変更の検証（it.each。`createTestContext()` に NEW_USER を `POST` した状態で `PUT /users/worker-2`。期待結果はステータスコードのみ）:
 
 | ID                   | テスト名                                   | 値（ケース）                                    | 期待結果 |
 | -------------------- | ------------------------------------------ | ----------------------------------------------- | -------- |
-| I-management-api-113 | 変更の検証（ユーザー名が空）               | {userName:'', role:'worker'}                    | 400      |
+| I-management-api-113 | 変更の検証（ユーザー名が空）               | {userName:'', role:'general'}                    | 400      |
 | I-management-api-114 | 変更の検証（定義されていないロール）       | {userName:'x', role:'boss'}                     | 400      |
-| I-management-api-115 | 変更の検証（パスワードが条件を満たさない） | {userName:'x', role:'worker', password:'short'} | 400      |
+| I-management-api-115 | 変更の検証（パスワードが条件を満たさない） | {userName:'x', role:'general', password:'short'} | 400      |
 
 | ID                   | テスト名                                                                                             | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | I-management-api-116 | 削除したユーザーは、次のリクエストから使えない。自分自身は削除できない。存在しなければ 404           | 前提: `createTestContext()`。NEW_USER を `POST` し、ログインして、そのトークン（otherToken）を取得。操作: `DELETE /users/test-user`（自分自身）、`DELETE /users/worker-2`、同じ `DELETE` をもう一度、otherToken で `GET /equipment`、`PUT /users/nobody`。期待結果: 順に 409、204、404、401（削除後のトークンは使えない）、404。                                                                                                                                                                                                                                                                             |
-| I-management-api-117 | 登録・変更・削除は、変更履歴に、変更したユーザーとともに残り、パスワード（平文・ハッシュ）は残らない | 前提: `createTestContext()`。操作: NEW_USER（password='Dummy-Passw0rd-audit'）を `POST`、`PUT`（userName='改名'・role='worker'・password='Dummy-Passw0rd-audit2'）、`DELETE`。`GET /audit-logs?targetType=user`。期待結果: operation の集合が CREATE・DELETE・UPDATE（並べ替えて比較）。すべての項目が targetType=user・targetId=worker-2・actor=test-user。UPDATE の before が {userId:'worker-2', userName:'作業者2', role:'worker'} と完全一致、after が {userId:'worker-2', userName:'改名', role:'worker'} と完全一致。履歴全体の JSON 文字列に 'Dummy-Passw0rd'・'scrypt'・'passwordHash' を含まない。 |
-| I-management-api-118 | ロールを変更すると、そのユーザーの発行済みのトークンにも、次のリクエストから、新しい権限が適用される | 前提: 環境変数 ROLE_DEFINITIONS_JSON で、worker（user:manage）・viewer（権限なし）を定義。NEW_USER（worker）を `POST` し、ログインしてトークンを取得。操作: そのトークンで `GET /users`（変更前）、`PUT /users/worker-2`（role='viewer'）、同じトークンで `GET /users`（変更後）。期待結果: 変更前は 200、変更後は 403。                                                                                                                                                                                                                                                                                     |
+| I-management-api-117 | 登録・変更・削除は、変更履歴に、変更したユーザーとともに残り、パスワード（平文・ハッシュ）は残らない | 前提: `createTestContext()`。操作: NEW_USER（password='Dummy-Passw0rd-audit'）を `POST`、`PUT`（userName='改名'・role='general'・password='Dummy-Passw0rd-audit2'）、`DELETE`。`GET /audit-logs?targetType=user`。期待結果: operation の集合が CREATE・DELETE・UPDATE（並べ替えて比較）。すべての項目が targetType=user・targetId=worker-2・actor=test-user。UPDATE の before が {userId:'worker-2', userName:'作業者2', role:'general'} と完全一致、after が {userId:'worker-2', userName:'改名', role:'general'} と完全一致。履歴全体の JSON 文字列に 'Dummy-Passw0rd'・'scrypt'・'passwordHash' を含まない。 |
+| I-management-api-118 | ロールを変更すると、そのユーザーの発行済みのトークンにも、次のリクエストから、新しい権限が適用される | 前提: 環境変数 ROLE_DEFINITIONS_JSON で、admin（user:manage）・general・viewer（権限なし）を定義。NEW_USER（role=admin）を `POST` し、ログインしてトークンを取得。操作: そのトークンで `GET /users`（変更前）、`PUT /users/worker-2`（role='viewer'）、同じトークンで `GET /users`（変更後）。期待結果: 変更前は 200、変更後は 403。                                                                                                                                                                                                                                                                                     |
 
 ##### 取り込み設定・状況（UC-15、UC-16）
 
@@ -10414,10 +10439,10 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 
 | 項目                             | 値                                                                                                                                                                                          | 定義                                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| 初期ユーザー（利用者 A）         | userId `e2e-user`、userName `E2Eテスト用ユーザー`、password `Dummy-Passw0rd-e2e`。ロールは `worker`（playwright.config.ts の `INITIAL_USER_ROLE`）                                          | `e2e-user.ts` の `E2E_USER`                  |
-| 利用者 B                         | userId `e2e-user-b`、userName `E2E利用者B`、password `Dummy-Passw0rd-b1`、role `worker`                                                                                                     | `app.ts` の `USER_B`                         |
+| 初期ユーザー（利用者 A）         | userId `e2e-user`、userName `E2Eテスト用ユーザー`、password `Dummy-Passw0rd-e2e`。ロールは `admin`（playwright.config.ts の `INITIAL_USER_ROLE`）                                          | `e2e-user.ts` の `E2E_USER`                  |
+| 利用者 B                         | userId `e2e-user-b`、userName `E2E利用者B`、password `Dummy-Passw0rd-b1`、role `admin`                                                                                                     | `app.ts` の `USER_B`                         |
 | 閲覧者                           | userId `e2e-viewer`、userName `E2E閲覧者`、password `Dummy-Passw0rd-v1`、role `viewer`                                                                                                      | `app.ts` の `VIEWER`                         |
-| ロール定義（JSON）               | `worker`＝名称「農作業者」、権限は `PERMISSIONS`（`src/shared/constants/permissions.ts`。全権限）。`viewer`＝名称「閲覧者」、権限は空配列（要ログインの操作のみ）                           | `e2e-user.ts` の `E2E_ROLE_DEFINITIONS_JSON` |
+| ロール定義（JSON）               | 既定の 2 ロール（`DEFAULT_ROLE_CONFIG`）: `admin`＝名称「管理者」、権限は `PERMISSIONS`（全権限）。`general`＝名称「一般」、権限は `manual-entry:write` のみ。参照のみの確認用に、`viewer`＝名称「閲覧者」、権限は `ingestion:read` のみ（#115）                           | `e2e-user.ts` の `E2E_ROLE_DEFINITIONS_JSON` |
 | 固定する現在時刻 `NOW`           | `2026-10-09T03:00:00.000Z`（2026-10-09 12:00 JST）                                                                                                                                          | `viewpoint-scenarios.ts`                     |
 | 設備の識別子                     | ハウス `HOUSE-01`、ロボット `ROBOT-01`、環境センサー `SENSOR-01`（デモの設備）。`app.ts` では `HOUSE_ID`・`ROBOT_ID`・`SENSOR_ID`、`viewpoint-scenarios.ts` では `HOUSE`・`ROBOT`・`SENSOR` |                                              |
 | ファイル内の設備の識別子         | ロボット `ROBOT-SAMPLE-01`（`ROBOT_EXTERNAL_ID`）、センサー `SENSOR-SAMPLE-01`（`SENSOR_EXTERNAL_ID`）                                                                                      | `app.ts`                                     |
@@ -10429,7 +10454,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | 名称                                                                                               | 種別     | 役割・主な引数・動作                                                                                                                                                                                                                                                                                |
 | -------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FILE_SERVER_ROOT`、`HOUSE_ID`、`ROBOT_ID`、`SENSOR_ID`、`ROBOT_EXTERNAL_ID`、`SENSOR_EXTERNAL_ID` | 定数     | 上の表のとおり                                                                                                                                                                                                                                                                                      |
-| `E2eUser`（型）、`USER_B`、`VIEWER`                                                                | 型・定数 | ダミー利用者（`userId`・`userName`・`password`・`role: 'worker' \| 'viewer'`）                                                                                                                                                                                                                      |
+| `E2eUser`（型）、`USER_B`、`VIEWER`                                                                | 型・定数 | ダミー利用者（`userId`・`userName`・`password`・`role: 'admin' \| 'general' \| 'viewer'`）                                                                                                                                                                                                                      |
 | `accessToken(request, user = E2E_USER)`                                                            | 関数     | `POST /api/v1/auth/login` に `{userId, password}` を送り、応答が成功（`ok`）であることを確認して、アクセストークンを返す。リクエストの文脈と利用者ごとに、メモリ（WeakMap）へ保持して使い回す                                                                                                       |
 | `api(request, method, path, body?)`                                                                | 関数     | E2E の利用者（A）の Bearer トークンで `/api/v1<path>` を呼ぶ（method は GET・POST・PUT・DELETE）。応答が 401 のときは、トークンのキャッシュを消して、ログインし直して、もう一度呼ぶ（サーバーの時計を進めるとトークンの期限が切れるため）。応答はそのまま返す                                       |
 | `apiOk(request, method, path, body?)`                                                              | 関数     | `api` を呼び、2xx（`ok`）を確認して、JSON の本文を返す（204 なら undefined）                                                                                                                                                                                                                        |
@@ -10458,7 +10483,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | 名称                        | 内容                                                        |
 | --------------------------- | ----------------------------------------------------------- |
 | `E2E_USER`                  | 上の「共通のダミーの値」のとおり（`as const`）              |
-| `E2E_ROLE_DEFINITIONS_JSON` | 上のとおり（`worker`・`viewer` のロール定義の JSON 文字列） |
+| `E2E_ROLE_DEFINITIONS_JSON` | 上のとおり（`admin`・`general`・`viewer` のロール定義の JSON 文字列） |
 
 #### entry.ts（手動入力 SC-06 の画面操作の補助）
 
@@ -10645,7 +10670,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | `errorResponse(status, code, message)` | 関数 | エラー応答（本文 `{ error: { code, message } }`）を作る。                                                                                                                                                                                                 |                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `createFakeFetch(handler)`             | 関数 | API のスタブ（`vi.fn` の fetch 関数 `fetchFn`）と、呼び出しの記録 `calls`（`FakeRequest[]`）を返す。ハンドラが `undefined` を返した要求は、404（コード `NOT_FOUND`・メッセージ「見つかりません」）にする。                                                | アドレスの基準 `http://localhost`                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `createMemorySession(initial = null)`  | 関数 | メモリ上のセッション（`SessionAccess`。`get`・`set`・`clear` と、`current`）を作る。引数は初期のログイン応答。                                                                                                                                            |                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `WORKER_LOGIN`                         | 定数 | 農作業者のログイン応答（`LoginResponse`）。                                                                                                                                                                                                               | アクセストークン `access-token-1`、更新トークン `refresh-token-1`（ダミー）、アクセストークンの期限 `2026-10-09T03:30:00.000Z`、更新トークンの期限 `2026-10-16T03:00:00.000Z`。利用者 `worker-1`・「農作業者A」・ロール `worker`・権限 `equipment:manage`、`user:manage`                                                                                                                                                                |
+| `WORKER_LOGIN`                         | 定数 | 農作業者のログイン応答（`LoginResponse`）。                                                                                                                                                                                                               | アクセストークン `access-token-1`、更新トークン `refresh-token-1`（ダミー）、アクセストークンの期限 `2026-10-09T03:30:00.000Z`、更新トークンの期限 `2026-10-16T03:00:00.000Z`。利用者 `worker-1`・「農作業者A」・ロール `worker`・権限 `equipment:manage`、`ingestion:read`、`user:manage`                                                                                                                                                                |
 | `VIEWER_LOGIN`                         | 定数 | 閲覧者のログイン応答（`WORKER_LOGIN` を元に変更）。                                                                                                                                                                                                       | 利用者名「閲覧者B」・ロール `viewer`・権限なし                                                                                                                                                                                                                                                                                                                                                                                          |
 | `equipmentTree()`                      | 関数 | 設備の階層（`EquipmentTreeResponse`）を作る。                                                                                                                                                                                                             | ハウス「ハウス1」`HOUSE-01`の下に、ロボット「収穫ロボット1」`ROBOT-01`・センサー「環境センサー1」`SENSOR-01`。作成日時 `2026-10-01T00:00:00.000Z`                                                                                                                                                                                                                                                                                       |
 | `card(overrides?)`                     | 関数 | ダッシュボードの観点のカード（`ViewpointCard`）を作る。                                                                                                                                                                                                   | 既定: 観点 `safety`（安全性）・状態 `NORMAL`（短期・長期とも）・指標 `emergencyStopPerHour` = 0、`nearMissPerHour` = null・診断メッセージ「安全性: 正常。緊急停止頻度 0.000回/時間（正常）」・推奨対応「現在の状態を維持し、引き続き推移を確認してください」・評価の期間 `2026-10-02T03:00:00.000Z` 〜 `2026-10-09T03:00:00.000Z`・`horizonUsed` = `LONG`                                                                               |
@@ -10727,8 +10752,8 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
     | `INITIAL_USER_PASSWORD`         | `E2E_USER.password` = `Dummy-Passw0rd-e2e`                                                                                            | 明らかにダミー（e2e-user.ts のコメントにも明記） |
     | `LOG_LEVEL`                     | `warn`                                                                                                                                | 設定値                                           |
     | `INGESTION_RETRY_BASE_DELAY_MS` | `10`                                                                                                                                  | 設定値                                           |
-    | `ROLE_DEFINITIONS_JSON`         | `E2E_ROLE_DEFINITIONS_JSON`（`{"worker":{"name":"農作業者","permissions":PERMISSIONS},"viewer":{"name":"閲覧者","permissions":[]}}`） | 設定値                                           |
-    | `INITIAL_USER_ROLE`             | `worker`                                                                                                                              | 設定値                                           |
+    | `ROLE_DEFINITIONS_JSON`         | `E2E_ROLE_DEFINITIONS_JSON`（`{...DEFAULT_ROLE_CONFIG, "viewer":{"name":"閲覧者","permissions":["ingestion:read"]}}`） | 設定値                                           |
+    | `INITIAL_USER_ROLE`             | `admin`                                                                                                                              | 設定値                                           |
     | `WEB_PUSH_PUBLIC_KEY`           | Base64 文字列（デコードすると `dummy-web-push-public-key-for-e2e-0123456789-abcdefghijklmnop-qrs`）                                   | ダミー（コメントにも「公開鍵（ダミー）」とある） |
 
   - フロントエンド: `node ../../node_modules/vite/bin/vite.js`（`cwd: src/frontend`）、待機 URL は `http://127.0.0.1:5173`。環境変数の指定なし
@@ -10770,8 +10795,8 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-11 | 農業情報基盤へデータを連携する                     | `UC-11-federate-data.ts`（14 件）            | `unit/backend/infrastructure/adapters.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                      |
 | UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（31 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
 | UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（37 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
-| UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（32 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
-| UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）・`UC-15-configure-file-server-connection.ts`（12 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
+| UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（34 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
+| UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）・`UC-15-configure-file-server-connection.ts`（12 件）・`UC-15-configure-file-server-connection.ts`（12 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
 | UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（21 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
 | UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（30 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
 | UC-18 | 入力済みデータを管理する（一覧・修正・削除・履歴） | `UC-18-manage-entries.ts`（52 件）           | `unit/shared/manual-entry.test.ts`、`unit/frontend/entry-pages.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                     |
@@ -11759,3 +11784,40 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 ### 32.3 実測
 
 手元（Windows）: `infra/test/evaluation-stack.test.ts` 37 件成功。IaC のテスト全体は、PR に記載する。**AWS での実際のデプロイ・配信されるヘッダーは、未確認**（AWS の操作は、ユーザーが行う。PR の確認手順を参照）。
+
+## 33. ロールの分割（管理者・一般）と、自身のユーザー名の編集（Issue #115）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-10 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0013）: ロールは、管理者（`admin`。全権限）・一般（`general`。手動入力 `manual-entry:write` のみ）の 2 種類。取り込みの設定の参照・状況・ログ、連携のログの閲覧は、新しい権限 `ingestion:read` で、管理者だけ（設備ごとに絞れるようになる #116 まで）。本人が、自分のユーザー名を変えられる（`PUT /auth/profile`。ロール・ユーザー ID・パスワードは変えられない）。以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles` で移す。
+
+### 33.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/role-access.test.ts`（新規。55 件） | 管理者は全権限（9 種）、一般は `manual-entry:write` だけ（ログインの応答）。**ルート一覧（`route-table.ts`）から導く**: 一般が使えない操作（権限が要るルートのうち、`manual-entry:write` 以外。20 ルート）は、一般が 403 `FORBIDDEN`、管理者は 403 でない。「ログインだけで使える」ルート・手動入力のルートは、一般も 403 にならない（ルートが増えても、自動で確かめる）。取り込みの設定・状況・ログと連携のログは、一般が 403、管理者が 200。一般も、設備・ダッシュボード・通知・手動入力の一覧を閲覧できる。**`PUT /auth/profile`**: 一般も、自分のユーザー名を変えられる（ロールは `general` のまま）。ロール・ユーザー ID・パスワードを送っても、変わらない。管理者も変えられる。不正なユーザー名（空・空白だけ・201 文字・ない）は 400（変更しない）。未ログインは 401。管理者が決めたパスワードの変更前は 403 `PASSWORD_CHANGE_REQUIRED`。操作履歴に、本人を操作者として、変更前後を残す（パスワードのハッシュを含まない）。一般は、ユーザー管理（一覧・登録・変更・削除）を使えず、自分のロールも、管理者に変えられない |
+| 結合: `tests/integration/migrate-user-roles-cli.test.ts`（新規。10 件） | 既定では、ロール `worker` のユーザーを `admin` に移し、ほかのユーザーは変えない。名前・作成日時は変えない。何度実行しても同じ（対象がなければ何もしない）。`MIGRATE_DRY_RUN=true` は、人数を示すだけで書き込まない。`MIGRATE_TO_ROLE` で移す先を変えられる。設定の誤り（移す先がロール定義にない・移す元と同じ・メモリ保存）は、何も書き込まず、終了コード 1。ローカルのファイル（`PERSISTENCE=file`）も移せる。DynamoDB の失敗は、エラーの名前だけを出力する（アカウント ID・ARN を出さない）。DynamoDB Local を使う |
+| 結合: `tests/integration/api.test.ts`（2 件を追加） | `PUT /auth/profile` の、未認証・無効なトークンは 401。3 ロールの設定でも、ロールごとの権限（ルート表の全ルート）が成り立つ |
+| 単体: `tests/unit/backend/application/user-service.test.ts`（3 件を追加） | 自身のユーザー名の編集（`updateOwnProfile`）: ユーザー名だけを変え、ロール・資格情報には触れない。操作履歴に、操作者を本人として、変更前後を残す。存在しないユーザーは `NOT_FOUND` |
+| 単体: `tests/unit/backend/application/auth.test.ts`（2 件を追加。既存の 1 件を置き換え） | 既定は 2 ロール（管理者・一般）。`worker` は未知のロール（権限なし）。`ingestion:read` は、管理者だけ |
+| 単体: `tests/unit/frontend/profile-page.test.tsx`（新規。9 件） | ヘッダーの「ユーザー名の変更」から開く（一般を含む）。ユーザー ID・ロールは表示だけ。変更すると、ユーザー名だけを送り、ヘッダーの表示も変わる。前後の空白は取り除く。空・空白だけ・201 文字は、送らずに誤りを示す。サーバーの検証エラーは、入力欄に示す。保存の失敗は、失敗した旨を示す |
+| 単体: `tests/unit/frontend/ingestion-page.test.tsx`（1 件を追加） | 閲覧の権限（`ingestion:read`）がなければ、権限がない旨だけを示し、取り込み・連携の API を呼ばない。閲覧の権限だけなら、参照のみ |
+| 単体: `tests/unit/frontend/app-layout.test.tsx`（1 件を追加） | 一般（手動入力の権限だけ）には、設定の「取り込み」「ユーザー」を表示しない |
+| E2E: `tests/e2e/UC-14-manage-users.ts`（2 件を追加。E14-033・E14-034） | 一般のメニュー・権限メッセージ・サーバー側の拒否（`/users`・`/ingestion/*`・`/federation/logs` が 403）と、手動入力の画面が開けること。一般が、自分のユーザー名を変えられ、読み直しても残り、一覧に反映され、ロールは `general` のまま |
+
+### 33.2 変更した既存のテスト
+
+- ロール `worker` を使っていたテストを、新しい既定のロールに合わせた: 既定の最初のユーザーは `admin`（`api.test.ts`・`config.test.ts`・`auth-contract.test.ts` ほか）、登録するユーザーは `general`（`management-api.test.ts`・`password-change.test.ts`・`security-hardening.test.ts`・`user-service*.test.ts` ほか）。自分自身を更新するテストは、`admin` のまま（ユーザー管理の権限を失わないため）。個別のロール定義を使うテスト（`management-api.test.ts` の 2 件）は、`admin`・`general`・`viewer` の 3 ロールに変えた
+- `THREE_ROLES_JSON`（`tests/support/test-context.ts`）に、`ingestion:read` を加えた（管理者・評価者）
+- E2E: 既定の 2 ロール（`DEFAULT_ROLE_CONFIG`）に、参照のみの確認用の `viewer`（`ingestion:read` のみ）を加えた（`e2e-user.ts`）。初期ユーザー・利用者 B は `admin`（`playwright.config.ts` の `INITIAL_USER_ROLE`・`app.ts`）。UC-14 の期待値（ロールの表示名・選択肢）を更新
+- フロントエンド: 取り込み画面のテスト（`ingestion-page.test.tsx`・`ingestion-connection.test.tsx`）の「参照のみ」の利用者に、`ingestion:read` を加えた。`WORKER_LOGIN`（`tests/support/frontend.ts`）の権限に `ingestion:read` を加えた
+- 負荷テストの初期データ（`tests/stress/support/seed-data.ts`）のユーザーのロールを `admin` にした
+
+### 33.3 実測
+
+手元（Windows。2026-11-10）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **130 ファイル・2946 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.18%・Branches 95.53%・Functions 99.43%・Lines 99.16%（基準は、すべて 95% 以上）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- E2E（空きポート 18787・15173。`playwright test --workers=1`）: ロールに関わる UC を実行し、**すべて成功**。UC-13・UC-14（34 件。追加した E14-033・E14-034 を含む）・UC-15（2 ファイル）・UC-16・シナリオ「新しい利用者の受け入れから、権限の変更・削除まで」（最初の実行で、UC-14 の期待値・利用者 B のロールの誤りが見つかり、直した）と、`USER_B`・`VIEWER` を使う UC-05・UC-07・UC-12・UC-17・UC-18・UC-19。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
+- **AWS での実際の移行（`pnpm migrate-user-roles`）・デプロイ後の確認は、未確認**（AWS の操作は、ユーザーが行う。operations.md 8.7）

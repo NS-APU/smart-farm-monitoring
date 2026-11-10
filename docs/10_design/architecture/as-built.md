@@ -130,8 +130,8 @@
 
 | 利用者       | 実装での扱い                                                                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 農作業者     | ロールの設定（`ROLE_DEFINITIONS_JSON`）で、操作ごとの権限（8 種）を割り当てる。**既定は 1 ロール `worker`（農作業者）が全権限**を持つ                                                                    |
-| 閲覧者       | 固定のロールではない。権限を持たないロール（`permissions: []`）を定義すると、「要ログイン」の操作（参照・既読・Web Push の購読）のみできる。E2E のサーバーは、`worker` と `viewer` の 2 ロールで起動する |
+| 管理者       | ロール `admin`。全 9 権限を持つ（ADR-0013。最初のユーザー〔`pnpm initial-user`〕のロール）。ロール・権限は、設定（`ROLE_DEFINITIONS_JSON`）で変えられる |
+| 一般         | ロール `general`。手動入力（`manual-entry:write`）と、ログインしていれば使える操作（参照・既読・Web Push の購読・自身のユーザー名の編集・パスワードの変更）ができる。取り込みの状況・ログは、管理者のみ（`ingestion:read`）。閲覧できる設備の割り当ては未実装（#116。それまでは、全設備）。E2E のサーバーは、`admin`・`general` に、参照のみの確認用の `viewer`（`ingestion:read` のみ）を加えて起動する |
 | システム     | スケジューラ（`Scheduler`）と、取り込み・評価・連携・通知の配信のジョブ（JB-01〜JB-04）                                                                                                                  |
 | 外部システム | ファイルサーバー（ロボットデータ・環境センサーデータ。実装はモック）、農業情報基盤（連携先。実装はモック）                                                                                               |
 
@@ -153,7 +153,7 @@
 | SC-08 | 変更履歴                                                 | `/data-entry/history`               | `entry-history-page.tsx`                       | `audit:read`                                                                           |
 | SC-09 | 取り込み済みデータ一覧                                   | `/observations`                     | `observations-page.tsx`                        | 要ログイン                                                                             |
 | SC-10 | 設備管理                                                 | `/settings/equipment`               | `equipment-page.tsx`                           | 参照は要ログイン、変更は `equipment:manage`                                            |
-| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 参照は要ログイン、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
+| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 閲覧は `ingestion:read`（ないと、権限がない旨だけを示す。メニューにも出ない）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
 | SC-12 | ステータスコード管理                                     | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
 | SC-13 | 判断基準の編集                                           | `/viewpoints/:viewpointId/criteria` | `criteria-edit-page.tsx`                       | 参照は要ログイン、編集は `criteria:edit`                                               |
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
@@ -282,7 +282,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 | use-cases.md のアクター | 実装での扱い                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------- |
-| 農作業者                | 権限を持つロール（既定の `worker` は全 8 権限）でログインした利用者                         |
+| 農作業者                | 権限を持つロール（既定は、管理者 `admin`＝全 9 権限、一般 `general`＝手動入力のみ）でログインした利用者 |
 | 閲覧者                  | 権限なしのロール（例: E2E の `viewer`）でログインした利用者。コード上は固定のロールではない |
 | （システム）            | `Scheduler` と `JobRunner`（JB-01〜JB-04）                                                  |
 | ファイルサーバー        | `FileSourcePort` の先。取り込み（UC-08・UC-09）で読み取られる（実装はモック）               |
@@ -812,7 +812,7 @@ classDiagram
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
 - **Session**: `createLocalAuth` がメモリ上に持つ（アクセストークン・リフレッシュトークンの SHA-256 のみ保持。平文は持たない）。永続化しないため、再起動で全員が再ログインになる
 - **AuditLogEntry**: 変更履歴。対象の種類は `manual-entry`・`criteria`・`equipment`・`status-code`・`user`・`ingestion-settings` の 6 つ。`before`・`after` は、パスワードのハッシュを含まない形で記録する
-- **RoleDefinition / Permission**: 設定（`ROLE_DEFINITIONS_JSON`）で与える。権限は 8 種（`equipment:manage`・`ingestion:configure`・`ingestion:run`・`status-code:manage`・`manual-entry:write`・`criteria:edit`・`user:manage`・`audit:read`）
+- **RoleDefinition / Permission**: 設定（`ROLE_DEFINITIONS_JSON`）で与える。既定は、管理者 `admin`（全権限）・一般 `general`（`manual-entry:write` のみ）。権限は 9 種（`equipment:manage`・`ingestion:configure`・`ingestion:run`・`ingestion:read`・`status-code:manage`・`manual-entry:write`・`criteria:edit`・`user:manage`・`audit:read`）
 
 ## 永続化のコレクション（ローカルの Repository）
 
@@ -1123,10 +1123,10 @@ flowchart LR
 ```
 
 - **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回（既定。環境変数で変えられる）に達すると、`RATE_LIMITED`（429）
-- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、1 ロール `worker`（農作業者。全 8 権限）
+- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、`admin`（管理者。全 9 権限）・`general`（一般。`manual-entry:write` のみ）の 2 ロール（ADR-0013）。以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles`（`runtime/migrate-user-roles-cli.ts`）で移す
 - **ルートごとの宣言**: `route-table.ts` の `access`（`PUBLIC`・`LOGIN`・権限名）。`createApp` は、すべてのルートにハンドラがなければ起動時にエラーにする（認可の宣言だけが残ることを防ぐ）
 - **ロール・権限の変更**: `verifyAccessToken` が、リクエストごとにユーザーを引き直し、`permissionsOf` が、設定から権限を導く。ユーザーの削除・ロールの変更は、次のリクエストから効く。画面の権限（メニュー・ボタンの表示）は、ログイン・セッション更新時の値
-- **画面側**: `usePermission(permission)`、メニューの権限による絞り込み（`/settings/users` は `user:manage`）、権限のない操作の案内（`PermissionNotice`）。表示制御のみで、サーバー側の拒否が正
+- **画面側**: `usePermission(permission)`、メニューの権限による絞り込み（`/settings/users` は `user:manage`、`/settings/ingestion` は `ingestion:read`）、権限のない操作の案内（`PermissionNotice`）。表示制御のみで、サーバー側の拒否が正
 - **変更履歴**: 手動入力・判断基準・設備・ステータスコード・ユーザー・取り込み設定の変更は、操作の種別・対象・変更者・変更前後を記録する（`AuditService`）。ユーザーの前後は、パスワードのハッシュを含まない形（`PublicUser`）
 
 | 権限                  | 要求するルート                                                        | 画面         |
@@ -1134,6 +1134,7 @@ flowchart LR
 | `equipment:manage`    | `POST /equipment`・`PUT`・`DELETE /equipment/:id`                     | SC-10        |
 | `ingestion:configure` | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`     | SC-11        |
 | `ingestion:run`       | `POST /ingestion/:sourceId/test`・`/run`                              | SC-11        |
+| `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs` | SC-11     |
 | `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
 | `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset` | SC-13        |
@@ -1159,7 +1160,7 @@ flowchart LR
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
 | `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123。ADR-0014） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
-| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE`                    | なし（1 ロール `worker`） | ロールと権限の定義、初期ユーザーのロール                                                                                                        |
+| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 管理者 `admin`・一般 `general` の 2 ロール | ロールと権限の定義、初期ユーザーのロール（既定は、ユーザー管理の権限を持つ最初のロール＝`admin`） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
 | `LOG_LEVEL`                                                     | `info`                    | `debug`／`info`／`warn`／`error`                                                                                                                |
 | `DEFAULT_INGESTION_INTERVAL_MINUTES`                            | `15`                      | 取得間隔の既定（5・15・30・60・360・1440）。データ活用度合いのスロットの幅にも使う                                                              |
@@ -2519,8 +2520,8 @@ for 区間:
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
 | 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
-| 単体テスト（frontend） | `tests/unit/frontend/`（28 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（40 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 単体テスト（frontend） | `tests/unit/frontend/`（29 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
+| 結合テスト             | `tests/integration/`（42 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
 | 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
@@ -2650,7 +2651,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
-| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`                                                                                             | `frontend/users-page.test.tsx`                                                                                                                   |
+| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）                                                                                                                   |
 | UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`ingestion-connection.test.tsx`                                                                                                               |
 | UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`・`frontend/stale-chunk.test.tsx`（古い画面の部品の取得の失敗。#323）                                                                                                            |
 | UC-18     | `UC-18-manage-entries.ts`                                         | `management-api`（入力済みデータの管理・変更履歴）                                                           | `frontend/entry-pages.test.tsx`                                                                                                                  |
@@ -2661,7 +2662,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-23     | `UC-23-configure-web-push.ts`                                     | `management-api`（購読）・`evaluation-notification`（Web Push の配信と再送）・`web-push-delivery`（実配信・購読の暗号鍵。#241） | `frontend/push.test.tsx`・`backend/infrastructure/web-push-notifier.test.ts`・`web-push-library-sender.test.ts`                                                                                                                         |
 | UC-24     | `UC-24-notify-ingestion-failure.ts`                               | `ingestion`（取り込み失敗の通知）                                                                            | -                                                                                                                                                |
 
-新しいテストの記録（追加・変更の経緯と、仮の ID）は、test.spec.md の 14〜32 章（索引は 1.4）。IaC のテスト（`infra/test/`）・負荷テスト（`tests/stress/`）・スモークテスト（`tests/smoke/`）は、上の表に含めない。
+新しいテストの記録（追加・変更の経緯と、仮の ID）は、test.spec.md の 14〜33 章（索引は 1.4）。IaC のテスト（`infra/test/`）・負荷テスト（`tests/stress/`）・スモークテスト（`tests/smoke/`）は、上の表に含めない。
 
 そのほか: `runtime.test.ts`・`config.test.ts`（組み立て・Node サーバー・Lambda ハンドラ・設定）、`router-polling.test.tsx`（ルーター・ポーリング・日時の表示）、`seeded-data.test.ts`・`dev-seed.test.ts`（開発用 API のデータ投入）、`repository-contract.test.ts`（Repository の契約）。
 
@@ -2686,7 +2687,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-09 の実測。PR #324 の時点）
 
-計測対象は 274 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（127 ファイル・2862 件成功・2 件スキップ）。
+計測対象は 274 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（130 ファイル・2946 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
@@ -2711,12 +2712,12 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・809 件（UC ごと 25 ファイル・799 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・811 件（UC ごと 25 ファイル・801 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-09 の実測: 127 ファイル・**2862 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 2863 件（集計の方法の違いで、1 件の差）。内訳（test.spec.md 1.2）: 単体 shared 12・backend 41（domain 10・application 9・presentation 1・infrastructure 18・runtime 3）・frontend 28・infra（IaC）6 ファイルと、結合 40 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-10 の実測（Issue #115 の後）: 130 ファイル・**2946 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 2946 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 41（domain 10・application 9・presentation 1・infrastructure 18・runtime 3）・frontend 29・infra（IaC）6 ファイルと、結合 42 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 
