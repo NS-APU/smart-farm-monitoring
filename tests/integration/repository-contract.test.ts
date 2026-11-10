@@ -937,6 +937,172 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.ingestion.lastDataIngestedAt('none')).toBeNull();
   });
 
+  describe('ハウス別のログ（#332。一般ユーザーが、閲覧できるハウスの分だけを見る）', () => {
+    const ingestionLog = (
+      logId: string,
+      startedAt: string,
+      facilities?: { facilityId: string; result: 'SUCCESS' | 'FAILURE'; recordCount: number }[],
+    ) => ({
+      logId,
+      sourceId: 'robot',
+      startedAt,
+      finishedAt: startedAt,
+      result: 'SUCCESS' as const,
+      filesProcessed: 1,
+      recordCount: 3,
+      rejectedCount: 0,
+      attempts: 1,
+      ...(facilities === undefined ? {} : { facilities }),
+    });
+
+    it('取り込みログ: ハウスごとの記録を、指定したハウスの分だけ、新しい順に返す。ハウスの記録がないログは、含めない', async () => {
+      const { repositories } = create();
+      await repositories.ingestion.addLog(
+        ingestionLog('l-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 2 },
+          { facilityId: 'house-b', result: 'FAILURE', recordCount: 0 },
+        ]),
+      );
+      await repositories.ingestion.addLog(ingestionLog('l-2', '2026-10-09T02:00:00.000Z'));
+      await repositories.ingestion.addLog(
+        ingestionLog('l-3', '2026-10-09T03:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 1 },
+        ]),
+      );
+
+      const onlyA = await repositories.ingestion.listFacilityLogs(['house-a'], { limit: 10 });
+      const both = await repositories.ingestion.listFacilityLogs(['house-a', 'house-b'], {
+        limit: 10,
+      });
+      const none = await repositories.ingestion.listFacilityLogs([], { limit: 10 });
+
+      expect(onlyA.items).toEqual([
+        {
+          logId: 'l-3',
+          facilityId: 'house-a',
+          sourceId: 'robot',
+          occurredAt: '2026-10-09T03:00:00.000Z',
+          result: 'SUCCESS',
+          recordCount: 1,
+        },
+        {
+          logId: 'l-1',
+          facilityId: 'house-a',
+          sourceId: 'robot',
+          occurredAt: '2026-10-09T01:00:00.000Z',
+          result: 'SUCCESS',
+          recordCount: 2,
+        },
+      ]);
+      expect(both.items.map((item) => `${item.logId}/${item.facilityId}`)).toEqual([
+        'l-3/house-a',
+        'l-1/house-b',
+        'l-1/house-a',
+      ]);
+      expect(none.items).toEqual([]);
+      expect(none.nextCursor).toBeNull();
+    });
+
+    it('取り込みログ: ハウス別の一覧は、ページで続きを取れ、同じログの複数のハウスを、取りこぼさない', async () => {
+      const { repositories } = create();
+      await repositories.ingestion.addLog(
+        ingestionLog('l-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 1 },
+          { facilityId: 'house-b', result: 'SUCCESS', recordCount: 1 },
+        ]),
+      );
+      await repositories.ingestion.addLog(
+        ingestionLog('l-2', '2026-10-09T02:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 1 },
+          { facilityId: 'house-b', result: 'SUCCESS', recordCount: 1 },
+        ]),
+      );
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let index = 0; index < 10; index += 1) {
+        const page = await repositories.ingestion.listFacilityLogs(['house-a', 'house-b'], {
+          limit: 1,
+          cursor,
+        });
+        seen.push(...page.items.map((item) => `${item.logId}/${item.facilityId}`));
+        if (page.nextCursor === null) {
+          break;
+        }
+        cursor = page.nextCursor;
+      }
+
+      expect(seen.sort()).toEqual(['l-1/house-a', 'l-1/house-b', 'l-2/house-a', 'l-2/house-b']);
+    });
+
+    it('取り込みログ: 全体のログ（管理者向け）は、ハウスごとの内訳を含めて、そのまま返す', async () => {
+      const { repositories } = create();
+      await repositories.ingestion.addLog(
+        ingestionLog('l-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 2 },
+        ]),
+      );
+
+      const all = await repositories.ingestion.listLogs({}, { limit: 10 });
+
+      expect(all.items[0]?.facilities).toEqual([
+        { facilityId: 'house-a', result: 'SUCCESS', recordCount: 2 },
+      ]);
+    });
+
+    const federationLog = (
+      logId: string,
+      occurredAt: string,
+      facilities?: { facilityId: string; itemCount: number }[],
+    ) => ({
+      logId,
+      occurredAt,
+      result: 'SENT' as const,
+      itemCount: 5,
+      ...(facilities === undefined ? {} : { facilities }),
+    });
+
+    it('連携ログ: ハウスごとの記録を、指定したハウスの分だけ、新しい順に返す。ハウスの記録がないログは、含めない', async () => {
+      const { repositories } = create();
+      await repositories.federation.addLog(
+        federationLog('f-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', itemCount: 2 },
+          { facilityId: 'house-b', itemCount: 3 },
+        ]),
+      );
+      await repositories.federation.addLog(federationLog('f-2', '2026-10-09T02:00:00.000Z'));
+      await repositories.federation.addLog({
+        ...federationLog('f-3', '2026-10-09T03:00:00.000Z', [
+          { facilityId: 'house-a', itemCount: 1 },
+        ]),
+        result: 'HELD',
+      });
+
+      const onlyA = await repositories.federation.listFacilityLogs(['house-a'], { limit: 10 });
+      const onlyB = await repositories.federation.listFacilityLogs(['house-b'], { limit: 10 });
+      const none = await repositories.federation.listFacilityLogs([], { limit: 10 });
+
+      expect(onlyA.items).toEqual([
+        {
+          logId: 'f-3',
+          facilityId: 'house-a',
+          occurredAt: '2026-10-09T03:00:00.000Z',
+          result: 'HELD',
+          itemCount: 1,
+        },
+        {
+          logId: 'f-1',
+          facilityId: 'house-a',
+          occurredAt: '2026-10-09T01:00:00.000Z',
+          result: 'SENT',
+          itemCount: 2,
+        },
+      ]);
+      expect(onlyB.items.map((item) => item.itemCount)).toEqual([3]);
+      expect(none.items).toEqual([]);
+    });
+  });
+
   it('連携キュー: 次の試行の日時が来た、送信済みでない項目を、積んだ順に返す', async () => {
     const { repositories } = create();
     const item = (

@@ -152,6 +152,15 @@ export type IngestionSource = z.infer<typeof IngestionSourceSchema>;
 
 export const INGESTION_RESULTS = ['SUCCESS', 'PARTIAL', 'FAILURE'] as const;
 
+/** 取り込みのハウスごとの結果（Issue #332）。ハウスに結びつけられた取り込みだけを持つ。 */
+export const FacilityIngestionSchema = z.object({
+  facilityId: z.string(),
+  /** そのハウスのファイルに、取り込めなかったものがあれば FAILURE。 */
+  result: z.enum(['SUCCESS', 'FAILURE']),
+  recordCount: z.number().int().nonnegative(),
+});
+export type FacilityIngestion = z.infer<typeof FacilityIngestionSchema>;
+
 export const IngestionLogSchema = z.object({
   logId: z.string(),
   sourceId: z.string(),
@@ -165,8 +174,32 @@ export const IngestionLogSchema = z.object({
   formatProfileVersion: z.string().optional(),
   /** 失敗の内容。秘密情報・内部情報を含めない。 */
   errorMessage: z.string().optional(),
+  /**
+   * ハウスごとの結果。一般ユーザーに、閲覧できるハウスの分だけを見せるための内訳（Issue #332）。
+   * ハウスに結びつけられない結果（接続の失敗・設備に結びつかないファイルの失敗）は、持たない。以前のログにも、ない。
+   */
+  facilities: z.array(FacilityIngestionSchema).optional(),
 });
 export type IngestionLog = z.infer<typeof IngestionLogSchema>;
+
+/** 一般ユーザーに見せる、ハウスごとの取り込みの記録（1 回の取り込み × 1 ハウス）。接続先・失敗の理由・全体の件数は、含めない。 */
+export const FacilityIngestionLogSchema = z.object({
+  logId: z.string(),
+  facilityId: z.string(),
+  sourceId: z.string(),
+  occurredAt: IsoDateTimeSchema,
+  result: z.enum(['SUCCESS', 'FAILURE']),
+  recordCount: z.number().int().nonnegative(),
+});
+export type FacilityIngestionLog = z.infer<typeof FacilityIngestionLogSchema>;
+
+export const FacilityIngestionLogListResponseSchema = z.object({
+  items: z.array(FacilityIngestionLogSchema),
+  nextCursor: z.string().nullable(),
+});
+export type FacilityIngestionLogListResponse = z.infer<
+  typeof FacilityIngestionLogListResponseSchema
+>;
 
 export const FederationItemSchema = z.object({
   federationItemId: z.string(),
@@ -181,6 +214,8 @@ export const FederationItemSchema = z.object({
   updatedAt: IsoDateTimeSchema,
   /** 次に送信を試みてよい日時（再試行の間隔を広げるため）。 */
   nextAttemptAt: IsoDateTimeSchema,
+  /** 送るデータの設備が属するハウス（Issue #332。積むときに決める）。以前の項目には、ない。 */
+  facilityIds: z.array(z.string()).optional(),
 });
 export type FederationItem = z.infer<typeof FederationItemSchema>;
 
@@ -313,8 +348,30 @@ export const FederationLogSchema = z.object({
   result: z.enum(FEDERATION_RESULTS),
   itemCount: z.number().int().nonnegative(),
   message: z.string().optional(),
+  /** ハウスごとの項目数（Issue #332。一般ユーザーに、閲覧できるハウスの分だけを見せるための内訳）。以前のログには、ない。 */
+  facilities: z
+    .array(z.object({ facilityId: z.string(), itemCount: z.number().int().nonnegative() }))
+    .optional(),
 });
 export type FederationLog = z.infer<typeof FederationLogSchema>;
+
+/** 一般ユーザーに見せる、ハウスごとの連携の記録（1 回の連携 × 1 ハウス）。失敗の理由・キューの件数は、含めない。 */
+export const FacilityFederationLogSchema = z.object({
+  logId: z.string(),
+  facilityId: z.string(),
+  occurredAt: IsoDateTimeSchema,
+  result: z.enum(FEDERATION_RESULTS),
+  itemCount: z.number().int().nonnegative(),
+});
+export type FacilityFederationLog = z.infer<typeof FacilityFederationLogSchema>;
+
+export const FacilityFederationLogListResponseSchema = z.object({
+  items: z.array(FacilityFederationLogSchema),
+  nextCursor: z.string().nullable(),
+});
+export type FacilityFederationLogListResponse = z.infer<
+  typeof FacilityFederationLogListResponseSchema
+>;
 
 const QueueCountSchema = z.number().int().nonnegative();
 

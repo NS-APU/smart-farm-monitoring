@@ -42,3 +42,26 @@ export function splitObservationPayload(
     },
   }));
 }
+
+/**
+ * 連携の内容（payload）の、送るデータの設備（Issue #332）。評価の項目は `equipmentId`、観測値の項目は `observations[].equipmentId`。
+ * 重複は除く。設備を特定できない内容は、空。
+ */
+export function equipmentIdsOfPayload(payload: Record<string, unknown>): string[] {
+  const ids = new Set<string>();
+  if (typeof payload.equipmentId === 'string') {
+    ids.add(payload.equipmentId);
+  }
+  if (Array.isArray(payload.observations)) {
+    for (const observation of payload.observations as unknown[]) {
+      const equipmentId =
+        typeof observation === 'object' && observation !== null
+          ? (observation as { equipmentId?: unknown }).equipmentId
+          : undefined;
+      if (typeof equipmentId === 'string') {
+        ids.add(equipmentId);
+      }
+    }
+  }
+  return [...ids];
+}

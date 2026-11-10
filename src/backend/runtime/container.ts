@@ -50,6 +50,10 @@ import {
 } from '../application/equipment/status-code-service.ts';
 import { createFederationService } from '../application/federation/federation-service.ts';
 import {
+  createFacilityLogService,
+  type FacilityLogService,
+} from '../application/ingestion/facility-log-service.ts';
+import {
   createIngestionSettings,
   type IngestionSettings,
 } from '../application/ingestion/ingestion-settings.ts';
@@ -162,6 +166,7 @@ export interface Container {
   readonly facilityAccessService: FacilityAccessService;
   readonly facilityScope: FacilityScopeService;
   readonly ingestionAdminService: IngestionAdminService;
+  readonly facilityLogService: FacilityLogService;
   readonly pushSubscriptionService: PushSubscriptionService;
   readonly dashboardQuery: DashboardQuery;
   readonly viewpointQuery: ViewpointQuery;
@@ -440,6 +445,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   });
   const federation = createFederationService({
     federation: repositories.federation,
+    equipment: repositories.equipment,
     notifications: notificationService,
     port: mocks.federation,
     clock,
@@ -548,6 +554,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
       config.httpFileSourceAllowPrivate ||
       !isBlockedConnectionHost(connection.host),
   });
+  const facilityLogService = createFacilityLogService({ repositories });
   const pushSubscriptionService = createPushSubscriptionService({
     subscriptions: repositories.pushSubscriptions,
     clock,
@@ -577,6 +584,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     facilityAccessService,
     facilityScope,
     ingestionAdminService,
+    facilityLogService,
     pushSubscriptionService,
     jobRunner,
     scheduler,
@@ -718,6 +726,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     facilityAccessService: services.facilityAccessService,
     facilityScope: services.facilityScope,
     ingestionAdminService: services.ingestionAdminService,
+    facilityLogService: services.facilityLogService,
     pushSubscriptionService: services.pushSubscriptionService,
     dashboardQuery: createDashboardQuery({
       repositories,

@@ -10,7 +10,7 @@ import {
   IngestionSettingsUpdateRequestSchema,
 } from '@smart-farm/shared/schemas/ingestion';
 import type { ApiDeps } from './api-deps.ts';
-import { actorOf, pathParam } from './request-helpers.ts';
+import { actorOf, pathParam, scopeOfRequest } from './request-helpers.ts';
 import { parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 
@@ -51,6 +51,19 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
     async 'GET /federation/logs'(c) {
       const query = parseQuery(c, PageQuerySchema);
       return c.json(await deps.ingestionAdminService.listFederationLogs(query));
+    },
+    // ハウス別の記録（一般ユーザー向け。閲覧できるハウスの分だけ。Issue #332）
+    async 'GET /ingestion/facility-logs'(c) {
+      const query = parseQuery(c, PageQuerySchema);
+      return c.json(
+        await deps.facilityLogService.listIngestionLogs(await scopeOfRequest(c, deps), query),
+      );
+    },
+    async 'GET /federation/facility-logs'(c) {
+      const query = parseQuery(c, PageQuerySchema);
+      return c.json(
+        await deps.facilityLogService.listFederationLogs(await scopeOfRequest(c, deps), query),
+      );
     },
   };
 }

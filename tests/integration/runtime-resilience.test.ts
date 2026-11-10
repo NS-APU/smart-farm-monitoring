@@ -132,6 +132,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
     const clock = createControllableClock(TEST_NOW);
     const service = createFederationService({
       federation: repositories.federation,
+      equipment: repositories.equipment,
       notifications: { notifyFederationExpired: () => Promise.resolve(null) },
       port: { send: () => NEVER },
       clock,

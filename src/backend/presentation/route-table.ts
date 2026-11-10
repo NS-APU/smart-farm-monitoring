@@ -171,6 +171,14 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'ingestion:read',
     useCases: ['UC-11', 'UC-16'],
   },
+  // ハウス別の記録（閲覧できるハウスの分だけ。一般ユーザーも使える。ADR-0013）
+  { method: 'GET', path: '/ingestion/facility-logs', access: 'LOGIN', useCases: ['UC-16'] },
+  {
+    method: 'GET',
+    path: '/federation/facility-logs',
+    access: 'LOGIN',
+    useCases: ['UC-11', 'UC-16'],
+  },
   // ユーザー（SC-14）
   { method: 'GET', path: '/users', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'POST', path: '/users', access: 'user:manage', useCases: ['UC-14'] },

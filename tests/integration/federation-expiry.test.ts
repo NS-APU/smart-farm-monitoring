@@ -45,6 +45,7 @@ function setup(overrides: { expiryDays?: number; batchSize?: number } = {}) {
   });
   const service = createFederationService({
     federation: repositories.federation,
+    equipment: repositories.equipment,
     notifications,
     port: {
       send: (items) => {

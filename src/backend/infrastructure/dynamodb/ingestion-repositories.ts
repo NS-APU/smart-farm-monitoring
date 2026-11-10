@@ -4,11 +4,15 @@
  * - 取り込み済みファイル: `SRC#{取り込み元}` / `FILE#{ファイル}#{ハッシュ}`、成功したハッシュ `HASH#{ハッシュ}`（最初の成功を残す）
  * - 取り込み元の状態: `SRC#{取り込み元}` / `STATE`（直近の開始・成功・データ取り込みの日時。ログの追加のたびに、最大値で更新する）
  * - 取り込みログ: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
+ * - ハウス別の取り込みの記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `ILOGF#{ハウス}` / `{開始日時}#{ログID}#{ハウス}`
  * - 連携の項目: `FED` / `{ID}`。未送信の項目だけが、疎な GSI1（`FDUE`）に載る。状態ごとの件数は、カウンター（`FED#{状態}`）
  * - 連携ログ: `FLOG` / `{日時}#{ログID}`
+ * - ハウス別の連携の記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `FLOGF#{ハウス}` / `{日時}#{ログID}#{ハウス}`
  */
 
 import {
+  FacilityFederationLogSchema,
+  FacilityIngestionLogSchema,
   FederationItemSchema,
   FederationLogSchema,
   IngestionLogSchema,
@@ -46,6 +50,8 @@ const INGESTION_SOURCES = 'ILOGSRC';
 
 const sourcePartition = (sourceId: string): string => `SRC#${sourceId}`;
 const logPartition = (sourceId: string): string => `ILOG#${sourceId}`;
+const facilityIngestionPartition = (facilityId: string): string => `ILOGF#${facilityId}`;
+const facilityFederationPartition = (facilityId: string): string => `FLOGF#${facilityId}`;
 const fileSortKey = (fileId: string, contentHash: string): string =>
   `FILE#${fileId}#${contentHash}`;
 const hashSortKey = (contentHash: string): string => `HASH#${contentHash}`;
@@ -60,6 +66,7 @@ export function createIngestionRepository(db: Database): IngestionRepository {
   const table = db.tables.main;
   const files = mainAggregate(db, IngestedFileRecordSchema);
   const logs = mainAggregate(db, IngestionLogSchema);
+  const facilityLogs = mainAggregate(db, FacilityIngestionLogSchema);
 
   /** 取り込み元の状態の日時を、新しい値のときだけ更新する（古いログを後から足しても、戻さない）。 */
   async function raiseState(
@@ -111,6 +118,21 @@ export function createIngestionRepository(db: Database): IngestionRepository {
     },
     async addLog(log) {
       await logs.put(logPartition(log.sourceId), timedSortKey(log.startedAt, log.logId), log);
+      // ハウスごとの内訳は、ハウス別の記録としても持つ（一般ユーザーが、全体のログを読まずに、自分のハウスの分だけを読めるように）
+      for (const entry of log.facilities ?? []) {
+        await facilityLogs.put(
+          facilityIngestionPartition(entry.facilityId),
+          timedSortKey(log.startedAt, `${log.logId}#${entry.facilityId}`),
+          {
+            logId: log.logId,
+            facilityId: entry.facilityId,
+            sourceId: log.sourceId,
+            occurredAt: log.startedAt,
+            result: entry.result,
+            recordCount: entry.recordCount,
+          },
+        );
+      }
       await putItem(db, table, { pk: INGESTION_SOURCES, sk: log.sourceId });
       await Promise.all([
         raiseState(log.sourceId, 'lastStarted', log.startedAt),
@@ -137,6 +159,15 @@ export function createIngestionRepository(db: Database): IngestionRepository {
       });
       return { items: result.items.map(logs.parse), nextCursor: result.nextCursor };
     },
+    async listFacilityLogs(facilityIds, page) {
+      const result = await pageBySortKey(db, {
+        partitions: facilityIds.map(facilityIngestionPartition),
+        forward: false,
+        limit: page.limit,
+        cursor: page.cursor,
+      });
+      return { items: result.items.map(facilityLogs.parse), nextCursor: result.nextCursor };
+    },
     lastStartedAt: (sourceId) => stateOf(sourceId, 'lastStarted'),
     lastSucceededAt: (sourceId) => stateOf(sourceId, 'lastSucceeded'),
     lastDataIngestedAt: (sourceId) => stateOf(sourceId, 'lastDataIngested'),
@@ -147,6 +178,7 @@ export function createFederationRepository(db: Database): FederationRepository {
   const table = db.tables.main;
   const items = mainAggregate(db, FederationItemSchema);
   const logs = mainAggregate(db, FederationLogSchema);
+  const facilityLogs = mainAggregate(db, FacilityFederationLogSchema);
 
   /**
    * 項目を保存し、状態が変わったら、同じトランザクションで、状態ごとの件数を更新する。
@@ -232,7 +264,31 @@ export function createFederationRepository(db: Database): FederationRepository {
       );
     },
     update: save,
-    addLog: (entry) => logs.put(FEDERATION_LOG, timedSortKey(entry.occurredAt, entry.logId), entry),
+    async addLog(entry) {
+      await logs.put(FEDERATION_LOG, timedSortKey(entry.occurredAt, entry.logId), entry);
+      for (const facility of entry.facilities ?? []) {
+        await facilityLogs.put(
+          facilityFederationPartition(facility.facilityId),
+          timedSortKey(entry.occurredAt, `${entry.logId}#${facility.facilityId}`),
+          {
+            logId: entry.logId,
+            facilityId: facility.facilityId,
+            occurredAt: entry.occurredAt,
+            result: entry.result,
+            itemCount: facility.itemCount,
+          },
+        );
+      }
+    },
+    async listFacilityLogs(facilityIds, page) {
+      const result = await pageBySortKey(db, {
+        partitions: facilityIds.map(facilityFederationPartition),
+        forward: false,
+        limit: page.limit,
+        cursor: page.cursor,
+      });
+      return { items: result.items.map(facilityLogs.parse), nextCursor: result.nextCursor };
+    },
     async listLogs(page) {
       const result = await pageBySortKey(db, {
         partitions: [FEDERATION_LOG],
