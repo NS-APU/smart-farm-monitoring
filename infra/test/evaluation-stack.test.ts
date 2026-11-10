@@ -16,6 +16,7 @@ import {
   JOB_LAMBDA_TIMEOUT_SECONDS,
   JOB_LEASE_MS,
 } from '../../src/backend/application/jobs/job-schedule.ts';
+import { STATIC_CONTENT_SECURITY_POLICY } from '../lib/content-security-policy.ts';
 import { DataStack } from '../lib/data-stack.ts';
 import {
   COGNITO_ACTIONS,
@@ -234,6 +235,93 @@ describe('評価環境のスタック: 画面の配信（S3 + CloudFront）', ()
     expect(assets?.[1].Properties.DistributionPaths).toBeUndefined();
     // 新しい index.html は、新しい assets/ を配置したあとに、公開する（先に、index.html が新しくなって、部品がない時間を作らない）
     expect(rest?.[1].DependsOn).toContain(assets?.[0]);
+  });
+});
+
+/** CSP のヘッダーの値を、ディレクティブ → 値の一覧にする。 */
+function directivesOf(policy: string): Map<string, string[]> {
+  return new Map(
+    policy
+      .split(';')
+      .map((part) => part.trim().split(/\s+/))
+      .filter(([name]) => name !== undefined && name !== '')
+      .map(([name, ...values]) => [name ?? '', values] as const),
+  );
+}
+
+describe('評価環境のスタック: 画面の配信ヘッダー（CSP・frame-ancestors。Issue #127）', () => {
+  const SECURITY_HEADERS_POLICY_ID = '67f7725c-6f97-4210-82d7-5512b31e9d03';
+
+  it('CSP は、画面が動く最小の許可（同じオリジンだけ）。スクリプトのインライン・eval を許さず、インラインのスタイルは、style 属性だけに限る。埋め込みは許さない', () => {
+    const directives = directivesOf(STATIC_CONTENT_SECURITY_POLICY);
+
+    expect(directives.get('default-src')).toEqual(["'self'"]);
+    expect(directives.get('script-src')).toEqual(["'self'"]);
+    expect(directives.get('style-src')).toEqual(["'self'"]);
+    expect(directives.get('style-src-attr')).toEqual(["'unsafe-inline'"]);
+    for (const name of ['img-src', 'font-src', 'connect-src', 'worker-src', 'manifest-src']) {
+      expect(directives.get(name), name).toEqual(["'self'"]);
+    }
+    expect(directives.get('object-src')).toEqual(["'none'"]);
+    expect(directives.get('base-uri')).toEqual(["'self'"]);
+    expect(directives.get('form-action')).toEqual(["'self'"]);
+    expect(directives.get('frame-ancestors')).toEqual(["'none'"]);
+    // 'unsafe-inline' は style-src-attr だけ。'unsafe-eval'・外部のオリジン（http・https・*）は、どこにも許さない
+    expect(STATIC_CONTENT_SECURITY_POLICY.match(/'unsafe-inline'/g)).toHaveLength(1);
+    expect(STATIC_CONTENT_SECURITY_POLICY).not.toMatch(/unsafe-eval|https?:|\*/);
+  });
+
+  it('画面の配信に、独自の応答ヘッダーポリシー（CSP・X-Frame-Options DENY と、これまでのマネージドポリシーと同じヘッダー）を付ける', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
+      ResponseHeadersPolicyConfig: Match.objectLike({
+        SecurityHeadersConfig: {
+          ContentSecurityPolicy: {
+            ContentSecurityPolicy: STATIC_CONTENT_SECURITY_POLICY,
+            Override: true,
+          },
+          FrameOptions: { FrameOption: 'DENY', Override: true },
+          ContentTypeOptions: { Override: true },
+          ReferrerPolicy: { ReferrerPolicy: 'strict-origin-when-cross-origin', Override: true },
+          StrictTransportSecurity: {
+            AccessControlMaxAgeSec: 31536000,
+            IncludeSubdomains: false,
+            Preload: false,
+            Override: true,
+          },
+          XSSProtection: { Protection: true, ModeBlock: true, Override: true },
+        },
+      }),
+    });
+    const policies = template.findResources('AWS::CloudFront::ResponseHeadersPolicy');
+    expect(Object.keys(policies)).toHaveLength(1);
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        DefaultCacheBehavior: Match.objectLike({
+          ResponseHeadersPolicyId: { Ref: Object.keys(policies)[0] },
+        }),
+      }),
+    });
+  });
+
+  it('API（/api/*・/health）の応答は、これまでのマネージドポリシーのまま（API の CSP は、バックエンドが付ける）', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        CacheBehaviors: Match.arrayEquals([
+          Match.objectLike({
+            PathPattern: '/api/*',
+            ResponseHeadersPolicyId: SECURITY_HEADERS_POLICY_ID,
+          }),
+          Match.objectLike({
+            PathPattern: '/health',
+            ResponseHeadersPolicyId: SECURITY_HEADERS_POLICY_ID,
+          }),
+        ]),
+      }),
+    });
   });
 });
 
