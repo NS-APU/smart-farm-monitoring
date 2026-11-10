@@ -9,9 +9,9 @@ export const E2E_USER = {
 
 /**
  * E2E のロール定義（JSON）。既定の 2 ロール（admin＝管理者〔全権限〕、general＝一般〔手動入力のみ〕。ADR-0013）に、
- * 参照のみの確認用の viewer＝閲覧者（取り込みの状況・ログの閲覧のみ。書き込みの権限なし）を加える。
+ * 参照のみの確認用の viewer＝閲覧者（全設備の閲覧と、取り込みの状況・ログの閲覧のみ。書き込みの権限なし）を加える。
  */
 export const E2E_ROLE_DEFINITIONS_JSON = JSON.stringify({
   ...DEFAULT_ROLE_CONFIG,
-  viewer: { name: '閲覧者', permissions: ['ingestion:read'] },
+  viewer: { name: '閲覧者', permissions: ['equipment:view-all', 'ingestion:read'] },
 });
