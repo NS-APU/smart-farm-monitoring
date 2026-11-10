@@ -1,7 +1,11 @@
 /** 設備（ハウス・ロボット・センサー）のスキーマ。data-dictionary.md 2章。 */
 
 import { z } from 'zod';
-import type { EquipmentType } from '../constants/status.ts';
+import {
+  DEFAULT_INTERVAL_MINUTES_BY_TYPE,
+  EQUIPMENT_INTERVAL_MINUTES_OPTIONS,
+  type EquipmentType,
+} from '../constants/status.ts';
 import {
   EquipmentIdSchema,
   EquipmentTypeSchema,
@@ -36,6 +40,24 @@ const SOURCE_FILE_PATH_RULE_ISSUE = {
   path: ['sourceFilePath'],
 };
 
+/** 取得間隔（分）。候補は EQUIPMENT_INTERVAL_MINUTES_OPTIONS（Issue #197。D-11）。 */
+export const EquipmentIntervalSchema = z.union(
+  EQUIPMENT_INTERVAL_MINUTES_OPTIONS.map((minutes) => z.literal(minutes)),
+  { error: '取得間隔は、1・5・10・15・30・60 分から選んでください' },
+);
+
+/** 取得間隔は、ロボット・センサーだけが持つ（ハウスは持てない）。 */
+function hasValidInterval(equipment: {
+  readonly equipmentType: EquipmentType;
+  readonly intervalMinutes?: number | undefined;
+}): boolean {
+  return equipment.equipmentType !== 'FACILITY' || equipment.intervalMinutes === undefined;
+}
+const INTERVAL_RULE_ISSUE = {
+  message: '取得間隔は、ロボット・センサーだけに指定できます',
+  path: ['intervalMinutes'],
+};
+
 /** 親のハウス（facilityId）は、ロボット・センサーは必須、ハウス自身は持たない。 */
 function hasConsistentParent(equipment: {
   readonly equipmentType: EquipmentType;
@@ -59,12 +81,26 @@ export const EquipmentSchema = z
     externalId: ExternalIdSchema.optional(),
     /** ファイルサーバー（HTTP）の、取得するファイルのパス（ロボット・センサーだけ。Issue #119。ADR-0023）。 */
     sourceFilePath: FilePathSchema.optional(),
+    /** 取り込みの取得間隔（分。ロボット・センサーだけ。Issue #197。ADR-0016 の D-11）。省略は、種別ごとの既定（DEFAULT_INTERVAL_MINUTES_BY_TYPE）。 */
+    intervalMinutes: EquipmentIntervalSchema.optional(),
     isDeleted: z.boolean(),
     createdAt: IsoDateTimeSchema,
   })
   .refine(hasConsistentParent, PARENT_RULE_ISSUE)
-  .refine(hasValidSourceFilePath, SOURCE_FILE_PATH_RULE_ISSUE);
+  .refine(hasValidSourceFilePath, SOURCE_FILE_PATH_RULE_ISSUE)
+  .refine(hasValidInterval, INTERVAL_RULE_ISSUE);
 export type Equipment = z.infer<typeof EquipmentSchema>;
+
+/** 設備の取得間隔の、実際の値（分）。指定がなければ、種別ごとの既定。ハウスは、持たない（undefined）。 */
+export function effectiveIntervalMinutes(equipment: {
+  readonly equipmentType: EquipmentType;
+  readonly intervalMinutes?: number | undefined;
+}): number | undefined {
+  if (equipment.equipmentType === 'FACILITY') {
+    return undefined;
+  }
+  return equipment.intervalMinutes ?? DEFAULT_INTERVAL_MINUTES_BY_TYPE[equipment.equipmentType];
+}
 
 /** GET /equipment の応答。ハウス → ロボット／センサーの階層（FR-2.2）。 */
 export const EquipmentTreeResponseSchema = z.object({
@@ -86,9 +122,11 @@ export const EquipmentCreateRequestSchema = z
     facilityId: EquipmentIdSchema.optional(),
     externalId: ExternalIdSchema.optional(),
     sourceFilePath: FilePathSchema.optional(),
+    intervalMinutes: EquipmentIntervalSchema.optional(),
   })
   .refine(hasConsistentParent, PARENT_RULE_ISSUE)
-  .refine(hasValidSourceFilePath, SOURCE_FILE_PATH_RULE_ISSUE);
+  .refine(hasValidSourceFilePath, SOURCE_FILE_PATH_RULE_ISSUE)
+  .refine(hasValidInterval, INTERVAL_RULE_ISSUE);
 export type EquipmentCreateRequest = z.infer<typeof EquipmentCreateRequestSchema>;
 
 /** PUT /equipment/{id} の入力。設備IDと種別は変更できない。 */
@@ -98,5 +136,7 @@ export const EquipmentUpdateRequestSchema = z.object({
   externalId: ExternalIdSchema.optional(),
   /** 省略は、ファイルパスを持たない状態にする（データ上の識別子と同じ）。ハウスは、サービスで拒否する。 */
   sourceFilePath: FilePathSchema.optional(),
+  /** 省略は、既定（種別ごと）に戻す。ハウスは、サービスで拒否する。 */
+  intervalMinutes: EquipmentIntervalSchema.optional(),
 });
 export type EquipmentUpdateRequest = z.infer<typeof EquipmentUpdateRequestSchema>;

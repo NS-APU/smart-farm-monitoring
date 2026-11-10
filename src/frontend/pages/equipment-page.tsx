@@ -7,10 +7,14 @@
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
-import { EQUIPMENT_TYPES } from '@smart-farm/shared/constants/status';
+import {
+  EQUIPMENT_INTERVAL_MINUTES_OPTIONS,
+  EQUIPMENT_TYPES,
+} from '@smart-farm/shared/constants/status';
 import {
   EquipmentCreateRequestSchema,
   EquipmentUpdateRequestSchema,
+  effectiveIntervalMinutes,
   type Equipment,
 } from '@smart-farm/shared/schemas/equipment';
 import {
@@ -33,6 +37,50 @@ import { FacilityAccessPanel } from './facility-access-panel.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
+
+/** 取得間隔の選択（設備ごと。Issue #197）。空は、種別ごとの既定。 */
+function IntervalField(props: {
+  readonly value: string;
+  readonly error: string | undefined;
+  readonly onChange: (value: string) => void;
+}): ReactNode {
+  return (
+    <Field
+      label={TEXT.interval}
+      name="intervalMinutes"
+      error={props.error}
+      hint={TEXT.intervalHint}
+    >
+      {(control) => (
+        <select
+          {...control}
+          value={props.value}
+          onChange={(event) => {
+            props.onChange(event.target.value);
+          }}
+        >
+          <option value="">{TEXT.intervalDefaultOption}</option>
+          {EQUIPMENT_INTERVAL_MINUTES_OPTIONS.map((minutes) => (
+            <option key={minutes} value={String(minutes)}>
+              {TEXT.intervalOption(minutes)}
+            </option>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
+}
+
+/** 一覧の取得間隔の表示。指定があればその値、なければ種別ごとの既定。ハウスは持たない。 */
+function intervalCell(equipment: Equipment): string {
+  const effective = effectiveIntervalMinutes(equipment);
+  if (effective === undefined) {
+    return MESSAGES.common.missingValue;
+  }
+  return equipment.intervalMinutes === undefined
+    ? TEXT.intervalDefault(effective)
+    : TEXT.intervalOption(effective);
+}
 
 interface FormProps {
   readonly facilities: readonly Equipment[];
@@ -125,6 +173,7 @@ function ChildForm(props: FormProps): ReactNode {
   const [name, setName] = useState('');
   const [externalId, setExternalId] = useState('');
   const [sourceFilePath, setSourceFilePath] = useState('');
+  const [interval, setInterval] = useState('');
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const errors = { ...clientErrors, ...submit.fieldErrors };
 
@@ -137,6 +186,7 @@ function ChildForm(props: FormProps): ReactNode {
       ...(facilityId === '' ? {} : { facilityId }),
       ...(externalId.trim() === '' ? {} : { externalId }),
       ...(sourceFilePath.trim() === '' ? {} : { sourceFilePath: sourceFilePath.trim() }),
+      ...(interval === '' ? {} : { intervalMinutes: Number(interval) }),
     });
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
@@ -149,6 +199,7 @@ function ChildForm(props: FormProps): ReactNode {
       setName('');
       setExternalId('');
       setSourceFilePath('');
+      setInterval('');
       reloadEquipment();
       props.onDone(TEXT.created);
     }
@@ -254,6 +305,7 @@ function ChildForm(props: FormProps): ReactNode {
             />
           )}
         </Field>
+        <IntervalField value={interval} error={errors.intervalMinutes} onChange={setInterval} />
       </div>
       <FormError message={submit.formMessage} />
       <div className="form-actions">
@@ -277,6 +329,9 @@ function EditForm(
   const [facilityId, setFacilityId] = useState(equipment.facilityId ?? '');
   const [externalId, setExternalId] = useState(equipment.externalId ?? '');
   const [sourceFilePath, setSourceFilePath] = useState(equipment.sourceFilePath ?? '');
+  const [interval, setInterval] = useState(
+    equipment.intervalMinutes === undefined ? '' : String(equipment.intervalMinutes),
+  );
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const errors = { ...clientErrors, ...submit.fieldErrors };
   const isFacility = equipment.equipmentType === 'FACILITY';
@@ -290,6 +345,7 @@ function EditForm(
       ...(isFacility || sourceFilePath.trim() === ''
         ? {}
         : { sourceFilePath: sourceFilePath.trim() }),
+      ...(isFacility || interval === '' ? {} : { intervalMinutes: Number(interval) }),
     });
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
@@ -381,6 +437,9 @@ function EditForm(
             )}
           </Field>
         )}
+        {isFacility ? null : (
+          <IntervalField value={interval} error={errors.intervalMinutes} onChange={setInterval} />
+        )}
       </div>
       <FormError message={submit.formMessage} />
       <div className="form-actions">
@@ -470,6 +529,7 @@ export function EquipmentPage(): ReactNode {
         <td>{equipment.name}</td>
         <td>{equipment.externalId ?? MESSAGES.common.missingValue}</td>
         <td>{equipment.sourceFilePath ?? MESSAGES.common.missingValue}</td>
+        <td>{intervalCell(equipment)}</td>
         {canAssign ? <td>{accessCell(equipment)}</td> : null}
         {canManage || canAssign ? (
           <td>
@@ -539,6 +599,7 @@ export function EquipmentPage(): ReactNode {
               <th scope="col">{TEXT.name}</th>
               <th scope="col">{TEXT.externalId}</th>
               <th scope="col">{TEXT.sourceFilePath}</th>
+              <th scope="col">{TEXT.interval}</th>
               {canAssign ? <th scope="col">{TEXT.facilityAccess.column}</th> : null}
               {canManage || canAssign ? <th scope="col">{TEXT.actions}</th> : null}
             </tr>

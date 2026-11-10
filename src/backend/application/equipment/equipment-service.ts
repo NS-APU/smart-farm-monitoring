@@ -140,6 +140,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
           facilityId: input.facilityId,
           externalId: input.externalId,
           sourceFilePath: input.sourceFilePath,
+          intervalMinutes: input.intervalMinutes,
         }),
         isDeleted: false,
         createdAt: clock.now().toISOString(),
@@ -169,6 +170,11 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
           },
         ]);
       }
+      if (before.equipmentType === 'FACILITY' && input.intervalMinutes !== undefined) {
+        throw validationError([
+          { name: 'intervalMinutes', message: '取得間隔は、ロボット・センサーだけに指定できます' },
+        ]);
+      }
       const facilityId =
         before.equipmentType === 'FACILITY' ? undefined : (input.facilityId ?? before.facilityId);
       if (facilityId !== undefined) {
@@ -184,6 +190,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
           facilityId,
           externalId: input.externalId,
           sourceFilePath: input.sourceFilePath,
+          intervalMinutes: input.intervalMinutes,
         }),
         isDeleted: false,
         createdAt: before.createdAt,

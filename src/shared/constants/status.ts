@@ -64,6 +64,19 @@ export type FederationStatus = (typeof FEDERATION_STATUSES)[number];
 export const FEDERATION_RESULTS = ['SENT', 'FAILED', 'HELD', 'EXPIRED'] as const;
 export type FederationResult = (typeof FEDERATION_RESULTS)[number];
 
-/** 取得間隔の候補（分）。FR-1.5。 */
+/** 取り込み元ごとの取得間隔の候補（分）。FR-1.5。設備ごとの取得間隔（下）に置き換える途中（Issue #197）。 */
 export const INGESTION_INTERVAL_MINUTES_OPTIONS = [5, 15, 30, 60, 360, 1440] as const;
 export type IngestionIntervalMinutes = (typeof INGESTION_INTERVAL_MINUTES_OPTIONS)[number];
+
+/**
+ * 設備（ロボット・センサー）ごとの取得間隔の候補（分。ロボット・センサー共通。Issue #197。ADR-0016 の D-11）。
+ * 6 時間・日次は外し、1 分・10 分を加えた。10 秒・30 秒は、見送る（取り込みのジョブの定期起動の最短が 1 分のため）。
+ */
+export const EQUIPMENT_INTERVAL_MINUTES_OPTIONS = [1, 5, 10, 15, 30, 60] as const;
+export type EquipmentIntervalMinutes = (typeof EQUIPMENT_INTERVAL_MINUTES_OPTIONS)[number];
+
+/** 設備の取得間隔を指定しなかったときの、種別ごとの既定（分。ロボット 1 分・環境センサー 5 分。D-11）。 */
+export const DEFAULT_INTERVAL_MINUTES_BY_TYPE = {
+  ROBOT: 1,
+  SENSOR: 5,
+} as const satisfies Record<string, EquipmentIntervalMinutes>;

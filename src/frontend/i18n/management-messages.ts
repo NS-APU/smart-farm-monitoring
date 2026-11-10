@@ -185,6 +185,12 @@ export const MANAGEMENT_MESSAGES = {
     sourceFilePath: 'ファイルパス',
     sourceFilePathHint:
       'ファイルサーバー（HTTP）の、この設備のファイルの場所です。例: /data/robot-01.json（任意）',
+    interval: '取得間隔',
+    intervalHint:
+      'ファイルサーバーから、この設備のデータを取りに行く間隔です。画面は、10 秒ごとに更新されますが、新しいデータが増えるのは、この間隔ごとです（任意）',
+    intervalDefaultOption: '既定（ロボット 1 分・環境センサー 5 分）',
+    intervalOption: (minutes: number) => `${String(minutes)} 分`,
+    intervalDefault: (minutes: number) => `既定（${String(minutes)} 分）`,
     facility: '親のハウス',
     addFacility: 'ハウスを登録',
     addChild: 'ロボット・環境センサーを登録',
