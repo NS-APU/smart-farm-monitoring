@@ -101,7 +101,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 | GitHub Actions 用のロールの作成・削除 | `pnpm --filter @smart-farm/infra run deploy:oidc` ・ `destroy:oidc` | あり |
 
 - **AWS に接続するコマンドは、ユーザーが実行する**（AGENTS.md 12 章。AI エージェントは、AWS への適用をしない）。実行の前に、**対象の AWS アカウントのプロファイルを指定**する（別のアカウントに作らないため。ほかの用途のプロファイルでは、実行しない）。PowerShell: `$env:AWS_PROFILE = '<プロファイル名>'`、Git Bash: `export AWS_PROFILE=<プロファイル名>`。確認: `aws sts get-caller-identity`（出力のアカウント ID は、チャット・Issue・PR に貼らない）
-- アカウント ID・ドメイン名・ホストゾーン名は、リポジトリに書かない。アカウントは、認証から自動で決まる。独自のサブドメインは、環境変数 `SFM_DOMAIN_NAME`（例: `evaluation.<ドメイン>`）・`SFM_HOSTED_ZONE_NAME`（例: `<ドメイン>`）の**両方**で指定する（未指定なら、cloudfront.net の URL）
+- アカウント ID・ドメイン名・ホストゾーン名は、リポジトリに書かない。アカウントは、認証から自動で決まる。独自のサブドメインは、環境変数 `SFM_DOMAIN_NAME`（例: `dev.<ゾーン>`）・`SFM_HOSTED_ZONE_NAME`（例: `<ゾーン>`。**デプロイ先のアカウントにある、サブドメイン用のホストゾーン**。親のドメインから委任する）の**両方**で指定する（未指定なら、cloudfront.net の URL）。ゾーンの作成・委任・確認の手順は、[operations.md](../40_operations/operations.md) 8.9
 - テスト（CDK の assertions）は、`pnpm test:unit` に含まれる（`infra/test/`）。`cdk synth` の結果（`infra/cdk.out/`）と、検索結果のキャッシュ（`infra/cdk.context.json`）は、Git 管理外
 
 ### 初回の設定（1 回だけ。ユーザーが手元から行う）
