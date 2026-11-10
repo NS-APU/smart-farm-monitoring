@@ -659,7 +659,10 @@ test.describe('古い画面の部品が取得できない場合（デプロイ�
     await goToMenu(page, 'ステータスコード');
 
     // 失敗 → 自動で 1 回、再読み込み → 再び失敗 → 案内とボタン（繰り返さない）
+    // 案内は、最初の失敗でも、再読み込みの前に、一瞬表示される。再読み込みのあとの取得（2 回目）まで待つ。待たないと、
+    // 遅い環境（CI）で、取得の許可（下の blocked = false）が再読み込みより先になり、再読み込みのあとに、画面が開いてしまう
     const alert = page.getByRole('alert').filter({ hasText: '新しい版に更新されました' });
+    await expect.poll(() => attempts).toBeGreaterThanOrEqual(2);
     await expect(alert).toBeVisible();
     await expect(page.getByText('画面を表示できませんでした')).toHaveCount(0);
     await shot(page, test.info(), 'uc17-stale-chunk');
