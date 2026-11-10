@@ -64,7 +64,7 @@
 | ステータスの変化（履歴） | `SCH#{equipmentId}#{viewpointId}` | `{changedAt}` | 古い順の Query |
 | 通知 | `NOTIF` | `{createdAt}#{notificationId}` | 新しい順の Query。`get`・`dedupKey` は、GSI1 |
 | 通知の既読 | `READ#{userId}` | `{notificationId}` | 既読にしたときに、条件つきで作る |
-| **カウンター** | `COUNTER` | `NOTIF_TOTAL`・`READ#{userId}`・`FED#{status}` | 通知の総数、利用者ごとの既読数、連携の状態ごとの件数。トランザクションで更新する |
+| **カウンター** | `COUNTER` | `NOTIF_TOTAL`・`READ#{userId}`・`NFTOTAL#{facilityId}`・`NFREAD#{facilityId}#{userId}`・`FED#{status}` | 通知の総数、利用者ごとの既読数、連携の状態ごとの件数。トランザクションで更新する |
 | 取り込み済みファイル | `SRC#{sourceId}` | `FILE#{fileId}#{contentHash}`・`HASH#{contentHash}`（成功のみ）・`STATE`（直近の開始・成功・データ取り込みの日時） | `findIngestedFile` は GetItem。取り込み元の状態（`lastStartedAt` など）は、1 回の GetItem |
 | 取り込みログ | `ILOG#{sourceId}` | `{startedAt}#{logId}` | 取り込み元ごとの Query。全取り込み元は、併合。TTL |
 | 連携項目 | `FED` | `{federationItemId}` | `listDue`・`listWaiting` は、未送信の項目だけが載る疎な GSI1（`FDUE` / `{nextAttemptAt}#{enqueuedAt}#{id}`。次の試行の日時の順）を、範囲で読む（期限が来た項目・先の項目だけを読み、溜まった件数に比例して読まない。#203） |
@@ -73,7 +73,7 @@
 | 手動入力 | `ME` | `{observedAt}#{entryId}` | 少量。`get` は GSI1。並べ替え・絞り込みは、アプリ側 |
 
 - **GSI1**（`Main`。汎用）: `gsi1pk`・`gsi1sk`。通知の `get`（`NID#{id}`）、通知の重複抑制（`DEDUP#{key}` / `{createdAt}`）、連携の未送信（`FDUE`）、手動入力の `get`（`ME#{entryId}`）に使う
-- **通知の未読件数**: `NOTIF_TOTAL − READ#{userId}` の 2 回の GetItem。**全件を数えない**（約 10 秒ごとのポーリングで、全件を読むと、費用が桁違いに増える）。ローカルの実装と同じ意味（利用者が作られる前の通知も、未読）
+- **通知の未読件数（Issue #331）**: 全設備を閲覧できる利用者は、`NOTIF_TOTAL − READ#{userId}`。**閲覧範囲が限られる利用者は、割り当てたハウスごとの、`NFTOTAL#{facilityId} − NFREAD#{facilityId}#{userId}` の合計**（`NFTOTAL`＝そのハウスの通知の総数、`NFREAD`＝利用者ごとの、そのハウスの通知の既読数。通知の `facilityId` は、作成時に固定。通知の追加・既読のトランザクションで増やす。既存の通知は `pnpm migrate-notification-counters` で補う）。割り当ての変更が、すぐに反映される。通知を全件走査すると、費用が桁違いになるため、採らない。範囲の指定（一覧・範囲の件数・一括既読）は、後処理の絞り込み。以下は、全設備を閲覧できる利用者の方式（従来）: `NOTIF_TOTAL − READ#{userId}` の 2 回の GetItem。**全件を数えない**（約 10 秒ごとのポーリングで、全件を読むと、費用が桁違いに増える）。ローカルの実装と同じ意味（利用者が作られる前の通知も、未読）
 - **通知の一覧**: `NOTIF` の新しい順のページに、`READ#{userId}` を BatchGet して、既読を付ける。未読の絞り込みは、ページが埋まるまで繰り返す
 - **TTL**: 取り込みログ・連携ログ・変更履歴・送信済みの連携項目に、`ttl` の属性と、TTL の設定を用意する。**期間は、保存期間（rfp.md 6章。未確定）が決まるまで、設定しない**
 - **読み取りの整合性**: 既定は、結果整合（容量が半分）。書き込みの直後に読み直す処理（冪等の判定・カウンター）は、強い整合を使う。詳細は、Issue #73 のテストで確定する

@@ -50,6 +50,12 @@ export const NotificationSchema = z.object({
   viewpointId: ViewpointIdSchema.optional(),
   /** 対象の設備。取り込み失敗の通知では、取り込み元（sourceId）を示すため省略できる。 */
   equipmentId: EquipmentIdSchema.optional(),
+  /**
+   * 通知を閲覧できる範囲のハウス（Issue #331。ADR-0013）。状態変化の通知は、作成時の設備のハウス（ハウス自身は、その ID）で、固定する
+   * （設備が移動・削除されても、変えない）。取り込みの失敗・取得停止・連携の期限切れは、ハウスに属さないため、なし（全設備を閲覧できる利用者だけ）。
+   * 記録にない以前の通知は、移行コマンド（`pnpm migrate-notification-counters`）で補う。
+   */
+  facilityId: EquipmentIdSchema.optional(),
   sourceId: z.string().optional(),
   /** 異常検知の場合のステータス（注意・異常）。 */
   status: EvaluationStatusSchema.optional(),

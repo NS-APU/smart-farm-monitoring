@@ -69,6 +69,11 @@ export function counterAdd(db: Database, name: string, delta: number): TransactI
   };
 }
 
+/** カウンターを、指定した値にする（再集計。絶対値のため、何度実行しても同じ。Issue #331）。 */
+export async function counterSet(db: Database, name: string, value: number): Promise<void> {
+  await putItem(db, db.tables.main, { pk: COUNTER_PARTITION, sk: name, n: value });
+}
+
 /** カウンターの値（強い整合。ずれて負になっても、0 として返す）。 */
 export async function readCounters(
   db: Database,

@@ -21,13 +21,13 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `7aa8789`〔Issue #115 のマージ〕に、Issue #330 の変更を加えた状態）
+### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `cb07cd8`〔Issue #330 のマージ〕に、Issue #331 の変更を加えた状態）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
-| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        803 |
+| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        805 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
 | 単体: shared                               |         12 |        245 |
 | 単体: backend/domain                       |         10 |        284 |
@@ -37,10 +37,10 @@
 | 単体: backend/runtime                      |          3 |        122 |
 | 単体: frontend                             |         30 |        548 |
 | 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
-| 結合（`tests/integration/`）               |         44 |       1184 |
-| 合計                                       |        166 |       3814 |
+| 結合（`tests/integration/`）               |         46 |       1219 |
+| 合計                                       |        168 |       3851 |
 
-内訳（2026-11-10 の実測。Issue #318・#115・#330）: E2E 813 件（UC ごと 803 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3001 件・134 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、134 ファイル・3001 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.2%・Branches 95.51%・Functions 99.45%・Lines 99.18%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#330〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜34 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115・#330・#331）: E2E 815 件（UC ごと 805 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3036 件・136 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、136 ファイル・3036 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.15%・Branches 95.46%・Functions 99.37%・Lines 99.14%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#330〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜35 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -73,7 +73,7 @@ E2E のファイル別の件数（2026-11-10 の実測。Issue #318・#115）:
 | UC-19        | `tests/e2e/UC-19-edit-criteria.ts`                    |   43 |                    11 |                                        2 |
 | UC-20        | `tests/e2e/UC-20-view-observations.ts`                |   41 |                     6 |                                        2 |
 | UC-21        | `tests/e2e/UC-21-view-satisfaction.ts`                |   33 |                     4 |                                        1 |
-| UC-22        | `tests/e2e/UC-22-manage-notifications.ts`             |   39 |                     7 |                                        2 |
+| UC-22        | `tests/e2e/UC-22-manage-notifications.ts`             |   41 |                     8 |                                        2 |
 | UC-23        | `tests/e2e/UC-23-configure-web-push.ts`               |   31 |                    10 |                                        1 |
 | UC-24        | `tests/e2e/UC-24-notify-ingestion-failure.ts`         |   20 |                     6 |                                        2 |
 | （シナリオ）       | `tests/e2e/scenario-configuration-changes.ts`         |    1 |                     4 |                                        0 |
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜34 章（変更・追加したテストの記録）の索引
+### 1.4 14〜35 章（変更・追加したテストの記録）の索引
 
-14〜34 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜35 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -156,6 +156,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 31・32 | 古い画面の部品の取得の失敗への対応・配信のキャッシュの指定 | #323 |
 | 33 | ロールの分割（管理者・一般）と、自身のユーザー名の編集 | #115 |
 | 34 | 閲覧の割り当て（ハウスごと）と、閲覧系 API の絞り込み | #330（#116 の子） |
+| 35 | 通知の閲覧範囲（ハウスごと）と、既存の通知の移行 | #331（#116 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -5631,7 +5632,7 @@ E18-051・E18-052 は、レイアウトの検査あり（shot）。
 
 #### 対応するテストファイル
 
-- `tests/e2e/UC-22-manage-notifications.ts`（テスト 32 件。一覧の件数。E22-001〜E22-032）
+- `tests/e2e/UC-22-manage-notifications.ts`（テスト 34 件。一覧の件数。E22-001〜E22-034。E22-033・E22-034 は、通知の閲覧範囲〔#331〕）
 
 #### テストの概要
 
@@ -5880,6 +5881,27 @@ E22-003〜E22-011 は、共通の前提・手順。
 #### 読み切れなかった範囲
 
 なし
+
+##### 通知の閲覧範囲（ハウスごと。Issue #331。ADR-0013・ADR-0019 の D-41。FR-9.8）
+
+**E22-033 一般ユーザーには、割り当てられたハウスの通知だけが、一覧・未読の件数に出る。ハウスに属さない通知（取り込みの失敗）は、管理者のみ。範囲外の通知は、既読にもメモの閲覧もできない（404）**
+
+- 検証内容: 通知の閲覧範囲（ハウス）。API と画面（ヘッダーの未読の件数・通知の一覧）。
+- 前提: ハウス 2（`HOUSE-02`）と、その環境センサー（`SENSOR-02`）を API で登録。ハウス 1・ハウス 2 の環境の温度を 40℃（異常）にして評価し、通知を作る。ファイルサーバーを停止して、ロボットの取り込みを失敗させ、取り込み失敗の通知（ハウスに属さない）を作る。一般ユーザー `e2e-general` を追加し、ハウス 2 に割り当てる（`PUT /facility-access/HOUSE-02`）。
+- 操作: 管理者の API で、通知の一覧を取得する。一般ユーザーの API で、通知の一覧を取得し、ハウス 1 の通知の既読（`POST /notifications/{id}/read`）とメモの取得（`GET /notifications/{id}/memos`）を試みる。一般ユーザーでログインし、ダッシュボードのヘッダーと、通知の一覧を確認する。
+- 期待結果: 管理者の一覧に、ハウス 1・ハウス 2 の通知と、取り込み失敗の通知がある。一般ユーザーの一覧は、1 件以上で、すべて `HOUSE-02`・`SENSOR-02` の通知（取り込み失敗の通知は、含まない）。ハウス 1 の通知の既読・メモの取得は、404。画面のヘッダーの未読の件数と、通知の一覧の行の数が、一般ユーザーの API の一覧の件数と一致し、種別「データ取得失敗」の行が 0 件。
+- 観点: 閲覧範囲（一般・管理者）。
+- データ: `e2e-general`・`HOUSE-02`・`SENSOR-02`。
+- レイアウトの検査あり（shot）: `uc22-scoped`。
+
+**E22-034 割り当てがない一般ユーザーには、通知が出ない（未読の件数は 0）。管理者が割り当てると、すぐに出る**
+
+- 検証内容: 割り当てなし（安全側）と、割り当ての変更の即時反映。
+- 前提: E22-033 と同じ 2 つのハウスの通知。一般ユーザー `e2e-general` を追加（割り当てなし）。
+- 操作: 一般ユーザーの API で、未読の件数を取得する。管理者が、ハウス 2 に割り当てる。もう一度、取得する。
+- 期待結果: 最初は 0。割り当て後は、1 以上。
+- 観点: 割り当てなし・割り当ての変更。
+- データ: `e2e-general`。
 
 ### UC-23 Web Push 通知を設定する
 
@@ -10828,7 +10850,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-19 | 判断基準を編集する                                 | `UC-19-edit-criteria.ts`（43 件）            | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/criteria-edit-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`               |
 | UC-20 | 取り込み済みデータを一覧で確認する                 | `UC-20-view-observations.ts`（41 件）        | `unit/shared/criteria-text.test.ts`、`unit/backend/infrastructure/seeded-data.test.ts`、`unit/frontend/observations-page.test.tsx`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/repository-contract.test.ts`、`integration/viewpoint-queries.test.ts`                                              |
 | UC-21 | 満足度をレーダーチャートで確認する                 | `UC-21-view-satisfaction.ts`（33 件）        | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/viewpoint-pages.test.tsx`、`integration/viewpoint-queries.test.ts`                                                                                                      |
-| UC-22 | 通知を一覧で確認し、既読にする                     | `UC-22-manage-notifications.ts`（39 件）     | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/notifications-page.test.tsx`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                              |
+| UC-22 | 通知を一覧で確認し、既読にする                     | `UC-22-manage-notifications.ts`（41 件）     | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/notifications-page.test.tsx`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                              |
 | UC-23 | Web Push 通知を設定する                            | `UC-23-configure-web-push.ts`（31 件）       | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/push.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                |
 | UC-24 | データ取り込みの失敗を通知する                     | `UC-24-notify-ingestion-failure.ts`（20 件） | `unit/backend/domain/domain-rules.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`integration/api.test.ts`、`integration/evaluation-notification.test.ts`、`integration/ingestion.test.ts`                                                                                                         |
 
@@ -11885,3 +11907,32 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173。`playwright test --workers=1`）: 画面の場所を変えたあと、UC-01・12（E12-031 を含む）・14（E14-035 を含む）・シナリオ（ユーザーの受け入れ）の **101 件が、すべて成功**（変更前の画面〔ユーザー管理の表〕では、UC-01・05・07・12・13・14・16〜19・シナリオの 334 件が、すべて成功）。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認（割り当て・閲覧範囲）は、未確認**（AWS の操作は、ユーザーが行う）
+
+## 35. 通知の閲覧範囲（ハウスごと）と、既存の通知の移行（Issue #331。#116 の子）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-10 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0013・ADR-0019 の D-41）: 通知に、作成時のハウス（`facilityId`。ハウス自身はその ID。ロボット・センサーは所属ハウス。作成時に固定）を持たせる。通知は、そのハウスを閲覧できる利用者（全設備を閲覧する権限 `equipment:view-all` をもつ利用者と、割り当てた一般ユーザー）にだけ、表示（一覧・未読の件数・既読・一括既読・メモ）・配信（Web Push）する。ハウスに属さない通知（取り込みの失敗・取得停止・連携の期限切れ）は、管理者のみ。範囲外の通知は、存在しないもの（404）。未読の件数は、ハウスごとのカウンター（`NFTOTAL#{ハウス}`・`NFREAD#{ハウス}#{利用者}`）の合計。既存の通知は、`pnpm migrate-notification-counters` で補う。
+
+### 35.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/repository-contract.test.ts`（5 件を追加。ローカル・ファイル・DynamoDB の 3 実装で 15 件） | 通知の閲覧範囲（ハウス）の Repository: 一覧（指定したハウスの通知だけ・空の指定は何も返さない・指定なしは全部）。ページ分割（1 件ずつ）でも、範囲外を飛ばして漏れなく返す。未読の件数（ハウスごとのカウンターの合計。指定なしは全体。既読にすると、そのハウスの分が減る。同じ通知を 2 回既読にしても、数え直さない。ほかの利用者は、変わらない）。範囲の未読の件数と一括既読（指定したハウスの通知だけ。確認の件数と既読にした件数が一致）。範囲の指定なしの一括既読でも、ハウスごとのカウンターが合う |
+| 結合: `tests/integration/notification-scope.test.ts`（新規。13 件） | 通知の作成: ハウス自身はそのハウス、ロボット・センサーは所属ハウス、ハウスに属さない通知はなし。作成後に設備が移動しても、通知のハウスは変わらない。一覧（管理者は全部・一般は割り当てたハウスだけ・割り当てなしは空）。種別の絞り込み・ページ分割でも、範囲外が出ない・漏れない。未読の件数（範囲内だけ。既読にすると、その利用者の分だけ減る）。割り当ての変更の即時反映。範囲の未読の件数と一括既読（確認の件数と一致。ほかのハウス・管理者は変わらない）。範囲外・ハウスなしの通知の既読・メモの読み書きは 404（範囲内は可）。**Web Push の宛先**: ハウスの通知は、そのハウスを閲覧できる一般ユーザーと管理者の購読だけ。ハウスなしは、管理者だけ。宛先がなければ、対象が空で終了（失敗にしない）。宛先は、最初の配信の時点で決まり、あとで割り当てを変えても、配信済みの通知の宛先は変わらない |
+| 結合: `tests/integration/migrate-notification-counters-cli.test.ts`（新規。7 件） | 既存の通知の移行（DynamoDB Local）: 移行前は、ハウスの情報がなく、一般ユーザーのハウスごとの未読の件数は 0。移行で、ハウスを補い（ハウス自身はその ID。ハウスに属さない通知・設備が見つからない通知は補わない）、ハウスごとのカウンター（総数・既読数）を再集計して、件数が合う。何度実行しても同じで、移行のあとの通常の既読も合う。`MIGRATE_DRY_RUN=true` は、書き込まない。ローカルのファイルにもハウスを補える。メモリ保存は、書き込まずに終了コード 1。失敗は、エラーの名前だけを出力する |
+| E2E: `tests/e2e/UC-22-manage-notifications.ts`（2 件を追加。E22-033・E22-034） | 一般ユーザーには、割り当てられたハウスの通知だけが、一覧・ヘッダーの未読の件数に出る（取り込みの失敗は、管理者のみ。範囲外の既読・メモは 404）。割り当てがない一般ユーザーには、通知が出ず、割り当てると、すぐに出る |
+
+### 35.2 変更した既存のテスト
+
+- `createNotificationService` を組み立てているテスト（`federation-expiry.test.ts`・`runtime-resilience.test.ts`）に、宛先（`NotificationRecipients`）を渡した。Web Push の応答のタイムアウトのテスト（`runtime-resilience.test.ts`）は、購読の利用者（全設備を閲覧できる管理者）を登録した（宛先のない購読には、配信しないため）
+- 通知のメモのテスト（`notification-memo.test.ts`）の 3 ロールの設定に、評価者・閲覧者の全設備の閲覧権限（`equipment:view-all`）を加えた（取り込み失敗の通知は、ハウスに属さないため、全設備を閲覧できる利用者だけが、メモできる）。`THREE_ROLES_JSON` の管理者にも、同じ権限を加えた。一括既読のテスト（`notification-read-all.test.ts`）の、もう 1 人の利用者を、管理者にした（利用者ごとの既読の確認が目的で、割り当てを使わないため）
+
+### 35.3 実測
+
+手元（Windows。2026-11-10）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **136 ファイル・3036 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.15%・Branches 95.46%・Functions 99.37%・Lines 99.14%（基準は、すべて 95% 以上）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- E2E（空きポート 18787・15173。`playwright test --workers=1`）: 通知に関わる UC-05・UC-10・UC-22（E22-033・E22-034 を含む）・UC-23・UC-24 の **145 件が、すべて成功**（最初の実行で、E22-033 の検証の誤りが 1 件見つかり、直して、再実行して成功）。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
+- **AWS での実際の確認（通知の絞り込み・カウンターの移行）は、未確認**（AWS の操作は、ユーザーが行う。operations.md 8.8）

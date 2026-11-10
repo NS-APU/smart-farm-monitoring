@@ -143,6 +143,10 @@ export interface NotificationListFilter {
   readonly readState?: ReadState;
   /** この日時以前（ちょうどを含む）に作成された通知だけ。一括既読が、画面を読み込んだあとに届いた通知を、既読にしないための上限（#240）。 */
   readonly until?: Date;
+  /**
+   * 閲覧範囲（Issue #331）: 指定したハウスの通知だけ（ハウスに属さない通知は、含めない）。空は、何も含めない。省略は、すべての通知（全設備を閲覧できる利用者）。
+   */
+  readonly facilityIds?: readonly EquipmentId[];
 }
 
 export interface NotificationWithReadState {
@@ -157,8 +161,31 @@ export interface StatusChangeNotificationTime {
   readonly createdAt: string;
 }
 
+/** 通知のハウスの補完・ハウスごとのカウンターの再集計の結果（移行コマンド。Issue #331）。 */
+export interface FacilityIndexRebuildResult {
+  /** 確認した通知の数。 */
+  readonly notifications: number;
+  /** ハウス（`facilityId`）を補った通知の数。 */
+  readonly assigned: number;
+  /** 再集計したカウンターの数（ローカルの実装は、カウンターを持たないため 0）。 */
+  readonly counters: number;
+  /** ハウスの数・利用者の数（再集計の対象）。 */
+  readonly facilities: number;
+  readonly users: number;
+}
+
 export interface NotificationRepository {
   add(notification: Notification): Promise<void>;
+  /**
+   * 保守（移行コマンドだけが使う。Issue #331）: ハウス（`facilityId`）のない通知に、`facilityOf` で求めたハウスを補い、ハウスごとのカウンター
+   * （通知の総数・`userIds` の利用者ごとの既読数）を、通知・既読の記録から再集計する（絶対値で書くため、何度実行しても同じ）。
+   * `dryRun` なら、書き込まず、件数だけを返す。
+   */
+  rebuildFacilityIndex(options: {
+    readonly facilityOf: (notification: Notification) => EquipmentId | undefined;
+    readonly userIds: readonly UserId[];
+    readonly dryRun: boolean;
+  }): Promise<FacilityIndexRebuildResult>;
   get(notificationId: NotificationId): Promise<Notification | undefined>;
   findLatestByDedupKey(dedupKey: string): Promise<Notification | undefined>;
   /** 新しい順。既読状態は利用者ごと（暫定）。 */
@@ -167,7 +194,10 @@ export interface NotificationRepository {
     filter: NotificationListFilter,
     page: PageRequest,
   ): Promise<Page<NotificationWithReadState>>;
-  unreadCount(userId: UserId): Promise<number>;
+  /**
+   * 未読の件数。`facilityIds` を指定すると、そのハウスの通知だけ（ハウスごとのカウンターの合計。Issue #331）。省略は、すべての通知。
+   */
+  unreadCount(userId: UserId, facilityIds?: readonly EquipmentId[]): Promise<number>;
   /** 既読にする。通知がなければ false。 */
   markRead(notificationId: NotificationId, userId: UserId, readAt: Date): Promise<boolean>;
   /** 絞り込みの範囲（`until` 以前を含む）の未読の件数。一括既読の確認の件数で、`markAllRead` が既読にする件数と一致する。 */

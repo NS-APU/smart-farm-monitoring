@@ -8,6 +8,7 @@
 
 import { createAccessPolicy, type AccessPolicy } from '../application/auth/access-policy.ts';
 import { createAuthService, type AuthService } from '../application/auth/auth-service.ts';
+import { createNotificationRecipients } from '../application/access/notification-recipients.ts';
 import { createUserService, type UserService } from '../application/auth/user-service.ts';
 import {
   createFacilityAccessService,
@@ -430,6 +431,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
+    recipients: createNotificationRecipients({ repositories, policy }),
     webPush,
     clock,
     ids,

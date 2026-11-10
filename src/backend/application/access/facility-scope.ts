@@ -71,6 +71,22 @@ export function canViewEquipment(scope: EquipmentScope, equipmentId: EquipmentId
   return scope.kind === 'all' || scope.equipmentIds.has(equipmentId);
 }
 
+/**
+ * 通知を閲覧できるか（Issue #331）。全設備を閲覧できる利用者は、すべて。ほかは、閲覧できるハウスの通知だけ。
+ * ハウスに属さない通知（取り込みの失敗・取得停止・連携の期限切れ。`facilityId` なし）は、全設備を閲覧できる利用者だけ。
+ */
+export function canViewFacility(
+  scope: EquipmentScope,
+  facilityId: EquipmentId | undefined,
+): boolean {
+  return scope.kind === 'all' || (facilityId !== undefined && scope.facilityIds.has(facilityId));
+}
+
+/** 通知の一覧・件数の絞り込みに渡す、閲覧できるハウス（全設備を閲覧できる利用者は、絞り込まない）。 */
+export function facilityIdsOf(scope: EquipmentScope): readonly EquipmentId[] | undefined {
+  return scope.kind === 'all' ? undefined : [...scope.facilityIds];
+}
+
 /** 設備の階層を、閲覧できるものに絞る（全設備のときは、そのまま返す）。 */
 export function filterEquipmentTree(
   scope: EquipmentScope,
