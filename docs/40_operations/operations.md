@@ -373,6 +373,49 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 - コマンドは、手元のソースの、新しい版（`develop` の最新）で実行する。AWS の認証情報・DynamoDB の読み書きの権限が要る（8.7 と同じプロファイル）
 - 確認: 一般ユーザーでログインし、通知の一覧・ヘッダーの未読の件数が、割り当てたハウスの通知だけであること
 
+### 8.9 独自のサブドメインでの配信（Issue #128。ADR-0006 の追記。ユーザーが実行）
+
+開発サイト・本番サイトを、独自のサブドメイン（HTTPS。最低の TLS は 1.2）で配信する手順。cloudfront.net の既定の証明書は、最低の TLS のバージョンが **TLS 1.0 に固定される**ため、独自のサブドメイン（独自の証明書）にして、TLS 1.2 以上にする（ADR-0006）。**AWS の操作・GitHub の設定は、ユーザーが行う。ドメイン名・ホストゾーン名・アカウント ID・ゾーンの ID・ネームサーバーの名前は、リポジトリ・Issue・PR・チャットに書かない**（GitHub の Environment の変数にだけ設定する）。
+
+**構成（決定。ユーザーの判断。2026-11-10）**: 親のドメインのホストゾーンは、デプロイ先とは別のアカウントにある。そのため、**デプロイ先のアカウントに、サブドメイン用のホストゾーンを 1 つ作り、親のドメインのホストゾーンから委任する**（NS レコード）。開発サイト・本番サイトは、**同じホストゾーンを共有**する（レコードの名前だけが違う）。IaC は、このゾーンを検索して、証明書の DNS 検証のレコードと、サイトの A・AAAA（CloudFront への alias）のレコードを、自動で作る。
+
+| | 名前の形（`<ゾーン>` は、サブドメイン用のホストゾーンの名前。例: `sfm.<親ドメイン>`） | 環境変数 `SFM_HOSTED_ZONE_NAME` | 環境変数 `SFM_DOMAIN_NAME` |
+|---|---|---|---|
+| 開発サイト | `dev.<ゾーン>` | `<ゾーン>` | `dev.<ゾーン>` |
+| 本番サイト | `www.<ゾーン>` | `<ゾーン>`（同じ） | `www.<ゾーン>` |
+
+- **費用**（概算。実測は未確認）: ホストゾーン 1 つで月 US$0.50（1 ドル 150 円の仮定で約 75 円）。ACM の公開証明書・CloudFront の別名・CloudFront への alias のレコードは、無料。親のホストゾーンの費用は、変わらない
+- **切り替えで影響を受けること**: (1) サイトの URL が変わる。cloudfront.net の URL は、**CloudFront の仕様で、止められず、最低の TLS も旧のまま**。利用者には、新しい URL を案内する。(2) **Web Push の購読は、サイトの URL（オリジン）ごと**のため、新しい URL で、通知の設定を、やり直す（手順 I）。(3) `SFM_WEB_PUSH_SUBJECT`（連絡先の URL）を、新しい URL に更新する
+
+**手順**（PowerShell。`<…>` は、置き換える。AWS のコマンドは、対象のアカウントのプロファイルを指定してから実行する）
+
+| 手順 | 操作 | 期待する結果 |
+|------|------|--------------|
+| A（ゾーンの作成。**1 回だけ**） | デプロイ先のアカウントで、サブドメイン用のホストゾーンを作る。`$env:AWS_PROFILE = '<プロファイル名>'`、`$zone = '<ゾーン>'`、`$created = aws route53 create-hosted-zone --name $zone --caller-reference "sfm-$(Get-Date -Format yyyyMMddHHmmss)" \| ConvertFrom-Json`、`$created.DelegationSet.NameServers`（4 つのネームサーバー。次の手順で使う。**どこにも貼らない**） | ゾーンが作られ、ネームサーバーが 4 つ出る。コンソールの Route 53 → ホストゾーンに、出る |
+| B（委任。**1 回だけ**） | **親のドメインのホストゾーンがあるアカウント**の Route 53 で、そのホストゾーンに、レコードを作る。名前: ゾーンのうち、親のドメインより左の部分（例: `sfm`）。タイプ: **NS**。値: 手順 A の 4 つのネームサーバー（1 行に 1 つ）。TTL: 300 | レコードが作られる |
+| C（委任の確認。**必ず、デプロイの前に**） | `nslookup -type=NS $zone 8.8.8.8`（反映に、数分かかることがある） | **手順 A の 4 つのネームサーバー**が、出る。出ない間は、先へ進まない（委任が効く前に、デプロイすると、証明書の DNS 検証が、待ち続けて、止まる） |
+| D（us-east-1 の bootstrap。**1 回だけ**） | `pnpm --filter @smart-farm/infra run bootstrap:certificate`（プロファイルを指定したまま） | `CDKToolkit` のスタックが、us-east-1 に作られる |
+| E（差分の確認。開発サイト） | `$env:SFM_DOMAIN_NAME = 'dev.<ゾーン>'`、`$env:SFM_HOSTED_ZONE_NAME = $zone`、`pnpm build`、`pnpm --filter @smart-farm/infra run diff`、**必ず、`Remove-Item Env:SFM_DOMAIN_NAME, Env:SFM_HOSTED_ZONE_NAME`** | 追加・変更は、(1) 証明書のスタック `SfmEvaluationCertificate`（新規。証明書・リージョンをまたぐ参照の補助）、(2) `SfmEvaluation` の CloudFront（`Aliases`・`ViewerCertificate` の変更）、Route 53 の A・AAAA のレコード（追加）、リージョンをまたぐ参照の補助（追加）。**CloudFront・S3・Lambda・Secrets Manager・DynamoDB の「置き換え」（`[-/+]`）が出たら、中止して、差分を知らせる**。`SfmData` は、変わらない。`infra/cdk.context.json`（ゾーンの検索結果。Git 管理外）に、ドメインの情報が残る。共有しない |
+| F（GitHub の設定） | リポジトリの Settings → Environments → `development` の変数に、`SFM_DOMAIN_NAME`（`dev.<ゾーン>`）・`SFM_HOSTED_ZONE_NAME`（`<ゾーン>`）を設定する（2 つとも）。`SFM_WEB_PUSH_SUBJECT` を、新しい URL（`https://dev.<ゾーン>`）に更新する（8.6） | 変数が設定される |
+| G（デプロイ） | Actions → 「Deploy development」→ Run workflow（ブランチ: `develop`）。証明書の発行（DNS 検証）は、数分〜十数分かかる | ワークフローが成功する。出力 `SiteUrl` が、新しい URL になる |
+| H（確認） | 下の「確認」 | すべて OK |
+| I（Web Push の購読のやり直し） | 新しい URL で、ログインし、通知の設定で、購読し直す（8.6 の手順。旧 URL での購読は、届かなくなる） | 新しい URL で、通知が届く |
+| J（本番サイト） | 開発サイトの確認の後に、同じ手順を、**A〜D を飛ばして**行う（ゾーン・委任・bootstrap は、共通）。差分の確認は、`$env:SFM_ENVIRONMENT = 'production'` を指定し、`SFM_DOMAIN_NAME` は `www.<ゾーン>`（9.2 の手順 3）。GitHub は、Environment `production` の変数（`SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`・`SFM_WEB_PUSH_SUBJECT`）。デプロイは、9.3 | 本番サイトが、`www.<ゾーン>` で、動く |
+
+**確認**（手順 H。開発サイト。`<サイト>` は、新しいサイトの名前）
+1. 名前解決: `nslookup <サイト>`（CloudFront の IP が、出る）
+2. `curl.exe -i https://<サイト>/health` が **200**。`curl.exe -i http://<サイト>/` は、HTTPS へ**リダイレクト**（301・302）
+3. ブラウザで、`https://<サイト>/` を開き、**証明書が有効**（鍵のアイコン → 証明書。発行元は Amazon。対象は、サイトの名前）。ログイン → ダッシュボード・手動入力・通知・推移が、動く（コンソールに、CSP の違反が出ない。ADR-0006 の #127）
+4. **最低の TLS が、1.2 以上**: `aws cloudfront get-distribution-config --id <DistributionId> --query "DistributionConfig.ViewerCertificate.[MinimumProtocolVersion,SSLSupportMethod]" --output text`（`DistributionId` は、`SfmEvaluation` の出力）が、`TLSv1.2_2021`・`sni-only`。（古い TLS を、クライアントから指定して確かめる方法は、クライアント・OpenSSL の設定で、結果が変わるため、判断に使わない）
+5. `SMOKE_BASE_URL` に新しい URL を指定して、`pnpm test:smoke`（`smoke-04` の応答ヘッダー・Cache-Control を含む）が成功する（手動実行）
+6. 結果（OK・NG）を、Issue #128 に報告する（ドメイン名・URL は、書かない）
+
+**うまくいかないとき**
+- 証明書のスタックが、長く `CREATE_IN_PROGRESS`（20 分以上）: 委任が、効いていない。手順 C をやり直す。ゾーンに、検証用の CNAME（`_…`）が、作られているか、Route 53 のコンソールで確認する
+- `cdk diff`・デプロイが、「ホストゾーンが見つからない」: プロファイル（アカウント）が違う、または、`SFM_HOSTED_ZONE_NAME` が、手順 A のゾーンの名前と、違う。IaC は、`SFM_DOMAIN_NAME` が、ゾーンのサブドメインでなければ、エラーにする
+- 名前が、解決されない: DNS の反映待ち（数分）。続く場合は、ゾーンに A・AAAA のレコードがあるか、確認する
+- **戻す**: GitHub の Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME` を、削除（`SFM_WEB_PUSH_SUBJECT` は、元の URL に戻す）し、再デプロイする（cloudfront.net の URL に戻る。Route 53 のレコードは、スタックの更新で、消える）。その後、CloudFormation のコンソールで、us-east-1 の `SfmEvaluationCertificate` を、削除する（`destroy` は、評価環境のすべてのスタックを削除するため、使わない）。ゾーン・親の NS レコードは、残してよい
+
 ## 9. 本番サイトの運用手順（Issue #117。ADR-0013）
 
 本番サイトは、現場での実証実験に使う環境（実データ可。個人情報は不可）。開発サイト（7 章・8 章）とは、**データ・ユーザー・URL を共有しない**。**2026-10-22 に、AWS に作成した**（`main` から、承認つき。9.2・9.9）。AWS に接続する操作は、**ユーザーが実行する**（AGENTS.md 12 章）。
@@ -402,7 +445,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
    - Deployment branches and tags: **Selected branches** → `main` だけ
    - Required reviewers: **T-Ishikawa-R**（Prevent self-review は、オフ）
    - Environment のシークレット `AWS_DEPLOY_ROLE_ARN`: 手順 1 の `ProductionDeployRoleArn`
-   - 独自のサブドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`（2 つとも。開発サイトとは別のサブドメイン）
+   - 独自のサブドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`（2 つとも。開発サイトとは別のサブドメイン。手順は 8.9）
 3. **差分の確認**（推奨）: 次のとおり。作られるのは、本番の 2 つのスタック（`SfmProductionData`・`SfmProductionEvaluation`）だけで、開発サイトのスタックは、出ない
    ```powershell
    $env:AWS_PROFILE = '<プロファイル名>'
