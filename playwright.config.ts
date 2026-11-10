@@ -64,7 +64,7 @@ export default defineConfig({
         INGESTION_RETRY_BASE_DELAY_MS: '10',
         // ロール: 農作業者（全権限）と閲覧者（権限なし）。権限による表示・操作の制限を、E2E で確かめる
         ROLE_DEFINITIONS_JSON: E2E_ROLE_DEFINITIONS_JSON,
-        INITIAL_USER_ROLE: 'worker',
+        INITIAL_USER_ROLE: 'admin',
         // Web Push の公開鍵（ダミー）。ブラウザの購読は、E2E ではスタブにする
         WEB_PUSH_PUBLIC_KEY:
           'ZHVtbXktd2ViLXB1c2gtcHVibGljLWtleS1mb3ItZTJlLTAxMjM0NTY3ODktYWJjZGVmZ2hpamtsbW5vcC1xcnM',
