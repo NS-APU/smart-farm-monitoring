@@ -79,6 +79,8 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
 - **デプロイの直後**: CloudFront の設定が、全エッジに行き渡るまでの数分間、Lambda が先に新しくなると、画面・API が、403 になることがある（秘密のヘッダーが、まだ付かないため）。数分待って、確認する。続く場合は、下の「うまくいかないとき」
 - **値の入れ替え**: Secrets Manager の秘密の値を変えたら、**同じデプロイで、CloudFront のヘッダーも、変わる**。API の Lambda は、実行環境が入れ替わるまで、古い値で動くため、デプロイ（コードの更新）で、入れ替える。秘密の値は、人が、読む・書く必要は、ない（スタックを作り直すと、新しい値になる）
 
+**確認の状況**: 開発サイトで、**確認済み**（2026-11-10。ユーザーが実行。1〜5 のすべて OK。ADR-0010 の「検証（#102）」）。本番サイトへの適用後にも、同じ手順で確認する。
+
 **確認の手順（ユーザーが実行する。開発サイト。AWS の認証は、手元のプロファイルを使う。値・URL・ARN を、リポジトリ・Issue に書かない）**
 
 1. 関数の URL を取る: `aws lambda get-function-url-config --function-name <ApiFunctionName> --query FunctionUrl --output text`（`ApiFunctionName` は、`SfmEvaluation` の出力）
