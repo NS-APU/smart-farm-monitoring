@@ -16,10 +16,12 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   ROBOT_EXTERNAL_ID,
   SENSOR_EXTERNAL_ID,
   USER_B,
   VIEWER,
+  accessToken,
   addUser,
   advanceMinutes,
   alignBrowserClock,
@@ -720,6 +722,82 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
   });
 });
 
+test.describe('閲覧の割り当て（ハウスごと）。Issue #330。ADR-0013。FR-9.8。ハウス側から、一般ユーザーを個別に割り当てる', () => {
+  const house = (page: Page) => rowOf(page, 'HOUSE-01');
+  const panel = (page: Page) => page.getByTestId('facility-access');
+
+  test('管理者が、ハウスの行から、閲覧できる一般ユーザーを割り当てると、その一般ユーザーは、そのハウスだけを閲覧できる。外すと、すぐに見えなくなる', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: 'HOUSE-02',
+    });
+    await addUser(request, GENERAL);
+    await openEquipment(page);
+
+    // ハウスの行に、閲覧できる一般ユーザーを示す（最初は、なし）。ロボットの行には、割り当ての操作がない
+    await expect(page.getByRole('columnheader', { name: '閲覧できるユーザー' })).toBeVisible();
+    await expect(house(page)).toContainText('なし');
+    await expect(
+      rowOf(page, 'ROBOT-01').getByRole('button', { name: '閲覧の割り当て' }),
+    ).toHaveCount(0);
+
+    // ハウス2 の「閲覧の割り当て」で、一般ユーザーを選んで、保存する
+    await rowOf(page, 'HOUSE-02').getByRole('button', { name: '閲覧の割り当て' }).click();
+    await expect(panel(page).getByRole('heading')).toContainText('ハウス2');
+    const save = panel(page).getByRole('button', { name: '割り当てを保存' });
+    await expect(save).toBeDisabled();
+    await panel(page)
+      .getByRole('checkbox', { name: `${GENERAL.userName}が閲覧できる` })
+      .check();
+    await shot(page, testInfo, 'uc12-facility-access');
+    await save.click();
+    await expect(notice(page)).toHaveText('「ハウス2」の閲覧の割り当てを保存しました');
+    await expect(rowOf(page, 'HOUSE-02')).toContainText(GENERAL.userName);
+    await expect(house(page)).toContainText('なし');
+    await page.reload();
+    await expect(rowOf(page, 'HOUSE-02')).toContainText(GENERAL.userName);
+
+    // 一般ユーザー（別のブラウザ）: 設備の選択は、ハウス2（と配下）だけ。ハウス1 は、存在しないものとして扱う（404）
+    const general = await newUserSession(browser, testInfo, 'general');
+    await openAs(general.page, '/', GENERAL);
+    const select = general.page.getByLabel('対象の設備');
+    await expect(select).toContainText('ハウス2');
+    await expect(select).toContainText('収穫ロボット2');
+    await expect(select).not.toContainText('ハウス1');
+    await expect(select).not.toContainText('収穫ロボット1');
+    const token = await accessToken(request, GENERAL);
+    const status = async (path: string) =>
+      (
+        await request.fetch(`/api/v1${path}`, { headers: { authorization: `Bearer ${token}` } })
+      ).status();
+    expect(await status('/dashboard?equipmentId=HOUSE-01')).toBe(404);
+    expect(await status('/dashboard?equipmentId=HOUSE-02')).toBe(200);
+    expect(await status('/observations?equipmentId=ROBOT-01')).toBe(404);
+
+    // 割り当てを外すと、すぐに（次のリクエストから）見えなくなる
+    await rowOf(page, 'HOUSE-02').getByRole('button', { name: '閲覧の割り当て' }).click();
+    await panel(page)
+      .getByRole('checkbox', { name: `${GENERAL.userName}が閲覧できる` })
+      .uncheck();
+    await panel(page).getByRole('button', { name: '割り当てを保存' }).click();
+    await expect(rowOf(page, 'HOUSE-02')).toContainText('なし');
+    expect(await status('/dashboard?equipmentId=HOUSE-02')).toBe(404);
+    await general.context.close();
+  });
+});
+
 test.describe('権限: 設備を変更する権限のない利用者（閲覧者）は、参照のみ', () => {
   test('閲覧者には、登録・修正・削除の操作を表示せず、構成を参照できる。サーバー側でも拒否する', async ({
     page,
@@ -736,6 +814,9 @@ test.describe('権限: 設備を変更する権限のない利用者（閲覧者
     await expect(rows(page)).toHaveCount(3);
     await expect(page.getByRole('button', { name: '修正' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '削除' })).toHaveCount(0);
+    // 閲覧の割り当て（ユーザーを管理する権限が要る）の列・操作も、表示しない
+    await expect(page.getByRole('button', { name: '閲覧の割り当て' })).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: '閲覧できるユーザー' })).toHaveCount(0);
     await expect(facilityForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc12-readonly');
     const login = await request.post('/api/v1/auth/login', {

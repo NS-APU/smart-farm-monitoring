@@ -204,6 +204,21 @@ export const MANAGEMENT_MESSAGES = {
     updated: '修正しました',
     deleted: '削除しました',
     readOnly: '設備を変更する権限がありません。参照のみできます',
+    facilityAccess: {
+      column: '閲覧できるユーザー',
+      none: 'なし',
+      assign: '閲覧の割り当て',
+      panelTitle: (facilityName: string) => `「${facilityName}」を閲覧できる一般ユーザー`,
+      lead: '一般ユーザーが閲覧できるハウス（配下のロボット・環境センサーを含む）は、ハウスごとに、ここで決めます。割り当てのないユーザーには、このハウスは、存在しないものとして扱われます。管理者は、すべてのハウスを閲覧できます',
+      userLabel: (userName: string) => `${userName}が閲覧できる`,
+      save: '割り当てを保存',
+      saving: '保存中…',
+      close: '閉じる',
+      saved: (facilityName: string) => `「${facilityName}」の閲覧の割り当てを保存しました`,
+      loadFailed: '取得できません',
+      noUsers:
+        '割り当ての対象の一般ユーザーがいません（管理者は、すべてのハウスを閲覧できます）。ユーザーを、一般のロールで登録してください',
+    },
   },
   statusCodes: {
     title: 'ステータスコード',
@@ -289,20 +304,6 @@ export const MANAGEMENT_MESSAGES = {
     self: '（ログイン中）',
     selectRole: 'ロールを選択してください',
     forbidden: 'ユーザーを管理する権限がありません',
-    facilityAccess: {
-      title: '閲覧の割り当て',
-      lead: '一般ユーザーが閲覧できるハウス（配下のロボット・センサーを含む）を、ハウスごとに決めます。割り当てのないハウスは、そのユーザーには、存在しないものとして扱われます。管理者は、すべてのハウスを閲覧できます',
-      facility: 'ハウス',
-      cellLabel: (facilityName: string, userName: string) =>
-        `${facilityName}を${userName}が閲覧できる`,
-      save: '割り当てを保存',
-      saving: '保存中…',
-      saved: '保存しました',
-      loadFailed: '閲覧の割り当てを取得できませんでした。画面を読み込み直してください',
-      noFacilities: 'ハウスが登録されていません。設備の管理で、ハウスを登録してください',
-      noUsers:
-        '割り当ての対象の一般ユーザーがいません（管理者は、すべてのハウスを閲覧できます）。ユーザーを、一般のロールで登録してください',
-    },
   },
   ingestion: {
     title: '取り込み設定・状況',
