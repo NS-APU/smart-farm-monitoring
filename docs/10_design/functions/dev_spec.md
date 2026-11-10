@@ -382,7 +382,7 @@ Repository のポートを境界にし、ローカル実装と DynamoDB 実装�
 | UC-13 | ログイン・ログアウトする | SC-01 | `/auth/*` | - | `UC-13-login-logout.ts` | 実装済み |
 | UC-14 | ユーザーを管理する | SC-14 | `/users` 一式 | - | `UC-14-manage-users.ts` | 実装済み |
 | UC-15 | 取り込みを設定し、接続テスト・即時取得を行う | SC-11 | `/ingestion/settings`、`/ingestion/{id}/credentials`、`/ingestion/{id}/test`、`/ingestion/{id}/run` | JB-01 | `UC-15-configure-ingestion.ts`、`UC-15-configure-file-server-connection.ts` | 実装済み |
-| UC-16 | 取り込み・連携の状況を確認する | SC-11 | `GET /ingestion/logs`、`GET /federation/logs` | JB-01・JB-03 | `UC-16-check-ingestion-status.ts` | 実装済み |
+| UC-16 | 取り込み・連携の状況を確認する | SC-11 | `GET /ingestion/logs`、`GET /federation/logs`、`GET /ingestion/facility-logs`、`GET /federation/facility-logs` | JB-01・JB-03 | `UC-16-check-ingestion-status.ts` | 実装済み |
 | UC-17 | ステータスコードを管理する | SC-12 | `/status-codes` 一式 | - | `UC-17-manage-status-codes.ts` | 実装済み |
 | UC-18 | 入力済みデータを管理する | SC-07、SC-08 | `/manual-entries`、`GET /audit-logs` | JB-02 | `UC-18-manage-entries.ts` | 実装済み |
 | UC-19 | 判断基準を編集する | SC-13（SC-03 から） | `/viewpoints/{id}/criteria` 一式 | JB-02 | `UC-19-edit-criteria.ts` | 実装済み |
@@ -541,6 +541,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | `PUT /ingestion/{sourceId}/credentials` | 権限 `ingestion:configure`。書き込み専用（Issue #207）。入力は `{ authMethod: 'BASIC', username, password }`・`{ authMethod: 'BEARER', token }`・`{ authMethod: 'API_KEY', apiKey }`。認証方式は、保存済みの接続設定と同じでなければ 400。値は、SecretPort の `file-server/<取り込み元>` に保存する（Basic は JSON）。応答は、状態 `{ state, updatedAt? }`（値を含めない）。保管先の失敗は、原因を引き継がず 503 |
 | `POST /ingestion/{sourceId}/test`、`POST /ingestion/{sourceId}/run` | 接続テストは `{ ok, message }`（200。失敗は、理由だけを `message` に示す。接続先・認証情報を含まない。ADR-0022）。即時取得は、同期して実行し、`{ sourceId, result, filesProcessed, recordCount, rejectedCount, attempts }` を 202 で返す（4.1 No.29）。実行中は 409 |
 | `GET /ingestion/logs`、`GET /federation/logs` | 権限 `ingestion:read`（管理者のみ。ないと 403）。クエリ `sourceId`（取り込みログのみ）、`limit`、`cursor`。連携は、`{ items[], nextCursor, queue: { PENDING, SENT, FAILED, HELD, EXPIRED } }`（連携キューの件数を含む） |
+| `GET /ingestion/facility-logs`、`GET /federation/facility-logs` | 要ログイン（ハウス別の記録。一般ユーザー向け。#332）。クエリ `limit`・`cursor`。**閲覧できるハウスの分だけ**を、新しい順に返す（管理者は、すべてのハウス。割り当てがなければ、空）。取り込みは、`{ items: [{ logId, facilityId, sourceId, occurredAt, result: 'SUCCESS'｜'FAILURE', recordCount }], nextCursor }`。連携は、`{ items: [{ logId, facilityId, occurredAt, result, itemCount }], nextCursor }`。接続先・認証情報・失敗の理由・全体の件数・連携キューの件数は、含めない。記録は、取り込みログ・連携ログの `facilities`（ハウスごとの内訳）から作る（取り込み: ファイルの設備のハウス。失敗したファイルは、設備の `sourceFilePath` が同じ設備のハウス。連携: 項目の `facilityIds`〔積むときに、送るデータの設備から決める〕）。ハウスに結びつけられない結果・以前のログは、含めない |
 | `GET /facility-access` | 権限 `user:manage`。閲覧の割り当ての表 `{ facilities: [{ facilityId, name, userIds[] }], users: [{ userId, userName }] }`（行: 削除済みでないハウス〔作成の順〕。列: 全設備を閲覧する権限をもたない利用者。存在しないユーザー・管理者の割り当ては、返さない）（#330） |
 | `PUT /facility-access/{facilityId}` | 権限 `user:manage`。入力 `{ userIds[] }`（そのハウスを閲覧できるユーザーの置き換え。重複はまとめる）。応答は、変更後の行 `{ facilityId, name, userIds[] }`。存在しないユーザー・管理者は 400（`fields`: `userIds`）、存在しない・削除済みのハウス・ハウスでない設備は 404。変更履歴（対象 `facility-access`）に、変更前後を残す（#330） |
 | `GET /users`、`POST /users`、`PUT /users/{id}`、`DELETE /users/{id}` | 権限 `user:manage`。一覧は `{ items[], roles[] }`（`lastLoginAt` を含む。パスワードのハッシュは含めない）。登録は `{ userId, userName, password, role }`（201。重複は 409）、修正は `{ userName, role, password? }`、削除は 204（本人は 409） |
