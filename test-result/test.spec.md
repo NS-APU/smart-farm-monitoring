@@ -21,7 +21,7 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `af964ef`〔Issue #332 のマージ〕に、Issue #127 の変更を加えた状態）
+### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `b9310f4`〔Issue #127 のマージ〕に、Issue #102 の変更を加えた状態）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
@@ -33,14 +33,14 @@
 | 単体: backend/domain                       |         10 |        284 |
 | 単体: backend/application                  |          10 |        104 |
 | 単体: backend/presentation                 |          1 |          3 |
-| 単体: backend/infrastructure               |         18 |        410 |
-| 単体: backend/runtime                      |          3 |        122 |
+| 単体: backend/infrastructure               |         19 |        417 |
+| 単体: backend/runtime                      |          3 |        129 |
 | 単体: frontend                             |         32 |        555 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |        104 |
-| 結合（`tests/integration/`）               |         49 |       1263 |
-| 合計                                       |        173 |       3906 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |        108 |
+| 結合（`tests/integration/`）               |         50 |       1274 |
+| 合計                                       |        175 |       3935 |
 
-内訳（2026-11-10 の実測。Issue #318・#115・#330・#331・#332・#127）: E2E 816 件（UC ごと 806 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3090 件・141 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、141 ファイル・3090 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.14%・Branches 95.39%・Functions 99.33%・Lines 99.13%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#127〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜37 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115・#330・#331・#332・#127・#102）: E2E 816 件（UC ごと 806 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3119 件・143 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、143 ファイル・3119 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.14%・Branches 95.37%・Functions 99.29%・Lines 99.12%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#102〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜38 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜37 章（変更・追加したテストの記録）の索引
+### 1.4 14〜38 章（変更・追加したテストの記録）の索引
 
-14〜37 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜38 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -159,6 +159,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 35 | 通知の閲覧範囲（ハウスごと）と、既存の通知の移行 | #331（#116 の子） |
 | 36 | 取り込み・連携のログのハウス別の記録と、一般ユーザー向けの画面 | #332（#116 の子） |
 | 37 | 画面の配信ヘッダー（CSP・frame-ancestors・X-Frame-Options） | #127（#263 の子） |
+| 38 | 関数の URL への直接の呼び出しの防止（秘密のヘッダー・Secrets Manager） | #102（#263 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -12003,3 +12004,33 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm test:csp`（空きポート 18787・15173）: **3 件が成功**。最初の実行で、**実際の違反（`script-src eval`）が見つかった**（Zod が、起動時に `new Function` を試す。例外は捕まえて動くが、CSP の違反として報告される）。Zod の `jitless` を設定しても、共有スキーマが、設定より先に実行される（Zod と共有スキーマが、同じチャンクのため）ことが分かり、Zod と設定を専用のチャンクにまとめて解消し、再実行して成功
 - E2E（空きポート 18787・15173）: Zod の設定が、画面全体に影響しないことの確認として、UC-01・03・07・13 の **136 件が、すべて成功**。それ以外の E2E と、負荷テスト（本番ビルドの画面を使う）は、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認（応答ヘッダー・CSP のもとでの画面の動作）は、未確認**（AWS の操作は、ユーザーが行う。`pnpm test:smoke`・ブラウザの開発者ツールのコンソール。operations.md 6 章）
+
+## 38. 関数の URL への直接の呼び出しの防止（秘密のヘッダー・Secrets Manager。Issue #102。#263 の子）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-10 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0010 の追記・security.md・operations.md 6.1）: CloudFront が、API のオリジン（関数の URL）への呼び出しに、秘密のヘッダー（`x-sfm-origin-secret`）を付け、API の Lambda が検証する。一致しない呼び出し（直接の呼び出し）は、`/health`・ログインを含めて、本文なしの 403。秘密の値は、Secrets Manager に自動生成し、API の Lambda は、環境変数の ARN（`ORIGIN_VERIFY_ARN`）で、コールドスタートの 1 回だけ読む（環境変数に値を持たない。IAM は、この秘密の `GetSecretValue` だけ）。本番の API の Lambda は、ARN が必須。Lambda では、値を直接渡す `ORIGIN_VERIFY_SECRET` は、使えない。
+
+### 38.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/origin-secret.test.ts`（新規。6 件） | 秘密が未設定なら、検証しない。ヘッダーがない呼び出しは、`/health`・ログイン・認証つきの API・存在しないパスのすべてで、本文なしの 403。値が違う・一部だけ合う・長すぎる・空は 403。値が合えば動く（ヘッダー名は、大文字・小文字を区別しない）。**直接の呼び出しで、利用者の IP のヘッダーを偽装しても、ログインの試行に数えられず、制限も回避できない**（正規の経路の制限は、効く）。拒否の記録に、設定の値・送られた値を含めない |
+| 結合: `tests/integration/lambda-production.test.ts`（4 件を追加。DynamoDB Local・偽の Cognito・偽の Secrets Manager） | 本番の設定で、関数の URL の直接の呼び出しは 403（偽装も効かない）。ARN がないと、起動しない。秘密は、コールドスタートの 1 回だけ読む。読めなかったときは、起動に失敗し、次の呼び出しで、読み直す。`ORIGIN_VERIFY_SECRET`（値の直接の指定）を渡した Lambda は、起動しない |
+| 単体: `tests/unit/backend/infrastructure/origin-secret-reader.test.ts`（新規。7 件） | Secrets Manager から、指定した ARN の秘密を、GetSecretValue で読む。値がない・バイナリ・空・短すぎる・英数字以外を含む値は、失敗する（エラーに、値を含めない）。AWS の呼び出しの失敗は、エラーの種類の名前だけを伝える（AWS のエラーの内容・ARN を含めない） |
+| 単体: `tests/unit/backend/runtime/config.test.ts`（4 件を追加） | `ORIGIN_VERIFY_SECRET`（既定は未指定。短すぎる・英数字以外・空は、設定エラー。エラーに値を含めない）。`ORIGIN_VERIFY_ARN`（ARN として正しくない値は、設定エラー）。Lambda では、`ORIGIN_VERIFY_SECRET` は使えない |
+| IaC: `infra/test/evaluation-stack.test.ts`（4 件を追加） | Secrets Manager の秘密を自動生成する（英数字 64 文字。名前は固定しない。スタックの削除で消える）。CloudFront の API のオリジンにだけ、秘密のヘッダーを付ける（S3 のオリジンには付けない）。API の Lambda の環境変数は、秘密の ARN だけ（値は持たない。ジョブ・デモの Lambda には、持たせない。CloudFront のヘッダーは、動的な参照）。IAM は、API の Lambda だけが、この秘密の `GetSecretValue`（ジョブの Lambda は、持たない） |
+
+### 38.2 変更した既存のテスト
+
+- `tests/integration/lambda-production.test.ts`: 本番の設定の Lambda に、`ORIGIN_VERIFY_ARN` と、偽の Secrets Manager を渡し、既存の呼び出しには、CloudFront が付ける秘密のヘッダーを付けた（既存の期待は、変えていない）
+- IaC の「秘密情報（パスワード・トークン・キー・シークレット）を、環境変数に持たない」テストは、**変えていない**（環境変数には、秘密の ARN〔`ORIGIN_VERIFY_ARN`〕だけを渡す設計にしたため、そのまま成功する）
+
+### 38.3 実測
+
+手元（Windows。2026-11-10）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **143 ファイル・3119 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.14%・Branches 95.37%・Functions 99.29%・Lines 99.12%（基準は、すべて 95% 以上）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- 途中で、既存の IaC のテスト（環境変数に秘密情報を持たない）が、環境変数に秘密の値を持つ最初の設計で失敗し、ユーザーの判断で、実行時に Secrets Manager から読む設計に変えて、テストの期待は、変えずに成功した
+- **AWS での実際の確認（直接の呼び出しが 403・CloudFront 経由が動く・偽装が効かない・Cognito のロック）は、未確認**（AWS の操作は、ユーザーが行う。operations.md 6.1）。CloudFormation が、CloudFront のオリジンのヘッダーに、Secrets Manager の動的な参照を使えること・SDK が、Lambda のバンドルに含まれて動くことも、デプロイで確認する

@@ -17,6 +17,7 @@
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
 | `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` | 既定は、失敗 5 回 / 15 分（IaC が、API の Lambda に、この値を設定する）。**共有の IP などで、誤ってロックされる事例が出たら、回数を増やす・時間を短くする**。変えるときは、GitHub の Environment（development・production）の変数 `SFM_LOGIN_FAILURE_LIMIT`（1〜100）・`SFM_LOGIN_FAILURE_WINDOW_MINUTES`（1〜1440 分）を設定して、デプロイし直す（ワークフローが、そのまま CDK に渡す。未設定なら 5 回 / 15 分。コードの変更は、要らない。手元からのデプロイは、同名の環境変数を指定する）。ローカルは、`LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` を指定する | ログインの試行回数の制限（接続元ごと。FR-9.2。D-44）。アカウント単位のロックは、Cognito が持つ（値は、設定できない）。回数を大きくするほど、総当たりに弱くなる |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
+| `ORIGIN_VERIFY_ARN` | 評価環境は、IaC が、Secrets Manager の秘密の ARN を設定する（秘密の値ではない）。**本番の API の Lambda は、必須**（ないと、起動しない）。API の Lambda が、コールドスタートで、秘密を読み、CloudFront の秘密のヘッダーと一致しない呼び出し（関数の URL の直接の呼び出し）を、403 で拒否する（Issue #102。ADR-0010 の追記）。Lambda では、値を直接渡す `ORIGIN_VERIFY_SECRET` は、使えない（ローカルの確認用） | 関数の URL の直接の呼び出しでの、利用者の IP のヘッダーの偽装・ログインの試行回数の制限の回避の防止 |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
 | `EVALUATION_ON_WRITE` | 評価環境の API の Lambda は、`deferred`（IaC が指定する）。ローカル・E2E は、既定の `sync` | `deferred` は、手動入力の保存・削除の応答の前に、評価を再計算せず、定期の評価（JB-02。5 分ごと）が更新する。反映は最大 5 分遅れる。データが増えると、評価の再計算（直近 90 日の読み出し）が重くなり、保存・削除が遅くなるため（Issue #79・#123。ADR-0014） |
 | `INITIAL_USER_*` | ローカルのみ（`AUTH_PROVIDER=cognito` では、使えない。最初のユーザーは、手元で `pnpm initial-user` を 1 回だけ実行して作る。commands.md）。初回のみ。初回のログイン後に、ヘッダーの「パスワードの変更」から、自分でパスワードを変更する（最初のユーザーは、変更を強制しない。2 人目以降の、管理者が決めたパスワードは、本人が最初のログインで変更する。D-45）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
@@ -69,6 +70,29 @@
 - サービスワーカー（`/sw.js`）・マニフェストは、サイトのルート（`/`）で配信する（サブパスでの配信は、ルーティング・Web Push が動かない）: **実装済み**（S3 のルートに置き、同じオリジンで配信する）
 - API（`/api/v1/*`）は、同じオリジンから配信する: **実装済み**（CloudFront が、`/api/*` と `/health` を、API の Lambda の関数の URL へ振り分ける。CORS は不要。ADR-0006）
 - セキュリティヘッダー（HSTS・CSP・`frame-ancestors`・`Referrer-Policy`）を、配信側にも設定する。API の応答には、バックエンドが付けている（V-015）: **実装済み**（Issue #127）。画面（静的ファイル）の応答には、CloudFront の応答ヘッダーポリシー（独自。`StaticHeadersPolicy`）が、AWS のマネージドポリシー `SECURITY_HEADERS` と同じヘッダー（HSTS 1 年・`X-Content-Type-Options`・`Referrer-Policy: strict-origin-when-cross-origin`・`X-XSS-Protection`）に加えて、**CSP**（`infra/lib/content-security-policy.ts`。`default-src 'self'`・`script-src 'self'`・`style-src 'self'`・`style-src-attr 'unsafe-inline'`〔React の `style` 属性だけ。推移の帯の幅〕・`img-src`・`font-src`・`connect-src`・`worker-src`・`manifest-src` は `'self'`・`object-src 'none'`・`base-uri 'self'`・`form-action 'self'`・`frame-ancestors 'none'`）と、`X-Frame-Options: DENY` を付ける（強制。画面を、ほかのサイトに埋め込めない）。API（`/api/*`・`/health`）の動作は、これまでのマネージドポリシーのまま（API の CSP は、バックエンドが付ける）。**画面に、外部の資源（フォント・画像・外部の API）やインラインのスクリプトを加えるときは、CSP も変える**（変えないと、画面が動かない）。確認: 手元で `pnpm test:csp`（本番ビルドの画面に、同じ CSP を付けて、主な画面を一巡し、違反が出ないこと。`pnpm test:e2e` と同時に実行しない）。AWS では、`pnpm test:smoke`（`smoke-04-delivery-headers.ts`。応答ヘッダー・Cache-Control・ログイン〜ダッシュボードの違反なし）と、ブラウザの開発者ツールのコンソールに、CSP の違反が出ないこと。違反が出た場合は、コンソールの違反の内容（ディレクティブ・ブロックされた URL）から、`content-security-policy.ts` を直して、再デプロイする
+
+### 6.1 関数の URL への直接の呼び出しの防止（Issue #102。ADR-0010 の追記）
+
+API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront を経由せずに、直接も呼べる。CloudFront が、API のオリジンへの呼び出しに、秘密のヘッダー（`x-sfm-origin-secret`）を付け、API の Lambda が、値を検証する。一致しない呼び出し（直接の呼び出し）は、`/health`・ログインを含めて、本文なしの 403 で拒否する。
+
+- **秘密の値**: Secrets Manager に、IaC（`SfmEvaluation`）が、自動生成する（英数字 64 文字。`OriginSecret`）。リポジトリ・テンプレートには、書かない。CloudFront のヘッダーには、デプロイのときに、動的な参照で入る。**API の Lambda は、環境変数に値を持たず**、環境変数 `ORIGIN_VERIFY_ARN`（秘密の ARN）で、コールドスタートの 1 回だけ、Secrets Manager から読む（IAM は、この秘密の `GetSecretValue` だけ）
+- **デプロイの直後**: CloudFront の設定が、全エッジに行き渡るまでの数分間、Lambda が先に新しくなると、画面・API が、403 になることがある（秘密のヘッダーが、まだ付かないため）。数分待って、確認する。続く場合は、下の「うまくいかないとき」
+- **値の入れ替え**: Secrets Manager の秘密の値を変えたら、**同じデプロイで、CloudFront のヘッダーも、変わる**。API の Lambda は、実行環境が入れ替わるまで、古い値で動くため、デプロイ（コードの更新）で、入れ替える。秘密の値は、人が、読む・書く必要は、ない（スタックを作り直すと、新しい値になる）
+
+**確認の手順（ユーザーが実行する。開発サイト。AWS の認証は、手元のプロファイルを使う。値・URL・ARN を、リポジトリ・Issue に書かない）**
+
+1. 関数の URL を取る: `aws lambda get-function-url-config --function-name <ApiFunctionName> --query FunctionUrl --output text`（`ApiFunctionName` は、`SfmEvaluation` の出力）
+2. **直接の呼び出しが、403 になる**: `curl -i <関数の URL>health`（`HTTP/… 403`・本文なし）
+3. **偽装が、効かない**: `curl -i -X POST <関数の URL>api/v1/auth/login -H "content-type: application/json" -H "x-sfm-viewer-ip: 203.0.113.9" -d '{"userId":"dummy","password":"dummy"}'` を、**7 回以上**、IP の値を変えながら実行する。**すべて 403**（401・429 にならない。ログインの処理に、届いていない）
+4. **CloudFront 経由が、動く**: `curl -i https://<サイトの URL>/health` が 200。画面で、ログイン → ダッシュボードの表示ができる。`pnpm test:smoke`（手動実行）が成功する
+5. **Cognito のユーザーごとのロックの挙動（ADR-0008 の未確認の項目）**: 検証用のユーザー（本番のユーザーは、使わない）で、**別のネットワーク 2 つ以上**（例: 社内の回線とスマートフォンの回線）から、誤ったパスワードで、ログインを試す。**どの接続元も、接続元ごとの制限（既定は 5 回 / 15 分）に達しない回数**（例: 接続元ごとに 3 回）で、合計 5 回以上にする。そのあと、正しいパスワードで、ログインして、ロックされるか（拒否されるか）・解除されるまでの時間を、記録する
+6. 結果（OK・NG、NG のときは、状況）を、Issue #102 に報告する。報告をもとに、ADR-0010 の「検証（#102）」・ADR-0008 を更新する
+
+**うまくいかないとき**
+
+- 4. が 403 のまま（数分待っても）: CloudFront の設定が、反映されていない可能性。`aws cloudfront get-distribution --id <DistributionId> --query Distribution.Status` が `Deployed` か確認する。API の Lambda のログ（7.6）に、「オリジンの検証に失敗したため、呼び出しを拒否しました」が出ていれば、ヘッダーが、届いていない（または、値が違う）
+- Lambda が起動しない（5xx）: ログに、「オリジンの秘密を、Secrets Manager から読めませんでした（<エラーの種類>）」が出ていれば、API の Lambda の権限（`secretsmanager:GetSecretValue`）・秘密の ARN・リージョンを確認する。「オリジンの秘密の値が正しくありません」は、秘密が、英数字 32〜128 文字でない（手動で書き換えた場合）
+- 緊急で、検証を止めたいとき: 前の版を、デプロイする（7.3）。環境変数での無効化は、設けていない（本番で、黙って無効になることを防ぐため）
 
 ## 7. 評価環境（AWS）のデプロイ・ロールバック・初期化・障害時の確認
 

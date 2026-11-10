@@ -228,6 +228,8 @@ flowchart LR
 | `LOGIN_FAILURE_LIMIT` | `5` | 接続元ごとのログインの失敗の制限の回数（1〜100 の整数。範囲外は設定エラー。4章 No.3。Issue #244） |
 | `LOGIN_FAILURE_WINDOW_MINUTES` | `15` | 同じ制限の時間（分。1〜1440 の整数。範囲外は設定エラー。失敗の記録は、この時間で期限が切れる） |
 | `CLIENT_IP_HEADER` | 未指定 | 利用者の IP が入っているヘッダーの名前（英数字とハイフン。小文字にして使う）。指定すると、そのヘッダーの値（IP として正しいときだけ）を、ログインの試行回数の制限の接続元とみなす（`TRUSTED_PROXY_HOPS`・接続情報より優先）。評価環境は、CloudFront の Function が入れる `x-sfm-viewer-ip`（ADR-0010） |
+| `ORIGIN_VERIFY_SECRET` | 未指定 | CloudFront が、オリジンに付ける秘密のヘッダー（`x-sfm-origin-secret`）の値（英数字 32〜128 文字）。指定すると、API は、値が一致しない呼び出しを、`/health` を含めて、本文なしの 403 で拒否する（Issue #102）。**ローカル・テスト用**（Lambda では、起動しない） |
+| `ORIGIN_VERIFY_ARN` | 未指定 | 上の秘密の値を保管している Secrets Manager の秘密の ARN（秘密の値ではない）。API の Lambda が、コールドスタートの 1 回だけ、読む。**本番の API の Lambda は、必須**（Issue #102） |
 | `INGESTION_STOP_NOTIFICATION_ENABLED` | `true` | 新しいデータが届かない取り込み元を、「データ取得停止」として通知するか（4章 No.34） |
 | `INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED` | `true` | ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（4章 No.35） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS` | `false`・`30` | サーバー内でスケジューラを動かすか |
