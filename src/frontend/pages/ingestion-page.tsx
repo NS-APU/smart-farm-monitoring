@@ -797,7 +797,24 @@ function FederationTable(props: {
   );
 }
 
+/**
+ * 取り込みの設定・状況・ログ。閲覧の権限（ingestion:read）がない利用者（一般）には、権限がない旨だけを示し、取得しない
+ * （設備ごとに絞れるようになるまで、管理者のみ。ADR-0013。Issue #116）。
+ */
 export function IngestionPage(): ReactNode {
+  return usePermission('ingestion:read') ? (
+    <IngestionContent />
+  ) : (
+    <div className="ingestion-page">
+      <div className="page-head">
+        <h1>{TEXT.title}</h1>
+      </div>
+      <PermissionNotice message={TEXT.forbidden} />
+    </div>
+  );
+}
+
+function IngestionContent(): ReactNode {
   const { api } = useAuth();
   const [results, setResults] = useState<Readonly<Record<string, OperationResult | undefined>>>({});
   const canConfigure = usePermission('ingestion:configure');

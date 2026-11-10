@@ -37,7 +37,12 @@ const NAV_ITEMS: readonly NavItem[] = [
 /** 「設定」の下にまとめる項目（機能仕様書 2.3）。 */
 const SETTINGS_ITEMS: readonly NavItem[] = [
   { to: PATHS.settingsEquipment, label: MESSAGES.nav.equipment, icon: 'nav-equipment' },
-  { to: PATHS.settingsIngestion, label: MESSAGES.nav.ingestion, icon: 'nav-ingestion' },
+  {
+    to: PATHS.settingsIngestion,
+    label: MESSAGES.nav.ingestion,
+    icon: 'nav-ingestion',
+    permission: 'ingestion:read',
+  },
   { to: PATHS.settingsStatusCodes, label: MESSAGES.nav.statusCodes, icon: 'nav-status-codes' },
   {
     to: PATHS.settingsUsers,
@@ -329,6 +334,7 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
               <div className="header-user">
                 <Icon name="user" size={18} />
                 <span aria-label={MESSAGES.layout.user}>{user?.userName}</span>
+                <Link to={PATHS.profile}>{MESSAGES.profile.link}</Link>
                 <Link to={PATHS.changePassword}>{MESSAGES.changePassword.link}</Link>
                 <button
                   type="button"

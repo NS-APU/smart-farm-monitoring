@@ -2,7 +2,7 @@
 
 import type { ObservationSortKey, SortDirection } from '@smart-farm/shared/constants/sorting';
 import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
-import { LoginResponseSchema } from '@smart-farm/shared/schemas/auth';
+import { LoginResponseSchema, PublicUserSchema } from '@smart-farm/shared/schemas/auth';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import {
   DashboardResponseSchema,
@@ -35,6 +35,15 @@ export function changePassword(api: ApiClient, currentPassword: string, newPassw
     method: 'POST',
     body: { currentPassword, newPassword },
     schema: LoginResponseSchema,
+  });
+}
+
+/** 自身のユーザー名の変更（ロール・ユーザー ID は、変えられない）。 */
+export function updateOwnProfile(api: ApiClient, userName: string) {
+  return api.request('/auth/profile', {
+    method: 'PUT',
+    body: { userName },
+    schema: PublicUserSchema,
   });
 }
 
