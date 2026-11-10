@@ -102,6 +102,7 @@ export const MANAGEMENT_MESSAGES = {
     goList: '入力済みデータの一覧へ',
     goDashboard: 'ダッシュボードで確認',
     noEquipment: '設備が登録されていません。設備を登録してください',
+    noViewableFacility: '閲覧できるハウスが割り当てられていません。管理者に連絡してください',
     goEquipment: '設備の管理へ',
     editTitle: '入力内容の修正',
     updated: '修正しました',
@@ -145,6 +146,7 @@ export const MANAGEMENT_MESSAGES = {
       equipment: '設備',
       'status-code': 'ステータスコード',
       user: 'ユーザー',
+      'facility-access': '閲覧の割り当て',
       'ingestion-settings': '取り込み設定',
     },
     empty: '該当する履歴はありません',
@@ -287,6 +289,20 @@ export const MANAGEMENT_MESSAGES = {
     self: '（ログイン中）',
     selectRole: 'ロールを選択してください',
     forbidden: 'ユーザーを管理する権限がありません',
+    facilityAccess: {
+      title: '閲覧の割り当て',
+      lead: '一般ユーザーが閲覧できるハウス（配下のロボット・センサーを含む）を、ハウスごとに決めます。割り当てのないハウスは、そのユーザーには、存在しないものとして扱われます。管理者は、すべてのハウスを閲覧できます',
+      facility: 'ハウス',
+      cellLabel: (facilityName: string, userName: string) =>
+        `${facilityName}を${userName}が閲覧できる`,
+      save: '割り当てを保存',
+      saving: '保存中…',
+      saved: '保存しました',
+      loadFailed: '閲覧の割り当てを取得できませんでした。画面を読み込み直してください',
+      noFacilities: 'ハウスが登録されていません。設備の管理で、ハウスを登録してください',
+      noUsers:
+        '割り当ての対象の一般ユーザーがいません（管理者は、すべてのハウスを閲覧できます）。ユーザーを、一般のロールで登録してください',
+    },
   },
   ingestion: {
     title: '取り込み設定・状況',
