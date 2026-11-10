@@ -415,7 +415,12 @@ describe('評価環境のスタック: 関数の URL への直接の呼び出し
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
       GenerateSecretString: Match.objectLike({ PasswordLength: 64, ExcludePunctuation: true }),
     });
-    const secrets = Object.values(template.findResources('AWS::SecretsManager::Secret'));
+    const secrets = Object.values(
+      template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        { Properties: { Name?: unknown }; DeletionPolicy?: string }
+      >,
+    );
     expect(secrets[0]?.Properties.Name).toBeUndefined();
     expect(secrets[0]?.DeletionPolicy).toBe('Delete');
   });
@@ -431,12 +436,15 @@ describe('評価環境のスタック: 関数の URL への直接の呼び出し
     });
 
     expect(headers.asArray()).toEqual([
-      { HeaderName: ORIGIN_SECRET_HEADER, HeaderValue: expect.anything() },
+      { HeaderName: ORIGIN_SECRET_HEADER, HeaderValue: expect.anything() as unknown },
     ]);
-    const distribution = Object.values(template.findResources('AWS::CloudFront::Distribution'))[0];
-    const origins = distribution?.Properties.DistributionConfig.Origins as {
-      OriginCustomHeaders?: unknown;
-    }[];
+    const distribution = Object.values(
+      template.findResources('AWS::CloudFront::Distribution') as Record<
+        string,
+        { Properties: { DistributionConfig: { Origins: { OriginCustomHeaders?: unknown }[] } } }
+      >,
+    )[0];
+    const origins = distribution?.Properties.DistributionConfig.Origins ?? [];
     expect(origins.filter((origin) => origin.OriginCustomHeaders !== undefined)).toHaveLength(1);
     // /api/*・/health は、どちらも、このオリジンへ向ける
     expect(origins).toHaveLength(2);
@@ -461,19 +469,19 @@ describe('評価環境のスタック: 関数の URL への直接の呼び出し
     expect(environment.asObject()).toEqual({ Ref: secretId });
     // CloudFront のヘッダーだけが、秘密の値を、動的な参照で持つ。Lambda の環境変数には、値を持たない
     expect(JSON.stringify(header.asObject())).toContain('resolve:secretsmanager:');
-    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
-    for (const resource of functions) {
-      const variables = (resource.Properties.Environment?.Variables ?? {}) as Record<
+    const functions = Object.values(
+      template.findResources('AWS::Lambda::Function') as Record<
         string,
-        unknown
-      >;
+        { Properties: { Environment?: { Variables?: Record<string, unknown> } } }
+      >,
+    );
+    for (const resource of functions) {
+      const variables = resource.Properties.Environment?.Variables ?? {};
       expect(JSON.stringify(variables)).not.toContain('resolve:secretsmanager');
       expect(variables.ORIGIN_VERIFY_SECRET).toBeUndefined();
     }
     const withArn = functions.filter(
-      (resource) =>
-        (resource.Properties.Environment?.Variables as Record<string, unknown> | undefined)
-          ?.ORIGIN_VERIFY_ARN !== undefined,
+      (resource) => resource.Properties.Environment?.Variables?.ORIGIN_VERIFY_ARN !== undefined,
     );
     expect(withArn).toHaveLength(1);
   });

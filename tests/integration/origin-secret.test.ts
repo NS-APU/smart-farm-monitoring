@@ -97,12 +97,16 @@ describe('秘密のヘッダーの検証（ORIGIN_VERIFY_SECRET。Issue #102）'
     const viaCloudFront = { [ORIGIN_SECRET_HEADER]: SECRET, [VIEWER_IP_HEADER]: '198.51.100.7' };
 
     // 直接の呼び出し: IP を、毎回、変えて偽装しても、すべて 403（ログインの処理に届かず、401・429 にならない）
-    const forged = await Promise.all(
-      Array.from({ length: 10 }, (_, index) =>
-        login(context, { [VIEWER_IP_HEADER]: `203.0.113.${String(index + 1)}` }, 'wrong'),
-      ),
-    );
-    expect(forged.map((response) => response.status)).toEqual(Array(10).fill(403));
+    const forged: number[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      const response = await login(
+        context,
+        { [VIEWER_IP_HEADER]: `203.0.113.${String(index)}` },
+        'wrong',
+      );
+      forged.push(response.status);
+    }
+    expect(forged).toEqual(Array(10).fill(403));
 
     // 正規の経路: 失敗が、3 回で、制限される（直接の呼び出しは、数えられていない）
     const attempts: number[] = [];

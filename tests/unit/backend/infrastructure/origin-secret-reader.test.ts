@@ -14,7 +14,7 @@ interface FakeCommand {
   readonly input: { SecretId?: string };
 }
 
-function fakeClient(result: unknown | Error) {
+function fakeClient(result: unknown) {
   const sent: FakeCommand[] = [];
   return {
     sent,
@@ -55,7 +55,7 @@ describe('オリジンの秘密を読むアダプタ（Secrets Manager）', () =
       );
 
       expect(failure).toBeInstanceOf(Error);
-      const text = `${String((failure as Error).message)} ${JSON.stringify(failure)}`;
+      const text = `${(failure as Error).message} ${JSON.stringify(failure)}`;
       expect(text).toContain('オリジンの秘密');
       expect(text).not.toContain(VALUE);
       expect(text).not.toContain('short');
