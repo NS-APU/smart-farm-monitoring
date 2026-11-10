@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { App, Stack } from 'aws-cdk-lib';
-import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Capture, Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { describe, expect, it } from 'vitest';
 import {
@@ -16,6 +16,7 @@ import {
   JOB_LAMBDA_TIMEOUT_SECONDS,
   JOB_LEASE_MS,
 } from '../../src/backend/application/jobs/job-schedule.ts';
+import { ORIGIN_SECRET_HEADER } from '../../src/backend/presentation/origin-guard.ts';
 import { STATIC_CONTENT_SECURITY_POLICY } from '../lib/content-security-policy.ts';
 import { DataStack } from '../lib/data-stack.ts';
 import {
@@ -27,6 +28,7 @@ import {
   SSM_JOB_ACTIONS,
   CLIENT_IP_HEADER,
   FILE_SERVER_RETENTION_DAYS,
+  ORIGIN_SECRET_READ_ACTION,
   S3_READ_ACTIONS,
   S3_WRITE_ACTION,
   EvaluationStack,
@@ -404,6 +406,96 @@ function roleStatements(template: Template, functionId = 'ApiFunction'): PolicyS
     .filter(([logicalId]) => logicalId.startsWith(`${functionId}ServiceRoleDefaultPolicy`))
     .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement);
 }
+
+describe('評価環境のスタック: 関数の URL への直接の呼び出しの防止（秘密のヘッダー。Issue #102。ADR-0010）', () => {
+  it('Secrets Manager に、秘密の値を自動生成する（英数字だけ・64 文字。名前は固定せず、スタックの作り直しで、衝突しない）。値は、リポジトリ・テンプレートに、書かない', () => {
+    const { template } = plainStack();
+
+    template.resourceCountIs('AWS::SecretsManager::Secret', 1);
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      GenerateSecretString: Match.objectLike({ PasswordLength: 64, ExcludePunctuation: true }),
+    });
+    const secrets = Object.values(template.findResources('AWS::SecretsManager::Secret'));
+    expect(secrets[0]?.Properties.Name).toBeUndefined();
+    expect(secrets[0]?.DeletionPolicy).toBe('Delete');
+  });
+
+  it('API のオリジン（関数の URL）にだけ、秘密のヘッダーを付ける。S3 のオリジンには、付けない', () => {
+    const { template } = plainStack();
+    const headers = new Capture();
+
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Origins: Match.arrayWith([Match.objectLike({ OriginCustomHeaders: headers })]),
+      }),
+    });
+
+    expect(headers.asArray()).toEqual([
+      { HeaderName: ORIGIN_SECRET_HEADER, HeaderValue: expect.anything() },
+    ]);
+    const distribution = Object.values(template.findResources('AWS::CloudFront::Distribution'))[0];
+    const origins = distribution?.Properties.DistributionConfig.Origins as {
+      OriginCustomHeaders?: unknown;
+    }[];
+    expect(origins.filter((origin) => origin.OriginCustomHeaders !== undefined)).toHaveLength(1);
+    // /api/*・/health は、どちらも、このオリジンへ向ける
+    expect(origins).toHaveLength(2);
+  });
+
+  it('API の Lambda の環境変数は、秘密の ARN だけ（ORIGIN_VERIFY_ARN。秘密の値は、持たない）。ジョブ・デモの Lambda には、持たせない。CloudFront のヘッダーは、動的な参照（リテラルでない）', () => {
+    const { template } = plainStack();
+    const environment = new Capture();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ ORIGIN_VERIFY_ARN: environment }) },
+    });
+    const header = new Capture();
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Origins: Match.arrayWith([
+          Match.objectLike({ OriginCustomHeaders: [Match.objectLike({ HeaderValue: header })] }),
+        ]),
+      }),
+    });
+
+    const [secretId] = Object.keys(template.findResources('AWS::SecretsManager::Secret'));
+    expect(environment.asObject()).toEqual({ Ref: secretId });
+    // CloudFront のヘッダーだけが、秘密の値を、動的な参照で持つ。Lambda の環境変数には、値を持たない
+    expect(JSON.stringify(header.asObject())).toContain('resolve:secretsmanager:');
+    const functions = Object.values(template.findResources('AWS::Lambda::Function'));
+    for (const resource of functions) {
+      const variables = (resource.Properties.Environment?.Variables ?? {}) as Record<
+        string,
+        unknown
+      >;
+      expect(JSON.stringify(variables)).not.toContain('resolve:secretsmanager');
+      expect(variables.ORIGIN_VERIFY_SECRET).toBeUndefined();
+    }
+    const withArn = functions.filter(
+      (resource) =>
+        (resource.Properties.Environment?.Variables as Record<string, unknown> | undefined)
+          ?.ORIGIN_VERIFY_ARN !== undefined,
+    );
+    expect(withArn).toHaveLength(1);
+  });
+
+  it('IAM: API の Lambda だけが、この秘密の GetSecretValue（読み取りのみ）を持つ。ジョブの Lambda は、持たない', () => {
+    const { template } = plainStack();
+    const [secretId] = Object.keys(template.findResources('AWS::SecretsManager::Secret'));
+    const secretStatements = (functionId: string) =>
+      roleStatements(template, functionId).filter((statement) =>
+        [statement.Action].flat().some((action) => action.startsWith('secretsmanager:')),
+      );
+
+    const api = secretStatements('ApiFunction');
+    expect(api).toHaveLength(1);
+    expect(api[0]).toMatchObject({
+      Action: ORIGIN_SECRET_READ_ACTION,
+      Effect: 'Allow',
+      Resource: { Ref: secretId },
+    });
+    expect(secretStatements('JobFunction')).toEqual([]);
+  });
+});
 
 describe('評価環境のスタック: API はバックエンド本体（Issue #75。ADR-0009）', () => {
   function environmentOf(template: Template): Record<string, unknown> {

@@ -52,6 +52,7 @@ import { RetentionDays, LogGroup } from 'aws-cdk-lib/aws-logs';
 import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
 import {
@@ -68,6 +69,7 @@ import {
   LOGIN_FAILURE_WINDOW_MINUTES,
   type LoginFailurePolicy,
 } from '../../src/backend/infrastructure/common/auth-policy.ts';
+import { ORIGIN_SECRET_HEADER } from '../../src/backend/presentation/origin-guard.ts';
 import { DEFAULT_SITE_ENVIRONMENT, type SiteEnvironment } from './config.ts';
 import { bundledLambdaCode } from './bundle-lambda.ts';
 import { STATIC_CONTENT_SECURITY_POLICY } from './content-security-policy.ts';
@@ -132,6 +134,9 @@ export const FILE_SERVER_RETENTION_DAYS = 3;
 
 /** API・ジョブの Lambda が、ファイルサーバーのモックの S3 に使う操作（読み取りのみ。書き込み・削除は、しない）。 */
 export const S3_READ_ACTIONS = ['s3:ListBucket', 's3:GetObject'] as const;
+
+/** API の Lambda が、オリジンの秘密（Secrets Manager）に使う操作（読み取りのみ。この秘密だけ。Issue #102）。 */
+export const ORIGIN_SECRET_READ_ACTION = 'secretsmanager:GetSecretValue';
 
 /** 合成データを生成する Lambda が、ファイルサーバーのモックの S3 に使う操作（書き込みのみ。取り込み元の下だけ。読み取り・削除は、しない）。 */
 export const S3_WRITE_ACTION = 's3:PutObject';
@@ -303,6 +308,17 @@ export class EvaluationStack extends Stack {
         conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
       }),
     ];
+    // 関数の URL の直接の呼び出しの防止（Issue #102。ADR-0010）: CloudFront が、オリジンへの呼び出しに、秘密のヘッダーを付け、
+    // API の Lambda が、値を検証する（一致しない呼び出しは、403）。値は、Secrets Manager に、自動生成する（英数字 64 文字。
+    // リポジトリ・テンプレートには、書かない。デプロイのときに、動的な参照で、CloudFront の設定と Lambda の環境変数に、同じ値が入る）。
+    // 名前は、固定しない（スタックを作り直しても、削除待ちの名前と衝突しない）。スタックの削除で、一緒に消す
+    const originSecret = new Secret(this, 'OriginSecret', {
+      description:
+        'CloudFront が、API のオリジンへの呼び出しに付ける秘密のヘッダーの値（直接の呼び出しの防止。Issue #102）',
+      generateSecretString: { passwordLength: 64, excludePunctuation: true },
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    const originSecretValue = originSecret.secretValue.unsafeUnwrap();
     const apiFunction = new LambdaFunction(this, 'ApiFunction', {
       code: bundledLambdaCode(join(import.meta.dirname, '../../src/backend/runtime/lambda.ts')),
       handler: 'index.handler',
@@ -314,6 +330,9 @@ export class EvaluationStack extends Stack {
       environment: {
         ...backendEnvironment,
         CLIENT_IP_HEADER,
+        // 秘密のヘッダーの検証（API の Lambda だけ。ジョブ・デモの Lambda には、関数の URL がない）。値は、持たない。秘密の ARN だけを渡し、
+        // Lambda が、コールドスタートで、Secrets Manager から読む（秘密の値を、Lambda の設定に持たない）
+        ORIGIN_VERIFY_ARN: originSecret.secretArn,
         EVALUATION_ON_WRITE: 'deferred',
         // ログインを受けるのは、API だけ（ジョブの Lambda には、持たない）。値は、IaC のデプロイで決める（コードの変更は、要らない）
         LOGIN_FAILURE_LIMIT: String(props.loginFailurePolicy?.limit ?? LOGIN_FAILURE_LIMIT),
@@ -326,6 +345,13 @@ export class EvaluationStack extends Stack {
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
+    // 秘密の読み取り: この秘密の GetSecretValue だけ（API の Lambda だけ。Issue #102）
+    apiFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [ORIGIN_SECRET_READ_ACTION],
+        resources: [originSecret.secretArn],
+      }),
+    );
     // Cognito は、ユーザープールに限る
     apiFunction.addToRolePolicy(dataTablesPolicy());
     for (const statement of fileServerReadPolicies()) {
@@ -394,7 +420,9 @@ export class EvaluationStack extends Stack {
       runtime: FunctionRuntime.JS_2_0,
     });
     const apiBehavior = {
-      origin: new FunctionUrlOrigin(apiUrl),
+      origin: new FunctionUrlOrigin(apiUrl, {
+        customHeaders: { [ORIGIN_SECRET_HEADER]: originSecretValue },
+      }),
       functionAssociations: [{ function: viewerIp, eventType: FunctionEventType.VIEWER_REQUEST }],
       viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
       allowedMethods: AllowedMethods.ALLOW_ALL,
