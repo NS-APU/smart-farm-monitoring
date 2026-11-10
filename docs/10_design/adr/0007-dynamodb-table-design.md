@@ -57,6 +57,7 @@
 | 判断基準 | `CRITERIA` | `{viewpointId}` | |
 | 設定 | `SETTING` | `{key}` | |
 | 利用者 | `USER` | `{userId}` | 認証情報の保持先は、Issue #74 |
+| 閲覧の割り当て（ハウスごと） | `FACACC` | `{facilityId}` | 値は `{ facilityId, userIds[] }`（そのハウスを閲覧できる一般ユーザー）。少量のため、`list` は、パーティションを Query。リクエストごとに読む（変更が、すぐに反映される）。設備の記録には持たない（設備の階層は全員に返すため、ほかのユーザーの ID が漏れる）。データのリセット（`pnpm demo-data reset`）では、`USER` と同じく、残す（Issue #330） |
 | Web Push 購読 | `PUSH` | `{subscriptionId}` | 少量。利用者ごと・有効の絞り込みは、アプリ側 |
 | 評価結果（最新） | `EVAL#{equipmentId}` | `{viewpointId}#{horizon}#{periodDays\|0}` | `listLatest` は、パーティションを Query |
 | ステータスの変化（最終） | `SCLAST#{equipmentId}` | `{viewpointId}` | |
