@@ -11812,6 +11812,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - E2E: 既定の 2 ロール（`DEFAULT_ROLE_CONFIG`）に、参照のみの確認用の `viewer`（`ingestion:read` のみ）を加えた（`e2e-user.ts`）。初期ユーザー・利用者 B は `admin`（`playwright.config.ts` の `INITIAL_USER_ROLE`・`app.ts`）。UC-14 の期待値（ロールの表示名・選択肢）を更新
 - フロントエンド: 取り込み画面のテスト（`ingestion-page.test.tsx`・`ingestion-connection.test.tsx`）の「参照のみ」の利用者に、`ingestion:read` を加えた。`WORKER_LOGIN`（`tests/support/frontend.ts`）の権限に `ingestion:read` を加えた
 - 負荷テストの初期データ（`tests/stress/support/seed-data.ts`）のユーザーのロールを `admin` にした
+- E2E（UC-17。#323 の「古い画面の部品の取得」）: 再読み込みのあとの取得（2 回目）が来るまで待ってから、取得を許可する。最初の失敗の警告は、再読み込みの前に、一瞬表示され、遅い環境（CI）で、その警告を通過したあとに、許可が先になって、再読み込みのあとに警告が出ず、ボタンのクリックが失敗した（この PR の CI で 1 回。CI のトレースで、順序を確認）。期待値は、変えていない
 
 ### 33.3 実測
 
