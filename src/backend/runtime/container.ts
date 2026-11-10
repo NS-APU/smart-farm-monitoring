@@ -187,6 +187,8 @@ export interface Container {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（接続元の識別）。 */
   readonly clientIpHeader: string | undefined;
+  /** CloudFront が付ける秘密のヘッダーの値（関数の URL の直接の呼び出しの拒否。未指定は検証しない。Issue #102）。 */
+  readonly originVerifySecret: string | undefined;
   /** 初期データ・最初のユーザー・（指定なら）デモデータを用意する。起動時に1度呼ぶ。 */
   initialize(): Promise<void>;
   /** 未保存のデータを書き出し、スケジューラを止める。 */
@@ -752,6 +754,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     dev,
     trustedProxyHops: config.trustedProxyHops,
     clientIpHeader: config.clientIpHeader,
+    originVerifySecret: config.originVerifySecret,
     initialize: () => initialize(),
     close() {
       services.scheduler.stop();

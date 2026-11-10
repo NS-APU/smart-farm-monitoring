@@ -32,6 +32,7 @@ import {
 } from '../infrastructure/common/auth-policy.ts';
 import { LOG_LEVELS, type LogLevel } from '../infrastructure/logging/json-logger.ts';
 import { namedErrorClass } from '../application/named-error.ts';
+import { ORIGIN_SECRET_PATTERN } from '../presentation/origin-guard.ts';
 
 export const APP_MODES = ['local', 'test', 'production'] as const;
 export type AppMode = (typeof APP_MODES)[number];
@@ -181,6 +182,20 @@ const EnvSchema = z.object({
     .toLowerCase()
     .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'ヘッダー名（英数字とハイフン）で指定してください')
     .optional(),
+  // CloudFront が、オリジンに付ける秘密のヘッダーの値（Issue #102）。ローカル・テストで、値を直接、渡す（Lambda では、使えない）。
+  // エラーには、変数の名前だけを出す（値を含めない）
+  ORIGIN_VERIFY_SECRET: z
+    .string()
+    .regex(ORIGIN_SECRET_PATTERN, '英数字 32〜128 文字で指定してください')
+    .optional(),
+  // 上の秘密の値を保管している Secrets Manager の秘密の ARN（秘密の値ではない）。API の Lambda が、コールドスタートで、読む（lambda.ts）
+  ORIGIN_VERIFY_ARN: z
+    .string()
+    .regex(
+      /^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$/,
+      'Secrets Manager の秘密の ARN で指定してください',
+    )
+    .optional(),
 });
 
 /** DynamoDB の接続の設定（PERSISTENCE=dynamodb のとき）。 */
@@ -253,6 +268,13 @@ export interface AppConfig {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
   readonly clientIpHeader: string | undefined;
+  /**
+   * CloudFront が、オリジンに付ける秘密のヘッダーの値（Issue #102）。指定があれば、API は、値が一致しない呼び出し（関数の URL の直接の呼び出し）を、
+   * 403 で拒否する。未指定は、検証しない（ローカル・E2E）。API の Lambda は、本番では必須（lambda.ts）。
+   */
+  readonly originVerifySecret: string | undefined;
+  /** オリジンの秘密を保管している Secrets Manager の秘密の ARN（秘密の値ではない）。API の Lambda が、実行時に読む（lambda.ts）。 */
+  readonly originVerifyArn: string | undefined;
   /** 接続元ごとのログインの失敗の制限（失敗 `limit` 回 / `windowMinutes` 分。既定は 5 回 / 15 分。D-44）。 */
   readonly loginFailurePolicy: LoginFailurePolicy;
 }
@@ -463,6 +485,8 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
       parsed.HTTP_FILE_SOURCE_ALLOW_PRIVATE && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
     clientIpHeader: parsed.CLIENT_IP_HEADER,
+    originVerifySecret: parsed.ORIGIN_VERIFY_SECRET,
+    originVerifyArn: parsed.ORIGIN_VERIFY_ARN,
     loginFailurePolicy: {
       limit: parsed.LOGIN_FAILURE_LIMIT,
       windowMinutes: parsed.LOGIN_FAILURE_WINDOW_MINUTES,
@@ -497,6 +521,12 @@ export function parseLambdaConfig(env: Readonly<Record<string, string | undefine
     // 起動のたび（コールドスタートのたび）に、デモデータを投入しない。評価環境のデモデータは、別の入口で投入する（Issue #77）
     throw new ConfigError(
       'Lambda では、SEED_MODE は使えません（デモデータは、別の入口で投入します）',
+    );
+  }
+  // 秘密の値は、Lambda の環境変数（設定）に持たない。Secrets Manager の ARN（ORIGIN_VERIFY_ARN）で指定し、実行時に読む（Issue #102）
+  if (config.originVerifySecret !== undefined) {
+    throw new ConfigError(
+      'Lambda では、ORIGIN_VERIFY_SECRET は使えません（秘密の値は、ORIGIN_VERIFY_ARN の Secrets Manager から、実行時に読みます）',
     );
   }
   // ジョブは、EventBridge から起動する（Issue #76）。Lambda の中で、タイマーによるスケジューラを動かさない

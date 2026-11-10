@@ -2531,7 +2531,7 @@ for 区間:
 | 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
 | 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
 | 単体テスト（frontend） | `tests/unit/frontend/`（30 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（49 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 結合テスト             | `tests/integration/`（50 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
 | 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
@@ -2696,16 +2696,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #127 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #102 の後）
 
-計測対象は 289 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（141 ファイル・3090 件成功・2 件スキップ）。
+計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（143 ファイル・3119 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.13% | 7,446／7,511 | 95% 以上 |
-| 文   | 99.14% | 7,697／7,763 | 95% 以上 |
-| 関数 | 99.33% | 2,254／2,269 | 95% 以上 |
-| 分岐 | 95.39% | 4,622／4,845 | 95% 以上 |
+| 行   | 99.12% | 7,478／7,544 | 95% 以上 |
+| 文   | 99.14% | 7,730／7,797 | 95% 以上 |
+| 関数 | 99.29% | 2,260／2,276 | 95% 以上 |
+| 分岐 | 95.37% | 4,642／4,867 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2714,12 +2714,12 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.46% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
 | `src/backend/application` | 99.42% | 99.36% | 99.2% | 96.25% |
-| `src/backend/infrastructure` | 98.98% | 99.01% | 100.0% | 94.6% |
-| `src/backend/presentation` | 99.41% | 99.42% | 100.0% | 94.31% |
-| `src/backend/runtime` | 97.9% | 97.92% | 93.67% | 93.17% |
+| `src/backend/infrastructure` | 98.98% | 99.01% | 100.0% | 94.55% |
+| `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.57% |
+| `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
 | `src/frontend` | 99.13% | 99.16% | 99.28% | 95.32% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`lambda.ts`（80%）・`notification-recipients.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`ingestion-repositories.ts`（86.04%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`ingestion-repositories.ts`（86.04%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
 ### E2E（Playwright）
 
@@ -2728,7 +2728,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-10 の実測（Issue #127 の後）: 141 ファイル・**3090 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3090 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 49 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-10 の実測（Issue #102 の後）: 143 ファイル・**3119 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3119 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 50 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

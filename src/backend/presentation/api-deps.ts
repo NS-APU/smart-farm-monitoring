@@ -77,6 +77,8 @@ export interface ApiDeps {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（接続元の識別。未指定なら使わない）。 */
   readonly clientIpHeader: string | undefined;
+  /** CloudFront が付ける秘密のヘッダーの値。指定があれば、一致しない呼び出し（直接の呼び出し）を 403 で拒否する（Issue #102）。 */
+  readonly originVerifySecret?: string | undefined;
 }
 
 /** Hono のコンテキストの変数。 */
