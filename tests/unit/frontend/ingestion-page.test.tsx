@@ -234,8 +234,19 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     );
   });
 
-  it('権限がなければ、参照のみ（入力欄は変更できず、保存・接続テスト・即時取得の操作を表示しない）', async () => {
-    renderApp('/settings/ingestion', baseRoutes(), { login: READ_ONLY_LOGIN });
+  it('閲覧の権限（ingestion:read）がなければ（一般）、権限がない旨を示し、取り込みの設定・ログを取得しない', async () => {
+    const { calls } = renderApp('/settings/ingestion', baseRoutes(), { login: READ_ONLY_LOGIN });
+
+    expect((await screen.findByTestId('permission-notice')).textContent).toContain(
+      '閲覧する権限がありません',
+    );
+    expect(screen.queryByTestId('source-robot')).toBeNull();
+    expect(calls.filter((call) => call.path.startsWith('/ingestion'))).toEqual([]);
+    expect(calls.filter((call) => call.path.startsWith('/federation'))).toEqual([]);
+  });
+
+  it('閲覧の権限だけがあれば、参照のみ（入力欄は変更できず、保存・接続テスト・即時取得の操作を表示しない）', async () => {
+    renderApp('/settings/ingestion', baseRoutes(), { login: loginWith(['ingestion:read']) });
     const robot = await screen.findByTestId('source-robot');
     expect(screen.getByTestId('permission-notice').textContent).toContain('権限がありません');
     expect(
@@ -250,14 +261,16 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
 
   it('設定の権限だけがある場合は、保存だけできる。実行の権限だけがある場合は、接続テスト・即時取得だけできる', async () => {
     const view = renderApp('/settings/ingestion', baseRoutes(), {
-      login: loginWith(['ingestion:configure']),
+      login: loginWith(['ingestion:read', 'ingestion:configure']),
     });
     const robot = await screen.findByTestId('source-robot');
     expect(within(robot).getByRole('button', { name: '設定を保存' })).toBeDefined();
     expect(within(robot).queryByRole('button', { name: '接続テスト' })).toBeNull();
     view.unmount();
 
-    renderApp('/settings/ingestion', baseRoutes(), { login: loginWith(['ingestion:run']) });
+    renderApp('/settings/ingestion', baseRoutes(), {
+      login: loginWith(['ingestion:read', 'ingestion:run']),
+    });
     const robotRun = await screen.findByTestId('source-robot');
     expect(within(robotRun).queryByRole('button', { name: '設定を保存' })).toBeNull();
     expect(within(robotRun).getByRole('button', { name: '接続テスト' })).toBeDefined();

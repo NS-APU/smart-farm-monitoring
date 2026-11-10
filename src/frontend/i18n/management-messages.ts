@@ -393,6 +393,7 @@ export const MANAGEMENT_MESSAGES = {
     federationMessage: '内容',
     federationEmpty: '連携の記録はありません',
     readOnly: '取り込みを設定・実行する権限がありません。参照のみできます',
+    forbidden: '取り込みの設定・状況・ログを閲覧する権限がありません',
     reload: '最新の状況を読み込む',
   },
 } as const;

@@ -8,7 +8,6 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { jsonResponse } from '../../support/frontend.ts';
 import {
-  READ_ONLY_LOGIN,
   callsOf,
   errorBody,
   loginWith,
@@ -316,7 +315,7 @@ describe('接続テストと認証情報', () => {
 describe('参照のみ（権限がない）', () => {
   it('接続設定の入力は、読み取り専用（無効）になる', async () => {
     renderApp('/settings/ingestion', routes([source({ connection: HTTP_CONNECTION })]), {
-      login: READ_ONLY_LOGIN,
+      login: loginWith(['ingestion:read']),
     });
     const robot = await robotCard();
 
@@ -561,7 +560,7 @@ describe('認証情報の登録（Issue #207。D-47。書き込み専用）', ()
           credentials: { state: 'CONFIGURED', updatedAt: UPDATED_AT },
         }),
       ]),
-      { login: loginWith(['ingestion:run']) },
+      { login: loginWith(['ingestion:read', 'ingestion:run']) },
     );
     const robot = await robotCard();
 

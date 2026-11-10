@@ -122,7 +122,7 @@ describe('POST /notifications/read-all: 読み込んだ時点（until）まで�
 
   it('既読は、利用者ごと。ほかの利用者の未読は、変わらない', async () => {
     const context = await withNotifications();
-    const other = await addUserAndLogin(context, { userId: 'worker-b', role: 'worker' });
+    const other = await addUserAndLogin(context, { userId: 'worker-b', role: 'general' });
 
     await send(context, 'POST', '/notifications/read-all', { until: at(30) });
 

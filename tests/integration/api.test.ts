@@ -114,10 +114,10 @@ describe('認証（UC-13）', () => {
     expect(body.user).toMatchObject({
       userId: TEST_USER.userId,
       userName: TEST_USER.userName,
-      role: 'worker',
+      role: 'admin',
     });
-    // 既定は1ロール（農作業者）で、全権限を持つ
-    expect(body.user.permissions).toHaveLength(8);
+    // 既定の最初のユーザーは、管理者で、全権限を持つ
+    expect(body.user.permissions).toHaveLength(9);
     expect(body.accessTokenExpiresAt).toBe(
       new Date(TEST_NOW.getTime() + 30 * 60_000).toISOString(),
     );
@@ -295,13 +295,14 @@ describe('認証・認可（全ルート）', () => {
   const fill = (path: string) => path.replace(/:[A-Za-z]+/g, 'x');
   const protectedRoutes = ROUTE_TABLE.filter((spec) => spec.access !== 'PUBLIC');
 
-  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更（POST /auth/password。Issue #245）・認証情報の登録（PUT /ingestion/{sourceId}/credentials。Issue #207）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）を網羅している（重複なし）', () => {
+  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更・ユーザー名の編集（POST /auth/password・PUT /auth/profile。Issue #245・#115）・認証情報の登録（PUT /ingestion/{sourceId}/credentials。Issue #207）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）を網羅している（重複なし）', () => {
     const keys = ROUTE_TABLE.map(routeKey);
 
     expect(new Set(keys).size).toBe(keys.length);
-    expect(ROUTE_TABLE).toHaveLength(44);
+    expect(ROUTE_TABLE).toHaveLength(45);
     expect(keys).toContain('GET /push-subscription');
     expect(keys).toContain('POST /auth/password');
+    expect(keys).toContain('PUT /auth/profile');
     expect(keys).toContain('PUT /ingestion/:sourceId/credentials');
     expect(keys).toContain('POST /notifications/:notificationId/memos');
     expect(keys).toContain('GET /notifications/:notificationId/memos');
@@ -376,6 +377,7 @@ describe('認証・認可（全ルート）', () => {
             'manual-entry:write',
             'criteria:edit',
             'ingestion:run',
+            'ingestion:read',
             'audit:read',
           ].includes(spec.access);
           expect(passes(evaluatorStatus)).toBe(evaluatorHasIt);

@@ -30,6 +30,8 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'POST', path: '/auth/refresh', access: 'PUBLIC', useCases: ['UC-13'] },
   { method: 'POST', path: '/auth/logout', access: 'LOGIN', useCases: ['UC-13'] },
   { method: 'POST', path: '/auth/password', access: 'LOGIN', useCases: ['UC-13', 'UC-14'] },
+  // 自身のユーザー情報（ユーザー名）の編集。ロール・ユーザー ID は、変えられない（FR-9.7）
+  { method: 'PUT', path: '/auth/profile', access: 'LOGIN', useCases: ['UC-14'] },
   // 設備（SC-10）
   { method: 'GET', path: '/equipment', access: 'LOGIN', useCases: ['UC-01', 'UC-12'] },
   { method: 'POST', path: '/equipment', access: 'equipment:manage', useCases: ['UC-12'] },
@@ -137,7 +139,7 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'PUT', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'DELETE', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   // 取り込み・連携（SC-11）
-  { method: 'GET', path: '/ingestion/settings', access: 'LOGIN', useCases: ['UC-15'] },
+  { method: 'GET', path: '/ingestion/settings', access: 'ingestion:read', useCases: ['UC-15'] },
   {
     method: 'PUT',
     path: '/ingestion/settings',
@@ -162,8 +164,13 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'ingestion:run',
     useCases: ['UC-08', 'UC-09', 'UC-15', 'UC-24'],
   },
-  { method: 'GET', path: '/ingestion/logs', access: 'LOGIN', useCases: ['UC-16'] },
-  { method: 'GET', path: '/federation/logs', access: 'LOGIN', useCases: ['UC-11', 'UC-16'] },
+  { method: 'GET', path: '/ingestion/logs', access: 'ingestion:read', useCases: ['UC-16'] },
+  {
+    method: 'GET',
+    path: '/federation/logs',
+    access: 'ingestion:read',
+    useCases: ['UC-11', 'UC-16'],
+  },
   // ユーザー（SC-14）
   { method: 'GET', path: '/users', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'POST', path: '/users', access: 'user:manage', useCases: ['UC-14'] },

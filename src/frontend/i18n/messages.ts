@@ -48,6 +48,18 @@ export const MESSAGES = {
     sameAsCurrent: '新しいパスワードは、現在のパスワードと違うものにしてください',
     link: 'パスワードの変更',
   },
+  profile: {
+    title: 'ユーザー名の変更',
+    lead: 'ログインしているご自身のユーザー名を変えます。ユーザーID・ロールは、変えられません。パスワードは、「パスワードの変更」から変えます',
+    userId: 'ユーザーID',
+    userName: 'ユーザー名',
+    submit: 'ユーザー名を変更する',
+    submitting: '変更中…',
+    nameRequired: 'ユーザー名を入力してください',
+    nameTooLong: 'ユーザー名は200文字以内で入力してください',
+    saved: 'ユーザー名を変更しました',
+    link: 'ユーザー名の変更',
+  },
   layout: {
     skipToContent: '本文へ移動',
     menu: 'メニュー',

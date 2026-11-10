@@ -19,7 +19,7 @@ const NEW_USER = {
   userId: 'worker-2',
   userName: '作業者2',
   password: 'Dummy-Passw0rd-new',
-  role: 'worker',
+  role: 'general',
 };
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
@@ -106,7 +106,7 @@ describe('ユーザー削除・パスワード再設定とセッション（V-00
 
     const reset = await context.request(`/users/${NEW_USER.userId}`, {
       method: 'PUT',
-      body: { userName: NEW_USER.userName, role: 'worker', password: 'Dummy-Passw0rd-reset' },
+      body: { userName: NEW_USER.userName, role: 'general', password: 'Dummy-Passw0rd-reset' },
     });
 
     expect(reset.status).toBe(200);
@@ -127,7 +127,7 @@ describe('ユーザー削除・パスワード再設定とセッション（V-00
 
     await context.request(`/users/${NEW_USER.userId}`, {
       method: 'PUT',
-      body: { userName: '改名', role: 'worker' },
+      body: { userName: '改名', role: 'general' },
     });
 
     expect((await context.request('/equipment', { token: before.accessToken })).status).toBe(200);
@@ -141,7 +141,7 @@ describe('ユーザー削除・パスワード再設定とセッション（V-00
     const reset = await context.request(`/users/${TEST_USER.userId}`, {
       method: 'PUT',
       token: current.accessToken,
-      body: { userName: TEST_USER.userName, role: 'worker', password: 'Dummy-Passw0rd-self' },
+      body: { userName: TEST_USER.userName, role: 'admin', password: 'Dummy-Passw0rd-self' },
     });
 
     expect(reset.status).toBe(200);

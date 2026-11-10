@@ -1280,7 +1280,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     userId: 'worker-2',
     userName: '作業者2',
     password: 'Dummy-Passw0rd-new',
-    role: 'worker',
+    role: 'general',
   };
 
   it('一覧は、ロールの選択肢つきで、パスワードのハッシュを含めずに返す', async () => {
@@ -1289,9 +1289,12 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const body = UserListResponseSchema.parse(await (await send(context, 'GET', '/users')).json());
 
     expect(body.items).toHaveLength(1);
-    expect(body.items[0]).toMatchObject({ userId: 'test-user', role: 'worker' });
+    expect(body.items[0]).toMatchObject({ userId: 'test-user', role: 'admin' });
     expect(body.items[0]?.lastLoginAt).toBeDefined();
-    expect(body.roles).toEqual([{ roleId: 'worker', name: '農作業者' }]);
+    expect(body.roles).toEqual([
+      { roleId: 'admin', name: '管理者' },
+      { roleId: 'general', name: '一般' },
+    ]);
     expect(JSON.stringify(body)).not.toContain('scrypt');
   });
 
@@ -1342,7 +1345,8 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const context = await createTestContext({
       env: {
         ROLE_DEFINITIONS_JSON: JSON.stringify({
-          worker: { name: '農作業者', permissions: ['user:manage'] },
+          admin: { name: '管理者', permissions: ['user:manage'] },
+          general: { name: '一般', permissions: [] },
           viewer: { name: '閲覧者', permissions: [] },
         }),
       },
@@ -1372,9 +1376,9 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
   });
 
   it.each([
-    ['ユーザー名が空', { userName: '', role: 'worker' }, 400],
+    ['ユーザー名が空', { userName: '', role: 'general' }, 400],
     ['定義されていないロール', { userName: 'x', role: 'boss' }, 400],
-    ['パスワードが条件を満たさない', { userName: 'x', role: 'worker', password: 'short' }, 400],
+    ['パスワードが条件を満たさない', { userName: 'x', role: 'general', password: 'short' }, 400],
   ])('変更の検証（%s）', async (_name, body, status) => {
     const context = await createTestContext();
     await send(context, 'POST', '/users', NEW_USER);
@@ -1398,7 +1402,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const afterDelete = await send(context, 'GET', '/equipment', undefined, otherToken);
     const missingUpdate = await send(context, 'PUT', '/users/nobody', {
       userName: 'x',
-      role: 'worker',
+      role: 'general',
     });
 
     expect(self.status).toBe(409);
@@ -1415,7 +1419,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     await send(context, 'POST', '/users', { ...NEW_USER, password });
     await send(context, 'PUT', `/users/${NEW_USER.userId}`, {
       userName: '改名',
-      role: 'worker',
+      role: 'general',
       password: 'Dummy-Passw0rd-audit2',
     });
     await send(context, 'DELETE', `/users/${NEW_USER.userId}`);
@@ -1439,9 +1443,9 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     expect(update?.before).toEqual({
       userId: NEW_USER.userId,
       userName: NEW_USER.userName,
-      role: 'worker',
+      role: 'general',
     });
-    expect(update?.after).toEqual({ userId: NEW_USER.userId, userName: '改名', role: 'worker' });
+    expect(update?.after).toEqual({ userId: NEW_USER.userId, userName: '改名', role: 'general' });
     const text = JSON.stringify(audit);
     expect(text).not.toContain('Dummy-Passw0rd');
     expect(text).not.toContain('scrypt');
@@ -1452,12 +1456,13 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const context = await createTestContext({
       env: {
         ROLE_DEFINITIONS_JSON: JSON.stringify({
-          worker: { name: '農作業者', permissions: ['user:manage'] },
+          admin: { name: '管理者', permissions: ['user:manage'] },
+          general: { name: '一般', permissions: [] },
           viewer: { name: '閲覧者', permissions: [] },
         }),
       },
     });
-    await send(context, 'POST', '/users', NEW_USER);
+    await send(context, 'POST', '/users', { ...NEW_USER, role: 'admin' });
     await markPasswordChanged(context, NEW_USER.userId);
     const login = await context.app.request('/api/v1/auth/login', {
       method: 'POST',

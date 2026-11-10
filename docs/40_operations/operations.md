@@ -13,7 +13,7 @@
 | `AUTH_PROVIDER` | `cognito`（Amazon Cognito。ADR-0008）。`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` に、`SfmData` のスタックの出力を指定する。`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない。ローカル・テストは、既定の `local` | 本番の Lambda は、パスワードを Cognito に預ける（アプリ内の認証は、セッションをメモリに持つため、Lambda では使えない） |
 | `FILE_SERVER_S3_BUCKET` | 評価環境の Lambda は、IaC が、ファイルサーバーのモックのバケットを指定する（Issue #77）。取り込み元ごとに `<バケット>/<取り込み元の識別子>/` にファイルを置く。**置くのは、合成データだけ**（実データ・個人情報は置かない） | Lambda には、ローカルのディレクトリがない。未指定の `FILE_SERVER_DIR` は、ローカル用 |
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
-| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（決定。ADR-0013。実装は #115） |
+| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、既定の 2 ロール（管理者 `admin`＝全権限、一般 `general`＝手動入力のみ）で動作する | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（ADR-0013。実装済み〔#115〕） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
 | `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` | 既定は、失敗 5 回 / 15 分（IaC が、API の Lambda に、この値を設定する）。**共有の IP などで、誤ってロックされる事例が出たら、回数を増やす・時間を短くする**。変えるときは、GitHub の Environment（development・production）の変数 `SFM_LOGIN_FAILURE_LIMIT`（1〜100）・`SFM_LOGIN_FAILURE_WINDOW_MINUTES`（1〜1440 分）を設定して、デプロイし直す（ワークフローが、そのまま CDK に渡す。未設定なら 5 回 / 15 分。コードの変更は、要らない。手元からのデプロイは、同名の環境変数を指定する）。ローカルは、`LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` を指定する | ログインの試行回数の制限（接続元ごと。FR-9.2。D-44）。アカウント単位のロックは、Cognito が持つ（値は、設定できない）。回数を大きくするほど、総当たりに弱くなる |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
@@ -202,7 +202,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ## 8. 開発サイトと本番サイト（評価環境の運用方針）
 
-決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割・設備の割り当ては、まだ実装されていない**（Issue #115・#116）。本番サイトは、AWS に作成した（Issue #117。9 章。2026-10-22）。
+決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割は、実装済み**（Issue #115。8.7）。**設備の割り当ては、まだ実装されていない**（Issue #116）。本番サイトは、AWS に作成した（Issue #117。9 章。2026-10-22）。
 
 ### 8.1 サイト
 
@@ -219,7 +219,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 ### 8.2 アクセス制御
 
 - **ログインは、必須**。多要素認証は、設けない。初期ユーザーは、システムの構築時に、**管理者のロールで**作る（7.4）。2 人目以降は、管理者が、画面で作る
-- **ロールは、管理者・一般の 2 種類**: 管理者は、すべての操作ができる。一般は、**管理者が割り当てた設備の閲覧・手動入力・自身のユーザー情報の編集**に限る。操作ごとの可否は、ADR-0013 の表。**実装前（現在）は、全員が全権限を持つ 1 ロール**
+- **ロールは、管理者・一般の 2 種類**: 管理者は、すべての操作ができる。一般は、**管理者が割り当てた設備の閲覧・手動入力・自身のユーザー情報の編集**に限る。操作ごとの可否は、ADR-0013 の表。**ロールの分割は実装済みだが、設備の割り当て（#116）はまだで、一般も、全設備を閲覧できる**（取り込みの状況・ログは、管理者のみ）。実データを扱う間は、一般ユーザーを登録しない
 
 ### 8.3 更新の方針
 
@@ -285,6 +285,38 @@ filter @type = "REPORT" and ispresent(@initDuration)
 - 鍵を作り直したとき（漏えいの疑いなど）は、手順 A〜C を、すべてやり直す。**公開鍵が変わると、既存の購読には、届かなくなる**（プッシュサービスが、HTTP 403 を返す）。各端末が、「解除する」→「有効にする」をやり直す。
 - 費用: プッシュサービスへの送信は、無料。パラメータストアの標準のパラメータ・AWS 管理の暗号鍵は、無料。Lambda の実行時間の増加は、通知 1 件あたり数百 ms の見込みで、数円未満（**実測はしていない**）。
 - **確認の結果は、Issue #241 のコメントに記録する**（端末・OS・ブラウザの種類、期待どおりだったか、表示された文言）。実機で確認できなかった端末は、その旨を記録する（D-41 の確認事項）。
+
+### 8.7 既存ユーザーのロールの移行（Issue #115。ユーザーが実行）
+
+ロールを、「農作業者（`worker`）」の 1 種類から、「管理者（`admin`）・一般（`general`）」の 2 種類に分けたため、**ロール `worker` の既存のユーザーは、新しい版では、権限を持たない**（ログインはできるが、何もできない。ユーザー管理もできず、画面からは直せない）。次の手順で、DynamoDB のユーザーの記録のロールを、`admin` に移す。**新しい版を AWS にデプロイしたあとに、実行する**（デプロイの前に移すと、古い版は `admin` を知らないため、移した直後から、デプロイまでの間、全員が権限を失う。デプロイのあとなら、移した直後〔次のリクエスト〕から効く）。コマンドは、手元のソースの、新しい版（`develop` の最新）で実行する（移す先のロールの検証に、手元のロール定義を使うため）。
+
+- 開発サイト: `develop` へのマージで、新しい版がデプロイされる（8.3）。そのあとに、実行する
+- 本番サイト: 新しい版を `main` からデプロイ（9.3）したあとに、実行する（`$stack` を `SfmProductionData` にする）
+
+```powershell
+# PowerShell の例。<…> を、置き換える
+$env:AWS_PROFILE = '<プロファイル名>'
+$env:AWS_DEFAULT_REGION = 'ap-northeast-1'
+$stack = 'SfmData'   # 本番サイトは 'SfmProductionData'
+$data = aws cloudformation describe-stacks --stack-name $stack --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
+$env:PERSISTENCE = 'dynamodb'
+$env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'ObservationsTableName' }).OutputValue
+$env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
+# 1. 対象の人数を確認する（書き込まない）
+$env:MIGRATE_DRY_RUN = 'true'
+pnpm migrate-user-roles
+# 2. 移す（ロール worker のユーザーを、admin に）
+Remove-Item Env:MIGRATE_DRY_RUN
+pnpm migrate-user-roles
+# 3. 環境変数を消す（ほかのコマンドが、AWS を向かないように）
+Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE -ErrorAction SilentlyContinue
+```
+
+- 出力は、人数だけ（ユーザー ID・名前は出さない）。例: `ロール「worker」のユーザー 2 人を、「admin」に移しました`
+- 何度実行しても同じ（移す対象がなければ、何もしない）。途中で失敗しても、再実行できる。移す先・移す元は、`MIGRATE_TO_ROLE`・`MIGRATE_FROM_ROLE` で変えられる（既定は、`admin`・`worker`）
+- AWS の認証情報・権限が足りないときは、エラーの名前だけが出る（`AccessDeniedException` など）。DynamoDB の読み書きの権限（開発サイトでは、`pnpm initial-user` と同じプロファイル）が要る
+- 移したあとは、管理者でログインし、「設定 > ユーザー」で、一般にしたいユーザーのロールを、一般に変える。確認: 管理者のメニューに「ユーザー」「取り込み」が出ること、一般のユーザーのメニューには出ないこと
+- ロールを戻す必要があるときは、新しい版のロール定義に `worker` がないため、このコマンドでは戻せない（画面で、ロールを変える）
 
 ## 9. 本番サイトの運用手順（Issue #117。ADR-0013）
 
@@ -361,7 +393,7 @@ pnpm initial-user
 Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:COGNITO_CLIENT_ID, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:INITIAL_USER_ID, Env:INITIAL_USER_NAME, Env:INITIAL_USER_PASSWORD, Env:INITIAL_USER_ROLE -ErrorAction SilentlyContinue
 ```
 
-- 最初のユーザーのロールは、ロール定義の最初の、ユーザー管理の権限を持つロール（現在は 1 ロール。ロールの分割（Issue #115）の後は、管理者）。2 人目以降は、管理者が、画面（ユーザー管理）で作る
+- 最初のユーザーのロールは、ロール定義の最初の、ユーザー管理の権限を持つロール（既定のロールでは、管理者 `admin`）。2 人目以降は、管理者が、画面（ユーザー管理）で作る
 
 ### 9.6 バックアップ・復元
 

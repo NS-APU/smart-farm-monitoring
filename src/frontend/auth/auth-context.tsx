@@ -10,6 +10,7 @@ import {
   changePassword as changePasswordRequest,
   login as loginRequest,
   logout as logoutRequest,
+  updateOwnProfile as updateOwnProfileRequest,
 } from '../api/endpoints.ts';
 
 export interface AuthContextValue {
@@ -20,6 +21,8 @@ export interface AuthContextValue {
   readonly logout: () => Promise<void>;
   /** 本人によるパスワードの変更。成功すると、新しいセッションに替わる（変更が必要な旨も、外れる）。 */
   readonly changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  /** 本人によるユーザー名の変更。成功すると、ヘッダーの表示・保存しているセッションのユーザー名も、新しい名前になる。 */
+  readonly updateUserName: (userName: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -62,6 +65,16 @@ export function AuthProvider(props: AuthProviderProps): ReactNode {
         const response = await changePasswordRequest(api, currentPassword, newPassword);
         session.set(response);
         setUser(response.user);
+      },
+      async updateUserName(userName) {
+        const updated = await updateOwnProfileRequest(api, userName);
+        const current = session.get();
+        if (current !== null) {
+          session.set({ ...current, user: { ...current.user, userName: updated.userName } });
+        }
+        setUser((previous) =>
+          previous === null ? previous : { ...previous, userName: updated.userName },
+        );
       },
       async logout() {
         try {

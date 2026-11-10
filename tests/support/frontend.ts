@@ -79,7 +79,7 @@ export const WORKER_LOGIN: LoginResponse = {
     userId: toUserId('worker-1'),
     userName: '農作業者A',
     role: 'worker',
-    permissions: ['equipment:manage', 'user:manage'],
+    permissions: ['equipment:manage', 'ingestion:read', 'user:manage'],
     mustChangePassword: false,
   },
 };

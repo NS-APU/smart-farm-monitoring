@@ -6,11 +6,7 @@
  * モック、Web Push のダミー、アプリ内の認証、操作できる時計を使う（AWS なしで E2E・負荷テストを動かす）。
  */
 
-import {
-  DEFAULT_ROLE_CONFIG,
-  createAccessPolicy,
-  type AccessPolicy,
-} from '../application/auth/access-policy.ts';
+import { createAccessPolicy, type AccessPolicy } from '../application/auth/access-policy.ts';
 import { createAuthService, type AuthService } from '../application/auth/auth-service.ts';
 import { createUserService, type UserService } from '../application/auth/user-service.ts';
 import { createAuditService, type AuditService } from '../application/audit/audit-service.ts';
@@ -682,11 +678,6 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
       : undefined;
   if (dev !== undefined) {
     logger.warn('開発用 API が有効です。本番・共有環境では無効にしてください');
-  }
-  if (config.roles === DEFAULT_ROLE_CONFIG) {
-    logger.warn(
-      '既定のロール（全利用者が全権限を持つ1ロール）で動作しています。ROLE_DEFINITIONS_JSON で、権限を分けてください',
-    );
   }
 
   return {

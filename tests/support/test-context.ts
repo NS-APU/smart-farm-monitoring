@@ -190,7 +190,7 @@ export async function addUserAndLogin(
   return LoginResponseSchema.parse(await response.json()).accessToken;
 }
 
-/** 3ロール（管理者・評価者・閲覧者）の設定の例。ロールの分け方は未確定（Q-017）のため、設定で切り替える。 */
+/** 3ロール（管理者・評価者・閲覧者）の設定の例。既定の 2 ロール（管理者・一般）以外にも、設定の変更だけで対応できることの確認用。 */
 export const THREE_ROLES_JSON = JSON.stringify({
   admin: {
     name: '管理者',
@@ -198,6 +198,7 @@ export const THREE_ROLES_JSON = JSON.stringify({
       'equipment:manage',
       'ingestion:configure',
       'ingestion:run',
+      'ingestion:read',
       'status-code:manage',
       'manual-entry:write',
       'criteria:edit',
@@ -207,7 +208,13 @@ export const THREE_ROLES_JSON = JSON.stringify({
   },
   evaluator: {
     name: '評価者',
-    permissions: ['manual-entry:write', 'criteria:edit', 'ingestion:run', 'audit:read'],
+    permissions: [
+      'manual-entry:write',
+      'criteria:edit',
+      'ingestion:run',
+      'ingestion:read',
+      'audit:read',
+    ],
   },
   viewer: { name: '閲覧者', permissions: [] },
 });

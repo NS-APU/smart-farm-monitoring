@@ -46,6 +46,9 @@ pnpm data:backup restore store-<日時>.json
 # 最初のユーザー（管理者）の作成（Cognito。手元で 1 回だけ。環境変数と手順は「最初のユーザー（Cognito）」の節）
 pnpm initial-user
 
+# 既存ユーザーのロールの移行（worker → admin。Issue #115。AWS は operations.md 8.7、ローカルは下の「ロールの移行（ローカル）」）
+pnpm migrate-user-roles
+
 # Lint / 型検査 / フォーマット
 pnpm lint            # ESLint（eslint .）→ oxlint（jsx-a11y。.oxlintrc.json）
 pnpm typecheck
@@ -223,6 +226,16 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 6. **接続元の制限（失敗 5 回 → 429）は、最後に確認する**。この制限は、手元のマシン全体にかかり、Cognito 自身のロックも重なるため、**約 15 分は、ログインできなくなる**
 7. **後始末**: 確認用のバックエンドを止める（自分で起動したものだけ）。確認用のユーザーは、検証用のパスワードのため、評価に使う前に、削除するか、パスワードを変える。`SfmData` は、削除しない（削除の保護がある）
 
+## 実行結果（2026-11-10。ロールの分割〔Issue #115〕の後。`develop` の `da976b0` に、#115 の変更を加えた状態）
+
+手元（Windows）で実行した値。E2E は、開発サーバーのポート（5173・8787）と競合しないよう、空きポート（18787・15173）で実行した（`dev-ports.ts` を一時的に変え、実行後に戻した）。GitHub Actions の結果は、PR に記載する。
+
+| コマンド | 結果 |
+|----------|------|
+| `pnpm format:check` / `pnpm lint` / `pnpm typecheck` | すべて成功 |
+| `pnpm test:unit`（単体・結合。IaC のテストを含む。DynamoDB Local が要る。`--maxWorkers=3`） | 130 ファイル・2946 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）。カバレッジ: 行 99.16%・分岐 95.53%・関数 99.43%・文 99.18%（基準は、すべて 95% 以上） |
+| `pnpm test:e2e`（E2E） | 811 件（UC-01〜UC-24 の 801 件〔25 ファイル〕と、`scenario-*.ts` の 10 件〔7 ファイル〕）。手元では、ロールに関わる UC（UC-05・07・12〜19・シナリオのユーザーの受け入れ）の結果を、test.spec.md 33.3 に記載 |
+
 ## 実行結果（2026-11-09。通知の見直し・依存の更新・古い画面への対応などの後。`develop` の `352367a` の前後）
 
 手元（Windows）で実行した値と、GitHub Actions（`ubuntu-24.04`。`ci:full` の PR）の値（Issue #318）。E2E・負荷テストは、手元では、開発サーバーのポート（5173・8787）と競合しないよう、空きポート（18787・15173）で実行した（負荷テスト・一部の E2E）。
@@ -268,7 +281,8 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 
 - 初期ユーザーは、ユーザーが1人もいないときだけ作られる。`PERSISTENCE=file`（`.env.example` の既定）では、`.local-data/store.json` にユーザーが保存されるため、2回目以降の起動で `.env` のユーザーIDやパスワードを変えても、反映されない（変えるときは、ログイン後に、ユーザー管理（SC-14）で、パスワードを再設定する。または、`.local-data/store.json` を削除して、作り直す）
 - `INITIAL_USER_*` を指定しないと、ユーザーが作られず、ログインできない
-- 初期ユーザーのロールは、既定の1ロール `worker`（全権限）。`ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` で変えられる（dev_spec.md 3.3）
+- 初期ユーザーのロールは、既定の管理者 `admin`（全権限）。既定のロールは、管理者 `admin`・一般 `general`（手動入力のみ）の 2 つ（ADR-0013）。`ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` で変えられる（dev_spec.md 3.3）
+- **ロールの移行（ローカル）**: ロールを 2 つに分ける前（Issue #115 より前）に作った `.local-data/store.json` のユーザーは、ロールが `worker` のままで、権限がなくなる。次のどちらかで直す。(1) `$env:PERSISTENCE='file'; pnpm migrate-user-roles`（`DATA_FILE` の既定は `.local-data/store.json`。`MIGRATE_DRY_RUN=true` で、人数の確認だけ）。(2) `.local-data/store.json` を消して、`.env` の初期ユーザーを作り直す（データも消える）。開発サーバーを止めてから実行する
 - パスワードは、ハッシュ化（scrypt）して保存し、ログに出さない（security.md）。実際の運用では、`.env.example` のダミー値を使わず、別の値にする
 
 ## テストの出力

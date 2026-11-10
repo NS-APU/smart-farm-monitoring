@@ -95,7 +95,7 @@ describe('秘密情報の保管先（コンテナの組み立て）', () => {
       .catch((caught: unknown) => caught);
 
     expect((error as Error).message).toBe('秘密情報を保存できませんでした');
-    // 組み立て時の別の警告（既定のロール）を除き、秘密情報の失敗の記録は、1 件で、エラーの種類の名前だけを持つ
+    // 組み立て時の別の警告を除き、秘密情報の失敗の記録は、1 件で、エラーの種類の名前だけを持つ
     const secretLogs = logs.filter((log) => log.includes('秘密情報の保存に失敗しました'));
     expect(secretLogs).toHaveLength(1);
     expect(secretLogs[0]).toContain('"errorName":"Error"');

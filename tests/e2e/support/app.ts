@@ -37,7 +37,7 @@ export interface E2eUser {
   readonly userId: string;
   readonly userName: string;
   readonly password: string;
-  readonly role: 'worker' | 'viewer';
+  readonly role: 'admin' | 'general' | 'viewer';
 }
 
 /** 2人目以降の利用者（明らかにダミーとわかる値）。 */
@@ -45,7 +45,14 @@ export const USER_B: E2eUser = {
   userId: 'e2e-user-b',
   userName: 'E2E利用者B',
   password: 'Dummy-Passw0rd-b1',
-  role: 'worker',
+  role: 'admin',
+};
+/** 一般ユーザー（手動入力のみ。ロールの権限の確認用）。 */
+export const GENERAL: E2eUser = {
+  userId: 'e2e-general',
+  userName: 'E2E一般ユーザー',
+  password: 'Dummy-Passw0rd-g1',
+  role: 'general',
 };
 export const VIEWER: E2eUser = {
   userId: 'e2e-viewer',
