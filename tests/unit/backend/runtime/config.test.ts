@@ -499,6 +499,55 @@ describe('実行設定（環境変数）', () => {
     );
   });
 
+  describe('秘密のヘッダーの検証（ORIGIN_VERIFY_SECRET。Issue #102）', () => {
+    const SECRET = 'dummyOriginSecret0123456789abcdefABCDEF0123456789';
+
+    it('既定は指定なし（検証しない）。指定した値を、そのまま読み込む', () => {
+      expect(parseConfig({}).originVerifySecret).toBeUndefined();
+      expect(parseConfig({ ORIGIN_VERIFY_SECRET: SECRET }).originVerifySecret).toBe(SECRET);
+    });
+
+    const ARN = 'arn:aws:secretsmanager:ap-northeast-1:111111111111:secret:SfmOriginSecret-AbCdEf';
+
+    it('秘密の保管先の ARN（ORIGIN_VERIFY_ARN。秘密の値ではない）は、既定は指定なし。指定した値を、読み込む。ARN として正しくない値は、設定エラー', () => {
+      expect(parseConfig({}).originVerifyArn).toBeUndefined();
+      expect(parseConfig({ ORIGIN_VERIFY_ARN: ARN }).originVerifyArn).toBe(ARN);
+      for (const value of ['', 'not-an-arn', 'arn:aws:s3:::bucket']) {
+        expect(() => parseConfig({ ORIGIN_VERIFY_ARN: value }), value).toThrow('ORIGIN_VERIFY_ARN');
+      }
+    });
+
+    it('Lambda では、秘密の値を環境変数（ORIGIN_VERIFY_SECRET）で渡せない（ARN で指定する。秘密を、Lambda の設定に持たない）', () => {
+      const lambda = { APP_MODE: 'test', PERSISTENCE: 'memory' };
+
+      expect(parseLambdaConfig({ ...lambda, ORIGIN_VERIFY_ARN: ARN }).originVerifyArn).toBe(ARN);
+      expect(() => parseLambdaConfig({ ...lambda, ORIGIN_VERIFY_SECRET: SECRET })).toThrow(
+        'ORIGIN_VERIFY_ARN',
+      );
+    });
+
+    it.each([
+      'short',
+      'has space 0123456789012345678901234567890123',
+      'with-dash-0123456789012345678901234567890123',
+      '',
+    ])(
+      '短すぎる・英数字以外を含む・空の値は、設定エラーにする（エラーの内容に、値を含めない）',
+      (value) => {
+        let message = '';
+        try {
+          parseConfig({ ORIGIN_VERIFY_SECRET: value });
+        } catch (error) {
+          message = error instanceof Error ? error.message : '';
+        }
+        expect(message).toContain('ORIGIN_VERIFY_SECRET');
+        if (value !== '') {
+          expect(message).not.toContain(value);
+        }
+      },
+    );
+  });
+
   describe('信頼するプロキシの段数（V-007）', () => {
     it('既定は 0（X-Forwarded-For を信頼しない）。指定した段数を読み込む', () => {
       expect(parseConfig({}).trustedProxyHops).toBe(0);
