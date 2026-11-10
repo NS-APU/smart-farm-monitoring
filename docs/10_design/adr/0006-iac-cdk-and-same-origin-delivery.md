@@ -44,7 +44,7 @@
 ## 追記（2026-10-21。Issue #81。決定は、変えない）
 
 - **Issue #117（2026-10-22）**: GitHub の Environment は、`evaluation` から、`development`（開発サイト）・`production`（本番サイト）になった。OIDC のロールは、環境ごとに別（ADR-0013）。この ADR の「Environment `evaluation`」は、開発サイトの Environment（現在は `development`）と読み替える
-- 独自のサブドメインを使う想定は、変わらない（ユーザーの判断）。開発サイト・本番サイト（ADR-0013）で使う。実際の証明書の発行・レコードの作成・TLS 1.2 以上の確認は、Issue #128。画面の応答のヘッダー（Cache-Control は Issue #323、CSP・`frame-ancestors`・`X-Frame-Options: DENY` は Issue #127）は、実装済み（CloudFront の独自の応答ヘッダーポリシー。API の動作は、マネージドポリシーのまま。operations.md 6 章）
+- 独自のサブドメインを使う想定は、変わらない（ユーザーの判断）。開発サイト・本番サイト（ADR-0013）で使う。実際の証明書の発行・レコードの作成・TLS 1.2 以上の確認は、**開発サイトは、Issue #128 で、実施・確認済み**（下の「追記: 独自のサブドメインでの配信」）。**本番サイトは、Issue #341**（本番サイトに、リリースがデプロイされた後に行う）。画面の応答のヘッダー（Cache-Control は Issue #323、CSP・`frame-ancestors`・`X-Frame-Options: DENY` は Issue #127）は、実装済み（CloudFront の独自の応答ヘッダーポリシー。API の動作は、マネージドポリシーのまま。operations.md 6 章）
 
 ## 追記: 独自のサブドメインでの配信（Issue #128。2026-11-10。ユーザーが承認）
 
