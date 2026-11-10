@@ -45,7 +45,7 @@ describe('実行設定（環境変数）', () => {
       trustedProxyHops: 0,
     });
     expect(config.initialUser).toBeUndefined();
-    expect(Object.keys(config.roles)).toEqual(['worker']);
+    expect(Object.keys(config.roles)).toEqual(['admin', 'general']);
   });
 
   it('PERSISTENCE=dynamodb: テーブル名・接続先・リージョンを読み込む（メモリ・ファイルでは、持たない）', () => {
@@ -530,12 +530,12 @@ describe('実行設定（環境変数）', () => {
   });
 
   describe('最初のユーザー（環境変数の初期ユーザー）', () => {
-    it('3つの変数がそろっていれば、既定のロールで読み込む', () => {
+    it('3つの変数がそろっていれば、既定のロール（管理者）で読み込む', () => {
       expect(parseConfig(INITIAL_USER).initialUser).toEqual({
         userId: 'first-user',
         userName: '最初のユーザー',
         password: 'Dummy-Passw0rd-1',
-        role: 'worker',
+        role: 'admin',
       });
     });
 

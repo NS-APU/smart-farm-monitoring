@@ -17,7 +17,7 @@ import {
 const JSON_HEADERS = { 'content-type': 'application/json' };
 const TEMP_PASSWORD = 'Dummy-Passw0rd-temp';
 const NEW_PASSWORD = 'Dummy-Passw0rd-own';
-const MEMBER = { userId: 'member-1', userName: '利用者1', role: 'worker' };
+const MEMBER = { userId: 'member-1', userName: '利用者1', role: 'general' };
 
 function post(context: TestContext, path: string, body: unknown, token?: string) {
   return context.app.request(`/api/v1${path}`, {
@@ -166,7 +166,7 @@ describe('管理者が決めたパスワードは、一時のもの（D-45）', 
 
     const reset = await context.request(`/users/${TEST_USER.userId}`, {
       method: 'PUT',
-      body: { userName: TEST_USER.userName, role: 'worker', password: 'Dummy-Passw0rd-self' },
+      body: { userName: TEST_USER.userName, role: 'admin', password: 'Dummy-Passw0rd-self' },
     });
     const afterReset = await login(context, TEST_USER.userId, 'Dummy-Passw0rd-self');
 

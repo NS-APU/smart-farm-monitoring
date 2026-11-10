@@ -11,6 +11,7 @@ import { AppError } from '@smart-farm/shared/errors';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
 import {
   ChangePasswordRequestSchema,
+  OwnProfileUpdateRequestSchema,
   LoginRequestSchema,
   RefreshRequestSchema,
 } from '@smart-farm/shared/schemas/auth';
@@ -73,6 +74,11 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
         `user-without-address:${user}`;
       const session = await deps.userService.changeOwnPassword(user, body, clientKey);
       return c.json(deps.authService.toLoginResponse(session));
+    },
+
+    async 'PUT /auth/profile'(c) {
+      const body = await parseJsonBody(c, OwnProfileUpdateRequestSchema);
+      return c.json(await deps.userService.updateOwnProfile(actorOf(c), body));
     },
 
     async 'GET /equipment'(c) {

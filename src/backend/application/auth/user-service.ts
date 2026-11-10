@@ -14,6 +14,7 @@ import type { UserId } from '@smart-farm/shared/schemas/common';
 import type {
   PublicUser,
   UserCreateRequest,
+  OwnProfileUpdateRequest,
   UserListResponse,
   UserUpdateRequest,
 } from '@smart-farm/shared/schemas/auth';
@@ -71,6 +72,11 @@ export interface UserService {
     input: ChangeOwnPasswordInput,
     clientKey: string,
   ): Promise<AuthSession>;
+  /**
+   * 本人が、自分のユーザー名を変更する（FR-9.7。一般を含む）。ロール・ユーザー ID・パスワードには触れない
+   * （ロールの変更は、ユーザー管理〔user:manage〕だけ）。変更の履歴（操作履歴）に、操作者を本人として残す。
+   */
+  updateOwnProfile(userId: UserId, input: OwnProfileUpdateRequest): Promise<PublicUser>;
 }
 
 export interface UserServiceDeps {
@@ -227,6 +233,21 @@ export function createUserService(deps: UserServiceDeps): UserService {
         targetType: USER_TARGET_TYPE,
         targetId: userId,
         actor,
+        before: toPublicUser(before),
+        after: toPublicUser(updated),
+      });
+      return toPublicUser(updated);
+    },
+
+    async updateOwnProfile(userId, input) {
+      const before = await findUser(userId);
+      const updated: UserRecord = { ...before, userName: input.userName };
+      await users.save(updated);
+      await audit.record({
+        operation: 'UPDATE',
+        targetType: USER_TARGET_TYPE,
+        targetId: userId,
+        actor: userId,
         before: toPublicUser(before),
         after: toPublicUser(updated),
       });

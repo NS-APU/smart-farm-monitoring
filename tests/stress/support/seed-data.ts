@@ -176,7 +176,7 @@ async function seedUsers(container: Container, now: Date, scale: StressScale): P
     await container.repositories.users.save({
       userId: toUserId(stressUserId(index)),
       userName: `負荷試験ユーザー${String(index + 1).padStart(2, '0')}`,
-      role: 'worker',
+      role: 'admin',
       passwordHash,
       createdAt: iso(now.getTime()),
     });
