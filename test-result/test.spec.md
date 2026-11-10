@@ -11,7 +11,7 @@
 ### 1.1 目的と対象
 
 - 目的: 収穫ロボット・スマートハウス向け稼働モニタリング基盤の、すべてのテストの仕様（何を、どの前提・操作で、何を期待して検証しているか）を、ユースケース（[use-cases.md](../docs/10_design/requirements/use-cases.md)）との対応つきで示す。
-- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の25ファイル〔UC-15 が 2 ファイル〕と `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。4 ファイル・4 件。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。3 ファイル・5 件と、認証の `tests/smoke/auth/`。1 ファイル・2 件。`pnpm test:smoke`・`pnpm test:smoke:auth`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
+- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の25ファイル〔UC-15 が 2 ファイル〕と `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。4 ファイル・4 件。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。画面の CSP の確認（`tests/csp/`。1 ファイル・3 件。`pnpm test:csp`。手元で実行。`pnpm test` には含めない）は、37章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。4 ファイル・8 件と、認証の `tests/smoke/auth/`。1 ファイル・2 件。`pnpm test:smoke`・`pnpm test:smoke:auth`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
 - 方針の出典: [test-policy.md](../docs/30_quality/test-policy.md)（種類と役割・配置・カバレッジ目標）、[dev_spec.md](../docs/10_design/functions/dev_spec.md) 5章（UC と画面・API・ジョブの対応）・6章（テスト構成）、[as-built.md](../docs/10_design/architecture/as-built.md) の「テストアーキテクチャ」。
 - テストの種類の役割（test-policy.md・dev_spec.md 6.1）:
 
@@ -21,7 +21,7 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `9b6ccf1`〔Issue #331 のマージ〕に、Issue #332 の変更を加えた状態）
+### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `af964ef`〔Issue #332 のマージ〕に、Issue #127 の変更を加えた状態）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
@@ -35,12 +35,12 @@
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         18 |        410 |
 | 単体: backend/runtime                      |          3 |        122 |
-| 単体: frontend                             |         31 |        553 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
+| 単体: frontend                             |         32 |        555 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |        104 |
 | 結合（`tests/integration/`）               |         49 |       1263 |
-| 合計                                       |        172 |       3901 |
+| 合計                                       |        173 |       3906 |
 
-内訳（2026-11-10 の実測。Issue #318・#115・#330・#331・#332）: E2E 816 件（UC ごと 806 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3085 件・140 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、140 ファイル・3085 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.14%・Branches 95.39%・Functions 99.33%・Lines 99.13%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#332〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜36 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115・#330・#331・#332・#127）: E2E 816 件（UC ごと 806 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3090 件・141 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、141 ファイル・3090 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.14%・Branches 95.39%・Functions 99.33%・Lines 99.13%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#127〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜37 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜36 章（変更・追加したテストの記録）の索引
+### 1.4 14〜37 章（変更・追加したテストの記録）の索引
 
-14〜36 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜37 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -158,6 +158,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 34 | 閲覧の割り当て（ハウスごと）と、閲覧系 API の絞り込み | #330（#116 の子） |
 | 35 | 通知の閲覧範囲（ハウスごと）と、既存の通知の移行 | #331（#116 の子） |
 | 36 | 取り込み・連携のログのハウス別の記録と、一般ユーザー向けの画面 | #332（#116 の子） |
+| 37 | 画面の配信ヘッダー（CSP・frame-ancestors・X-Frame-Options） | #127（#263 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -11973,3 +11974,32 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: 取り込み・連携に関わる UC-11・UC-14・UC-15（2 ファイル）・UC-16（E16-022 を含む）・UC-22 の **157 件が、すべて成功**（E16-022 は、最初の実行で、検証の前提の誤り〔2 つ目のハウスが、既定では存在しない・2 つ目のハウスの評価も連携に積まれる〕が見つかり、直して、再実行して成功）。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認（ハウス別の記録の書き込み・読み取り）は、未確認**（AWS の操作は、ユーザーが行う。DynamoDB Local では、契約テストで確認）
+
+## 37. 画面の配信ヘッダー（CSP・frame-ancestors・X-Frame-Options。Issue #127。#263 の子）で追加・変更したテスト
+
+この章の単体・IaC のテストは、1.2 節の件数に含めている（2026-11-10 の実測）。画面の CSP の確認（`tests/csp/`）と、スモークテスト（`tests/smoke/smoke-04-delivery-headers.ts`）は、件数の表に含めない。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0006・security.md・operations.md 6 章）: 画面（静的ファイル）の応答に、CloudFront の独自の応答ヘッダーポリシー（`StaticHeadersPolicy`）が、これまでのマネージドポリシーと同じヘッダー（HSTS・`X-Content-Type-Options`・`Referrer-Policy`・`X-XSS-Protection`）に加えて、CSP（`infra/lib/content-security-policy.ts`。同じオリジンだけ。`style-src-attr 'unsafe-inline'` は、`style` 属性だけ。`frame-ancestors 'none'`）と、`X-Frame-Options: DENY` を付ける。API（`/api/*`・`/health`）は、これまでのマネージドポリシーのまま。画面の Zod は、`jitless`（CSP のもとで、eval を試して、違反として報告されないため）。
+
+### 37.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| IaC: `infra/test/evaluation-stack.test.ts`（3 件を追加） | CSP の内容（同じオリジンだけ・インラインのスクリプトと eval を許さない・`'unsafe-inline'` は style 属性だけ・`frame-ancestors 'none'`）。画面の配信に、独自の応答ヘッダーポリシー（CSP・`X-Frame-Options: DENY`・HSTS 1 年など）を付ける。API（`/api/*`・`/health`）は、マネージドポリシーのまま |
+| 単体: `tests/unit/frontend/zod-config.test.ts`（新規。2 件） | 画面の Zod の設定（読み込みの前は jitless でなく、後は jitless）。jitless でも、検証の結果は、変わらない |
+| 手元の確認: `tests/csp/csp-01-no-violations.ts`（新規。3 件。`pnpm test:csp`） | 本番ビルドの画面に、CloudFront と同じ CSP を付けて、主な 14 画面を一巡し、違反が出ない。メニューの移動と手動入力の保存（API）でも、違反が出ない。CSP が効いている（インラインのスクリプトは、実行されず、違反として検出される） |
+| スモーク: `tests/smoke/smoke-04-delivery-headers.ts`（新規。3 件。手動実行。AWS で実行） | 画面の応答ヘッダー（CSP・`X-Frame-Options: DENY`・HSTS など。API は、画面の CSP と別）。Cache-Control（`index.html`・`sw.js`・マニフェストは `no-cache`、`assets/` は `immutable`）。実際の画面（ログイン → ダッシュボード）が、CSP のもとで動き、違反が出ない |
+
+### 37.2 変更した既存のテスト
+
+なし。
+
+### 37.3 実測
+
+手元（Windows。2026-11-10）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **141 ファイル・3090 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.14%・Branches 95.39%・Functions 99.33%・Lines 99.13%（基準は、すべて 95% 以上）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- `pnpm test:csp`（空きポート 18787・15173）: **3 件が成功**。最初の実行で、**実際の違反（`script-src eval`）が見つかった**（Zod が、起動時に `new Function` を試す。例外は捕まえて動くが、CSP の違反として報告される）。Zod の `jitless` を設定しても、共有スキーマが、設定より先に実行される（Zod と共有スキーマが、同じチャンクのため）ことが分かり、Zod と設定を専用のチャンクにまとめて解消し、再実行して成功
+- E2E（空きポート 18787・15173）: Zod の設定が、画面全体に影響しないことの確認として、UC-01・03・07・13 の **136 件が、すべて成功**。それ以外の E2E と、負荷テスト（本番ビルドの画面を使う）は、CI（`ci:full`）で確認する（結果は、PR に記載）
+- **AWS での実際の確認（応答ヘッダー・CSP のもとでの画面の動作）は、未確認**（AWS の操作は、ユーザーが行う。`pnpm test:smoke`・ブラウザの開発者ツールのコンソール。operations.md 6 章）

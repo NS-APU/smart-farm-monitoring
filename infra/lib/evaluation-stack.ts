@@ -32,6 +32,8 @@ import {
   FunctionCode,
   FunctionEventType,
   FunctionRuntime,
+  HeadersFrameOption,
+  HeadersReferrerPolicy,
   HttpVersion,
   OriginRequestPolicy,
   PriceClass,
@@ -68,6 +70,7 @@ import {
 } from '../../src/backend/infrastructure/common/auth-policy.ts';
 import { DEFAULT_SITE_ENVIRONMENT, type SiteEnvironment } from './config.ts';
 import { bundledLambdaCode } from './bundle-lambda.ts';
+import { STATIC_CONTENT_SECURITY_POLICY } from './content-security-policy.ts';
 
 /** ファイルの拡張子がないパス（SPA の画面のパス）を、index.html に書き換える。API のパスには、付けない。 */
 export const SPA_REWRITE_CODE = `function handler(event) {
@@ -400,6 +403,32 @@ export class EvaluationStack extends Stack {
       originRequestPolicy: OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
       responseHeadersPolicy: ResponseHeadersPolicy.SECURITY_HEADERS,
     };
+    // 画面（静的ファイル）の応答ヘッダー（Issue #127）。マネージドポリシー SECURITY_HEADERS と同じヘッダーに、CSP（frame-ancestors を含む）を加え、
+    // X-Frame-Options を DENY にする（埋め込みを許さない）。API（/api/*・/health）は、これまでのマネージドポリシーのまま
+    // （API の応答の CSP は、バックエンドが付ける）
+    const staticHeadersPolicy = new ResponseHeadersPolicy(this, 'StaticHeadersPolicy', {
+      comment:
+        '画面の配信: SECURITY_HEADERS と同じヘッダー + CSP・X-Frame-Options DENY（Issue #127）',
+      securityHeadersBehavior: {
+        contentSecurityPolicy: {
+          contentSecurityPolicy: STATIC_CONTENT_SECURITY_POLICY,
+          override: true,
+        },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: HeadersFrameOption.DENY, override: true },
+        referrerPolicy: {
+          referrerPolicy: HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+        strictTransportSecurity: {
+          accessControlMaxAge: Duration.days(365),
+          includeSubdomains: false,
+          preload: false,
+          override: true,
+        },
+        xssProtection: { protection: true, modeBlock: true, override: true },
+      },
+    });
     const distribution = new Distribution(this, 'Distribution', {
       comment: 'smart-farm-monitoring evaluation environment',
       defaultRootObject: 'index.html',
@@ -407,7 +436,7 @@ export class EvaluationStack extends Stack {
         origin: S3BucketOrigin.withOriginAccessControl(siteBucket),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: CachePolicy.CACHING_OPTIMIZED,
-        responseHeadersPolicy: ResponseHeadersPolicy.SECURITY_HEADERS,
+        responseHeadersPolicy: staticHeadersPolicy,
         functionAssociations: [
           { function: spaRewrite, eventType: FunctionEventType.VIEWER_REQUEST },
         ],

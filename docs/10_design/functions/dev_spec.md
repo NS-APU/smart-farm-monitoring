@@ -23,6 +23,7 @@ smart-farm-monitoring/
 ├── vitest.config.ts              # 単体・結合テスト、カバレッジ
 ├── playwright.config.ts          # E2E テスト
 ├── playwright.stress.config.ts   # 負荷テスト（`pnpm test:stress`。6.5）
+├── playwright.csp.config.ts      # 画面の CSP の確認（`pnpm test:csp`。6.7）
 ├── playwright.smoke.config.ts    # サーバーレス環境のスモークテスト・性能の実測（`pnpm test:smoke`。手動実行。6.6）
 ├── dev-ports.ts                  # 開発サーバーのポート（Vite 5173・バックエンド 8787）。playwright.config.ts と vite.config.ts が共有
 ├── .env.example                  # 環境変数の一覧（ダミー値）
@@ -100,6 +101,7 @@ smart-farm-monitoring/
 | `pnpm test:unit` / `pnpm test:e2e` | それぞれのみ |
 | `pnpm data:backup` | データファイル（`PERSISTENCE=file`）のバックアップ・一覧・復元（`backup`・`list`・`restore`。手順は [backup-restore.md](../../40_operations/backup-restore.md)） |
 | `pnpm test:stress` | 負荷テスト（大量データの状態で、全ユースケースの操作の応答時間を計測する。6.5。結果は `./test-result/stresstest.result.log`） |
+| `pnpm test:csp` | 画面の CSP の確認（本番ビルドの画面に、CloudFront と同じ CSP を付けて、主な画面を一巡し、違反が出ないことを確認する。6.7） |
 | `pnpm test:smoke` | サーバーレス環境（評価環境）のスモークテスト・性能の実測（6.6。手動実行。結果は `./test-result/smoketest.result.log`） |
 | `pnpm lint` / `pnpm typecheck` / `pnpm format` | ESLint と oxlint（jsx-a11y）、型検査（共通・backend・frontend・tests）、Prettier |
 | `pnpm dev:backend` / `pnpm dev:frontend` / `pnpm build` | ローカルのバックエンド、Vite の開発サーバー、フロントエンドのビルド |
@@ -437,6 +439,7 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | 結合テスト | `tests/integration/`: Hono アプリ（`app.request`）、サービス + ローカルのアダプタ（メモリ上のデータ、モックの外部サービス、固定した時計）、Repository の契約テスト | Vitest | 外部サービスはモック |
 | E2E テスト | `tests/e2e/UC-NN-<ユースケース名の英語の概略名>.ts`（例: `UC-01-view-dashboard.ts`）、`tests/e2e/scenario-<シナリオの英語の概略名>.ts`（例: `scenario-user-onboarding.ts`）。補助は `tests/e2e/support/` | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ、固定のダミーの初期ユーザー）と Vite を起動 | テスト環境一式（ローカル構成） |
 | 負荷テスト | `tests/stress/stress-NN-<英語の概略名>.ts`（補助は `tests/stress/support/`）。`pnpm test:stress` で実行（`pnpm test` には含めない。6.5） | Playwright（chromium）。`playwright.stress.config.ts` | 同じローカル構成。大量の合成データを、起動時に投入 |
+| 画面の CSP の確認 | `tests/csp/csp-NN-<英語の概略名>.ts`。`pnpm test:csp` で実行（`pnpm test` には含めない。6.7） | Playwright（chromium）。`playwright.csp.config.ts` | 本番ビルドの画面（`vite preview`）と、E2E と同じローカルのバックエンド |
 | スモークテスト・性能の実測（サーバーレス環境） | `tests/smoke/smoke-NN-<英語の概略名>.ts`（補助は `tests/smoke/support/`）。`pnpm test:smoke` で実行（`pnpm test` には含めない。手動実行。6.6） | Playwright（chromium）。`playwright.smoke.config.ts` | AWS 上の評価環境（環境変数で接続先・ユーザーを渡す） |
 | 画面の単体テストの補助 | `tests/support/management-frontend.ts`（API のスタブ（`METHOD /path` → 応答）での、アプリ全体の描画。全権限・権限なしのログイン）。Node の実験的な `localStorage` が jsdom を隠すため、`tests/unit/frontend/setup.ts` でテストごとにメモリ上の実装へ差し替える | - | - |
 | 合成データ | `tests/fixtures/`（匿名化・合成データのみ。意図的に不正な形式のファイルを含む） | - | - |
@@ -506,6 +509,14 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 | 計測・判定 | 負荷テストと同じ部品（`tests/stress/support/recorder.ts` の `measure`・`measureRefresh`）と許容時間（`limits.ts`）を使う。記録の出力先だけ、環境変数 `MEASURE_OUTPUT_DIR`（`playwright.smoke.config.ts` が設定）で `test-result/smoke/` に分ける。時間は、端末のブラウザから見た時間（通信を含む） |
 | 結果 | `test-result/smoketest.result.log`（`tests/smoke/support/smoke-report.ts`。実行日時・端末の環境・許容時間・操作ごとの結果・集計・取り込みの実行時間・判定。環境の URL・ユーザーは載せない） |
 | ほかのジョブ・Lambda の起動 | JB-02〜04 の実行時間と、Lambda の起動の時間（Init Duration）は、CloudWatch Logs で見る（operations.md 7.7） |
+
+### 6.7 画面の CSP の確認（`pnpm test:csp`。Issue #127）
+
+- 目的: 画面（静的ファイル）の配信に付ける CSP（`infra/lib/content-security-policy.ts`。CloudFront の応答ヘッダーポリシーと同じ定数）のもとで、画面が動き、CSP の違反が出ないことを、AWS に適用する前に確かめる
+- 構成: 本番と同じ成果物（`vite build`）を `vite preview` で配信し（開発サーバーは、インラインのスクリプトを注入するため、使えない）、画面（HTML）の応答に CSP を付けて、ローカルのバックエンドと動かす。バックエンド・ブラウザ・ロケールは、E2E と同じ（`playwright.csp.config.ts`）。ポートも同じため、`pnpm test:e2e` と同時に実行しない
+- 内容（`tests/csp/csp-01-no-violations.ts`）: 主な画面（14 画面）を一巡して違反が出ない・メニューの移動と手動入力の保存（API の呼び出し）で違反が出ない・CSP が効いている（インラインのスクリプトは、実行されず、違反として検出される）。違反は、`securitypolicyviolation` イベントとコンソールで検出する（発生元のファイル・行を記録する）
+- 画面の Zod は、`jitless`（`src/frontend/lib/zod-config.ts`）。Zod が eval を試すと、CSP の違反として報告されるため。Zod と設定は、専用のチャンクにまとめて、共有スキーマより先に、設定が実行されるようにしている（`src/frontend/vite.config.ts`）
+- AWS 上の応答ヘッダー・Cache-Control・実際の画面の違反なしは、`pnpm test:smoke`（`tests/smoke/smoke-04-delivery-headers.ts`）で確認する（手動実行）
 
 ## 7. API の補足（入出力の詳細）
 
