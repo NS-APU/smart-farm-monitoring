@@ -26,6 +26,7 @@ import {
 } from './repositories/record-repositories.ts';
 import {
   createPushSubscriptionRepository,
+  createFacilityAccessRepository,
   createUserRepository,
 } from './repositories/user-repositories.ts';
 
@@ -60,6 +61,7 @@ export function createLocalRepositories(options: LocalStoreOptions = {}): LocalR
     auditLogs: createAuditLogRepository(store),
     manualEntries: createManualEntryRepository(store),
     users: createUserRepository(store),
+    facilityAccess: createFacilityAccessRepository(store),
     pushSubscriptions: createPushSubscriptionRepository(store),
     settings: createSettingsRepository(store),
   };

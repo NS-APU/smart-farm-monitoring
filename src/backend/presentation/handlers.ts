@@ -8,6 +8,7 @@
  */
 
 import { AppError } from '@smart-farm/shared/errors';
+import { filterEquipmentTree } from '../application/access/facility-scope.ts';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
 import {
   ChangePasswordRequestSchema,
@@ -29,7 +30,7 @@ import { clientAddressOf } from './client-address.ts';
 import { jsonWithEtag } from './etag.ts';
 import { createManualEntryHandlers } from './manual-entry-handlers.ts';
 import { HorizonQuerySchema, NotificationFilterSchema, toOptionalDate } from './query-schemas.ts';
-import { actorOf, resolveEquipmentId } from './request-helpers.ts';
+import { actorOf, resolveEquipmentId, scopeOfRequest } from './request-helpers.ts';
 import { parseInput, parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 import { createViewpointHandlers } from './viewpoint-handlers.ts';
@@ -82,7 +83,10 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
     },
 
     async 'GET /equipment'(c) {
-      return c.json(await deps.equipmentService.getTree());
+      // 閲覧できるハウス（と配下）だけ（管理者は全部。Issue #330）
+      return c.json(
+        filterEquipmentTree(await scopeOfRequest(c, deps), await deps.equipmentService.getTree()),
+      );
     },
 
     async 'GET /dashboard'(c) {
@@ -91,7 +95,11 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
         c,
         await deps.dashboardQuery.get({
           // 省略時は、最初のハウス（ヘッダーで選択中の設備がない場合）
-          equipmentId: await resolveEquipmentId(deps, query.equipmentId),
+          equipmentId: await resolveEquipmentId(
+            deps,
+            query.equipmentId,
+            await scopeOfRequest(c, deps),
+          ),
           horizon: query.horizon,
           periodDays: query.periodDays,
         }),

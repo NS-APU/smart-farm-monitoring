@@ -10,6 +10,8 @@ import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { AuditService } from '../application/audit/audit-service.ts';
 import type { AuthService } from '../application/auth/auth-service.ts';
 import type { UserService } from '../application/auth/user-service.ts';
+import type { FacilityAccessService } from '../application/access/facility-access-service.ts';
+import type { FacilityScopeService } from '../application/access/facility-scope.ts';
 import type { CriteriaAdminService } from '../application/evaluation/criteria-admin-service.ts';
 import type { IngestionAdminService } from '../application/ingestion/ingestion-admin-service.ts';
 import type { IngestionService } from '../application/ingestion/ingestion-service.ts';
@@ -56,6 +58,8 @@ export interface ApiDeps {
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
   readonly userService: UserService;
+  readonly facilityAccessService: FacilityAccessService;
+  readonly facilityScope: FacilityScopeService;
   readonly ingestionAdminService: IngestionAdminService;
   readonly ingestionService: IngestionService;
   readonly pushSubscriptionService: PushSubscriptionService;

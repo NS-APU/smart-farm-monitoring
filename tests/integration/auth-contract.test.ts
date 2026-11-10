@@ -83,6 +83,7 @@ function build(
     clock,
     sessions: auth,
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
     // 新しいセッションが有効になるのを待つ間（実際は待つ）、時計を進める（凍結した時計では、待っても、時間が進まないため）
     delay: (milliseconds) => {
       clock.advance(milliseconds);

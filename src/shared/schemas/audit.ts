@@ -13,6 +13,7 @@ export const AUDIT_TARGET_TYPES = [
   'equipment',
   'status-code',
   'user',
+  'facility-access',
   'ingestion-settings',
 ] as const;
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];

@@ -11,6 +11,7 @@ import { createIngestionHandlers } from './ingestion-handlers.ts';
 import { createPushSubscriptionHandlers } from './push-subscription-handlers.ts';
 import type { RouteHandler } from './route-types.ts';
 import { createStatusCodeHandlers } from './status-code-handlers.ts';
+import { createFacilityAccessHandlers } from './facility-access-handlers.ts';
 import { createUserHandlers } from './user-handlers.ts';
 
 export function createAdminHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
@@ -19,6 +20,7 @@ export function createAdminHandlers(deps: ApiDeps): Readonly<Record<string, Rout
     ...createStatusCodeHandlers(deps),
     ...createCriteriaHandlers(deps),
     ...createUserHandlers(deps),
+    ...createFacilityAccessHandlers(deps),
     ...createIngestionHandlers(deps),
     ...createPushSubscriptionHandlers(deps),
   };

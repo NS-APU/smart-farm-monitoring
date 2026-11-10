@@ -176,4 +176,12 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'POST', path: '/users', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'PUT', path: '/users/:userId', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'DELETE', path: '/users/:userId', access: 'user:manage', useCases: ['UC-14'] },
+  // 閲覧の割り当て（ハウスごと。SC-14。Issue #330）
+  { method: 'GET', path: '/facility-access', access: 'user:manage', useCases: ['UC-14'] },
+  {
+    method: 'PUT',
+    path: '/facility-access/:facilityId',
+    access: 'user:manage',
+    useCases: ['UC-14'],
+  },
 ];

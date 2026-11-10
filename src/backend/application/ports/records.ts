@@ -33,6 +33,16 @@ export const UserRecordSchema = z.object({
 });
 export type UserRecord = z.infer<typeof UserRecordSchema>;
 
+/**
+ * 閲覧の割り当て（ハウスごと。Issue #330。ADR-0013）。このハウス（配下のロボット・センサーを含む）を、閲覧できる一般ユーザー。
+ * 設備の記録には持たない（設備の階層は、全員に返すため、ほかのユーザーの ID が漏れる）。管理者は、全ハウスを閲覧できる（記録の対象外）。
+ */
+export const FacilityAccessRecordSchema = z.object({
+  facilityId: EquipmentIdSchema,
+  userIds: z.array(UserIdSchema),
+});
+export type FacilityAccessRecord = z.infer<typeof FacilityAccessRecordSchema>;
+
 /** 取り込み済みファイルの記録（再取り込みの防止。FR-1.6）。 */
 export const IngestedFileRecordSchema = z.object({
   sourceId: z.string(),

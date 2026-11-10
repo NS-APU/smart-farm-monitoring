@@ -84,6 +84,7 @@ async function build(revokedNewSessions: number) {
     clock,
     sessions,
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
     delay(milliseconds) {
       delays.push(milliseconds);
       return Promise.resolve();
