@@ -50,6 +50,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { FacilityIngestionView } from './facility-ingestion-view.tsx';
 
 const TEXT = MESSAGES.ingestion;
 const LOG_PAGE_SIZE = 10;
@@ -798,20 +799,11 @@ function FederationTable(props: {
 }
 
 /**
- * 取り込みの設定・状況・ログ。閲覧の権限（ingestion:read）がない利用者（一般）には、権限がない旨だけを示し、取得しない
- * （設備ごとに絞れるようになるまで、管理者のみ。ADR-0013。Issue #116）。
+ * 取り込みの設定・状況・ログ。閲覧の権限（ingestion:read）がない利用者（一般）には、閲覧できるハウスの、取り込み・連携の記録だけを示す
+ * （設定・接続先・失敗の理由・全体の件数は、取得も表示もしない。ADR-0013。Issue #332）。
  */
 export function IngestionPage(): ReactNode {
-  return usePermission('ingestion:read') ? (
-    <IngestionContent />
-  ) : (
-    <div className="ingestion-page">
-      <div className="page-head">
-        <h1>{TEXT.title}</h1>
-      </div>
-      <PermissionNotice message={TEXT.forbidden} />
-    </div>
-  );
+  return usePermission('ingestion:read') ? <IngestionContent /> : <FacilityIngestionView />;
 }
 
 function IngestionContent(): ReactNode {

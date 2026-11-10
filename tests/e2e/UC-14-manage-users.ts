@@ -493,7 +493,7 @@ test.describe('権限: ユーザーを管理する権限のない利用者（閲
 });
 
 test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・権限の分割（Issue #115。ADR-0013。FR-9.5・FR-9.7）', () => {
-  test('一般には、メニューに「取り込み」「ユーザー」を表示せず、直接開いても権限がない旨を示す。サーバー側でも拒否し、手動入力はできる', async ({
+  test('一般には、メニューに「ユーザー」を表示せず、直接開いても権限がない旨を示す。「取り込み」は、閲覧できるハウスの記録だけを示す。管理用の API は、サーバー側でも拒否し、手動入力はできる', async ({
     page,
     request,
   }, testInfo) => {
@@ -503,13 +503,14 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await openAs(page, '/', GENERAL);
     const menu = page.getByRole('navigation', { name: 'メニュー' });
     await expect(menu.getByRole('link', { name: 'ユーザー', exact: true })).toHaveCount(0);
-    await expect(menu.getByRole('link', { name: '取り込み', exact: true })).toHaveCount(0);
+    await expect(menu.getByRole('link', { name: '取り込み', exact: true })).toBeVisible();
     await expect(menu.getByRole('link', { name: '設備', exact: true })).toBeVisible();
 
     await page.goto('/settings/ingestion');
-    await expect(page.getByTestId('permission-notice')).toHaveText(
-      '取り込みの設定・状況・ログを閲覧する権限がありません',
-    );
+    await expect(
+      page.getByRole('heading', { name: '取り込み・連携の記録', level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByTestId('source-robot')).toHaveCount(0);
     await page.goto('/settings/users');
     await expect(page.getByTestId('permission-notice')).toHaveText(
       'ユーザーを管理する権限がありません',

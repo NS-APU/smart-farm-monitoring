@@ -28,6 +28,8 @@ import {
 } from '@smart-farm/shared/schemas/equipment';
 import {
   ConnectionTestResponseSchema,
+  FacilityFederationLogListResponseSchema,
+  FacilityIngestionLogListResponseSchema,
   FederationLogListResponseSchema,
   IngestionCredentialStatusSchema,
   IngestionLogListResponseSchema,
@@ -329,5 +331,27 @@ export function listFederationLogs(
   return api.request('/federation/logs', {
     query: { ...params },
     schema: FederationLogListResponseSchema,
+  });
+}
+
+/** ハウス別の取り込みの記録（閲覧できるハウスの分だけ。一般ユーザー向け。Issue #332）。 */
+export function listFacilityIngestionLogs(
+  api: ApiClient,
+  params: { readonly limit?: number; readonly cursor?: string },
+) {
+  return api.request('/ingestion/facility-logs', {
+    query: { ...params },
+    schema: FacilityIngestionLogListResponseSchema,
+  });
+}
+
+/** ハウス別の連携の記録（閲覧できるハウスの分だけ。一般ユーザー向け。Issue #332）。 */
+export function listFacilityFederationLogs(
+  api: ApiClient,
+  params: { readonly limit?: number; readonly cursor?: string },
+) {
+  return api.request('/federation/facility-logs', {
+    query: { ...params },
+    schema: FacilityFederationLogListResponseSchema,
   });
 }

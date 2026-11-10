@@ -410,7 +410,19 @@ export const MANAGEMENT_MESSAGES = {
     federationMessage: '内容',
     federationEmpty: '連携の記録はありません',
     readOnly: '取り込みを設定・実行する権限がありません。参照のみできます',
-    forbidden: '取り込みの設定・状況・ログを閲覧する権限がありません',
     reload: '最新の状況を読み込む',
+    /** 取り込みの参照権限がない利用者（一般）向け。閲覧できるハウスの記録だけ（Issue #332）。 */
+    facilityView: {
+      title: '取り込み・連携の記録',
+      lead: '閲覧できるハウスの、ファイルサーバーからの取り込みと、農業情報基盤への連携の記録です。取り込みの設定・接続先・失敗の理由は、管理者が確認します',
+      ingestion: '取り込みの記録',
+      federation: '農業情報基盤への連携の記録',
+      federationLead:
+        '連携の結果（成功・失敗・保留・期限切れ）と、ハウスごとの項目数です。保留・失敗は、自動でやり直します',
+      facility: 'ハウス',
+      resultLabels: { SUCCESS: '成功', FAILURE: '失敗' },
+      ingestionEmpty: '閲覧できるハウスの取り込みの記録はありません',
+      federationEmpty: '閲覧できるハウスの連携の記録はありません',
+    },
   },
 } as const;

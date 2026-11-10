@@ -15,11 +15,13 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   VIEWER,
   addUser,
   advanceMinutes,
   alignBrowserClock,
   api,
+  apiOk,
   goToMenu,
   openAs,
   placeFile,
@@ -483,5 +485,55 @@ test.describe('代替フロー: 失敗や保留が続く場合は、設定の見
     await expect(page).toHaveURL(/\/settings\/ingestion$/);
     await expect(page.getByTestId('ingestion-logs')).toBeVisible();
     await expect(page.getByTestId('federation-section')).toBeVisible();
+  });
+});
+
+test.describe('ハウス別の記録（一般ユーザー向け。Issue #332。ADR-0013。FR-9.8）', () => {
+  test('一般ユーザーには、割り当てたハウスの取り込み・連携の記録だけを示す。設定・接続先・失敗の理由・連携キューの件数は、示さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    placeFixture('robot', 'robot/robot-sample-001.json');
+    await runIngestionApi(request, 'robot');
+    await runJob(request, 'JB-03');
+    await addUser(request, GENERAL);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-01', { userIds: [GENERAL.userId] });
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+
+    await goToMenu(page, '取り込み');
+
+    await expect(page).toHaveURL(/\/settings\/ingestion$/);
+    await expect(
+      page.getByRole('heading', { name: '取り込み・連携の記録', level: 1 }),
+    ).toBeVisible();
+    const ingestion = page.getByTestId('facility-ingestion-row');
+    await expect(ingestion.first()).toContainText('ハウス1');
+    await expect(ingestion.first()).toContainText('ロボットデータ');
+    await expect(ingestion.first()).toContainText('成功');
+    await expect(page.getByTestId('facility-federation-row').first()).toContainText('ハウス1');
+    // 管理者向けの内容（設定・接続先・認証情報・エラー内容・連携キューの件数）は、示さない
+    await expect(page.getByTestId('source-robot')).toHaveCount(0);
+    await expect(page.getByTestId('federation-queue')).toHaveCount(0);
+    await expect(page.getByTestId('ingestion-logs')).toHaveCount(0);
+    await expect(page.getByText('認証情報')).toHaveCount(0);
+    await shot(page, testInfo, 'uc16-facility-logs');
+
+    // 割り当てを別のハウスに変えると、記録は示さない（すぐに反映される）
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-01', { userIds: [] });
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-02', { userIds: [GENERAL.userId] });
+    await page.reload();
+    await expect(page.getByTestId('facility-ingestion-empty')).toHaveText(
+      '閲覧できるハウスの取り込みの記録はありません',
+    );
+    // 連携は、ハウス 2 の評価の分だけ（ハウス 1 の記録は、示さない）
+    await expect(page.getByTestId('facility-federation-row').first()).toContainText('ハウス2');
+    await expect(page.getByTestId('facility-federation').getByText('ハウス1')).toHaveCount(0);
   });
 });

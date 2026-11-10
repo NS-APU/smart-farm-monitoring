@@ -100,7 +100,7 @@ describe('共通のレイアウト', () => {
     ]);
   });
 
-  it('一般（手動入力の権限だけ）には、権限のない「取り込み」「ユーザー」を表示しない', async () => {
+  it('一般（手動入力の権限だけ）には、権限のない「ユーザー」を表示しない。「取り込み」は、閲覧できるハウスの記録として表示する（#332）', async () => {
     renderApp(0, {
       ...WORKER_LOGIN,
       user: { ...WORKER_LOGIN.user, permissions: ['manual-entry:write'] },
@@ -110,6 +110,7 @@ describe('共通のレイアウト', () => {
     const group = menu.querySelector('details');
     expect(Array.from(group?.querySelectorAll('a') ?? []).map((link) => link.textContent)).toEqual([
       '設備',
+      '取り込み',
       'ステータスコード',
       '通知の設定',
     ]);

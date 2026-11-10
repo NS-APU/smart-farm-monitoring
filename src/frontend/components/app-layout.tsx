@@ -37,12 +37,8 @@ const NAV_ITEMS: readonly NavItem[] = [
 /** 「設定」の下にまとめる項目（機能仕様書 2.3）。 */
 const SETTINGS_ITEMS: readonly NavItem[] = [
   { to: PATHS.settingsEquipment, label: MESSAGES.nav.equipment, icon: 'nav-equipment' },
-  {
-    to: PATHS.settingsIngestion,
-    label: MESSAGES.nav.ingestion,
-    icon: 'nav-ingestion',
-    permission: 'ingestion:read',
-  },
+  // 取り込みの参照権限がない利用者（一般）には、閲覧できるハウスの記録だけを示す（Issue #332）。メニューは、全員に表示する
+  { to: PATHS.settingsIngestion, label: MESSAGES.nav.ingestion, icon: 'nav-ingestion' },
   { to: PATHS.settingsStatusCodes, label: MESSAGES.nav.statusCodes, icon: 'nav-status-codes' },
   {
     to: PATHS.settingsUsers,
