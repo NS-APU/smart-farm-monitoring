@@ -21,6 +21,7 @@ const TEXT = MESSAGES.entry;
 
 export function DataEntryPage(): ReactNode {
   const canWrite = usePermission('manual-entry:write');
+  const canViewAll = usePermission('equipment:view-all');
   const { equipmentTree } = useAppState();
   const [result, setResult] = useState<ManualEntrySaveResponse | undefined>(undefined);
 
@@ -43,10 +44,16 @@ export function DataEntryPage(): ReactNode {
       ) : equipmentTree.facilities.length === 0 ? (
         <div className="notice notice-warning" role="status" data-testid="no-equipment">
           <Icon name="status-caution" size={18} />
-          <p>{TEXT.noEquipment}</p>
-          <p className="notice-links">
-            <Link to={PATHS.settingsEquipment}>{TEXT.goEquipment}</Link>
-          </p>
+          {canViewAll ? (
+            <>
+              <p>{TEXT.noEquipment}</p>
+              <p className="notice-links">
+                <Link to={PATHS.settingsEquipment}>{TEXT.goEquipment}</Link>
+              </p>
+            </>
+          ) : (
+            <p>{TEXT.noViewableFacility}</p>
+          )}
         </div>
       ) : (
         <section className="panel" aria-label={TEXT.title}>

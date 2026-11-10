@@ -17,7 +17,7 @@ import {
 import { ManualEntryInputSchema } from '@smart-farm/shared/schemas/manual-entry';
 import type { ApiDeps, AppEnv } from './api-deps.ts';
 import { SortDirectionSchema, toOptionalDate } from './query-schemas.ts';
-import { actorOf, pathParam } from './request-helpers.ts';
+import { actorOf, pathParam, scopeOfRequest } from './request-helpers.ts';
 import { parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 
@@ -48,7 +48,10 @@ export function createManualEntryHandlers(deps: ApiDeps): Readonly<Record<string
   return {
     async 'POST /manual-entries'(c) {
       const input = await parseJsonBody(c, ManualEntryInputSchema);
-      return c.json(await deps.manualEntryService.create(input, actorOf(c)), 201);
+      return c.json(
+        await deps.manualEntryService.create(input, actorOf(c), await scopeOfRequest(c, deps)),
+        201,
+      );
     },
 
     async 'GET /manual-entries'(c) {
@@ -58,6 +61,7 @@ export function createManualEntryHandlers(deps: ApiDeps): Readonly<Record<string
           keyword: query.q,
           category: query.category,
           equipmentId: query.equipmentId,
+          scope: await scopeOfRequest(c, deps),
           from: toOptionalDate(query.from),
           to: toOptionalDate(query.to),
           sort: query.sort,
@@ -70,11 +74,18 @@ export function createManualEntryHandlers(deps: ApiDeps): Readonly<Record<string
 
     async 'PUT /manual-entries/:entryId'(c) {
       const input = await parseJsonBody(c, ManualEntryInputSchema);
-      return c.json(await deps.manualEntryService.update(entryIdOf(c), input, actorOf(c)));
+      return c.json(
+        await deps.manualEntryService.update(
+          entryIdOf(c),
+          input,
+          actorOf(c),
+          await scopeOfRequest(c, deps),
+        ),
+      );
     },
 
     async 'DELETE /manual-entries/:entryId'(c) {
-      await deps.manualEntryService.delete(entryIdOf(c), actorOf(c));
+      await deps.manualEntryService.delete(entryIdOf(c), actorOf(c), await scopeOfRequest(c, deps));
       return c.body(null, 204);
     },
 

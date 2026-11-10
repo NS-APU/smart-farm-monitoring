@@ -34,7 +34,11 @@ import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/source-items.ts';
 import type { AuditService } from '../audit/audit-service.ts';
-import { requireActiveEquipment } from '../equipment/require-active-equipment.ts';
+import { ALL_EQUIPMENT, canViewEquipment, type EquipmentScope } from '../access/facility-scope.ts';
+import {
+  EQUIPMENT_NOT_FOUND_MESSAGE,
+  requireActiveEquipment,
+} from '../equipment/require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
@@ -50,6 +54,8 @@ export interface ManualEntryListQuery {
   readonly keyword?: string | undefined;
   readonly category?: Category | undefined;
   readonly equipmentId?: EquipmentId | undefined;
+  /** 閲覧範囲（省略は全設備。Issue #330）。 */
+  readonly scope?: EquipmentScope | undefined;
   readonly from?: Date | undefined;
   readonly to?: Date | undefined;
   readonly sort: ManualEntrySortKey;
@@ -58,11 +64,24 @@ export interface ManualEntryListQuery {
   readonly cursor?: string | undefined;
 }
 
+/**
+ * 閲覧範囲（`scope`。省略は全設備。Issue #330）: 範囲外の設備への登録・範囲外の設備の入力の修正・削除・範囲外の設備への付け替えは、存在しないもの（NOT_FOUND）。
+ * 一覧は、範囲内の設備の入力だけ。範囲内の入力は、他人の入力にも、修正・削除できる（ADR-0013）。
+ */
 export interface ManualEntryService {
-  create(input: ManualEntryInput, actor: UserId): Promise<ManualEntrySaveResponse>;
-  update(entryId: string, input: ManualEntryInput, actor: UserId): Promise<ManualEntrySaveResponse>;
+  create(
+    input: ManualEntryInput,
+    actor: UserId,
+    scope?: EquipmentScope,
+  ): Promise<ManualEntrySaveResponse>;
+  update(
+    entryId: string,
+    input: ManualEntryInput,
+    actor: UserId,
+    scope?: EquipmentScope,
+  ): Promise<ManualEntrySaveResponse>;
   /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。 */
-  delete(entryId: string, actor: UserId): Promise<void>;
+  delete(entryId: string, actor: UserId, scope?: EquipmentScope): Promise<void>;
   list(query: ManualEntryListQuery): Promise<ManualEntryListResponse>;
 }
 
@@ -229,17 +248,26 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     return found.filter((status): status is ManualEntryViewpointStatus => status !== undefined);
   }
 
-  async function findEntry(entryId: string): Promise<ManualEntry> {
+  async function findEntry(entryId: string, scope: EquipmentScope): Promise<ManualEntry> {
     const entry = await repositories.manualEntries.get(entryId);
-    if (entry === undefined || entry.isDeleted) {
+    // 範囲外の設備の入力は、存在しないものとして扱う（設備の有無を、漏らさない）
+    if (entry === undefined || entry.isDeleted || !canViewEquipment(scope, entry.equipmentId)) {
       throw new AppError('NOT_FOUND', '入力データが見つかりません');
     }
     return entry;
   }
 
+  /** 閲覧範囲の設備か（範囲外は、存在しないもの）。 */
+  function assertInScope(scope: EquipmentScope, equipmentId: EquipmentId): void {
+    if (!canViewEquipment(scope, equipmentId)) {
+      throw new AppError('NOT_FOUND', EQUIPMENT_NOT_FOUND_MESSAGE);
+    }
+  }
+
   return {
-    async create(input, actor) {
+    async create(input, actor, scope = ALL_EQUIPMENT) {
       assertValid(input);
+      assertInScope(scope, input.equipmentId);
       await findActiveEquipment(input.equipmentId);
       const entryId = ids.next();
       await assertNoConflict(input, entryId);
@@ -272,9 +300,10 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       };
     },
 
-    async update(entryId, input, actor) {
-      const before = await findEntry(entryId);
+    async update(entryId, input, actor, scope = ALL_EQUIPMENT) {
+      const before = await findEntry(entryId, scope);
       assertValid(input);
+      assertInScope(scope, input.equipmentId);
       await findActiveEquipment(input.equipmentId);
       await assertNoConflict(input, entryId);
 
@@ -308,8 +337,8 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       };
     },
 
-    async delete(entryId, actor) {
-      const before = await findEntry(entryId);
+    async delete(entryId, actor, scope = ALL_EQUIPMENT) {
+      const before = await findEntry(entryId, scope);
       const deleted: ManualEntry = {
         ...before,
         isDeleted: true,
@@ -330,6 +359,10 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     },
 
     async list(query) {
+      const scope = query.scope ?? ALL_EQUIPMENT;
+      if (query.equipmentId !== undefined) {
+        assertInScope(scope, query.equipmentId);
+      }
       const equipmentNames = new Map(
         (await repositories.equipment.list({ includeDeleted: true })).map((equipment) => [
           equipment.equipmentId,
@@ -345,11 +378,12 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
             from: query.from,
             to: query.to,
           }),
-          ...(keyword === ''
+          ...(keyword === '' && scope.kind === 'all'
             ? {}
             : {
                 matches: (entry: ManualEntry) =>
-                  entryMatchesKeyword(entry, keyword, equipmentNames),
+                  canViewEquipment(scope, entry.equipmentId) &&
+                  (keyword === '' || entryMatchesKeyword(entry, keyword, equipmentNames)),
               }),
         },
         { limit: query.limit, cursor: query.cursor },

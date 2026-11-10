@@ -19,7 +19,11 @@ import { createObservationRepository } from './observation-repository.ts';
 import type { Database } from './operations.ts';
 import { createAuditLogRepository, createManualEntryRepository } from './record-repositories.ts';
 import type { TableNames } from './table-schema.ts';
-import { createPushSubscriptionRepository, createUserRepository } from './user-repositories.ts';
+import {
+  createFacilityAccessRepository,
+  createPushSubscriptionRepository,
+  createUserRepository,
+} from './user-repositories.ts';
 
 export interface DynamoRepositoriesOptions {
   readonly client: DynamoDBDocumentClient;
@@ -45,6 +49,7 @@ export function createDynamoRepositories(options: DynamoRepositoriesOptions): Re
     auditLogs: createAuditLogRepository(db),
     manualEntries: createManualEntryRepository(db),
     users: createUserRepository(db),
+    facilityAccess: createFacilityAccessRepository(db),
     pushSubscriptions: createPushSubscriptionRepository(db),
     settings: createSettingsRepository(db),
   };

@@ -1,10 +1,12 @@
 /** ユーザーと Web Push の購読の Repository（ローカル実装）。 */
 
 import {
+  FacilityAccessRecordSchema,
   PushSubscriptionRecordSchema,
   UserRecordSchema,
 } from '../../../application/ports/records.ts';
 import type {
+  FacilityAccessRepository,
   PushSubscriptionRepository,
   UserRepository,
 } from '../../../application/ports/repositories.ts';
@@ -21,6 +23,23 @@ export function createUserRepository(store: LocalStore): UserRepository {
       ),
     save: saverOf(users),
     delete: deleterOf(users),
+  };
+}
+
+export function createFacilityAccessRepository(store: LocalStore): FacilityAccessRepository {
+  const access = store.collection(
+    'facilityAccess',
+    FacilityAccessRecordSchema,
+    (item) => item.facilityId,
+  );
+  return {
+    get: (facilityId) => Promise.resolve(access.get(facilityId)),
+    list: () =>
+      Promise.resolve(
+        access.values().sort((left, right) => left.facilityId.localeCompare(right.facilityId)),
+      ),
+    save: saverOf(access),
+    delete: deleterOf(access),
   };
 }
 

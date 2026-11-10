@@ -130,7 +130,7 @@
 
 | 利用者       | 実装での扱い                                                                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 管理者       | ロール `admin`。全 9 権限を持つ（ADR-0013。最初のユーザー〔`pnpm initial-user`〕のロール）。ロール・権限は、設定（`ROLE_DEFINITIONS_JSON`）で変えられる |
+| 管理者       | ロール `admin`。全 10 権限を持つ（全設備を閲覧する `equipment:view-all` を含む）（ADR-0013。最初のユーザー〔`pnpm initial-user`〕のロール）。ロール・権限は、設定（`ROLE_DEFINITIONS_JSON`）で変えられる |
 | 一般         | ロール `general`。手動入力（`manual-entry:write`）と、ログインしていれば使える操作（参照・既読・Web Push の購読・自身のユーザー名の編集・パスワードの変更）ができる。取り込みの状況・ログは、管理者のみ（`ingestion:read`）。閲覧できる設備の割り当ては未実装（#116。それまでは、全設備）。E2E のサーバーは、`admin`・`general` に、参照のみの確認用の `viewer`（`ingestion:read` のみ）を加えて起動する |
 | システム     | スケジューラ（`Scheduler`）と、取り込み・評価・連携・通知の配信のジョブ（JB-01〜JB-04）                                                                                                                  |
 | 外部システム | ファイルサーバー（ロボットデータ・環境センサーデータ。実装はモック）、農業情報基盤（連携先。実装はモック）                                                                                               |
@@ -156,7 +156,7 @@
 | SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 閲覧は `ingestion:read`（ないと、権限がない旨だけを示す。メニューにも出ない）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
 | SC-12 | ステータスコード管理                                     | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
 | SC-13 | 判断基準の編集                                           | `/viewpoints/:viewpointId/criteria` | `criteria-edit-page.tsx`                       | 参照は要ログイン、編集は `criteria:edit`                                               |
-| SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
+| SC-14 | ユーザー管理（と、閲覧の割り当て）                       | `/settings/users`                   | `users-page.tsx`・`facility-access-section.tsx` | `user:manage`（権限がないとメニューにも出ない）。閲覧の割り当て（ハウス×一般ユーザーの表。#330）を含む |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
 共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・未読の通知の件数・最終のデータ取得日時・メニュー・ログイン中のユーザー・ログアウトがある。
@@ -185,6 +185,7 @@
 |                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`                                                                   | `ingestion:configure`                 |
 |                                | `POST /ingestion/:sourceId/test`・`POST /ingestion/:sourceId/run`                                                                   | `ingestion:run`                       |
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
+| 閲覧の割り当て                 | `GET /facility-access`・`PUT /facility-access/:facilityId`                                                                          | `user:manage`                         |
 | ヘルスチェック                 | `GET /health`（`/api/v1` の外）                                                                                                     | 認証なし。外部の状態に依存しない      |
 | 開発用（ローカル・テストのみ） | `/api/v1/dev/*`（時計・ジョブ・スケジューラ・モックの停止と遅延・データのリセットと投入）                                           | 要ログインのみ（権限なし。課題 I-01） |
 
@@ -282,7 +283,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 | use-cases.md のアクター | 実装での扱い                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------- |
-| 農作業者                | 権限を持つロール（既定は、管理者 `admin`＝全 9 権限、一般 `general`＝手動入力のみ）でログインした利用者 |
+| 農作業者                | 権限を持つロール（既定は、管理者 `admin`＝全 10 権限、一般 `general`＝手動入力のみ）でログインした利用者 |
 | 閲覧者                  | 権限なしのロール（例: E2E の `viewer`）でログインした利用者。コード上は固定のロールではない |
 | （システム）            | `Scheduler` と `JobRunner`（JB-01〜JB-04）                                                  |
 | ファイルサーバー        | `FileSourcePort` の先。取り込み（UC-08・UC-09）で読み取られる（実装はモック）               |
@@ -816,7 +817,7 @@ classDiagram
 
 ## 永続化のコレクション（ローカルの Repository）
 
-`createLocalRepositories`（`local-repositories.ts`。集約ごとの実装は `local/repositories/`）が、`LocalStore` に 19 のコレクションを登録する。読み込み時に、Zod のスキーマで検証する（壊れたデータを内部に渡さない）。
+`createLocalRepositories`（`local-repositories.ts`。集約ごとの実装は `local/repositories/`）が、`LocalStore` に 20 のコレクションを登録する。読み込み時に、Zod のスキーマで検証する（壊れたデータを内部に渡さない）。
 
 | コレクション          | 型                     | キー                                        |
 | --------------------- | ---------------------- | ------------------------------------------- |
@@ -837,6 +838,7 @@ classDiagram
 | `auditLogs`           | AuditLogEntry          | `auditId`                                   |
 | `manualEntries`       | ManualEntry            | `entryId`                                   |
 | `users`               | UserRecord             | `userId`                                    |
+| `facilityAccess`      | FacilityAccessRecord   | `facilityId`（#330）                        |
 | `pushSubscriptions`   | PushSubscriptionRecord | `sub-<利用者と宛先の SHA-256 の先頭 24 桁>` |
 | `settings`            | キーと値               | `key`（現状は `ingestion.sources` のみ）    |
 
@@ -1123,7 +1125,7 @@ flowchart LR
 ```
 
 - **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回（既定。環境変数で変えられる）に達すると、`RATE_LIMITED`（429）
-- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、`admin`（管理者。全 9 権限）・`general`（一般。`manual-entry:write` のみ）の 2 ロール（ADR-0013）。以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles`（`runtime/migrate-user-roles-cli.ts`）で移す
+- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、`admin`（管理者。全 10 権限）・`general`（一般。`manual-entry:write` のみ）の 2 ロール（ADR-0013）。**閲覧範囲**: `FacilityScope`（`application/access/facility-scope.ts`）が、リクエストごとに、権限 `equipment:view-all`（既定では管理者）がある利用者は全設備、ほかは、ハウスごとの割り当て（`facilityAccess`。管理は `FacilityAccessService`）に含まれるハウスと、配下のロボット・センサーに絞る（削除済み・存在しないハウスの割り当ては無効。割り当てがなければ、何も閲覧できない）。範囲外の設備は、存在しないもの（404）として扱う。適用先: 設備の階層（`GET /equipment`）・ダッシュボード・観点の詳細・推移（`resolveEquipmentId`）・観測値の一覧（`ObservationQuery`。範囲内の設備だけ）・手動入力の一覧・登録・修正・削除（`ManualEntryService`。範囲外の設備への登録・付け替えも 404。他人の入力にも、範囲内なら、修正・削除できる）。**通知（#331）・取り込み/連携のログ（#332）は、未適用**以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles`（`runtime/migrate-user-roles-cli.ts`）で移す
 - **ルートごとの宣言**: `route-table.ts` の `access`（`PUBLIC`・`LOGIN`・権限名）。`createApp` は、すべてのルートにハンドラがなければ起動時にエラーにする（認可の宣言だけが残ることを防ぐ）
 - **ロール・権限の変更**: `verifyAccessToken` が、リクエストごとにユーザーを引き直し、`permissionsOf` が、設定から権限を導く。ユーザーの削除・ロールの変更は、次のリクエストから効く。画面の権限（メニュー・ボタンの表示）は、ログイン・セッション更新時の値
 - **画面側**: `usePermission(permission)`、メニューの権限による絞り込み（`/settings/users` は `user:manage`、`/settings/ingestion` は `ingestion:read`）、権限のない操作の案内（`PermissionNotice`）。表示制御のみで、サーバー側の拒否が正
@@ -1138,7 +1140,8 @@ flowchart LR
 | `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
 | `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset` | SC-13        |
-| `user:manage`         | `/users` の 4 ルート                                                  | SC-14        |
+| `equipment:view-all`  | 権限を要求するルートはない。閲覧範囲の判定（全設備を閲覧できるか）に使う（#330）                    | -            |
+| `user:manage`         | `/users` の 4 ルート・`/facility-access` の 2 ルート                  | SC-14        |
 | `audit:read`          | `GET /audit-logs`                                                     | SC-08        |
 
 ## 設定・環境変数
@@ -2520,8 +2523,8 @@ for 区間:
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
 | 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
-| 単体テスト（frontend） | `tests/unit/frontend/`（29 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（42 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 単体テスト（frontend） | `tests/unit/frontend/`（30 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
+| 結合テスト             | `tests/integration/`（44 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
 | 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
@@ -2651,7 +2654,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
-| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）                                                                                                                   |
+| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`facility-access`・`facility-scope-api`（閲覧の割り当て・閲覧範囲の絞り込み。#330）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）・`frontend/facility-access-section.test.tsx`（閲覧の割り当ての表。#330）                                                                                                                   |
 | UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`ingestion-connection.test.tsx`                                                                                                               |
 | UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`・`frontend/stale-chunk.test.tsx`（古い画面の部品の取得の失敗。#323）                                                                                                            |
 | UC-18     | `UC-18-manage-entries.ts`                                         | `management-api`（入力済みデータの管理・変更履歴）                                                           | `frontend/entry-pages.test.tsx`                                                                                                                  |
@@ -2685,39 +2688,39 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-09 の実測。PR #324 の時点）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #330 の後）
 
-計測対象は 274 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（130 ファイル・2946 件成功・2 件スキップ）。
+計測対象は 282 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（134 ファイル・2996 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.2%  | 6,968／7,024         | 95% 以上 |
-| 文   | 99.21% | 7,203／7,260         | 95% 以上 |
-| 関数 | 99.52% | 2,102／2,112         | 95% 以上 |
-| 分岐 | 95.58% | 4,305／4,504         | 95% 以上 |
+| 行   | 99.18% | 7,191／7,250 | 95% 以上 |
+| 文   | 99.19% | 7,436／7,496 | 95% 以上 |
+| 関数 | 99.45% | 2,182／2,194 | 95% 以上 |
+| 分岐 | 95.55% | 4,432／4,638 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
 | 対象                         | 行     | 文     | 関数   | 分岐   |
 | ---------------------------- | ------ | ------ | ------ | ------ |
-| `src/shared`                 | 100.0% | 100.0% | 100.0% | 99.46% |
-| `src/backend/domain`         | 98.92% | 98.97% | 99.12% | 96.05% |
-| `src/backend/application`    | 99.34% | 99.28% | 99.07% | 96.76% |
-| `src/backend/infrastructure` | 98.98% | 99.01% | 100.0% | 94.56% |
-| `src/backend/presentation`   | 99.39% | 99.4% | 100.0% | 94.12% |
-| `src/backend/runtime`        | 99.17% | 99.18% | 98.51% | 93.16% |
-| `src/frontend`               | 99.17% | 99.2% | 99.36% | 95.62% |
+| `src/shared` | 100.0% | 100.0% | 100.0% | 99.46% |
+| `src/backend/domain` | 98.92% | 98.97% | 99.12% | 96.05% |
+| `src/backend/application` | 99.38% | 99.33% | 99.15% | 96.45% |
+| `src/backend/infrastructure` | 98.98% | 99.02% | 100.0% | 94.64% |
+| `src/backend/presentation` | 99.4% | 99.41% | 100.0% | 94.31% |
+| `src/backend/runtime` | 98.48% | 98.5% | 95.83% | 93.33% |
+| `src/frontend` | 99.2% | 99.23% | 99.39% | 95.58% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`auth-context.tsx`（66.66%）・`access-policy.ts`（71.42%）ほか（計 25 ファイル。分岐の数が少ないファイルが多い）。行が 0% のファイル: `placeholder-page.tsx`。
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`lambda.ts`（80%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`ingestion-repositories.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・811 件（UC ごと 25 ファイル・801 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・813 件（UC ごと 25 ファイル・803 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-10 の実測（Issue #115 の後）: 130 ファイル・**2946 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 2946 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 41（domain 10・application 9・presentation 1・infrastructure 18・runtime 3）・frontend 29・infra（IaC）6 ファイルと、結合 42 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-10 の実測（Issue #330 の後）: 134 ファイル・**2996 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 2996 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 30・infra（IaC）6 ファイルと、結合 44 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

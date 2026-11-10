@@ -14,6 +14,10 @@ import {
   type UserUpdateRequest,
 } from '@smart-farm/shared/schemas/auth';
 import {
+  FacilityAccessEntrySchema,
+  FacilityAccessResponseSchema,
+} from '@smart-farm/shared/schemas/facility-access';
+import {
   CriteriaViewSchema,
   type CriteriaUpdateRequest,
 } from '@smart-farm/shared/schemas/criteria';
@@ -231,6 +235,19 @@ export function resetCriteria(api: ApiClient, viewpointId: string) {
   return api.request(API_PATHS.viewpointCriteriaReset(viewpointId), {
     method: 'POST',
     schema: CriteriaViewSchema,
+  });
+}
+
+// 閲覧の割り当て（ハウスごと。SC-14。Issue #330）
+export function getFacilityAccess(api: ApiClient) {
+  return api.request('/facility-access', { schema: FacilityAccessResponseSchema });
+}
+
+export function setFacilityAccess(api: ApiClient, facilityId: string, userIds: readonly string[]) {
+  return api.request(`/facility-access/${encodeURIComponent(facilityId)}`, {
+    method: 'PUT',
+    body: { userIds },
+    schema: FacilityAccessEntrySchema,
   });
 }
 

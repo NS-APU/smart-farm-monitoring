@@ -1,7 +1,12 @@
 /** ユーザーと Web Push の購読の Repository（DynamoDB 実装）。少量のため、パーティションの全件を読む。 */
 
-import { PushSubscriptionRecordSchema, UserRecordSchema } from '../../application/ports/records.ts';
+import {
+  FacilityAccessRecordSchema,
+  PushSubscriptionRecordSchema,
+  UserRecordSchema,
+} from '../../application/ports/records.ts';
 import type {
+  FacilityAccessRepository,
   PushSubscriptionRepository,
   UserRepository,
 } from '../../application/ports/repositories.ts';
@@ -10,6 +15,7 @@ import { batchWriteItems, updateItemIf, type Database } from './operations.ts';
 
 const USER = 'USER';
 const PUSH = 'PUSH';
+const FACILITY_ACCESS = 'FACACC';
 
 export function createUserRepository(db: Database): UserRepository {
   const users = mainAggregate(db, UserRecordSchema);
@@ -22,6 +28,20 @@ export function createUserRepository(db: Database): UserRepository {
     },
     save: (user) => users.put(USER, user.userId, user),
     delete: (userId) => users.remove(USER, userId),
+  };
+}
+
+export function createFacilityAccessRepository(db: Database): FacilityAccessRepository {
+  const access = mainAggregate(db, FacilityAccessRecordSchema);
+  return {
+    get: (facilityId) => access.get(FACILITY_ACCESS, facilityId),
+    async list() {
+      return (await access.list(FACILITY_ACCESS)).sort((left, right) =>
+        left.facilityId.localeCompare(right.facilityId),
+      );
+    },
+    save: (record) => access.put(FACILITY_ACCESS, record.facilityId, record),
+    delete: (facilityId) => access.remove(FACILITY_ACCESS, facilityId),
   };
 }
 

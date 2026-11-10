@@ -9,6 +9,14 @@
 import { createAccessPolicy, type AccessPolicy } from '../application/auth/access-policy.ts';
 import { createAuthService, type AuthService } from '../application/auth/auth-service.ts';
 import { createUserService, type UserService } from '../application/auth/user-service.ts';
+import {
+  createFacilityAccessService,
+  type FacilityAccessService,
+} from '../application/access/facility-access-service.ts';
+import {
+  createFacilityScopeService,
+  type FacilityScopeService,
+} from '../application/access/facility-scope.ts';
 import { createAuditService, type AuditService } from '../application/audit/audit-service.ts';
 import {
   createManualEntryService,
@@ -150,6 +158,8 @@ export interface Container {
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
   readonly userService: UserService;
+  readonly facilityAccessService: FacilityAccessService;
+  readonly facilityScope: FacilityScopeService;
   readonly ingestionAdminService: IngestionAdminService;
   readonly pushSubscriptionService: PushSubscriptionService;
   readonly dashboardQuery: DashboardQuery;
@@ -515,7 +525,14 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     clock,
     sessions: auth,
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
   });
+  const facilityAccessService = createFacilityAccessService({
+    repositories,
+    policy,
+    audit: auditService,
+  });
+  const facilityScope = createFacilityScopeService({ repositories });
   const ingestionAdminService = createIngestionAdminService({
     ingestionSettings,
     ingestion: repositories.ingestion,
@@ -555,6 +572,8 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     equipmentService,
     statusCodeService,
     userService,
+    facilityAccessService,
+    facilityScope,
     ingestionAdminService,
     pushSubscriptionService,
     jobRunner,
@@ -694,6 +713,8 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     manualEntryService: services.manualEntryService,
     criteriaAdminService: services.criteriaAdminService,
     userService: services.userService,
+    facilityAccessService: services.facilityAccessService,
+    facilityScope: services.facilityScope,
     ingestionAdminService: services.ingestionAdminService,
     pushSubscriptionService: services.pushSubscriptionService,
     dashboardQuery: createDashboardQuery({

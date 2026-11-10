@@ -22,6 +22,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Icon } from '../components/icon.tsx';
+import { FacilityAccessSection } from './facility-access-section.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -296,6 +297,7 @@ export function UsersPage(): ReactNode {
           />
         </section>
       ) : null}
+      {canManage ? <FacilityAccessSection /> : null}
       {canManage && data !== undefined ? (
         <section className="panel">
           <UserForm roles={data.roles} onDone={done} />

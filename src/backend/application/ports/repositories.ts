@@ -34,6 +34,7 @@ import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import type {
   IngestedFileRecord,
+  FacilityAccessRecord,
   PushSubscriptionRecord,
   StatusChangeEntry,
   UserRecord,
@@ -265,6 +266,15 @@ export interface UserRepository {
   delete(userId: UserId): Promise<void>;
 }
 
+/** 閲覧の割り当て（ハウスごと。Issue #330）。一覧は、ハウスの識別子の順。 */
+export interface FacilityAccessRepository {
+  list(): Promise<FacilityAccessRecord[]>;
+  get(facilityId: EquipmentId): Promise<FacilityAccessRecord | undefined>;
+  /** 同じハウスは上書きする。 */
+  save(record: FacilityAccessRecord): Promise<void>;
+  delete(facilityId: EquipmentId): Promise<void>;
+}
+
 export interface PushSubscriptionRepository {
   /** 同じ識別子（利用者・端末ごと）は上書きする。 */
   save(subscription: PushSubscriptionRecord): Promise<void>;
@@ -294,6 +304,7 @@ export interface Repositories {
   readonly auditLogs: AuditLogRepository;
   readonly manualEntries: ManualEntryRepository;
   readonly users: UserRepository;
+  readonly facilityAccess: FacilityAccessRepository;
   readonly pushSubscriptions: PushSubscriptionRepository;
   readonly settings: SettingsRepository;
 }

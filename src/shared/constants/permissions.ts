@@ -6,6 +6,8 @@
 
 export const PERMISSIONS = [
   'equipment:manage',
+  /** 全設備を閲覧する（割り当てに関わらない。既定では、管理者。ADR-0013。Issue #330）。 */
+  'equipment:view-all',
   'ingestion:configure',
   'ingestion:run',
   'ingestion:read',

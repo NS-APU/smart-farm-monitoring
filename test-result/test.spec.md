@@ -21,26 +21,26 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `da976b0` に、Issue #115 の変更を加えた状態）
+### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `7aa8789`〔Issue #115 のマージ〕に、Issue #330 の変更を加えた状態）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
-| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        801 |
+| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        803 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
 | 単体: shared                               |         12 |        245 |
 | 単体: backend/domain                       |         10 |        284 |
-| 単体: backend/application                  |          9 |         97 |
+| 単体: backend/application                  |          10 |        104 |
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         18 |        410 |
 | 単体: backend/runtime                      |          3 |        122 |
-| 単体: frontend                             |         29 |        534 |
+| 単体: frontend                             |         30 |        543 |
 | 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
-| 結合（`tests/integration/`）               |         42 |       1150 |
-| 合計                                       |        162 |       3757 |
+| 結合（`tests/integration/`）               |         44 |       1184 |
+| 合計                                       |        166 |       3809 |
 
-内訳（2026-11-10 の実測。Issue #318・#115）: E2E 811 件（UC ごと 801 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 2946 件・130 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、130 ファイル・2946 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.18%・Branches 95.53%・Functions 99.43%・Lines 99.16%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#115〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜33 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115・#330）: E2E 813 件（UC ごと 803 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 2996 件・134 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、134 ファイル・2996 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.19%・Branches 95.55%・Functions 99.45%・Lines 99.18%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#330〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜34 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -64,7 +64,7 @@ E2E のファイル別の件数（2026-11-10 の実測。Issue #318・#115）:
 | UC-11        | `tests/e2e/UC-11-federate-data.ts`                    |   14 |                     4 |                                        0 |
 | UC-12        | `tests/e2e/UC-12-manage-equipment.ts`                 |   31 |                     9 |                                        0 |
 | UC-13        | `tests/e2e/UC-13-login-logout.ts`                     |   37 |                     8 |                                        2 |
-| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   34 |                    12 |                                        2 |
+| UC-14        | `tests/e2e/UC-14-manage-users.ts`                     |   36 |                    14 |                                        2 |
 | UC-15        | `tests/e2e/UC-15-configure-file-server-connection.ts` |   12 |                     3 |                                        0 |
 | UC-15        | `tests/e2e/UC-15-configure-ingestion.ts`              |   33 |                     5 |                                        0 |
 | UC-16        | `tests/e2e/UC-16-check-ingestion-status.ts`           |   21 |                     6 |                                        0 |
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜33 章（変更・追加したテストの記録）の索引
+### 1.4 14〜34 章（変更・追加したテストの記録）の索引
 
-14〜33 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜34 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -155,6 +155,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 30 | 負荷テストの UC-10 を、通知の出来事の判定に合わせる | #320 |
 | 31・32 | 古い画面の部品の取得の失敗への対応・配信のキャッシュの指定 | #323 |
 | 33 | ロールの分割（管理者・一般）と、自身のユーザー名の編集 | #115 |
+| 34 | 閲覧の割り当て（ハウスごと）と、閲覧系 API の絞り込み | #330（#116 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -3435,7 +3436,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 #### 対応するテストファイル
 
-- `tests/e2e/UC-14-manage-users.ts`（テスト 34 件。E14-001 から E14-034）
+- `tests/e2e/UC-14-manage-users.ts`（テスト 36 件。E14-001 から E14-036）
 
 #### テストの概要
 
@@ -3705,6 +3706,28 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 - 観点: 一般ユーザー（権限なしの操作として、自身の情報の編集）。
 - データ: `e2e-general`。
 - レイアウトの検査あり（shot）: `uc14-profile-saved`。
+
+##### 閲覧の割り当て（ハウスごと）。Issue #330。ADR-0013。FR-9.8
+
+**E14-035 管理者が、表（行がハウス、列が一般ユーザー）で割り当てると、一般ユーザーは、割り当てられたハウスだけを閲覧できる。外すと、すぐに見えなくなる**
+
+- 検証内容: 閲覧の割り当ての表と、一般ユーザーの閲覧範囲（画面・API）。
+- 前提: ハウス 2（`HOUSE-02`）と、そのロボット（`ROBOT-02`）を API で登録。一般ユーザー `e2e-general` を API で追加。管理者でユーザー管理を開く。
+- 操作: 表を確認する。「ハウス2」×一般ユーザーにチェックして「割り当てを保存」を押す。読み直す。別のブラウザで一般ユーザーとして、ヘッダーの設備の選択を確認する。API（一般のトークン）で `/dashboard?equipmentId=HOUSE-01`・`HOUSE-02`、`/observations?equipmentId=ROBOT-01` を呼ぶ。管理者が、チェックを外して保存し、同じ API を呼ぶ。
+- 期待結果: 見出し `閲覧の割り当て`、列見出し `ハウス`・一般ユーザー名、行が 2 件、保存ボタンは無効（変更なし）。チェック後は有効。保存後、`facility-access-saved` が `保存しました`。読み直しても、ハウス 2 だけがチェック済み。一般ユーザーの設備の選択に `ハウス2`・`収穫ロボット2` があり、`ハウス1`・`収穫ロボット1` がない。API は、`HOUSE-01` が 404、`HOUSE-02` が 200、`ROBOT-01` の観測値が 404。割り当てを外すと、`HOUSE-02` が 404（すぐに反映される）。
+- 観点: 権限（管理者の割り当て）・閲覧範囲（一般）。
+- データ: `e2e-general`・`HOUSE-02`。
+- レイアウトの検査あり（shot）: `uc14-facility-access`。
+
+**E14-036 割り当てがない一般ユーザーは、何も閲覧できず、閲覧できるハウスがない旨が示される。範囲外の設備への手動入力も、できない（404）**
+
+- 検証内容: 割り当てなしの一般ユーザー（安全側）。
+- 前提: 一般ユーザー `e2e-general` を API で追加（割り当てなし）。一般でログインする。
+- 操作: ダッシュボードを確認する。`/data-entry` を開く。API で、手動入力の登録（`ROBOT-01`）と、設備の階層の取得をする。
+- 期待結果: ダッシュボードに `閲覧できるハウスが割り当てられていません。管理者に連絡してください`。手動入力の画面の `no-equipment` に `閲覧できるハウスが割り当てられていません`。手動入力の登録は 404。設備の階層の `facilities` は空。
+- 観点: 割り当てなし。
+- データ: `e2e-general`。
+- レイアウトの検査あり（shot）: `uc14-no-facility`。
 
 ### UC-15 取り込みを設定し、接続テスト・即時取得を行う
 
@@ -9186,7 +9209,7 @@ UC-13（認証）、UC-01（ダッシュボード）、UC-05・UC-22（通知）
 
 | ID        | テスト名                                                                                                                         | 検証内容（前提・操作・期待結果）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I-api-006 | ログインすると、アクセストークン・リフレッシュトークン・有効期限・利用者（権限つき）を返す                                       | 操作: POST /api/v1/auth/login に TEST_USER の userId・パスワード。期待: 200。本文が LoginResponseSchema に適合。user が userId `test-user`・userName `テストユーザー`・role `admin`。permissions が 9 件（既定の最初のユーザーは、管理者で、全権限。#115）。accessTokenExpiresAt が TEST_NOW の 30 分後                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| I-api-006 | ログインすると、アクセストークン・リフレッシュトークン・有効期限・利用者（権限つき）を返す                                       | 操作: POST /api/v1/auth/login に TEST_USER の userId・パスワード。期待: 200。本文が LoginResponseSchema に適合。user が userId `test-user`・userName `テストユーザー`・role `admin`。permissions が 10 件（既定の最初のユーザーは、管理者で、全権限。#115・#330）。accessTokenExpiresAt が TEST_NOW の 30 分後                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | I-api-007 | 認証に失敗したら、原因を特定できないメッセージで 401 を返す                                                                      | 操作: ログインを 2 回（正しいユーザーで誤ったパスワード `wrong`、存在しないユーザー `nobody` でパスワード `wrong`）。期待: 前者が 401。2 つのエラー本文が完全に等しい。メッセージが `ユーザーIDまたはパスワードが正しくありません`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | I-api-008 | 入力が不正なら、項目ごとのエラーつきの 400 を返す                                                                                | 操作: ログインに本文 `{}`、および本文 `{`（JSON として不正）。期待: `{}` は 400 で、fields に name が userId の要素と password の要素を含む。`{` は 400 で code が VALIDATION_ERROR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | I-api-009 | 同じ接続元（X-Forwarded-For）からの失敗が続くと、429 で一時的に拒否する                                                          | 操作: x-forwarded-for `192.0.2.1, 10.0.0.1` から、誤ったパスワードで LOGIN_FAILURE_LIMIT 回（5 回）ログイン。次に、x-forwarded-for `192.0.2.1` から正しいパスワードでログイン、x-forwarded-for `192.0.2.2` から正しいパスワードでログイン。期待: 失敗 5 回は各 401。`192.0.2.1` の正しいパスワードのログインは 429。`192.0.2.2` は 200                                                                                                                                                                                                                                                                                                                                                                     |
@@ -10442,7 +10465,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | 初期ユーザー（利用者 A）         | userId `e2e-user`、userName `E2Eテスト用ユーザー`、password `Dummy-Passw0rd-e2e`。ロールは `admin`（playwright.config.ts の `INITIAL_USER_ROLE`）                                          | `e2e-user.ts` の `E2E_USER`                  |
 | 利用者 B                         | userId `e2e-user-b`、userName `E2E利用者B`、password `Dummy-Passw0rd-b1`、role `admin`                                                                                                     | `app.ts` の `USER_B`                         |
 | 閲覧者                           | userId `e2e-viewer`、userName `E2E閲覧者`、password `Dummy-Passw0rd-v1`、role `viewer`                                                                                                      | `app.ts` の `VIEWER`                         |
-| ロール定義（JSON）               | 既定の 2 ロール（`DEFAULT_ROLE_CONFIG`）: `admin`＝名称「管理者」、権限は `PERMISSIONS`（全権限）。`general`＝名称「一般」、権限は `manual-entry:write` のみ。参照のみの確認用に、`viewer`＝名称「閲覧者」、権限は `ingestion:read` のみ（#115）                           | `e2e-user.ts` の `E2E_ROLE_DEFINITIONS_JSON` |
+| ロール定義（JSON）               | 既定の 2 ロール（`DEFAULT_ROLE_CONFIG`）: `admin`＝名称「管理者」、権限は `PERMISSIONS`（全権限）。`general`＝名称「一般」、権限は `manual-entry:write` のみ。参照のみの確認用に、`viewer`＝名称「閲覧者」、権限は `equipment:view-all`（全設備の閲覧）・`ingestion:read` のみ（#115・#330）                           | `e2e-user.ts` の `E2E_ROLE_DEFINITIONS_JSON` |
 | 固定する現在時刻 `NOW`           | `2026-10-09T03:00:00.000Z`（2026-10-09 12:00 JST）                                                                                                                                          | `viewpoint-scenarios.ts`                     |
 | 設備の識別子                     | ハウス `HOUSE-01`、ロボット `ROBOT-01`、環境センサー `SENSOR-01`（デモの設備）。`app.ts` では `HOUSE_ID`・`ROBOT_ID`・`SENSOR_ID`、`viewpoint-scenarios.ts` では `HOUSE`・`ROBOT`・`SENSOR` |                                              |
 | ファイル内の設備の識別子         | ロボット `ROBOT-SAMPLE-01`（`ROBOT_EXTERNAL_ID`）、センサー `SENSOR-SAMPLE-01`（`SENSOR_EXTERNAL_ID`）                                                                                      | `app.ts`                                     |
@@ -10670,7 +10693,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | `errorResponse(status, code, message)` | 関数 | エラー応答（本文 `{ error: { code, message } }`）を作る。                                                                                                                                                                                                 |                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `createFakeFetch(handler)`             | 関数 | API のスタブ（`vi.fn` の fetch 関数 `fetchFn`）と、呼び出しの記録 `calls`（`FakeRequest[]`）を返す。ハンドラが `undefined` を返した要求は、404（コード `NOT_FOUND`・メッセージ「見つかりません」）にする。                                                | アドレスの基準 `http://localhost`                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `createMemorySession(initial = null)`  | 関数 | メモリ上のセッション（`SessionAccess`。`get`・`set`・`clear` と、`current`）を作る。引数は初期のログイン応答。                                                                                                                                            |                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `WORKER_LOGIN`                         | 定数 | 農作業者のログイン応答（`LoginResponse`）。                                                                                                                                                                                                               | アクセストークン `access-token-1`、更新トークン `refresh-token-1`（ダミー）、アクセストークンの期限 `2026-10-09T03:30:00.000Z`、更新トークンの期限 `2026-10-16T03:00:00.000Z`。利用者 `worker-1`・「農作業者A」・ロール `worker`・権限 `equipment:manage`、`ingestion:read`、`user:manage`                                                                                                                                                                |
+| `WORKER_LOGIN`                         | 定数 | 農作業者のログイン応答（`LoginResponse`）。                                                                                                                                                                                                               | アクセストークン `access-token-1`、更新トークン `refresh-token-1`（ダミー）、アクセストークンの期限 `2026-10-09T03:30:00.000Z`、更新トークンの期限 `2026-10-16T03:00:00.000Z`。利用者 `worker-1`・「農作業者A」・ロール `worker`・権限 `equipment:manage`、`equipment:view-all`、`ingestion:read`、`user:manage`                                                                                                                                                                |
 | `VIEWER_LOGIN`                         | 定数 | 閲覧者のログイン応答（`WORKER_LOGIN` を元に変更）。                                                                                                                                                                                                       | 利用者名「閲覧者B」・ロール `viewer`・権限なし                                                                                                                                                                                                                                                                                                                                                                                          |
 | `equipmentTree()`                      | 関数 | 設備の階層（`EquipmentTreeResponse`）を作る。                                                                                                                                                                                                             | ハウス「ハウス1」`HOUSE-01`の下に、ロボット「収穫ロボット1」`ROBOT-01`・センサー「環境センサー1」`SENSOR-01`。作成日時 `2026-10-01T00:00:00.000Z`                                                                                                                                                                                                                                                                                       |
 | `card(overrides?)`                     | 関数 | ダッシュボードの観点のカード（`ViewpointCard`）を作る。                                                                                                                                                                                                   | 既定: 観点 `safety`（安全性）・状態 `NORMAL`（短期・長期とも）・指標 `emergencyStopPerHour` = 0、`nearMissPerHour` = null・診断メッセージ「安全性: 正常。緊急停止頻度 0.000回/時間（正常）」・推奨対応「現在の状態を維持し、引き続き推移を確認してください」・評価の期間 `2026-10-02T03:00:00.000Z` 〜 `2026-10-09T03:00:00.000Z`・`horizonUsed` = `LONG`                                                                               |
@@ -10795,7 +10818,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-11 | 農業情報基盤へデータを連携する                     | `UC-11-federate-data.ts`（14 件）            | `unit/backend/infrastructure/adapters.test.ts`、`integration/evaluation-notification.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                      |
 | UC-12 | ハウス・ロボット・センサーの構成を管理する         | `UC-12-manage-equipment.ts`（31 件）         | `unit/shared/shared.test.ts`、`integration/application-services.test.ts`、`unit/frontend/equipment-page.test.tsx`、`integration/api.test.ts`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                       |
 | UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（37 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
-| UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（34 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
+| UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（36 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
 | UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）・`UC-15-configure-file-server-connection.ts`（12 件）・`UC-15-configure-file-server-connection.ts`（12 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
 | UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（21 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
 | UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（30 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
@@ -11822,3 +11845,40 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173。`playwright test --workers=1`）: ロールに関わる UC を実行し、**すべて成功**。UC-13・UC-14（34 件。追加した E14-033・E14-034 を含む）・UC-15（2 ファイル）・UC-16・シナリオ「新しい利用者の受け入れから、権限の変更・削除まで」（最初の実行で、UC-14 の期待値・利用者 B のロールの誤りが見つかり、直した）と、`USER_B`・`VIEWER` を使う UC-05・UC-07・UC-12・UC-17・UC-18・UC-19。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の移行（`pnpm migrate-user-roles`）・デプロイ後の確認は、未確認**（AWS の操作は、ユーザーが行う。operations.md 8.7）
+
+## 34. 閲覧の割り当て（ハウスごと）と、閲覧系 API の絞り込み（Issue #330。#116 の子）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-10 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0013）: 一般ユーザーは、管理者が**ハウス側から**割り当てたハウス（配下のロボット・センサーを含む）だけを閲覧できる。割り当ては、ハウスごとの専用の記録（`facilityAccess`）で、管理者は、権限 `equipment:view-all`（全設備を閲覧。既定では管理者）で、全設備。範囲外の設備は、存在しないもの（404）。割り当てがない一般ユーザーは、何も閲覧できない。割り当ての変更は、すぐに反映される（リクエストごとに判定）。適用先: 設備の階層・ダッシュボード・観点の詳細・推移・観測値・手動入力（一覧・登録・修正・削除）。通知（#331）・取り込み/連携のログ（#332）は、この章の範囲外。
+
+### 34.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/repository-contract.test.ts`（1 件を追加。ローカル・ファイル・DynamoDB の 3 実装で 3 件） | 閲覧の割り当て（ハウスごと）の Repository: 保存・取得・一覧（ハウスの識別子の順）・削除。同じハウスは上書き |
+| 結合: `tests/integration/facility-access.test.ts`（新規。15 件） | `GET /facility-access`: 行はハウス（作成の順。削除済みは出さない）、列は一般ユーザー（管理者・存在しないユーザーは出さない）。管理者以外は 403。`PUT /facility-access/{facilityId}`: ユーザーの置き換え（重複はまとめる）・すぐに反映・空にできる。存在しない・ロボット（ハウスでない）・削除済みのハウスは 404。存在しないユーザー・管理者・指定なし・配列でないは 400（変更しない）。管理者以外は 403。変更履歴に、変更前後を、操作者つきで残す。ユーザーを削除すると、すべてのハウスの割り当てから外す |
+| 結合: `tests/integration/facility-scope-api.test.ts`（新規。10 件） | 2 つのハウスと、一般ユーザー（割り当てあり・なし）・管理者で確かめる。設備の階層（割り当てたハウスと配下だけ。なしは空。管理者は全部）。ダッシュボード・観点の詳細・推移（範囲外のハウス・ロボット・センサー・存在しない設備は 404、範囲内は 200。設備の省略は、閲覧できる最初のハウス。なしは 404）。観測値（指定なしは範囲内だけ〔手動入力の観測値を含む〕。範囲外の指定は 404。キーワードで検索しても、範囲外の設備名の一致は出ない）。手動入力（一覧は範囲内だけ・範囲外の指定は 404。登録は範囲外・割り当てなしで 404。修正・削除は、範囲内なら他人の入力にもでき、範囲外は 404、範囲外への付け替えも 404） |
+| 結合: `tests/integration/api.test.ts`（4 件を追加） | 新しいルート（`GET /facility-access`・`PUT /facility-access/{facilityId}`）の、未認証・無効なトークンは 401 と、3 ロールの設定での、ロールごとの権限 |
+| 結合: `tests/integration/role-access.test.ts`（2 件を追加） | ルート一覧から導く、管理者のみのルートが増えた分（2 ルート）。一般が閲覧できるのは、割り当てたハウスだけ（既存の 1 件を更新） |
+| 単体: `tests/unit/backend/application/facility-scope.test.ts`（新規。7 件） | 閲覧範囲の判定: 全設備を閲覧する権限の利用者は全設備。割り当てたハウスと配下だけ閲覧できる。割り当てなしは何も閲覧できない（ほかのユーザーの割り当ては影響しない）。複数のハウス。削除済み・存在しないハウス、削除済みの配下の設備の割り当ては無効。割り当ての変更は、次の判定から反映（キャッシュしない）。設備の階層の絞り込み |
+| 単体: `tests/unit/frontend/facility-access-section.test.tsx`（新規。9 件） | 閲覧の割り当ての表: 行がハウス・列が一般ユーザーで、割り当て済みのセルはチェック済み。変更したハウスだけを、全ユーザーで保存し、保存した旨を示して、保存ボタンは無効に戻る。もとに戻すと変更なし。保存の失敗は表に示し、チェックはそのまま。一般ユーザー・ハウスがないときの案内。表の取得に失敗しても、ユーザーの一覧は表示する。閲覧できるハウスがない一般ユーザーへの案内（ダッシュボード・データ入力。管理者には、これまでの案内） |
+| E2E: `tests/e2e/UC-14-manage-users.ts`（2 件を追加。E14-035・E14-036） | 管理者が表で割り当てると、一般ユーザーは、割り当てられたハウスだけを閲覧でき（設備の選択・API の 404）、外すと、すぐに見えなくなる。割り当てがない一般ユーザーは、何も閲覧できず、案内が示され、手動入力の登録は 404 |
+
+### 34.2 変更した既存のテスト
+
+- 権限の数が 10（`equipment:view-all` を追加）になった（`api.test.ts` のログインの応答）。ルートの数が 47（`GET /facility-access`・`PUT /facility-access/{facilityId}` を追加）になった
+- 一般ユーザーが、設備・ダッシュボード・通知・手動入力の一覧を閲覧するテスト（`role-access.test.ts`）に、ハウスの割り当てを加えた
+- `UserServiceDeps` に `facilityAccess` が加わり、`createUserService` を組み立てているテスト（`user-service*.test.ts`・`auth-contract.test.ts`）に渡した
+- フロントエンドのテスト用の利用者 `WORKER_LOGIN`（`tests/support/frontend.ts`）に、全設備の閲覧権限（`equipment:view-all`）を加えた
+- E2E: 参照のみの確認用の `viewer` に、`equipment:view-all` を加えた（`e2e-user.ts`）。UC-18 の長い名前の利用者を、管理者のロールにした（設備への登録に、閲覧範囲が要るため）
+- 履歴の画面の、対象の種類の表示名に、「閲覧の割り当て」を加えた
+
+### 34.3 実測
+
+手元（Windows。2026-11-10）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **134 ファイル・2996 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.19%・Branches 95.55%・Functions 99.45%・Lines 99.18%（基準は、すべて 95% 以上）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- E2E（空きポート 18787・15173。`playwright test --workers=1`）: UC-01・05・07・12・13・14（36 件。追加した E14-035・E14-036 を含む）・16・17・18・19・シナリオ（ユーザーの受け入れ）の **334 件が、すべて成功**。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
+- **AWS での実際の確認（割り当て・閲覧範囲）は、未確認**（AWS の操作は、ユーザーが行う）

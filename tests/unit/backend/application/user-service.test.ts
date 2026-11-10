@@ -65,6 +65,7 @@ function build(users: (original: UserRepository) => UserRepository, credentials:
       verifyAccessToken: () => Promise.resolve(null),
     },
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
   });
   return { service, users: repositories.users, audit };
 }

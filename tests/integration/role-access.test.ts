@@ -14,6 +14,7 @@ import {
 } from '@smart-farm/shared/schemas/auth';
 import { toUserId } from '@smart-farm/shared/schemas/common';
 import { ROUTE_TABLE } from '../../src/backend/presentation/route-table.ts';
+import { FACILITY_ID } from '../support/builders.ts';
 import {
   addUserAndLogin,
   createTestContext,
@@ -133,9 +134,13 @@ describe('ロールごとの認可（既定のロール。ADR-0013）', () => {
     }
   });
 
-  it('一般は、ダッシュボード・設備・通知・観測値を閲覧でき、手動入力の一覧も読める', async () => {
+  it('一般は、割り当てられたハウスのダッシュボード・設備・通知・観測値を閲覧でき、手動入力の一覧も読める（割り当ては、Issue #330）', async () => {
     const context = await withEquipment();
     const generalToken = await general(context);
+    await context.container.repositories.facilityAccess.save({
+      facilityId: FACILITY_ID,
+      userIds: [toUserId(GENERAL.userId)],
+    });
 
     for (const path of ['/equipment', '/dashboard', '/notifications', '/manual-entries']) {
       const response = await context.request(path, { token: generalToken });

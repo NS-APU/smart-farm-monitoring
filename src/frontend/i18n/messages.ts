@@ -100,6 +100,7 @@ export const MESSAGES = {
     freshnessNone:
       'データがまだ取り込まれていません。データ入力または取り込み設定を確認してください',
     noEquipment: '設備が登録されていません。設備を登録してください',
+    noViewableFacility: '閲覧できるハウスが割り当てられていません。管理者に連絡してください',
     recommendedAction: '推奨アクション',
     evaluatedPeriod: '判定の対象期間',
     customCriteria: 'カスタムの判断基準',

@@ -23,6 +23,7 @@ import { HorizonControls, horizonQueryString } from '../components/horizon-contr
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
+import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useHorizonSelection } from '../hooks/use-horizon-selection.ts';
 import { MESSAGES } from '../i18n/messages.ts';
@@ -140,6 +141,8 @@ export function DashboardPage(): ReactNode {
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentTree, equipmentNames, equipmentError, setDataStatus } =
     useAppState();
+  // 全設備を閲覧できない利用者（一般）には、設備の登録ではなく、割り当ての案内を示す（Issue #330）
+  const canViewAll = usePermission('equipment:view-all');
   const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
     useHorizonSelection();
 
@@ -180,10 +183,16 @@ export function DashboardPage(): ReactNode {
         <h1>{MESSAGES.dashboard.title}</h1>
         <div role="status" className="notice notice-info">
           <Icon name="info" size={18} />
-          <p>{MESSAGES.dashboard.noEquipment}</p>
-          <p className="notice-links">
-            <Link to={PATHS.settingsEquipment}>{MESSAGES.nav.equipment}</Link>
-          </p>
+          {canViewAll ? (
+            <>
+              <p>{MESSAGES.dashboard.noEquipment}</p>
+              <p className="notice-links">
+                <Link to={PATHS.settingsEquipment}>{MESSAGES.nav.equipment}</Link>
+              </p>
+            </>
+          ) : (
+            <p>{MESSAGES.dashboard.noViewableFacility}</p>
+          )}
         </div>
       </section>
     );

@@ -1067,6 +1067,31 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect((await repositories.users.get(toUserId('legacy')))?.mustChangePassword).toBeUndefined();
   });
 
+  it('閲覧の割り当て（ハウスごと。Issue #330）: 保存・取得・一覧・削除ができ、同じハウスは上書きする。ハウスの識別子の順に返す', async () => {
+    const { repositories } = create();
+    const record = (facilityId: string, userIds: string[]) => ({
+      facilityId: toEquipmentId(facilityId),
+      userIds: userIds.map((userId) => toUserId(userId)),
+    });
+    await repositories.facilityAccess.save(record('HOUSE-B', ['user-1']));
+    await repositories.facilityAccess.save(record('HOUSE-A', ['user-1', 'user-2']));
+    await repositories.facilityAccess.save(record('HOUSE-B', ['user-2']));
+
+    expect(await repositories.facilityAccess.list()).toEqual([
+      record('HOUSE-A', ['user-1', 'user-2']),
+      record('HOUSE-B', ['user-2']),
+    ]);
+    expect(await repositories.facilityAccess.get(toEquipmentId('HOUSE-A'))).toEqual(
+      record('HOUSE-A', ['user-1', 'user-2']),
+    );
+    expect(await repositories.facilityAccess.get(toEquipmentId('HOUSE-C'))).toBeUndefined();
+    await repositories.facilityAccess.delete(toEquipmentId('HOUSE-A'));
+    expect(await repositories.facilityAccess.get(toEquipmentId('HOUSE-A'))).toBeUndefined();
+    expect((await repositories.facilityAccess.list()).map((item) => item.facilityId)).toEqual([
+      'HOUSE-B',
+    ]);
+  });
+
   it('Web Push の購読: 有効なものだけ返し、無効化・利用者ごとの削除ができる', async () => {
     const { repositories } = create();
     const subscription = (subscriptionId: string, userId: typeof USER) => ({
