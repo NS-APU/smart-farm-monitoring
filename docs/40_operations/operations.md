@@ -377,6 +377,8 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 
 開発サイト・本番サイトを、独自のサブドメイン（HTTPS。最低の TLS は 1.2）で配信する手順。cloudfront.net の既定の証明書は、最低の TLS のバージョンが **TLS 1.0 に固定される**ため、独自のサブドメイン（独自の証明書）にして、TLS 1.2 以上にする（ADR-0006）。**AWS の操作・GitHub の設定は、ユーザーが行う。ドメイン名・ホストゾーン名・アカウント ID・ゾーンの ID・ネームサーバーの名前は、リポジトリ・Issue・PR・チャットに書かない**（GitHub の Environment の変数にだけ設定する）。
 
+**確認の状況**: **開発サイトで、確認済み**（2026-11-10。ユーザーが実行。手順 8 の 4 つ〔HTTPS・ログイン・主な画面・`/health`・最低の TLS〕と、手順 9〔Web Push の購読のやり直し〕が、期待どおり）。本番サイトは、未実施（手順 J）。
+
 **構成（決定。ユーザーの判断。2026-11-10）**: 親のドメインのホストゾーンは、デプロイ先とは別のアカウントにある。そのため、**デプロイ先のアカウントに、サブドメイン用のホストゾーンを 1 つ作り、親のドメインのホストゾーンから委任する**（NS レコード）。開発サイト・本番サイトは、**同じホストゾーンを共有**する（レコードの名前だけが違う）。IaC は、このゾーンを検索して、証明書の DNS 検証のレコードと、サイトの A・AAAA（CloudFront への alias）のレコードを、自動で作る。
 
 | | 名前の形（`<ゾーン>` は、サブドメイン用のホストゾーンの名前。例: `sfm.<親ドメイン>`） | 環境変数 `SFM_HOSTED_ZONE_NAME` | 環境変数 `SFM_DOMAIN_NAME` |
@@ -394,6 +396,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 | A（ゾーンの作成。**1 回だけ**） | デプロイ先のアカウントで、サブドメイン用のホストゾーンを作る。`$env:AWS_PROFILE = '<プロファイル名>'`、`$zone = '<ゾーン>'`、`$created = aws route53 create-hosted-zone --name $zone --caller-reference "sfm-$(Get-Date -Format yyyyMMddHHmmss)" \| ConvertFrom-Json`、`$created.DelegationSet.NameServers`（4 つのネームサーバー。次の手順で使う。**どこにも貼らない**） | ゾーンが作られ、ネームサーバーが 4 つ出る。コンソールの Route 53 → ホストゾーンに、出る |
 | B（委任。**1 回だけ**） | **親のドメインのホストゾーンがあるアカウント**の Route 53 で、そのホストゾーンに、レコードを作る。名前: ゾーンのうち、親のドメインより左の部分（例: `sfm`）。タイプ: **NS**。値: 手順 A の 4 つのネームサーバー（1 行に 1 つ）。TTL: 300 | レコードが作られる |
 | C（委任の確認。**必ず、デプロイの前に**） | `nslookup -type=NS $zone 8.8.8.8`（反映に、数分かかることがある） | **手順 A の 4 つのネームサーバー**が、出る。出ない間は、先へ進まない（委任が効く前に、デプロイすると、証明書の DNS 検証が、待ち続けて、止まる） |
+| C の補足（確認できないとき） | **`nslookup` で、手順 A の 4 つの名前が、出ないことがある**（DNS のキャッシュ・応答の形による。開発サイトでは、10 分待っても出なかったが、委任は、実際には効いており、そのままデプロイして、成功した。2026-11-10）。親のドメインの SOA に、独自名のネームサーバー（例: `ns1.…`。Route 53 の「独自名のネームサーバー」）が出ることもあり、**その名前だけでは、Route 53 かどうかを、判断できない**。出ない場合は、(1) 手順 B のレコード（名前・タイプ NS・値 4 つ）を、見直し、(2) 見直しても、同じなら、デプロイして、**証明書のスタックが、先へ進むか**で確認する（検証が通らなければ、`CREATE_IN_PROGRESS` のまま、止まる。止まったら、20 分で、手順 B・C に戻る） | 証明書のスタックが、数分〜十数分で、完了する |
 | D（us-east-1 の bootstrap。**1 回だけ**） | `pnpm --filter @smart-farm/infra run bootstrap:certificate`（プロファイルを指定したまま） | `CDKToolkit` のスタックが、us-east-1 に作られる |
 | E（差分の確認。開発サイト） | `$env:SFM_DOMAIN_NAME = 'dev.<ゾーン>'`、`$env:SFM_HOSTED_ZONE_NAME = $zone`、`pnpm build`、`pnpm --filter @smart-farm/infra run diff`、**必ず、`Remove-Item Env:SFM_DOMAIN_NAME, Env:SFM_HOSTED_ZONE_NAME`** | 追加・変更は、(1) 証明書のスタック `SfmEvaluationCertificate`（新規。証明書・リージョンをまたぐ参照の補助）、(2) `SfmEvaluation` の CloudFront（`Aliases`・`ViewerCertificate` の変更）、Route 53 の A・AAAA のレコード（追加）、リージョンをまたぐ参照の補助（追加）。**CloudFront・S3・Lambda・Secrets Manager・DynamoDB の「置き換え」（`[-/+]`）が出たら、中止して、差分を知らせる**。`SfmData` は、変わらない。`infra/cdk.context.json`（ゾーンの検索結果。Git 管理外）に、ドメインの情報が残る。共有しない |
 | F（GitHub の設定） | リポジトリの Settings → Environments → `development` の変数に、`SFM_DOMAIN_NAME`（`dev.<ゾーン>`）・`SFM_HOSTED_ZONE_NAME`（`<ゾーン>`）を設定する（2 つとも）。`SFM_WEB_PUSH_SUBJECT` を、新しい URL（`https://dev.<ゾーン>`）に更新する（8.6） | 変数が設定される |
