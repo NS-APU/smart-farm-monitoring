@@ -18,10 +18,12 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   HOUSE_ID,
   ROBOT_ID,
   SENSOR_ID,
   USER_B,
+  accessToken,
   addUser,
   alignBrowserClock,
   api,
@@ -33,6 +35,7 @@ import {
   unreadBadge,
 } from './support/app.ts';
 import {
+  type ApiNotification,
   failIngestion,
   failIngestionRepeatedly,
   listNotifications,
@@ -40,7 +43,7 @@ import {
   seedAbnormalEnvironment,
 } from './support/notifications.ts';
 import { advanceMinutes } from './support/app.ts';
-import { environmentData, seed, shot } from './support/viewpoint-scenarios.ts';
+import { environmentData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 import { expectHeaderIntact, locatorOf } from './support/pages.ts';
 
 const rows = locatorOf('notification-row');
@@ -769,5 +772,115 @@ test.describe('一括既読は、読み込んだ時点までに限る（API。Is
 
     expect([withoutUntil.status(), invalid.status()]).toEqual([400, 400]);
     expect(await listNotifications(request, '&readState=UNREAD')).toHaveLength(1);
+  });
+});
+
+test.describe('通知の閲覧範囲（ハウスごと。Issue #331。ADR-0013・ADR-0019 の D-41。FR-9.8）', () => {
+  /** ハウス 2（ハウス 2 の環境センサー）を登録し、ハウス 1・ハウス 2 の環境の温度を異常にして、通知を作る。取り込みの失敗の通知（ハウスに属さない）も作る。 */
+  async function prepareTwoHouses(request: Parameters<typeof prepareApp>[0]): Promise<void> {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'SENSOR-02',
+      equipmentType: 'SENSOR',
+      name: '環境センサー2',
+      facilityId: 'HOUSE-02',
+    });
+    await seedAbnormalEnvironment(request);
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: 'SENSOR-02',
+          itemKey: 'temperatureCelsius',
+          observedAt: hoursAgo(1),
+          value: 40,
+        },
+      ],
+    });
+    await failIngestion(request, ['robot']);
+  }
+
+  const generalApi = async (
+    request: Parameters<typeof prepareApp>[0],
+    method: 'GET' | 'POST',
+    path: string,
+  ) =>
+    request.fetch(`/api/v1${path}`, {
+      method,
+      headers: { authorization: `Bearer ${await accessToken(request, GENERAL)}` },
+    });
+
+  test('一般ユーザーには、割り当てられたハウスの通知だけが、一覧・未読の件数に出る。ハウスに属さない通知（取り込みの失敗）は、管理者のみ。範囲外の通知は、既読にもできない（404）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareTwoHouses(request);
+    await addUser(request, GENERAL);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-02', { userIds: [GENERAL.userId] });
+
+    // 管理者: 両方のハウスと、取り込みの失敗の通知
+    const all = await listNotifications(request);
+    const houses = new Set(
+      all.filter((item) => item.equipmentId !== undefined).map((item) => item.equipmentId),
+    );
+    expect(houses.has('SENSOR-01') || houses.has('HOUSE-01')).toBe(true);
+    expect(houses.has('SENSOR-02') || houses.has('HOUSE-02')).toBe(true);
+    expect(all.some((item) => item.kind === 'INGESTION_FAILURE')).toBe(true);
+
+    // 一般ユーザー（API）: ハウス 2 の通知だけ
+    const listed = (await (
+      await generalApi(request, 'GET', '/notifications?limit=100')
+    ).json()) as {
+      items: ApiNotification[];
+    };
+    expect(listed.items.length).toBeGreaterThan(0);
+    for (const item of listed.items) {
+      expect(['HOUSE-02', 'SENSOR-02'], item.message).toContain(item.equipmentId);
+    }
+    const other = all.find((item) => item.equipmentId === 'SENSOR-01');
+    expect(other).toBeDefined();
+    expect(
+      (
+        await generalApi(request, 'POST', `/notifications/${other?.notificationId ?? ''}/read`)
+      ).status(),
+    ).toBe(404);
+    expect(
+      (
+        await generalApi(request, 'GET', `/notifications/${other?.notificationId ?? ''}/memos`)
+      ).status(),
+    ).toBe(404);
+
+    // 一般ユーザー（画面）: ヘッダーの未読の件数と、通知の一覧の行が、範囲の通知の数と一致する
+    const count = listed.items.length;
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+    await expect(unreadBadge(page)).toHaveText(String(count));
+    await page.goto('/notifications');
+    await expect(rows(page)).toHaveCount(count);
+    // ハウスに属さない通知（取り込みの失敗。種別「データ取得失敗」）は、一般ユーザーの一覧には出ない
+    await expect(rows(page).filter({ hasText: 'データ取得失敗' })).toHaveCount(0);
+    await shot(page, testInfo, 'uc22-scoped');
+  });
+
+  test('割り当てがない一般ユーザーには、通知が出ない（一覧は空・未読の件数は 0）。管理者が割り当てると、すぐに出る', async ({
+    request,
+  }) => {
+    await prepareTwoHouses(request);
+    await addUser(request, GENERAL);
+    const unreadOf = async () =>
+      (
+        (await (await generalApi(request, 'GET', '/notifications/unread-count')).json()) as {
+          unreadCount: number;
+        }
+      ).unreadCount;
+
+    expect(await unreadOf()).toBe(0);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-02', { userIds: [GENERAL.userId] });
+
+    expect(await unreadOf()).toBeGreaterThan(0);
   });
 });
