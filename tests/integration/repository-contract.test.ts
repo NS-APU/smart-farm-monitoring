@@ -569,6 +569,106 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       ]);
     });
 
+    describe('閲覧範囲（ハウス。Issue #331）', () => {
+      const HOUSE_1 = toEquipmentId('HOUSE-1');
+      const HOUSE_2 = toEquipmentId('HOUSE-2');
+      const ids = (page: { items: { notification: Notification }[] }) =>
+        page.items.map((entry) => entry.notification.notificationId);
+
+      /** n-1・n-3 はハウス 1、n-2 はハウス 2、n-4 はハウスなし（取り込みの失敗）。 */
+      async function scoped() {
+        const { repositories } = create();
+        await repositories.notifications.add(notification('n-1', { facilityId: HOUSE_1 }));
+        await repositories.notifications.add(notification('n-2', { facilityId: HOUSE_2 }));
+        await repositories.notifications.add(notification('n-3', { facilityId: HOUSE_1 }));
+        await repositories.notifications.add(
+          notification('n-4', { kind: 'INGESTION_FAILURE', equipmentId: undefined, dedupKey: 'f' }),
+        );
+        return repositories.notifications;
+      }
+
+      it('一覧: 指定したハウスの通知だけ（ハウスなしの通知は含めない）。空の指定は何も返さない。指定なしは全部', async () => {
+        const notifications = await scoped();
+        const list = (facilityIds?: readonly (typeof HOUSE_1)[]) =>
+          notifications.list(USER, facilityIds === undefined ? {} : { facilityIds }, { limit: 10 });
+
+        expect(ids(await list([HOUSE_1]))).toEqual(['n-3', 'n-1']);
+        expect(ids(await list([HOUSE_2]))).toEqual(['n-2']);
+        expect(ids(await list([HOUSE_1, HOUSE_2]))).toEqual(['n-3', 'n-2', 'n-1']);
+        expect(ids(await list([]))).toEqual([]);
+        expect(ids(await list())).toEqual(['n-4', 'n-3', 'n-2', 'n-1']);
+      });
+
+      it('一覧: ページ分割（1 件ずつ）でも、範囲外の通知を飛ばして、範囲内の通知を、漏れなく返す', async () => {
+        const notifications = await scoped();
+
+        const first = await notifications.list(USER, { facilityIds: [HOUSE_1] }, { limit: 1 });
+        const second = await notifications.list(
+          USER,
+          { facilityIds: [HOUSE_1] },
+          { limit: 1, cursor: first.nextCursor ?? undefined },
+        );
+
+        expect([ids(first), ids(second), second.nextCursor]).toEqual([['n-3'], ['n-1'], null]);
+      });
+
+      it('未読の件数: ハウスごとのカウンターの合計。指定なしは、全体。既読にすると、そのハウスの分が減る。ほかの利用者は、変わらない', async () => {
+        const notifications = await scoped();
+        const unread = (user: typeof USER, facilityIds?: readonly (typeof HOUSE_1)[]) =>
+          notifications.unreadCount(user, facilityIds);
+
+        expect([
+          await unread(USER, [HOUSE_1]),
+          await unread(USER, [HOUSE_2]),
+          await unread(USER, [HOUSE_1, HOUSE_2]),
+          await unread(USER, []),
+          await unread(USER),
+        ]).toEqual([2, 1, 3, 0, 4]);
+
+        await notifications.markRead(NotificationIdSchema.parse('n-1'), USER, new Date());
+        // 同じ通知を、もう一度既読にしても、数え直さない
+        await notifications.markRead(NotificationIdSchema.parse('n-1'), USER, new Date());
+
+        expect([
+          await unread(USER, [HOUSE_1]),
+          await unread(USER, [HOUSE_2]),
+          await unread(USER),
+          await unread(OTHER_USER, [HOUSE_1]),
+          await unread(OTHER_USER),
+        ]).toEqual([1, 1, 3, 2, 4]);
+      });
+
+      it('範囲の未読の件数・一括既読: 指定したハウスの通知だけ（件数と、既読にした件数が一致する）。ほかのハウス・ハウスなしは、未読のまま', async () => {
+        const notifications = await scoped();
+
+        const counted = await notifications.countUnread(USER, { facilityIds: [HOUSE_2] });
+        const marked = await notifications.markAllRead(
+          USER,
+          { facilityIds: [HOUSE_2] },
+          new Date(),
+        );
+
+        expect([counted, marked]).toEqual([1, 1]);
+        expect(await notifications.countUnread(USER, { facilityIds: [HOUSE_2] })).toBe(0);
+        expect(await notifications.unreadCount(USER, [HOUSE_2])).toBe(0);
+        expect(await notifications.unreadCount(USER, [HOUSE_1])).toBe(2);
+        expect(await notifications.unreadCount(USER)).toBe(3);
+      });
+
+      it('一括既読（範囲の指定なし）でも、ハウスごとのカウンターが合う', async () => {
+        const notifications = await scoped();
+
+        await notifications.markAllRead(USER, {}, new Date());
+
+        expect([
+          await notifications.unreadCount(USER, [HOUSE_1]),
+          await notifications.unreadCount(USER, [HOUSE_2]),
+          await notifications.unreadCount(USER),
+          await notifications.unreadCount(OTHER_USER, [HOUSE_1]),
+        ]).toEqual([0, 0, 0, 2]);
+      });
+    });
+
     it('同じ重複抑制のキーの、最新の通知を取得できる', async () => {
       const repositories = await seeded();
 

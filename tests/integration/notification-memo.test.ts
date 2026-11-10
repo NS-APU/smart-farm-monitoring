@@ -24,7 +24,23 @@ function send(context: TestContext, method: string, path: string, body?: unknown
   });
 }
 
-const ROLES_ENV = { ROLE_DEFINITIONS_JSON: THREE_ROLES_JSON, INITIAL_USER_ROLE: 'admin' };
+/**
+ * 3 ロールの設定。評価者・閲覧者にも、全設備の閲覧（equipment:view-all。Issue #331）を加える
+ * （取り込み失敗の通知は、ハウスに属さないため、全設備を閲覧できる利用者だけが、閲覧・メモできる）。
+ */
+const ROLES_JSON = JSON.stringify(
+  Object.fromEntries(
+    Object.entries(
+      JSON.parse(THREE_ROLES_JSON) as Record<string, { name: string; permissions: string[] }>,
+    ).map(([roleId, role]) => [
+      roleId,
+      roleId === 'admin'
+        ? role
+        : { ...role, permissions: [...role.permissions, 'equipment:view-all'] },
+    ]),
+  ),
+);
+const ROLES_ENV = { ROLE_DEFINITIONS_JSON: ROLES_JSON, INITIAL_USER_ROLE: 'admin' };
 
 /** 通知を 1 件作って（取り込み失敗の通知）、その識別子を返す。 */
 async function createNotification(context: TestContext, sourceId = 'robot'): Promise<string> {

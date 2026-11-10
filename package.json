@@ -17,6 +17,7 @@
     "test:e2e": "playwright test",
     "initial-user": "node --disable-warning=ExperimentalWarning src/backend/runtime/initial-user-main.ts",
     "migrate-user-roles": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-user-roles-main.ts",
+    "migrate-notification-counters": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-notification-counters-main.ts",
     "demo-data": "node --disable-warning=ExperimentalWarning src/backend/runtime/demo-data-main.ts",
     "data:backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/data-backup-main.ts",
     "test:stress": "playwright test -c playwright.stress.config.ts",

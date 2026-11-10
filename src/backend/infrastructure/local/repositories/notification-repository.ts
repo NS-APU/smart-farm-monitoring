@@ -36,6 +36,12 @@ function matchesNotification(
   if (filter.until !== undefined && Date.parse(notification.createdAt) > filter.until.getTime()) {
     return false;
   }
+  if (
+    filter.facilityIds !== undefined &&
+    (notification.facilityId === undefined || !filter.facilityIds.includes(notification.facilityId))
+  ) {
+    return false;
+  }
   if (filter.readState === 'READ' && !isRead) {
     return false;
   }
@@ -61,6 +67,31 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
 
   return {
     add: saverOf(notifications),
+    rebuildFacilityIndex({ facilityOf, userIds, dryRun }) {
+      // ローカルの実装は、ハウスごとのカウンターを持たない（件数は、通知から数える）。ハウスだけを補う
+      let assigned = 0;
+      const facilities = new Set<string>();
+      const all = notifications.values();
+      for (const item of all) {
+        const facilityId = item.facilityId ?? facilityOf(item);
+        if (facilityId !== undefined) {
+          facilities.add(facilityId);
+        }
+        if (item.facilityId === undefined && facilityId !== undefined) {
+          assigned += 1;
+          if (!dryRun) {
+            notifications.put({ ...item, facilityId });
+          }
+        }
+      }
+      return Promise.resolve({
+        notifications: all.length,
+        assigned,
+        counters: 0,
+        facilities: facilities.size,
+        users: userIds.length,
+      });
+    },
     get: (notificationId) => Promise.resolve(notifications.get(notificationId)),
     findLatestByDedupKey(dedupKey) {
       // 最も新しい1件だけが必要なため、並べ替えず、1回の走査で求める
@@ -83,8 +114,16 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
         .map((notification) => ({ notification, isRead: isReadBy(notification, userId) }));
       return paginated(matched, page);
     },
-    unreadCount: (userId) =>
-      Promise.resolve(notifications.values().filter((item) => !isReadBy(item, userId)).length),
+    unreadCount: (userId, facilityIds) =>
+      Promise.resolve(
+        notifications
+          .values()
+          .filter(
+            (item) =>
+              !isReadBy(item, userId) &&
+              matchesNotification(item, false, facilityIds === undefined ? {} : { facilityIds }),
+          ).length,
+      ),
     markRead(notificationId, userId, readAt) {
       if (notifications.get(notificationId) === undefined) {
         return Promise.resolve(false);

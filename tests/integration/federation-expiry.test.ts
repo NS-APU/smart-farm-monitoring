@@ -11,6 +11,11 @@ import { createNotificationService } from '../../src/backend/application/notific
 import { FederationUnavailableError } from '../../src/backend/application/ports/federation-port.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
 import { DEFAULT_APP_SETTINGS } from '../../src/backend/application/settings.ts';
+import { createNotificationRecipients } from '../../src/backend/application/access/notification-recipients.ts';
+import {
+  createAccessPolicy,
+  DEFAULT_ROLE_CONFIG,
+} from '../../src/backend/application/auth/access-policy.ts';
 import { createControllableClock } from '../../src/backend/infrastructure/local/clocks.ts';
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
@@ -28,6 +33,10 @@ function setup(overrides: { expiryDays?: number; batchSize?: number } = {}) {
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
+    recipients: createNotificationRecipients({
+      repositories,
+      policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
+    }),
     webPush: { deliver: () => Promise.resolve('DELIVERED') },
     clock,
     ids,

@@ -5,6 +5,9 @@
  * - ポインタ: `NID#{通知ID}`（通知のソートキー）、`DEDUP#{重複抑制のキー}`（最新の通知のソートキー）。強い整合で引く
  * - 既読: `READ#{利用者}` / `{通知ID}`。通知の総数（`NOTIF_TOTAL`）と、利用者ごとの既読数（`READ#{利用者}`）は、
  *   カウンターで持つ。未読の件数は、その差（全件を数えない）。利用者が作られる前の通知も、未読に数える
+ * - ハウスごとのカウンター（Issue #331）: ハウスの通知の総数（`NFTOTAL#{ハウス}`）と、利用者ごとの、そのハウスの通知の既読数
+ *   （`NFREAD#{ハウス}#{利用者}`）。閲覧範囲が限られる利用者の未読の件数は、割り当てたハウスの、その差の合計（全件を数えない）。
+ *   全設備を閲覧できる利用者は、全体のカウンターの差（従来どおり）。通知の `facilityId`（作成時に固定）がない通知は、数えない
  * - 通知の作成日時は、変えない（ソートキーに入っているため、更新では、作成時のソートキーを使う）
  */
 
@@ -23,7 +26,7 @@ import type {
 } from '../../application/ports/repositories.ts';
 import { decodeKeyCursor, encodeKeyCursor } from './key-cursor.ts';
 import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
-import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
+import { counterAdd, counterSet, mainAggregate, readCounters } from './main-table.ts';
 import {
   batchGetItems,
   getItem,
@@ -50,6 +53,10 @@ const idPartition = (notificationId: string): string => `NID#${notificationId}`;
 const dedupPartition = (dedupKey: string): string => `DEDUP#${dedupKey}`;
 const readPartition = (userId: string): string => `READ#${userId}`;
 const readCounter = (userId: string): string => `READ#${userId}`;
+/** ハウスごとのカウンター（Issue #331）。 */
+const facilityTotalCounter = (facilityId: string): string => `NFTOTAL#${facilityId}`;
+const facilityReadCounter = (facilityId: string, userId: string): string =>
+  `NFREAD#${facilityId}#${userId}`;
 /** 通知のメモ（#239）: `NMEMO#{通知ID}` / `{作成日時}#{メモID}`（入力の古い順に Query）。件数は、カウンター `NMEMO#{通知ID}`。 */
 const memoPartition = (notificationId: string): string => `NMEMO#${notificationId}`;
 const memoCounter = (notificationId: string): string => `NMEMO#${notificationId}`;
@@ -60,6 +67,12 @@ function matchesFilter(
   filter: NotificationListFilter,
 ): boolean {
   if (filter.kind !== undefined && notification.kind !== filter.kind) {
+    return false;
+  }
+  if (
+    filter.facilityIds !== undefined &&
+    (notification.facilityId === undefined || !filter.facilityIds.includes(notification.facilityId))
+  ) {
     return false;
   }
   if (filter.readState === 'READ' && !isRead) {
@@ -92,6 +105,7 @@ export function createNotificationRepository(db: Database): NotificationReposito
     notificationId: string,
     userId: string,
     readAt: Date,
+    facilityId: string | undefined,
   ): Promise<boolean> {
     try {
       await transactWrite(db, [
@@ -103,6 +117,9 @@ export function createNotificationRepository(db: Database): NotificationReposito
           },
         },
         counterAdd(db, readCounter(userId), 1),
+        ...(facilityId === undefined
+          ? []
+          : [counterAdd(db, facilityReadCounter(facilityId, userId), 1)]),
       ]);
       return true;
     } catch (error) {
@@ -152,21 +169,95 @@ export function createNotificationRepository(db: Database): NotificationReposito
     }
   }
 
-  /** 絞り込みの範囲（`until` 以前を含む）の、未読の通知の識別子。既読だけの範囲（`readState=READ`）は、なし。 */
-  async function unreadIdsIn(userId: string, filter: NotificationListFilter): Promise<string[]> {
-    const unread: string[] = [];
+  /** 絞り込みの範囲（`until` 以前を含む）の、未読の通知（識別子と、ハウス）。既読だけの範囲（`readState=READ`）は、なし。 */
+  async function unreadIn(
+    userId: string,
+    filter: NotificationListFilter,
+  ): Promise<{ notificationId: string; facilityId: string | undefined }[]> {
+    const unread: { notificationId: string; facilityId: string | undefined }[] = [];
     if (filter.readState === 'READ') {
       return unread;
     }
     for await (const found of newestFirst(userId, undefined, filter.until)) {
       if (!found.entry.isRead && matchesFilter(found.entry.notification, false, filter)) {
-        unread.push(found.entry.notification.notificationId);
+        unread.push({
+          notificationId: found.entry.notification.notificationId,
+          facilityId: found.entry.notification.facilityId,
+        });
       }
     }
     return unread;
   }
 
   const repository: NotificationRepository = {
+    async rebuildFacilityIndex({ facilityOf, userIds, dryRun }) {
+      // 1. 通知を全件読み、ハウスのない通知に、ハウスを補う。ハウスごとの通知の総数を数える
+      const facilityByNotification = new Map<string, string>();
+      const totals = new Map<string, number>();
+      let scanned = 0;
+      let assigned = 0;
+      for await (const item of queryItems(db, {
+        table,
+        hashName: 'pk',
+        hashValue: NOTIFICATION,
+        sortName: 'sk',
+        forward: true,
+        pageSize: LIST_PAGE_SIZE,
+        consistent: true,
+      })) {
+        const notification = notifications.parse(item);
+        scanned += 1;
+        const facilityId = notification.facilityId ?? facilityOf(notification);
+        if (facilityId === undefined) {
+          continue;
+        }
+        facilityByNotification.set(notification.notificationId, facilityId);
+        totals.set(facilityId, (totals.get(facilityId) ?? 0) + 1);
+        if (notification.facilityId === undefined) {
+          assigned += 1;
+          if (!dryRun) {
+            await repository.update({ ...notification, facilityId });
+          }
+        }
+      }
+      // 2. 利用者ごとの、ハウスごとの既読数（既読の記録から）
+      const reads = new Map<string, { facilityId: string; userId: string; count: number }>();
+      for (const userId of userIds) {
+        for (const read of await queryAll(db, table, readPartition(userId), { consistent: true })) {
+          const facilityId = facilityByNotification.get(String(read.sk));
+          if (facilityId === undefined) {
+            continue;
+          }
+          const key = facilityReadCounter(facilityId, userId);
+          reads.set(key, {
+            facilityId,
+            userId,
+            count: (reads.get(key)?.count ?? 0) + 1,
+          });
+        }
+      }
+      // 3. カウンターを、絶対値で書く（通知がない・既読がない組は、0 にする）
+      const counters: { name: string; value: number }[] = [];
+      for (const [facilityId, total] of totals) {
+        counters.push({ name: facilityTotalCounter(facilityId), value: total });
+        for (const userId of userIds) {
+          const name = facilityReadCounter(facilityId, userId);
+          counters.push({ name, value: reads.get(name)?.count ?? 0 });
+        }
+      }
+      if (!dryRun) {
+        for (const { name, value } of counters) {
+          await counterSet(db, name, value);
+        }
+      }
+      return {
+        notifications: scanned,
+        assigned,
+        counters: counters.length,
+        facilities: totals.size,
+        users: userIds.length,
+      };
+    },
     async add(notification) {
       if ((await pointedSortKey(idPartition(notification.notificationId))) !== undefined) {
         // 同じ識別子の通知は、上書きする（件数は増やさない）
@@ -191,6 +282,9 @@ export function createNotificationRepository(db: Database): NotificationReposito
           },
         },
         counterAdd(db, TOTAL_COUNTER, 1),
+        ...(notification.facilityId === undefined
+          ? []
+          : [counterAdd(db, facilityTotalCounter(notification.facilityId), 1)]),
         ...(latestDedup === undefined || latestDedup <= sortKey
           ? [
               {
@@ -231,22 +325,49 @@ export function createNotificationRepository(db: Database): NotificationReposito
             : null,
       };
     },
-    async unreadCount(userId) {
-      const counts = await readCounters(db, [TOTAL_COUNTER, readCounter(userId)]);
-      return Math.max(0, (counts.get(TOTAL_COUNTER) ?? 0) - (counts.get(readCounter(userId)) ?? 0));
+    async unreadCount(userId, facilityIds) {
+      if (facilityIds === undefined) {
+        const counts = await readCounters(db, [TOTAL_COUNTER, readCounter(userId)]);
+        return Math.max(
+          0,
+          (counts.get(TOTAL_COUNTER) ?? 0) - (counts.get(readCounter(userId)) ?? 0),
+        );
+      }
+      if (facilityIds.length === 0) {
+        return 0;
+      }
+      // 閲覧できるハウスごとの、総数と既読数の差の合計（全件を数えない）
+      const counts = await readCounters(
+        db,
+        facilityIds.flatMap((facilityId) => [
+          facilityTotalCounter(facilityId),
+          facilityReadCounter(facilityId, userId),
+        ]),
+      );
+      return facilityIds.reduce(
+        (sum, facilityId) =>
+          sum +
+          Math.max(
+            0,
+            (counts.get(facilityTotalCounter(facilityId)) ?? 0) -
+              (counts.get(facilityReadCounter(facilityId, userId)) ?? 0),
+          ),
+        0,
+      );
     },
     async markRead(notificationId, userId, readAt) {
-      if ((await pointedSortKey(idPartition(notificationId))) === undefined) {
+      const notification = await getByPartition(idPartition(notificationId));
+      if (notification === undefined) {
         return false;
       }
-      await markReadOnce(notificationId, userId, readAt);
+      await markReadOnce(notificationId, userId, readAt, notification.facilityId);
       return true;
     },
-    countUnread: async (userId, filter) => (await unreadIdsIn(userId, filter)).length,
+    countUnread: async (userId, filter) => (await unreadIn(userId, filter)).length,
     async markAllRead(userId, filter, readAt) {
-      const unread = await unreadIdsIn(userId, filter);
-      const results = await mapConcurrent(unread, CONCURRENCY, (notificationId) =>
-        markReadOnce(notificationId, userId, readAt),
+      const unread = await unreadIn(userId, filter);
+      const results = await mapConcurrent(unread, CONCURRENCY, ({ notificationId, facilityId }) =>
+        markReadOnce(notificationId, userId, readAt, facilityId),
       );
       return results.filter(Boolean).length;
     },

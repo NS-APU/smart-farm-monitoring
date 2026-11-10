@@ -196,6 +196,7 @@ export const THREE_ROLES_JSON = JSON.stringify({
     name: '管理者',
     permissions: [
       'equipment:manage',
+      'equipment:view-all',
       'ingestion:configure',
       'ingestion:run',
       'ingestion:read',

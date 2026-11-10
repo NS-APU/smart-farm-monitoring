@@ -40,6 +40,13 @@ import {
   webPushTtlSeconds,
 } from '../../domain/notification-delivery.ts';
 import { buildNotificationProgress } from '../../domain/notification-progress.ts';
+import {
+  ALL_EQUIPMENT,
+  canViewFacility,
+  facilityIdsOf,
+  type EquipmentScope,
+} from '../access/facility-scope.ts';
+import type { NotificationRecipients } from '../access/notification-recipients.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -96,9 +103,17 @@ export interface NotificationService {
     notificationId: NotificationId,
     enteredBy: UserId,
     input: NotificationMemoInput,
+    scope?: EquipmentScope,
   ): Promise<NotificationMemo | undefined>;
   /** 通知のメモ（入力の古い順。全件）。通知がなければ undefined。 */
-  listMemos(notificationId: NotificationId): Promise<NotificationMemo[] | undefined>;
+  listMemos(
+    notificationId: NotificationId,
+    scope?: EquipmentScope,
+  ): Promise<NotificationMemo[] | undefined>;
+  /**
+   * 閲覧範囲（`scope`。省略は、すべての通知）: 一覧・未読の件数・既読・一括既読・メモは、閲覧できるハウスの通知だけ。
+   * 範囲外・ハウスに属さない通知（全設備を閲覧できない利用者）は、存在しないものとして扱う（Issue #331）。
+   */
   list(
     userId: UserId,
     query: {
@@ -107,6 +122,7 @@ export interface NotificationService {
       limit: number;
       cursor?: string | undefined;
     },
+    scope?: EquipmentScope,
   ): Promise<NotificationListResponse>;
   /**
    * 未読の件数。範囲（`kind`・`until`）を指定すると、その範囲の件数（一括既読の確認の件数。D-39）。
@@ -115,11 +131,20 @@ export interface NotificationService {
   unreadCount(
     userId: UserId,
     range?: { kind?: NotificationKind | undefined; until?: Date | undefined },
+    scope?: EquipmentScope,
   ): Promise<number>;
-  /** 既読にする。通知がなければ false。 */
-  markRead(notificationId: NotificationId, userId: UserId): Promise<boolean>;
+  /** 既読にする。通知がない（閲覧範囲外を含む）場合は false。 */
+  markRead(
+    notificationId: NotificationId,
+    userId: UserId,
+    scope?: EquipmentScope,
+  ): Promise<boolean>;
   /** 絞り込みの範囲（`until` 以前に届いた通知だけ）の未読を、すべて既読にする。新しく既読にした件数を返す（ADR-0019 の D-39）。 */
-  markAllRead(userId: UserId, filter: NotificationListFilter): Promise<number>;
+  markAllRead(
+    userId: UserId,
+    filter: NotificationListFilter,
+    scope?: EquipmentScope,
+  ): Promise<number>;
   /** 配信が未完了の通知を、Web Push の購読へ配信する（JB-04）。 */
   deliverPending(): Promise<DeliveryRunSummary>;
 }
@@ -129,6 +154,8 @@ export interface NotificationServiceDeps {
   /** 状態の変化の履歴（通知の経過・回復日時の導出に使う。ADR-0019 の D-42）。 */
   readonly evaluations: Pick<EvaluationRepository, 'listStatusChanges'>;
   readonly pushSubscriptions: PushSubscriptionRepository;
+  /** Web Push の宛先（通知のハウスを閲覧できる利用者。Issue #331）。 */
+  readonly recipients: NotificationRecipients;
   readonly webPush: NotifierPort;
   readonly clock: ClockPort;
   readonly ids: IdGeneratorPort;
@@ -159,8 +186,28 @@ function toNotificationItem(
 }
 
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
-  const { notifications, evaluations, pushSubscriptions, webPush, clock, ids, settings, logger } =
-    deps;
+  const {
+    notifications,
+    evaluations,
+    pushSubscriptions,
+    recipients,
+    webPush,
+    clock,
+    ids,
+    settings,
+    logger,
+  } = deps;
+
+  /** 通知を閲覧できるか（範囲外・ハウスなしは、全設備を閲覧できない利用者には、存在しない）。 */
+  async function findVisible(
+    notificationId: NotificationId,
+    scope: EquipmentScope,
+  ): Promise<Notification | undefined> {
+    const notification = await notifications.get(notificationId);
+    return notification !== undefined && canViewFacility(scope, notification.facilityId)
+      ? notification
+      : undefined;
+  }
 
   /** 通知を作って保存する（抑制の判断はしない）。 */
   async function create(
@@ -338,6 +385,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         kind: 'STATUS_CHANGE',
         viewpointId: input.viewpointId,
         equipmentId: input.equipment.equipmentId,
+        // 閲覧範囲のハウス（作成時に固定する。ハウス自身は、その ID。Issue #331）
+        facilityId: input.equipment.facilityId ?? input.equipment.equipmentId,
         status: input.status,
         message: buildStatusChangeMessage({
           viewpointName,
@@ -370,10 +419,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       });
     },
 
-    async list(userId, query) {
+    async list(userId, query, scope = ALL_EQUIPMENT) {
       const filter: NotificationListFilter = omitUndefined({
         kind: query.kind,
         readState: query.readState,
+        facilityIds: facilityIdsOf(scope),
       });
       const page = await notifications.list(userId, filter, {
         limit: query.limit,
@@ -400,8 +450,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       };
     },
 
-    async addMemo(notificationId, enteredBy, input) {
-      if ((await notifications.get(notificationId)) === undefined) {
+    async addMemo(notificationId, enteredBy, input, scope = ALL_EQUIPMENT) {
+      if ((await findVisible(notificationId, scope)) === undefined) {
         return undefined;
       }
       const memo: NotificationMemo = {
@@ -416,25 +466,35 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       return memo;
     },
 
-    async listMemos(notificationId) {
-      if ((await notifications.get(notificationId)) === undefined) {
+    async listMemos(notificationId, scope = ALL_EQUIPMENT) {
+      if ((await findVisible(notificationId, scope)) === undefined) {
         return undefined;
       }
       return notifications.listMemos(notificationId);
     },
 
-    unreadCount(userId, range) {
+    unreadCount(userId, range, scope = ALL_EQUIPMENT) {
+      const facilityIds = facilityIdsOf(scope);
       if (range === undefined || (range.kind === undefined && range.until === undefined)) {
-        return notifications.unreadCount(userId);
+        return notifications.unreadCount(userId, facilityIds);
       }
       return notifications.countUnread(
         userId,
-        omitUndefined({ kind: range.kind, until: range.until }),
+        omitUndefined({ kind: range.kind, until: range.until, facilityIds }),
       );
     },
-    markRead: (notificationId, userId) =>
-      notifications.markRead(notificationId, userId, clock.now()),
-    markAllRead: (userId, filter) => notifications.markAllRead(userId, filter, clock.now()),
+    async markRead(notificationId, userId, scope = ALL_EQUIPMENT) {
+      if ((await findVisible(notificationId, scope)) === undefined) {
+        return false;
+      }
+      return notifications.markRead(notificationId, userId, clock.now());
+    },
+    markAllRead: (userId, filter, scope = ALL_EQUIPMENT) =>
+      notifications.markAllRead(
+        userId,
+        omitUndefined({ ...filter, facilityIds: facilityIdsOf(scope) }),
+        clock.now(),
+      ),
 
     async deliverPending() {
       const pending = await notifications.listUndelivered();
@@ -450,16 +510,23 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         // 配信の対象は、最初の配信の実行時点の、有効な購読。購読ごとの状態を持たない以前の形式の失敗は、配信せずに、終了させる
         const isLegacyFailure =
           notification.webPushDeliveries === undefined && legacyWebPush?.result === 'FAILURE';
+        // 配信の宛先は、通知のハウスを閲覧できる利用者の購読だけ（ハウスに属さない通知は、全設備を閲覧できる利用者だけ。Issue #331）
+        const allowed =
+          notification.webPushDeliveries === undefined && !isLegacyFailure
+            ? await recipients.recipientsOf(notification.facilityId)
+            : undefined;
         const current: readonly WebPushDelivery[] =
           notification.webPushDeliveries ??
           (isLegacyFailure
             ? []
-            : subscriptions.map((subscription) => ({
-                subscriptionId: subscription.subscriptionId,
-                result: 'PENDING' as const,
-                attempts: 0,
-                updatedAt: now.toISOString(),
-              })));
+            : subscriptions
+                .filter((subscription) => allowed?.has(subscription.userId) === true)
+                .map((subscription) => ({
+                  subscriptionId: subscription.subscriptionId,
+                  result: 'PENDING' as const,
+                  attempts: 0,
+                  updatedAt: now.toISOString(),
+                })));
         const expired = isWebPushExpired(
           notification.createdAt,
           now,

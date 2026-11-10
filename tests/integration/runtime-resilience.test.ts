@@ -16,6 +16,11 @@ import { OperationTimeoutError, withTimeout } from '../../src/backend/applicatio
 import { DEFAULT_APP_SETTINGS } from '../../src/backend/application/settings.ts';
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { createControllableClock } from '../../src/backend/infrastructure/local/clocks.ts';
+import { createNotificationRecipients } from '../../src/backend/application/access/notification-recipients.ts';
+import {
+  createAccessPolicy,
+  DEFAULT_ROLE_CONFIG,
+} from '../../src/backend/application/auth/access-policy.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { INGESTION_SETTINGS_KEY } from '../../src/backend/application/ingestion/ingestion-settings.ts';
 import { equipmentSet, FACILITY_ID, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
@@ -148,11 +153,22 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
       notifications: repositories.notifications,
       evaluations: repositories.evaluations,
       pushSubscriptions: repositories.pushSubscriptions,
+      recipients: createNotificationRecipients({
+        repositories,
+        policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
+      }),
       webPush: { deliver: () => NEVER },
       clock,
       ids: createSequentialIdGenerator(),
       settings: { ...DEFAULT_APP_SETTINGS.notification, ioTimeoutMs: 20 },
       logger: NULL_LOGGER,
+    });
+    // 購読の利用者（通知を受け取れる、全設備を閲覧できる管理者）
+    await repositories.users.save({
+      userId: toUserId('user-1'),
+      userName: '管理者',
+      role: 'admin',
+      createdAt: TEST_NOW.toISOString(),
     });
     await repositories.pushSubscriptions.save({
       subscriptionId: 's-1',

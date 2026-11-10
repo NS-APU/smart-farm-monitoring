@@ -112,17 +112,20 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
 
     async 'GET /notifications'(c) {
       const query = parseQuery(c, NotificationListQuerySchema);
-      return c.json(await deps.notificationService.list(actorOf(c), query));
+      return c.json(
+        await deps.notificationService.list(actorOf(c), query, await scopeOfRequest(c, deps)),
+      );
     },
 
     async 'GET /notifications/unread-count'(c) {
       // 範囲（種別・読み込んだ時点）の指定があれば、その範囲の未読の件数（一括既読の確認の件数）。なければ、すべての未読
       const range = parseQuery(c, NotificationReadRangeSchema.partial());
       return c.json({
-        unreadCount: await deps.notificationService.unreadCount(actorOf(c), {
-          kind: range.kind,
-          until: toOptionalDate(range.until),
-        }),
+        unreadCount: await deps.notificationService.unreadCount(
+          actorOf(c),
+          { kind: range.kind, until: toOptionalDate(range.until) },
+          await scopeOfRequest(c, deps),
+        ),
       });
     },
 
@@ -136,6 +139,7 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
           readState: request.readState,
           until: new Date(request.until),
         }),
+        await scopeOfRequest(c, deps),
       );
       return c.json({ markedCount });
     },
@@ -144,7 +148,12 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
     async 'POST /notifications/:notificationId/memos'(c) {
       const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
       const input = await parseJsonBody(c, NotificationMemoInputSchema);
-      const memo = await deps.notificationService.addMemo(notificationId, actorOf(c), input);
+      const memo = await deps.notificationService.addMemo(
+        notificationId,
+        actorOf(c),
+        input,
+        await scopeOfRequest(c, deps),
+      );
       if (memo === undefined) {
         throw new AppError('NOT_FOUND', '通知が見つかりません');
       }
@@ -153,7 +162,10 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
 
     async 'GET /notifications/:notificationId/memos'(c) {
       const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
-      const items = await deps.notificationService.listMemos(notificationId);
+      const items = await deps.notificationService.listMemos(
+        notificationId,
+        await scopeOfRequest(c, deps),
+      );
       if (items === undefined) {
         throw new AppError('NOT_FOUND', '通知が見つかりません');
       }
@@ -162,7 +174,11 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
 
     async 'POST /notifications/:notificationId/read'(c) {
       const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
-      const found = await deps.notificationService.markRead(notificationId, actorOf(c));
+      const found = await deps.notificationService.markRead(
+        notificationId,
+        actorOf(c),
+        await scopeOfRequest(c, deps),
+      );
       if (!found) {
         throw new AppError('NOT_FOUND', '通知が見つかりません');
       }
