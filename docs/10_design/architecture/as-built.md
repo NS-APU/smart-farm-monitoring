@@ -1125,7 +1125,7 @@ flowchart LR
 ```
 
 - **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回（既定。環境変数で変えられる）に達すると、`RATE_LIMITED`（429）
-- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、`admin`（管理者。全 10 権限）・`general`（一般。`manual-entry:write` のみ）の 2 ロール（ADR-0013）。**閲覧範囲**: `FacilityScope`（`application/access/facility-scope.ts`）が、リクエストごとに、権限 `equipment:view-all`（既定では管理者）がある利用者は全設備、ほかは、ハウスごとの割り当て（`facilityAccess`。管理は `FacilityAccessService`）に含まれるハウスと、配下のロボット・センサーに絞る（削除済み・存在しないハウスの割り当ては無効。割り当てがなければ、何も閲覧できない）。範囲外の設備は、存在しないもの（404）として扱う。適用先: 設備の階層（`GET /equipment`）・ダッシュボード・観点の詳細・推移（`resolveEquipmentId`）・観測値の一覧（`ObservationQuery`。範囲内の設備だけ）・手動入力の一覧・登録・修正・削除（`ManualEntryService`。範囲外の設備への登録・付け替えも 404。他人の入力にも、範囲内なら、修正・削除できる）。**通知（#331）・取り込み/連携のログ（#332）は、未適用**以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles`（`runtime/migrate-user-roles-cli.ts`）で移す
+- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、`admin`（管理者。全 10 権限）・`general`（一般。`manual-entry:write` のみ）の 2 ロール（ADR-0013）。**閲覧範囲**: `FacilityScope`（`application/access/facility-scope.ts`）が、リクエストごとに、権限 `equipment:view-all`（既定では管理者）がある利用者は全設備、ほかは、ハウスごとの割り当て（`facilityAccess`。管理は `FacilityAccessService`）に含まれるハウスと、配下のロボット・センサーに絞る（削除済み・存在しないハウスの割り当ては無効。割り当てがなければ、何も閲覧できない）。範囲外の設備は、存在しないもの（404）として扱う。適用先: 設備の階層（`GET /equipment`）・ダッシュボード・観点の詳細・推移（`resolveEquipmentId`）・観測値の一覧（`ObservationQuery`。範囲内の設備だけ）・手動入力の一覧・登録・修正・削除（`ManualEntryService`。範囲外の設備への登録・付け替えも 404。他人の入力にも、範囲内なら、修正・削除できる）。**通知（#331）**: 通知に、作成時のハウス（`facilityId`）を持たせ、一覧・未読の件数（ハウスごとのカウンターの合計）・既読・一括既読・メモを、閲覧できるハウスの通知に絞る（`NotificationService` の `scope`。範囲外・ハウスなしは、全設備を閲覧できない利用者には存在しない〔404〕）。移行は `pnpm migrate-notification-counters`（`runtime/migrate-notification-counters-cli.ts`）。**取り込み/連携のログ（#332）は、未適用**以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles`（`runtime/migrate-user-roles-cli.ts`）で移す
 - **ルートごとの宣言**: `route-table.ts` の `access`（`PUBLIC`・`LOGIN`・権限名）。`createApp` は、すべてのルートにハンドラがなければ起動時にエラーにする（認可の宣言だけが残ることを防ぐ）
 - **ロール・権限の変更**: `verifyAccessToken` が、リクエストごとにユーザーを引き直し、`permissionsOf` が、設定から権限を導く。ユーザーの削除・ロールの変更は、次のリクエストから効く。画面の権限（メニュー・ボタンの表示）は、ログイン・セッション更新時の値
 - **画面側**: `usePermission(permission)`、メニューの権限による絞り込み（`/settings/users` は `user:manage`、`/settings/ingestion` は `ingestion:read`）、権限のない操作の案内（`PermissionNotice`）。表示制御のみで、サーバー側の拒否が正
@@ -1976,7 +1976,7 @@ stateDiagram-v2
 
 - 既読は、**利用者ごと**（`NotificationRead` が通知×利用者の組を持つ）。ある利用者が既読にしても、他の利用者の未読は変わらない。未読に戻す操作はない
 - 通知は削除されない。作成は、状態変化の通知は、出来事の判定（`isNotifiableStatusChange`）を通った場合のみ、取り込みの失敗・停止・連携の期限切れの通知は、重複抑制（同じ `dedupKey` の最新の通知から 60 分未満は作らない）を通った場合のみ
-- Web Push は、**最初の配信の実行時点の、有効な購読**（利用者を区別しない。宛先の制御は #116）へ、購読ごとに配信する（そのあとに購読した端末には、過去の通知を配信しない）。失敗した購読にだけ再送する（1 分から倍々・上限 60 分。通知を作ってから 60 分で断念）。購読が無効（`SUBSCRIPTION_GONE`）と返ると、その購読を無効にして断念する。有効期限（TTL）は、期限までの残りの秒数。実配信（`WEB_PUSH_DELIVERY=vapid`）の本文は、購読の暗号鍵で暗号化する（#241）
+- Web Push は、**最初の配信の実行時点の、有効な購読**（**宛先は、通知のハウスを閲覧できる利用者の購読だけ**。`NotificationRecipients`〔`application/access/notification-recipients.ts`〕が、全設備を閲覧する権限をもつ利用者と、そのハウスに割り当てた一般ユーザーを返す。ハウスに属さない通知は、全設備を閲覧できる利用者だけ。宛先は、最初の配信の時点で決まる。#331）へ、購読ごとに配信する（そのあとに購読した端末には、過去の通知を配信しない）。失敗した購読にだけ再送する（1 分から倍々・上限 60 分。通知を作ってから 60 分で断念）。購読が無効（`SUBSCRIPTION_GONE`）と返ると、その購読を無効にして断念する。有効期限（TTL）は、期限までの残りの秒数。実配信（`WEB_PUSH_DELIVERY=vapid`）の本文は、購読の暗号鍵で暗号化する（#241）
 
 ## 取り込み設定・取り込みログ・取り込み済みファイル（UC-15・UC-16）
 
@@ -2524,7 +2524,7 @@ for 区間:
 | 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
 | 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
 | 単体テスト（frontend） | `tests/unit/frontend/`（30 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（44 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 結合テスト             | `tests/integration/`（46 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
 | 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
@@ -2688,16 +2688,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #330 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #331 の後）
 
-計測対象は 282 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（134 ファイル・3001 件成功・2 件スキップ）。
+計測対象は 285 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（136 ファイル・3036 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.18% | 7,194／7,253 | 95% 以上 |
-| 文   | 99.2% | 7,440／7,500 | 95% 以上 |
-| 関数 | 99.45% | 2,188／2,200 | 95% 以上 |
-| 分岐 | 95.51% | 4,452／4,661 | 95% 以上 |
+| 行   | 99.14% | 7,307／7,370 | 95% 以上 |
+| 文   | 99.15% | 7,554／7,618 | 95% 以上 |
+| 関数 | 99.37% | 2,209／2,223 | 95% 以上 |
+| 分岐 | 95.46% | 4,551／4,767 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2705,22 +2705,22 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.46% |
 | `src/backend/domain` | 98.92% | 98.97% | 99.12% | 96.05% |
-| `src/backend/application` | 99.38% | 99.33% | 99.15% | 96.45% |
-| `src/backend/infrastructure` | 98.98% | 99.02% | 100.0% | 94.64% |
+| `src/backend/application` | 99.39% | 99.34% | 99.17% | 96.45% |
+| `src/backend/infrastructure` | 98.97% | 99% | 100.0% | 94.56% |
 | `src/backend/presentation` | 99.4% | 99.41% | 100.0% | 94.31% |
-| `src/backend/runtime` | 98.48% | 98.5% | 95.83% | 93.33% |
+| `src/backend/runtime` | 97.89% | 97.91% | 93.67% | 93.17% |
 | `src/frontend` | 99.2% | 99.24% | 99.39% | 95.46% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`lambda.ts`（80%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`ingestion-repositories.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`lambda.ts`（80%）・`notification-recipients.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`ingestion-repositories.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・813 件（UC ごと 25 ファイル・803 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・815 件（UC ごと 25 ファイル・805 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-10 の実測（Issue #330 の後）: 134 ファイル・**3001 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3001 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 30・infra（IaC）6 ファイルと、結合 44 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-10 の実測（Issue #331 の後）: 136 ファイル・**3036 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3036 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 30・infra（IaC）6 ファイルと、結合 46 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 
