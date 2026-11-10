@@ -9,7 +9,7 @@
  *   代替フロー  ・構成の変更（追加・変更・削除）も可能とする（削除時の過去データの扱い: 論理削除。データは残り、評価の対象から外れる）
  *               ・同一の識別子を重複して登録しようとした場合は、エラーとする
  *
- * 値の同値分割: 設備の種別（ハウス・ロボット・環境センサー）、設備ID・名称の長さ（空・境界・超過）と文字種、データ上の識別子（なし・あり・重複）、ファイルパス（なし・あり・重複・不正な形式。Issue #119）、
+ * 値の同値分割: 設備の種別（ハウス・ロボット・環境センサー）、設備ID・名称の長さ（空・境界・超過）と文字種、データ上の識別子（なし・あり・重複）、ファイルパス（なし・あり・重複・不正な形式。Issue #119）、取得間隔（既定・1・5・10・15・30・60 分・候補にない値・ハウス。Issue #197）、
  * 削除（ロボット・センサー・ハウス（配下ごと）・確認の取り消し）、権限（変更できる・参照のみ）。
  * 関連するユースケース: UC-08・UC-09（構成にもとづく取り込み）、UC-01（表示の対象）、UC-11（連携）、UC-07（入力の対象）、UC-15。
  */
@@ -73,6 +73,7 @@ async function addChild(
     name: string;
     externalId?: string;
     sourceFilePath?: string;
+    intervalMinutes?: number;
   },
 ): Promise<void> {
   const form = childForm(page);
@@ -82,6 +83,9 @@ async function addChild(
   await form.getByLabel('名称').fill(values.name);
   await form.getByLabel('データ上の識別子').fill(values.externalId ?? '');
   await form.getByLabel('ファイルパス').fill(values.sourceFilePath ?? '');
+  if (values.intervalMinutes !== undefined) {
+    await form.getByLabel('取得間隔').selectOption(String(values.intervalMinutes));
+  }
   await form.getByRole('button', { name: '登録する' }).click();
 }
 
@@ -382,6 +386,79 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       '同じファイルパスがすでに登録されています',
     );
     await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+  });
+});
+
+test.describe('設備ごとの取得間隔（Issue #197。ADR-0016 の D-11）', () => {
+  /** 一覧の「取得間隔」の列（設備の行の、6 つ目）。 */
+  const intervalOf = (page: Page, equipmentId: string) =>
+    rowOf(page, equipmentId).locator('td').nth(5);
+
+  test('一覧に、取得間隔（指定した値。未設定は、種別ごとの既定）を示す。登録・修正で、設定・変更・既定に戻せる。ハウスには、項目がない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEquipment(page);
+    await expect(intervalOf(page, 'HOUSE-01')).toHaveText('—');
+    await expect(intervalOf(page, 'ROBOT-01')).toHaveText('既定（1 分）');
+    await expect(intervalOf(page, 'SENSOR-01')).toHaveText('既定（5 分）');
+
+    // 登録で、指定する
+    await addChild(page, {
+      type: 'SENSOR',
+      facility: 'HOUSE-01',
+      id: 'SENSOR-02',
+      name: '2個目のセンサー',
+      intervalMinutes: 15,
+    });
+    await expect(notice(page)).toHaveText('登録しました');
+    await expect(intervalOf(page, 'SENSOR-02')).toHaveText('15 分');
+    await expect(childForm(page).getByLabel('取得間隔')).toHaveValue('');
+
+    // 修正で、変更し、既定に戻す
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    const edit = page.getByTestId('equipment-edit');
+    await expect(edit.getByLabel('取得間隔')).toHaveValue('');
+    await edit.getByLabel('取得間隔').selectOption('30');
+    await shot(page, testInfo, 'uc12-interval-edit');
+    await edit.getByRole('button', { name: '保存' }).click();
+    await expect(notice(page)).toHaveText('修正しました');
+    await expect(intervalOf(page, 'ROBOT-01')).toHaveText('30 分');
+
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    await page.getByTestId('equipment-edit').getByLabel('取得間隔').selectOption('');
+    await page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click();
+    await expect(notice(page)).toHaveText('修正しました');
+    await expect(intervalOf(page, 'ROBOT-01')).toHaveText('既定（1 分）');
+
+    // ハウスには、取得間隔の項目がない
+    await rowOf(page, 'HOUSE-01').getByRole('button', { name: '修正' }).click();
+    await expect(page.getByTestId('equipment-edit').getByLabel('取得間隔')).toHaveCount(0);
+  });
+
+  test('サーバー側でも、候補にない取得間隔（6 時間・日次など）は、拒否する（400）。ハウスにも指定できない', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    const update = (equipmentId: string, body: Record<string, unknown>) =>
+      api(request, 'PUT', `/equipment/${equipmentId}`, body);
+
+    const sixHours = await update('ROBOT-01', {
+      name: 'ロボット',
+      facilityId: 'HOUSE-01',
+      intervalMinutes: 360,
+    });
+    const house = await update('HOUSE-01', { name: 'ハウス', intervalMinutes: 5 });
+    const valid = await update('ROBOT-01', {
+      name: 'ロボット',
+      facilityId: 'HOUSE-01',
+      intervalMinutes: 10,
+    });
+
+    expect(sixHours.status()).toBe(400);
+    expect(house.status()).toBe(400);
+    expect(valid.status()).toBe(200);
   });
 });
 
