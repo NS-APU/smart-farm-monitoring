@@ -25,6 +25,8 @@ import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { ManualEntry } from '@smart-farm/shared/schemas/manual-entry';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import type {
+  FacilityFederationLog,
+  FacilityIngestionLog,
   FederationItem,
   FederationLog,
   IngestionLog,
@@ -233,6 +235,14 @@ export interface IngestionRepository {
   recordFile(record: IngestedFileRecord): Promise<void>;
   addLog(log: IngestionLog): Promise<void>;
   listLogs(filter: { readonly sourceId?: string }, page: PageRequest): Promise<Page<IngestionLog>>;
+  /**
+   * 指定したハウスの取り込みの記録（ログの facilities の内訳）を、新しい順に返す（Issue #332。一般ユーザー向け）。
+   * ハウスの内訳がないログ（接続の失敗・以前のログなど）は、含めない。ハウスの指定が空なら、空。
+   */
+  listFacilityLogs(
+    facilityIds: readonly string[],
+    page: PageRequest,
+  ): Promise<Page<FacilityIngestionLog>>;
   /** 取り込み元の直近の開始日時（取得間隔の判定に使う）。 */
   lastStartedAt(sourceId: string): Promise<Date | null>;
   /** 取り込み元の直近の成功（結果が SUCCESS）の終了日時。成功がなければ null。 */
@@ -250,6 +260,11 @@ export interface FederationRepository {
   update(item: FederationItem): Promise<void>;
   addLog(entry: FederationLog): Promise<void>;
   listLogs(page: PageRequest): Promise<Page<FederationLog>>;
+  /** 指定したハウスの連携の記録（ログの facilities の内訳）を、新しい順に返す（Issue #332。一般ユーザー向け）。 */
+  listFacilityLogs(
+    facilityIds: readonly string[],
+    page: PageRequest,
+  ): Promise<Page<FacilityFederationLog>>;
   countByStatus(): Promise<Record<FederationItem['status'], number>>;
 }
 

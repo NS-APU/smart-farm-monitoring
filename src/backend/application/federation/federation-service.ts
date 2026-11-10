@@ -9,17 +9,18 @@
  * 観測値が多いファイルは、1 項目の大きさの上限（約 400 KB）に収まるよう、複数の項目に分けて積む（#205）。
  */
 
-import type { FederationItem } from '@smart-farm/shared/schemas/ingestion';
+import { toEquipmentId } from '@smart-farm/shared/schemas/common';
+import type { FederationItem, FederationLog } from '@smart-farm/shared/schemas/ingestion';
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { errorLogFields } from '../error-fields.ts';
-import { splitObservationPayload } from '../../domain/federation-payload.ts';
+import { equipmentIdsOfPayload, splitObservationPayload } from '../../domain/federation-payload.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { FederationUnavailableError, type FederationPort } from '../ports/federation-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
 import type { NotificationService } from '../notification/notification-service.ts';
 import type { Logger } from '../ports/logger-port.ts';
-import type { FederationRepository } from '../ports/repositories.ts';
+import type { EquipmentRepository, FederationRepository } from '../ports/repositories.ts';
 import type { AppSettings } from '../settings.ts';
 import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
 
@@ -43,6 +44,8 @@ export interface FederationService {
 
 export interface FederationServiceDeps {
   readonly federation: FederationRepository;
+  /** 送るデータの設備から、ハウスを決める（#332）。 */
+  readonly equipment: Pick<EquipmentRepository, 'get'>;
   readonly notifications: Pick<NotificationService, 'notifyFederationExpired'>;
   readonly port: FederationPort;
   readonly clock: ClockPort;
@@ -52,7 +55,40 @@ export interface FederationServiceDeps {
 }
 
 export function createFederationService(deps: FederationServiceDeps): FederationService {
-  const { federation, notifications, port, clock, ids, settings, logger } = deps;
+  const { federation, equipment, notifications, port, clock, ids, settings, logger } = deps;
+
+  /** 送るデータの設備が属するハウス（ハウス自身はその ID。見つからない設備・設備を特定できないデータは、なし）。 */
+  async function facilityIdsOf(payload: Record<string, unknown>): Promise<string[]> {
+    const facilityIds = new Set<string>();
+    for (const equipmentId of equipmentIdsOfPayload(payload)) {
+      const found = await equipment.get(toEquipmentId(equipmentId));
+      if (found !== undefined) {
+        facilityIds.add(found.facilityId ?? found.equipmentId);
+      }
+    }
+    return [...facilityIds];
+  }
+
+  /** 項目の、ハウスごとの数（ハウスを持たない項目は、数えない）。ハウスの ID の順。 */
+  function facilityCountsOf(
+    items: readonly FederationItem[],
+  ): NonNullable<FederationLog['facilities']> {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      for (const facilityId of item.facilityIds ?? []) {
+        counts.set(facilityId, (counts.get(facilityId) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([facilityId, itemCount]) => ({ facilityId, itemCount }));
+  }
+
+  /** ハウスの内訳が 1 つ以上あるときだけ、ログに付ける。 */
+  function withFacilities(items: readonly FederationItem[]): Pick<FederationLog, 'facilities'> {
+    const facilities = facilityCountsOf(items);
+    return facilities.length > 0 ? { facilities } : {};
+  }
 
   function nextAttemptAfter(now: Date, attempts: number): string {
     // 間隔を広げながら再試行する（停止が長い場合に負荷・ログを増やさない。architecture.md 5.3）
@@ -96,6 +132,7 @@ export function createFederationService(deps: FederationServiceDeps): Federation
       result: 'EXPIRED',
       itemCount: expiredItems.length,
       message,
+      ...withFacilities(expiredItems),
     });
     logger.warn(message, { itemCount: expiredItems.length, result: 'EXPIRED' });
     try {
@@ -120,6 +157,7 @@ export function createFederationService(deps: FederationServiceDeps): Federation
       const now = clock.now().toISOString();
       // 観測値が多いファイルは、1 項目の大きさの上限（約 400 KB）を超えないよう、複数の項目に分ける（#205）
       for (const part of splitObservationPayload(input.targetRef, input.payload)) {
+        const facilityIds = await facilityIdsOf(part.payload);
         await federation.enqueue({
           federationItemId: ids.next(),
           targetType: input.targetType,
@@ -130,6 +168,7 @@ export function createFederationService(deps: FederationServiceDeps): Federation
           enqueuedAt: now,
           updatedAt: now,
           nextAttemptAt: now,
+          ...(facilityIds.length > 0 ? { facilityIds } : {}),
         });
       }
     },
@@ -181,6 +220,7 @@ export function createFederationService(deps: FederationServiceDeps): Federation
         result,
         itemCount: due.length,
         ...omitUndefined({ message }),
+        ...withFacilities(due),
       });
       if (result === 'SENT') {
         await releaseWaiting(now);

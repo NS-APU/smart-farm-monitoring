@@ -234,15 +234,24 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     );
   });
 
-  it('閲覧の権限（ingestion:read）がなければ（一般）、権限がない旨を示し、取り込みの設定・ログを取得しない', async () => {
-    const { calls } = renderApp('/settings/ingestion', baseRoutes(), { login: READ_ONLY_LOGIN });
+  it('閲覧の権限（ingestion:read）がなければ（一般）、取り込みの設定・ログ・連携のログを取得せず、ハウス別の記録を表示する（#332）', async () => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'GET /ingestion/facility-logs': () => jsonResponse({ items: [], nextCursor: null }),
+        'GET /federation/facility-logs': () => jsonResponse({ items: [], nextCursor: null }),
+      }),
+      { login: READ_ONLY_LOGIN },
+    );
 
-    expect((await screen.findByTestId('permission-notice')).textContent).toContain(
-      '閲覧する権限がありません',
+    expect((await screen.findByTestId('facility-ingestion')).textContent).toContain(
+      '取り込みの記録',
     );
     expect(screen.queryByTestId('source-robot')).toBeNull();
-    expect(calls.filter((call) => call.path.startsWith('/ingestion'))).toEqual([]);
-    expect(calls.filter((call) => call.path.startsWith('/federation'))).toEqual([]);
+    expect(screen.queryByTestId('permission-notice')).toBeNull();
+    expect(calls.filter((call) => call.path.startsWith('/ingestion/settings'))).toEqual([]);
+    expect(calls.filter((call) => call.path === '/ingestion/logs')).toEqual([]);
+    expect(calls.filter((call) => call.path === '/federation/logs')).toEqual([]);
   });
 
   it('閲覧の権限だけがあれば、参照のみ（入力欄は変更できず、保存・接続テスト・即時取得の操作を表示しない）', async () => {

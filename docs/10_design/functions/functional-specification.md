@@ -63,7 +63,7 @@
 | SC-08 | 変更履歴 | 入力・変更・削除の履歴 | FR-4.2.3 / UC-18 |
 | SC-09 | 取り込み済みデータ一覧 | 取り込んだデータの一覧 | FR-6.8 / UC-20 |
 | SC-10 | 設備管理 | ハウス・ロボット・センサーの登録・変更・削除 | FR-2 / UC-12 |
-| SC-11 | 取り込み設定・状況 | 接続先・間隔の設定、接続テスト、即時取得、取り込み・連携のログ | FR-1.4〜1.8、FR-8.3 / UC-15、UC-16 |
+| SC-11 | 取り込み設定・状況 | 接続先・間隔の設定、接続テスト、即時取得、取り込み・連携のログ。一般ユーザーには、閲覧できるハウスの記録だけ（#332） | FR-1.4〜1.8、FR-8.3 / UC-15、UC-16 |
 | SC-12 | ステータスコード管理 | ステータスコードの定義 | FR-3 / UC-17 |
 | SC-13 | 判断基準の編集 | 観点の判断基準の閾値の編集（SC-03 の判断基準欄から） | FR-5.7、5.8 / UC-19 |
 | SC-14 | ユーザー管理 | ユーザーの一覧・登録・編集・削除 | FR-9.4 / UC-14 |
@@ -217,8 +217,9 @@ flowchart LR
 | 取り込みの状況 | 取り込みログの一覧（日時、設備、成功／失敗、取得件数、エラー内容）。ログは、新しいデータがあった実行と、失敗した実行だけを残し、空振りは残さない。設備ごとに、最終の実行日時と結果を示す。設備・結果・期間で絞り込む（条件は URL に反映。1ページ 20 件。並べ替えは設けない）（[ADR-0016](../adr/0016-ingestion-federation-rules.md)。実装は #201。現状は、すべての実行を残し、取り込み元でだけ絞り込む） |
 | 連携の状況 | 連携の結果の一覧（成功／失敗／保留／期限切れ、日時、件数、内容）と、連携キューの状態ごとの件数（待機・送信済み・失敗・保留・期限切れ）。農業情報基盤の停止中は、保留を表示。破棄の期限を過ぎて破棄した項目は、期限切れとして表示（#204） |
 | 仕様の状態 | 解釈に使っている FormatProfile の版と状態（仮決め／確定）を表示する（FR-1.11） |
+| ハウス別の記録（一般ユーザー） | **取り込みの参照権限（`ingestion:read`）がない利用者（一般）**には、同じ画面（`/settings/ingestion`。メニューの「取り込み」）に、**閲覧できるハウスの、取り込み・農業情報基盤への連携の記録だけ**を示す（#332。[ADR-0013](../adr/0013-environments-and-access-control.md)）。取り込みの記録は、日時・ハウス・取り込み元・結果（成功／失敗）・件数。連携の記録は、日時・ハウス・結果（成功／失敗／保留／期限切れ）・項目数。新しい順に、1 ページ 10 件。**設定・接続先・認証情報・失敗の理由・全体の件数・連携キューの件数・即時取得は、示さない**（取得もしない）。ハウスに結びつけられない結果（接続の失敗・設備に結びつかないファイルの失敗・以前のログ）は、示さない（管理者の画面で確認する）。割り当てがなければ、「閲覧できるハウスの取り込み（連携）の記録はありません」と示す。割り当ての変更は、すぐに反映される |
 | 狭い画面 | 長い値（接続先の参照名 100 文字）や 900px 以下の幅（タブレット・スマートフォン）でも、列が潰れず、ページが横にはみ出さない。900px 以下は、取り込み・連携のログの表を、ログ 1 件ごとのカード（項目名と値の縦並び）で表示し、横にスクロールしなくても、結果・エラー内容を読める（NFR-7.3） |
-| 関連API | `GET/PUT /api/v1/ingestion/settings`、`PUT /api/v1/ingestion/{sourceId}/credentials`、`POST /api/v1/ingestion/{sourceId}/test`、`POST /api/v1/ingestion/{sourceId}/run`、`GET /api/v1/ingestion/logs`、`GET /api/v1/federation/logs` |
+| 関連API | `GET/PUT /api/v1/ingestion/settings`、`PUT /api/v1/ingestion/{sourceId}/credentials`、`POST /api/v1/ingestion/{sourceId}/test`、`POST /api/v1/ingestion/{sourceId}/run`、`GET /api/v1/ingestion/logs`、`GET /api/v1/federation/logs`、`GET /api/v1/ingestion/facility-logs`、`GET /api/v1/federation/facility-logs`（ハウス別。一般ユーザー向け） |
 
 ### 3.11 SC-12 ステータスコード管理（FR-3 / UC-17）
 
@@ -315,8 +316,10 @@ flowchart LR
 | | `PUT /ingestion/{sourceId}/credentials` | 認証情報の登録・上書き（書き込み専用。応答は、状態〔設定済み／未設定・更新日時〕だけ） | 管理者のみ（`ingestion:configure`） | FR-1.4 |
 | | `POST /ingestion/{sourceId}/test` | 接続テスト | 管理者のみ | FR-1.7 |
 | | `POST /ingestion/{sourceId}/run` | 即時取得 | 管理者のみ | FR-1.7 |
-| | `GET /ingestion/logs` | 取り込みログ | 管理者のみ（`ingestion:read`。一般への開放は、設備ごとに絞れる #116 の後） | FR-1.8 |
-| 連携 | `GET /federation/logs` | 連携の結果 | 管理者のみ（`ingestion:read`。同上） | FR-8.3 |
+| | `GET /ingestion/logs` | 取り込みログ | 管理者のみ（`ingestion:read`） | FR-1.8 |
+| | `GET /ingestion/facility-logs` | ハウス別の取り込みの記録（日時・ハウス・取り込み元・結果・件数。閲覧できるハウスの分だけ。管理者は、すべてのハウス。#332） | 要ログイン（閲覧範囲で絞り込み） | FR-1.8、FR-9.8 |
+| 連携 | `GET /federation/logs` | 連携の結果 | 管理者のみ（`ingestion:read`） | FR-8.3 |
+| | `GET /federation/facility-logs` | ハウス別の連携の記録（日時・ハウス・結果・項目数。閲覧できるハウスの分だけ。キューの件数・失敗の理由は含めない。#332） | 要ログイン（閲覧範囲で絞り込み） | FR-8.3、FR-9.8 |
 | ユーザー | `GET /users`、`POST /users`、`PUT /users/{userId}`、`DELETE /users/{userId}` | ユーザー管理 | 管理者のみ | FR-9.4 |
 | | `GET /facility-access` | 閲覧の割り当て（ハウスと、そのハウスを閲覧できる一般ユーザーの一覧と、割り当ての対象のユーザー〔全設備を閲覧する権限をもたない利用者〕。設備管理の画面が使う。#330） | 管理者のみ（`user:manage`） | FR-9.8 |
 | | `PUT /facility-access/{facilityId}` | そのハウスを閲覧できる一般ユーザーの置き換え（入力 `{ userIds }`。重複はまとめる。存在しないユーザー・管理者は 400。存在しない・削除済みのハウス、ハウスでない設備は 404。変更履歴に、変更前後を残す） | 管理者のみ（`user:manage`） | FR-9.8 |

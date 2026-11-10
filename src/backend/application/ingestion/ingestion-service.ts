@@ -11,6 +11,7 @@ import { AppError } from '@smart-farm/shared/errors';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
+  FacilityIngestion,
   IngestionLog,
   IngestionRunResponse,
   IngestionSource,
@@ -105,10 +106,59 @@ interface FileOutcome {
   readonly failureKind?: FailureKind;
   /** 観測値を保存した設備（評価し直す設備）。 */
   readonly equipmentIds: readonly EquipmentId[];
+  /** ハウスごとの結果（ファイルに結びつくハウスだけ。#332）。 */
+  readonly facilities: readonly FacilityIngestion[];
 }
 
-function failedOutcome(failureKind: FailureKind, rejectedCount = 0): FileOutcome {
-  return { recordCount: 0, rejectedCount, failed: true, failureKind, equipmentIds: [] };
+function failedOutcome(
+  failureKind: FailureKind,
+  rejectedCount = 0,
+  failedFacilityIds: readonly string[] = [],
+): FileOutcome {
+  return {
+    recordCount: 0,
+    rejectedCount,
+    failed: true,
+    failureKind,
+    equipmentIds: [],
+    facilities: failedFacilityIds.map((facilityId) => ({
+      facilityId,
+      result: 'FAILURE',
+      recordCount: 0,
+    })),
+  };
+}
+
+/** 取り込み元の種別に合う設備の、対応表（ファイルの内容・パスから、設備・ハウスを引く）。 */
+interface EquipmentIndex {
+  /** データ上の識別子 → 設備。 */
+  readonly byExternalId: ReadonlyMap<string, EquipmentId>;
+  /** 設備 → 閲覧範囲のハウス（ロボット・センサーは親のハウス）。 */
+  readonly facilityOf: ReadonlyMap<EquipmentId, string>;
+  /** ファイルのパス（設備の sourceFilePath）→ そのファイルの設備のハウス。 */
+  readonly facilitiesByFile: ReadonlyMap<string, readonly string[]>;
+}
+
+/** ハウスごとの結果を、まとめる（同じハウスは、1 つに。失敗が 1 つでもあれば失敗、件数は合計）。 */
+function mergeFacilities(entries: readonly FacilityIngestion[]): FacilityIngestion[] {
+  const merged = new Map<string, FacilityIngestion>();
+  for (const entry of entries) {
+    const current = merged.get(entry.facilityId);
+    merged.set(
+      entry.facilityId,
+      current === undefined
+        ? entry
+        : {
+            facilityId: entry.facilityId,
+            result:
+              current.result === 'FAILURE' || entry.result === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
+            recordCount: current.recordCount + entry.recordCount,
+          },
+    );
+  }
+  return [...merged.values()].sort((left, right) =>
+    left.facilityId.localeCompare(right.facilityId),
+  );
 }
 
 type StatusCodeMap = ReadonlyMap<string, StatusCodeDefinition>;
@@ -276,13 +326,34 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     return changed;
   }
 
+  /** 保存した観測値から、ハウスごとの結果（成功。件数は、評価に使える記録）を求める。観測値がなければ、なし。 */
+  function facilityResultsOf(
+    observations: readonly Observation[],
+    equipmentIndex: EquipmentIndex,
+  ): FacilityIngestion[] {
+    const entries: FacilityIngestion[] = [];
+    for (const observation of observations) {
+      const facilityId = equipmentIndex.facilityOf.get(observation.equipmentId);
+      if (facilityId !== undefined) {
+        entries.push({
+          facilityId,
+          result: 'SUCCESS',
+          recordCount: isUsableQuality(observation.quality) ? 1 : 0,
+        });
+      }
+    }
+    return mergeFacilities(entries);
+  }
+
   async function processFile(
     source: IngestionSource,
     profile: FormatProfile,
     file: FileMeta,
-    equipmentByExternalId: ReadonlyMap<string, EquipmentId>,
+    equipmentIndex: EquipmentIndex,
     statusCodes: StatusCodeMap,
   ): Promise<FileOutcome | null> {
+    const equipmentByExternalId = equipmentIndex.byExternalId;
+    const fileFacilityIds = equipmentIndex.facilitiesByFile.get(file.fileId) ?? [];
     const fetchedAt = clock.now();
     // 大きすぎるファイルは、メモリ・実行時間を使い切らないよう、読まずに失敗として扱う
     if (file.sizeBytes > settings.maxFileBytes) {
@@ -291,7 +362,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         fileId: file.fileId,
         sizeBytes: file.sizeBytes,
       });
-      return failedOutcome('TOO_LARGE');
+      return failedOutcome('TOO_LARGE', 0, fileFacilityIds);
     }
     if (shouldDeferRecentlyWritten(source.sourceId, file)) {
       logger.info('ファイルが書き換えられた直後のため、次の周期に回します', {
@@ -309,7 +380,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       );
     } catch {
       logger.warn('ファイルを読めませんでした', { sourceId: source.sourceId, fileId: file.fileId });
-      return failedOutcome('READ');
+      return failedOutcome('READ', 0, fileFacilityIds);
     }
     const contentHash = hashContent(content);
     // 同じファイル（識別子とハッシュ、または内容のハッシュが同じ）は、取り込まない（FR-1.6）
@@ -355,6 +426,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         rejectedCount,
         failed: false,
         equipmentIds: [...new Set(observations.map((observation) => observation.equipmentId))],
+        facilities: facilityResultsOf(observations, equipmentIndex),
       };
     } catch (error) {
       if (!(error instanceof FormatError)) {
@@ -377,7 +449,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         recordCount: 0,
         errorMessage: FAILURE_REASONS.FORMAT,
       });
-      return failedOutcome('FORMAT', 1);
+      return failedOutcome('FORMAT', 1, fileFacilityIds);
     }
   }
 
@@ -386,7 +458,10 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     source: IngestionSource,
     profile: FormatProfile,
     startedAt: Date,
-    outcome: Omit<IngestionRunSummary, 'sourceId'> & { readonly errorMessage?: string },
+    outcome: Omit<IngestionRunSummary, 'sourceId'> & {
+      readonly errorMessage?: string;
+      readonly facilities?: readonly FacilityIngestion[];
+    },
   ): Promise<void> {
     await repositories.ingestion.addLog({
       logId: ids.next(),
@@ -400,6 +475,9 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       attempts: outcome.attempts,
       formatProfileVersion: profile.versionLabel,
       ...omitUndefined({ errorMessage: outcome.errorMessage }),
+      ...(outcome.facilities !== undefined && outcome.facilities.length > 0
+        ? { facilities: [...outcome.facilities] }
+        : {}),
     });
   }
 
@@ -428,19 +506,32 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     return summary;
   }
 
-  /** 設備のデータ上の識別子（externalId）から設備の識別子を引く表（取り込み元の種別と同じ種別の設備のみ）。 */
-  async function loadEquipmentByExternalId(
-    source: IngestionSource,
-  ): Promise<Map<string, EquipmentId>> {
+  /** 設備の対応表（取り込み元の種別と同じ種別の設備のみ）。 */
+  async function loadEquipmentIndex(source: IngestionSource): Promise<EquipmentIndex> {
     // 取り込み元の種別（ROBOT・SENSOR）は、対応する設備の種別と同じ文字列
     const equipmentType: Equipment['equipmentType'] = source.kind;
-    const equipmentByExternalId = new Map<string, EquipmentId>();
+    const byExternalId = new Map<string, EquipmentId>();
+    const facilityOf = new Map<EquipmentId, string>();
+    const facilitiesByFile = new Map<string, string[]>();
     for (const equipment of await repositories.equipment.list()) {
-      if (equipment.equipmentType === equipmentType && equipment.externalId !== undefined) {
-        equipmentByExternalId.set(equipment.externalId, equipment.equipmentId);
+      if (equipment.equipmentType !== equipmentType) {
+        continue;
+      }
+      // 通知と同じく、閲覧範囲のハウスは、親のハウス（なければ設備自身）
+      const facilityId = equipment.facilityId ?? equipment.equipmentId;
+      facilityOf.set(equipment.equipmentId, facilityId);
+      if (equipment.externalId !== undefined) {
+        byExternalId.set(equipment.externalId, equipment.equipmentId);
+      }
+      if (equipment.sourceFilePath !== undefined) {
+        const known = facilitiesByFile.get(equipment.sourceFilePath) ?? [];
+        if (!known.includes(facilityId)) {
+          known.push(facilityId);
+        }
+        facilitiesByFile.set(equipment.sourceFilePath, known);
       }
     }
-    return equipmentByExternalId;
+    return { byExternalId, facilityOf, facilitiesByFile };
   }
 
   /** ファイルごとの結果（取り込み済みで対象外の null を除く）を、件数に集計する。 */
@@ -453,8 +544,11 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     readonly firstFailureKind: FailureKind | undefined;
     /** 観測値を保存した設備（評価し直す設備）。 */
     readonly affectedEquipmentIds: readonly EquipmentId[];
+    /** ハウスごとの結果（#332）。 */
+    readonly facilities: readonly FacilityIngestion[];
   } {
     const affected = new Set<EquipmentId>();
+    const facilityEntries: FacilityIngestion[] = [];
     let filesProcessed = 0;
     let recordCount = 0;
     let rejectedCount = 0;
@@ -472,6 +566,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       for (const equipmentId of outcome.equipmentIds) {
         affected.add(equipmentId);
       }
+      facilityEntries.push(...outcome.facilities);
     }
     return {
       filesProcessed,
@@ -480,6 +575,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       failedFiles,
       firstFailureKind,
       affectedEquipmentIds: [...affected],
+      facilities: mergeFacilities(facilityEntries),
     };
   }
 
@@ -549,14 +645,14 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       return handleListingFailure(source, profile, startedAt, listing);
     }
 
-    const equipmentByExternalId = await loadEquipmentByExternalId(source);
+    const equipmentIndex = await loadEquipmentIndex(source);
     const statusCodes = await loadStatusCodes();
 
     // ファイルは、一覧の順に1つずつ処理する（並列にしない。保存・ログの順序を保つ）
     const outcomes: (FileOutcome | null)[] = [];
     try {
       for (const file of listing.files) {
-        outcomes.push(await processFile(source, profile, file, equipmentByExternalId, statusCodes));
+        outcomes.push(await processFile(source, profile, file, equipmentIndex, statusCodes));
       }
     } catch (error) {
       // 想定外の例外でも、取り込みログ（失敗）と通知を残してから、呼び出し元へ伝える（V-046）
@@ -568,11 +664,12 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         rejectedCount: tally.rejectedCount,
         attempts: listing.attempts,
         errorMessage: FAILURE_REASONS.UNEXPECTED,
+        facilities: tally.facilities,
       });
       await notifyFailureSafely(source, FAILURE_REASONS.UNEXPECTED);
       throw error;
     }
-    const { failedFiles, firstFailureKind, affectedEquipmentIds, ...counts } =
+    const { failedFiles, firstFailureKind, affectedEquipmentIds, facilities, ...counts } =
       tallyOutcomes(outcomes);
     const result = decideResult({ ...counts, failedFiles });
     const summary: IngestionRunSummary = {
@@ -583,6 +680,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     };
     await writeLog(source, profile, startedAt, {
       ...summary,
+      facilities,
       ...(failedFiles > 0
         ? { errorMessage: `${String(failedFiles)}件のファイルを取り込めませんでした` }
         : {}),

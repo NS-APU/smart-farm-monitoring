@@ -22,6 +22,7 @@ function setup(overrides: { batchSize?: number } = {}) {
   const sent: string[] = [];
   const service = createFederationService({
     federation: repositories.federation,
+    equipment: repositories.equipment,
     notifications: { notifyFederationExpired: () => Promise.resolve(null) },
     port: {
       send: (items) => {

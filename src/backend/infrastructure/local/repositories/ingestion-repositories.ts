@@ -2,6 +2,8 @@
 
 import {
   FederationItemSchema,
+  type FacilityFederationLog,
+  type FacilityIngestionLog,
   type FederationItem,
   FederationLogSchema,
   IngestionLogSchema,
@@ -16,6 +18,18 @@ import type {
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
 import { latestOf, paginated, saverOf } from './collection-helpers.ts';
+
+/** ハウス別の記録の並び: 新しい順（同じ日時は、ログ・ハウスの識別子の降順。DynamoDB のソートキーと同じ順）。 */
+function byNewest(
+  left: { readonly occurredAt: string; readonly logId: string; readonly facilityId: string },
+  right: { readonly occurredAt: string; readonly logId: string; readonly facilityId: string },
+): number {
+  return (
+    right.occurredAt.localeCompare(left.occurredAt) ||
+    right.logId.localeCompare(left.logId) ||
+    right.facilityId.localeCompare(left.facilityId)
+  );
+}
 
 export interface LocalIngestionRepository {
   readonly repository: IngestionRepository;
@@ -74,6 +88,21 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
             right.startedAt.localeCompare(left.startedAt) || right.logId.localeCompare(left.logId),
         );
       return paginated(matched, page);
+    },
+    listFacilityLogs(facilityIds, page) {
+      const entries: FacilityIngestionLog[] = ingestionLogs.values().flatMap((log) =>
+        (log.facilities ?? [])
+          .filter((entry) => facilityIds.includes(entry.facilityId))
+          .map((entry) => ({
+            logId: log.logId,
+            facilityId: entry.facilityId,
+            sourceId: log.sourceId,
+            occurredAt: log.startedAt,
+            result: entry.result,
+            recordCount: entry.recordCount,
+          })),
+      );
+      return paginated(entries.sort(byNewest), page);
     },
     lastStartedAt(sourceId) {
       return Promise.resolve(
@@ -176,6 +205,20 @@ export function createFederationRepository(store: LocalStore): FederationReposit
             right.logId.localeCompare(left.logId),
         );
       return paginated(sorted, page);
+    },
+    listFacilityLogs(facilityIds, page) {
+      const entries: FacilityFederationLog[] = federationLogs.values().flatMap((log) =>
+        (log.facilities ?? [])
+          .filter((entry) => facilityIds.includes(entry.facilityId))
+          .map((entry) => ({
+            logId: log.logId,
+            facilityId: entry.facilityId,
+            occurredAt: log.occurredAt,
+            result: log.result,
+            itemCount: entry.itemCount,
+          })),
+      );
+      return paginated(entries.sort(byNewest), page);
     },
     countByStatus() {
       const counts = { PENDING: 0, SENT: 0, FAILED: 0, HELD: 0, EXPIRED: 0 };

@@ -43,6 +43,7 @@ function serviceWith(federation: Parameters<typeof createFederationService>[0]['
   const sent: FederationItem[] = [];
   const service = createFederationService({
     federation,
+    equipment: { get: () => Promise.resolve(undefined) },
     notifications: { notifyFederationExpired: () => Promise.resolve(null) },
     port: {
       send: (items) => {

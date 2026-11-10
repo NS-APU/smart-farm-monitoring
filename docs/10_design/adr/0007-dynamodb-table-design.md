@@ -67,8 +67,10 @@
 | **カウンター** | `COUNTER` | `NOTIF_TOTAL`・`READ#{userId}`・`NFTOTAL#{facilityId}`・`NFREAD#{facilityId}#{userId}`・`FED#{status}` | 通知の総数、利用者ごとの既読数、連携の状態ごとの件数。トランザクションで更新する |
 | 取り込み済みファイル | `SRC#{sourceId}` | `FILE#{fileId}#{contentHash}`・`HASH#{contentHash}`（成功のみ）・`STATE`（直近の開始・成功・データ取り込みの日時） | `findIngestedFile` は GetItem。取り込み元の状態（`lastStartedAt` など）は、1 回の GetItem |
 | 取り込みログ | `ILOG#{sourceId}` | `{startedAt}#{logId}` | 取り込み元ごとの Query。全取り込み元は、併合。TTL |
+| ハウス別の取り込みの記録 | `ILOGF#{facilityId}` | `{startedAt}#{logId}#{facilityId}` | 取り込みログの `facilities`（ハウスごとの結果・件数）の内訳を、ログの追加のときに、ハウスごとに書く（一般ユーザーが、閲覧できるハウスのパーティションだけを、併合して読む。全体のログを読まない。#332）。TTL |
 | 連携項目 | `FED` | `{federationItemId}` | `listDue`・`listWaiting` は、未送信の項目だけが載る疎な GSI1（`FDUE` / `{nextAttemptAt}#{enqueuedAt}#{id}`。次の試行の日時の順）を、範囲で読む（期限が来た項目・先の項目だけを読み、溜まった件数に比例して読まない。#203） |
 | 連携ログ | `FLOG` | `{occurredAt}#{logId}` | TTL |
+| ハウス別の連携の記録 | `FLOGF#{facilityId}` | `{occurredAt}#{logId}#{facilityId}` | 連携ログの `facilities`（ハウスごとの項目数）の内訳。取り込みと同じ方式（#332）。TTL |
 | 変更履歴 | `AUDIT` | `{occurredAt}#{auditId}` | 操作種別・変更者などは、FilterExpression。期間は、キー条件。TTL |
 | 手動入力 | `ME` | `{observedAt}#{entryId}` | 少量。`get` は GSI1。並べ替え・絞り込みは、アプリ側 |
 

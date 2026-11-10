@@ -21,13 +21,13 @@
 | 結合テスト | Hono アプリ（`app.request`）、サービス + ローカルのアダプタ、Repository の契約。`tests/integration/` | Vitest（`node` プロジェクト）                                                           | 外部サービスはモック。時計は固定 |
 | E2E テスト | ユースケースに沿った利用者の操作フロー。`tests/e2e/`                                                 | Playwright（chromium）。バックエンド（`APP_MODE=test`、メモリ上のデータ）と Vite を起動 | テスト環境一式（ローカル構成）   |
 
-### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `cb07cd8`〔Issue #330 のマージ〕に、Issue #331 の変更を加えた状態）
+### 1.2 テストの件数（抽出した値。2026-11-10 の実測。`develop` の `9b6ccf1`〔Issue #331 のマージ〕に、Issue #332 の変更を加えた状態）
 
 抽出の方法: E2E は Playwright の `--list`（テストを実行せず、定義を列挙する。for ループで生成されるテストも、1件ずつ数える）。単体・結合は、Vitest の `list`（`it.each` の展開後の件数）。E2E の件数は、ファイル中の `test(` の記述数（470 か所）ではなく、ループによる展開を含む値。
 
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
-| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        805 |
+| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        806 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
 | 単体: shared                               |         12 |        245 |
 | 単体: backend/domain                       |         10 |        284 |
@@ -35,12 +35,12 @@
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         18 |        410 |
 | 単体: backend/runtime                      |          3 |        122 |
-| 単体: frontend                             |         30 |        548 |
+| 単体: frontend                             |         31 |        553 |
 | 単体: infra（`infra/test/`。IaC）          |          6 |        101 |
-| 結合（`tests/integration/`）               |         46 |       1219 |
-| 合計                                       |        168 |       3851 |
+| 結合（`tests/integration/`）               |         49 |       1263 |
+| 合計                                       |        172 |       3901 |
 
-内訳（2026-11-10 の実測。Issue #318・#115・#330・#331）: E2E 815 件（UC ごと 805 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3036 件・136 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、136 ファイル・3036 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.15%・Branches 95.46%・Functions 99.37%・Lines 99.14%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#330〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜35 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-10 の実測。Issue #318・#115・#330・#331・#332）: E2E 816 件（UC ごと 806 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3085 件・140 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、140 ファイル・3085 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.14%・Branches 95.39%・Functions 99.33%・Lines 99.13%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#332〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜36 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜35 章（変更・追加したテストの記録）の索引
+### 1.4 14〜36 章（変更・追加したテストの記録）の索引
 
-14〜35 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜36 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -157,6 +157,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 33 | ロールの分割（管理者・一般）と、自身のユーザー名の編集 | #115 |
 | 34 | 閲覧の割り当て（ハウスごと）と、閲覧系 API の絞り込み | #330（#116 の子） |
 | 35 | 通知の閲覧範囲（ハウスごと）と、既存の通知の移行 | #331（#116 の子） |
+| 36 | 取り込み・連携のログのハウス別の記録と、一般ユーザー向けの画面 | #332（#116 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -3986,7 +3987,7 @@ E07-012〜E07-018 は for ループで生成された同じ手順。`prepareApp`
 
 #### 対応するテストファイル
 
-- `tests/e2e/UC-16-check-ingestion-status.ts`（テスト 21 件。E16-001 から E16-021）
+- `tests/e2e/UC-16-check-ingestion-status.ts`（テスト 22 件。E16-001 から E16-022。E16-022 は、ハウス別の記録〔#332〕）
 
 #### テストの概要
 
@@ -10844,7 +10845,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | UC-13 | ログイン・ログアウトする                           | `UC-13-login-logout.ts`（37 件）             | `unit/shared/shared.test.ts`、`unit/backend/application/auth.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/backend/runtime/runtime.test.ts`、`unit/frontend/api-client.test.ts`、`unit/frontend/app.test.tsx`、`integration/api.test.ts` |
 | UC-14 | ユーザーを管理する                                 | `UC-14-manage-users.ts`（35 件）             | `unit/shared/shared.test.ts`、`unit/backend/infrastructure/adapters.test.ts`、`unit/backend/runtime/config.test.ts`、`unit/frontend/users-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                     |
 | UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | `UC-15-configure-ingestion.ts`（33 件）・`UC-15-configure-file-server-connection.ts`（12 件）・`UC-15-configure-file-server-connection.ts`（12 件）      | `unit/backend/infrastructure/adapters.test.ts`、`unit/frontend/ingestion-page.test.tsx`、`integration/ingestion.test.ts`、`integration/management-api.test.ts`                                                                                                                                                |
-| UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（21 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
+| UC-16 | 取り込み・連携の状況を確認する                     | `UC-16-check-ingestion-status.ts`（22 件）   | `unit/frontend/ingestion-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                                                      |
 | UC-17 | ステータスコードを管理する                         | `UC-17-manage-status-codes.ts`（30 件）      | `integration/application-services.test.ts`、`unit/frontend/status-codes-page.test.tsx`、`integration/api.test.ts`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                   |
 | UC-18 | 入力済みデータを管理する（一覧・修正・削除・履歴） | `UC-18-manage-entries.ts`（52 件）           | `unit/shared/manual-entry.test.ts`、`unit/frontend/entry-pages.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`                                                                                                                                                     |
 | UC-19 | 判断基準を編集する                                 | `UC-19-edit-criteria.ts`（43 件）            | `unit/shared/criteria-text.test.ts`、`unit/shared/shared.test.ts`、`unit/backend/domain/domain-rules.test.ts`、`unit/backend/domain/viewpoint-evaluation.test.ts`、`unit/frontend/criteria-edit-page.test.tsx`、`integration/management-api.test.ts`、`integration/repository-contract.test.ts`               |
@@ -11936,3 +11937,39 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173。`playwright test --workers=1`）: 通知に関わる UC-05・UC-10・UC-22（E22-033・E22-034 を含む）・UC-23・UC-24 の **145 件が、すべて成功**（最初の実行で、E22-033 の検証の誤りが 1 件見つかり、直して、再実行して成功）。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認（通知の絞り込み・カウンターの移行）は、未確認**（AWS の操作は、ユーザーが行う。operations.md 8.8）
+
+## 36. 取り込み・連携のログのハウス別の記録と、一般ユーザー向けの画面（Issue #332。#116 の子）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-10 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0013。ADR-0007・ADR-0016 の追記）: 取り込みログ・連携ログに、ハウスごとの内訳（任意の `facilities`）を記録する。取り込みは、取り込んだ観測値の設備のハウスごとの結果（成功／失敗）と件数。取り込めなかったファイルは、設備の `sourceFilePath` が同じ設備のハウスの失敗。連携は、項目に、送るデータの設備のハウス（`facilityIds`。積むときに決める）を持たせ、送信・破棄のログに、ハウスごとの項目数。一般ユーザーは、ハウス別の API（`GET /ingestion/facility-logs`・`GET /federation/facility-logs`。要ログイン）と専用の画面で、閲覧できるハウスの分だけを見る（日時・ハウス・取り込み元・結果・件数。接続先・認証情報・失敗の理由・全体の件数・連携キューの件数は、見せない）。ハウスに結びつけられない結果（接続の失敗・設備に結びつかないファイルの失敗・以前のログ）は、管理者のみ。管理者の既存の画面・API は、変えない。
+
+### 36.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 結合: `tests/integration/repository-contract.test.ts`（4 件を追加。ローカル・ファイル・DynamoDB の 3 実装で 12 件） | ハウス別のログの Repository: 取り込みの記録（指定したハウスの分だけを新しい順に返す・ハウスの内訳がないログは含めない・空の指定は何も返さない）。ページ分割（1 件ずつ）で、同じログの複数のハウスを取りこぼさない。全体のログ（管理者向け）は、内訳を含めて返す。連携の記録（指定したハウスの分だけ・ハウスの内訳がないログは含めない） |
+| 結合: `tests/integration/ingestion-by-facility.test.ts`（新規。7 件） | 取り込みログのハウス別の内訳: 1 つのファイルに 2 つのハウスのデータがあれば、ハウスごとの件数。形式違いのファイルは、そのファイルのパスをもつ設備のハウスの失敗（他のハウスの成功は、そのまま）。同じハウスに、成功と失敗があれば、失敗・件数は成功した分。設備に結びつかない失敗・接続の失敗・新しいファイルがない取り込みは、内訳を持たない。ハウス別の一覧に、そのハウスの分だけが載る |
+| 結合: `tests/integration/federation-by-facility.test.ts`（新規。7 件） | 連携のハウス別の内訳: 観測値の項目は、観測値の設備のハウス（複数にまたがれば、すべて）。評価の項目は、設備のハウス（ハウス自身はその ID）。設備を特定できない項目・見つからない設備は、ハウスなし。送信の結果（成功・保留）・期限切れの破棄のログに、ハウスごとの項目数。ハウスなしの項目だけの送信は、内訳なし |
+| 結合: `tests/integration/facility-log-api.test.ts`（新規。12 件） | ハウス別のログの API: 一般ユーザーには、割り当てたハウスの分だけ（範囲外・ハウスの内訳がないログは含めない）。接続先・失敗の理由・全体の件数・再試行の回数は返さない。割り当てがなければ空。管理者は全ハウス。割り当ての変更は、すぐに反映。limit・cursor の続き。未ログインは 401。連携は、キューの件数・失敗の理由を返さない。全体のログ・連携のログ・設定は、一般には、これまでどおり 403 |
+| 単体: `tests/unit/frontend/facility-ingestion-view.test.tsx`（新規。5 件） | 一般ユーザー向けの画面: 取り込み・連携の記録（ハウス名・取り込み元・結果・件数）。管理用の設定・ログ・連携のログ・認証情報・キューの件数は、取得も表示もしない。記録がなければ、その旨。続きがあれば、次のページを取得。取得に失敗したら、エラーと再読み込み |
+| E2E: `tests/e2e/UC-16-check-ingestion-status.ts`（1 件を追加。E16-022） | 一般ユーザーが、メニューの「取り込み」から、割り当てたハウスの取り込み・連携の記録だけを見る（設定・エラー内容・キューの件数は出ない）。割り当てを別のハウスに変えると、すぐに、ハウス 1 の記録が出なくなる |
+
+### 36.2 変更した既存のテスト
+
+仕様の変更（一般ユーザーにも「取り込み」を表示し、閲覧できるハウスの記録だけを示す）に合わせて、期待を変えた。テストの意図（一般ユーザーには、管理用の内容を示さない・サーバー側で拒否する）は、変えていない。
+
+- `tests/unit/frontend/app-layout.test.tsx`: 一般（手動入力の権限だけ）のメニューに、「取り込み」を加えた（「ユーザー」は、引き続き、表示しない）
+- `tests/unit/frontend/ingestion-page.test.tsx`: 取り込みの参照権限がない利用者は、「権限がない旨」ではなく、ハウス別の記録を表示する。取り込みの設定・ログ・連携のログは、引き続き、取得しない
+- `tests/e2e/UC-14-manage-users.ts`: 一般のメニューに「取り込み」が出る。直接開くと、ハウス別の記録の画面（管理用の内容は出ない）。管理用の API は、引き続き、サーバー側で 403
+- `tests/integration/api.test.ts`: ルート一覧に、ハウス別の 2 つの API を加えた（47 → 49 件）
+- `federation-expiry.test.ts`・`federation-recovery.test.ts`・`federation-item-size.test.ts`・`runtime-resilience.test.ts`: `createFederationService` の依存に、設備の取得（`equipment`）を加えた（期待は、変えていない）
+
+### 36.3 実測
+
+手元（Windows。2026-11-10）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **140 ファイル・3085 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.14%・Branches 95.39%・Functions 99.33%・Lines 99.13%（基準は、すべて 95% 以上）。1 回目の実行で、ルート一覧のテスト（api.test.ts）が、新しい 2 つのルートを知らずに失敗し、期待を更新して、再実行して成功
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- E2E（空きポート 18787・15173）: 取り込み・連携に関わる UC-11・UC-14・UC-15（2 ファイル）・UC-16（E16-022 を含む）・UC-22 の **157 件が、すべて成功**（E16-022 は、最初の実行で、検証の前提の誤り〔2 つ目のハウスが、既定では存在しない・2 つ目のハウスの評価も連携に積まれる〕が見つかり、直して、再実行して成功）。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
+- **AWS での実際の確認（ハウス別の記録の書き込み・読み取り）は、未確認**（AWS の操作は、ユーザーが行う。DynamoDB Local では、契約テストで確認）
