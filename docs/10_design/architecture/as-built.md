@@ -273,6 +273,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-development.yml`・`deploy-production.yml`（手動実行。本番サイトは `main` だけ・承認が必要。Issue #117。本番サイトは、AWS に未作成）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
 | スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測も、実行済み（長時間アクセスがないあとの最初のログインは、約 3.2 秒。既知の制約として許容。test.spec.md 13.3） |
+| 画面の CSP の確認 | `pnpm test:csp` | 実装済み（Playwright。本番ビルドの画面に、CloudFront と同じ CSP〔`infra/lib/content-security-policy.ts`〕を付けて、主な画面を一巡し、違反が出ないことを確認する。手元で実行。dev_spec.md 6.7。Issue #127）。AWS 上の応答ヘッダーは、`pnpm test:smoke`（`smoke-04-delivery-headers.ts`）で確認する |
 
 差の詳細は、「設計との差分」（D-01〜D-22）を参照する。
 
@@ -2686,6 +2687,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `pnpm test:e2e`                     | `playwright test`                                                                                  |
 | `pnpm test:stress`                  | `playwright test -c playwright.stress.config.ts`（負荷テスト。`pnpm test` には含めない）           |
 | `pnpm test:smoke`                   | `playwright test -c playwright.smoke.config.ts`（評価環境（AWS）に対する、スモークテスト・性能の実測。手動実行。`pnpm test` には含めない） |
+| `pnpm test:csp`                     | `playwright test -c playwright.csp.config.ts`（画面の CSP の確認。本番ビルドの画面に、CloudFront と同じ CSP を付けて、主な画面を一巡する。`pnpm test` には含めない） |
 | `pnpm lint`                         | `eslint .`（依存の向きの検査を含む）                                                               |
 | `pnpm typecheck`                    | ルート・shared・backend・frontend・tests の `tsc`                                                  |
 | `pnpm format` / `pnpm format:check` | Prettier（`docs/`・`README.md`・`AGENTS.md`・`tests/fixtures/` などは `.prettierignore` で対象外） |
@@ -2694,14 +2696,14 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #332 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-10 の実測。Issue #127 の後）
 
-計測対象は 287 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（140 ファイル・3085 件成功・2 件スキップ）。
+計測対象は 289 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（141 ファイル・3090 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.13% | 7,443／7,508 | 95% 以上 |
-| 文   | 99.14% | 7,694／7,760 | 95% 以上 |
+| 行   | 99.13% | 7,446／7,511 | 95% 以上 |
+| 文   | 99.14% | 7,697／7,763 | 95% 以上 |
 | 関数 | 99.33% | 2,254／2,269 | 95% 以上 |
 | 分岐 | 95.39% | 4,622／4,845 | 95% 以上 |
 
@@ -2726,7 +2728,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-10 の実測（Issue #332 の後）: 140 ファイル・**3085 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3085 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 31・infra（IaC）6 ファイルと、結合 49 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-10 の実測（Issue #127 の後）: 141 ファイル・**3090 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3090 件。内訳（test.spec.md 1.2）: 単体 shared 12・backend 42（domain 10・application 10・presentation 1・infrastructure 18・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 49 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 
