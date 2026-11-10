@@ -20,5 +20,15 @@ export default defineConfig({
     emptyOutDir: true,
     // CSS の最小化は esbuild で行う（既定の lightningcss は、MPL-2.0 のため導入しない。.license-check/license-report.md）
     cssMinify: 'esbuild',
+    rollupOptions: {
+      output: {
+        // Zod と、その設定（lib/zod-config.ts。jitless）を、専用のチャンクにまとめる。共有スキーマ（Zod を使う）より先に、設定が実行され、
+        // CSP（unsafe-eval なし）のもとで、Zod が eval を試して、違反として報告されることを防ぐ（Issue #127）
+        manualChunks: (id) =>
+          id.includes('/node_modules/zod/') || id.endsWith('/src/frontend/lib/zod-config.ts')
+            ? 'zod'
+            : undefined,
+      },
+    },
   },
 });
