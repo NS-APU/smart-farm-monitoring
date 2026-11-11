@@ -25,7 +25,6 @@ function source(sourceId: string, connection: IngestionSource['connection']): In
     profileId: 'robot-json',
     connectionRef: 'FILE_SERVER_MOCK',
     connection,
-    intervalMinutes: 30,
     isEnabled: true,
   };
 }

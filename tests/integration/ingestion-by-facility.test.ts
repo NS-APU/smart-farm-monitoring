@@ -69,7 +69,7 @@ function build(options: { files: Record<string, string>; listFails?: boolean }) 
   };
   const service = createIngestionService({
     repositories,
-    ingestionSettings: createIngestionSettings(repositories.settings, 15),
+    ingestionSettings: createIngestionSettings(repositories.settings),
     fileSource,
     profiles: { get: () => profile },
     evaluation: {

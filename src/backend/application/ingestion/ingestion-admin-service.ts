@@ -139,7 +139,6 @@ export function createIngestionAdminService(
           ...source,
           connectionRef: change.connectionRef,
           connection: change.connection ?? source.connection,
-          intervalMinutes: change.intervalMinutes,
           isEnabled: change.isEnabled,
         });
       }

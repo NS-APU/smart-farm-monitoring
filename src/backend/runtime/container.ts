@@ -464,10 +464,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     settings,
     logger,
   });
-  const ingestionSettings = createIngestionSettings(
-    repositories.settings,
-    settings.defaultIngestionIntervalMinutes,
-  );
+  const ingestionSettings = createIngestionSettings(repositories.settings);
   // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
   const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
   const routedFileSource = createRoutingFileSource({

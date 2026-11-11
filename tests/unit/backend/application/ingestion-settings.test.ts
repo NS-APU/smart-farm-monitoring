@@ -26,7 +26,7 @@ describe('取り込み設定の既定', () => {
   it('保存がなければ、ロボットは robot-json、環境センサーは environment-sensor-json を使う', async () => {
     const { repositories } = createLocalRepositories();
 
-    const sources = await createIngestionSettings(repositories.settings, 15).listSources();
+    const sources = await createIngestionSettings(repositories.settings).listSources();
 
     expect(sources.map((source) => [source.sourceId, source.profileId])).toEqual([
       ['robot', 'robot-json'],
@@ -43,7 +43,7 @@ describe('保存済みの設定の、旧い FormatProfile の識別子の読み�
       storedSource('environment-sensor', 'environment-sensor-csv'),
     ]);
 
-    const sources = await createIngestionSettings(repositories.settings, 15).listSources();
+    const sources = await createIngestionSettings(repositories.settings).listSources();
 
     expect(sources.map((source) => source.profileId)).toEqual([
       'robot-json',
@@ -52,9 +52,22 @@ describe('保存済みの設定の、旧い FormatProfile の識別子の読み�
     expect(sources[1]).toMatchObject({
       sourceId: 'environment-sensor',
       connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
       isEnabled: true,
     });
+  });
+
+  it('以前に保存された、取り込み元ごとの取得間隔は、読み込むときに無視する（取得間隔は、設備ごと。#197）。保存し直すと、残らない', async () => {
+    const { repositories } = createLocalRepositories();
+    await repositories.settings.set(INGESTION_SETTINGS_KEY, [storedSource('robot', 'robot-json')]);
+    const settings = createIngestionSettings(repositories.settings);
+
+    const sources = await settings.listSources();
+    await settings.saveSources(sources);
+
+    expect(sources[0]).not.toHaveProperty('intervalMinutes');
+    expect(JSON.stringify(await repositories.settings.get(INGESTION_SETTINGS_KEY))).not.toContain(
+      'intervalMinutes',
+    );
   });
 
   it('読み替えた設定を保存し直しても、新しい識別子になる（旧い識別子は、残らない）', async () => {
@@ -62,7 +75,7 @@ describe('保存済みの設定の、旧い FormatProfile の識別子の読み�
     await repositories.settings.set(INGESTION_SETTINGS_KEY, [
       storedSource('environment-sensor', 'environment-sensor-csv'),
     ]);
-    const settings = createIngestionSettings(repositories.settings, 15);
+    const settings = createIngestionSettings(repositories.settings);
 
     await settings.saveSources(await settings.listSources());
 
@@ -75,7 +88,7 @@ describe('保存済みの設定の、旧い FormatProfile の識別子の読み�
     const { repositories } = createLocalRepositories();
     await repositories.settings.set(INGESTION_SETTINGS_KEY, [storedSource('robot', 'custom-json')]);
 
-    const sources = await createIngestionSettings(repositories.settings, 15).listSources();
+    const sources = await createIngestionSettings(repositories.settings).listSources();
 
     expect(sources[0]?.profileId).toBe('custom-json');
   });

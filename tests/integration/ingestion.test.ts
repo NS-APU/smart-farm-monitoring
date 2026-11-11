@@ -39,7 +39,7 @@ function build(fileSource: FileSource, profiles = createDefaultFormatProfileRegi
   const notifyIngestionFailure = vi.fn().mockResolvedValue(null);
   const service = createIngestionService({
     repositories,
-    ingestionSettings: createIngestionSettings(repositories.settings, 15),
+    ingestionSettings: createIngestionSettings(repositories.settings),
     fileSource,
     profiles,
     evaluation: {
@@ -584,16 +584,14 @@ describe('取り込みの実行の制御・設定', () => {
     if (robotSource === undefined) {
       throw new Error('テストの前提');
     }
-    await context.container.ingestionSettings.saveSources([
-      { ...robotSource, intervalMinutes: 60 },
-    ]);
+    await context.container.ingestionSettings.saveSources([{ ...robotSource, isEnabled: false }]);
     const saved = await context.container.ingestionSettings.listSources();
 
-    expect(defaults.map((source) => [source.sourceId, source.intervalMinutes])).toEqual([
-      ['robot', 15],
-      ['environment-sensor', 15],
+    expect(defaults.map((source) => [source.sourceId, source.isEnabled])).toEqual([
+      ['robot', true],
+      ['environment-sensor', true],
     ]);
-    expect(saved).toEqual([{ ...robotSource, intervalMinutes: 60 }]);
+    expect(saved).toEqual([{ ...robotSource, isEnabled: false }]);
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * 取り込み設定（取り込み元ごとの接続先の参照名・取得間隔）。認証情報の値は持たない（NFR-5.4）。
+ * 取り込み設定（取り込み元ごとの接続先の参照名・有効／無効）。認証情報の値は持たない（NFR-5.4）。
  * 設定の変更（UC-15）は IngestionAdminService が行い、ここに保存する。保存がなければ、既定の取り込み元を返す。
  */
 
@@ -34,9 +34,7 @@ const LEGACY_PROFILE_IDS: Readonly<Record<string, string>> = {
 };
 
 /** 既定の取り込み元。接続先は、ローカルではファイルサーバーのモック（Q-002 が確定するまで）。 */
-function defaultIngestionSources(
-  intervalMinutes: IngestionSource['intervalMinutes'],
-): IngestionSource[] {
+function defaultIngestionSources(): IngestionSource[] {
   return [
     {
       sourceId: ROBOT_SOURCE_ID,
@@ -44,7 +42,6 @@ function defaultIngestionSources(
       profileId: 'robot-json',
       connectionRef: 'FILE_SERVER_MOCK',
       connection: { type: 'MOCK' },
-      intervalMinutes,
       isEnabled: true,
     },
     {
@@ -53,7 +50,6 @@ function defaultIngestionSources(
       profileId: 'environment-sensor-json',
       connectionRef: 'FILE_SERVER_MOCK',
       connection: { type: 'MOCK' },
-      intervalMinutes,
       isEnabled: true,
     },
   ];
@@ -64,15 +60,12 @@ export interface IngestionSettings {
   saveSources(sources: readonly IngestionSource[]): Promise<void>;
 }
 
-export function createIngestionSettings(
-  settings: SettingsRepository,
-  defaultIntervalMinutes: IngestionSource['intervalMinutes'],
-): IngestionSettings {
+export function createIngestionSettings(settings: SettingsRepository): IngestionSettings {
   return {
     async listSources() {
       const stored = await settings.get(INGESTION_SETTINGS_KEY);
       if (stored === undefined) {
-        return defaultIngestionSources(defaultIntervalMinutes);
+        return defaultIngestionSources();
       }
       return z
         .array(IngestionSourceSchema)

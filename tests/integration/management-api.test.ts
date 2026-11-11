@@ -1501,7 +1501,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const robot = body.sources[0];
     expect(robot).toMatchObject({
       connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
       isEnabled: true,
       isRunning: false,
       formatProfile: { versionLabel: 'robot-json@0.2.0(PROVISIONAL)', status: 'PROVISIONAL' },
@@ -1511,7 +1510,7 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(body.sources[1]).toMatchObject({ lastStartedAt: null, lastSuccessAt: null });
   });
 
-  it('接続先の参照名・取得間隔・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
+  it('接続先の参照名・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
@@ -1519,7 +1518,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
         {
           sourceId: 'robot',
           connectionRef: 'FILE_SERVER_2',
-          intervalMinutes: 360,
           isEnabled: false,
         },
       ],
@@ -1529,41 +1527,39 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const body = await settings(context);
     expect(body.sources[0]).toMatchObject({
       connectionRef: 'FILE_SERVER_2',
-      intervalMinutes: 360,
       isEnabled: false,
     });
-    expect(body.sources[1]).toMatchObject({
-      connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
-    });
+    expect(body.sources[1]).toMatchObject({ connectionRef: 'FILE_SERVER_MOCK' });
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?targetType=ingestion-settings')).json(),
     );
     expect(audit.items).toHaveLength(1);
   });
 
-  it.each([5, 15, 30, 60, 360, 1440])(
-    '取得間隔 %i 分は保存できる（候補の全値）',
-    async (interval) => {
-      const context = await withEquipment();
+  it('取得間隔は、設備ごとの設定（Issue #197）。以前のクライアントが、取り込み元の取得間隔を送っても、無視して保存し、設定にも応答にも残らない', async () => {
+    const context = await withEquipment();
 
-      const response = await send(context, 'PUT', '/ingestion/settings', {
-        sources: [
-          {
-            sourceId: 'robot',
-            connectionRef: 'FILE_SERVER_MOCK',
-            intervalMinutes: interval,
-            isEnabled: true,
-          },
-        ],
-      });
+    const response = await send(context, 'PUT', '/ingestion/settings', {
+      sources: [
+        {
+          sourceId: 'robot',
+          connectionRef: 'FILE_SERVER_MOCK',
+          intervalMinutes: 360,
+          isEnabled: true,
+        },
+      ],
+    });
 
-      expect(response.status).toBe(200);
-    },
-  );
+    expect(response.status).toBe(200);
+    expect(
+      JSON.stringify(await (await send(context, 'GET', '/ingestion/settings')).json()),
+    ).not.toContain('intervalMinutes');
+    expect(
+      JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
+    ).not.toContain('intervalMinutes');
+  });
 
   it.each([
-    ['候補にない取得間隔', { intervalMinutes: 10 }, 'sources.0.intervalMinutes'],
     ['参照名が空', { connectionRef: '' }, 'sources.0.connectionRef'],
     ['参照名に使えない文字', { connectionRef: 'bad ref!' }, 'sources.0.connectionRef'],
     ['参照名が長すぎる', { connectionRef: 'a'.repeat(101) }, 'sources.0.connectionRef'],
@@ -1576,7 +1572,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
         {
           sourceId: 'robot',
           connectionRef: 'FILE_SERVER_MOCK',
-          intervalMinutes: 15,
           isEnabled: true,
           ...override,
         },
@@ -1592,7 +1587,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const source = {
       sourceId: 'robot',
       connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
       isEnabled: true,
     };
 

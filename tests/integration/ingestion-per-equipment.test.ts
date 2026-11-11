@@ -93,7 +93,7 @@ async function build(options: { connection: IngestionSource['connection']; inter
       rejectedCount: 0,
     }),
   };
-  const ingestionSettings = createIngestionSettings(repositories.settings, 15);
+  const ingestionSettings = createIngestionSettings(repositories.settings);
   await ingestionSettings.saveSources(
     (await ingestionSettings.listSources()).map((source) => ({
       ...source,
@@ -282,7 +282,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
 
   it('無効にした取り込み元は、動かさず、その設備の記録も、更新しない', async () => {
     const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
-    const settings = createIngestionSettings(repositories.settings, 15);
+    const settings = createIngestionSettings(repositories.settings);
     await settings.saveSources(
       (await settings.listSources()).map((source) => ({
         ...source,

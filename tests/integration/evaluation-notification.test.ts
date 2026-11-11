@@ -50,6 +50,15 @@ async function setup() {
 
 type Context = Awaited<ReturnType<typeof setup>>;
 
+/** ロボット・センサーの取得間隔を、15 分にする（設備ごとの設定。Issue #197。「データが古い」の基準は、取得間隔 × 3）。 */
+async function useFifteenMinuteIntervals(context: Context): Promise<void> {
+  for (const equipment of equipmentSet()) {
+    if (equipment.equipmentType !== 'FACILITY') {
+      await context.container.repositories.equipment.save({ ...equipment, intervalMinutes: 15 });
+    }
+  }
+}
+
 function temperature(value: number, observedAt: string) {
   return observation({ equipmentId: SENSOR_ID, itemKey: 'temperatureCelsius', value, observedAt });
 }
@@ -983,6 +992,7 @@ describe('ダッシュボード（UC-01）', () => {
 
   it('観点を表示順に、ステータス・主要メトリクス・診断メッセージ・推奨アクションつきで返し、件数を集計する', async () => {
     const context = await setup();
+    await useFifteenMinuteIntervals(context);
     await context.container.repositories.observations.saveMany([
       ...generateAutoObservations({
         robotId: ROBOT_ID,
@@ -1031,6 +1041,7 @@ describe('ダッシュボード（UC-01）', () => {
 
   it('最終のデータ取得から取得間隔の3倍が過ぎたら、データが古いとする', async () => {
     const context = await setup();
+    await useFifteenMinuteIntervals(context);
     await context.container.repositories.observations.saveMany([
       temperature(20, new Date(TEST_NOW.getTime() - 60_000).toISOString()),
     ]);
@@ -1046,6 +1057,21 @@ describe('ダッシュボード（UC-01）', () => {
     expect(boundary.dataFreshness).toBe('FRESH');
     expect(stale.dataFreshness).toBe('STALE');
     expect(stale.lastReceivedAt).toBe(new Date(TEST_NOW.getTime() - 60_000).toISOString());
+  });
+
+  it('「データが古い」の基準は、設備ごとの取得間隔（Issue #197）から決まる。既定（ロボット 1 分・センサー 5 分）は 15 分、ロボットを 1 時間にすると 180 分（#198 まで）', async () => {
+    const context = await setup();
+    const defaults = await get(context);
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({ ...robot, intervalMinutes: 60 });
+
+    const slow = await get(context);
+
+    expect(defaults.staleThresholdMinutes).toBe(15);
+    expect(slow.staleThresholdMinutes).toBe(180);
   });
 
   it('短期視点を指定すると、短期評価を持つ観点は短期の結果を、持たない観点は長期の結果を返す', async () => {

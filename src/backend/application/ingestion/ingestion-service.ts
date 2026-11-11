@@ -47,6 +47,7 @@ import { errorLogFields } from '../error-fields.ts';
 import type { AppSettings } from '../settings.ts';
 import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
 import { sourceDisplayName, type IngestionSettings } from './ingestion-settings.ts';
+import { representativeIntervalMinutes } from './source-interval.ts';
 
 /** 取り込みの実行結果。API の応答（IngestionRunResponse）と同じ形。 */
 export type IngestionRunSummary = IngestionRunResponse;
@@ -626,9 +627,23 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
    * 取り込みは、ファイルが0件でも成功になるため、取得間隔×基準の倍数を超えて、新しいデータ（1件以上の記録）が
    * 取り込まれていない場合を、停止とみなす。一度もデータを取り込んでいない取り込み元（未取得）は、対象外。
    * 暫定仕様（dev_spec.md 4章）。環境変数 INGESTION_STOP_NOTIFICATION_ENABLED で、無効にできる。
+   * 基準の取得間隔は、その種別の設備の最長（設備ごとの設定。Issue #197。設備ごとの基準への置き換えは #198）。
+   * `equipmentRead` は、取り込みの判定で、すでに読み始めた設備の一覧（読めなかった失敗は、取り込みの失敗として、伝え済み）。
    */
-  async function notifyStoppedSources(now: Date): Promise<void> {
+  async function notifyStoppedSources(
+    now: Date,
+    equipmentRead?: Promise<Equipment[]>,
+  ): Promise<void> {
     if (!settings.stopNotificationEnabled) {
+      return;
+    }
+    let equipment: Equipment[];
+    try {
+      equipment = await (equipmentRead ?? repositories.equipment.list());
+    } catch (error) {
+      if (equipmentRead === undefined) {
+        throw error;
+      }
       return;
     }
     for (const source of await ingestionSettings.listSources()) {
@@ -636,7 +651,8 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         continue;
       }
       const lastDataAt = await repositories.ingestion.lastDataIngestedAt(source.sourceId);
-      const stopAfterMinutes = source.intervalMinutes * settings.stopAfterIntervals;
+      const stopAfterMinutes =
+        representativeIntervalMinutes(source.kind, equipment) * settings.stopAfterIntervals;
       if (
         lastDataAt === null ||
         now.getTime() - lastDataAt.getTime() <= stopAfterMinutes * MS_PER_MINUTE
@@ -840,7 +856,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         }
       }
       // 新しいデータが届かなくなった取り込み元を通知する（取り込みの失敗の有無にかかわらず判定する）
-      await notifyStoppedSources(clock.now());
+      await notifyStoppedSources(clock.now(), equipmentRead);
       // 握りつぶさず、すべての取り込み元の実行後に、エラーを呼び出し元（ジョブ）へ伝える。
       // 複数の取り込み元で失敗した場合は、すべてをまとめる（V-058）
       if (failures.length === 1) {

@@ -363,15 +363,7 @@ export const MANAGEMENT_MESSAGES = {
     credentialsUnsaved:
       '認証方式・接続方式を変更しました。先に設定を保存してから、認証情報を登録してください',
     credentialsAfterSave: '認証情報は、設定を保存したあとに、登録できます',
-    interval: '取得間隔',
-    intervalLabels: {
-      5: '5分',
-      15: '15分',
-      30: '30分',
-      60: '1時間',
-      360: '6時間',
-      1440: '日次',
-    },
+    intervalMoved: '取得間隔は、設備ごとに、設備管理で設定します',
     enabled: '自動取り込みを有効にする',
     profile: '解釈に使っている仕様',
     profileStatus: { PROVISIONAL: '仮決め', CONFIRMED: '確定' },
