@@ -795,17 +795,11 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['robot', 'ロボットデータ'],
     ['environment-sensor', '環境センサーデータ'],
   ] as const) {
-    await sourceCard(id).getByLabel('取得間隔').selectOption({ label: '5分' });
-    await m(
-      'UC-15',
-      `${name}の取得間隔を5分に変更して「設定を保存」を押す`,
-      '取り込み設定・状況（SC-11）',
-      'operation',
-      {
-        act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
-        respond: () => expect(result(id)).toHaveText('設定を保存しました'),
-      },
-    );
+    // 取得間隔は、設備ごとの設定（Issue #197）。この画面では、接続先の参照名を変えずに、保存を押す
+    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み設定・状況（SC-11）', 'operation', {
+      act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
+      respond: () => expect(result(id)).toHaveText('設定を保存しました'),
+    });
   }
   await m(
     'UC-15',
@@ -863,7 +857,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
 
-  // UC-08・UC-09 定期取り込み（JB-01）: 取得間隔（5分）が過ぎたことにして、ジョブを起動する
+  // UC-08・UC-09 定期取り込み（JB-01）: 設備ごとの取得間隔（既定: ロボット 1 分・センサー 5 分）が過ぎたことにして、ジョブを起動する
   await menu('取り込み').click();
   await ingestionShown();
   placeRobotFiles({ startIndex: 100, ...FILES });

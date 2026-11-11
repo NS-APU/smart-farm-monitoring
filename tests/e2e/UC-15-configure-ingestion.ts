@@ -2,14 +2,14 @@
  * UC-15 取り込みを設定し、接続テスト・即時取得を行う（SC-11。FR-1.3〜FR-1.5、FR-1.7、NFR-5.4）。
  *
  * ユースケースシナリオ（use-cases.md）:
- *   基本フロー  1. 農作業者が、取り込みの設定（接続先、認証情報、取得間隔）を入力する
+ *   基本フロー  1. 農作業者が、取り込みの設定（接続先、認証情報）を入力する（取得間隔は、設備ごとの設定。UC-12）
  *               2. システムが、設定を保存する
  *               3. 農作業者が、接続テストを実行し、結果を確認する
  *               4. 農作業者が、必要に応じて、手動で即時に取得する
  *   代替フロー  接続テストに失敗した場合は、失敗した旨を表示する（内部情報は表示しない。NFR-5.6）。設定の値が不正な場合は、保存しない
  *   事後条件    取り込みの設定が保存されている。以降の自動取り込み（UC-08、UC-09）に使われる
  *
- * 値の同値分割: 取得間隔（5分・15分・30分・1時間・6時間・日次）、接続先の参照名（正常・空・長すぎる・使えない文字・境界の長さ）、
+ * 値の同値分割: 接続先の参照名（正常・空・長すぎる・使えない文字・境界の長さ）、
  * 有効／無効、接続テスト（成功・ファイルサーバー停止・取り込み元の場所がない）、即時取得（成功・一部成功・失敗・二重実行）、
  * 権限（設定・実行できる・参照のみ）。
  * 関連するユースケース: UC-08・UC-09（設定が自動取り込みに使われる）、UC-16（実行の記録を確認）、UC-24（失敗の通知）。
@@ -52,8 +52,6 @@ async function openIngestion(page: Page, user?: Parameters<typeof openAs>[2]): P
 
 const refInput = (page: Page, sourceId: SourceId) =>
   sourceCard(page, sourceId).getByLabel('接続先（接続設定の参照名）');
-const intervalSelect = (page: Page, sourceId: SourceId) =>
-  sourceCard(page, sourceId).getByLabel('取得間隔');
 const enabledBox = (page: Page, sourceId: SourceId) =>
   sourceCard(page, sourceId).getByLabel('自動取り込みを有効にする');
 const save = (page: Page, sourceId: SourceId) =>
@@ -63,7 +61,7 @@ const fieldError = (page: Page, sourceId: SourceId, name: string) =>
   sourceCard(page, sourceId).locator(`[data-field="${name}"] .field-error`);
 
 test.describe('基本フロー: 取り込み元ごとの設定を入力・保存し、接続テストと即時取得を行う', () => {
-  test('取り込み元（ロボットデータ・環境センサーデータ）ごとに、接続先・取得間隔・有効／無効と、解釈に使っている仕様の版・状態を表示する。認証情報は表示しない', async ({
+  test('取り込み元（ロボットデータ・環境センサーデータ）ごとに、接続先・有効／無効と、解釈に使っている仕様の版・状態を表示する。認証情報は表示しない', async ({
     page,
     request,
   }, testInfo) => {
@@ -74,7 +72,11 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
       const card = sourceCard(page, sourceId);
       await expect(card.getByRole('heading', { name: SOURCE_NAMES[sourceId] })).toBeVisible();
       await expect(refInput(page, sourceId)).toHaveValue('FILE_SERVER_MOCK');
-      await expect(intervalSelect(page, sourceId)).toHaveValue('15');
+      // 取得間隔は、設備ごとの設定（設備管理。#197）。この画面には、入力欄を出さず、案内を示す
+      await expect(card.getByLabel('取得間隔')).toHaveCount(0);
+      await expect(page.getByTestId(`interval-moved-${sourceId}`)).toHaveText(
+        '取得間隔は、設備ごとに、設備管理で設定します',
+      );
       await expect(enabledBox(page, sourceId)).toBeChecked();
       await expect(card.getByTestId(`last-started-${sourceId}`)).toHaveText('まだ実行していません');
       // 認証情報（パスワード・秘密鍵）を入力・表示する欄はない
@@ -90,7 +92,7 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     await shot(page, testInfo, 'uc15-settings');
   });
 
-  test('接続先の参照名・取得間隔・有効／無効を変更して保存すると、設定が保存され、再読み込みしても保持される。もう一方の取り込み元は変わらない', async ({
+  test('接続先の参照名・有効／無効を変更して保存すると、設定が保存され、再読み込みしても保持される。もう一方の取り込み元は変わらない', async ({
     page,
     request,
   }) => {
@@ -99,17 +101,14 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
 
     // 1. 設定を入力する → 2. 保存する
     await refInput(page, 'robot').fill('FILE_SERVER_2');
-    await intervalSelect(page, 'robot').selectOption('360');
     await enabledBox(page, 'robot').uncheck();
     await save(page, 'robot').click();
 
     await expect(result(page, 'robot')).toHaveText('設定を保存しました');
     await page.reload();
     await expect(refInput(page, 'robot')).toHaveValue('FILE_SERVER_2');
-    await expect(intervalSelect(page, 'robot')).toHaveValue('360');
     await expect(enabledBox(page, 'robot')).not.toBeChecked();
     await expect(refInput(page, 'environment-sensor')).toHaveValue('FILE_SERVER_MOCK');
-    await expect(intervalSelect(page, 'environment-sensor')).toHaveValue('15');
     await expect(enabledBox(page, 'environment-sensor')).toBeChecked();
   });
 
@@ -135,42 +134,6 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     );
     await shot(page, testInfo, 'uc15-run');
   });
-});
-
-test.describe('取得間隔の同値分割（5分・15分・30分・1時間・6時間・日次）', () => {
-  const options: readonly { value: string; label: string }[] = [
-    { value: '5', label: '5分' },
-    { value: '15', label: '15分' },
-    { value: '30', label: '30分' },
-    { value: '60', label: '1時間' },
-    { value: '360', label: '6時間' },
-    { value: '1440', label: '日次' },
-  ];
-
-  for (const option of options) {
-    test(`取得間隔「${option.label}」を選んで保存でき、再読み込みしても保持される`, async ({
-      page,
-      request,
-    }) => {
-      await prepareApp(request);
-      await openIngestion(page);
-      await expect(intervalSelect(page, 'environment-sensor').locator('option')).toHaveText([
-        '5分',
-        '15分',
-        '30分',
-        '1時間',
-        '6時間',
-        '日次',
-      ]);
-
-      await intervalSelect(page, 'environment-sensor').selectOption(option.value);
-      await save(page, 'environment-sensor').click();
-
-      await expect(result(page, 'environment-sensor')).toHaveText('設定を保存しました');
-      await page.reload();
-      await expect(intervalSelect(page, 'environment-sensor')).toHaveValue(option.value);
-    });
-  }
 });
 
 test.describe('代替フロー: 設定の値が不正な場合は、保存しない', () => {
@@ -497,7 +460,6 @@ test.describe('権限: 設定・実行する権限のない利用者（閲覧者
       0,
     );
     await expect(refInput(page, 'robot')).toHaveAttribute('readonly', '');
-    await expect(intervalSelect(page, 'robot')).toBeDisabled();
     await shot(page, testInfo, 'uc15-readonly');
     const login = await request.post('/api/v1/auth/login', {
       data: { userId: VIEWER.userId, password: VIEWER.password },
@@ -507,7 +469,7 @@ test.describe('権限: 設定・実行する権限のない利用者（閲覧者
       method: 'PUT',
       headers: { authorization: `Bearer ${accessToken}` },
       data: {
-        sources: [{ sourceId: 'robot', connectionRef: 'X', intervalMinutes: 5, isEnabled: false }],
+        sources: [{ sourceId: 'robot', connectionRef: 'X', isEnabled: false }],
       },
     });
     expect(denied.status()).toBe(403);

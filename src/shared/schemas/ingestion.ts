@@ -145,7 +145,10 @@ export const IngestionSourceSchema = z.object({
   connectionRef: z.string().min(1),
   /** ファイルサーバーの接続設定。保存がない既存の設定は、MOCK（移行不要）。 */
   connection: FileServerConnectionSchema.default({ type: 'MOCK' }),
-  intervalMinutes: IngestionIntervalSchema,
+  /**
+   * 取得間隔は、設備ごとの設定（Equipment.intervalMinutes。Issue #197）。以前に保存された取り込み元ごとの取得間隔は、
+   * 読み込むときに無視する（移行しない）。
+   */
   isEnabled: z.boolean(),
 });
 export type IngestionSource = z.infer<typeof IngestionSourceSchema>;
@@ -219,7 +222,7 @@ export const FederationItemSchema = z.object({
 });
 export type FederationItem = z.infer<typeof FederationItemSchema>;
 
-/** 取り込み元の設定の変更（接続先の参照名・取得間隔・有効／無効。FR-1.4、1.5）。 */
+/** 取り込み元の設定の変更（接続先の参照名・有効／無効。FR-1.4）。取得間隔は、設備ごと（Issue #197）。 */
 export const IngestionSourceUpdateSchema = z.object({
   sourceId: z.string().min(1).max(100),
   connectionRef: z
@@ -230,7 +233,6 @@ export const IngestionSourceUpdateSchema = z.object({
     .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, '接続先の参照名は英数字・記号（_ . -）のみ使えます'),
   /** 省略は、現在の接続設定を保つ。 */
   connection: FileServerConnectionSchema.optional(),
-  intervalMinutes: IngestionSourceSchema.shape.intervalMinutes,
   isEnabled: z.boolean(),
 });
 export type IngestionSourceUpdate = z.infer<typeof IngestionSourceUpdateSchema>;

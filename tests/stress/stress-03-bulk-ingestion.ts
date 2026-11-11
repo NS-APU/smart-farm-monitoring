@@ -45,20 +45,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   const result = (id: 'robot' | 'environment-sensor') => page.getByTestId(`result-${id}`);
   const logRows = page.getByTestId('ingestion-log-row');
 
-  // 取得間隔を5分にする（定期取り込みを、時計を進めて起動するため）
-  const settings = await api(request, USER, 'GET', '/ingestion/settings');
-  const { sources } = (await settings.json()) as {
-    sources: { sourceId: string; connectionRef: string; isEnabled: boolean }[];
-  };
-  const updated = await api(request, USER, 'PUT', '/ingestion/settings', {
-    sources: sources.map((source) => ({
-      sourceId: source.sourceId,
-      connectionRef: source.connectionRef,
-      intervalMinutes: 5,
-      isEnabled: true,
-    })),
-  });
-  expect(updated.ok()).toBe(true);
+  // 取得間隔は、設備ごとの設定（Issue #197。既定: ロボット 1 分・センサー 5 分）。定期取り込みは、時計を 6 分進めて起動する
   clearSourceFiles('robot');
   clearSourceFiles('environment-sensor');
 

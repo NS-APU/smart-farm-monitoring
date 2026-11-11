@@ -813,7 +813,7 @@ classDiagram
   FederationItem "0..*" --> "0..*" FederationLogEntry : 送信の結果を記録
 ```
 
-- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。保存がなければ `MOCK`。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は 5・15・30・60・360・1440 分のいずれか
+- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。保存がなければ `MOCK`。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）
 - **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID#内容のハッシュ`。形式違いのファイルは `FAILURE` で記録する
 - **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
@@ -1172,7 +1172,7 @@ flowchart LR
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 管理者 `admin`・一般 `general` の 2 ロール | ロールと権限の定義、初期ユーザーのロール（既定は、ユーザー管理の権限を持つ最初のロール＝`admin`） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
 | `LOG_LEVEL`                                                     | `info`                    | `debug`／`info`／`warn`／`error`                                                                                                                |
-| `DEFAULT_INGESTION_INTERVAL_MINUTES`                            | `15`                      | 取得間隔の既定（5・15・30・60・360・1440）。データ活用度合いのスロットの幅にも使う                                                              |
+| `DEFAULT_INGESTION_INTERVAL_MINUTES`                            | `15`                      | データ活用度合いのスロットの幅（5・15・30・60・360・1440。取り込みの取得間隔は、設備ごとの設定で、この値を使わない。#197）                       |
 | `STALE_AFTER_INTERVALS`                                         | `3`                       | 「データが古い」の基準（取得間隔の何倍か）                                                                                                      |
 | `FEDERATION_EXPIRY_DAYS`                                         | `30`                      | 連携の破棄の期限（日。1〜365）。積んでからこの日数を過ぎても送れていない項目を、破棄する（#204）                                                |
 | `INGESTION_RETRY_BASE_DELAY_MS`                                 | `1000`                    | 取り込みの再試行の待ち時間の基準（E2E では 10）                                                                                                 |
@@ -1786,7 +1786,7 @@ sequenceDiagram
   else 取り込み設定の更新 PUT /ingestion/settings
     APP->>IA: update(input, actor) 権限<br>ingestion:configure
     IA->>SR: listSources 経由で現在の設定を取得
-    IA->>IA: sourceId の存在と重複を確認<br>connectionRef・connection<br>intervalMinutes・isEnabled を変更<br>（connection は省略で保持。内部のアドレスは拒否）<br>指定のない取り込み元は残す
+    IA->>IA: sourceId の存在と重複を確認<br>connectionRef・connection<br>isEnabled を変更<br>（connection は省略で保持。内部のアドレスは拒否）<br>指定のない取り込み元は残す
     IA->>SR: set ingestion.sources
     IA->>AU: record UPDATE ingestion-settings<br>before と after
   end
@@ -1995,7 +1995,7 @@ stateDiagram-v2
   Enabled --> Enabled : PUT ingestion settings で接続先の参照名と取得間隔を変更
 ```
 
-- 取り込み元の設定は、保存がなければコードの既定（`robot`・`environment-sensor`。取得間隔 15 分）を返す。更新すると、`settings` コレクションのキー `ingestion.sources` に保存し、変更履歴を残す。取り込み元の追加・削除の操作はない
+- 取り込み元の設定は、保存がなければコードの既定（`robot`・`environment-sensor`）を返す。更新すると、`settings` コレクションのキー `ingestion.sources` に保存し、変更履歴を残す。取り込み元の追加・削除の操作はない
 - 実行中かどうかは、メモリ上の集合（`running`）のみで持つ。二重実行は CONFLICT。サーバーを再起動すると消える
 
 ```mermaid
@@ -2698,16 +2698,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-11 の実測。Issue #197 の PR 2 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-11 の実測。Issue #197 の PR 3 の後）
 
-計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（146 ファイル・3181 件成功・2 件スキップ）。
+計測対象は 292 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（147 ファイル・3180 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.13% | 7,551／7,617 | 95% 以上 |
-| 文   | 99.14% | 7,805／7,872 | 95% 以上 |
-| 関数 | 99.3% | 2,288／2,304 | 95% 以上 |
-| 分岐 | 95.37% | 4,700／4,928 | 95% 以上 |
+| 行   | 99.12% | 7,556／7,623 | 95% 以上 |
+| 文   | 99.13% | 7,810／7,878 | 95% 以上 |
+| 関数 | 99.3% | 2,289／2,305 | 95% 以上 |
+| 分岐 | 95.36% | 4,707／4,936 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2715,7 +2715,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
-| `src/backend/application` | 99.43% | 99.38% | 99.23% | 96.17% |
+| `src/backend/application` | 99.36% | 99.32% | 99.23% | 96.09% |
 | `src/backend/infrastructure` | 98.99% | 99.02% | 100.0% | 94.51% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.57% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
@@ -2725,12 +2725,12 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・818 件（UC ごと 25 ファイル・808 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・812 件（UC ごと 25 ファイル・802 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-11 の実測（Issue #197 の PR 2 の後）: 146 ファイル・**3181 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3181 件。内訳（test.spec.md 1.2）: 単体 shared 13・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-11 の実測（Issue #197 の PR 3 の後）: 147 ファイル・**3180 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3180 件。内訳（test.spec.md 1.2）: 単体 shared 13・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

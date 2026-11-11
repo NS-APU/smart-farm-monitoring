@@ -2,7 +2,7 @@
  * シナリオ: 取り込みの設定にもとづく定期の取り込みと、データの鮮度・異常の検知（複数の利用者。利用者A・Bのブラウザを切り替える）。
  *
  * 通るユースケース（use-cases.md）:
- *   UC-15 Aが、環境センサーの取得間隔を5分に変更 → UC-08・UC-09 定期の取り込み（JB-01）でロボット・センサーのデータが入る → UC-01 Bが、最新のデータで評価を確認
+ *   UC-12 Aが、設備ごとの取得間隔（ロボット15分・環境センサー5分）を設定 → UC-08・UC-09 定期の取り込み（JB-01）でロボット・センサーのデータが入る → UC-01 Bが、最新のデータで評価を確認
  *   → UC-01 取得間隔 × 3 を超えて新しいデータがないと、Bの画面に「データが古い」旨が出る → UC-09・UC-10 新しいセンサーのデータ（異常な温度）が、定期の取り込みで入る
  *   → UC-01・UC-22 古い旨が消え、異常の通知がBに届く（取得間隔が来ていないロボットは取り込まない） → UC-15 Aが、ロボットの取り込みを無効にする
  *   → UC-16 Bが、取り込みのログで、無効にしたロボットの取り込みがないことを確認 → UC-11 連携の結果（成功）を確認
@@ -61,19 +61,12 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await addUser(request, USER_B);
     await alignBrowserClock(page);
 
-    // UC-15: 利用者Aが、環境センサーの取得間隔を、5分に変更する（ロボットは、15分のまま）
-    await openAs(page, '/');
-    await goToMenu(page, '取り込み');
-    await sourceCard(page, 'environment-sensor').getByLabel('取得間隔').selectOption('5');
-    await sourceCard(page, 'environment-sensor')
-      .getByRole('button', { name: '設定を保存' })
-      .click();
-    await expect(page.getByTestId('result-environment-sensor')).toHaveText('設定を保存しました');
-    await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveValue('15');
-    // 定期の取り込みの間隔は、設備ごとの設定（#197）。ロボット 15 分・センサー 5 分にする
-    // （「データが古い」の判定は、#198 まで、取り込み元ごとの設定〔上〕を使う）
+    // UC-12: 利用者Aが、設備ごとの取得間隔を設定する（ロボット 15 分・環境センサー 5 分。#197）。取り込みの設定の画面には、取得間隔の入力欄がない
     await setEquipmentInterval(request, ROBOT_ID, 15);
     await setEquipmentInterval(request, SENSOR_ID, 5);
+    await openAs(page, '/');
+    await goToMenu(page, '取り込み');
+    await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveCount(0);
 
     // UC-08・UC-09: ファイルサーバーにファイルが置かれ、定期の取り込み（JB-01）で、取り込まれる
     placeFile('robot', 'robot-1.json', robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]));
@@ -95,8 +88,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(staleWarning(b.page)).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-scheduled-b-fresh');
 
-    // UC-01: 新しいデータがないまま、取得間隔（最短の5分）× 3 = 15分を超えると、「データが古い」旨が表示される
-    await advanceMinutes(request, 16);
+    // UC-01: 新しいデータがないまま、取得間隔（ロボット・センサーのうち最長の15分。#198 まで）× 3 = 45分を超えると、「データが古い」旨が表示される
+    await advanceMinutes(request, 46);
     await b.page.reload();
     await expect(staleWarning(b.page)).toBeVisible();
     await expect(b.page.locator('.header-data-status')).toContainText('（古い）');

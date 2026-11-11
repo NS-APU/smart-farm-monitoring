@@ -11,7 +11,6 @@ import {
   type ReactNode,
   type SyntheticEvent,
 } from 'react';
-import { INGESTION_INTERVAL_MINUTES_OPTIONS } from '@smart-farm/shared/constants/status';
 import {
   DEFAULT_API_KEY_HEADER_NAME,
   FILE_SERVER_AUTH_METHODS,
@@ -126,7 +125,6 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const [credentialPassword, setCredentialPassword] = useState('');
   const [credentialSecret, setCredentialSecret] = useState('');
   const [credentialErrors, setCredentialErrors] = useState<Readonly<Record<string, string>>>({});
-  const [interval, setInterval] = useState(String(source.intervalMinutes));
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const { result, onResult: setResult } = props;
@@ -162,7 +160,6 @@ function SourceCard(props: SourceCardProps): ReactNode {
       sourceId: source.sourceId,
       connectionRef,
       connection,
-      intervalMinutes: Number(interval),
       isEnabled,
     });
     if (!parsed.success) {
@@ -440,29 +437,9 @@ function SourceCard(props: SourceCardProps): ReactNode {
               ) : null}
             </>
           ) : null}
-          <Field
-            label={TEXT.interval}
-            name="intervalMinutes"
-            error={errors.intervalMinutes}
-            required
-          >
-            {(control) => (
-              <select
-                {...control}
-                value={interval}
-                disabled={!props.canConfigure}
-                onChange={(event) => {
-                  setInterval(event.target.value);
-                }}
-              >
-                {INGESTION_INTERVAL_MINUTES_OPTIONS.map((minutes) => (
-                  <option key={minutes} value={minutes}>
-                    {TEXT.intervalLabels[minutes]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
+          <p className="muted" data-testid={`interval-moved-${source.sourceId}`}>
+            {TEXT.intervalMoved}
+          </p>
           <div className="field field-checkbox">
             <label>
               <input
@@ -877,7 +854,7 @@ function IngestionContent(): ReactNode {
       ) : (
         settings.data.sources.map((source) => (
           <SourceCard
-            key={`${source.sourceId}|${source.connectionRef}|${JSON.stringify(source.connection)}|${String(source.intervalMinutes)}|${String(source.isEnabled)}`}
+            key={`${source.sourceId}|${source.connectionRef}|${JSON.stringify(source.connection)}|${String(source.isEnabled)}`}
             source={source}
             result={results[source.sourceId]}
             onResult={(result) => {

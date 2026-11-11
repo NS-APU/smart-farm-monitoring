@@ -12,11 +12,13 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
+import { setEquipmentInterval } from './support/app.ts';
 import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
 import { dashboardCard as card, openDashboard } from './support/pages.ts';
 import {
   MIXED_EXPECTED,
   NOW,
+  ROBOT,
   SENSOR,
   VIEWPOINT_ORDER,
   daysAgo,
@@ -458,7 +460,7 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     await shot(page, testInfo, 'dashboard-no-equipment-link');
   });
 
-  // 「古い」の基準: 最終のデータ取得（受信）から、取得間隔（15分）× 3 = 45分を超えたら古い（境界値 45分・46分）
+  // 「古い」の基準: 最終のデータ取得（受信）から、取得間隔（設備ごとの設定。ここでは 15分）× 3 = 45分を超えたら古い（境界値 45分・46分）
   const freshness = [
     { minutes: 0, stale: false },
     { minutes: 44, stale: false },
@@ -473,6 +475,9 @@ test.describe('代替フロー: データがまだ取り込まれていない・
       request,
     }, testInfo) => {
       await prepare(request);
+      // 取得間隔は、設備ごとの設定（#197。既定は、ロボット 1 分・センサー 5 分）。この検証は、15 分にする
+      await setEquipmentInterval(request, ROBOT, 15);
+      await setEquipmentInterval(request, SENSOR, 15);
       await seed(request, {
         observations: [
           {

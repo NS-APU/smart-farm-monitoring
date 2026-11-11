@@ -26,6 +26,7 @@ import { UNKNOWN_ACTION } from '../../domain/evaluation/messages.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
 import type { IngestionSettings } from '../ingestion/ingestion-settings.ts';
+import { representativeIntervalMinutes } from '../ingestion/source-interval.ts';
 import { requireActiveEquipment } from '../equipment/require-active-equipment.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { Repositories } from '../ports/repositories.ts';
@@ -134,13 +135,20 @@ function classifyFreshness(
 export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
   const { repositories, ingestionSettings, settings, clock } = deps;
 
-  /** 「データが古い」とみなす基準（分）= 最短の取得間隔 × 設定の倍数（暫定。FR-6.3）。 */
-  async function staleThresholdMinutes(): Promise<number> {
+  /**
+   * 「データが古い」とみなす基準（分）= 取得間隔 × 設定の倍数（暫定。FR-6.3）。取得間隔は、有効な取り込み元の種別の設備の、最長（間隔の長い設備を、早く「古い」としない。Issue #197）。
+   * 設備ごとの基準への置き換えは、#198。
+   */
+  async function staleThresholdMinutes(
+    allEquipment: Awaited<ReturnType<Repositories['equipment']['list']>>,
+  ): Promise<number> {
     const sources = (await ingestionSettings.listSources()).filter((source) => source.isEnabled);
     const interval =
       sources.length === 0
         ? settings.defaultIngestionIntervalMinutes
-        : Math.min(...sources.map((source) => source.intervalMinutes));
+        : Math.max(
+            ...sources.map((source) => representativeIntervalMinutes(source.kind, allEquipment)),
+          );
     return interval * settings.staleAfterIntervals;
   }
 
@@ -164,7 +172,7 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
       const lastReceived = await repositories.observations.latestReceivedAt(scope.equipmentIds, {
         autoImportOnly: true,
       });
-      const thresholdMinutes = await staleThresholdMinutes();
+      const thresholdMinutes = await staleThresholdMinutes(allEquipment);
 
       return {
         equipmentId: params.equipmentId,

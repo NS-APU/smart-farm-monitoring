@@ -16,7 +16,6 @@ function source(overrides: Record<string, unknown> = {}) {
     kind: 'ROBOT',
     profileId: 'robot-v1',
     connectionRef: 'file-server-main',
-    intervalMinutes: 15,
     isEnabled: true,
     formatProfile: { versionLabel: 'v0.1', status: 'PROVISIONAL' },
     lastStartedAt: '2026-10-09T02:00:00.000Z',
@@ -32,7 +31,6 @@ const SETTINGS = {
     source({
       sourceId: 'environment-sensor',
       kind: 'SENSOR',
-      intervalMinutes: 60,
       isEnabled: false,
       lastStartedAt: null,
       lastSuccessAt: null,
@@ -111,7 +109,7 @@ function card(sourceId: string): HTMLElement {
 }
 
 describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
-  it('取り込み元ごとに、設定（接続先の参照名・取得間隔・有効）と、解釈に使う仕様の版・状態、最終の実行・成功を表示する', async () => {
+  it('取り込み元ごとに、設定（接続先の参照名・有効）と、解釈に使う仕様の版・状態、最終の実行・成功を表示する', async () => {
     renderApp('/settings/ingestion', baseRoutes());
 
     const robot = await screen.findByTestId('source-robot');
@@ -120,9 +118,11 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(within(robot).getByLabelText<HTMLInputElement>('接続先', { exact: false }).value).toBe(
       'file-server-main',
     );
-    expect(
-      within(robot).getByLabelText<HTMLSelectElement>('取得間隔', { exact: false }).value,
-    ).toBe('15');
+    // 取得間隔は、設備ごとの設定（設備管理。Issue #197）。この画面には、入力欄を出さず、案内を示す
+    expect(within(robot).queryByLabelText('取得間隔', { exact: false })).toBeNull();
+    expect(screen.getByTestId('interval-moved-robot').textContent).toBe(
+      '取得間隔は、設備ごとに、設備管理で設定します',
+    );
     expect(within(robot).getByRole<HTMLInputElement>('checkbox').checked).toBe(true);
     expect(screen.getByTestId('last-started-robot').textContent).toContain('2026');
 
@@ -261,9 +261,6 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(
       within(robot).getByLabelText<HTMLInputElement>('接続先', { exact: false }).readOnly,
     ).toBe(true);
-    expect(
-      within(robot).getByLabelText<HTMLSelectElement>('取得間隔', { exact: false }).disabled,
-    ).toBe(true);
     expect(within(robot).queryByRole('button', { name: '設定を保存' })).toBeNull();
     expect(within(robot).queryByRole('button', { name: '即時取得' })).toBeNull();
   });
@@ -286,7 +283,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(within(robotRun).getByRole('button', { name: '即時取得' })).toBeDefined();
   });
 
-  it('設定の保存: 接続先の参照名・取得間隔・有効を送る。不正な参照名は、保存しない', async () => {
+  it('設定の保存: 接続先の参照名・有効を送る（取得間隔は、送らない）。不正な参照名は、保存しない', async () => {
     const { calls } = renderApp(
       '/settings/ingestion',
       baseRoutes({ 'PUT /ingestion/settings': () => jsonResponse(SETTINGS) }),
@@ -310,9 +307,6 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     fireEvent.change(within(robot).getByLabelText('接続先', { exact: false }), {
       target: { value: 'file-server-sub' },
     });
-    fireEvent.change(within(robot).getByLabelText('取得間隔', { exact: false }), {
-      target: { value: '5' },
-    });
     fireEvent.click(within(robot).getByRole('checkbox'));
     fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
 
@@ -322,7 +316,6 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
         {
           sourceId: 'robot',
           connectionRef: 'file-server-sub',
-          intervalMinutes: 5,
           isEnabled: false,
         },
       ],

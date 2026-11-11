@@ -453,7 +453,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
 });
 
 test.describe('代替フロー: 失敗や保留が続く場合は、設定の見直し（UC-15）へ進める', () => {
-  test('取り込み・連携の状況の画面から、同じ画面で、取り込みの設定（接続先・取得間隔）を見直せる', async ({
+  test('取り込み・連携の状況の画面から、同じ画面で、取り込みの設定（接続先・有効／無効）を見直せる', async ({
     page,
     request,
   }) => {
@@ -464,12 +464,17 @@ test.describe('代替フロー: 失敗や保留が続く場合は、設定の見
     await expect(logRows(page).first().locator('.log-result')).toHaveText('失敗');
 
     await sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）').fill('FILE_SERVER_2');
-    await sourceCard(page, 'robot').getByLabel('取得間隔').selectOption('60');
+    await sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする').uncheck();
     await sourceCard(page, 'robot').getByRole('button', { name: '設定を保存' }).click();
 
     await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
     await page.reload();
-    await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveValue('60');
+    await expect(sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）')).toHaveValue(
+      'FILE_SERVER_2',
+    );
+    await expect(
+      sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする'),
+    ).not.toBeChecked();
   });
 
   test('メニューの「取り込み」から、取り込み・連携の状況の画面を開ける', async ({

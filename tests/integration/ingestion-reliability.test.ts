@@ -57,7 +57,7 @@ async function build(
   const clock = createControllableClock(TEST_NOW);
   const service = createIngestionService({
     repositories,
-    ingestionSettings: createIngestionSettings(repositories.settings, 15),
+    ingestionSettings: createIngestionSettings(repositories.settings),
     fileSource,
     profiles: createDefaultFormatProfileRegistry(),
     evaluation: {
@@ -189,6 +189,15 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
   const THRESHOLD_MINUTES = INTERVAL_MINUTES * DEFAULT_APP_SETTINGS.staleAfterIntervals;
 
   async function ingestOnce(context: TestContext) {
+    // 取得間隔は、設備ごとの設定（Issue #197）。停止の基準は、その種別の設備の最長の取得間隔 × 倍数
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({
+      ...robot,
+      intervalMinutes: INTERVAL_MINUTES,
+    });
     context.placeFixture('robot', 'robot/robot-sample-001.json');
     await context.container.ingestionService.runSource('robot');
   }
