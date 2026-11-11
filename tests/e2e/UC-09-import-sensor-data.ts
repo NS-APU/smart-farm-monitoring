@@ -263,7 +263,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
 });
 
 test.describe('代替フロー: 同じファイルを重複して取り込まない', () => {
-  test('同じファイル・名前を変えた同じ内容のファイルは、取り込まない。同じ名前で内容が変わったファイルは、新しい版として取り込む（二重に数えない）', async ({
+  test('同じファイルは、取り込まない。名前を変えた同じ内容のファイルは、別のファイルとして読むが、同じ値は保存しない。同じ名前で内容が変わったファイルは、新しい版として取り込む（二重に数えない。#201）', async ({
     page,
     request,
   }) => {
@@ -276,7 +276,10 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
     );
     await expect(await runNow(page, 'environment-sensor')).toContainText('ファイル 0 件');
     placeFile('environment-sensor', 'copy.json', content);
-    await expect(await runNow(page, 'environment-sensor')).toContainText('ファイル 0 件');
+    // 別のファイル（名前が違う）として読むが、同じ値（同じ計測日時・同じ値）は、触らない（取り込み 0 件）
+    await expect(await runNow(page, 'environment-sensor')).toContainText(
+      'ファイル 1 件、取り込み 0 件',
+    );
 
     // 同じ名前で、温度が訂正されたファイル
     placeFile('environment-sensor', 'a.json', sensorJson(rows(23)));
