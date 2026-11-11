@@ -18,6 +18,7 @@ import {
   createTables,
   deleteTables,
 } from '../../src/backend/infrastructure/dynamodb/table-admin.ts';
+import { queryAll } from '../../src/backend/infrastructure/dynamodb/operations.ts';
 import { createContainer } from '../../src/backend/runtime/container.ts';
 import { parseConfig } from '../../src/backend/runtime/config.ts';
 import { observation, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
@@ -605,21 +606,34 @@ describe('取り込み（DynamoDB）', () => {
     attempts: 1,
   });
 
-  it('同じ内容で、成功した記録が複数あっても、最初の成功を残す', async () => {
-    const { ingestion } = await setup();
-    const base = { sourceId: 'robot', fetchedAt: '2026-10-09T01:00:00.000Z', recordCount: 1 };
-    await ingestion.recordFile({ ...base, fileId: 'a.json', contentHash: 'h1', result: 'SUCCESS' });
-    await ingestion.recordFile({
-      ...base,
-      fileId: 'copy.json',
-      contentHash: 'h1',
-      result: 'SUCCESS',
+  it('取り込み済みファイルの記録は、ファイルごとに 1 件だけ持つ（版が変わっても、項目が増えない。Issue #201）', async () => {
+    const database = createDynamoTestDatabase();
+    await database.ready;
+    const { ingestion } = createDynamoRepositories({
+      client: database.client,
+      tables: database.tables,
     });
+    const base = { sourceId: 'robot', fetchedAt: '2026-10-09T01:00:00.000Z', recordCount: 1 };
+    for (const hash of ['h1', 'h2', 'h3']) {
+      await ingestion.recordFile({
+        ...base,
+        fileId: 'a.json',
+        contentHash: hash,
+        result: 'SUCCESS',
+      });
+    }
+    await ingestion.recordFile({ ...base, fileId: 'b.json', contentHash: 'h3', result: 'FAILURE' });
 
-    expect((await ingestion.findIngestedFile('robot', 'other.json', 'h1'))?.fileId).toBe('a.json');
-    expect((await ingestion.findIngestedFile('robot', 'copy.json', 'h1'))?.fileId).toBe(
-      'copy.json',
+    const items = await queryAll(
+      { client: database.client, tables: database.tables },
+      database.tables.main,
+      'SRC#robot',
     );
+
+    expect(items).toHaveLength(2);
+    expect((await ingestion.findIngestedFile('robot', 'a.json', 'h3'))?.fileId).toBe('a.json');
+    expect(await ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeUndefined();
+    expect(await ingestion.findIngestedFile('robot', 'c.json', 'h3')).toBeUndefined();
   });
 
   it('取り込み元の直近の日時は、古いログを後から足しても、戻らない', async () => {

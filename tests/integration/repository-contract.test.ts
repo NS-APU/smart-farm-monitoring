@@ -851,7 +851,7 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     });
   });
 
-  it('取り込み: 同じファイル（識別子とハッシュ、または内容のハッシュ）を、取り込み済みとして判定できる', async () => {
+  it('取り込み: ファイルごとに、最新の版の記録だけを持つ。同じ識別子・同じハッシュを、取り込み済みとして判定できる（Issue #201）', async () => {
     const { repositories } = create();
     const base = { sourceId: 'robot', fetchedAt: '2026-10-09T01:00:00.000Z', recordCount: 1 };
     await repositories.ingestion.recordFile({
@@ -868,13 +868,15 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     });
 
     expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeDefined();
-    // 名前が違っても、内容が同じで取り込みに成功していれば、取り込み済み
-    expect(await repositories.ingestion.findIngestedFile('robot', 'copy.json', 'h1')).toBeDefined();
+    // 名前が違えば、内容が同じでも、別のファイル（取り込む。観測値は、同じ値なら保存しない〔D-08〕）
+    expect(
+      await repositories.ingestion.findIngestedFile('robot', 'copy.json', 'h1'),
+    ).toBeUndefined();
     // 名前が同じでも、内容が変わっていれば、新しい版として取り込む
     expect(
       await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h-new'),
     ).toBeUndefined();
-    // 失敗したファイルは、同じ名前・同じ内容のときだけ、取り込み済み（失敗）として判定する
+    // 失敗したファイルも、同じ名前・同じ内容のときだけ、取り込み済み（失敗）として判定する
     expect(await repositories.ingestion.findIngestedFile('robot', 'bad.json', 'h2')).toBeDefined();
     expect(
       await repositories.ingestion.findIngestedFile('robot', 'other.json', 'h2'),
@@ -882,6 +884,16 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(
       await repositories.ingestion.findIngestedFile('environment-sensor', 'a.json', 'h1'),
     ).toBeUndefined();
+
+    // 新しい版を記録すると、前の版は上書きされる（ファイルごとに、最新の 1 件）
+    await repositories.ingestion.recordFile({
+      ...base,
+      fileId: 'a.json',
+      contentHash: 'h-new',
+      result: 'SUCCESS',
+    });
+    expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h-new')).toBeDefined();
+    expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeUndefined();
   });
 
   it('取り込みログ: 新しい順に一覧でき、取り込み元で絞り込め、直近の開始日時を返す', async () => {

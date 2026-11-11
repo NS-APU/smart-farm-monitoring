@@ -11,7 +11,6 @@ import {
 import {
   EquipmentIngestionStateSchema,
   IngestedFileRecordSchema,
-  type IngestedFileRecord,
 } from '../../../application/ports/records.ts';
 import type {
   FederationRepository,
@@ -35,15 +34,13 @@ function byNewest(
 
 export interface LocalIngestionRepository {
   readonly repository: IngestionRepository;
-  /** 取り込み済みファイルの索引を捨てる（次の参照で、全件から作り直す）。 */
-  resetIndex(): void;
 }
 
 export function createIngestionRepository(store: LocalStore): LocalIngestionRepository {
   const ingestedFiles = store.collection(
     'ingestedFiles',
     IngestedFileRecordSchema,
-    (item) => `${item.sourceId}#${item.fileId}#${item.contentHash}`,
+    (item) => `${item.sourceId}#${item.fileId}`,
   );
   const ingestionLogs = store.collection('ingestionLogs', IngestionLogSchema, (item) => item.logId);
   const equipmentStates = store.collection(
@@ -52,39 +49,13 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
     (item) => item.equipmentId,
   );
 
-  // 取り込み元と内容のハッシュの組 → 成功した記録（ファイル名が違っても、同じ内容は、取り込み済み）。
-  // 件数が増えても、全件を走査しない（V-082）。読み込み・全消去で、作り直す
-  let successByHash: Map<string, IngestedFileRecord> | undefined;
-  const hashKey = (record: Pick<IngestedFileRecord, 'sourceId' | 'contentHash'>): string =>
-    `${record.sourceId}#${record.contentHash}`;
-  function successIndex(): Map<string, IngestedFileRecord> {
-    if (successByHash === undefined) {
-      successByHash = new Map();
-      for (const record of ingestedFiles.values()) {
-        if (record.result === 'SUCCESS' && !successByHash.has(hashKey(record))) {
-          successByHash.set(hashKey(record), record);
-        }
-      }
-    }
-    return successByHash;
-  }
-
   const repository: IngestionRepository = {
     findIngestedFile(sourceId, fileId, contentHash) {
-      // 識別子とハッシュが同じ記録（結果を問わない）、または、ハッシュが同じ成功の記録
-      return Promise.resolve(
-        ingestedFiles.get(`${sourceId}#${fileId}#${contentHash}`) ??
-          successIndex().get(hashKey({ sourceId, contentHash })),
-      );
+      // 同じ識別子の、最新の版が、同じハッシュなら、取り込み済み（結果を問わない。Issue #201）
+      const latest = ingestedFiles.get(`${sourceId}#${fileId}`);
+      return Promise.resolve(latest?.contentHash === contentHash ? latest : undefined);
     },
-    async recordFile(record) {
-      await saverOf(ingestedFiles)(record);
-      if (successByHash !== undefined && record.result === 'SUCCESS') {
-        if (!successByHash.has(hashKey(record))) {
-          successByHash.set(hashKey(record), record);
-        }
-      }
-    },
+    recordFile: saverOf(ingestedFiles),
     addLog: saverOf(ingestionLogs),
     listLogs(filter, page) {
       const matched = ingestionLogs
@@ -160,12 +131,7 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
     },
   };
 
-  return {
-    repository,
-    resetIndex() {
-      successByHash = undefined;
-    },
-  };
+  return { repository };
 }
 
 /** 送信していない項目（送信済み・期限切れ（破棄）を除く）。 */

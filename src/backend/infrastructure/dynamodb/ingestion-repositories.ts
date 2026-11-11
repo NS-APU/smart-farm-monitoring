@@ -1,7 +1,8 @@
 /**
  * 取り込み（取り込み済みファイル・ログ）と、連携（キュー・ログ）の Repository（DynamoDB 実装）。
  *
- * - 取り込み済みファイル: `SRC#{取り込み元}` / `FILE#{ファイル}#{ハッシュ}`、成功したハッシュ `HASH#{ハッシュ}`（最初の成功を残す）
+ * - 取り込み済みファイル（Issue #201）: `SRC#{取り込み元}` / `FILE#{ファイル}`。ファイルごとに、最新の版（ハッシュ・結果）の 1 件を上書きする
+ *   （1 つのファイルを随時更新する方式で、版ごとに増えないように。以前の、版ごとの `FILE#{ファイル}#{ハッシュ}`・`HASH#{ハッシュ}` は、読まない）
  * - 取り込み元の状態: `SRC#{取り込み元}` / `STATE`（直近の開始・成功・データ取り込みの日時。ログの追加のたびに、最大値で更新する）
  * - 取り込みログ: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
  * - 設備ごとの取り込みの最終の開始日時（Issue #197。取得間隔の判定）: `EQINGEST` / `{設備ID}`。属性 `lastStarted`（ミリ秒）。新しい値のときだけ更新する。
@@ -33,7 +34,6 @@ import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
 import {
   getItem,
-  isConditionalCheckFailed,
   putItem,
   queryAll,
   queryItems,
@@ -55,9 +55,7 @@ const sourcePartition = (sourceId: string): string => `SRC#${sourceId}`;
 const logPartition = (sourceId: string): string => `ILOG#${sourceId}`;
 const facilityIngestionPartition = (facilityId: string): string => `ILOGF#${facilityId}`;
 const facilityFederationPartition = (facilityId: string): string => `FLOGF#${facilityId}`;
-const fileSortKey = (fileId: string, contentHash: string): string =>
-  `FILE#${fileId}#${contentHash}`;
-const hashSortKey = (contentHash: string): string => `HASH#${contentHash}`;
+const fileSortKey = (fileId: string): string => `FILE#${fileId}`;
 const STATE = 'STATE';
 const federationCounter = (status: FederationItem['status']): string => `FED#${status}`;
 
@@ -93,31 +91,12 @@ export function createIngestionRepository(db: Database): IngestionRepository {
 
   return {
     async findIngestedFile(sourceId, fileId, contentHash) {
-      // 識別子とハッシュが同じ記録（結果を問わない）、または、ハッシュが同じ成功の記録
-      const [sameFile, sameContent] = await Promise.all([
-        files.get(sourcePartition(sourceId), fileSortKey(fileId, contentHash)),
-        files.get(sourcePartition(sourceId), hashSortKey(contentHash)),
-      ]);
-      return sameFile ?? sameContent;
+      // 同じ識別子の、最新の版が、同じハッシュなら、取り込み済み（結果を問わない）
+      const latest = await files.get(sourcePartition(sourceId), fileSortKey(fileId));
+      return latest?.contentHash === contentHash ? latest : undefined;
     },
     async recordFile(record: IngestedFileRecord) {
-      const partition = sourcePartition(record.sourceId);
-      await files.put(partition, fileSortKey(record.fileId, record.contentHash), record);
-      if (record.result === 'SUCCESS') {
-        // 同じ内容の最初の成功を残す（ファイル名が違っても、同じ内容は、取り込み済み）
-        try {
-          await putItem(
-            db,
-            table,
-            { pk: partition, sk: hashSortKey(record.contentHash), data: record },
-            'attribute_not_exists(pk)',
-          );
-        } catch (error) {
-          if (!isConditionalCheckFailed(error)) {
-            throw error;
-          }
-        }
-      }
+      await files.put(sourcePartition(record.sourceId), fileSortKey(record.fileId), record);
     },
     async addLog(log) {
       await logs.put(logPartition(log.sourceId), timedSortKey(log.startedAt, log.logId), log);
