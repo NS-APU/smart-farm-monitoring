@@ -814,7 +814,7 @@ classDiagram
 ```
 
 - **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。保存がなければ `MOCK`。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）
-- **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID#内容のハッシュ`。形式違いのファイルは `FAILURE` で記録する
+- **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID`（ファイルごとに、最新の版の 1 件を上書き。#201）。形式違いのファイルは `FAILURE` で記録する
 - **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
 - **Session**: `createLocalAuth` がメモリ上に持つ（アクセストークン・リフレッシュトークンの SHA-256 のみ保持。平文は持たない）。永続化しないため、再起動で全員が再ログインになる
@@ -837,7 +837,7 @@ classDiagram
 | `notifications`       | Notification           | `notificationId`                            |
 | `notificationReads`   | 通知×利用者の既読      | `通知ID#利用者ID`                           |
 | `notificationMemos`   | NotificationMemo       | `memoId`（#239）                            |
-| `ingestedFiles`       | IngestedFileRecord     | `取り込み元#ファイルID#ハッシュ`            |
+| `ingestedFiles`       | IngestedFileRecord     | `取り込み元#ファイルID`                     |
 | `ingestionLogs`       | IngestionLog           | `logId`                                     |
 | `federationItems`     | FederationItem         | `federationItemId`                          |
 | `federationLogs`      | FederationLogEntry     | `logId`                                     |
@@ -2008,7 +2008,7 @@ stateDiagram-v2
 
   [*] --> Discovered : listFiles
   Discovered --> ReadFailed : readFile が失敗 記録せず次回また対象
-  Discovered --> Skipped : 識別子とハッシュ または 内容のハッシュが同じ記録がある
+  Discovered --> Skipped : 同じ識別子の最新の版と ハッシュが同じ
   Discovered --> ParseFailed : FormatError
   Discovered --> Imported : 解釈と保存に成功
 ```
@@ -2337,15 +2337,14 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 ## 4. 取り込みの重複判定・再試行
 
-**重複の判定**（`findIngestedFile`。`local/repositories/ingestion-repositories.ts`）: 同じ取り込み元で、**内容のハッシュ（SHA-256）が同じ**記録のうち、「ファイルの識別子が同じ」**または**「記録の結果が成功」のものがあれば、取り込まない。
+**重複の判定**（`findIngestedFile`。`local/repositories/ingestion-repositories.ts`）: 同じ取り込み元の、**同じファイルの識別子の、最新の版の記録**が、**内容のハッシュ（SHA-256）も同じ**なら、取り込まない（結果が成功でも失敗でも。#201。記録は、ファイルごとに最新の 1 件で、新しい版を記録すると上書きする）。
 
-| ケース                                       | 記録の有無                 | 結果                                                             |
-| -------------------------------------------- | -------------------------- | ---------------------------------------------------------------- |
-| 同じファイル・同じ内容                       | あり（成功または失敗）     | 取り込まない                                                     |
-| 同じファイル・内容が変わった                 | ハッシュが違うため、なし   | 新しい版として取り込む。同じ一意キーの観測値は上書き             |
-| 名前が違う・同じ内容（前回が成功）           | あり（成功）               | 取り込まない                                                     |
-| 名前が違う・同じ内容（前回が形式違いで失敗） | 識別子が違い、成功でもない | 重複とは判定せず、処理する（同じ内容のため、再び形式違いになる） |
-| 読み取りに失敗（`readFile`）                 | 記録しない                 | 次回の取り込みで、また対象になる                                 |
+| ケース                                       | 記録の有無                         | 結果                                                                                       |
+| -------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| 同じファイル・同じ内容                       | あり（成功または失敗）             | 取り込まない                                                                               |
+| 同じファイル・内容が変わった                 | 最新の版のハッシュが違うため、なし | 新しい版として取り込む。同じ一意キーの観測値は上書き。記録は、新しい版に上書き             |
+| 名前が違う・同じ内容                         | 識別子が違うため、なし             | 別のファイルとして読む。観測値は、同じ値（同じ計測日時・同じ値）なら、保存・連携しない（D-08） |
+| 読み取りに失敗（`readFile`）                 | 記録しない                         | 次回の取り込みで、また対象になる                                                           |
 
 **再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。
 
@@ -2704,10 +2703,10 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.12% | 7,597／7,664 | 95% 以上 |
-| 文   | 99.14% | 7,853／7,921 | 95% 以上 |
-| 関数 | 99.3% | 2,299／2,315 | 95% 以上 |
-| 分岐 | 95.37% | 4,738／4,968 | 95% 以上 |
+| 行   | 99.13% | 7,576／7,642 | 95% 以上 |
+| 文   | 99.15% | 7,832／7,899 | 95% 以上 |
+| 関数 | 99.3% | 2,294／2,310 | 95% 以上 |
+| 分岐 | 95.35% | 4,722／4,952 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2716,12 +2715,12 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
 | `src/backend/application` | 99.37% | 99.32% | 99.24% | 96.15% |
-| `src/backend/infrastructure` | 99% | 99.03% | 100.0% | 94.48% |
+| `src/backend/infrastructure` | 99.03% | 99.07% | 100.0% | 94.42% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.57% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
 | `src/frontend` | 99.13% | 99.17% | 99.29% | 95.37% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`ingestion-repositories.ts`（84.44%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-repositories.ts`（85.36%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
 ### E2E（Playwright）
 
