@@ -796,16 +796,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['environment-sensor', '環境センサーデータ'],
   ] as const) {
     // 取得間隔は、設備ごとの設定（Issue #197）。この画面では、接続先の参照名を変えずに、保存を押す
-    await m(
-      'UC-15',
-      `${name}の「設定を保存」を押す`,
-      '取り込み設定・状況（SC-11）',
-      'operation',
-      {
-        act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
-        respond: () => expect(result(id)).toHaveText('設定を保存しました'),
-      },
-    );
+    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み設定・状況（SC-11）', 'operation', {
+      act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
+      respond: () => expect(result(id)).toHaveText('設定を保存しました'),
+    });
   }
   await m(
     'UC-15',
