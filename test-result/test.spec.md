@@ -12064,6 +12064,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **145 ファイル・3164 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.14%・Branches 95.39%・Functions 99.3%・Lines 99.12%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-12（新しい 2 件を含む）・レスポンシブ表示のシナリオの **38 件が、すべて成功**。それ以外の E2E と、負荷テスト・スモークテストは、CI（`ci:full`）で確認する（結果は、PR に記載）
+- 負荷テスト（`pnpm test:stress`。空きポート）: **4 件が、すべて成功**（CI の `stress` が、取得間隔の画面操作が残っていた `stress-01` の 1 件で失敗したため、修正して再実行した。E2E の検索範囲が、`tests/e2e` だけで、`tests/stress` を含めていなかった）
 - **AWS での実際の確認は、なし**（この PR は、設定値を持つところまでで、取り込みの挙動は、変わらない）
 
 
@@ -12138,6 +12139,8 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 | 結合: `tests/integration/ingestion.test.ts`（1 件） | 取り込み設定の既定・保存の確認を、取得間隔から、有効／無効に変えた |
 | E2E: `tests/e2e/UC-15-configure-ingestion.ts`（3 件） | 画面に取得間隔の欄がなく、案内があること、保存・参照のみの確認から、取得間隔を外した |
 | E2E: `tests/e2e/UC-16-check-ingestion-status.ts`（1 件） | 「設定の見直し」の確認を、取得間隔から、有効／無効に変えた |
+| 負荷テスト: `tests/stress/stress-01-single-user.ts`（1 件） | UC-15 の計測の操作を、「取得間隔を 5 分に変更して『設定を保存』を押す」から、「『設定を保存』を押す」に変えた（取得間隔の入力欄がなくなったため。計測の名前が変わる）。定期取り込みの前提の説明を、設備ごとの既定に変えた |
+| 負荷テスト: `tests/stress/stress-03-bulk-ingestion.ts`（1 件） | 取り込み元の取得間隔を 5 分にする設定を削除した（設備ごとの既定〔ロボット 1 分・センサー 5 分〕で、時計を 6 分進めれば、定期取り込みが動くため。期待は変えていない） |
 
 ### 41.4 変更した既存のテスト（前提の更新。期待は変えていない）
 
