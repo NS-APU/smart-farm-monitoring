@@ -17,6 +17,7 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  ROBOT_ID,
   VIEWER,
   addUser,
   advanceMinutes,
@@ -28,6 +29,7 @@ import {
   placeFixture,
   prepareApp,
   runJob,
+  setEquipmentInterval,
   setMock,
   removeSourceDirectory,
 } from './support/app.ts';
@@ -430,15 +432,14 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
 });
 
 test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる（取得間隔・有効／無効）', () => {
-  test('取得間隔を1時間にすると、定期の取り込み（JB-01）は、1時間が過ぎるまで、再び実行しない', async ({
+  test('設備の取得間隔を1時間にすると、定期の取り込み（JB-01）は、1時間が過ぎるまで、その設備を再び取り込まない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 取得間隔は、設備ごとの設定（#197）。ロボットを 1 時間にする（環境センサーは、既定の 5 分）
+    await setEquipmentInterval(request, ROBOT_ID, 60);
     await openIngestion(page);
-    await intervalSelect(page, 'robot').selectOption('60');
-    await save(page, 'robot').click();
-    await expect(result(page, 'robot')).toHaveText('設定を保存しました');
 
     await runJob(request, 'JB-01');
     await advanceMinutes(request, 30);
@@ -450,7 +451,7 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
 
     await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(2);
-    // 既定の15分のままの環境センサーは、そのたびに取り込む
+    // 既定（5 分）のままの環境センサーは、そのたびに取り込む
     await expect(logRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(3);
   });
 

@@ -12,6 +12,8 @@
 
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import {
+  ROBOT_ID,
+  SENSOR_ID,
   USER_B,
   addUser,
   advanceMinutes,
@@ -25,6 +27,7 @@ import {
   robotJson,
   runJob,
   sensorJson,
+  setEquipmentInterval,
   unreadBadge,
 } from './support/app.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
@@ -67,6 +70,10 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       .click();
     await expect(page.getByTestId('result-environment-sensor')).toHaveText('設定を保存しました');
     await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveValue('15');
+    // 定期の取り込みの間隔は、設備ごとの設定（#197）。ロボット 15 分・センサー 5 分にする
+    // （「データが古い」の判定は、#198 まで、取り込み元ごとの設定〔上〕を使う）
+    await setEquipmentInterval(request, ROBOT_ID, 15);
+    await setEquipmentInterval(request, SENSOR_ID, 5);
 
     // UC-08・UC-09: ファイルサーバーにファイルが置かれ、定期の取り込み（JB-01）で、取り込まれる
     placeFile('robot', 'robot-1.json', robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]));

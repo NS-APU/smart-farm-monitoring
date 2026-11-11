@@ -117,6 +117,36 @@ export async function apiOk<Body = unknown>(
   return (response.status() === 204 ? undefined : await response.json()) as Body;
 }
 
+/**
+ * 設備（ロボット・センサー）の取得間隔（分）を、API で設定する（Issue #197。取得間隔は、設備ごとの設定）。
+ * 修正は、設備の項目を置き換えるため、現在の値を読み、取得間隔だけを変えて、送る。
+ */
+export async function setEquipmentInterval(
+  request: APIRequestContext,
+  equipmentId: string,
+  intervalMinutes: number,
+): Promise<void> {
+  const tree = await apiOk<{
+    facilities: {
+      facility: Record<string, unknown>;
+      children: Record<string, unknown>[];
+    }[];
+  }>(request, 'GET', '/equipment');
+  const item = tree.facilities
+    .flatMap((entry) => [entry.facility, ...entry.children])
+    .find((candidate) => candidate.equipmentId === equipmentId);
+  if (item === undefined) {
+    throw new Error(`設備が見つかりません: ${equipmentId}`);
+  }
+  await apiOk(request, 'PUT', `/equipment/${equipmentId}`, {
+    name: item.name,
+    ...(item.facilityId === undefined ? {} : { facilityId: item.facilityId }),
+    ...(item.externalId === undefined ? {} : { externalId: item.externalId }),
+    ...(item.sourceFilePath === undefined ? {} : { sourceFilePath: item.sourceFilePath }),
+    intervalMinutes,
+  });
+}
+
 /** ジョブ（JB-01〜JB-04）を起動する（開発用 API）。 */
 export async function runJob(
   request: APIRequestContext,

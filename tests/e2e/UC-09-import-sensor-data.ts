@@ -30,6 +30,7 @@ import {
   robotJson,
   runJob,
   sensorJson,
+  setEquipmentInterval,
   setMock,
   unreadBadge,
 } from './support/app.ts';
@@ -132,11 +133,13 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await expect(notification).toContainText('温度 40.0℃（異常）');
   });
 
-  test('定期の取り込み（JB-01）でも取り込まれる。取得間隔（15分）が過ぎるまでは、新しいファイルを取り込まない', async ({
+  test('定期の取り込み（JB-01）でも取り込まれる。取得間隔（設備ごとの設定。15分）が過ぎるまでは、新しいファイルを取り込まない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 取得間隔は、設備ごとの設定（#197。既定は、環境センサー 5 分）。この検証は、15 分にする
+    await setEquipmentInterval(request, SENSOR_ID, 15);
     placeFile('environment-sensor', 'a.json', sensorJson(rows(22)));
     await runJob(request, 'JB-01');
     placeFile(
