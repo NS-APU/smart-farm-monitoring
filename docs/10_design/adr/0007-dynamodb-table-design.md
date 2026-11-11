@@ -46,7 +46,7 @@
 | `query`（値・カテゴリの順、キーワード検索） | 期間（`from`・`to`。**31 日以内を必須**。API・画面で検証する。Issue #91 で実装済み）の範囲を取得し、アプリ側で並べ替え・絞り込みをする。アダプタは、安全のため、取得が 5 万件を超えたら、エラー（期間を狭めるよう求める）にする |
 | `findByKey` | GetItem（`pk`・`sk`） |
 | `saveMany` | BatchWriteItem（25 件ずつ）。一意キーで、上書き（冪等）。レジストリ・最終の受信日時も更新する |
-| `latestReceivedAt` | 設備ごとの、最終の受信日時の項目（GetItem） |
+| `latestReceivedAt`・`receivedAtByEquipment` | 設備ごとの、最終の受信日時の項目（BatchGetItem）。前者は最大値、後者は設備ごとの値（設備ごとの「古い」の判定。#198。読み取りの回数は変わらない） |
 
 ### 3. Main（そのほか）
 

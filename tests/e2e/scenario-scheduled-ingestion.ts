@@ -88,11 +88,12 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(staleWarning(b.page)).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-scheduled-b-fresh');
 
-    // UC-01: 新しいデータがないまま、取得間隔（ロボット・センサーのうち最長の15分。#198 まで）× 3 = 45分を超えると、「データが古い」旨が表示される
+    // UC-01: 新しいデータがないまま、設備ごとの基準（取得間隔 × 3。ロボット 45 分・センサー 15 分。#198）を超えると、「データが古い」旨が表示される
     await advanceMinutes(request, 46);
     await b.page.reload();
     await expect(staleWarning(b.page)).toBeVisible();
     await expect(b.page.locator('.header-data-status')).toContainText('（古い）');
+    await expect(b.page.getByTestId('stale-equipment')).toContainText('古い設備');
     await shot(b.page, testInfo, 'scenario-scheduled-b-stale');
 
     // 取得間隔が来たジョブ（JB-01）が、新しいファイルがないまま動いても、データは古いまま（取り込むデータがないため）
@@ -114,6 +115,22 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     // ロボットの取得間隔（15分）は、まだ来ていないので、取り込まない（UC-15 の設定が、定期の取り込みに使われる）
     expect(await logCount(request, 'robot')).toBe(robotLogsBefore);
     expect(await logCount(request, 'environment-sensor')).toBeGreaterThan(1);
+
+    // UC-01: センサーは新しいデータが入ったが、ロボットは取り込まれていないため、設備のいずれかが古ければ警告（#198）。センサーは、古い設備に含まれない
+    await b.page.reload();
+    await expect(staleWarning(b.page)).toBeVisible();
+    await expect(b.page.getByTestId('stale-equipment')).toContainText('古い設備');
+
+    // UC-08: ロボットの新しいファイルが置かれ、ロボットの取得間隔（15分）が来ると、取り込まれて、「古い」旨が消える
+    placeFile(
+      'robot',
+      'robot-1b.json',
+      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
+    );
+    await advanceMinutes(request, 10);
+    await runJob(request, 'JB-01');
+    const robotLogsAfterRecovery = await logCount(request, 'robot');
+    expect(robotLogsAfterRecovery).toBeGreaterThan(robotLogsBefore);
 
     // UC-01・UC-22: Bの画面から、「古い」旨が消え、センサーの異常の通知が届く
     await b.page.reload();
@@ -154,13 +171,13 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     );
     await advanceMinutes(request, 20);
     await runJob(request, 'JB-01');
-    expect(await logCount(request, 'robot')).toBe(robotLogsBefore);
+    expect(await logCount(request, 'robot')).toBe(robotLogsAfterRecovery);
     expect(await logCount(request, 'environment-sensor')).toBeGreaterThan(sensorLogsBefore);
 
     // UC-16: Bが、取り込みのログで、ロボットの取り込みが増えていない（センサーは増えている）ことを確認する
     await goToMenu(b.page, '取り込み');
     await expect(logRows(b.page).filter({ hasText: 'ロボットデータ' })).toHaveCount(
-      robotLogsBefore,
+      robotLogsAfterRecovery,
     );
     await expect(logRows(b.page).filter({ hasText: '環境センサーデータ' })).toHaveCount(
       sensorLogsBefore + 1,

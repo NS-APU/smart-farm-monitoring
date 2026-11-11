@@ -1036,7 +1036,7 @@ describe('ダッシュボード（UC-01）', () => {
     expect(Object.values(dashboard.summary).reduce((a, b) => a + b, 0)).toBe(10);
     expect(dashboard.evaluatedAt).toBe(TEST_NOW.toISOString());
     expect(dashboard.dataFreshness).toBe('FRESH');
-    expect(dashboard.staleThresholdMinutes).toBe(45);
+    expect(dashboard.staleEquipment).toEqual([]);
   });
 
   it('最終のデータ取得から取得間隔の3倍が過ぎたら、データが古いとする', async () => {
@@ -1057,21 +1057,14 @@ describe('ダッシュボード（UC-01）', () => {
     expect(boundary.dataFreshness).toBe('FRESH');
     expect(stale.dataFreshness).toBe('STALE');
     expect(stale.lastReceivedAt).toBe(new Date(TEST_NOW.getTime() - 60_000).toISOString());
-  });
-
-  it('「データが古い」の基準は、設備ごとの取得間隔（Issue #197）から決まる。既定（ロボット 1 分・センサー 5 分）は 15 分、ロボットを 1 時間にすると 180 分（#198 まで）', async () => {
-    const context = await setup();
-    const defaults = await get(context);
-    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
-    if (robot === undefined) {
-      throw new Error('テストの前提');
-    }
-    await context.container.repositories.equipment.save({ ...robot, intervalMinutes: 60 });
-
-    const slow = await get(context);
-
-    expect(defaults.staleThresholdMinutes).toBe(15);
-    expect(slow.staleThresholdMinutes).toBe(180);
+    expect(stale.staleEquipment).toEqual([
+      {
+        equipmentId: SENSOR_ID,
+        name: must(equipmentSet().find((item) => item.equipmentId === SENSOR_ID)).name,
+        lastReceivedAt: new Date(TEST_NOW.getTime() - 60_000).toISOString(),
+        thresholdMinutes: 45,
+      },
+    ]);
   });
 
   it('短期視点を指定すると、短期評価を持つ観点は短期の結果を、持たない観点は長期の結果を返す', async () => {
@@ -1146,24 +1139,120 @@ describe('ダッシュボード（UC-01）', () => {
     });
   });
 
-  it('有効な取り込み元がなければ、既定の取得間隔で「古い」の基準を決める', async () => {
-    const context = await setup();
-    const sources = await context.container.ingestionSettings.listSources();
-    await context.container.ingestionSettings.saveSources(
-      sources.map((source) => ({ ...source, isEnabled: false })),
-    );
+  describe('設備ごとの「古い」の基準（Issue #198。ADR-0016 の D-12）', () => {
+    const minutesAgo = (minutes: number) =>
+      new Date(TEST_NOW.getTime() - minutes * 60_000).toISOString();
+    const robotData = (minutes: number) =>
+      observation({
+        equipmentId: ROBOT_ID,
+        itemKey: 'harvestCount',
+        value: 1,
+        observedAt: minutesAgo(minutes),
+      });
+    const sensorData = (minutes: number) => temperature(20, minutesAgo(minutes));
+    const nameOf = (equipmentId: string) =>
+      must(equipmentSet().find((item) => item.equipmentId === equipmentId)).name;
 
-    expect((await get(context)).staleThresholdMinutes).toBe(45);
-  });
+    it('設備ごとに、その設備の取得間隔 × 3（既定: ロボット 1 分 → 3 分、センサー 5 分 → 15 分）で判定する。ハウスは、配下のいずれかが古ければ、古い', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([robotData(10), sensorData(10)]);
 
-  it('取り込み間隔の最短を基準にする', async () => {
-    const context = await setup();
-    const sources = await context.container.ingestionSettings.listSources();
-    await context.container.ingestionSettings.saveSources(
-      sources.map((source, index) => ({ ...source, intervalMinutes: index === 0 ? 5 : 60 })),
-    );
+      const house = await get(context);
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+      const sensor = await get(context, { equipmentId: SENSOR_ID });
 
-    expect((await get(context)).staleThresholdMinutes).toBe(15);
+      expect(house.dataFreshness).toBe('STALE');
+      expect(house.staleEquipment).toEqual([
+        {
+          equipmentId: ROBOT_ID,
+          name: nameOf(ROBOT_ID),
+          lastReceivedAt: minutesAgo(10),
+          thresholdMinutes: 3,
+        },
+      ]);
+      expect(robot.dataFreshness).toBe('STALE');
+      expect(sensor.dataFreshness).toBe('FRESH');
+      expect(sensor.staleEquipment).toEqual([]);
+    });
+
+    it('設備の取得間隔を変えると、その設備の基準が変わる（ロボットを 1 時間にすると 180 分）', async () => {
+      const context = await setup();
+      const robotEquipment = must(await context.container.repositories.equipment.get(ROBOT_ID));
+      await context.container.repositories.equipment.save({
+        ...robotEquipment,
+        intervalMinutes: 60,
+      });
+      await context.container.repositories.observations.saveMany([robotData(179), sensorData(1)]);
+      const fresh = await get(context);
+      context.clock.advance(2 * 60_000);
+
+      const stale = await get(context);
+
+      expect(fresh.dataFreshness).toBe('FRESH');
+      expect(stale.dataFreshness).toBe('STALE');
+      expect(stale.staleEquipment).toMatchObject([
+        { equipmentId: ROBOT_ID, thresholdMinutes: 180 },
+      ]);
+    });
+
+    it('最低 3 分（1 分間隔のロボットで、3 分は新しい・3 分を超えると古い）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([robotData(3)]);
+      const boundary = await get(context, { equipmentId: ROBOT_ID });
+      context.clock.advance(60_000);
+
+      const over = await get(context, { equipmentId: ROBOT_ID });
+
+      expect(boundary.dataFreshness).toBe('FRESH');
+      expect(over.dataFreshness).toBe('STALE');
+    });
+
+    it('まだデータのない設備は、判定の対象にしない（ほかの設備にデータがあれば、その設備だけで判定する）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([sensorData(1)]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('FRESH');
+      expect(house.staleEquipment).toEqual([]);
+    });
+
+    it('どの設備にもデータがなければ、未取得（NONE）。古い設備は、ない', async () => {
+      const context = await setup();
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('NONE');
+      expect(house.staleEquipment).toEqual([]);
+    });
+
+    it('手動入力は、判定に含めない（自動データの停止が隠れない）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([
+        robotData(10),
+        observation({
+          equipmentId: ROBOT_ID,
+          itemKey: 'failureCount',
+          value: 0,
+          source: 'MANUAL',
+          observedAt: minutesAgo(0),
+        }),
+      ]);
+
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+
+      expect(robot.dataFreshness).toBe('STALE');
+      expect(robot.lastReceivedAt).toBe(minutesAgo(10));
+    });
+
+    it('最終のデータ取得（lastReceivedAt）は、判定の対象の設備の、最も新しい受信日時', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([robotData(10), sensorData(2)]);
+
+      const house = await get(context);
+
+      expect(house.lastReceivedAt).toBe(minutesAgo(2));
+    });
   });
 });
 

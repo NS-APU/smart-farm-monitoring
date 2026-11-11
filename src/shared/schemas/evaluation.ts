@@ -81,8 +81,20 @@ export const DashboardResponseSchema = z.object({
   lastReceivedAt: IsoDateTimeSchema.nullable(),
   /** データの新しさ: FRESH（新しい）／STALE（古い）／NONE（未取得）。 */
   dataFreshness: z.enum(DATA_FRESHNESS_VALUES),
-  /** 「古い」とみなす基準（分）。 */
-  staleThresholdMinutes: z.number(),
+  /**
+   * 古い設備（選んだ設備。ハウスなら配下のロボット・センサー）。設備ごとの基準（取得間隔 × 3、最低 3 分）を超えて、新しい計測値がない設備
+   * （Issue #198。ADR-0016 の D-12）。まだデータのない設備は含めない。1 件でもあれば、`dataFreshness` は STALE。
+   */
+  staleEquipment: z.array(
+    z.object({
+      equipmentId: EquipmentIdSchema,
+      name: z.string(),
+      /** その設備の、最終のデータ取得日時（自動取り込み）。 */
+      lastReceivedAt: IsoDateTimeSchema,
+      /** その設備の「古い」の基準（分）。 */
+      thresholdMinutes: z.number(),
+    }),
+  ),
   summary: z.object({
     NORMAL: z.number(),
     CAUTION: z.number(),

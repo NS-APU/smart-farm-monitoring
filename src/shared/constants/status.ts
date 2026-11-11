@@ -75,6 +75,9 @@ export type IngestionIntervalMinutes = (typeof INGESTION_INTERVAL_MINUTES_OPTION
 export const EQUIPMENT_INTERVAL_MINUTES_OPTIONS = [1, 5, 10, 15, 30, 60] as const;
 export type EquipmentIntervalMinutes = (typeof EQUIPMENT_INTERVAL_MINUTES_OPTIONS)[number];
 
+/** 「データが古い」の基準の最低値（分。設備ごとの基準 = 取得間隔 × 倍数が、これに満たなければ、これにする。Issue #198。ADR-0016 の D-12）。 */
+export const MIN_STALE_THRESHOLD_MINUTES = 3;
+
 /** 設備の取得間隔を指定しなかったときの、種別ごとの既定（分。ロボット 1 分・環境センサー 5 分。D-11）。 */
 export const DEFAULT_INTERVAL_MINUTES_BY_TYPE = {
   ROBOT: 1,

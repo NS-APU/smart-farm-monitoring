@@ -151,7 +151,7 @@ export function dashboard(overrides: Partial<DashboardResponse> = {}): Dashboard
     evaluatedAt: '2026-10-09T03:00:00.000Z',
     lastReceivedAt: '2026-10-09T02:55:00.000Z',
     dataFreshness: 'FRESH',
-    staleThresholdMinutes: 45,
+    staleEquipment: [],
     summary: { NORMAL: 1, CAUTION: 1, ERROR: 0, UNKNOWN: 1 },
     viewpoints: [
       card(),

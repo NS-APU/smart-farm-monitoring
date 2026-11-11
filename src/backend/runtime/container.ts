@@ -729,7 +729,6 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     pushSubscriptionService: services.pushSubscriptionService,
     dashboardQuery: createDashboardQuery({
       repositories,
-      ingestionSettings: services.ingestionSettings,
       settings,
       clock,
     }),

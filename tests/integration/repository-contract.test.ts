@@ -16,7 +16,13 @@ import type { Notification } from '@smart-farm/shared/schemas/notification';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import type { Repositories } from '../../src/backend/application/ports/repositories.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
-import { equipmentSet, observation, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
+import {
+  equipmentSet,
+  FACILITY_ID,
+  observation,
+  ROBOT_ID,
+  SENSOR_ID,
+} from '../support/builders.ts';
 import {
   createDynamoRepositoriesForTest,
   dropDynamoTestTables,
@@ -376,6 +382,28 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
         new Date('2026-10-09T02:50:00.000Z'),
       );
       expect(await empty.observations.latestReceivedAt()).toBeNull();
+    });
+
+    it('設備ごとの最終のデータ取得日時（Issue #198）: データのある設備だけを返す。自動取り込みのみ（手動入力・論理削除を除く）と、全体を、選べる', async () => {
+      const repositories = await seeded();
+
+      const auto = await repositories.observations.receivedAtByEquipment(
+        [ROBOT_ID, SENSOR_ID, FACILITY_ID],
+        { autoImportOnly: true },
+      );
+      const all = await repositories.observations.receivedAtByEquipment([ROBOT_ID]);
+
+      expect(Object.fromEntries(auto)).toEqual({
+        [ROBOT_ID]: new Date('2026-10-09T02:40:00.000Z'),
+        [SENSOR_ID]: new Date('2026-10-09T02:50:00.000Z'),
+      });
+      expect(Object.fromEntries(all)).toEqual({
+        [ROBOT_ID]: new Date('2026-10-09T03:00:00.000Z'),
+      });
+      expect((await repositories.observations.receivedAtByEquipment([])).size).toBe(0);
+      expect(
+        (await create().repositories.observations.receivedAtByEquipment([ROBOT_ID])).size,
+      ).toBe(0);
     });
   });
 

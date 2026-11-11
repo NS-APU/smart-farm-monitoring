@@ -97,6 +97,9 @@ export const MESSAGES = {
     periodDays: { 1: '当日', 7: '直近7日', 30: '直近30日', 60: '直近60日', 90: '直近90日' },
     lastReceivedAt: '最終のデータ取得',
     freshnessStale: 'データが古くなっています。取り込みの状況を確認してください',
+    /** 古い設備の名前（先頭の 3 つ。残りは「ほか N 件」）。どの設備かの設計は #158。 */
+    staleEquipment: (names: readonly string[], rest: number) =>
+      `古い設備: ${names.map((name) => `「${name}」`).join('')}${rest > 0 ? `ほか ${String(rest)} 件` : ''}`,
     freshnessNone:
       'データがまだ取り込まれていません。データ入力または取り込み設定を確認してください',
     noEquipment: '設備が登録されていません。設備を登録してください',

@@ -507,6 +507,46 @@ test.describe('代替フロー: データがまだ取り込まれていない・
   }
 });
 
+test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低 3 分。#198）', () => {
+  test('ハウスは、配下のいずれかの設備が古ければ警告し、古い設備の名前を示す。新しい設備だけを選べば、警告しない。基準は、設備の取得間隔で変わる', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    // 既定の取得間隔（ロボット 1 分 → 3 分・センサー 5 分 → 15 分）。どちらも、10 分前に受け取った
+    const tenMinutesAgo = new Date(NOW.getTime() - 10 * 60_000).toISOString();
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT, itemKey: 'harvestCount', value: 1, observedAt: tenMinutesAgo },
+        {
+          equipmentId: SENSOR,
+          itemKey: 'temperatureCelsius',
+          value: 20,
+          observedAt: tenMinutesAgo,
+        },
+      ],
+    });
+
+    await openDashboard(page);
+
+    const warning = page.getByRole('alert').filter({ hasText: 'データが古くなっています' });
+    await expect(warning).toBeVisible();
+    await expect(page.getByTestId('stale-equipment')).toContainText('収穫ロボット1');
+    await expect(page.getByTestId('stale-equipment')).not.toContainText('環境センサー1');
+    await shot(page, testInfo, 'dashboard-stale-equipment');
+
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
+    await expect(warning).toHaveCount(0);
+
+    // ロボットの取得間隔を 5 分にすると、基準は 15 分になり、10 分前のデータは、古くない
+    await setEquipmentInterval(request, ROBOT, 5);
+    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス1' });
+    await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
+    await expect(warning).toHaveCount(0);
+  });
+});
+
 test.describe('データの欠損・不正・遅延', () => {
   test('一部のデータだけがある（センサーのみ・ロボットのみ）とき、取得できた観点だけを評価し、他は不明にする', async ({
     page,

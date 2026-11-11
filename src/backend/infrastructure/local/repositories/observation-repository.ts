@@ -302,6 +302,16 @@ export function createObservationRepository(
       latestCache.set(cacheKey, latest);
       return Promise.resolve(latest);
     },
+    async receivedAtByEquipment(equipmentIds, options = {}) {
+      const received = new Map<EquipmentId, Date>();
+      for (const equipmentId of new Set(equipmentIds)) {
+        const latest = await repository.latestReceivedAt([equipmentId], options);
+        if (latest !== null) {
+          received.set(equipmentId, latest);
+        }
+      }
+      return received;
+    },
   };
 
   return {
