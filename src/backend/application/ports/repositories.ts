@@ -249,6 +249,10 @@ export interface IngestionRepository {
   lastSucceededAt(sourceId: string): Promise<Date | null>;
   /** 取り込み元が、新しいデータ（1件以上の記録）を取り込んだ直近の終了日時。一度もなければ null（データ取得の停止の判定に使う）。 */
   lastDataIngestedAt(sourceId: string): Promise<Date | null>;
+  /** 設備ごとの、取り込みの最終の開始日時（設備 ID → 日時。記録のない設備は含まない。設備ごとの取得間隔の判定。Issue #197）。 */
+  listEquipmentStartedAt(): Promise<ReadonlyMap<string, Date>>;
+  /** 設備の、取り込みの開始日時を記録する。新しい日時のときだけ、更新する（古い日時で戻さない）。空の指定は、何もしない。 */
+  markEquipmentStarted(equipmentIds: readonly string[], at: Date): Promise<void>;
 }
 
 export interface FederationRepository {

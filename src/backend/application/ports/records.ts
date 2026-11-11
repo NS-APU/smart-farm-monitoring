@@ -55,6 +55,16 @@ export const IngestedFileRecordSchema = z.object({
 });
 export type IngestedFileRecord = z.infer<typeof IngestedFileRecordSchema>;
 
+/**
+ * 設備ごとの、取り込みの最終の開始日時（取得間隔の判定。Issue #197。ADR-0016 の D-11）。設備ごとに 1 件（上書き）。
+ * 取り込みのジョブが、設備ごとに、「最終の開始から、その設備の取得間隔が過ぎたか」を判定する。
+ */
+export const EquipmentIngestionStateSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  startedAt: IsoDateTimeSchema,
+});
+export type EquipmentIngestionState = z.infer<typeof EquipmentIngestionStateSchema>;
+
 /** 観点の最終ステータスの変化の記録（通知の判定と、ステータスの推移。FR-6.10）。 */
 export const StatusChangeEntrySchema = z.object({
   equipmentId: EquipmentIdSchema,
