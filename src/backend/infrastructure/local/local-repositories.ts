@@ -76,12 +76,10 @@ export function createLocalRepositories(options: LocalStoreOptions = {}): LocalR
         originalLoad();
         observations.resetIndex();
         observations.buildIndexes();
-        ingestion.resetIndex();
       },
       clear() {
         originalClear();
         observations.resetIndex();
-        ingestion.resetIndex();
       },
     },
   };

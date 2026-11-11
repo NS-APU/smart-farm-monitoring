@@ -123,7 +123,7 @@ describe('観測値の Repository（索引・キャッシュ）', () => {
   });
 });
 
-describe('取り込み済みファイルの索引（V-082）', () => {
+describe('取り込み済みファイルの記録（ファイルごとに最新の 1 件。Issue #201。以前は、内容のハッシュの索引〔V-082〕）', () => {
   const record = (fileId: string, contentHash: string, result: 'SUCCESS' | 'FAILURE') => ({
     sourceId: 'robot',
     fileId,
@@ -133,22 +133,15 @@ describe('取り込み済みファイルの索引（V-082）', () => {
     recordCount: 1,
   });
 
-  it('索引を作った後に記録したファイルも、見つける。失敗の記録は、同じ識別子のときだけ一致する', async () => {
+  it('記録したファイルを、見つける。同じ識別子・同じ内容のときだけ一致し（失敗の記録も同じ）、全消去で、なくなる', async () => {
     const { repositories, store } = createLocalRepositories();
     await repositories.ingestion.recordFile(record('a.json', 'h1', 'SUCCESS'));
-    // 索引を作らせる
-    expect(
-      await repositories.ingestion.findIngestedFile('robot', 'other.json', 'h1'),
-    ).toBeDefined();
-
-    await repositories.ingestion.recordFile(record('b.json', 'h2', 'SUCCESS'));
-    await repositories.ingestion.recordFile(record('c.json', 'h2', 'SUCCESS'));
     await repositories.ingestion.recordFile(record('bad.json', 'h3', 'FAILURE'));
 
-    expect(await repositories.ingestion.findIngestedFile('robot', 'copy.json', 'h2')).toBeDefined();
+    expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeDefined();
     expect(await repositories.ingestion.findIngestedFile('robot', 'bad.json', 'h3')).toBeDefined();
     expect(
-      await repositories.ingestion.findIngestedFile('robot', 'other.json', 'h3'),
+      await repositories.ingestion.findIngestedFile('robot', 'other.json', 'h1'),
     ).toBeUndefined();
     expect(await repositories.ingestion.findIngestedFile('sensor', 'a.json', 'h1')).toBeUndefined();
 

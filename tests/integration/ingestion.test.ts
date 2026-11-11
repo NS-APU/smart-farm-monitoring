@@ -138,13 +138,15 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(await observationsOf(context)).toHaveLength(14);
   });
 
-  it('名前が違っても内容が同じファイルは取り込まない。内容が変わったファイルは新しい版として取り込む', async () => {
+  it('名前が違えば、内容が同じファイルも、読む（別のファイル）が、同じ値の観測値は保存しない。内容が変わったファイルは新しい版として取り込む（ファイルごとに最新の版の記録。Issue #201）', async () => {
     const context = await setup();
     context.placeFixture('robot', 'robot/robot-sample-001.json');
     await context.container.ingestionService.runSource('robot');
+    const before = (await observationsOf(context)).length;
     context.placeFixture('robot', 'robot/robot-sample-001.json', 'copy-of-001.json');
 
     const copied = await context.container.ingestionService.runSource('robot');
+    const afterCopy = (await observationsOf(context)).length;
     context.placeFile(
       'robot',
       'robot-sample-001.json',
@@ -155,7 +157,9 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     );
     const updated = await context.container.ingestionService.runSource('robot');
 
-    expect(copied.filesProcessed).toBe(0);
+    // 別のファイル（名前が違う）なので読むが、同じ値（同じ計測日時・同じ値）は、触らない（D-08）。観測値は増えない
+    expect(copied).toMatchObject({ filesProcessed: 1, recordCount: 0 });
+    expect(afterCopy).toBe(before);
     expect(updated).toMatchObject({ filesProcessed: 1, recordCount: 1 });
     // 観測値の一意キーが同じ（設備・項目・計測日時・取得元）ため、上書きされ、二重に数えない
     const harvest = (await observationsOf(context)).filter(

@@ -259,7 +259,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
 });
 
 test.describe('代替フロー: 同じファイルを重複して取り込まない', () => {
-  test('同じファイルを、もう一度取得しても、取り込まない。名前を変えた同じ内容のファイルも、取り込まない', async ({
+  test('同じファイルを、もう一度取得しても、取り込まない。名前を変えた同じ内容のファイルは、別のファイルとして読むが、同じ値は保存しない（#201）', async ({
     page,
     request,
   }) => {
@@ -272,9 +272,9 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
 
     // 同じファイル → 取り込まない
     await expect(await runNow(page, 'robot')).toContainText('ファイル 0 件、取り込み 0 件');
-    // 名前を変えた同じ内容 → 取り込まない
+    // 名前を変えた同じ内容 → 別のファイルとして読むが、同じ値（同じ計測日時・同じ値）は、触らない（取り込み 0 件）
     placeFile('robot', 'copy-of-a.json', content);
-    await expect(await runNow(page, 'robot')).toContainText('ファイル 0 件、取り込み 0 件');
+    await expect(await runNow(page, 'robot')).toContainText('ファイル 1 件、取り込み 0 件');
 
     await openObservations(page);
     await expect(observationRows(page)).toHaveCount(14);
