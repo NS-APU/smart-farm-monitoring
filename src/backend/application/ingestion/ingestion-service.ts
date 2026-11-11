@@ -7,9 +7,14 @@
 
 import { createHash } from 'node:crypto';
 import { findItemDefinition } from '@smart-farm/shared/constants/items';
+import { MIN_STALE_THRESHOLD_MINUTES } from '@smart-farm/shared/constants/status';
 import { AppError } from '@smart-farm/shared/errors';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
-import { effectiveIntervalMinutes, type Equipment } from '@smart-farm/shared/schemas/equipment';
+import {
+  effectiveIntervalMinutes,
+  staleThresholdMinutesOf,
+  type Equipment,
+} from '@smart-farm/shared/schemas/equipment';
 import type {
   FacilityIngestion,
   IngestionLog,
@@ -47,7 +52,16 @@ import { errorLogFields } from '../error-fields.ts';
 import type { AppSettings } from '../settings.ts';
 import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
 import { sourceDisplayName, type IngestionSettings } from './ingestion-settings.ts';
-import { representativeIntervalMinutes } from './source-interval.ts';
+
+/** 通知に載せる設備の名前の数（それを超えた分は、「ほか N 件」）。 */
+const STOPPED_NAMES_SHOWN = 3;
+
+/** 止まった設備の名前（先頭の 3 つ。残りは「ほか N 件」）。 */
+function stoppedEquipmentNames(stopped: readonly Equipment[]): string {
+  const shown = stopped.slice(0, STOPPED_NAMES_SHOWN).map((item) => `「${item.name}」`);
+  const rest = stopped.length - shown.length;
+  return rest > 0 ? `${shown.join('')}ほか ${String(rest)} 件` : shown.join('');
+}
 
 /** 取り込みの実行結果。API の応答（IngestionRunResponse）と同じ形。 */
 export type IngestionRunSummary = IngestionRunResponse;
@@ -623,11 +637,11 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
   }
 
   /**
-   * 新しいデータが届かなくなった取り込み元を、「データ取得の停止」として通知する（V-018。無音の停止の検知）。
-   * 取り込みは、ファイルが0件でも成功になるため、取得間隔×基準の倍数を超えて、新しいデータ（1件以上の記録）が
-   * 取り込まれていない場合を、停止とみなす。一度もデータを取り込んでいない取り込み元（未取得）は、対象外。
+   * 新しいデータが届かなくなった設備を、「データ取得の停止」として通知する（V-018。無音の停止の検知）。
+   * 取り込みは、ファイルが0件でも成功になるため、設備ごとの基準（その設備の取得間隔 × 基準の倍数、最低 3 分。Issue #198。
+   * ADR-0016 の D-12）を超えて、新しいデータ（自動取り込みの受信）がない設備を、停止とみなす。一度もデータを取り込んでいない
+   * 設備（未取得）は、対象外。通知は、取り込み元ごとに 1 件で、止まった設備の名前をまとめる（重複の抑制は、取り込み元ごと）。
    * 暫定仕様（dev_spec.md 4章）。環境変数 INGESTION_STOP_NOTIFICATION_ENABLED で、無効にできる。
-   * 基準の取得間隔は、その種別の設備の最長（設備ごとの設定。Issue #197。設備ごとの基準への置き換えは #198）。
    * `equipmentRead` は、取り込みの判定で、すでに読み始めた設備の一覧（読めなかった失敗は、取り込みの失敗として、伝え済み）。
    */
   async function notifyStoppedSources(
@@ -646,24 +660,41 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       }
       return;
     }
-    for (const source of await ingestionSettings.listSources()) {
-      if (!source.isEnabled) {
-        continue;
-      }
-      const lastDataAt = await repositories.ingestion.lastDataIngestedAt(source.sourceId);
-      const stopAfterMinutes =
-        representativeIntervalMinutes(source.kind, equipment) * settings.stopAfterIntervals;
-      if (
-        lastDataAt === null ||
-        now.getTime() - lastDataAt.getTime() <= stopAfterMinutes * MS_PER_MINUTE
-      ) {
+    const sources = (await ingestionSettings.listSources()).filter((source) => source.isEnabled);
+    if (sources.length === 0) {
+      return;
+    }
+    const targets = equipment.filter(
+      (item) =>
+        !item.isDeleted &&
+        sources.some((source) => source.kind === item.equipmentType) &&
+        item.equipmentType !== 'FACILITY',
+    );
+    const receivedAt = await repositories.observations.receivedAtByEquipment(
+      targets.map((item) => item.equipmentId),
+      { autoImportOnly: true },
+    );
+    for (const source of sources) {
+      const stopped = targets
+        .filter((item) => {
+          const received = receivedAt.get(item.equipmentId);
+          const thresholdMinutes = staleThresholdMinutesOf(item, settings.stopAfterIntervals);
+          return (
+            item.equipmentType === source.kind &&
+            received !== undefined &&
+            thresholdMinutes !== undefined &&
+            now.getTime() - received.getTime() > thresholdMinutes * MS_PER_MINUTE
+          );
+        })
+        .sort((left, right) => left.equipmentId.localeCompare(right.equipmentId));
+      if (stopped.length === 0) {
         continue;
       }
       try {
         await deps.notifications.notifyIngestionFailure({
           sourceId: source.sourceId,
           sourceName: sourceDisplayName(source.sourceId),
-          reason: `${String(stopAfterMinutes)}分以上、新しいデータが届いていません。ロボット・センサーとファイルの出力を確認してください`,
+          reason: `${stoppedEquipmentNames(stopped)}で、設備ごとの基準（取得間隔 × ${String(settings.stopAfterIntervals)}、最低 ${String(MIN_STALE_THRESHOLD_MINUTES)} 分）を超えて、新しいデータが届いていません。ロボット・センサーとファイルの出力を確認してください`,
           situation: 'STOPPED',
         });
       } catch (error) {

@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import {
   DEFAULT_INTERVAL_MINUTES_BY_TYPE,
+  MIN_STALE_THRESHOLD_MINUTES,
   EQUIPMENT_INTERVAL_MINUTES_OPTIONS,
   type EquipmentType,
 } from '../constants/status.ts';
@@ -100,6 +101,23 @@ export function effectiveIntervalMinutes(equipment: {
     return undefined;
   }
   return equipment.intervalMinutes ?? DEFAULT_INTERVAL_MINUTES_BY_TYPE[equipment.equipmentType];
+}
+
+/**
+ * 設備の「データが古い」の基準（分）。その設備の取得間隔 × 倍数（既定 3）、ただし最低 `MIN_STALE_THRESHOLD_MINUTES`（3 分）。
+ * ハウスは、基準を持たない（配下の設備で判定する）（undefined）。Issue #198。ADR-0016 の D-12。
+ */
+export function staleThresholdMinutesOf(
+  equipment: {
+    readonly equipmentType: EquipmentType;
+    readonly intervalMinutes?: number | undefined;
+  },
+  multiplier: number,
+): number | undefined {
+  const interval = effectiveIntervalMinutes(equipment);
+  return interval === undefined
+    ? undefined
+    : Math.max(MIN_STALE_THRESHOLD_MINUTES, interval * multiplier);
 }
 
 /** GET /equipment の応答。ハウス → ロボット／センサーの階層（FR-2.2）。 */

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { toUserId } from '@smart-farm/shared/schemas/common';
+import { toEquipmentId, toUserId, type EquipmentId } from '@smart-farm/shared/schemas/common';
 import { createIngestionService } from '../../src/backend/application/ingestion/ingestion-service.ts';
 import { createIngestionSettings } from '../../src/backend/application/ingestion/ingestion-settings.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
@@ -13,7 +13,15 @@ import { createControllableClock } from '../../src/backend/infrastructure/local/
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { createDefaultFormatProfileRegistry } from '../../src/backend/infrastructure/format-profiles/declarative-profile.ts';
-import { equipmentSet, ROBOT_ID } from '../support/builders.ts';
+import {
+  equipmentSet,
+  FACILITY_ID,
+  observation,
+  ROBOT_2_ID,
+  ROBOT_ID,
+  SENSOR_ID,
+  secondHouseSet,
+} from '../support/builders.ts';
 import {
   createTestContext,
   TEST_NOW,
@@ -267,6 +275,140 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
     await context.container.ingestionService.runDueSources();
 
     expect(await stoppedNotificationsOf(context)).toEqual([]);
+  });
+});
+
+describe('データ供給の停止の検知: 設備ごとの基準（Issue #198。ADR-0016 の D-12）', () => {
+  const minutesAgo = (context: TestContext, minutes: number) =>
+    new Date(context.clock.now().getTime() - minutes * 60_000).toISOString();
+
+  /** 設備のデータを、「分前に受け取った」ことにして保存する（自動取り込み）。 */
+  async function receive(
+    context: TestContext,
+    equipmentId: EquipmentId,
+    minutes: number,
+  ): Promise<void> {
+    await context.container.repositories.observations.saveMany([
+      observation({
+        equipmentId,
+        itemKey: 'harvestCount',
+        value: 1,
+        observedAt: minutesAgo(context, minutes),
+      }),
+    ]);
+  }
+
+  async function withSecondRobot(): Promise<TestContext> {
+    const context = await setup();
+    for (const equipment of secondHouseSet()) {
+      await context.container.repositories.equipment.save(equipment);
+    }
+    return context;
+  }
+
+  it('設備ごとの基準（その設備の取得間隔 × 3、最低 3 分）で判定する。既定のロボット 1 分は、3 分を超えたら通知する（取り込み元の最長の間隔に引きずられない）', async () => {
+    const context = await setup();
+    await receive(context, ROBOT_ID, 4);
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toMatchObject({ kind: 'INGESTION_FAILURE', sourceId: 'robot' });
+    expect(stopped[0]?.message).toContain('テストロボット');
+  });
+
+  it('最低 3 分: 3 分までは通知しない（境界）', async () => {
+    const context = await setup();
+    await receive(context, ROBOT_ID, 3);
+
+    await context.container.ingestionService.runDueSources();
+
+    expect(await stoppedNotificationsOf(context)).toEqual([]);
+  });
+
+  it('設備の取得間隔を長くすると、その設備の基準が延びる（ロボットを 30 分にすると、89 分は通知せず、91 分は通知する）', async () => {
+    const context = await setup();
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({ ...robot, intervalMinutes: 30 });
+    await receive(context, ROBOT_ID, 89);
+    await context.container.ingestionService.runDueSources();
+    const before = await stoppedNotificationsOf(context);
+    context.clock.advance(2 * 60_000);
+
+    await context.container.ingestionService.runDueSources();
+
+    expect(before).toEqual([]);
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+  });
+
+  it('同じ種別の別の設備が新しくても、止まった設備は通知する（取り込み元の最終ではなく、設備ごと）', async () => {
+    const context = await withSecondRobot();
+    await receive(context, ROBOT_ID, 10);
+    await receive(context, ROBOT_2_ID, 1);
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.message).toContain('テストロボット');
+    expect(stopped[0]?.message).not.toContain('テストロボット2');
+  });
+
+  it('止まった設備が複数でも、取り込み元ごとに 1 件にまとめる（設備の名前を、すべて含める）', async () => {
+    const context = await withSecondRobot();
+    await receive(context, ROBOT_ID, 10);
+    await receive(context, ROBOT_2_ID, 10);
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.message).toContain('テストロボット');
+    expect(stopped[0]?.message).toContain('テストロボット2');
+  });
+
+  it('止まった設備が 4 つ以上なら、先頭の 3 つの名前と「ほか N 件」にする', async () => {
+    const context = await setup();
+    for (const index of [1, 2, 3, 4]) {
+      const equipmentId = toEquipmentId(`ROBOT-X${String(index)}`);
+      await context.container.repositories.equipment.save({
+        equipmentId,
+        equipmentType: 'ROBOT',
+        name: `ロボットX${String(index)}`,
+        facilityId: FACILITY_ID,
+        isDeleted: false,
+        createdAt: '2026-10-01T00:00:00.000Z',
+      });
+      await receive(context, equipmentId, 10);
+    }
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.message).toContain('ロボットX1');
+    expect(stopped[0]?.message).toContain('ロボットX3');
+    expect(stopped[0]?.message).not.toContain('ロボットX4');
+    expect(stopped[0]?.message).toContain('ほか 1 件');
+  });
+
+  it('種別が違う設備は、それぞれの取り込み元で判定する（センサー 5 分は、15 分まで通知しない）', async () => {
+    const context = await setup();
+    await receive(context, SENSOR_ID, 10);
+
+    await context.container.ingestionService.runDueSources();
+    const early = await stoppedNotificationsOf(context);
+    context.clock.advance(6 * 60_000);
+    await context.container.ingestionService.runDueSources();
+
+    expect(early).toEqual([]);
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toMatchObject({ sourceId: 'environment-sensor' });
   });
 });
 

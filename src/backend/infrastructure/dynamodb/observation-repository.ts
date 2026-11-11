@@ -13,6 +13,7 @@ import type { Category } from '@smart-farm/shared/constants/items';
 import { findItemDefinition } from '@smart-farm/shared/constants/items';
 import type { SortDirection } from '@smart-farm/shared/constants/sorting';
 import { AppError } from '@smart-farm/shared/errors';
+import { toEquipmentId, type EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type {
   ObservationFilter,
@@ -441,6 +442,25 @@ export function createObservationRepository(
         typeof item[attribute] === 'number' ? [item[attribute]] : [],
       );
       return times.length === 0 ? null : new Date(Math.max(...times));
+    },
+    async receivedAtByEquipment(equipmentIds, options = {}) {
+      const received = new Map<EquipmentId, Date>();
+      if (equipmentIds.length === 0) {
+        return received;
+      }
+      const attribute = options.autoImportOnly === true ? 'auto' : 'all';
+      const items = await batchGetItems(
+        db,
+        mainTable,
+        [...new Set(equipmentIds)].map((equipmentId) => ({ pk: RECEIVED_STATS, sk: equipmentId })),
+      );
+      for (const item of items) {
+        const at = item[attribute];
+        if (typeof at === 'number' && typeof item.sk === 'string') {
+          received.set(toEquipmentId(item.sk), new Date(at));
+        }
+      }
+      return received;
     },
   };
 }

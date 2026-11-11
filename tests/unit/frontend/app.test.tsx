@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
+import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import { App } from '../../../src/frontend/app.tsx';
 import { safeNextPath } from '../../../src/frontend/pages/login-page.tsx';
 import { withBaseRoutes } from '../../support/management-frontend.ts';
@@ -442,6 +443,44 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('データが古くなっています');
     expect(await screen.findByText('（古い）')).toBeDefined();
+  });
+
+  it('古い設備があれば、警告に、その設備の名前を示す（最大 3 つ。それ以上は「ほか N 件」。どの設備かの設計は #158）', async () => {
+    const stale = (index: number) => ({
+      equipmentId: toEquipmentId(`ROBOT-${String(index)}`),
+      name: `ロボット${String(index)}`,
+      lastReceivedAt: '2026-10-09T02:00:00.000Z',
+      thresholdMinutes: 3,
+    });
+    const view = renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(dashboard({ dataFreshness: 'STALE', staleEquipment: [stale(1), stale(2)] })),
+      },
+    });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('データが古くなっています');
+    expect(alert.textContent).toContain('ロボット1');
+    expect(alert.textContent).toContain('ロボット2');
+    expect(alert.textContent).not.toContain('ほか');
+    view.unmount();
+
+    renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(
+            dashboard({
+              dataFreshness: 'STALE',
+              staleEquipment: [stale(1), stale(2), stale(3), stale(4), stale(5)],
+            }),
+          ),
+      },
+    });
+    const many = await screen.findByRole('alert');
+    expect(many.textContent).toContain('ロボット3');
+    expect(many.textContent).not.toContain('ロボット4');
+    expect(many.textContent).toContain('ほか 2 件');
   });
 
   it('データが未取得の場合は、その旨と次の操作を示し、ヘッダーは「未取得」と示す', async () => {

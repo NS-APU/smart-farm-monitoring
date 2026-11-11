@@ -253,6 +253,9 @@ export function DashboardPage(): ReactNode {
   );
 }
 
+/** 警告に示す、古い設備の名前の数（それを超えた分は、「ほか N 件」）。 */
+const STALE_NAMES_SHOWN = 3;
+
 function DashboardContent(props: {
   readonly data: DashboardResponse;
   readonly horizon: Horizon;
@@ -266,6 +269,14 @@ function DashboardContent(props: {
         <p role="alert" className="notice notice-warning">
           <Icon name="status-caution" size={18} />
           {MESSAGES.dashboard.freshnessStale}
+          {data.staleEquipment.length > 0 ? (
+            <span data-testid="stale-equipment">
+              {MESSAGES.dashboard.staleEquipment(
+                data.staleEquipment.slice(0, STALE_NAMES_SHOWN).map((item) => item.name),
+                Math.max(0, data.staleEquipment.length - STALE_NAMES_SHOWN),
+              )}
+            </span>
+          ) : null}
         </p>
       ) : null}
       {data.dataFreshness === 'NONE' ? (
