@@ -203,7 +203,7 @@
 
 | ID    | ジョブ     | 呼び出す処理                                                                   | 既定の実行間隔（`DEFAULT_SCHEDULE`） |
 | ----- | ---------- | ------------------------------------------------------------------------------ | ------------------------------------ |
-| JB-01 | 取り込み   | `IngestionService.runDueSources()`（取り込み元ごとの取得間隔が来たものを実行） | 1 分ごとに判定                       |
+| JB-01 | 取り込み   | `IngestionService.runDueSources()`（設備ごとの取得間隔が来たものを実行。#197） | 1 分ごとに判定                       |
 | JB-02 | 評価       | `EvaluationService.evaluateAll('SCHEDULED')`                                   | 5 分                                 |
 | JB-03 | 連携       | `FederationService.runPending()`                                               | 5 分                                 |
 | JB-04 | 通知の配信 | `NotificationService.deliverPending()`                                         | 1 分                                 |
@@ -1543,9 +1543,10 @@ sequenceDiagram
   SCH->>JR: run JB-01 1 分ごと
   JR->>IS: runDueSources
   IS->>ST: listSources 保存が無ければ既定の 2<br>取り込み元
+  IS->>R: listEquipmentStartedAt 設備ごとの<br>最終の開始日時 1 回の Query
   loop 有効で実行中でない取り込み元
-    IS->>R: lastStartedAt(sourceId)<br>ログの開始日時の最大
-    alt 前回が無い または 取得間隔が過ぎた
+    IS->>IS: 設備ごとに 記録が無い または<br>その設備の取得間隔が過ぎたかを判定
+    alt 間隔が来た設備がある
       IS->>IS: runSource で実行中の集合に追加<br>すでに実行中なら CONFLICT
       IS->>FSP: listFiles(sourceId) 最大 3 回<br>失敗後に 1 秒 2 秒と待つ
       alt 3 回とも失敗
@@ -2348,7 +2349,7 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 **再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。
 
-**取り込みの実行判定**（`runDueSources`）: `now − 直近の開始日時 ≥ 取得間隔`、または、これまでに実行がなければ実行する。取り込みログの追加が、「実行した」記録を兼ねる。
+**取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。接続方式 HTTP は、間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。モック・S3 は、設備のどれかの間隔が来たら、ファイル全体（最短の間隔で動く）。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込む設備の開始日時は、一覧の取得の前に記録する（`IngestionRepository.markEquipmentStarted`。DynamoDB は `EQINGEST`。新しい日時のときだけ更新）ため、失敗しても、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 
 **対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。
 
@@ -2532,7 +2533,7 @@ for 区間:
 | 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
 | 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
 | 単体テスト（frontend） | `tests/unit/frontend/`（30 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（51 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 結合テスト             | `tests/integration/`（52 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
 | 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
@@ -2697,16 +2698,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-11 の実測。Issue #197 の PR 1 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-11 の実測。Issue #197 の PR 2 の後）
 
-計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（145 ファイル・3164 件成功・2 件スキップ）。
+計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（146 ファイル・3181 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.12% | 7,502／7,568 | 95% 以上 |
-| 文   | 99.14% | 7,754／7,821 | 95% 以上 |
-| 関数 | 99.3% | 2,270／2,286 | 95% 以上 |
-| 分岐 | 95.39% | 4,666／4,891 | 95% 以上 |
+| 行   | 99.13% | 7,551／7,617 | 95% 以上 |
+| 文   | 99.14% | 7,805／7,872 | 95% 以上 |
+| 関数 | 99.3% | 2,288／2,304 | 95% 以上 |
+| 分岐 | 95.37% | 4,700／4,928 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2714,13 +2715,13 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
-| `src/backend/application` | 99.42% | 99.37% | 99.2% | 96.27% |
-| `src/backend/infrastructure` | 98.98% | 99.01% | 100.0% | 94.55% |
+| `src/backend/application` | 99.43% | 99.38% | 99.23% | 96.17% |
+| `src/backend/infrastructure` | 98.99% | 99.02% | 100.0% | 94.51% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.57% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
 | `src/frontend` | 99.13% | 99.17% | 99.29% | 95.36% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`ingestion-repositories.ts`（86.04%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`ingestion-repositories.ts`（84.44%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
 ### E2E（Playwright）
 
@@ -2729,7 +2730,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-11 の実測（Issue #197 の PR 1 の後）: 145 ファイル・**3164 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3164 件。内訳（test.spec.md 1.2）: 単体 shared 13・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 51 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-11 の実測（Issue #197 の PR 2 の後）: 146 ファイル・**3181 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3181 件。内訳（test.spec.md 1.2）: 単体 shared 13・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

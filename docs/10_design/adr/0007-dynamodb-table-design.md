@@ -66,6 +66,7 @@
 | 通知の既読 | `READ#{userId}` | `{notificationId}` | 既読にしたときに、条件つきで作る |
 | **カウンター** | `COUNTER` | `NOTIF_TOTAL`・`READ#{userId}`・`NFTOTAL#{facilityId}`・`NFREAD#{facilityId}#{userId}`・`FED#{status}` | 通知の総数、利用者ごとの既読数、連携の状態ごとの件数。トランザクションで更新する |
 | 取り込み済みファイル | `SRC#{sourceId}` | `FILE#{fileId}#{contentHash}`・`HASH#{contentHash}`（成功のみ）・`STATE`（直近の開始・成功・データ取り込みの日時） | `findIngestedFile` は GetItem。取り込み元の状態（`lastStartedAt` など）は、1 回の GetItem |
+| 設備ごとの取り込みの最終の開始 | `EQINGEST` | `{equipmentId}`（属性 `lastStarted`。ミリ秒） | 設備ごとの取得間隔の判定（#197）。取り込みのジョブが、毎分、全設備を 1 回の Query で読む。新しい日時のときだけ、条件つきで更新する（古い日時で戻さない） |
 | 取り込みログ | `ILOG#{sourceId}` | `{startedAt}#{logId}` | 取り込み元ごとの Query。全取り込み元は、併合。TTL |
 | ハウス別の取り込みの記録 | `ILOGF#{facilityId}` | `{startedAt}#{logId}#{facilityId}` | 取り込みログの `facilities`（ハウスごとの結果・件数）の内訳を、ログの追加のときに、ハウスごとに書く（一般ユーザーが、閲覧できるハウスのパーティションだけを、併合して読む。全体のログを読まない。#332）。TTL |
 | 連携項目 | `FED` | `{federationItemId}` | `listDue`・`listWaiting` は、未送信の項目だけが載る疎な GSI1（`FDUE` / `{nextAttemptAt}#{enqueuedAt}#{id}`。次の試行の日時の順）を、範囲で読む（期限が来た項目・先の項目だけを読み、溜まった件数に比例して読まない。#203） |
