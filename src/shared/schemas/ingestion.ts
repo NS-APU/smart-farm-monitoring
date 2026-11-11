@@ -7,7 +7,7 @@ import {
   INGESTION_INTERVAL_MINUTES_OPTIONS,
   type FederationStatus,
 } from '../constants/status.ts';
-import { IsoDateTimeSchema } from './common.ts';
+import { EquipmentIdSchema, IsoDateTimeSchema } from './common.ts';
 
 export const INGESTION_SOURCE_KINDS = ['ROBOT', 'SENSOR'] as const;
 
@@ -167,6 +167,11 @@ export type FacilityIngestion = z.infer<typeof FacilityIngestionSchema>;
 export const IngestionLogSchema = z.object({
   logId: z.string(),
   sourceId: z.string(),
+  /**
+   * ログの設備（Issue #201。ADR-0016 の D-48）。新しいデータがあった設備・ファイルを取り込めなかった設備ごとに、1 件ずつ残す。
+   * 設備に結びつかない結果（接続の失敗・どの設備にも結びつかない記録・以前のログ）は、持たない（取り込み元単位のログ）。
+   */
+  equipmentId: EquipmentIdSchema.optional(),
   startedAt: IsoDateTimeSchema,
   finishedAt: IsoDateTimeSchema,
   result: z.enum(INGESTION_RESULTS),

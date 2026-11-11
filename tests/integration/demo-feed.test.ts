@@ -192,7 +192,10 @@ describe('置いたファイルの取り込み（JB-01）', () => {
       ]),
     );
     expect(robot.every((item) => item.source === 'AUTO_IMPORT')).toBe(true);
-    expect(await container.repositories.ingestion.lastStartedAt('robot')).not.toBeNull();
+    // 設備ごとの最終の実行（Issue #201）が、記録されている
+    expect(
+      (await container.repositories.ingestion.listEquipmentRuns()).get(ROBOT_ID),
+    ).toBeDefined();
   });
 
   it('同じファイルを、もう一度取り込んでも、観測値は増えない（内容のハッシュが同じ）', async () => {

@@ -3,9 +3,11 @@
  *
  * - 取り込み済みファイル（Issue #201）: `SRC#{取り込み元}` / `FILE#{ファイル}`。ファイルごとに、最新の版（ハッシュ・結果）の 1 件を上書きする
  *   （1 つのファイルを随時更新する方式で、版ごとに増えないように。以前の、版ごとの `FILE#{ファイル}#{ハッシュ}`・`HASH#{ハッシュ}` は、読まない）
- * - 取り込み元の状態: `SRC#{取り込み元}` / `STATE`（直近の開始・成功・データ取り込みの日時。ログの追加のたびに、最大値で更新する）
- * - 取り込みログ: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
- * - 設備ごとの取り込みの最終の開始日時（Issue #197。取得間隔の判定）: `EQINGEST` / `{設備ID}`。属性 `lastStarted`（ミリ秒）。新しい値のときだけ更新する。
+ * - 取り込み元の状態（設備が 1 つもない取り込み元の取得間隔の判定）: `SRC#{取り込み元}` / `STATE`。属性 `lastStarted`（ミリ秒）。新しい値のときだけ更新する
+ * - 取り込みログ（設備に結びつかないもの。取り込み元単位）: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
+ * - 取り込みログ（設備ごと。Issue #201。新しいデータがあった実行・失敗だけ）: `ILOGE#{設備ID}` / `{開始日時}#{ログID}`。設備の一覧は、`EQINGEST` に持つ
+ * - 設備ごとの取り込みの最終の実行（Issue #197・#201。取得間隔の判定・最終の実行の表示）: `EQINGEST` / `{設備ID}`。属性 `lastStarted`・`lastFinished`・
+ *   `lastResult`・`lastSucceeded`・`lastData`（ミリ秒）。設備ごとに 1 件を、1 回の更新で上書きする（新しい開始日時のときだけ）。
  *   全設備を、1 回の Query で読む（取り込みのジョブは、毎分、判定する）
  * - ハウス別の取り込みの記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `ILOGF#{ハウス}` / `{開始日時}#{ログID}#{ハウス}`
  * - 連携の項目: `FED` / `{ID}`。未送信の項目だけが、疎な GSI1（`FDUE`）に載る。状態ごとの件数は、カウンター（`FED#{状態}`）
@@ -27,6 +29,7 @@ import {
   type IngestedFileRecord,
 } from '../../application/ports/records.ts';
 import type {
+  EquipmentRunState,
   FederationRepository,
   IngestionRepository,
 } from '../../application/ports/repositories.ts';
@@ -50,9 +53,11 @@ const FEDERATION_LOG = 'FLOG';
 const FEDERATION_DUE = 'FDUE';
 const INGESTION_SOURCES = 'ILOGSRC';
 const EQUIPMENT_INGESTION = 'EQINGEST';
+const INGESTION_RESULTS_STORED = ['SUCCESS', 'PARTIAL', 'FAILURE'] as const;
 
 const sourcePartition = (sourceId: string): string => `SRC#${sourceId}`;
 const logPartition = (sourceId: string): string => `ILOG#${sourceId}`;
+const equipmentLogPartition = (equipmentId: string): string => `ILOGE#${equipmentId}`;
 const facilityIngestionPartition = (facilityId: string): string => `ILOGF#${facilityId}`;
 const facilityFederationPartition = (facilityId: string): string => `FLOGF#${facilityId}`;
 const fileSortKey = (fileId: string): string => `FILE#${fileId}`;
@@ -69,26 +74,6 @@ export function createIngestionRepository(db: Database): IngestionRepository {
   const logs = mainAggregate(db, IngestionLogSchema);
   const facilityLogs = mainAggregate(db, FacilityIngestionLogSchema);
 
-  /** 取り込み元の状態の日時を、新しい値のときだけ更新する（古いログを後から足しても、戻さない）。 */
-  async function raiseState(
-    sourceId: string,
-    attribute: string,
-    isoDateTime: string,
-  ): Promise<void> {
-    await updateItemIf(db, table, {
-      key: { pk: sourcePartition(sourceId), sk: STATE },
-      update: 'SET #a = :v',
-      condition: 'attribute_not_exists(#a) OR #a < :v',
-      names: { '#a': attribute },
-      values: { ':v': Date.parse(isoDateTime) },
-    });
-  }
-
-  async function stateOf(sourceId: string, attribute: string): Promise<Date | null> {
-    const state = await getItem(db, table, { pk: sourcePartition(sourceId), sk: STATE });
-    return toDate(state?.[attribute]);
-  }
-
   return {
     async findIngestedFile(sourceId, fileId, contentHash) {
       // 同じ識別子の、最新の版が、同じハッシュなら、取り込み済み（結果を問わない）
@@ -99,7 +84,14 @@ export function createIngestionRepository(db: Database): IngestionRepository {
       await files.put(sourcePartition(record.sourceId), fileSortKey(record.fileId), record);
     },
     async addLog(log) {
-      await logs.put(logPartition(log.sourceId), timedSortKey(log.startedAt, log.logId), log);
+      // 設備ごとのログは、設備のパーティションに、設備に結びつかないログは、取り込み元のパーティションに持つ
+      await logs.put(
+        log.equipmentId === undefined
+          ? logPartition(log.sourceId)
+          : equipmentLogPartition(log.equipmentId),
+        timedSortKey(log.startedAt, log.logId),
+        log,
+      );
       // ハウスごとの内訳は、ハウス別の記録としても持つ（一般ユーザーが、全体のログを読まずに、自分のハウスの分だけを読めるように）
       for (const entry of log.facilities ?? []) {
         await facilityLogs.put(
@@ -115,29 +107,31 @@ export function createIngestionRepository(db: Database): IngestionRepository {
           },
         );
       }
-      await putItem(db, table, { pk: INGESTION_SOURCES, sk: log.sourceId });
-      await Promise.all([
-        raiseState(log.sourceId, 'lastStarted', log.startedAt),
-        log.result === 'SUCCESS'
-          ? raiseState(log.sourceId, 'lastSucceeded', log.finishedAt)
-          : Promise.resolve(),
-        log.recordCount > 0
-          ? raiseState(log.sourceId, 'lastDataIngested', log.finishedAt)
-          : Promise.resolve(),
-      ]);
+      if (log.equipmentId === undefined) {
+        await putItem(db, table, { pk: INGESTION_SOURCES, sk: log.sourceId });
+      }
     },
     async listLogs(filter, page) {
-      const partitions =
-        filter.sourceId === undefined
-          ? (await queryAll(db, table, INGESTION_SOURCES)).map((item) =>
-              logPartition(String(item.sk)),
-            )
-          : [logPartition(filter.sourceId)];
+      // 設備に結びつかないログ（取り込み元ごと）と、設備ごとのログを、併合する（設備の一覧は、設備ごとの最終の実行の項目）
+      const [sources, equipment] = await Promise.all([
+        queryAll(db, table, INGESTION_SOURCES),
+        queryAll(db, table, EQUIPMENT_INGESTION),
+      ]);
       const result = await pageBySortKey(db, {
-        partitions,
+        partitions: [
+          ...sources
+            .map((item) => String(item.sk))
+            .filter((sourceId) => filter.sourceId === undefined || sourceId === filter.sourceId)
+            .map(logPartition),
+          ...equipment.map((item) => equipmentLogPartition(String(item.sk))),
+        ],
         forward: false,
         limit: page.limit,
         cursor: page.cursor,
+        accept:
+          filter.sourceId === undefined
+            ? undefined
+            : (item) => logs.parse(item).sourceId === filter.sourceId,
       });
       return { items: result.items.map(logs.parse), nextCursor: result.nextCursor };
     },
@@ -150,32 +144,58 @@ export function createIngestionRepository(db: Database): IngestionRepository {
       });
       return { items: result.items.map(facilityLogs.parse), nextCursor: result.nextCursor };
     },
-    async listEquipmentStartedAt() {
-      const states = new Map<string, Date>();
+    async listEquipmentRuns() {
+      const states = new Map<string, EquipmentRunState>();
       for (const item of await queryAll(db, table, EQUIPMENT_INGESTION)) {
         const startedAt = toDate(item.lastStarted);
-        if (startedAt !== null) {
-          states.set(String(item.sk), startedAt);
+        const finishedAt = toDate(item.lastFinished);
+        const result = INGESTION_RESULTS_STORED.find((candidate) => candidate === item.lastResult);
+        if (startedAt !== null && finishedAt !== null && result !== undefined) {
+          states.set(String(item.sk), {
+            startedAt,
+            finishedAt,
+            result,
+            lastSucceededAt: toDate(item.lastSucceeded),
+            lastDataAt: toDate(item.lastData),
+          });
         }
       }
       return states;
     },
-    async markEquipmentStarted(equipmentIds, at) {
+    async recordEquipmentRuns(runs) {
       await Promise.all(
-        equipmentIds.map((equipmentId) =>
+        runs.map((run) =>
           updateItemIf(db, table, {
-            key: { pk: EQUIPMENT_INGESTION, sk: equipmentId },
-            update: 'SET #a = :v',
-            condition: 'attribute_not_exists(#a) OR #a < :v',
-            names: { '#a': 'lastStarted' },
-            values: { ':v': at.getTime() },
+            key: { pk: EQUIPMENT_INGESTION, sk: run.equipmentId },
+            update: [
+              'SET lastStarted = :s, lastFinished = :f, lastResult = :r',
+              ...(run.result === 'SUCCESS' ? ['lastSucceeded = :f'] : []),
+              ...(run.dataIngested ? ['lastData = :f'] : []),
+            ].join(', '),
+            // 新しい実行のときだけ、更新する（古い実行で戻さない）。まだ記録がなければ、作る
+            condition: 'attribute_not_exists(lastStarted) OR lastStarted <= :s',
+            values: {
+              ':s': run.startedAt.getTime(),
+              ':f': run.finishedAt.getTime(),
+              ':r': run.result,
+            },
           }),
         ),
       );
     },
-    lastStartedAt: (sourceId) => stateOf(sourceId, 'lastStarted'),
-    lastSucceededAt: (sourceId) => stateOf(sourceId, 'lastSucceeded'),
-    lastDataIngestedAt: (sourceId) => stateOf(sourceId, 'lastDataIngested'),
+    async lastStartedAt(sourceId) {
+      const state = await getItem(db, table, { pk: sourcePartition(sourceId), sk: STATE });
+      return toDate(state?.lastStarted);
+    },
+    async recordSourceStarted(sourceId, at) {
+      await updateItemIf(db, table, {
+        key: { pk: sourcePartition(sourceId), sk: STATE },
+        update: 'SET #a = :v',
+        condition: 'attribute_not_exists(#a) OR #a < :v',
+        names: { '#a': 'lastStarted' },
+        values: { ':v': at.getTime() },
+      });
+    },
   };
 }
 

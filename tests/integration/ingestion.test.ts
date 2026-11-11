@@ -536,11 +536,13 @@ describe('取り込みの実行の制御・設定', () => {
 
     await expect(service.runDueSources()).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
 
+    // センサーは実行した（取り込み元の開始日時がある）。ファイルがなく、新しいデータもないため、ログには残さない（Issue #201）
+    expect(await repositories.ingestion.lastStartedAt('environment-sensor')).not.toBeNull();
     const logs = await repositories.ingestion.listLogs(
       { sourceId: 'environment-sensor' },
       { limit: 10 },
     );
-    expect(logs.items).toHaveLength(1);
+    expect(logs.items).toHaveLength(0);
   });
 
   it('無効にした取り込み元は、スケジューラから実行しない', async () => {

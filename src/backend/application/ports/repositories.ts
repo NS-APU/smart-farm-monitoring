@@ -251,16 +251,41 @@ export interface IngestionRepository {
     facilityIds: readonly string[],
     page: PageRequest,
   ): Promise<Page<FacilityIngestionLog>>;
-  /** 取り込み元の直近の開始日時（取得間隔の判定に使う）。 */
+  /**
+   * 取り込み元の直近の開始日時（設備が 1 つもない取り込み元の、取得間隔の判定に使う）。`recordSourceStarted` で記録した値。
+   * 一度もなければ null。ログの追加では、変わらない（空振りは、ログに残さないため。Issue #201）。
+   */
   lastStartedAt(sourceId: string): Promise<Date | null>;
-  /** 取り込み元の直近の成功（結果が SUCCESS）の終了日時。成功がなければ null。 */
-  lastSucceededAt(sourceId: string): Promise<Date | null>;
-  /** 取り込み元が、新しいデータ（1件以上の記録）を取り込んだ直近の終了日時。一度もなければ null（データ取得の停止の判定に使う）。 */
-  lastDataIngestedAt(sourceId: string): Promise<Date | null>;
-  /** 設備ごとの、取り込みの最終の開始日時（設備 ID → 日時。記録のない設備は含まない。設備ごとの取得間隔の判定。Issue #197）。 */
-  listEquipmentStartedAt(): Promise<ReadonlyMap<string, Date>>;
-  /** 設備の、取り込みの開始日時を記録する。新しい日時のときだけ、更新する（古い日時で戻さない）。空の指定は、何もしない。 */
-  markEquipmentStarted(equipmentIds: readonly string[], at: Date): Promise<void>;
+  /** 取り込み元の直近の開始日時を記録する。新しい日時のときだけ、更新する（古い日時で戻さない）。 */
+  recordSourceStarted(sourceId: string, at: Date): Promise<void>;
+  /** 設備ごとの、取り込みの最終の実行（設備 ID → 状態。記録のない設備は含まない。取得間隔の判定・SC-11 の最終の実行。Issue #197・#201）。 */
+  listEquipmentRuns(): Promise<ReadonlyMap<string, EquipmentRunState>>;
+  /**
+   * 設備ごとの最終の実行を記録する（設備ごとに 1 件を上書き。1 回の実行につき、設備ごとに 1 回の書き込み）。新しい開始日時のときだけ
+   * 更新する（古い実行で戻さない）。最後の成功・最後にデータが取れた日時は、その実行が、成功・データありのときだけ進める。空の指定は、何もしない。
+   */
+  recordEquipmentRuns(runs: readonly EquipmentRunRecord[]): Promise<void>;
+}
+
+/** 設備ごとの、取り込みの最終の実行（Issue #201）。 */
+export interface EquipmentRunState {
+  readonly startedAt: Date;
+  readonly finishedAt: Date;
+  readonly result: IngestionLog['result'];
+  /** 最後に成功（SUCCESS）した実行の終了日時。成功がなければ null。 */
+  readonly lastSucceededAt: Date | null;
+  /** 最後に新しいデータ（1 件以上の記録）を取り込んだ実行の終了日時。なければ null。 */
+  readonly lastDataAt: Date | null;
+}
+
+/** 設備の、取り込みの 1 回の実行の記録。 */
+export interface EquipmentRunRecord {
+  readonly equipmentId: string;
+  readonly startedAt: Date;
+  readonly finishedAt: Date;
+  readonly result: IngestionLog['result'];
+  /** 新しいデータ（1 件以上の記録）を取り込んだか。 */
+  readonly dataIngested: boolean;
 }
 
 export interface FederationRepository {

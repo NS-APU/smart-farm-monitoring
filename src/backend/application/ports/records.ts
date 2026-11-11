@@ -56,14 +56,28 @@ export const IngestedFileRecordSchema = z.object({
 export type IngestedFileRecord = z.infer<typeof IngestedFileRecordSchema>;
 
 /**
- * 設備ごとの、取り込みの最終の開始日時（取得間隔の判定。Issue #197。ADR-0016 の D-11）。設備ごとに 1 件（上書き）。
- * 取り込みのジョブが、設備ごとに、「最終の開始から、その設備の取得間隔が過ぎたか」を判定する。
+ * 設備ごとの、取り込みの最終の実行（Issue #197・#201。ADR-0016 の D-11・D-48）。設備ごとに 1 件（上書き）。
+ * 取り込みのジョブが、「最終の開始から、その設備の取得間隔が過ぎたか」を判定する。空振りは、ログに残さないため、
+ * 実行したこと（生存の確認）は、ここで分かる。
  */
 export const EquipmentIngestionStateSchema = z.object({
   equipmentId: EquipmentIdSchema,
   startedAt: IsoDateTimeSchema,
+  finishedAt: IsoDateTimeSchema,
+  result: z.enum(['SUCCESS', 'PARTIAL', 'FAILURE']),
+  /** 最後に成功（SUCCESS）した実行の終了日時。 */
+  succeededAt: IsoDateTimeSchema.optional(),
+  /** 最後に新しいデータ（1 件以上の記録）を取り込んだ実行の終了日時。 */
+  dataAt: IsoDateTimeSchema.optional(),
 });
 export type EquipmentIngestionState = z.infer<typeof EquipmentIngestionStateSchema>;
+
+/** 取り込み元ごとの、取り込みの最終の開始日時（設備が 1 つもない取り込み元の、取得間隔の判定。Issue #201）。 */
+export const SourceIngestionStateSchema = z.object({
+  sourceId: z.string(),
+  startedAt: IsoDateTimeSchema,
+});
+export type SourceIngestionState = z.infer<typeof SourceIngestionStateSchema>;
 
 /** 観点の最終ステータスの変化の記録（通知の判定と、ステータスの推移。FR-6.10）。 */
 export const StatusChangeEntrySchema = z.object({
