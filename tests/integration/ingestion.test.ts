@@ -500,6 +500,12 @@ describe('取り込みの実行の制御・設定', () => {
   it('スケジューラからの実行: 取得間隔が来た取り込み元だけ実行する', async () => {
     const context = await setup();
     context.placeFixture('robot', 'robot/robot-sample-001.json');
+    // 取得間隔は、設備ごとの設定（#197）。ロボット・センサーとも、15 分にする（設備ごとの判定は、ingestion-per-equipment.test.ts）
+    for (const item of await context.container.repositories.equipment.list()) {
+      if (item.equipmentType !== 'FACILITY') {
+        await context.container.repositories.equipment.save({ ...item, intervalMinutes: 15 });
+      }
+    }
 
     const first = await context.container.ingestionService.runDueSources();
     const immediately = await context.container.ingestionService.runDueSources();

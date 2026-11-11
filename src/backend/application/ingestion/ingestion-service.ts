@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { findItemDefinition } from '@smart-farm/shared/constants/items';
 import { AppError } from '@smart-farm/shared/errors';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
-import type { Equipment } from '@smart-farm/shared/schemas/equipment';
+import { effectiveIntervalMinutes, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
   FacilityIngestion,
   IngestionLog,
@@ -129,8 +129,29 @@ function failedOutcome(
   };
 }
 
+/**
+ * 設備ごとの取得間隔の判定で、間隔の少し前に起動されても、間隔が来たものとして扱う余裕（ミリ秒）。
+ * ジョブ（JB-01）は、1 分ごとに起動するが、起動の時刻は、少しずれる。余裕がないと、1 分の間隔の設備が、2 分に 1 回になる。
+ */
+const DUE_TOLERANCE_MS = 5000;
+
+/** 設備の取得間隔（最終の開始から）が来ているか。記録のない設備は、来ている（Issue #197。D-11）。 */
+function isIntervalDue(
+  equipment: Pick<Equipment, 'equipmentType' | 'intervalMinutes'>,
+  startedAt: Date | undefined,
+  nowMs: number,
+): boolean {
+  if (startedAt === undefined) {
+    return true;
+  }
+  const intervalMinutes = effectiveIntervalMinutes(equipment) ?? 1;
+  return nowMs - startedAt.getTime() + DUE_TOLERANCE_MS >= intervalMinutes * MS_PER_MINUTE;
+}
+
 /** 取り込み元の種別に合う設備の、対応表（ファイルの内容・パスから、設備・ハウスを引く）。 */
 interface EquipmentIndex {
+  /** 取り込み元の種別に合う、有効な設備（取得間隔・ファイルパスを含む）。 */
+  readonly members: readonly Equipment[];
   /** データ上の識別子 → 設備。 */
   readonly byExternalId: ReadonlyMap<string, EquipmentId>;
   /** 設備 → 閲覧範囲のハウス（ロボット・センサーは親のハウス）。 */
@@ -204,12 +225,15 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
   }
 
   /** 接続・一覧の取得を、間隔を広げながら再試行する（NFR-4.4）。 */
-  async function listFilesWithRetry(sourceId: string): Promise<Listing> {
+  async function listFilesWithRetry(
+    sourceId: string,
+    paths: readonly string[] | undefined,
+  ): Promise<Listing> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= settings.maxAttempts; attempt += 1) {
       try {
         const files = await withTimeout(
-          () => fileSource.listFiles(sourceId),
+          () => fileSource.listFiles(sourceId, paths === undefined ? undefined : { paths }),
           settings.ioTimeoutMs,
           'ファイルの一覧の取得',
         );
@@ -513,10 +537,12 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     const byExternalId = new Map<string, EquipmentId>();
     const facilityOf = new Map<EquipmentId, string>();
     const facilitiesByFile = new Map<string, string[]>();
+    const members: Equipment[] = [];
     for (const equipment of await repositories.equipment.list()) {
       if (equipment.equipmentType !== equipmentType) {
         continue;
       }
+      members.push(equipment);
       // 通知と同じく、閲覧範囲のハウスは、親のハウス（なければ設備自身）
       const facilityId = equipment.facilityId ?? equipment.equipmentId;
       facilityOf.set(equipment.equipmentId, facilityId);
@@ -531,7 +557,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         facilitiesByFile.set(equipment.sourceFilePath, known);
       }
     }
-    return { byExternalId, facilityOf, facilitiesByFile };
+    return { members, byExternalId, facilityOf, facilitiesByFile };
   }
 
   /** ファイルごとの結果（取り込み済みで対象外の null を除く）を、件数に集計する。 */
@@ -633,19 +659,44 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     }
   }
 
-  async function runSourceUnlocked(source: IngestionSource): Promise<IngestionRunSummary> {
+  /**
+   * 取り込み元を 1 回、実行する。`dueEquipmentIds` を指定すると（接続方式 HTTP。設備ごとのファイル）、その設備のファイルだけを取り込む
+   * （設備ごとの取得間隔。Issue #197）。指定がなければ、すべての設備（即時取得）。モック・S3 は、1 つのファイルに複数の設備が入るため、
+   * 指定にかかわらず、ファイル全体を取り込む。取り込む設備の、開始の日時を記録する（失敗しても、間隔が来るまで、再試行しない）。
+   */
+  async function runSourceUnlocked(
+    source: IngestionSource,
+    dueEquipmentIds?: ReadonlySet<EquipmentId>,
+  ): Promise<IngestionRunSummary> {
     const startedAt = clock.now();
     const profile = profiles.get(source.profileId);
     if (profile === undefined) {
       throw new AppError('INTERNAL_ERROR', '取り込みの設定に誤りがあります');
     }
 
-    const listing = await listFilesWithRetry(source.sourceId);
+    const equipmentIndex = await loadEquipmentIndex(source);
+    const isHttp = source.connection.type === 'HTTP';
+    const fetched = isHttp
+      ? equipmentIndex.members.filter(
+          (member) =>
+            member.sourceFilePath !== undefined &&
+            (dueEquipmentIds === undefined || dueEquipmentIds.has(member.equipmentId)),
+        )
+      : equipmentIndex.members;
+    await repositories.ingestion.markEquipmentStarted(
+      fetched.map((member) => member.equipmentId),
+      startedAt,
+    );
+    const paths =
+      isHttp && dueEquipmentIds !== undefined
+        ? fetched.flatMap((member) => member.sourceFilePath ?? [])
+        : undefined;
+
+    const listing = await listFilesWithRetry(source.sourceId, paths);
     if (!listing.ok) {
       return handleListingFailure(source, profile, startedAt, listing);
     }
 
-    const equipmentIndex = await loadEquipmentIndex(source);
     const statusCodes = await loadStatusCodes();
 
     // ファイルは、一覧の順に1つずつ処理する（並列にしない。保存・ログの順序を保つ）
@@ -704,17 +755,52 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     return summary;
   }
 
-  async function runSource(sourceId: string): Promise<IngestionRunSummary> {
+  async function runLocked(
+    sourceId: string,
+    dueEquipmentIds?: ReadonlySet<EquipmentId>,
+  ): Promise<IngestionRunSummary> {
     const source = await findSource(sourceId);
     if (running.has(sourceId)) {
       throw new AppError('CONFLICT', '取り込みを実行中です');
     }
     running.add(sourceId);
     try {
-      return await runSourceUnlocked(source);
+      return await runSourceUnlocked(source, dueEquipmentIds);
     } finally {
       running.delete(sourceId);
     }
+  }
+
+  function runSource(sourceId: string): Promise<IngestionRunSummary> {
+    return runLocked(sourceId);
+  }
+
+  /**
+   * 取得間隔が来た設備の取り込み（設備ごと。Issue #197）。接続方式 HTTP は、間隔が来た設備のファイルだけ。
+   * モック・S3 は、その取り込み元の設備の、どれかの間隔が来たら、ファイル全体（最短の間隔で動く）。設備が 1 つもない種別は、
+   * 種別ごとの既定の間隔（取り込み元ごとの最終の開始から）。来ていなければ、undefined（実行しない）。
+   */
+  async function dueScopeOf(
+    source: IngestionSource,
+    members: readonly Equipment[],
+    states: ReadonlyMap<string, Date>,
+    nowMs: number,
+  ): Promise<{ readonly dueEquipmentIds?: ReadonlySet<EquipmentId> } | undefined> {
+    const dueOf = (items: readonly Equipment[]): Equipment[] =>
+      items.filter((item) => isIntervalDue(item, states.get(item.equipmentId), nowMs));
+    if (source.connection.type === 'HTTP') {
+      const due = dueOf(members.filter((member) => member.sourceFilePath !== undefined));
+      return due.length === 0
+        ? undefined
+        : { dueEquipmentIds: new Set(due.map((item) => item.equipmentId)) };
+    }
+    if (members.length > 0) {
+      return dueOf(members).length === 0 ? undefined : {};
+    }
+    const lastStartedAt = await repositories.ingestion.lastStartedAt(source.sourceId);
+    return isIntervalDue({ equipmentType: source.kind }, lastStartedAt ?? undefined, nowMs)
+      ? {}
+      : undefined;
   }
 
   return {
@@ -726,25 +812,31 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       const now = clock.now();
       const summaries: IngestionRunSummary[] = [];
       const failures: unknown[] = [];
+      // 設備と、取り込みの開始の記録は、最初に必要になったときに、1 回だけ読む（取り込み元ごとに読まない）。読めなかった場合は、
+      // どの取り込み元も、その失敗を受ける（取り込み元ごとの失敗として、まとめて伝える。V-058）
+      let equipmentRead: Promise<Equipment[]> | undefined;
+      let statesRead: Promise<ReadonlyMap<string, Date>> | undefined;
       for (const source of await ingestionSettings.listSources()) {
         if (!source.isEnabled || running.has(source.sourceId)) {
           continue;
         }
-        const lastStartedAt = await repositories.ingestion.lastStartedAt(source.sourceId);
-        const isDue =
-          lastStartedAt === null ||
-          now.getTime() - lastStartedAt.getTime() >= source.intervalMinutes * MS_PER_MINUTE;
-        if (isDue) {
-          // 取り込み元ごとに独立して実行する。想定外のエラーで1つが失敗しても、他の取り込み元は実行する
-          try {
-            summaries.push(await runSource(source.sourceId));
-          } catch (error) {
-            logger.error('取り込みに失敗しました', {
-              sourceId: source.sourceId,
-              ...errorLogFields(error),
-            });
-            failures.push(error);
+        // 取り込み元ごとに独立して実行する。想定外のエラーで1つが失敗しても、他の取り込み元は実行する
+        try {
+          equipmentRead ??= repositories.equipment.list();
+          statesRead ??= repositories.ingestion.listEquipmentStartedAt();
+          const members = (await equipmentRead).filter(
+            (item) => item.equipmentType === source.kind,
+          );
+          const scope = await dueScopeOf(source, members, await statesRead, now.getTime());
+          if (scope !== undefined) {
+            summaries.push(await runLocked(source.sourceId, scope.dueEquipmentIds));
           }
+        } catch (error) {
+          logger.error('取り込みに失敗しました', {
+            sourceId: source.sourceId,
+            ...errorLogFields(error),
+          });
+          failures.push(error);
         }
       }
       // 新しいデータが届かなくなった取り込み元を通知する（取り込みの失敗の有無にかかわらず判定する）
