@@ -404,18 +404,25 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
     await setEquipmentInterval(request, ROBOT_ID, 60);
     await openIngestion(page);
 
+    // 新しいデータがない実行は、取り込みのログに残さない（Issue #201）ため、取り込み元ごとの「最終の実行」で、実行したかを確かめる
     await runJob(request, 'JB-01');
     await advanceMinutes(request, 30);
     await runJob(request, 'JB-01');
-    await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(1);
+    await openIngestion(page);
+    // 30 分後: ロボット（1 時間）は、実行しない（最初の実行のまま）。既定（5 分）のままの環境センサーは、実行する
+    await expect(page.getByTestId('last-started-robot')).toHaveText('2026/10/09 12:00:00');
+    await expect(page.getByTestId('last-started-environment-sensor')).toHaveText(
+      '2026/10/09 12:30:00',
+    );
     await advanceMinutes(request, 31);
     await runJob(request, 'JB-01');
 
-    await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(2);
-    // 既定（5 分）のままの環境センサーは、そのたびに取り込む
-    await expect(logRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(3);
+    await openIngestion(page);
+    // 61 分後: ロボットも、実行する
+    await expect(page.getByTestId('last-started-robot')).toHaveText('2026/10/09 13:01:00');
+    await expect(page.getByTestId('last-started-environment-sensor')).toHaveText(
+      '2026/10/09 13:01:00',
+    );
   });
 
   test('自動取り込みを無効にした取り込み元は、定期の取り込みで実行しない（即時取得は、できる）', async ({
@@ -430,9 +437,13 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
 
     await runJob(request, 'JB-01');
 
-    await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(0);
-    await expect(logRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(1);
+    // 無効にした取り込み元は、実行しない。有効な取り込み元は、実行する（新しいデータがないため、ログには残らない。Issue #201）
+    await openIngestion(page);
+    await expect(page.getByTestId('last-started-robot')).toHaveText('まだ実行していません');
+    await expect(page.getByTestId('last-started-environment-sensor')).toHaveText(
+      '2026/10/09 12:00:00',
+    );
+    await expect(logRows(page)).toHaveCount(0);
     placeFixture('robot', 'robot/robot-sample-001.json');
     await runNow(page, 'robot');
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(1);

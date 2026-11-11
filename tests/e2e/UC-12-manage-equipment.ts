@@ -784,10 +784,20 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await runJob(request, 'JB-01');
 
     await goToMenu(page, '取り込み');
-    const robotLog = logRows(page).filter({ hasText: 'ロボット' }).first();
-    await expect(robotLog.locator('td').nth(3)).toHaveText('2');
-    await expect(robotLog.locator('td').nth(4)).toHaveText('1');
-    await expect(robotLog.locator('td').nth(5)).toHaveText('1');
+    // 新しい識別子のファイル: 設備のログ（ファイル 1・取得 1・読み取れなかった 0）。古い識別子のファイル: どの設備にも結びつかず、
+    // 取り込み元単位のログ（ファイル 1・取得 0・読み取れなかった 1。Issue #201）
+    const robotLogs = logRows(page).filter({ hasText: 'ロボット' });
+    await expect(robotLogs).toHaveCount(2);
+    const linked = robotLogs.filter({ has: page.locator('.log-result', { hasText: /^成功$/ }) });
+    const unlinked = robotLogs.filter({
+      has: page.locator('.log-result', { hasText: /^一部成功$/ }),
+    });
+    await expect(linked.locator('td').nth(3)).toHaveText('1');
+    await expect(linked.locator('td').nth(4)).toHaveText('1');
+    await expect(linked.locator('td').nth(5)).toHaveText('0');
+    await expect(unlinked.locator('td').nth(3)).toHaveText('1');
+    await expect(unlinked.locator('td').nth(4)).toHaveText('0');
+    await expect(unlinked.locator('td').nth(5)).toHaveText('1');
     await page.goto('/observations');
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),

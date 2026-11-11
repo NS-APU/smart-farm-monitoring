@@ -336,7 +336,11 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     const first = await runNow(page, 'robot');
     await expect(first).toContainText('取得しました（一部成功）');
     await expect(first).toContainText('ファイル 2 件、取り込み 14 件');
-    await expect(logRows(page).first()).toContainText('1件のファイルを取り込めませんでした');
+    // 取り込めなかったファイル（設備に結びつかない）は、取り込み元単位のログ。取り込めたファイルは、設備のログ（Issue #201）
+    await expect(
+      logRows(page).filter({ hasText: '1件のファイルを取り込めませんでした' }),
+    ).toHaveCount(1);
+    await expect(logRows(page)).toHaveCount(2);
     const second = await runNow(page, 'robot');
 
     await expect(second).toContainText('ファイル 0 件');
