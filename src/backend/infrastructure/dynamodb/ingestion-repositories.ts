@@ -4,6 +4,8 @@
  * - 取り込み済みファイル: `SRC#{取り込み元}` / `FILE#{ファイル}#{ハッシュ}`、成功したハッシュ `HASH#{ハッシュ}`（最初の成功を残す）
  * - 取り込み元の状態: `SRC#{取り込み元}` / `STATE`（直近の開始・成功・データ取り込みの日時。ログの追加のたびに、最大値で更新する）
  * - 取り込みログ: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
+ * - 設備ごとの取り込みの最終の開始日時（Issue #197。取得間隔の判定）: `EQINGEST` / `{設備ID}`。属性 `lastStarted`（ミリ秒）。新しい値のときだけ更新する。
+ *   全設備を、1 回の Query で読む（取り込みのジョブは、毎分、判定する）
  * - ハウス別の取り込みの記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `ILOGF#{ハウス}` / `{開始日時}#{ログID}#{ハウス}`
  * - 連携の項目: `FED` / `{ID}`。未送信の項目だけが、疎な GSI1（`FDUE`）に載る。状態ごとの件数は、カウンター（`FED#{状態}`）
  * - 連携ログ: `FLOG` / `{日時}#{ログID}`
@@ -47,6 +49,7 @@ const FEDERATION_ITEM = 'FED';
 const FEDERATION_LOG = 'FLOG';
 const FEDERATION_DUE = 'FDUE';
 const INGESTION_SOURCES = 'ILOGSRC';
+const EQUIPMENT_INGESTION = 'EQINGEST';
 
 const sourcePartition = (sourceId: string): string => `SRC#${sourceId}`;
 const logPartition = (sourceId: string): string => `ILOG#${sourceId}`;
@@ -167,6 +170,29 @@ export function createIngestionRepository(db: Database): IngestionRepository {
         cursor: page.cursor,
       });
       return { items: result.items.map(facilityLogs.parse), nextCursor: result.nextCursor };
+    },
+    async listEquipmentStartedAt() {
+      const states = new Map<string, Date>();
+      for (const item of await queryAll(db, table, EQUIPMENT_INGESTION)) {
+        const startedAt = toDate(item.lastStarted);
+        if (startedAt !== null) {
+          states.set(String(item.sk), startedAt);
+        }
+      }
+      return states;
+    },
+    async markEquipmentStarted(equipmentIds, at) {
+      await Promise.all(
+        equipmentIds.map((equipmentId) =>
+          updateItemIf(db, table, {
+            key: { pk: EQUIPMENT_INGESTION, sk: equipmentId },
+            update: 'SET #a = :v',
+            condition: 'attribute_not_exists(#a) OR #a < :v',
+            names: { '#a': 'lastStarted' },
+            values: { ':v': at.getTime() },
+          }),
+        ),
+      );
     },
     lastStartedAt: (sourceId) => stateOf(sourceId, 'lastStarted'),
     lastSucceededAt: (sourceId) => stateOf(sourceId, 'lastSucceeded'),

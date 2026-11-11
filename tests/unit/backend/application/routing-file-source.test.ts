@@ -344,6 +344,59 @@ describe('接続方式 HTTP: 一覧', () => {
     expect(files[2]?.modifiedAt.toISOString()).toBe('2026-10-09T02:00:00.000Z');
   });
 
+  it('ファイルパスを指定すると、その設備のファイルだけを問い合わせて、返す（設備ごとの取得間隔のため。#197）。指定のない設備のファイルは、問い合わせない', async () => {
+    const statted: string[] = [];
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      equipment: [
+        robot('ROBOT-01', '/data/robot-01.json'),
+        robot('ROBOT-02', '/data/robot-02.json'),
+        robot('ROBOT-03', '/data/robot-03.json'),
+      ],
+      stat: (input) => {
+        statted.push(input.path);
+        return Promise.resolve({ sizeBytes: 1, modifiedAt: T('2026-10-09T01:00:00Z') });
+      },
+    });
+
+    const files = await port.listFiles('robot', {
+      paths: ['/data/robot-03.json', '/data/robot-01.json'],
+    });
+
+    expect(files.map((file) => file.fileId)).toEqual([
+      '/data/robot-01.json',
+      '/data/robot-03.json',
+    ]);
+    expect(statted.sort()).toEqual(['/data/robot-01.json', '/data/robot-03.json']);
+  });
+
+  it('ファイルパスの指定が空なら、何も問い合わせず、空の一覧。設備にないパスは、無視する', async () => {
+    const statted: string[] = [];
+    const { port } = build({
+      sources: [source('robot', NONE)],
+      equipment: [robot('ROBOT-01', '/data/robot-01.json')],
+      stat: (input) => {
+        statted.push(input.path);
+        return Promise.resolve({});
+      },
+    });
+
+    const none = await port.listFiles('robot', { paths: [] });
+    const unknown = await port.listFiles('robot', { paths: ['/data/other.json'] });
+
+    expect(none).toEqual([]);
+    expect(unknown).toEqual([]);
+    expect(statted).toEqual([]);
+  });
+
+  it('モック・S3（接続方式 MOCK）は、ファイルパスの指定を使わず、これまでどおり、一覧を返す', async () => {
+    const { port, calls } = build({ sources: [source('robot', { type: 'MOCK' })] });
+
+    await port.listFiles('robot', { paths: ['/data/robot-01.json'] });
+
+    expect(calls).toEqual(['base.list:robot']);
+  });
+
   it('更新日時・大きさを示さないサーバーは、更新日時を 1970 年（書き換え直後とみなさない）、大きさを 0 として返す', async () => {
     const { port } = build({ sources: [source('robot', NONE)], stat: () => Promise.resolve({}) });
 

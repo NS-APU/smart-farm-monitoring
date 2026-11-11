@@ -74,10 +74,19 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
       : undefined;
   }
 
-  /** 取得の対象（取り込み元の種別に合う、有効な設備の、ファイルパス）。設備 ID の順。 */
-  async function targetsOf(kind: HttpSource['kind']): Promise<Target[]> {
+  /**
+   * 取得の対象（取り込み元の種別に合う、有効な設備の、ファイルパス）。設備 ID の順。
+   * `paths` を指定すると、そのパスの設備だけ（設備ごとの取得間隔。Issue #197）。
+   */
+  async function targetsOf(kind: HttpSource['kind'], paths?: readonly string[]): Promise<Target[]> {
+    const wanted = paths === undefined ? undefined : new Set(paths);
     return (await equipment.list())
-      .filter((item) => item.equipmentType === kind && item.sourceFilePath !== undefined)
+      .filter(
+        (item) =>
+          item.equipmentType === kind &&
+          item.sourceFilePath !== undefined &&
+          (wanted === undefined || wanted.has(item.sourceFilePath)),
+      )
       .sort((left, right) => left.equipmentId.localeCompare(right.equipmentId))
       .map((item) => ({ path: item.sourceFilePath ?? '' }));
   }
@@ -131,9 +140,13 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
     );
   }
 
-  async function listHttp(sourceId: string, source: HttpSource): Promise<FileMeta[]> {
+  async function listHttp(
+    sourceId: string,
+    source: HttpSource,
+    paths: readonly string[] | undefined,
+  ): Promise<FileMeta[]> {
     const files: FileMeta[] = [];
-    for (const target of await targetsOf(source.kind)) {
+    for (const target of await targetsOf(source.kind, paths)) {
       try {
         const stat = await withAuth(sourceId, source.connection, (headers) =>
           http.stat({ connection: source.connection, path: target.path, headers }),
@@ -182,12 +195,13 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
       return testHttp(sourceId, source);
     },
 
-    async listFiles(sourceId) {
+    async listFiles(sourceId, options) {
       const source = await httpSourceOf(sourceId);
       if (source === undefined) {
+        // モック・S3 は、1 つのファイルに複数の設備が入るため、ファイルパスの指定を使わない
         return base.listFiles(sourceId);
       }
-      return listHttp(sourceId, source);
+      return listHttp(sourceId, source, options?.paths);
     },
 
     async readFile(sourceId, fileId) {

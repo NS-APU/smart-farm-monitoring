@@ -36,6 +36,7 @@ import {
   robotJson,
   runJob,
   sensorJson,
+  setEquipmentInterval,
   setMock,
   unreadBadge,
 } from './support/app.ts';
@@ -208,11 +209,13 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     }
   });
 
-  test('定期の取り込み（JB-01）でも、同じように取り込まれる。取得間隔（15分）が過ぎるまでは、実行しない', async ({
+  test('定期の取り込み（JB-01）でも、同じように取り込まれる。取得間隔（設備ごとの設定。15分）が過ぎるまでは、実行しない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 取得間隔は、設備ごとの設定（#197。既定は、ロボット 1 分）。この検証は、15 分にする
+    await setEquipmentInterval(request, ROBOT_ID, 15);
     placeFile('robot', 'a.json', robotJson(speedRecords('RUNNING')));
 
     await runJob(request, 'JB-01');
@@ -236,13 +239,15 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     request,
   }) => {
     await prepareApp(request);
+    // 取得間隔は、設備ごとの設定（#197）。ロボットは、15 分にする
+    await setEquipmentInterval(request, ROBOT_ID, 15);
     placeFile('robot', 'a.json', robotJson(speedRecords('RUNNING')));
 
     const first = await apiOk<{ executed: string[] }>(request, 'POST', '/dev/scheduler/tick', {});
     await advanceMinutes(request, 1);
     const second = await apiOk<{ executed: string[] }>(request, 'POST', '/dev/scheduler/tick', {});
 
-    // 取り込みのジョブ（JB-01）は、1分ごとに起動するが、取り込み元ごとの取得間隔（15分）が来たときだけ、実行する
+    // 取り込みのジョブ（JB-01）は、1分ごとに起動するが、設備ごとの取得間隔（15分に設定）が来たときだけ、取り込む
     expect(first.executed).toEqual(expect.arrayContaining(['JB-01', 'JB-02', 'JB-03', 'JB-04']));
     expect(second.executed).toContain('JB-01');
     await openIngestion(page);

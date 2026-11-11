@@ -937,6 +937,24 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.ingestion.lastDataIngestedAt('none')).toBeNull();
   });
 
+  it('取り込み: 設備ごとの最終の開始日時を、記録・取得できる。新しい日時だけで更新し（古い日時で戻さない）、空の指定は何もしない（#197）', async () => {
+    const { repositories } = create();
+    expect((await repositories.ingestion.listEquipmentStartedAt()).size).toBe(0);
+
+    const t1 = new Date('2026-10-09T01:00:00.000Z');
+    const t2 = new Date('2026-10-09T02:00:00.000Z');
+    const t0 = new Date('2026-10-09T00:00:00.000Z');
+    await repositories.ingestion.markEquipmentStarted(['ROBOT-1', 'SENSOR-1'], t1);
+    await repositories.ingestion.markEquipmentStarted(['ROBOT-1'], t2);
+    await repositories.ingestion.markEquipmentStarted(['SENSOR-1'], t0);
+    await repositories.ingestion.markEquipmentStarted([], t2);
+
+    const states = await repositories.ingestion.listEquipmentStartedAt();
+    expect(states.size).toBe(2);
+    expect(states.get('ROBOT-1')).toEqual(t2);
+    expect(states.get('SENSOR-1')).toEqual(t1);
+  });
+
   describe('ハウス別のログ（#332。一般ユーザーが、閲覧できるハウスの分だけを見る）', () => {
     const ingestionLog = (
       logId: string,

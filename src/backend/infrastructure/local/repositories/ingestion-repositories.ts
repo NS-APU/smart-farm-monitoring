@@ -9,6 +9,7 @@ import {
   IngestionLogSchema,
 } from '@smart-farm/shared/schemas/ingestion';
 import {
+  EquipmentIngestionStateSchema,
   IngestedFileRecordSchema,
   type IngestedFileRecord,
 } from '../../../application/ports/records.ts';
@@ -17,6 +18,7 @@ import type {
   IngestionRepository,
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
+import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import { latestOf, paginated, saverOf } from './collection-helpers.ts';
 
 /** ハウス別の記録の並び: 新しい順（同じ日時は、ログ・ハウスの識別子の降順。DynamoDB のソートキーと同じ順）。 */
@@ -44,6 +46,11 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
     (item) => `${item.sourceId}#${item.fileId}#${item.contentHash}`,
   );
   const ingestionLogs = store.collection('ingestionLogs', IngestionLogSchema, (item) => item.logId);
+  const equipmentStates = store.collection(
+    'ingestionEquipmentStates',
+    EquipmentIngestionStateSchema,
+    (item) => item.equipmentId,
+  );
 
   // 取り込み元と内容のハッシュの組 → 成功した記録（ファイル名が違っても、同じ内容は、取り込み済み）。
   // 件数が増えても、全件を走査しない（V-082）。読み込み・全消去で、作り直す
@@ -123,6 +130,23 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
             .map((log) => log.finishedAt),
         ),
       );
+    },
+    listEquipmentStartedAt() {
+      return Promise.resolve(
+        new Map(
+          equipmentStates.values().map((state) => [state.equipmentId, new Date(state.startedAt)]),
+        ),
+      );
+    },
+    markEquipmentStarted(equipmentIds, at) {
+      const startedAt = at.toISOString();
+      for (const equipmentId of equipmentIds) {
+        const current = equipmentStates.get(equipmentId);
+        if (current === undefined || current.startedAt < startedAt) {
+          equipmentStates.put({ equipmentId: toEquipmentId(equipmentId), startedAt });
+        }
+      }
+      return Promise.resolve();
     },
     lastDataIngestedAt(sourceId) {
       return Promise.resolve(

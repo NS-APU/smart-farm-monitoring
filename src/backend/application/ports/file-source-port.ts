@@ -48,11 +48,21 @@ export class FileSourceFailure extends FileSourceUnavailableError {
   }
 }
 
+/** ファイルの一覧の取得の指定（Issue #197）。 */
+export interface ListFilesOptions {
+  /**
+   * 取得するファイルのパス（設備ごとのファイル。接続方式 HTTP）。指定すると、そのパスのファイルだけを問い合わせる
+   * （設備ごとの取得間隔で、間隔が来た設備のファイルだけを取り込むため）。空は、何も問い合わせない。
+   * 未指定は、すべて。モック・S3（1 つのファイルに複数の設備が入る）は、使わない。
+   */
+  readonly paths?: readonly string[] | undefined;
+}
+
 export interface FileSourcePort {
   /** 接続テスト。失敗した場合は FileSourceUnavailableError を投げる。 */
   testConnection(sourceId: string): Promise<void>;
   /** 取り込み元のファイルの一覧（更新日時の古い順）。 */
-  listFiles(sourceId: string): Promise<FileMeta[]>;
+  listFiles(sourceId: string, options?: ListFilesOptions): Promise<FileMeta[]>;
   /** ファイルの内容（UTF-8 のテキスト）。 */
   readFile(sourceId: string, fileId: string): Promise<string>;
 }
