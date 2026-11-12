@@ -20,7 +20,8 @@ import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
-import type { EquipmentRepository } from '../ports/repositories.ts';
+import type { EquipmentRepository, SettingsRepository } from '../ports/repositories.ts';
+import { recordDeletedExternalIds } from './deleted-external-ids.ts';
 
 const EQUIPMENT_TARGET_TYPE = 'equipment' satisfies AuditTargetType;
 
@@ -39,6 +40,8 @@ export interface EquipmentService {
 
 export interface EquipmentServiceDeps {
   readonly equipment: EquipmentRepository;
+  /** 削除した設備のデータ上の識別子を残す（Issue #231）。 */
+  readonly settings: SettingsRepository;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
   readonly clock: ClockPort;
@@ -54,6 +57,7 @@ function byCreation(left: Equipment, right: Equipment): number {
 
 export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentService {
   const { equipment: repository, audit, evaluation, clock, logger } = deps;
+  const settingsRepository = deps.settings;
 
   const findActive = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repository, equipmentId);
@@ -214,6 +218,8 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         target.equipmentType === 'FACILITY'
           ? (await repository.list()).filter((item) => item.facilityId === equipmentId)
           : [];
+      // 取り込みで、削除済みの設備のレコードを、別に数えるため、データ上の識別子を残す（設備の記録が消えても〔#229〕、判定できる）
+      await recordDeletedExternalIds(settingsRepository, [target, ...children], clock.now());
       for (const equipment of [target, ...children]) {
         await repository.save({ ...equipment, isDeleted: true });
         await audit.record({
