@@ -42,8 +42,13 @@ export interface IngestionAdminService {
     input: IngestionCredentialsInput,
     actor: UserId,
   ): Promise<IngestionCredentialStatus>;
+  /** 取り込みログ（新しい順）。絞り込み: 取り込み元・設備・結果（成功／失敗）・期間（開始日時。両端を含む）。 */
   listLogs(query: {
     sourceId?: string | undefined;
+    equipmentId?: string | undefined;
+    result?: 'SUCCESS' | 'FAILURE' | undefined;
+    from?: Date | undefined;
+    to?: Date | undefined;
     limit: number;
     cursor?: string | undefined;
   }): Promise<IngestionLogListResponse>;
@@ -99,6 +104,19 @@ export function createIngestionAdminService(
     }
   }
 
+  /** 設備の取り込み元（設備の種別と同じ種別の取り込み元）。登録のない設備は undefined。 */
+  async function sourceIdOfEquipment(equipmentId: string): Promise<string | undefined> {
+    const found = (await equipmentRepository.list()).find(
+      (item) => item.equipmentId === equipmentId,
+    );
+    if (found === undefined) {
+      return undefined;
+    }
+    return (await ingestionSettings.listSources()).find(
+      (source) => source.kind === found.equipmentType,
+    )?.sourceId;
+  }
+
   async function describe(): Promise<IngestionSettingsResponse> {
     const sources = await ingestionSettings.listSources();
     // 取り込み元の最終の実行・最終の成功は、その種別の設備の、最終の実行から求める（設備ごとに持つ。Issue #201）
@@ -110,9 +128,8 @@ export function createIngestionAdminService(
       sources: await Promise.all(
         sources.map(async (source) => {
           const profile = profiles.get(source.profileId);
-          const memberRuns = equipment
-            .filter((item) => item.equipmentType === source.kind)
-            .flatMap((item) => runs.get(item.equipmentId) ?? []);
+          const members = equipment.filter((item) => item.equipmentType === source.kind);
+          const memberRuns = members.flatMap((item) => runs.get(item.equipmentId) ?? []);
           const lastStartedAt =
             latestDate(memberRuns.map((run) => run.startedAt)) ??
             (await ingestion.lastStartedAt(source.sourceId));
@@ -127,6 +144,17 @@ export function createIngestionAdminService(
             },
             lastStartedAt: toIsoOrNull(lastStartedAt),
             lastSuccessAt: toIsoOrNull(lastSucceededAt),
+            equipment: members.map((item) => {
+              const run = runs.get(item.equipmentId);
+              return {
+                equipmentId: item.equipmentId,
+                name: item.name,
+                lastStartedAt: toIsoOrNull(run?.startedAt ?? null),
+                lastResult: run?.result ?? null,
+                lastSuccessAt: toIsoOrNull(run?.lastSucceededAt ?? null),
+                lastDataAt: toIsoOrNull(run?.lastDataAt ?? null),
+              };
+            }),
             isRunning: ingestionService.isRunning(source.sourceId),
             credentials: await credentialStatusOf(source),
           };
@@ -229,10 +257,25 @@ export function createIngestionAdminService(
     },
 
     async listLogs(query) {
-      const page = await ingestion.listLogs(omitUndefined({ sourceId: query.sourceId }), {
-        limit: query.limit,
-        cursor: query.cursor,
-      });
+      // 設備を指定すると、その設備のログと、その設備の取り込み元（種別が同じ）の、設備に結びつかないログ。
+      // 登録のない設備（削除済みを含む）は、その設備のログだけ
+      const equipment =
+        query.equipmentId === undefined
+          ? undefined
+          : {
+              equipmentId: query.equipmentId,
+              sourceId: await sourceIdOfEquipment(query.equipmentId),
+            };
+      const page = await ingestion.listLogs(
+        omitUndefined({
+          sourceId: query.sourceId,
+          equipment,
+          result: query.result,
+          from: query.from,
+          to: query.to,
+        }),
+        { limit: query.limit, cursor: query.cursor },
+      );
       return { items: page.items, nextCursor: page.nextCursor };
     },
 

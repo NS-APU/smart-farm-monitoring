@@ -72,9 +72,9 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     const log = logRows(page).first();
     await expect(log).toHaveAttribute('data-result', 'SUCCESS');
     await expect(log).toContainText('環境センサーデータ');
-    await expect(log.locator('td').nth(3)).toHaveText('1');
-    await expect(log.locator('td').nth(4)).toHaveText('8');
-    await expect(log.locator('td').nth(5)).toHaveText('0');
+    await expect(log.locator('td').nth(4)).toHaveText('1');
+    await expect(log.locator('td').nth(5)).toHaveText('8');
+    await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc09-ingestion');
 
     await openObservations(page);
@@ -308,7 +308,11 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
 
     await expect(first).toContainText('取得しました（一部成功）');
     await expect(first).toContainText('ファイル 2 件、取り込み 8 件');
-    await expect(logRows(page).first()).toContainText('1件のファイルを取り込めませんでした');
+    // 取り込めなかったファイル（設備に結びつかない）は、取り込み元単位のログ。取り込めたファイルは、設備のログ（Issue #201）
+    await expect(
+      logRows(page).filter({ hasText: '1件のファイルを取り込めませんでした' }),
+    ).toHaveCount(1);
+    await expect(logRows(page)).toHaveCount(2);
     await expect(await runNow(page, 'environment-sensor')).toContainText('ファイル 0 件');
   });
 

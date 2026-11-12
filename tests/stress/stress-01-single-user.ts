@@ -883,11 +883,12 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const logs = page.getByTestId('ingestion-logs');
   await m(
     'UC-16',
-    '取り込みのログを、取り込み元（ロボットデータ）で絞り込む',
+    '取り込みのログを、設備（ロボット）で絞り込む',
     '取り込み設定・状況（SC-11）',
     'screen',
     {
-      act: () => logs.getByLabel('取り込み元').selectOption('robot'),
+      // 取り込み元の選択は、設備の選択に変わった（Issue #201）。設備の絞り込みは、その設備の取り込み元の失敗も含む
+      act: () => logs.getByLabel('設備', { exact: true }).selectOption('ROBOT-01'),
       respond: async () => {
         await expect(loadingView(page)).toHaveCount(0);
         await expectEveryRowContains(logRows, 'ロボット');
@@ -902,7 +903,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   });
   await m('UC-16', '取り込みのログの絞り込みを解除する', '取り込み設定・状況（SC-11）', 'screen', {
-    act: () => logs.getByLabel('取り込み元').selectOption(''),
+    act: () => logs.getByLabel('設備', { exact: true }).selectOption(''),
     respond: () => expectListShown(page, 'ingestion-log-row'),
   });
   const federation = page.getByTestId('federation-section');

@@ -948,6 +948,109 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(robot.items.map((item) => item.logId)).toEqual(['l-2', 'l-1']);
   });
 
+  it('取り込みログ: 設備・結果・期間で絞り込める。設備を指定すると、その設備のログと、指定した取り込み元の（設備に結びつかない）ログを返す。条件つきでも、ページを送れる（Issue #201）', async () => {
+    const { repositories } = create();
+    const started = new Date('2026-10-09T00:00:00.000Z');
+    await repositories.ingestion.recordEquipmentRuns(
+      [ROBOT_ID, SENSOR_ID].map((equipmentId) => ({
+        equipmentId,
+        startedAt: started,
+        finishedAt: started,
+        result: 'SUCCESS' as const,
+        dataIngested: false,
+      })),
+    );
+    const log = (
+      logId: string,
+      startedAt: string,
+      result: 'SUCCESS' | 'PARTIAL' | 'FAILURE',
+      sourceId: string,
+      equipmentId?: typeof ROBOT_ID,
+    ) => ({
+      logId,
+      sourceId,
+      ...(equipmentId === undefined ? {} : { equipmentId }),
+      startedAt,
+      finishedAt: startedAt,
+      result,
+      filesProcessed: 1,
+      recordCount: 1,
+      rejectedCount: 0,
+      attempts: 1,
+    });
+    await repositories.ingestion.addLog(
+      log('l-1', '2026-10-09T01:00:00.000Z', 'SUCCESS', 'robot', ROBOT_ID),
+    );
+    await repositories.ingestion.addLog(
+      log('l-2', '2026-10-09T02:00:00.000Z', 'PARTIAL', 'robot', ROBOT_ID),
+    );
+    await repositories.ingestion.addLog(log('l-3', '2026-10-09T03:00:00.000Z', 'FAILURE', 'robot'));
+    await repositories.ingestion.addLog(
+      log('l-4', '2026-10-09T04:00:00.000Z', 'SUCCESS', 'environment-sensor', SENSOR_ID),
+    );
+    await repositories.ingestion.addLog(
+      log('l-5', '2026-10-09T05:00:00.000Z', 'FAILURE', 'environment-sensor'),
+    );
+    await repositories.ingestion.addLog(
+      log('l-6', '2026-10-09T06:00:00.000Z', 'FAILURE', 'robot', ROBOT_ID),
+    );
+    const ids = async (filter: Parameters<typeof repositories.ingestion.listLogs>[0]) =>
+      (await repositories.ingestion.listLogs(filter, { limit: 20 })).items.map(
+        (item) => item.logId,
+      );
+
+    // 設備: その設備のログ + 指定した取り込み元の、設備に結びつかないログ
+    expect(await ids({ equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' } })).toEqual([
+      'l-6',
+      'l-3',
+      'l-2',
+      'l-1',
+    ]);
+    // 取り込み元の指定がなければ（設備が削除済みなど）、その設備のログだけ
+    expect(await ids({ equipment: { equipmentId: ROBOT_ID, sourceId: undefined } })).toEqual([
+      'l-6',
+      'l-2',
+      'l-1',
+    ]);
+    expect(
+      await ids({ equipment: { equipmentId: SENSOR_ID, sourceId: 'environment-sensor' } }),
+    ).toEqual(['l-5', 'l-4']);
+    // 結果: 成功は SUCCESS。失敗は、FAILURE と、一部成功（PARTIAL。取り込めなかったものがある）
+    expect(await ids({ result: 'SUCCESS' })).toEqual(['l-4', 'l-1']);
+    expect(await ids({ result: 'FAILURE' })).toEqual(['l-6', 'l-5', 'l-3', 'l-2']);
+    // 期間（両端を含む）
+    expect(
+      await ids({
+        from: new Date('2026-10-09T02:00:00.000Z'),
+        to: new Date('2026-10-09T04:00:00.000Z'),
+      }),
+    ).toEqual(['l-4', 'l-3', 'l-2']);
+    expect(await ids({ from: new Date('2026-10-09T05:00:00.000Z') })).toEqual(['l-6', 'l-5']);
+    expect(await ids({ to: new Date('2026-10-09T01:00:00.000Z') })).toEqual(['l-1']);
+    // 組み合わせ
+    expect(
+      await ids({
+        equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' },
+        result: 'FAILURE',
+        from: new Date('2026-10-09T02:00:00.000Z'),
+      }),
+    ).toEqual(['l-6', 'l-3', 'l-2']);
+    // 取り込み元と設備の併用はしない（設備を指定すれば、取り込み元は、設備から決まる）が、取り込み元だけの指定も、条件と併用できる
+    expect(await ids({ sourceId: 'robot', result: 'SUCCESS' })).toEqual(['l-1']);
+    // 条件つきでも、ページを送れる
+    const first = await repositories.ingestion.listLogs(
+      { equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' }, result: 'FAILURE' },
+      { limit: 2 },
+    );
+    const second = await repositories.ingestion.listLogs(
+      { equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' }, result: 'FAILURE' },
+      { limit: 2, cursor: first.nextCursor ?? undefined },
+    );
+    expect(first.items.map((item) => item.logId)).toEqual(['l-6', 'l-3']);
+    expect(second.items.map((item) => item.logId)).toEqual(['l-2']);
+    expect(second.nextCursor).toBeNull();
+  });
+
   it('取り込み: 取り込み元の最終の開始日時を、記録・取得できる。古い日時で戻さない。ログの追加では、変わらない（Issue #201）', async () => {
     const { repositories } = create();
     const t1 = new Date('2026-10-09T01:00:00.000Z');

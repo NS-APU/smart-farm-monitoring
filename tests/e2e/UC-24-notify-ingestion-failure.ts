@@ -466,7 +466,7 @@ for (const viewport of VIEWPORTS) {
       await shot(page, testInfo, `uc24-notifications-${String(viewport.width)}`);
     });
 
-    test('SC-11: 失敗の取り込み（長い接続先の参照名100文字・失敗のログ13件・2ページ）でも、取り込み元のカード・結果の表示・ログの表が崩れない', async ({
+    test('SC-11: 失敗の取り込み（長い接続先の参照名100文字・失敗のログ23件・2ページ）でも、取り込み元のカード・結果の表示・ログの表が崩れない', async ({
       page,
       request,
     }, testInfo) => {
@@ -481,7 +481,8 @@ for (const viewport of VIEWPORTS) {
         })),
       });
       await setMock(request, 'file-server', 'DOWN');
-      for (let index = 0; index < 6; index += 1) {
+      // 1 ページは 20 件（Issue #201）。22 件 + 即時取得 1 件 = 23 件で、2 ページになる
+      for (let index = 0; index < 11; index += 1) {
         await apiOk(request, 'POST', '/ingestion/robot/run');
         await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
         await advanceMinutes(request, 61);
@@ -495,7 +496,7 @@ for (const viewport of VIEWPORTS) {
       const result = await runNow(page, 'robot');
 
       await expect(result).toContainText('取得しました（失敗）');
-      await expect(logRows(page)).toHaveCount(10);
+      await expect(logRows(page)).toHaveCount(20);
       await expect(logRows(page).first()).toContainText('ファイルサーバーに接続できませんでした');
       // 日時は、1 行（30px 未満）。ただし、スマートフォン幅（375px）では、フォントによって幅が変わり、2 行（約 51px）に
       // 折り返されることがある（Linux の Noto Sans CJK JP。CI で確認）。3 行以上に潰れないこと（60px 未満）を確認する。
@@ -537,7 +538,7 @@ for (const viewport of VIEWPORTS) {
           expect(rect.right, `${sourceId} の内側の右端`).toBeLessThanOrEqual(right + 1);
         }
       }
-      // 2ページ目（失敗のログ 13 件のうちの残り）
+      // 2ページ目（失敗のログ 23 件のうちの残り）
       await page.getByTestId('ingestion-logs').getByRole('button', { name: '次へ' }).click();
       await expect(logRows(page)).toHaveCount(3);
       await expectTableIntact(page, '.log-table', 'tbody tr td:last-child', tableChecks);

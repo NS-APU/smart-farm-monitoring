@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
+import { IsoDateTimeSchema } from '@smart-farm/shared/schemas/common';
 import {
   IngestionCredentialsInputSchema,
   IngestionSettingsUpdateRequestSchema,
@@ -14,8 +15,13 @@ import { actorOf, pathParam, scopeOfRequest } from './request-helpers.ts';
 import { parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 
+/** 取り込みログの絞り込み（Issue #201）。結果: SUCCESS＝成功、FAILURE＝失敗（一部成功を含む）。期間: 開始日時（両端を含む）。 */
 const IngestionLogQuerySchema = PageQuerySchema.extend({
   sourceId: z.string().min(1).max(100).optional(),
+  equipmentId: z.string().min(1).max(100).optional(),
+  result: z.enum(['SUCCESS', 'FAILURE']).optional(),
+  from: IsoDateTimeSchema.optional(),
+  to: IsoDateTimeSchema.optional(),
 });
 
 export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
@@ -46,7 +52,13 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
     },
     async 'GET /ingestion/logs'(c) {
       const query = parseQuery(c, IngestionLogQuerySchema);
-      return c.json(await deps.ingestionAdminService.listLogs(query));
+      return c.json(
+        await deps.ingestionAdminService.listLogs({
+          ...query,
+          from: query.from === undefined ? undefined : new Date(query.from),
+          to: query.to === undefined ? undefined : new Date(query.to),
+        }),
+      );
     },
     async 'GET /federation/logs'(c) {
       const query = parseQuery(c, PageQuerySchema);

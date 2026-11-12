@@ -1807,6 +1807,90 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     );
   });
 
+  describe('取り込みログの絞り込み（設備・結果・期間。Issue #201。ADR-0016 の D-48）', () => {
+    const logsOf = async (context: TestContext, query: string) =>
+      IngestionLogListResponseSchema.parse(
+        await (await send(context, 'GET', `/ingestion/logs${query}`)).json(),
+      ).items;
+
+    /** ロボット（成功 → 接続の失敗〔設備に結びつかない〕）と、環境センサー（成功）のログを作る。 */
+    async function seedLogs() {
+      const context = await withEquipment();
+      placeNewRobotData(context, 'robot-1.json', 1);
+      await send(context, 'POST', '/ingestion/robot/run');
+      context.clock.advance(60_000);
+      placeNewSensorData(context, 'sensor-1.json', 20);
+      await send(context, 'POST', '/ingestion/environment-sensor/run');
+      context.clock.advance(60_000);
+      context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+      await send(context, 'POST', '/ingestion/robot/run');
+      context.container.dev?.faults.fileServer.set({ mode: 'UP' });
+      return context;
+    }
+
+    it('設備で絞り込むと、その設備のログと、その設備の取り込み元の、設備に結びつかないログ（接続の失敗）を返す', async () => {
+      const context = await seedLogs();
+
+      const robot = await logsOf(context, `?equipmentId=${ROBOT_ID}`);
+      const sensor = await logsOf(context, `?equipmentId=${SENSOR_ID}`);
+
+      expect(robot.map((log) => [log.sourceId, log.equipmentId, log.result])).toEqual([
+        ['robot', undefined, 'FAILURE'],
+        ['robot', ROBOT_ID, 'SUCCESS'],
+      ]);
+      expect(sensor.map((log) => [log.sourceId, log.equipmentId, log.result])).toEqual([
+        ['environment-sensor', SENSOR_ID, 'SUCCESS'],
+      ]);
+    });
+
+    it('結果で絞り込める（成功／失敗）。期間（日時。両端を含む）でも、絞り込める。組み合わせられる', async () => {
+      const context = await seedLogs();
+      const base = TEST_NOW.getTime();
+
+      const success = await logsOf(context, '?result=SUCCESS');
+      const failure = await logsOf(context, '?result=FAILURE');
+      const period = await logsOf(
+        context,
+        `?from=${new Date(base + 60_000).toISOString()}&to=${new Date(base + 60_000).toISOString()}`,
+      );
+      const combined = await logsOf(
+        context,
+        `?equipmentId=${ROBOT_ID}&result=SUCCESS&to=${new Date(base).toISOString()}`,
+      );
+
+      expect(success.map((log) => log.result)).toEqual(['SUCCESS', 'SUCCESS']);
+      expect(failure.map((log) => log.result)).toEqual(['FAILURE']);
+      expect(period.map((log) => log.sourceId)).toEqual(['environment-sensor']);
+      expect(combined.map((log) => [log.equipmentId, log.result])).toEqual([[ROBOT_ID, 'SUCCESS']]);
+    });
+
+    it('登録のない設備は、空の一覧（設備に結びつかないログも含めない）。条件が不正なら、400', async () => {
+      const context = await seedLogs();
+
+      expect(await logsOf(context, '?equipmentId=NO-SUCH-EQUIPMENT')).toEqual([]);
+      for (const query of ['?result=PARTIAL', '?result=ALL', '?from=2026-10-09', '?to=yesterday']) {
+        expect((await send(context, 'GET', `/ingestion/logs${query}`)).status).toBe(400);
+      }
+    });
+
+    it('取り込み設定・状況に、設備ごとの最終の実行（開始・結果・最後の成功・最後にデータが取れた日時）を含める。一度も実行していない設備は、なし', async () => {
+      const context = await seedLogs();
+
+      const [robot, sensor] = (await settings(context)).sources;
+
+      const robotRun = robot?.equipment.find((item) => item.equipmentId === ROBOT_ID);
+      expect(robotRun).toMatchObject({
+        name: expect.any(String),
+        lastResult: 'FAILURE',
+        lastStartedAt: new Date(TEST_NOW.getTime() + 120_000).toISOString(),
+        lastSuccessAt: TEST_NOW.toISOString(),
+        lastDataAt: TEST_NOW.toISOString(),
+      });
+      expect(sensor?.equipment.map((item) => item.equipmentId)).toEqual([SENSOR_ID]);
+      expect(sensor?.equipment[0]).toMatchObject({ lastResult: 'SUCCESS' });
+    });
+  });
+
   it('取り込みログ: 失敗した取り込みは、失敗の内容（内部情報なし）を記録して返す。成功は、失敗の内容を持たない', async () => {
     const context = await withEquipment();
     context.placeFixture('robot', 'robot/robot-sample-001.json');

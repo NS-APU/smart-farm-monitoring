@@ -751,9 +751,9 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
 
     await goToMenu(page, '取り込み');
     const robotLog = logRows(page).filter({ hasText: 'ロボット' }).first();
-    await expect(robotLog.locator('td').nth(3)).toHaveText('1'); // 処理したファイル
-    await expect(robotLog.locator('td').nth(4)).toHaveText('0'); // 取り込んだ件数
-    await expect(robotLog.locator('td').nth(5)).toHaveText('1'); // 除外した件数
+    await expect(robotLog.locator('td').nth(4)).toHaveText('1'); // 処理したファイル
+    await expect(robotLog.locator('td').nth(5)).toHaveText('0'); // 取り込んだ件数
+    await expect(robotLog.locator('td').nth(6)).toHaveText('1'); // 除外した件数
     await page.goto('/observations');
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       0,
@@ -792,12 +792,12 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     const unlinked = robotLogs.filter({
       has: page.locator('.log-result', { hasText: /^一部成功$/ }),
     });
-    await expect(linked.locator('td').nth(3)).toHaveText('1');
     await expect(linked.locator('td').nth(4)).toHaveText('1');
-    await expect(linked.locator('td').nth(5)).toHaveText('0');
-    await expect(unlinked.locator('td').nth(3)).toHaveText('1');
-    await expect(unlinked.locator('td').nth(4)).toHaveText('0');
-    await expect(unlinked.locator('td').nth(5)).toHaveText('1');
+    await expect(linked.locator('td').nth(5)).toHaveText('1');
+    await expect(linked.locator('td').nth(6)).toHaveText('0');
+    await expect(unlinked.locator('td').nth(4)).toHaveText('1');
+    await expect(unlinked.locator('td').nth(5)).toHaveText('0');
+    await expect(unlinked.locator('td').nth(6)).toHaveText('1');
     await page.goto('/observations');
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
