@@ -13,6 +13,7 @@ import {
   findItemDefinition,
   isValidItemValue,
   itemsOfCategory,
+  manualMaxOf,
   type Category,
   type ItemDefinition,
 } from '../constants/items.ts';
@@ -93,12 +94,13 @@ export interface ManualEntryDraft {
   readonly note: string;
 }
 
-/** 項目の入力できる値の説明（例: 「0以上の整数」「1以上5以下の整数」）。 */
+/** 手動入力の項目の、入力できる値の説明（例: 「0以上の整数」「1以上5以下の整数」。手動入力の上限があれば、それ）。 */
 export function describeRange(item: ItemDefinition): string {
   const type = item.valueType === 'integer' ? '整数' : '数値';
+  const max = manualMaxOf(item);
   const range =
-    item.min !== undefined && item.max !== undefined
-      ? `${String(item.min)}以上${String(item.max)}以下の`
+    item.min !== undefined && max !== undefined
+      ? `${String(item.min)}以上${String(max)}以下の`
       : item.min !== undefined
         ? `${String(item.min)}以上の`
         : '';
@@ -107,7 +109,7 @@ export function describeRange(item: ItemDefinition): string {
 
 /** 手動入力の項目の値が不正な場合の理由を返す。正しければ null。 */
 export function findItemValueViolation(item: ItemDefinition, value: unknown): string | null {
-  return isValidItemValue(item, value)
+  return isValidItemValue(item, value, true)
     ? null
     : `${item.label}は${describeRange(item)}で指定してください`;
 }

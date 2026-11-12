@@ -34,10 +34,14 @@ export const CATEGORY_LABELS: Readonly<Record<Category, string>> = {
   SATISFACTION: '満足度情報',
 };
 
-/** 手動入力で選べるカテゴリ（FR-4.1。稼働情報・ステータスは自動取り込みのみ）。 */
+/**
+ * 手動入力で選べるカテゴリ（FR-4.1）。自動取り込みの項目も、すべて、手動で入力できる（予備の入口。ADR-0016 の D-10。#192）。
+ * ステータスは、文字列の項目（ステータスコード）のため、別の変更で加える。
+ */
 export const MANUAL_INPUT_CATEGORIES: readonly Category[] = [
   'OPERABILITY',
   'HARVEST',
+  'OPERATION',
   'SAFETY',
   'COST',
   'FAILURE',
@@ -63,7 +67,10 @@ export interface ItemDefinition {
   readonly unit: string;
   readonly valueType: ItemValueType;
   readonly min?: number;
+  /** データとして許容する上限（取り込み・手動入力の共通）。 */
   readonly max?: number;
+  /** 手動入力の上限（`max` より狭いとき。誤りを防ぐため。省略は `max` と同じ。ADR-0016 の D-10）。 */
+  readonly manualMax?: number;
   readonly aggregation: ItemAggregation;
   readonly origins: readonly ObservationSource[];
 }
@@ -106,7 +113,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     valueType: 'integer',
     min: 0,
     aggregation: 'TOTAL',
-    origins: AUTO,
+    origins: BOTH,
   },
   // データ辞書（data-dictionary.md）の項目。自動取り込み（robot-json）と合成データが使う。参考の項目で、収穫速度の平均処理時間は、収穫稼働時間と収穫数から算出する。
   // 削除すると、手動入力の選択肢・取り込みの扱い（未定義の項目は不正として拒否）が変わるため、勝手に消さない。
@@ -118,8 +125,9 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     valueType: 'number',
     min: 0,
     max: 3600,
+    manualMax: 300,
     aggregation: 'LEVEL',
-    origins: AUTO,
+    origins: BOTH,
   },
   {
     itemKey: 'operatingHours',
@@ -129,7 +137,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     valueType: 'number',
     min: 0,
     aggregation: 'TOTAL',
-    origins: AUTO,
+    origins: BOTH,
   },
   // データ辞書（data-dictionary.md）の項目。自動取り込み（robot-json）と合成データが使う。参考の項目で、どの観点の判定にも使わない。
   // 削除すると、手動入力の選択肢・取り込みの扱い（未定義の項目は不正として拒否）が変わるため、勝手に消さない。
@@ -141,7 +149,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     valueType: 'number',
     min: 0,
     aggregation: 'TOTAL',
-    origins: AUTO,
+    origins: BOTH,
   },
   {
     itemKey: 'harvestOperatingHours',
@@ -151,7 +159,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     valueType: 'number',
     min: 0,
     aggregation: 'TOTAL',
-    origins: AUTO,
+    origins: BOTH,
   },
   {
     itemKey: 'travelStoppedHours',
@@ -161,7 +169,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     valueType: 'number',
     min: 0,
     aggregation: 'TOTAL',
-    origins: AUTO,
+    origins: BOTH,
   },
   {
     itemKey: STATUS_CODE_ITEM_KEY,
@@ -409,8 +417,20 @@ export function itemsOfCategory(category: Category): readonly ItemDefinition[] {
   return ITEM_CATALOG.filter((item) => item.category === category);
 }
 
-/** 項目の値が、カタログの型・範囲に合うかを返す（取り込み・手動入力の検証で使う）。 */
-export function isValidItemValue(item: ItemDefinition, value: unknown): boolean {
+/** 手動入力で入力できる上限（手動入力の上限があれば、それ。なければ、データとしての上限）。 */
+export function manualMaxOf(item: ItemDefinition): number | undefined {
+  return item.manualMax ?? item.max;
+}
+
+/**
+ * 項目の値が、カタログの型・範囲に合うかを返す（取り込み・手動入力の検証で使う）。
+ * `forManualInput`: 手動入力の上限（`manualMax`）で検証する（取り込みは、データとしての上限）。
+ */
+export function isValidItemValue(
+  item: ItemDefinition,
+  value: unknown,
+  forManualInput = false,
+): boolean {
   if (item.valueType === 'string') {
     return typeof value === 'string' && value.length > 0;
   }
@@ -423,5 +443,6 @@ export function isValidItemValue(item: ItemDefinition, value: unknown): boolean 
   if (item.min !== undefined && value < item.min) {
     return false;
   }
-  return item.max === undefined || value <= item.max;
+  const max = forManualInput ? manualMaxOf(item) : item.max;
+  return max === undefined || value <= max;
 }

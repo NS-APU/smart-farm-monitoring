@@ -1191,7 +1191,7 @@ flowchart LR
 | 取り込みの試行回数・再試行の待ち | 3 回、`1000 × 2^(n-1)` ミリ秒       | `settings.ts`・`ingestion-service.ts`       |
 | 「遅延」の判定                   | 受信が計測より 60 分を超えて遅れた  | `observation-quality.ts`                    |
 | 計測日時の未来の許容             | 取り込み: 既定 5 分（`INGESTION_FUTURE_TOLERANCE_MINUTES`。0〜60。#200）。手動入力: 5 分（固定） | `observation-quality.ts`・`settings.ts`・`manual-entry.ts` |
-| 値の範囲（不正にする）           | 温度 −50〜100・湿度 0〜100・照度 0〜200,000・CO2 0〜10,000・1 果実あたりの収穫時間 0〜3,600（取り込み・手動入力の共通。#200） | `items.ts`（`min`・`max`）・`isValidItemValue` |
+| 値の範囲（不正にする）           | 温度 −50〜100・湿度 0〜100・照度 0〜200,000・CO2 0〜10,000・1 果実あたりの収穫時間 0〜3,600（取り込み・手動入力の共通。#200）。手動入力だけの上限は、`manualMax`（1 果実あたりの収穫時間 300。#192） | `items.ts`（`min`・`max`・`manualMax`）・`isValidItemValue` |
 | 通知の抑制（取り込みの失敗・停止、連携の期限切れ） | 60 分                               | `notification-rules.ts`                     |
 | 状態変化の通知の出来事の区切り（正常が続いた時間。#236） | 15 分 | `notification-rules.ts`・`settings.ts`（`recurrenceAfterNormalMinutes`） |
 | Web Push の再送の間隔・断念の期限（#237） | 1 分から倍々・上限 60 分／通知を作ってから 60 分 | `notification-delivery.ts`・`settings.ts`（`webPushRetryBaseMinutes`・`webPushRetryMaxMinutes`・`webPushExpiryMinutes`） |
@@ -2706,20 +2706,20 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 293 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3274 件成功・2 件スキップ）。
+計測対象は 293 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3289 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.15% | 7,746／7,812 | 95% 以上 |
-| 文   | 99.17% | 8,011／8,078 | 95% 以上 |
-| 関数 | 99.31% | 2,329／2,345 | 95% 以上 |
-| 分岐 | 95.4% | 4,959／5,198 | 95% 以上 |
+| 行   | 99.15% | 7,749／7,815 | 95% 以上 |
+| 文   | 99.17% | 8,014／8,081 | 95% 以上 |
+| 関数 | 99.31% | 2,330／2,346 | 95% 以上 |
+| 分岐 | 95.4% | 4,964／5,203 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
 | 対象                         | 行     | 文     | 関数   | 分岐   |
 | ---------------------------- | ------ | ------ | ------ | ------ |
-| `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
+| `src/shared` | 100.0% | 100.0% | 100.0% | 99.49% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
 | `src/backend/application` | 99.42% | 99.38% | 99.29% | 95.68% |
 | `src/backend/infrastructure` | 99.05% | 99.08% | 100.0% | 94.82% |
@@ -2731,12 +2731,12 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・823 件（UC ごと 25 ファイル・813 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・828 件（UC ごと 25 ファイル・818 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3274 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3274 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3289 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3289 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

@@ -48,6 +48,75 @@ describe('manualItemsOfCategory', () => {
   });
 });
 
+describe('自動取り込みの項目を、手動でも入力できる（予備の入口。#192。ADR-0016 の D-10）', () => {
+  it('稼働情報の 4 項目と、収穫情報の収穫数・1 果実あたりの収穫時間を、手動入力の項目にする', () => {
+    expect(manualItemsOfCategory('OPERATION').map((definition) => definition.itemKey)).toEqual([
+      'operatingHours',
+      'standbyHours',
+      'harvestOperatingHours',
+      'travelStoppedHours',
+    ]);
+    const harvest = manualItemsOfCategory('HARVEST').map((definition) => definition.itemKey);
+    expect(harvest).toContain('harvestCount');
+    expect(harvest).toContain('harvestSecondsPerFruit');
+  });
+
+  it('稼働情報の手動入力は、エラーなしで検証を通る（0 以上の数値）', () => {
+    const items = {
+      operatingHours: 5.5,
+      standbyHours: 1,
+      harvestOperatingHours: 4,
+      travelStoppedHours: 0,
+    };
+    expect(validateManualEntry(draft({ category: 'OPERATION', items }), NOW)).toEqual([]);
+    expect(
+      validateManualEntry(draft({ category: 'OPERATION', items: { operatingHours: -1 } }), NOW),
+    ).toEqual([
+      { name: 'items.operatingHours', message: '稼働時間は0以上の数値で指定してください' },
+    ]);
+  });
+
+  it('収穫数は 0 以上の整数（手動入力）', () => {
+    const harvest = (value: number) =>
+      validateManualEntry(draft({ category: 'HARVEST', items: { harvestCount: value } }), NOW);
+    expect(harvest(0)).toEqual([]);
+    expect(harvest(12)).toEqual([]);
+    expect(harvest(1.5)).toEqual([
+      { name: 'items.harvestCount', message: '収穫数は0以上の整数で指定してください' },
+    ]);
+    expect(harvest(-1)).toHaveLength(1);
+  });
+
+  describe('1 果実あたりの収穫時間: 手動入力は 0〜300 秒（データとしては 0〜3,600 秒）', () => {
+    const perFruit = (value: number) =>
+      validateManualEntry(
+        draft({ category: 'HARVEST', items: { harvestSecondsPerFruit: value } }),
+        NOW,
+      );
+
+    it('説明に、手動入力の範囲を示す', () => {
+      expect(describeRange(item('harvestSecondsPerFruit'))).toBe('0以上300以下の数値');
+    });
+
+    it.each([0, 0.1, 300])('%s 秒は有効（境界を含む）', (value) => {
+      expect(perFruit(value)).toEqual([]);
+    });
+
+    it.each([-0.1, 300.1, 3600])('%s 秒は、手動入力の範囲外（範囲を示すエラー）', (value) => {
+      expect(perFruit(value)).toEqual([
+        {
+          name: 'items.harvestSecondsPerFruit',
+          message: '1果実あたりの収穫時間は0以上300以下の数値で指定してください',
+        },
+      ]);
+    });
+
+    it('データとしての上限（3,600 秒）は、別に保つ（項目の定義）', () => {
+      expect(item('harvestSecondsPerFruit')).toMatchObject({ max: 3600, manualMax: 300 });
+    });
+  });
+});
+
 describe('describeRange（入力できる値の説明）', () => {
   it('下限だけの整数・数値、下限と上限のある整数を説明する', () => {
     expect(describeRange(item('operationStepCount'))).toBe('0以上の整数');
@@ -103,8 +172,8 @@ describe('validateManualEntry（手動入力の検証）', () => {
     expect(names(errors).sort()).toEqual(['category', 'equipmentId', 'items', 'observedAt']);
   });
 
-  it('手動入力できないカテゴリ（稼働情報・不明な値）は、エラー', () => {
-    expect(validateManualEntry(draft({ category: 'OPERATION', items: {} }), NOW)).toContainEqual({
+  it('手動入力できないカテゴリ（ステータス・不明な値）は、エラー（ステータスは、別の PR で、手動入力に加える）', () => {
+    expect(validateManualEntry(draft({ category: 'STATUS', items: {} }), NOW)).toContainEqual({
       name: 'category',
       message: 'このカテゴリは手動で入力できません',
     });
