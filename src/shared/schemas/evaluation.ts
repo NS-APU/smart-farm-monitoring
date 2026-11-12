@@ -43,7 +43,11 @@ export const EvaluationResultSchema = z.object({
 });
 export type EvaluationResult = z.infer<typeof EvaluationResultSchema>;
 
-export const DATA_FRESHNESS_VALUES = ['FRESH', 'STALE', 'NONE'] as const;
+/**
+ * データの新しさ: FRESH（新しい）／STALE（古い）／NONE（未取得）／MANUAL（手動のみの運用。選んだ設備〔ハウスなら配下〕に、
+ * 自動取り込みの対象がない。警告せず、最終の手動入力を示す。Issue #202）。
+ */
+export const DATA_FRESHNESS_VALUES = ['FRESH', 'STALE', 'NONE', 'MANUAL'] as const;
 export type DataFreshness = (typeof DATA_FRESHNESS_VALUES)[number];
 
 /** ダッシュボードの観点のカード。 */
@@ -79,8 +83,13 @@ export const DashboardResponseSchema = z.object({
   evaluatedAt: IsoDateTimeSchema.nullable(),
   /** 最終のデータ取得日時（FR-6.3）。 */
   lastReceivedAt: IsoDateTimeSchema.nullable(),
-  /** データの新しさ: FRESH（新しい）／STALE（古い）／NONE（未取得）。 */
+  /** データの新しさ（DATA_FRESHNESS_VALUES）。MANUAL は、手動のみの運用（自動取り込みの対象がない）。 */
   dataFreshness: z.enum(DATA_FRESHNESS_VALUES),
+  /**
+   * 最終の手動入力の日時（入力・修正した日時。手動入力の論理削除を除く）。手動のみの運用（`dataFreshness` が MANUAL）のときだけ持つ。
+   * 手動入力がまだなければ null（Issue #202）。
+   */
+  lastManualInputAt: IsoDateTimeSchema.nullable().default(null),
   /**
    * 古い設備（選んだ設備。ハウスなら配下のロボット・センサー）。設備ごとの基準（取得間隔 × 3、最低 3 分）を超えて、新しい計測値がない設備
    * （Issue #198。ADR-0016 の D-12）。まだデータのない設備は含めない。1 件でもあれば、`dataFreshness` は STALE。

@@ -318,6 +318,39 @@ describe('データ供給の停止の検知: 設備ごとの基準（Issue #198�
     expect(stopped[0]?.message).toContain('テストロボット');
   });
 
+  it('自動取り込みの対象でない設備（HTTP で、設備ごとのファイルパスがない）は、取り込み元が有効でも、停止を通知しない（手動のみの運用。Issue #202）。ファイルパスがあれば、通知する', async () => {
+    const context = await setup();
+    const sources = await context.container.ingestionSettings.listSources();
+    await context.container.ingestionSettings.saveSources(
+      sources.map((source) => ({
+        ...source,
+        connection: {
+          type: 'HTTP' as const,
+          protocol: 'HTTPS' as const,
+          host: 'files.example.invalid',
+          authMethod: 'NONE' as const,
+          apiKeyHeaderName: 'X-API-Key',
+        },
+      })),
+    );
+    await receive(context, ROBOT_ID, 10);
+
+    await context.container.ingestionService.runDueSources();
+    const withoutPath = await stoppedNotificationsOf(context);
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({
+      ...robot,
+      sourceFilePath: '/robots/robot-1.json',
+    });
+    await context.container.ingestionService.runDueSources();
+
+    expect(withoutPath).toEqual([]);
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+  });
+
   it('最低 3 分: 3 分までは通知しない（境界）', async () => {
     const context = await setup();
     await receive(context, ROBOT_ID, 3);

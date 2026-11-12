@@ -1067,6 +1067,132 @@ describe('ダッシュボード（UC-01）', () => {
     ]);
   });
 
+  describe('手動のみの運用（自動取り込みが有効でない間。Issue #202。ADR-0016 の D-12）', () => {
+    const minutesAgo = (minutes: number) =>
+      new Date(TEST_NOW.getTime() - minutes * 60_000).toISOString();
+    const autoData = (equipmentId: typeof ROBOT_ID, itemKey: string, minutes: number) =>
+      observation({ equipmentId, itemKey, value: 1, observedAt: minutesAgo(minutes) });
+    const manualData = (
+      equipmentId: typeof ROBOT_ID,
+      minutes: number,
+      overrides: { isDeleted?: boolean } = {},
+    ) =>
+      observation({
+        equipmentId,
+        itemKey: 'failureCount',
+        value: 0,
+        source: 'MANUAL',
+        observedAt: minutesAgo(minutes),
+        ...overrides,
+      });
+
+    /** 指定した種別の取り込み元を、無効にする。 */
+    async function disable(context: Context, ...kinds: ('ROBOT' | 'SENSOR')[]) {
+      const sources = await context.container.ingestionSettings.listSources();
+      await context.container.ingestionSettings.saveSources(
+        sources.map((source) => ({ ...source, isEnabled: !kinds.includes(source.kind) })),
+      );
+    }
+
+    it('ロボット・センサーとも自動取り込みが有効でなければ、警告せず（古い・未取得にしない）、最終の手動入力の日時を返す。以前の自動取り込みのデータが古くても、警告しない', async () => {
+      const context = await setup();
+      await disable(context, 'ROBOT', 'SENSOR');
+      await context.container.repositories.observations.saveMany([
+        autoData(ROBOT_ID, 'harvestCount', 600),
+        manualData(ROBOT_ID, 90),
+        manualData(SENSOR_ID, 30),
+      ]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('MANUAL');
+      expect(house.lastManualInputAt).toBe(minutesAgo(30));
+      expect(house.lastReceivedAt).toBeNull();
+      expect(house.staleEquipment).toEqual([]);
+    });
+
+    it('手動入力がまだなければ、最終の手動入力は、なし（null）。論理削除した手動入力は、数えない。警告はしない', async () => {
+      const context = await setup();
+      await disable(context, 'ROBOT', 'SENSOR');
+      await context.container.repositories.observations.saveMany([
+        manualData(ROBOT_ID, 10, { isDeleted: true }),
+      ]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('MANUAL');
+      expect(house.lastManualInputAt).toBeNull();
+    });
+
+    it('一部の種別だけ有効なら、有効な設備だけで、従来どおり判定する（無効な種別の設備は、判定しない）。無効な種別の設備を選べば、手動のみ', async () => {
+      const context = await setup();
+      await disable(context, 'ROBOT');
+      await context.container.repositories.observations.saveMany([
+        autoData(ROBOT_ID, 'harvestCount', 600),
+        autoData(SENSOR_ID, 'temperatureCelsius', 1),
+        manualData(ROBOT_ID, 5),
+      ]);
+
+      const house = await get(context);
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+      const sensor = await get(context, { equipmentId: SENSOR_ID });
+
+      // ハウス: センサーが対象。センサーは新しい。ロボット（対象外）の古い自動取り込みのデータは、判定しない
+      expect(house.dataFreshness).toBe('FRESH');
+      expect(house.staleEquipment).toEqual([]);
+      expect(house.lastManualInputAt).toBeNull();
+      expect(robot.dataFreshness).toBe('MANUAL');
+      expect(robot.lastManualInputAt).toBe(minutesAgo(5));
+      expect(sensor.dataFreshness).toBe('FRESH');
+    });
+
+    it('HTTP は、設備ごとのファイルパスがない設備は、取り込み元が有効でも、手動のみ（取得されないため）。パスがある設備は、従来どおり', async () => {
+      const context = await setup();
+      const sources = await context.container.ingestionSettings.listSources();
+      await context.container.ingestionSettings.saveSources(
+        sources.map((source) => ({
+          ...source,
+          connection: {
+            type: 'HTTP' as const,
+            protocol: 'HTTPS' as const,
+            host: 'files.example.invalid',
+            authMethod: 'NONE' as const,
+            apiKeyHeaderName: 'X-API-Key',
+          },
+        })),
+      );
+      const sensor = must(await context.container.repositories.equipment.get(SENSOR_ID));
+      await context.container.repositories.equipment.save({
+        ...sensor,
+        sourceFilePath: '/sensors/1.json',
+      });
+      await context.container.repositories.observations.saveMany([
+        autoData(SENSOR_ID, 'temperatureCelsius', 600),
+        manualData(ROBOT_ID, 7),
+      ]);
+
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+      const sensorView = await get(context, { equipmentId: SENSOR_ID });
+
+      expect(robot.dataFreshness).toBe('MANUAL');
+      expect(robot.lastManualInputAt).toBe(minutesAgo(7));
+      expect(sensorView.dataFreshness).toBe('STALE');
+    });
+
+    it('自動取り込みが有効な間は、従来どおり（手動入力は、判定に含めない。最終の手動入力は、なし）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([
+        autoData(SENSOR_ID, 'temperatureCelsius', 30),
+        manualData(SENSOR_ID, 1),
+      ]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('STALE');
+      expect(house.lastManualInputAt).toBeNull();
+    });
+  });
+
   it('短期視点を指定すると、短期評価を持つ観点は短期の結果を、持たない観点は長期の結果を返す', async () => {
     const context = await setup();
     await context.container.repositories.observations.saveMany([

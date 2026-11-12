@@ -116,13 +116,18 @@ function DataStatusText(): ReactNode {
   if (dataStatus === undefined) {
     return null;
   }
-  const text =
-    dataStatus.freshness === 'NONE'
+  // 手動のみの運用（自動取り込みが有効でない）は、「最終のデータ取得」の代わりに、「最終の手動入力」を示す（Issue #202）
+  const isManual = dataStatus.freshness === 'MANUAL';
+  const text = isManual
+    ? dataStatus.lastManualInputAt === null
+      ? MESSAGES.layout.noManualInput
+      : formatDateTimeJst(dataStatus.lastManualInputAt)
+    : dataStatus.freshness === 'NONE'
       ? MESSAGES.layout.notReceived
       : formatDateTimeJst(dataStatus.lastReceivedAt);
   return (
     <p className={`header-data-status data-${dataStatus.freshness.toLowerCase()}`}>
-      <span>{MESSAGES.layout.lastReceived}: </span>
+      <span>{isManual ? MESSAGES.layout.lastManualInput : MESSAGES.layout.lastReceived}: </span>
       <span>{text}</span>
       {dataStatus.freshness === 'STALE' ? <strong>（{MESSAGES.layout.stale}）</strong> : null}
     </p>

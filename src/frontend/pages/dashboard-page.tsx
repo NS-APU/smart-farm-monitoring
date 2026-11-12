@@ -164,7 +164,11 @@ export function DashboardPage(): ReactNode {
     setDataStatus(
       data === undefined
         ? undefined
-        : { lastReceivedAt: data.lastReceivedAt, freshness: data.dataFreshness },
+        : {
+            lastReceivedAt: data.lastReceivedAt,
+            freshness: data.dataFreshness,
+            lastManualInputAt: data.lastManualInputAt,
+          },
     );
     return () => {
       setDataStatus(undefined);
@@ -278,6 +282,15 @@ function DashboardContent(props: {
             </span>
           ) : null}
         </p>
+      ) : null}
+      {data.dataFreshness === 'MANUAL' ? (
+        <div role="status" className="notice notice-info" data-testid="freshness-manual">
+          <Icon name="info" size={18} />
+          <p>{MESSAGES.dashboard.freshnessManual}</p>
+          <p className="notice-links">
+            <Link to={PATHS.dataEntry}>{MESSAGES.dashboard.goDataEntry}</Link>
+          </p>
+        </div>
       ) : null}
       {data.dataFreshness === 'NONE' ? (
         <div role="status" className="notice notice-info">

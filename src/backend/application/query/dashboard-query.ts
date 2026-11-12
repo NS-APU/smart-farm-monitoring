@@ -26,6 +26,8 @@ import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { UNKNOWN_ACTION } from '../../domain/evaluation/messages.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
+import { isAutoIngestionTarget } from '../ingestion/auto-target.ts';
+import type { IngestionSettings } from '../ingestion/ingestion-settings.ts';
 import { requireActiveEquipment } from '../equipment/require-active-equipment.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { Repositories } from '../ports/repositories.ts';
@@ -45,6 +47,7 @@ export interface DashboardQuery {
 
 export interface DashboardQueryDeps {
   readonly repositories: Pick<Repositories, 'equipment' | 'observations' | 'evaluations'>;
+  readonly ingestionSettings: IngestionSettings;
   readonly settings: Pick<AppSettings, 'staleAfterIntervals'>;
   readonly clock: ClockPort;
 }
@@ -160,8 +163,16 @@ function judgeFreshness(
   };
 }
 
+/** 日時のうち、最も新しいもの。なければ null。 */
+function latestOfDates(dates: readonly Date[]): Date | null {
+  return dates.reduce<Date | null>(
+    (latest, date) => (latest === null || date.getTime() > latest.getTime() ? date : latest),
+    null,
+  );
+}
+
 export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
-  const { repositories, settings, clock } = deps;
+  const { repositories, ingestionSettings, settings, clock } = deps;
 
   return {
     async get(params) {
@@ -179,19 +190,40 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
           .map((result) => result.evaluatedAt)
           .sort()
           .at(-1) ?? null;
-      // データの新しさは、ロボット・センサーからの自動取り込みで、設備ごとに判定する（手動入力で、供給の停止が隠れないように。V-024）
+      // データの新しさは、ロボット・センサーからの自動取り込みで、設備ごとに判定する（手動入力で、供給の停止が隠れないように。V-024）。
+      // 自動取り込みの対象でない設備（取り込み元が無効・取得先がない）は、判定しない。対象が 1 つもなければ、手動のみの運用（Issue #202）
       const members = allEquipment.filter(
         (item) =>
           !item.isDeleted &&
           item.equipmentType !== 'FACILITY' &&
           scope.equipmentIds.includes(item.equipmentId),
       );
+      const sources = await ingestionSettings.listSources();
+      const targets = members.filter((item) => isAutoIngestionTarget(item, sources));
+      if (members.length > 0 && targets.length === 0) {
+        const manualAt = await repositories.observations.receivedAtByEquipment(
+          members.map((item) => item.equipmentId),
+          { manualOnly: true },
+        );
+        return {
+          equipmentId: params.equipmentId,
+          horizon: params.horizon,
+          periodDays: params.periodDays ?? DEFAULT_PERIOD_DAYS,
+          evaluatedAt,
+          lastReceivedAt: null,
+          dataFreshness: 'MANUAL',
+          lastManualInputAt: toIsoOrNull(latestOfDates([...manualAt.values()])),
+          staleEquipment: [],
+          summary: summarize(cards),
+          viewpoints: cards,
+        };
+      }
       const receivedAt = await repositories.observations.receivedAtByEquipment(
-        members.map((item) => item.equipmentId),
+        targets.map((item) => item.equipmentId),
         { autoImportOnly: true },
       );
       const { freshness, lastReceived, staleEquipment } = judgeFreshness(
-        members,
+        targets,
         receivedAt,
         now,
         settings.staleAfterIntervals,
@@ -204,6 +236,7 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
         evaluatedAt,
         lastReceivedAt: toIsoOrNull(lastReceived),
         dataFreshness: freshness,
+        lastManualInputAt: null,
         staleEquipment,
         summary: summarize(cards),
         viewpoints: cards,

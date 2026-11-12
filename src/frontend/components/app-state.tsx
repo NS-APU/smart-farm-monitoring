@@ -14,6 +14,8 @@ import { usePolling } from '../hooks/use-polling.ts';
 export interface DataStatus {
   readonly lastReceivedAt: string | null;
   readonly freshness: DataFreshness;
+  /** 最終の手動入力の日時（手動のみの運用〔freshness が MANUAL〕のとき。なければ null）。 */
+  readonly lastManualInputAt: string | null;
 }
 
 export interface AppState {
