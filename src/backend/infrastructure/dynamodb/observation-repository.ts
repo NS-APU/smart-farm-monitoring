@@ -324,7 +324,10 @@ export function createObservationRepository(
       // 一意キーが同じものは、あとのものを残す（1 回の BatchWriteItem に、同じキーを入れられない）
       const writes = new Map<string, Item>();
       const itemKeys = new Map<string, Set<string>>();
-      const received = new Map<string, { all: number; auto: number | undefined }>();
+      const received = new Map<
+        string,
+        { all: number; auto: number | undefined; manual: number | undefined }
+      >();
       for (const observation of observations) {
         const item = toObservationItem(observation);
         writes.set(`${String(item.pk)}|${String(item.sk)}`, item);
@@ -332,13 +335,22 @@ export function createObservationRepository(
         equipment.add(observation.itemKey);
         itemKeys.set(observation.equipmentId, equipment);
         const time = Number(item.r);
-        const current = received.get(observation.equipmentId) ?? { all: time, auto: undefined };
+        const current = received.get(observation.equipmentId) ?? {
+          all: time,
+          auto: undefined,
+          manual: undefined,
+        };
         received.set(observation.equipmentId, {
           all: Math.max(current.all, time),
           auto:
             observation.source === 'AUTO_IMPORT' && !observation.isDeleted
               ? Math.max(current.auto ?? time, time)
               : current.auto,
+          // 手動入力（論理削除を除く）の最終の受信日時（Issue #202。最終の手動入力）
+          manual:
+            observation.source === 'MANUAL' && !observation.isDeleted
+              ? Math.max(current.manual ?? time, time)
+              : current.manual,
         });
       }
       // 読む側が使う一覧・最終の受信日時を、観測値より先に更新する（途中で失敗しても、読めない観測値が残らない）
@@ -354,6 +366,7 @@ export function createObservationRepository(
         ...[...received].flatMap(([equipmentId, time]) => [
           raiseReceived(equipmentId, 'all', time.all),
           ...(time.auto === undefined ? [] : [raiseReceived(equipmentId, 'auto', time.auto)]),
+          ...(time.manual === undefined ? [] : [raiseReceived(equipmentId, 'manual', time.manual)]),
         ]),
       ]);
       await batchWriteItems(
@@ -437,7 +450,8 @@ export function createObservationRepository(
                 sk: equipmentId,
               })),
             );
-      const attribute = options.autoImportOnly === true ? 'auto' : 'all';
+      const attribute =
+        options.autoImportOnly === true ? 'auto' : options.manualOnly === true ? 'manual' : 'all';
       const times = items.flatMap((item) =>
         typeof item[attribute] === 'number' ? [item[attribute]] : [],
       );
@@ -448,7 +462,8 @@ export function createObservationRepository(
       if (equipmentIds.length === 0) {
         return received;
       }
-      const attribute = options.autoImportOnly === true ? 'auto' : 'all';
+      const attribute =
+        options.autoImportOnly === true ? 'auto' : options.manualOnly === true ? 'manual' : 'all';
       const items = await batchGetItems(
         db,
         mainTable,

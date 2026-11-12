@@ -69,6 +69,9 @@ export const MESSAGES = {
     unreadNotifications: '未読の通知',
     lastReceived: '最終のデータ取得',
     notReceived: '未取得',
+    /** 手動のみの運用（自動取り込みが有効でない）のヘッダー。最終の手動入力の日時（Issue #202）。 */
+    lastManualInput: '最終の手動入力',
+    noManualInput: 'まだありません',
     stale: '古い',
     user: 'ログイン中のユーザー',
     logout: 'ログアウト',
@@ -97,6 +100,8 @@ export const MESSAGES = {
     periodDays: { 1: '当日', 7: '直近7日', 30: '直近30日', 60: '直近60日', 90: '直近90日' },
     lastReceivedAt: '最終のデータ取得',
     freshnessStale: 'データが古くなっています。取り込みの状況を確認してください',
+    freshnessManual:
+      '自動取り込みが有効でないため、手動入力のデータで評価しています。「古い」「未取得」の警告は、出しません',
     /** 古い設備の名前（先頭の 3 つ。残りは「ほか N 件」）。どの設備かの設計は #158。 */
     staleEquipment: (names: readonly string[], rest: number) =>
       `古い設備: ${names.map((name) => `「${name}」`).join('')}${rest > 0 ? `ほか ${String(rest)} 件` : ''}`,

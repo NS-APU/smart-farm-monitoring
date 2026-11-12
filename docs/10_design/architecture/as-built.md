@@ -2517,6 +2517,7 @@ for 区間:
 | ページ分割             | カーソルは、オフセットを base64url にした不透明な文字列。`limit + offset` の位置から続きを返し、続きがあれば `nextCursor`。不正なカーソルは `VALIDATION_ERROR` | `local/repositories/collection-helpers.ts`（`paginated`） |
 | 並べ替えの安定化       | 同じ値のときは、計測日時 → 一意キーの順で並べ、ページ分割の結果を安定させる                                                                                    | `compareObservations` ほか                         |
 | 取得間隔の「古い」判定（設備ごと。#198） | 設備（ハウスなら配下のロボット・センサー）ごとに、`max(設備の取得間隔 × STALE_AFTER_INTERVALS（3）, 3 分)`（既定 ロボット 3 分・センサー 15 分）を超えて、最終の受信から経った設備が 1 つでもあれば `STALE`（`staleEquipment` に、その設備を返す）、データのある設備がなければ `NONE`            | `dashboard-query.ts`                               |
+| 手動のみの運用（#202） | 選んだ設備（ハウスなら配下のロボット・センサー）に、自動取り込みの対象（同じ種別の取り込み元が有効で、取得先がある。HTTP は `sourceFilePath`。モック・S3 は種別が合えば対象。`isAutoIngestionTarget`）が 1 つもなければ `MANUAL`（警告しない。`lastManualInputAt` に、最終の手動入力〔論理削除を除く受信日時の最大。`receivedAtByEquipment` の `manualOnly`〕を返す）。「データ取得停止」の通知も、対象でない設備は対象にしない | `dashboard-query.ts`・`auto-target.ts` |
 | パスワードのハッシュ   | `scrypt`（ソルト 16 バイト、鍵 64 バイト）。形式 `scrypt$<salt>$<hash>`。比較は `timingSafeEqual`                                                              | `password-hasher.ts`                               |
 | ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、窓（既定 15 分。`LOGIN_FAILURE_WINDOW_MINUTES`）の中で、上限（既定 5 回。`LOGIN_FAILURE_LIMIT`）に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
 | 評価の単位             | ハウス＝ハウスと配下の観測値をまとめて評価。ロボット・センサー＝その設備のみ                                                                                   | `scope.ts`                                         |
@@ -2701,16 +2702,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #201 の PR 3 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #202 の後）
 
-計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（147 ファイル・3217 件成功・2 件スキップ）。
+計測対象は 292 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3233 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.15% | 7,700／7,766 | 95% 以上 |
-| 文   | 99.16% | 7,964／8,031 | 95% 以上 |
-| 関数 | 99.31% | 2,321／2,337 | 95% 以上 |
-| 分岐 | 95.38% | 4,893／5,130 | 95% 以上 |
+| 行   | 99.15% | 7,712／7,778 | 95% 以上 |
+| 文   | 99.16% | 7,977／8,044 | 95% 以上 |
+| 関数 | 99.31% | 2,326／2,342 | 95% 以上 |
+| 分岐 | 95.41% | 4,933／5,170 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2718,22 +2719,22 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
-| `src/backend/application` | 99.41% | 99.36% | 99.27% | 95.93% |
-| `src/backend/infrastructure` | 99.04% | 99.08% | 100.0% | 94.62% |
+| `src/backend/application` | 99.41% | 99.37% | 99.28% | 95.78% |
+| `src/backend/infrastructure` | 99.05% | 99.08% | 100.0% | 94.82% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.74% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
-| `src/frontend` | 99.14% | 99.17% | 99.29% | 95.37% |
+| `src/frontend` | 99.14% | 99.17% | 99.29% | 95.39% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`ingestion-admin-service.ts`（88.88%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`ingestion-admin-service.ts`（88.88%）・`clear-bucket.ts`（89.47%）
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・814 件（UC ごと 25 ファイル・804 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・815 件（UC ごと 25 ファイル・805 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #201 の PR 3 の後）: 147 ファイル・**3217 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3217 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #202 の後）: 148 ファイル・**3233 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3233 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

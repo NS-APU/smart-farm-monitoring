@@ -384,6 +384,35 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(await empty.observations.latestReceivedAt()).toBeNull();
     });
 
+    it('設備ごとの最終の手動入力の日時（Issue #202）: 手動入力（論理削除を除く）だけの、受信日時の最大。自動取り込みは含めない。なければ、含めない', async () => {
+      const repositories = await seeded();
+      await repositories.observations.saveMany([
+        observation({
+          itemKey: 'failureCount',
+          value: 2,
+          source: 'MANUAL',
+          observedAt: '2026-10-09T02:35:00.000Z',
+          receivedAt: '2026-10-09T02:36:00.000Z',
+        }),
+        observation({
+          itemKey: 'failureCount',
+          value: 3,
+          source: 'MANUAL',
+          observedAt: '2026-10-09T05:00:00.000Z',
+          receivedAt: '2026-10-09T05:00:00.000Z',
+          isDeleted: true,
+        }),
+      ]);
+
+      const manual = await repositories.observations.receivedAtByEquipment([ROBOT_ID, SENSOR_ID], {
+        manualOnly: true,
+      });
+
+      expect(Object.fromEntries(manual)).toEqual({
+        [ROBOT_ID]: new Date('2026-10-09T02:36:00.000Z'),
+      });
+    });
+
     it('設備ごとの最終のデータ取得日時（Issue #198）: データのある設備だけを返す。自動取り込みのみ（手動入力・論理削除を除く）と、全体を、選べる', async () => {
       const repositories = await seeded();
 

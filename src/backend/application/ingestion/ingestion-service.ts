@@ -51,6 +51,7 @@ import type { Repositories } from '../ports/repositories.ts';
 import { errorLogFields } from '../error-fields.ts';
 import type { AppSettings } from '../settings.ts';
 import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
+import { isAutoIngestionTarget } from './auto-target.ts';
 import { sourceDisplayName, type IngestionSettings } from './ingestion-settings.ts';
 
 /** 通知に載せる設備の名前の数（それを超えた分は、「ほか N 件」）。 */
@@ -890,11 +891,12 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     if (sources.length === 0) {
       return;
     }
+    // 自動取り込みの対象でない設備（取得先がない。手動のみの運用）は、対象にしない（Issue #202）
     const targets = equipment.filter(
       (item) =>
         !item.isDeleted &&
-        sources.some((source) => source.kind === item.equipmentType) &&
-        item.equipmentType !== 'FACILITY',
+        item.equipmentType !== 'FACILITY' &&
+        isAutoIngestionTarget(item, sources),
     );
     const receivedAt = await repositories.observations.receivedAtByEquipment(
       targets.map((item) => item.equipmentId),

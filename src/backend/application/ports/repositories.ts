@@ -113,15 +113,16 @@ export interface ObservationRepository {
   /** 最終のデータ取得日時（受信日時の最大。設備を指定した場合はその設備のみ）。1件もなければ null。 */
   latestReceivedAt(
     equipmentIds?: readonly EquipmentId[],
-    options?: { readonly autoImportOnly?: boolean },
+    options?: { readonly autoImportOnly?: boolean; readonly manualOnly?: boolean },
   ): Promise<Date | null>;
   /**
    * 設備ごとの最終のデータ取得日時（設備 ID → 受信日時の最大）。データのない設備は含めない。`autoImportOnly` は、自動取り込みのみ
    * （手動入力・論理削除を除く）。設備ごとの「古い」の基準の判定に使う（Issue #198。ADR-0016 の D-12）。
+   * `manualOnly` は、手動入力のみ（論理削除を除く。最終の手動入力の日時。手動のみの運用の表示に使う。Issue #202）。
    */
   receivedAtByEquipment(
     equipmentIds: readonly EquipmentId[],
-    options?: { readonly autoImportOnly?: boolean },
+    options?: { readonly autoImportOnly?: boolean; readonly manualOnly?: boolean },
   ): Promise<ReadonlyMap<EquipmentId, Date>>;
 }
 

@@ -12,7 +12,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { setEquipmentInterval } from './support/app.ts';
+import { apiOk, setEquipmentInterval } from './support/app.ts';
 import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
 import { dashboardCard as card, openDashboard } from './support/pages.ts';
 import {
@@ -544,6 +544,66 @@ test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低
     await page.getByLabel('対象の設備').selectOption({ label: 'ハウス1' });
     await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
     await expect(warning).toHaveCount(0);
+  });
+});
+
+test.describe('手動のみの運用（自動取り込みが有効でない間。Issue #202）', () => {
+  test('取り込み設定で、ロボット・センサーの自動取り込みを無効にすると、「古い」「未取得」の警告を出さず、ヘッダーに「最終の手動入力」を示す。自動取り込みを有効に戻すと、従来どおり', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    // 手動入力のデータ（30 分前に入力）と、古い自動取り込みのデータ
+    const at = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
+    await seed(request, {
+      observations: [
+        { equipmentId: SENSOR, itemKey: 'temperatureCelsius', value: 20, observedAt: at(600) },
+        {
+          equipmentId: SENSOR,
+          itemKey: 'temperatureCelsius',
+          value: 21,
+          observedAt: at(30),
+          source: 'MANUAL',
+        },
+      ],
+    });
+    const setEnabled = (isEnabled: boolean) =>
+      apiOk(request, 'PUT', '/ingestion/settings', {
+        sources: ['robot', 'environment-sensor'].map((sourceId) => ({
+          sourceId,
+          connectionRef: 'FILE_SERVER_MOCK',
+          isEnabled,
+        })),
+      });
+
+    // 自動取り込みが有効（既定）: 自動取り込みのデータが古いため、警告する
+    await openDashboard(page);
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'データが古くなっています' }),
+    ).toBeVisible();
+
+    // 手動のみの運用（自動取り込みを無効）: 警告せず、最終の手動入力を示す
+    await setEnabled(false);
+    await openDashboard(page);
+    await expect(page.getByTestId('freshness-manual')).toContainText('自動取り込みが有効でない');
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'データが古くなっています' }),
+    ).toHaveCount(0);
+    await expect(page.getByText('データがまだ取り込まれていません')).toHaveCount(0);
+    await expect(page.locator('.header-data-status')).toContainText('最終の手動入力');
+    await expect(page.locator('.header-data-status')).toContainText('2026/10/09 11:30');
+    await expect(page.locator('.header-data-status')).not.toContainText('古い');
+    await expect(page.locator('.header-data-status')).not.toContainText('未取得');
+    await shot(page, testInfo, 'dashboard-manual-only');
+
+    // 自動取り込みを有効に戻すと、従来どおり
+    await setEnabled(true);
+    await openDashboard(page);
+    await expect(page.getByTestId('freshness-manual')).toHaveCount(0);
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'データが古くなっています' }),
+    ).toBeVisible();
+    await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
   });
 });
 
