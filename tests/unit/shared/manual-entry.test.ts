@@ -57,6 +57,13 @@ describe('describeRange（入力できる値の説明）', () => {
     );
   });
 
+  it('環境情報の項目は、データとして許容する範囲（上限・下限）を説明する（D-10）', () => {
+    expect(describeRange(item('temperatureCelsius'))).toBe('-50以上100以下の数値');
+    expect(describeRange(item('humidityPercent'))).toBe('0以上100以下の数値');
+    expect(describeRange(item('illuminanceLux'))).toBe('0以上200000以下の数値');
+    expect(describeRange(item('co2Ppm'))).toBe('0以上10000以下の数値');
+  });
+
   it('範囲がなければ、型だけを説明する', () => {
     const full = item('operationStepCount');
     const withoutMin: ItemDefinition = {
@@ -142,6 +149,32 @@ describe('validateManualEntry（手動入力の検証）', () => {
     const errors = validateManualEntry(draft({ items: { failureCount: -1 } }), NOW);
     expect(names(errors)).toEqual(['items.failureCount']);
     expect(validateManualEntry(draft({ items: { failureCount: 'abc' } }), NOW)).toHaveLength(1);
+  });
+
+  describe('環境情報の値の範囲（D-10。範囲外は保存できない。境界値は有効）', () => {
+    const environment = (items: Record<string, number>) =>
+      validateManualEntry(draft({ category: 'ENVIRONMENT', items }), NOW);
+
+    it.each([
+      ['temperatureCelsius', -50, 100],
+      ['humidityPercent', 0, 100],
+      ['illuminanceLux', 0, 200_000],
+      ['co2Ppm', 0, 10_000],
+    ] as const)('%s: 下限（%d）・上限（%d）は有効', (key, min, max) => {
+      expect(environment({ [key]: min })).toEqual([]);
+      expect(environment({ [key]: max })).toEqual([]);
+    });
+
+    it.each([
+      ['temperatureCelsius', -50.1, '温度は-50以上100以下の数値で指定してください'],
+      ['temperatureCelsius', 100.1, '温度は-50以上100以下の数値で指定してください'],
+      ['illuminanceLux', -1, '照度は0以上200000以下の数値で指定してください'],
+      ['illuminanceLux', 200_001, '照度は0以上200000以下の数値で指定してください'],
+      ['co2Ppm', -1, 'CO2濃度は0以上10000以下の数値で指定してください'],
+      ['co2Ppm', 10_001, 'CO2濃度は0以上10000以下の数値で指定してください'],
+    ] as const)('%s: 範囲外の値（%d）は、範囲を示すエラー', (key, value, message) => {
+      expect(environment({ [key]: value })).toEqual([{ name: `items.${key}`, message }]);
+    });
   });
 
   describe('満足度（D-18: 9観点すべてが必須）', () => {

@@ -10,7 +10,7 @@
  *   代替フロー  自動取り込みと手動入力で同じ項目・時刻の値が重なる場合の扱い（暫定: 手動入力を評価に使い、両方を保持する）
  *               入力内容が不正な場合は、UC-06 と同様にエラーを表示する
  *
- * 値の同値分割: カテゴリ（手動入力できる7カテゴリ）、設備の種別（ハウス・ロボット・センサー）、環境の値の範囲（湿度 0〜100 の境界、
+ * 値の同値分割: カテゴリ（手動入力できる7カテゴリ）、設備の種別（ハウス・ロボット・センサー）、環境の値の範囲（湿度 0〜100・温度 −50〜100・照度 0〜200,000・CO2 濃度 0〜10,000 の境界、
  * 温度の正常・注意・異常）、満足度（1〜5 の境界）、自動取り込みとの重なり（同じ時刻・別の時刻）。
  * 関連するユースケース: UC-20（取得元の区別を一覧で確認）、UC-10（保存後の通知）、UC-01（評価の反映）。
  */
@@ -432,6 +432,104 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     });
   }
 
+  // 温度・照度・CO2 濃度の範囲（D-10。データとして許容する範囲。範囲外は保存できない）
+  const environmentRanges: readonly {
+    name: string;
+    label: string;
+    key: string;
+    value: string;
+    ok: boolean;
+    message: string;
+  }[] = [
+    {
+      name: '温度 -50.1℃（下限の外）',
+      label: '温度',
+      key: 'temperatureCelsius',
+      value: '-50.1',
+      ok: false,
+      message: '温度は-50以上100以下の数値で指定してください',
+    },
+    {
+      name: '温度 -50℃（下限）',
+      label: '温度',
+      key: 'temperatureCelsius',
+      value: '-50',
+      ok: true,
+      message: '',
+    },
+    {
+      name: '温度 100℃（上限）',
+      label: '温度',
+      key: 'temperatureCelsius',
+      value: '100',
+      ok: true,
+      message: '',
+    },
+    {
+      name: '温度 100.1℃（上限の外）',
+      label: '温度',
+      key: 'temperatureCelsius',
+      value: '100.1',
+      ok: false,
+      message: '温度は-50以上100以下の数値で指定してください',
+    },
+    {
+      name: '照度 200000 lx（上限）',
+      label: '照度',
+      key: 'illuminanceLux',
+      value: '200000',
+      ok: true,
+      message: '',
+    },
+    {
+      name: '照度 200001 lx（上限の外）',
+      label: '照度',
+      key: 'illuminanceLux',
+      value: '200001',
+      ok: false,
+      message: '照度は0以上200000以下の数値で指定してください',
+    },
+    {
+      name: 'CO2濃度 10000 ppm（上限）',
+      label: 'CO2濃度',
+      key: 'co2Ppm',
+      value: '10000',
+      ok: true,
+      message: '',
+    },
+    {
+      name: 'CO2濃度 10001 ppm（上限の外）',
+      label: 'CO2濃度',
+      key: 'co2Ppm',
+      value: '10001',
+      ok: false,
+      message: 'CO2濃度は0以上10000以下の数値で指定してください',
+    },
+  ];
+
+  for (const item of environmentRanges) {
+    test(`${item.name}は${item.ok ? '保存できる' : 'エラーになる（範囲を示す）'}`, async ({
+      page,
+      request,
+    }) => {
+      await prepareApp(request);
+      await openEntry(page);
+
+      await submit(page, {
+        equipment: SENSOR_ID,
+        category: 'ENVIRONMENT',
+        items: { [item.label]: item.value },
+      });
+
+      if (item.ok) {
+        await expect(page.getByTestId('entry-result')).toBeVisible();
+      } else {
+        await expect(fieldError(page, `items.${item.key}`)).toHaveText(item.message);
+        await expect(page.getByTestId('entry-result')).toHaveCount(0);
+      }
+    });
+  }
+
   // 満足度は、スターで選ぶ（1〜5 以外は、画面では選べない）。範囲外・整数でない値は、API が拒否する（D-18）
   for (const value of [1, 2, 3, 4, 5]) {
     test(`満足度 ${String(value)}（スター）は保存できる（1〜5の整数。他の8観点は 3）`, async ({
@@ -585,7 +683,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     });
 
     await expect(fieldError(page, 'items.illuminanceLux')).toHaveText(
-      '照度は0以上の数値で指定してください',
+      '照度は0以上200000以下の数値で指定してください',
     );
     await expect(fieldError(page, 'items.co2Ppm')).toBeVisible();
     await expect(fieldError(page, 'items.temperatureCelsius')).toHaveCount(0);

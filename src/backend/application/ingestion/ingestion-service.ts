@@ -354,6 +354,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
           observedAt,
           receivedAt,
           lateAfterMinutes: settings.lateAfterMinutes,
+          futureToleranceMinutes: settings.futureToleranceMinutes,
           statusCodes,
         });
         if (isRejectedQuality(verdict.quality)) {

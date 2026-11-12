@@ -19,8 +19,10 @@ import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
 import {
   DEFAULT_FEDERATION_EXPIRY_DAYS,
   MAX_FEDERATION_EXPIRY_DAYS,
+  MAX_FUTURE_TOLERANCE_MINUTES,
   MIN_FEDERATION_EXPIRY_DAYS,
 } from '../application/settings.ts';
+import { DEFAULT_FUTURE_TOLERANCE_MINUTES } from '../domain/observation-quality.ts';
 import {
   LOGIN_FAILURE_LIMIT,
   LOGIN_FAILURE_WINDOW_MINUTES,
@@ -125,6 +127,13 @@ const EnvSchema = z.object({
     .default(DEFAULT_FEDERATION_EXPIRY_DAYS),
   /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知する。ADR-0019 の D-37）。 */
   INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(true),
+  /** 取り込みの計測日時の未来の許容（分。既定 5 分。受信より、これを超えて先の計測日時は、不正。手動入力は、5 分固定。D-13）。 */
+  INGESTION_FUTURE_TOLERANCE_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_FUTURE_TOLERANCE_MINUTES)
+    .default(DEFAULT_FUTURE_TOLERANCE_MINUTES),
   /** 新しいデータが届かない取り込み元を、「データ取得の停止」として通知するか（V-018。暫定仕様）。 */
   INGESTION_STOP_NOTIFICATION_ENABLED: BooleanFromString.default(true),
   /** Web Push の購読に使う公開鍵（VAPID）。未指定なら、Web Push の購読を受け付けない（画面内の通知のみ）。 */
@@ -255,6 +264,7 @@ export interface AppConfig {
   readonly federationExpiryDays: number;
   readonly ingestionStopNotificationEnabled: boolean;
   readonly ingestionFileFailureNotificationEnabled: boolean;
+  readonly ingestionFutureToleranceMinutes: number;
   readonly webPushPublicKey: string | undefined;
   /** Web Push の配信の方式（dummy: 記録だけ／vapid: 実際に送る）。 */
   readonly webPushDelivery: 'dummy' | 'vapid';
@@ -477,6 +487,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     federationExpiryDays: parsed.FEDERATION_EXPIRY_DAYS,
     ingestionStopNotificationEnabled: parsed.INGESTION_STOP_NOTIFICATION_ENABLED,
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
+    ingestionFutureToleranceMinutes: parsed.INGESTION_FUTURE_TOLERANCE_MINUTES,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     webPushDelivery: parsed.WEB_PUSH_DELIVERY,
     webPushSubject: parsed.WEB_PUSH_SUBJECT,

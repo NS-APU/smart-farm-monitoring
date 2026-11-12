@@ -2,6 +2,8 @@
  * データ項目のカタログ（data-dictionary.md 4〜5章）。
  * 項目の名前・型・単位・取得元を1か所に定義し、検証・集計・画面の表示で共有する。
  * 状態は「仮」（取り込みの仕様が未提供。Q-001, Q-003, Q-004）。確定仕様の提供後に更新する。
+ * 値の範囲（min・max）は、「データとして許容する範囲」（取り込み・手動入力の共通。範囲外は不正にして、評価に使わない。ADR-0016 の D-10）。
+ * 件数・金額・時間・分は、単位・集計期間が決まってから、範囲を足す。
  */
 
 import type { ObservationSource } from './status.ts';
@@ -115,6 +117,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '秒/果実',
     valueType: 'number',
     min: 0,
+    max: 3600,
     aggregation: 'LEVEL',
     origins: AUTO,
   },
@@ -176,6 +179,8 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     label: '温度',
     unit: '℃',
     valueType: 'number',
+    min: -50,
+    max: 100,
     aggregation: 'LEVEL',
     origins: BOTH,
   },
@@ -197,6 +202,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: 'lx',
     valueType: 'number',
     min: 0,
+    max: 200_000,
     aggregation: 'LEVEL',
     origins: BOTH,
   },
@@ -207,6 +213,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: 'ppm',
     valueType: 'number',
     min: 0,
+    max: 10_000,
     aggregation: 'LEVEL',
     origins: BOTH,
   },

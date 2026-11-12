@@ -4,7 +4,10 @@
  */
 
 import type { IngestionIntervalMinutes } from '@smart-farm/shared/constants/status';
-import { DEFAULT_LATE_AFTER_MINUTES } from '../domain/observation-quality.ts';
+import {
+  DEFAULT_FUTURE_TOLERANCE_MINUTES,
+  DEFAULT_LATE_AFTER_MINUTES,
+} from '../domain/observation-quality.ts';
 import {
   DEFAULT_DELIVERY_EXPIRY_MINUTES,
   DEFAULT_RETRY_BASE_MINUTES,
@@ -26,6 +29,8 @@ export interface AppSettings {
     /** 再試行の待ち時間（ミリ秒）の基準。試行ごとに2倍にする。 */
     readonly retryBaseDelayMs: number;
     readonly lateAfterMinutes: number;
+    /** 計測日時の未来の許容（分）。受信より、この分数を超えて先の計測日時は、不正にする（手動入力は、5 分固定。ADR-0016 の D-13）。 */
+    readonly futureToleranceMinutes: number;
     /** ファイルサーバーへの1回の通信（一覧・読み取り・接続テスト）のタイムアウト（ミリ秒）。 */
     readonly ioTimeoutMs: number;
     /** 読み込むファイルの大きさの上限（バイト）。超えたファイルは、読まずに失敗として扱う。 */
@@ -72,6 +77,9 @@ export const DEFAULT_FEDERATION_EXPIRY_DAYS = 30;
 export const MIN_FEDERATION_EXPIRY_DAYS = 1;
 export const MAX_FEDERATION_EXPIRY_DAYS = 365;
 
+/** 取り込みの計測日時の未来の許容（分）の、設定できる上限（時計のずれの許容のため、1 時間まで）。 */
+export const MAX_FUTURE_TOLERANCE_MINUTES = 60;
+
 /** 外部との通信のタイムアウトの既定（ミリ秒）。Lambda の実行時間・ゲートウェイの時間制限より、十分に短くする。 */
 const DEFAULT_IO_TIMEOUT_MS = 30_000;
 /** 読み込むファイルの大きさの上限の既定（10 MiB）。 */
@@ -84,6 +92,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     maxAttempts: 3,
     retryBaseDelayMs: 1000,
     lateAfterMinutes: DEFAULT_LATE_AFTER_MINUTES,
+    futureToleranceMinutes: DEFAULT_FUTURE_TOLERANCE_MINUTES,
     ioTimeoutMs: DEFAULT_IO_TIMEOUT_MS,
     maxFileBytes: DEFAULT_MAX_FILE_BYTES,
     notifyFileFailures: true,
