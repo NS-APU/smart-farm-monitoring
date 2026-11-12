@@ -242,7 +242,12 @@ export interface IngestionRepository {
   ): Promise<IngestedFileRecord | undefined>;
   recordFile(record: IngestedFileRecord): Promise<void>;
   addLog(log: IngestionLog): Promise<void>;
-  listLogs(filter: { readonly sourceId?: string }, page: PageRequest): Promise<Page<IngestionLog>>;
+  /**
+   * 取り込みログを、新しい順に返す（並べ替えは、ない）。絞り込み（Issue #201。ADR-0016 の D-48）:
+   * 取り込み元（`sourceId`）、設備（`equipment`。その設備のログと、`sourceId` を指定すれば、その取り込み元の、設備に結びつかないログ）、
+   * 結果（`SUCCESS`＝成功、`FAILURE`＝失敗。一部成功〔PARTIAL。取り込めなかったものがある〕を含む）、期間（開始日時。両端を含む）。
+   */
+  listLogs(filter: IngestionLogFilter, page: PageRequest): Promise<Page<IngestionLog>>;
   /**
    * 指定したハウスの取り込みの記録（ログの facilities の内訳）を、新しい順に返す（Issue #332。一般ユーザー向け）。
    * ハウスの内訳がないログ（接続の失敗・以前のログなど）は、含めない。ハウスの指定が空なら、空。
@@ -265,6 +270,16 @@ export interface IngestionRepository {
    * 更新する（古い実行で戻さない）。最後の成功・最後にデータが取れた日時は、その実行が、成功・データありのときだけ進める。空の指定は、何もしない。
    */
   recordEquipmentRuns(runs: readonly EquipmentRunRecord[]): Promise<void>;
+}
+
+/** 取り込みログの絞り込み。 */
+export interface IngestionLogFilter {
+  readonly sourceId?: string | undefined;
+  readonly equipment?:
+    { readonly equipmentId: string; readonly sourceId: string | undefined } | undefined;
+  readonly result?: 'SUCCESS' | 'FAILURE' | undefined;
+  readonly from?: Date | undefined;
+  readonly to?: Date | undefined;
 }
 
 /** 設備ごとの、取り込みの最終の実行（Issue #201）。 */

@@ -64,6 +64,17 @@ const fileSortKey = (fileId: string): string => `FILE#${fileId}`;
 const STATE = 'STATE';
 const federationCounter = (status: FederationItem['status']): string => `FED#${status}`;
 
+/** 結果の絞り込み: 成功は SUCCESS。失敗は、FAILURE と、一部成功（PARTIAL）。 */
+function matchesResult(
+  result: 'SUCCESS' | 'PARTIAL' | 'FAILURE',
+  wanted: 'SUCCESS' | 'FAILURE' | undefined,
+): boolean {
+  if (wanted === undefined) {
+    return true;
+  }
+  return wanted === 'SUCCESS' ? result === 'SUCCESS' : result !== 'SUCCESS';
+}
+
 function toDate(value: unknown): Date | null {
   return typeof value === 'number' ? new Date(value) : null;
 }
@@ -73,6 +84,21 @@ export function createIngestionRepository(db: Database): IngestionRepository {
   const files = mainAggregate(db, IngestedFileRecordSchema);
   const logs = mainAggregate(db, IngestionLogSchema);
   const facilityLogs = mainAggregate(db, FacilityIngestionLogSchema);
+
+  /** 設備に結びつかないログ（取り込み元ごと）と、設備ごとのログの、すべてのパーティション。 */
+  async function allLogPartitions(sourceId: string | undefined): Promise<string[]> {
+    const [sources, equipment] = await Promise.all([
+      queryAll(db, table, INGESTION_SOURCES),
+      queryAll(db, table, EQUIPMENT_INGESTION),
+    ]);
+    return [
+      ...sources
+        .map((item) => String(item.sk))
+        .filter((candidate) => sourceId === undefined || candidate === sourceId)
+        .map(logPartition),
+      ...equipment.map((item) => equipmentLogPartition(String(item.sk))),
+    ];
+  }
 
   return {
     async findIngestedFile(sourceId, fileId, contentHash) {
@@ -112,26 +138,36 @@ export function createIngestionRepository(db: Database): IngestionRepository {
       }
     },
     async listLogs(filter, page) {
+      // 設備を指定すれば、その設備のパーティションと、取り込み元のパーティションだけを読む。指定がなければ、
       // 設備に結びつかないログ（取り込み元ごと）と、設備ごとのログを、併合する（設備の一覧は、設備ごとの最終の実行の項目）
-      const [sources, equipment] = await Promise.all([
-        queryAll(db, table, INGESTION_SOURCES),
-        queryAll(db, table, EQUIPMENT_INGESTION),
-      ]);
+      const partitions =
+        filter.equipment === undefined
+          ? await allLogPartitions(filter.sourceId)
+          : [
+              equipmentLogPartition(filter.equipment.equipmentId),
+              ...(filter.equipment.sourceId === undefined
+                ? []
+                : [logPartition(filter.equipment.sourceId)]),
+            ];
       const result = await pageBySortKey(db, {
-        partitions: [
-          ...sources
-            .map((item) => String(item.sk))
-            .filter((sourceId) => filter.sourceId === undefined || sourceId === filter.sourceId)
-            .map(logPartition),
-          ...equipment.map((item) => equipmentLogPartition(String(item.sk))),
-        ],
+        partitions,
         forward: false,
         limit: page.limit,
         cursor: page.cursor,
-        accept:
-          filter.sourceId === undefined
-            ? undefined
-            : (item) => logs.parse(item).sourceId === filter.sourceId,
+        lower: filter.from === undefined ? undefined : instantKey(filter.from.toISOString()),
+        upper:
+          filter.to === undefined ? undefined : upperBoundOf(instantKey(filter.to.toISOString())),
+        accept: (item) => {
+          const log = logs.parse(item);
+          return (
+            (filter.sourceId === undefined || log.sourceId === filter.sourceId) &&
+            matchesResult(log.result, filter.result) &&
+            // 設備のパーティションには、設備のログだけ、取り込み元のパーティションには、設備に結びつかないログだけがある
+            (filter.equipment === undefined ||
+              log.equipmentId === undefined ||
+              log.equipmentId === filter.equipment.equipmentId)
+          );
+        },
       });
       return { items: result.items.map(logs.parse), nextCursor: result.nextCursor };
     },

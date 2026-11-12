@@ -7,6 +7,7 @@ import {
   type FederationItem,
   FederationLogSchema,
   IngestionLogSchema,
+  type IngestionLog,
 } from '@smart-farm/shared/schemas/ingestion';
 import {
   EquipmentIngestionStateSchema,
@@ -15,6 +16,7 @@ import {
 } from '../../../application/ports/records.ts';
 import type {
   FederationRepository,
+  IngestionLogFilter,
   IngestionRepository,
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
@@ -31,6 +33,27 @@ function byNewest(
     right.logId.localeCompare(left.logId) ||
     right.facilityId.localeCompare(left.facilityId)
   );
+}
+
+/** 設備の絞り込み: その設備のログと、（取り込み元を指定すれば）その取り込み元の、設備に結びつかないログ。 */
+function matchesEquipment(log: IngestionLog, equipment: IngestionLogFilter['equipment']): boolean {
+  if (equipment === undefined) {
+    return true;
+  }
+  return log.equipmentId === undefined
+    ? equipment.sourceId !== undefined && log.sourceId === equipment.sourceId
+    : log.equipmentId === equipment.equipmentId;
+}
+
+/** 結果の絞り込み: 成功は SUCCESS。失敗は、FAILURE と、一部成功（PARTIAL）。 */
+function matchesResult(
+  result: IngestionLog['result'],
+  wanted: IngestionLogFilter['result'],
+): boolean {
+  if (wanted === undefined) {
+    return true;
+  }
+  return wanted === 'SUCCESS' ? result === 'SUCCESS' : result !== 'SUCCESS';
 }
 
 export interface LocalIngestionRepository {
@@ -67,6 +90,13 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
       const matched = ingestionLogs
         .values()
         .filter((log) => filter.sourceId === undefined || log.sourceId === filter.sourceId)
+        .filter((log) => matchesEquipment(log, filter.equipment))
+        .filter((log) => matchesResult(log.result, filter.result))
+        .filter(
+          (log) =>
+            (filter.from === undefined || log.startedAt >= filter.from.toISOString()) &&
+            (filter.to === undefined || log.startedAt <= filter.to.toISOString()),
+        )
         .sort(
           (left, right) =>
             right.startedAt.localeCompare(left.startedAt) || right.logId.localeCompare(left.logId),

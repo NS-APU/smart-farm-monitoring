@@ -310,6 +310,19 @@ export const IngestionCredentialStatusSchema = z.object({
 });
 export type IngestionCredentialStatus = z.infer<typeof IngestionCredentialStatusSchema>;
 
+/** 設備ごとの、取り込みの最終の実行（Issue #201）。一度も実行していない設備は、日時・結果が null。 */
+export const EquipmentIngestionStatusSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  name: z.string(),
+  lastStartedAt: IsoDateTimeSchema.nullable(),
+  lastResult: z.enum(INGESTION_RESULTS).nullable(),
+  /** 最後に成功（SUCCESS）した実行の終了日時。 */
+  lastSuccessAt: IsoDateTimeSchema.nullable(),
+  /** 最後に新しいデータ（1 件以上の記録）を取り込んだ実行の終了日時。 */
+  lastDataAt: IsoDateTimeSchema.nullable(),
+});
+export type EquipmentIngestionStatus = z.infer<typeof EquipmentIngestionStatusSchema>;
+
 /** 取り込み元の設定と状況（解釈に使う仕様の版・状態、最終の取得）。認証情報の値は含めない。 */
 export const IngestionSourceStatusSchema = IngestionSourceSchema.extend({
   formatProfile: z.object({
@@ -318,6 +331,8 @@ export const IngestionSourceStatusSchema = IngestionSourceSchema.extend({
   }),
   lastStartedAt: IsoDateTimeSchema.nullable(),
   lastSuccessAt: IsoDateTimeSchema.nullable(),
+  /** その取り込み元の種別の設備ごとの、最終の実行（設備の一覧の順。Issue #201）。 */
+  equipment: z.array(EquipmentIngestionStatusSchema).default([]),
   isRunning: z.boolean(),
   /** 認証情報の状態（設定済み／未設定と更新日時。値は含めない）。 */
   credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
