@@ -20,6 +20,24 @@ function source(overrides: Record<string, unknown> = {}) {
     formatProfile: { versionLabel: 'v0.1', status: 'PROVISIONAL' },
     lastStartedAt: '2026-10-09T02:00:00.000Z',
     lastSuccessAt: '2026-10-09T01:00:00.000Z',
+    equipment: [
+      {
+        equipmentId: 'ROBOT-1',
+        name: '収穫ロボット1',
+        lastStartedAt: '2026-10-09T02:00:00.000Z',
+        lastResult: 'FAILURE',
+        lastSuccessAt: '2026-10-09T01:00:00.000Z',
+        lastDataAt: '2026-10-09T00:30:00.000Z',
+      },
+      {
+        equipmentId: 'ROBOT-2',
+        name: '収穫ロボット2',
+        lastStartedAt: null,
+        lastResult: null,
+        lastSuccessAt: null,
+        lastDataAt: null,
+      },
+    ],
     isRunning: false,
     ...overrides,
   };
@@ -34,9 +52,19 @@ const SETTINGS = {
       isEnabled: false,
       lastStartedAt: null,
       lastSuccessAt: null,
+      equipment: [
+        {
+          equipmentId: 'SENSOR-1',
+          name: '環境センサー1',
+          lastStartedAt: null,
+          lastResult: null,
+          lastSuccessAt: null,
+          lastDataAt: null,
+        },
+      ],
       formatProfile: { versionLabel: 'v1.0', status: 'CONFIRMED' },
     }),
-    source({ sourceId: 'custom-source', isRunning: true }),
+    source({ sourceId: 'custom-source', isRunning: true, equipment: [] }),
   ],
 };
 
@@ -44,6 +72,7 @@ function ingestionLog(overrides: Record<string, unknown> = {}) {
   return {
     logId: 'l-1',
     sourceId: 'robot',
+    equipmentId: 'ROBOT-1',
     startedAt: '2026-10-09T02:00:00.000Z',
     finishedAt: '2026-10-09T02:00:05.000Z',
     result: 'SUCCESS',
@@ -79,6 +108,8 @@ function baseRoutes(extra: Routes = {}): Routes {
             result: 'FAILURE',
             errorMessage: '接続できませんでした',
             sourceId: 'unknown-src',
+            // 設備に結びつかないログ（取り込み元単位）
+            equipmentId: undefined,
           }),
         ],
         nextCursor: null,
@@ -183,7 +214,10 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     const logRows = await screen.findAllByTestId('ingestion-log-row');
     expect(logRows[0]?.getAttribute('data-result')).toBe('SUCCESS');
     expect(logRows[0]?.textContent).toContain('ロボットデータ');
-    expect(logRows[0]?.querySelectorAll('td')[6]?.textContent).toBe('—');
+    // 設備の名前（設備に結びつかないログは、「—」）
+    expect(logRows[0]?.querySelectorAll('td')[2]?.textContent).toBe('収穫ロボット1');
+    expect(logRows[0]?.querySelectorAll('td')[7]?.textContent).toBe('—');
+    expect(logRows[1]?.querySelectorAll('td')[2]?.textContent).toBe('—');
     expect(logRows[1]?.textContent).toContain('unknown-src');
     expect(logRows[1]?.textContent).toContain('接続できませんでした');
 
@@ -208,6 +242,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(labelsOf(logRow)).toEqual([
       '日時',
       '取り込み元',
+      '設備',
       '結果',
       'ファイル数',
       '取得件数',
@@ -499,17 +534,89 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     });
   });
 
-  it('取り込み元でログを絞り込める。クエリに反映する', async () => {
+  it('ログは、設備・結果・期間（日本時間の日付）で絞り込める。API の条件と URL に反映し、1 ページ 20 件', async () => {
     const { calls } = renderApp('/settings/ingestion', baseRoutes());
     await screen.findAllByTestId('ingestion-log-row');
     const section = screen.getByTestId('ingestion-logs');
+    const lastQuery = () => callsOf(calls, 'GET', '/ingestion/logs').at(-1)?.query;
+    expect(lastQuery()?.get('limit')).toBe('20');
 
-    fireEvent.change(within(section).getByLabelText('取り込み元'), { target: { value: 'robot' } });
+    // 設備の選択肢は、取り込み元の設備（設定・状況の応答の、設備ごとの一覧）
+    const equipment = within(section).getByLabelText<HTMLSelectElement>('設備');
+    expect([...equipment.options].map((option) => option.textContent)).toEqual([
+      'すべて',
+      '収穫ロボット1',
+      '収穫ロボット2',
+      '環境センサー1',
+    ]);
+    fireEvent.change(equipment, { target: { value: 'ROBOT-1' } });
+    await waitFor(() => {
+      expect(lastQuery()?.get('equipmentId')).toBe('ROBOT-1');
+    });
+    fireEvent.change(within(section).getByLabelText('結果'), { target: { value: 'FAILURE' } });
+    fireEvent.change(within(section).getByLabelText('期間（開始日）'), {
+      target: { value: '2026-10-09' },
+    });
+    fireEvent.change(within(section).getByLabelText('期間（終了日）'), {
+      target: { value: '2026-10-10' },
+    });
 
     await waitFor(() => {
-      expect(callsOf(calls, 'GET', '/ingestion/logs').at(-1)?.query.get('sourceId')).toBe('robot');
+      expect(lastQuery()?.get('from')).toBe('2026-10-08T15:00:00.000Z');
     });
-    expect(window.location.search).toContain('source=robot');
+    expect(lastQuery()?.get('to')).toBe('2026-10-10T14:59:59.999Z');
+    expect(lastQuery()?.get('equipmentId')).toBe('ROBOT-1');
+    expect(lastQuery()?.get('result')).toBe('FAILURE');
+    expect(lastQuery()?.has('sourceId')).toBe(false);
+    expect(window.location.search).toContain('equipment=ROBOT-1');
+    expect(window.location.search).toContain('result=FAILURE');
+    expect(window.location.search).toContain('from=2026-10-09');
+    expect(window.location.search).toContain('to=2026-10-10');
+  });
+
+  it('絞り込みの条件を変えると、1 ページ目に戻る（次のページのカーソルを引き継がない）', async () => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'GET /ingestion/logs': (request) =>
+          jsonResponse({
+            items: [ingestionLog()],
+            nextCursor: request.query.get('cursor') === null ? 'log-2' : null,
+          }),
+      }),
+    );
+    await screen.findAllByTestId('ingestion-log-row');
+    const section = screen.getByTestId('ingestion-logs');
+    fireEvent.click(within(section).getByRole('button', { name: '次へ' }));
+    await waitFor(() => {
+      expect(within(section).getByTestId('pager-page').textContent).toBe('2');
+    });
+
+    fireEvent.change(within(section).getByLabelText('結果'), { target: { value: 'SUCCESS' } });
+
+    await waitFor(() => {
+      expect(within(section).getByTestId('pager-page').textContent).toBe('1');
+    });
+    const last = callsOf(calls, 'GET', '/ingestion/logs').at(-1)?.query;
+    expect(last?.get('result')).toBe('SUCCESS');
+    expect(last?.has('cursor')).toBe(false);
+  });
+
+  it('取り込み元ごとに、設備ごとの最終の実行（日時・結果・最後にデータが取れた日時）を表示する。一度も実行していない設備は、その旨', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+
+    const robot1 = await screen.findByTestId('equipment-run-ROBOT-1');
+    const robot2 = screen.getByTestId('equipment-run-ROBOT-2');
+
+    expect(within(robot1).getByText('収穫ロボット1')).toBeDefined();
+    expect(robot1.textContent).toContain('失敗');
+    expect(robot1.textContent).toContain('2026/10/09 11:00:00');
+    expect(robot1.textContent).toContain('2026/10/09 09:30:00');
+    expect(robot2.textContent).toContain('まだ実行していません');
+    expect(
+      within(screen.getByTestId('source-environment-sensor')).getByTestId('equipment-run-SENSOR-1')
+        .textContent,
+    ).toContain('まだ実行していません');
   });
 
   it('ログ・連携の記録のページ分割: 次へ・前へで、カーソルを使って移動する', async () => {

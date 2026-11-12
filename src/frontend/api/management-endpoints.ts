@@ -316,7 +316,17 @@ export function runIngestion(api: ApiClient, sourceId: string) {
 
 export function listIngestionLogs(
   api: ApiClient,
-  params: { readonly sourceId?: string; readonly limit?: number; readonly cursor?: string },
+  params: {
+    readonly sourceId?: string;
+    readonly equipmentId?: string;
+    /** 成功（SUCCESS）／失敗（FAILURE。一部成功を含む）。 */
+    readonly result?: 'SUCCESS' | 'FAILURE';
+    /** 開始日時の範囲（両端を含む。日時）。 */
+    readonly from?: string;
+    readonly to?: string;
+    readonly limit?: number;
+    readonly cursor?: string;
+  },
 ) {
   return api.request('/ingestion/logs', {
     query: { ...params },

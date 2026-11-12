@@ -36,10 +36,11 @@ import {
   getIngestionSettings,
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
-import { SelectFilter } from '../components/filter-controls.tsx';
+import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { Field, FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { Icon } from '../components/icon.tsx';
+import { jstDateToIso } from '../components/jst.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
@@ -52,7 +53,8 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { FacilityIngestionView } from './facility-ingestion-view.tsx';
 
 const TEXT = MESSAGES.ingestion;
-const LOG_PAGE_SIZE = 10;
+/** 一覧の 1 ページの件数（共通の一覧のルール。ADR-0016 の D-48）。 */
+const LOG_PAGE_SIZE = 20;
 
 function sourceName(sourceId: string): string {
   const names: Readonly<Record<string, string>> = TEXT.sourceNames;
@@ -279,6 +281,49 @@ function SourceCard(props: SourceCardProps): ReactNode {
           </dd>
         </div>
       </dl>
+      {source.equipment.length === 0 ? null : (
+        <div className="table-scroll">
+          <table
+            className="data-table card-table equipment-runs"
+            aria-label={`${sourceName(source.sourceId)}の${TEXT.equipmentRuns}`}
+          >
+            <thead>
+              <tr>
+                <th scope="col">{TEXT.logEquipment}</th>
+                <th scope="col">{TEXT.lastStarted}</th>
+                <th scope="col">{TEXT.logResult}</th>
+                <th scope="col">{TEXT.equipmentRunData}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {source.equipment.map((item) => (
+                <tr key={item.equipmentId} data-testid={`equipment-run-${item.equipmentId}`}>
+                  <td data-label={TEXT.logEquipment}>{item.name}</td>
+                  <td data-label={TEXT.lastStarted}>
+                    {item.lastStartedAt === null
+                      ? TEXT.neverRun
+                      : formatDateTimeJst(item.lastStartedAt)}
+                  </td>
+                  <td data-label={TEXT.logResult}>
+                    {item.lastResult === null ? (
+                      MESSAGES.common.missingValue
+                    ) : (
+                      <span className={`log-result log-result-${item.lastResult.toLowerCase()}`}>
+                        {TEXT.runResultLabels[item.lastResult]}
+                      </span>
+                    )}
+                  </td>
+                  <td data-label={TEXT.equipmentRunData}>
+                    {item.lastDataAt === null
+                      ? MESSAGES.common.missingValue
+                      : formatDateTimeJst(item.lastDataAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <form
         noValidate
         aria-label={`${sourceName(source.sourceId)}の設定`}
@@ -629,8 +674,10 @@ function SourceCard(props: SourceCardProps): ReactNode {
 function LogTable(props: {
   readonly data: IngestionLogListResponse;
   readonly paging: CursorPaging;
+  /** 設備の識別子 → 名前（設備ごとのログの表示。登録にない設備は、識別子のまま）。 */
+  readonly equipmentNames: ReadonlyMap<string, string>;
 }): ReactNode {
-  const { data, paging } = props;
+  const { data, paging, equipmentNames } = props;
   if (data.items.length === 0) {
     return (
       <p className="state-view" data-testid="ingestion-logs-empty">
@@ -646,6 +693,7 @@ function LogTable(props: {
             <tr>
               <th scope="col">{TEXT.logStarted}</th>
               <th scope="col">{TEXT.logSource}</th>
+              <th scope="col">{TEXT.logEquipment}</th>
               <th scope="col">{TEXT.logResult}</th>
               <th scope="col" className="numeric">
                 {TEXT.logFiles}
@@ -666,6 +714,11 @@ function LogTable(props: {
                   <time dateTime={log.startedAt}>{formatDateTimeJst(log.startedAt)}</time>
                 </td>
                 <td data-label={TEXT.logSource}>{sourceName(log.sourceId)}</td>
+                <td data-label={TEXT.logEquipment}>
+                  {log.equipmentId === undefined
+                    ? MESSAGES.common.missingValue
+                    : (equipmentNames.get(log.equipmentId) ?? log.equipmentId)}
+                </td>
                 <td data-label={TEXT.logResult}>
                   <span className={`log-result log-result-${log.result.toLowerCase()}`}>
                     {TEXT.runResultLabels[log.result]}
@@ -789,21 +842,34 @@ function IngestionContent(): ReactNode {
   const canConfigure = usePermission('ingestion:configure');
   const canRun = usePermission('ingestion:run');
   const query = useQueryParams();
-  const logSource = query.get('source');
+  // ログの絞り込み（設備・結果・期間〔日本時間の日付〕。条件は URL に反映する。Issue #201）
+  const logEquipment = query.get('equipment');
+  const logResultFilter = query.get('result');
+  const logFrom = query.get('from');
+  const logTo = query.get('to');
 
   const fetchSettings = useCallback(() => getIngestionSettings(api), [api]);
   const settings = usePolling(fetchSettings);
 
-  const logPaging = useCursorPaging(`log|${logSource}`);
+  const logPaging = useCursorPaging(
+    ['log', logEquipment, logResultFilter, logFrom, logTo].join('|'),
+  );
   const { cursor: logCursor } = logPaging;
+  const logFromIso = jstDateToIso(logFrom, 'start');
+  const logToIso = jstDateToIso(logTo, 'end');
   const fetchLogs = useCallback(
     () =>
       listIngestionLogs(api, {
-        ...(logSource === '' ? {} : { sourceId: logSource }),
+        ...(logEquipment === '' ? {} : { equipmentId: logEquipment }),
+        ...(logResultFilter === 'SUCCESS' || logResultFilter === 'FAILURE'
+          ? { result: logResultFilter }
+          : {}),
+        ...(logFromIso === null ? {} : { from: logFromIso }),
+        ...(logToIso === null ? {} : { to: logToIso }),
         limit: LOG_PAGE_SIZE,
         ...omitUndefined({ cursor: logCursor }),
       }),
-    [api, logSource, logCursor],
+    [api, logEquipment, logResultFilter, logFromIso, logToIso, logCursor],
   );
   const logs = usePolling(fetchLogs);
 
@@ -828,10 +894,13 @@ function IngestionContent(): ReactNode {
     reloadFederation();
   }, [reloadSettings, reloadLogs, reloadFederation]);
 
-  const sourceOptions = (settings.data?.sources ?? []).map((source) => ({
-    value: source.sourceId,
-    label: sourceName(source.sourceId),
-  }));
+  // 設備の選択肢・名前は、取り込み元ごとの設備（設定・状況の応答）から作る
+  const equipmentNames = new Map(
+    (settings.data?.sources ?? []).flatMap((source) =>
+      source.equipment.map((item) => [item.equipmentId, item.name] as const),
+    ),
+  );
+  const equipmentOptions = [...equipmentNames].map(([value, label]) => ({ value, label }));
 
   return (
     <div className="ingestion-page">
@@ -877,12 +946,40 @@ function IngestionContent(): ReactNode {
         </div>
         <div className="filter-bar">
           <SelectFilter
-            label={TEXT.logSource}
-            value={logSource}
+            label={TEXT.logEquipment}
+            value={logEquipment}
             withAll
-            options={sourceOptions}
+            options={equipmentOptions}
             onChange={(value) => {
-              query.set({ source: value });
+              query.set({ equipment: value });
+            }}
+          />
+          <SelectFilter
+            label={TEXT.logResult}
+            value={logResultFilter}
+            withAll
+            options={[
+              { value: 'SUCCESS', label: TEXT.logResultFilterLabels.SUCCESS },
+              { value: 'FAILURE', label: TEXT.logResultFilterLabels.FAILURE },
+            ]}
+            onChange={(value) => {
+              query.set({ result: value });
+            }}
+          />
+          <InputFilter
+            label={MESSAGES.form.from}
+            type="date"
+            value={logFrom}
+            onChange={(value) => {
+              query.set({ from: value });
+            }}
+          />
+          <InputFilter
+            label={MESSAGES.form.to}
+            type="date"
+            value={logTo}
+            onChange={(value) => {
+              query.set({ to: value });
             }}
           />
         </div>
@@ -891,7 +988,7 @@ function IngestionContent(): ReactNode {
         ) : logs.data === undefined ? (
           <LoadingView />
         ) : (
-          <LogTable data={logs.data} paging={logPaging} />
+          <LogTable data={logs.data} paging={logPaging} equipmentNames={equipmentNames} />
         )}
       </section>
 
