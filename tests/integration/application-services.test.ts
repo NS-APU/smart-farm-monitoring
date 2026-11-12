@@ -62,6 +62,7 @@ describe('判断基準・設備・ステータスコードの参照', () => {
     const tree = await createEquipmentService({
       ...UNUSED_DEPS,
       equipment: repositories.equipment,
+      settings: repositories.settings,
     }).getTree();
 
     expect(tree.facilities.map((entry) => entry.facility.equipmentId)).toEqual([

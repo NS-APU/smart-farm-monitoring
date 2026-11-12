@@ -5,7 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@smart-farm/shared/errors';
-import { toUserId } from '@smart-farm/shared/schemas/common';
+import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
+import { DELETED_EXTERNAL_IDS_KEY } from '../../src/backend/application/equipment/deleted-external-ids.ts';
 import { createIngestionService } from '../../src/backend/application/ingestion/ingestion-service.ts';
 import { createIngestionSettings } from '../../src/backend/application/ingestion/ingestion-settings.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
@@ -15,7 +16,7 @@ import { createSequentialIdGenerator } from '../../src/backend/infrastructure/lo
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { createDefaultFormatProfileRegistry } from '../../src/backend/infrastructure/format-profiles/declarative-profile.ts';
 import { FileSourceUnavailableError } from '../../src/backend/application/ports/file-source-port.ts';
-import { equipmentSet, ROBOT_ID, SENSOR_ID, FACILITY_ID } from '../support/builders.ts';
+import { equipmentSet, must, ROBOT_ID, SENSOR_ID, FACILITY_ID } from '../support/builders.ts';
 import { createTestContext, TEST_NOW, TEST_USER } from '../support/test-context.ts';
 import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
@@ -237,16 +238,98 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(await observationsOf(context)).toHaveLength(0);
   });
 
-  it('削除した設備のデータ上の識別子のデータは、取り込みの対象から外れ、読み取れなかったものとして数える（UC-12）', async () => {
+  it('削除した設備のデータ上の識別子のデータは、取り込みの対象から外れ、「削除済みの設備」として別に数える（棄却数に含めない。UC-12。Issue #231。ADR-0018 の D-28）', async () => {
     const context = await setup();
     await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
     context.placeFixture('robot', 'robot/robot-sample-001.json');
 
     const summary = await context.container.ingestionService.runSource('robot');
 
-    // ファイルの2件のレコードは、どちらも対応する設備がなく、除外される
-    expect(summary).toMatchObject({ recordCount: 0, rejectedCount: 2 });
+    // ファイルの2件のレコードは、どちらも削除済みの設備のもの。保存せず、棄却数にも数えない
+    expect(summary).toMatchObject({ recordCount: 0, rejectedCount: 0, deletedEquipmentCount: 2 });
     expect(await observationsOf(context)).toHaveLength(0);
+    // 削除済みの設備のレコードだけの実行は、取り込みログを増やさない（D-48）
+    expect(
+      (await context.container.repositories.ingestion.listLogs({}, { limit: 10 })).items,
+    ).toEqual([]);
+  });
+
+  it('登録のない識別子のレコードは、これまでどおり、棄却として数える（削除済みの設備と区別する）。削除済みの設備のレコードは、取り込み元単位のログに、別の項目で示す', async () => {
+    const context = await setup();
+    await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
+    context.placeFile(
+      'robot',
+      'mixed.json',
+      JSON.stringify({
+        robotId: 'ROBOT-NEVER-REGISTERED',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount: 1 }],
+      }),
+    );
+    context.placeFixture('robot', 'robot/robot-sample-001.json');
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ rejectedCount: 1, deletedEquipmentCount: 2 });
+    const logs = (await context.container.repositories.ingestion.listLogs({}, { limit: 10 })).items;
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      sourceId: 'robot',
+      rejectedCount: 1,
+      deletedEquipmentCount: 2,
+    });
+    expect(logs[0]?.equipmentId).toBeUndefined();
+  });
+
+  it('削除済みの設備の識別子は、設備の記録が残っていなくても、別に残した一覧で判定する（設備の記録が消えても〔#229〕、判定が変わらない）', async () => {
+    const context = await createTestContext();
+    // ロボットの設備の記録は、ない（ハウスとセンサーだけ）。データ上の識別子は、削除済みの一覧にだけある
+    for (const equipment of equipmentSet()) {
+      if (equipment.equipmentId !== ROBOT_ID) {
+        await context.container.repositories.equipment.save(equipment);
+      }
+    }
+    await context.container.repositories.settings.set(DELETED_EXTERNAL_IDS_KEY, [
+      {
+        externalId: 'ROBOT-SAMPLE-01',
+        equipmentType: 'ROBOT',
+        deletedAt: '2026-10-08T00:00:00.000Z',
+      },
+    ]);
+    context.placeFixture('robot', 'robot/robot-sample-001.json');
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ rejectedCount: 0, deletedEquipmentCount: 2 });
+  });
+
+  it('同じ識別子で、設備を登録し直せば、登録中の設備として取り込む（削除済みの一覧より優先する。D-28: 再登録を許す）', async () => {
+    const context = await setup();
+    await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
+    await context.container.repositories.equipment.save({
+      ...must(equipmentSet().find((item) => item.equipmentId === ROBOT_ID)),
+      equipmentId: toEquipmentId('ROBOT-T9'),
+    });
+    context.placeFixture('robot', 'robot/robot-sample-001.json');
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ rejectedCount: 0, deletedEquipmentCount: 0 });
+    expect(summary.recordCount).toBeGreaterThan(0);
+  });
+
+  it('設備を削除すると、そのデータ上の識別子（種別・削除日時）を、削除済みの一覧に残す。ハウスを削除すれば、配下の設備の識別子も', async () => {
+    const context = await setup();
+
+    await context.container.equipmentService.delete(FACILITY_ID, toUserId(TEST_USER.userId));
+
+    const stored = (await context.container.repositories.settings.get(
+      DELETED_EXTERNAL_IDS_KEY,
+    )) as { externalId: string; equipmentType: string; deletedAt: string }[];
+    expect(stored.map((item) => [item.equipmentType, item.externalId]).sort()).toEqual([
+      ['ROBOT', 'ROBOT-SAMPLE-01'],
+      ['SENSOR', 'SENSOR-SAMPLE-01'],
+    ]);
+    expect(stored.every((item) => item.deletedAt === TEST_NOW.toISOString())).toBe(true);
   });
 
   it('カタログにない項目は、保存せず、読み取れなかったものとして数える', async () => {

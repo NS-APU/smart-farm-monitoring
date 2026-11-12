@@ -513,6 +513,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   });
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
+    settings: repositories.settings,
     audit: auditService,
     evaluation: evaluationService,
     clock,

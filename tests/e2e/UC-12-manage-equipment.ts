@@ -732,7 +732,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(page.getByTestId('no-equipment')).toBeVisible();
   });
 
-  test('削除したロボットのデータ上の識別子のファイルは、取り込みの対象から外れる（除外として数え、観測値は増えない）', async ({
+  test('削除したロボットのデータ上の識別子のファイルは、取り込みの対象から外れる（「削除済みの設備」として別に数え、棄却数に含めない。観測値は増えず、ログも増やさない。Issue #231）', async ({
     page,
     request,
   }) => {
@@ -747,13 +747,14 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
       'after-delete.json',
       robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }]),
     );
-    await runJob(request, 'JB-01');
 
     await goToMenu(page, '取り込み');
-    const robotLog = logRows(page).filter({ hasText: 'ロボット' }).first();
-    await expect(robotLog.locator('td').nth(4)).toHaveText('1'); // 処理したファイル
-    await expect(robotLog.locator('td').nth(5)).toHaveText('0'); // 取り込んだ件数
-    await expect(robotLog.locator('td').nth(6)).toHaveText('1'); // 除外した件数
+    // 削除済みの設備のレコード 1 件は、読み取れなかった記録（棄却）に数えず、別に数える
+    await expect(await runNow(page, 'robot')).toContainText(
+      'ファイル 1 件、取り込み 0 件、読み取れなかった記録 0 件、削除済みの設備の記録 1 件',
+    );
+    // 削除済みの設備のレコードだけの実行は、ログに残さない
+    await expect(logRows(page)).toHaveCount(0);
     await page.goto('/observations');
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       0,

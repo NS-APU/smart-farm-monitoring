@@ -346,7 +346,7 @@ rfp.md 7章の方針（推察して仮決め、根拠を記録、確定後に差
 | `robot-json`（0.2.0。#174 で 0.1.0 から見直し） | `robot`（ロボットデータ） | JSON | ファイル全体で1機体（`robotId`）、`records` の配列。各記録は、`timestamp`（ISO 8601）と項目。数値は、その記録の時間帯の発生量（稼働時間は時間）と推察 | `harvestCount`、`harvestSecondsPerFruit`、`operatingHours`、`standbyHours`、`harvestOperatingHours`、`travelStoppedHours`、`statusCode`（キー名は、データ辞書の識別子と同じ） | ロボットの仕様が未提供（Q-001）。構想時の項目から推察 |
 | `environment-sensor-json`（0.1.0。#174 で、CSV〔`environment-sensor-csv@0.1.0`〕から置き換え） | `environment-sensor` | JSON | ファイル全体で1台のセンサー（`sensorId`）、`records` の配列。各記録は、`timestamp`（ISO 8601）と項目。値のない項目は `null`（欠損） | `temperatureCelsius`、`humidityPercent`、`illuminanceLux`、`co2Ppm`（キー名は、データ辞書の識別子と同じ） | センサーの機種・取得方式が未確定（Q-004）。一般的なログ形式を想定 |
 
-- ファイルの中の設備の識別子（`robotId`・`sensorId`）は、設備の `externalId` に対応づける（data-dictionary.md 2章）。登録がない識別子の記録は、読み取れなかったものとして数える
+- ファイルの中の設備の識別子（`robotId`・`sensorId`）は、設備の `externalId` に対応づける（data-dictionary.md 2章）。登録がない識別子の記録は、読み取れなかったものとして数える。**削除した設備の識別子の記録は、「削除済みの設備」として別に数え、読み取れなかったものに含めない**（`deletedEquipmentCount`。取り込みの結果・取り込み元単位のログ。設備を削除するとき、識別子を、設定 `equipment.deletedExternalIds` に残す。同じ識別子で登録し直せば、登録中が優先。#231）
 - ファイルは、**1 つのファイルを随時更新する方式**（更新のたびに全体が書き換わり、中身は最新の値だけ）。取り込みは、変わった観測値だけを保存・連携に積む（No.17。ADR-0016 の D-08）。先頭の BOM（U+FEFF）は、取り除いて読む。CSV は、扱わない（#174 で削除）。実際の形式の提供後に、必要なら、プロファイルを追加・差し替える
 - 合成データ（`tests/fixtures/file-server/`）: 正常、一部欠損・不正、形式違い（壊れた JSON、構造の違う JSON）。実データは使わない
 

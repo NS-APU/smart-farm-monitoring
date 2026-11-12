@@ -51,6 +51,7 @@ import type { Repositories } from '../ports/repositories.ts';
 import { errorLogFields } from '../error-fields.ts';
 import type { AppSettings } from '../settings.ts';
 import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
+import { listDeletedExternalIds } from '../equipment/deleted-external-ids.ts';
 import { isAutoIngestionTarget } from './auto-target.ts';
 import { sourceDisplayName, type IngestionSettings } from './ingestion-settings.ts';
 
@@ -101,7 +102,7 @@ export interface IngestionService {
 export interface IngestionServiceDeps {
   readonly repositories: Pick<
     Repositories,
-    'equipment' | 'observations' | 'statusCodes' | 'ingestion'
+    'equipment' | 'observations' | 'statusCodes' | 'ingestion' | 'settings'
   >;
   readonly ingestionSettings: IngestionSettings;
   readonly fileSource: FileSourcePort;
@@ -146,6 +147,8 @@ interface FileOutcome {
    * 同じ不正な値が、更新のたびに、ログを増やさないように）。設備ごとのログに使う。
    */
   readonly rejectedByEquipment: ReadonlyMap<EquipmentId, number>;
+  /** 削除済みの設備のレコードの数（棄却数に含めない。Issue #231。ADR-0018 の D-28）。 */
+  readonly deletedEquipmentCount: number;
   /** どの設備にも結びつかない、取り込めなかった記録の数（解釈できない行・登録にない識別子・計測日時の誤り。失敗したファイルの 1 件も含む）。 */
   readonly unlinkedRejected: number;
   /** ハウスごとの結果（ファイルに結びつくハウスだけ。#332）。 */
@@ -168,6 +171,7 @@ function failedOutcome(
     savedByEquipment: new Map(),
     rejectedByEquipment: new Map(),
     unlinkedRejected: rejectedCount,
+    deletedEquipmentCount: 0,
     facilities: failedFacilityIds.map((facilityId) => ({
       facilityId,
       result: 'FAILURE',
@@ -205,6 +209,8 @@ interface EquipmentIndex {
   readonly facilityOf: ReadonlyMap<EquipmentId, string>;
   /** ファイルのパス（設備の sourceFilePath）→ そのファイルの設備のハウス。 */
   readonly facilitiesByFile: ReadonlyMap<string, readonly string[]>;
+  /** 削除済みの設備の、データ上の識別子（登録中の設備にない識別子。Issue #231）。 */
+  readonly deletedExternalIds: ReadonlySet<string>;
   /** ファイルのパス（設備の sourceFilePath）→ そのファイルの設備（取り込みログの設備。Issue #201）。 */
   readonly equipmentByFile: ReadonlyMap<string, readonly EquipmentId[]>;
 }
@@ -307,11 +313,13 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     fileId: string,
     content: string,
     equipmentByExternalId: ReadonlyMap<string, EquipmentId>,
+    deletedExternalIds: ReadonlySet<string>,
     statusCodes: StatusCodeMap,
     receivedAt: Date,
   ): {
     observations: Observation[];
     rejectedCount: number;
+    deletedEquipmentCount: number;
     unlinkedRejected: number;
     itemRejected: Map<EquipmentId, number>;
   } {
@@ -319,9 +327,15 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     const observations: Observation[] = [];
     let rejectedCount = parsed.rejectedCount;
     let unlinkedRejected = parsed.rejectedCount;
+    let deletedEquipmentCount = 0;
     const itemRejected = new Map<EquipmentId, number>();
     for (const record of parsed.records) {
       const equipmentId = equipmentByExternalId.get(record.externalId);
+      // 削除済みの設備のレコードは、保存せず、棄却数にも数えず、別に数える（登録のない識別子は、棄却のまま）
+      if (equipmentId === undefined && deletedExternalIds.has(record.externalId)) {
+        deletedEquipmentCount += 1;
+        continue;
+      }
       const observedAtMs = Date.parse(record.observedAt);
       if (equipmentId === undefined || Number.isNaN(observedAtMs)) {
         rejectedCount += 1;
@@ -361,7 +375,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         });
       }
     }
-    return { observations, rejectedCount, unlinkedRejected, itemRejected };
+    return { observations, rejectedCount, deletedEquipmentCount, unlinkedRejected, itemRejected };
   }
 
   async function loadStatusCodes(): Promise<StatusCodeMap> {
@@ -479,6 +493,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         file.fileId,
         content,
         equipmentByExternalId,
+        equipmentIndex.deletedExternalIds,
         statusCodes,
         fetchedAt,
       );
@@ -529,6 +544,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         savedByEquipment,
         rejectedByEquipment,
         unlinkedRejected: parsed.unlinkedRejected,
+        deletedEquipmentCount: parsed.deletedEquipmentCount,
         facilities: facilityResultsOf(observations, equipmentIndex),
       };
     } catch (error) {
@@ -561,17 +577,22 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     source: IngestionSource,
     profile: FormatProfile,
     startedAt: Date,
-    outcome: Omit<IngestionRunSummary, 'sourceId'> & {
+    outcome: Omit<IngestionRunSummary, 'sourceId' | 'deletedEquipmentCount'> & {
       readonly errorMessage?: string;
       readonly facilities?: readonly FacilityIngestion[];
       /** ログの設備（設備ごとのログ）。なければ、取り込み元単位のログ。 */
       readonly equipmentId?: EquipmentId;
+      /** 削除済みの設備のレコードの数（取り込み元単位のログだけ。0 は持たない）。 */
+      readonly deletedEquipmentCount?: number;
     },
   ): Promise<void> {
     await repositories.ingestion.addLog({
       logId: ids.next(),
       sourceId: source.sourceId,
       ...(outcome.equipmentId === undefined ? {} : { equipmentId: outcome.equipmentId }),
+      ...(outcome.deletedEquipmentCount === undefined || outcome.deletedEquipmentCount === 0
+        ? {}
+        : { deletedEquipmentCount: outcome.deletedEquipmentCount }),
       startedAt: startedAt.toISOString(),
       finishedAt: clock.now().toISOString(),
       result: outcome.result,
@@ -600,7 +621,10 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     readonly perEquipment: ReadonlyMap<EquipmentId, Tally>;
     readonly unlinked: Tally;
     readonly unlinkedFacilities: readonly FacilityIngestion[];
+    /** 削除済みの設備のレコードの数（この実行のすべてのファイルの合計）。 */
+    readonly deletedEquipmentCount: number;
   } {
+    let deletedEquipmentCount = 0;
     const perEquipment = new Map<EquipmentId, Tally>();
     const unlinked = emptyTally();
     const unlinkedFacilities: FacilityIngestion[] = [];
@@ -613,6 +637,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       if (outcome === null) {
         continue;
       }
+      deletedEquipmentCount += outcome.deletedEquipmentCount;
       const owners = equipmentIndex.equipmentByFile.get(outcome.fileId) ?? [];
       const owner = owners.length === 1 ? owners[0] : undefined;
       const involved = new Set([
@@ -653,7 +678,12 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         }
       }
     }
-    return { perEquipment, unlinked, unlinkedFacilities: mergeFacilities(unlinkedFacilities) };
+    return {
+      perEquipment,
+      unlinked,
+      unlinkedFacilities: mergeFacilities(unlinkedFacilities),
+      deletedEquipmentCount,
+    };
   }
 
   /**
@@ -704,6 +734,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         filesProcessed: unlinked.filesProcessed,
         recordCount: 0,
         rejectedCount: unlinked.rejectedCount,
+        deletedEquipmentCount: attribution.deletedEquipmentCount,
         attempts,
         ...(unlinked.failedFiles > 0
           ? { errorMessage: `${String(unlinked.failedFiles)}件のファイルを取り込めませんでした` }
@@ -759,6 +790,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       filesProcessed: 0,
       recordCount: 0,
       rejectedCount: 0,
+      deletedEquipmentCount: 0,
       attempts: listing.attempts,
     };
     await writeLog(source, profile, startedAt, { ...summary, errorMessage: reason });
@@ -776,8 +808,16 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     const facilitiesByFile = new Map<string, string[]>();
     const equipmentByFile = new Map<string, EquipmentId[]>();
     const members: Equipment[] = [];
-    for (const equipment of await repositories.equipment.list()) {
+    const deletedExternalIds = new Set<string>();
+    for (const equipment of await repositories.equipment.list({ includeDeleted: true })) {
       if (equipment.equipmentType !== equipmentType) {
+        continue;
+      }
+      if (equipment.isDeleted) {
+        // 削除済みの設備（記録が残っているもの）のデータ上の識別子
+        if (equipment.externalId !== undefined) {
+          deletedExternalIds.add(equipment.externalId);
+        }
         continue;
       }
       members.push(equipment);
@@ -799,13 +839,30 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         ]);
       }
     }
-    return { members, byExternalId, facilityOf, facilitiesByFile, equipmentByFile };
+    // 設備の記録が消えた（#229）あとも判定できるよう、削除のときに別に残した識別子も、加える
+    for (const entry of await listDeletedExternalIds(repositories.settings)) {
+      if (entry.equipmentType === equipmentType) {
+        deletedExternalIds.add(entry.externalId);
+      }
+    }
+    // 同じ識別子で、登録し直した設備（登録中）は、削除済みとして扱わない（D-28: 再登録を許す）
+    for (const externalId of byExternalId.keys()) {
+      deletedExternalIds.delete(externalId);
+    }
+    return {
+      members,
+      byExternalId,
+      deletedExternalIds,
+      facilityOf,
+      facilitiesByFile,
+      equipmentByFile,
+    };
   }
 
   /** ファイルごとの結果（取り込み済みで対象外の null を除く）を、件数に集計する。 */
   function tallyOutcomes(outcomes: readonly (FileOutcome | null)[]): Pick<
     IngestionRunSummary,
-    'filesProcessed' | 'recordCount' | 'rejectedCount'
+    'filesProcessed' | 'recordCount' | 'rejectedCount' | 'deletedEquipmentCount'
   > & {
     readonly failedFiles: number;
     /** 最初に失敗したファイルの理由（通知の文言に使う）。 */
@@ -820,6 +877,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     let filesProcessed = 0;
     let recordCount = 0;
     let rejectedCount = 0;
+    let deletedEquipmentCount = 0;
     let failedFiles = 0;
     let firstFailureKind: FailureKind | undefined;
     for (const outcome of outcomes) {
@@ -829,6 +887,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       filesProcessed += 1;
       recordCount += outcome.recordCount;
       rejectedCount += outcome.rejectedCount;
+      deletedEquipmentCount += outcome.deletedEquipmentCount;
       failedFiles += outcome.failed ? 1 : 0;
       firstFailureKind ??= outcome.failureKind;
       for (const equipmentId of outcome.equipmentIds) {
@@ -840,6 +899,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       filesProcessed,
       recordCount,
       rejectedCount,
+      deletedEquipmentCount,
       failedFiles,
       firstFailureKind,
       affectedEquipmentIds: [...affected],

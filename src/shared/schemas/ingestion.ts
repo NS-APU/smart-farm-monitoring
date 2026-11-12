@@ -178,6 +178,11 @@ export const IngestionLogSchema = z.object({
   filesProcessed: z.number().int().nonnegative(),
   recordCount: z.number().int().nonnegative(),
   rejectedCount: z.number().int().nonnegative(),
+  /**
+   * 削除済みの設備のレコードの数（棄却数に含めない。Issue #231。ADR-0018 の D-28）。取り込み元単位のログにだけ、ある場合に持つ
+   * （削除済みの設備のレコードだけの実行は、ログを残さない）。以前のログは、持たない。
+   */
+  deletedEquipmentCount: z.number().int().positive().optional(),
   attempts: z.number().int().positive(),
   formatProfileVersion: z.string().optional(),
   /** 失敗の内容。秘密情報・内部情報を含めない。 */
@@ -353,6 +358,8 @@ export const IngestionRunResponseSchema = z.object({
   filesProcessed: z.number().int().nonnegative(),
   recordCount: z.number().int().nonnegative(),
   rejectedCount: z.number().int().nonnegative(),
+  /** 削除済みの設備のレコードの数（棄却数に含めない。Issue #231）。 */
+  deletedEquipmentCount: z.number().int().nonnegative().default(0),
   attempts: z.number().int().positive(),
 });
 export type IngestionRunResponse = z.infer<typeof IngestionRunResponseSchema>;

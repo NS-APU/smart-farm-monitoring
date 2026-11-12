@@ -2354,7 +2354,7 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 **取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。接続方式 HTTP は、間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。モック・S3 は、設備のどれかの間隔が来たら、ファイル全体（最短の間隔で動く）。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 
-**対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。
+**対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。ただし、**削除した設備の識別子**（設備の記録が残っている削除済みの設備と、削除のときに設定 `equipment.deletedExternalIds` に残した識別子。登録中の設備にある識別子は除く）の記録は、「削除済みの設備」として別に数え（`deletedEquipmentCount`）、保存せず、拒否にも数えない（#231。ADR-0018 の D-28）。取り込みの結果と、取り込み元単位のログ（`IngestionLog.deletedEquipmentCount`。削除済みの設備のレコードだけの実行は、ログを残さない）に持つ。
 
 **FormatProfile の解釈**: JSON は、`recordsPath` の配列と `equipmentIdPath` の設備識別子、記録ごとの `timestampField`（先頭の BOM は取り除く）。CSV は、扱わない（#174 で削除）。構造が仕様と異なるファイル全体は `FormatError`、読み取れない記録は拒否の件数に数える。**取り込みは、変わった観測値だけを保存・連携に積み**（同じ一意キーで値と品質が同じなら触らず、受信日時もそのまま）、**更新日時が 1 秒以内のファイルは次の周期に回す**（ADR-0016 の D-08。#174・#199）。
 
@@ -2702,16 +2702,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #202 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 292 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3233 件成功・2 件スキップ）。
+計測対象は 293 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3238 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.15% | 7,712／7,778 | 95% 以上 |
-| 文   | 99.16% | 7,977／8,044 | 95% 以上 |
-| 関数 | 99.31% | 2,326／2,342 | 95% 以上 |
-| 分岐 | 95.41% | 4,933／5,170 | 95% 以上 |
+| 行   | 99.15% | 7,744／7,810 | 95% 以上 |
+| 文   | 99.17% | 8,009／8,076 | 95% 以上 |
+| 関数 | 99.31% | 2,329／2,345 | 95% 以上 |
+| 分岐 | 95.4% | 4,959／5,198 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2719,11 +2719,11 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
-| `src/backend/application` | 99.41% | 99.37% | 99.28% | 95.78% |
+| `src/backend/application` | 99.42% | 99.38% | 99.29% | 95.68% |
 | `src/backend/infrastructure` | 99.05% | 99.08% | 100.0% | 94.82% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.74% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
-| `src/frontend` | 99.14% | 99.17% | 99.29% | 95.39% |
+| `src/frontend` | 99.14% | 99.17% | 99.29% | 95.41% |
 
 分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`ingestion-admin-service.ts`（88.88%）・`clear-bucket.ts`（89.47%）
 
@@ -2734,7 +2734,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #202 の後）: 148 ファイル・**3233 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3233 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3238 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3238 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

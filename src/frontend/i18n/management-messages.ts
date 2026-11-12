@@ -378,8 +378,12 @@ export const MANAGEMENT_MESSAGES = {
     running: '取得中…',
     runDone: '取得しました',
     runResultLabels: { SUCCESS: '成功', PARTIAL: '一部成功', FAILURE: '失敗' },
-    runSummary: (files: number, records: number, rejected: number) =>
-      `ファイル ${String(files)} 件、取り込み ${String(records)} 件、読み取れなかった記録 ${String(rejected)} 件`,
+    runSummary: (files: number, records: number, rejected: number, deletedEquipment = 0) =>
+      `ファイル ${String(files)} 件、取り込み ${String(records)} 件、読み取れなかった記録 ${String(rejected)} 件${
+        deletedEquipment > 0 ? `、削除済みの設備の記録 ${String(deletedEquipment)} 件` : ''
+      }`,
+    /** 削除した設備のレコードの数（棄却数に含めない。Issue #231）。 */
+    logDeleted: '削除済みの設備',
     isRunning: '実行中',
     logs: '取り込みのログ',
     logSource: '取り込み元',

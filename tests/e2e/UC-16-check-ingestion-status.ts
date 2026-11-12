@@ -97,6 +97,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
       'ファイル数',
       '取得件数',
       '読み取れなかった数',
+      '削除済みの設備',
       'エラー内容',
     ]);
     await expect(logRows(page)).toHaveCount(2);
@@ -110,7 +111,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(logRows(page).nth(1)).toContainText('成功');
     await expect(logRows(page).nth(1).locator('td').nth(4)).toHaveText('1');
     await expect(logRows(page).nth(1).locator('td').nth(5)).toHaveText('14');
-    await expect(logRows(page).nth(1).locator('td').nth(7)).toHaveText('—');
+    await expect(logRows(page).nth(1).locator('td').nth(8)).toHaveText('—');
     // 取り込み元ごとの、最終の成功日時
     await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).toHaveText(
       '2026/10/09 12:00:00',
@@ -269,7 +270,7 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       await expect(row.locator('td').nth(4)).toHaveText(item.files);
       await expect(row.locator('td').nth(5)).toHaveText(item.records);
       await expect(row.locator('td').nth(6)).toHaveText(item.rejected);
-      await expect(row.locator('td').nth(7)).toHaveText(item.error);
+      await expect(row.locator('td').nth(8)).toHaveText(item.error);
     });
   }
 
@@ -285,7 +286,7 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
 
     const row = logRows(page).first();
     await expect(row.locator('.log-result')).toHaveText('失敗');
-    await expect(row.locator('td').nth(7)).toHaveText('ファイルサーバーに接続できませんでした');
+    await expect(row.locator('td').nth(8)).toHaveText('ファイルサーバーに接続できませんでした');
     await expect(row).not.toContainText('test-result');
     await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).toHaveText(
       'まだ実行していません',
