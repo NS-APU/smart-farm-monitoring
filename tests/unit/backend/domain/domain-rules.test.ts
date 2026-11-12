@@ -193,6 +193,11 @@ describe('取り込んだ値の品質の判定', () => {
     expect(classifyValue('statusCode', 'RUNNING', context)).toEqual({ quality: 'VALID' });
   });
 
+  it('1 果実あたりの収穫時間は、データとしては 3,600 秒まで有効（手動入力の上限 300 秒より広い。#192）', () => {
+    expect(classifyValue('harvestSecondsPerFruit', 301, context)).toEqual({ quality: 'VALID' });
+    expect(classifyValue('harvestSecondsPerFruit', 3600, context)).toEqual({ quality: 'VALID' });
+  });
+
   it.each([
     ['温度の下限', 'temperatureCelsius', -50],
     ['温度の上限', 'temperatureCelsius', 100],

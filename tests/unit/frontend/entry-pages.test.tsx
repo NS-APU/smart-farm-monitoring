@@ -124,6 +124,33 @@ describe('データ入力（UC-06。SC-06）', () => {
     ).toBe('');
   });
 
+  it('自動取り込みの項目も、手動入力のカテゴリ（稼働情報・収穫情報）で選べる。1 果実あたりの収穫時間は、手動入力の範囲（0〜300）を示す（#192）', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    expect(
+      within(field('カテゴリ'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toContain('稼働情報');
+
+    fireEvent.change(field('カテゴリ'), { target: { value: 'OPERATION' } });
+    const operation = screen.getByTestId('entry-items');
+    for (const label of [
+      '稼働時間（時間）',
+      '待機時間（時間）',
+      '収穫稼働時間（時間）',
+      '走行停止時間（時間）',
+    ]) {
+      expect(within(operation).getByLabelText(label)).toBeDefined();
+    }
+
+    fireEvent.change(field('カテゴリ'), { target: { value: 'HARVEST' } });
+    const harvest = screen.getByTestId('entry-items');
+    expect(within(harvest).getByLabelText('収穫数（個）')).toBeDefined();
+    expect(within(harvest).getByLabelText('1果実あたりの収穫時間（秒/果実）')).toBeDefined();
+    expect(within(harvest).getByText('0以上300以下の数値')).toBeDefined();
+  });
+
   describe('満足度は、スターで選び、9観点が揃わないと保存できない（D-18）', () => {
     async function openSatisfactionForm(routes: Routes = {}) {
       const rendered = renderApp('/data-entry', routes);
@@ -505,7 +532,7 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
 
   it('不正なクエリの値（カテゴリ・並べ替え・日付）は、無視する', async () => {
     const { calls } = renderApp(
-      '/data-entry/list?category=OPERATION&sort=bad&from=xxxx&direction=up',
+      '/data-entry/list?category=UNKNOWN&sort=bad&from=xxxx&direction=up',
       listRoutes(),
     );
     await screen.findAllByTestId('entry-row');

@@ -180,7 +180,18 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
       'observedAt',
     ],
     ['カテゴリが存在しない', { category: 'UNKNOWN' }, 400, 'category'],
-    ['自動取り込みのみのカテゴリ（稼働情報）', { category: 'OPERATION' }, 400, 'category'],
+    [
+      '手動入力できないカテゴリ（ステータス。別の PR で加える）',
+      { category: 'STATUS' },
+      400,
+      'category',
+    ],
+    [
+      '1 果実あたりの収穫時間が、手動入力の上限（300 秒）を超える',
+      { category: 'HARVEST', items: { harvestSecondsPerFruit: 300.1 } },
+      400,
+      'items.harvestSecondsPerFruit',
+    ],
     ['項目が空', { items: {} }, 400, 'items'],
     [
       'カテゴリに属さない項目',
@@ -228,6 +239,53 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
     const response = await send(context, 'POST', '/manual-entries', entryBody({ observedAt }));
 
     expect(response.status).toBe(status);
+  });
+
+  it('自動取り込みの項目（稼働情報の 4 項目・収穫数・1 果実あたりの収穫時間）を、手動で入力して保存できる。手動入力として保持し、境界値（300 秒）も保存できる（#192）', async () => {
+    const context = await withEquipment();
+
+    const operation = await createEntry(
+      context,
+      entryBody({
+        category: 'OPERATION',
+        items: {
+          operatingHours: 5.5,
+          standbyHours: 1,
+          harvestOperatingHours: 4,
+          travelStoppedHours: 0,
+        },
+      }),
+    );
+    const harvest = await createEntry(
+      context,
+      entryBody({
+        category: 'HARVEST',
+        items: { harvestCount: 120, harvestSecondsPerFruit: 300 },
+      }),
+    );
+
+    expect(operation.entry.category).toBe('OPERATION');
+    expect(harvest.entry.items).toEqual({ harvestCount: 120, harvestSecondsPerFruit: 300 });
+    const stored = (
+      await context.container.repositories.observations.query(
+        { equipmentIds: [ROBOT_ID] },
+        { limit: 50 },
+      )
+    ).items;
+    expect(
+      stored
+        .filter((item) => item.source === 'MANUAL')
+        .map((item) => item.itemKey)
+        .sort(),
+    ).toEqual([
+      'harvestCount',
+      'harvestOperatingHours',
+      'harvestSecondsPerFruit',
+      'operatingHours',
+      'standbyHours',
+      'travelStoppedHours',
+    ]);
+    expect(stored.every((item) => item.quality === 'VALID')).toBe(true);
   });
 
   it('満足度は 1〜5 の整数（境界値: 0 は不正、1 と 5 は正常、6 は不正）', async () => {
