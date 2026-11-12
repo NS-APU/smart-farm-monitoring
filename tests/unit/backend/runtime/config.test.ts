@@ -272,6 +272,32 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('取り込みの計測日時の未来の許容（INGESTION_FUTURE_TOLERANCE_MINUTES。#200。ADR-0016 の D-13）', () => {
+    it('既定は 5 分。分で指定できる（0〜60）', () => {
+      expect(parseConfig({}).ingestionFutureToleranceMinutes).toBe(5);
+      expect(
+        parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: '10' }).ingestionFutureToleranceMinutes,
+      ).toBe(10);
+      expect(
+        parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: '0' }).ingestionFutureToleranceMinutes,
+      ).toBe(0);
+      expect(
+        parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: '60' }).ingestionFutureToleranceMinutes,
+      ).toBe(60);
+    });
+
+    it.each([
+      ['負', '-1'],
+      ['上限（60）超', '61'],
+      ['小数', '1.5'],
+      ['数値でない', 'long'],
+    ])('範囲外・不正な値は、設定エラー: %s', (_name, value) => {
+      expect(() => parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: value })).toThrow(
+        'INGESTION_FUTURE_TOLERANCE_MINUTES',
+      );
+    });
+  });
+
   describe('Web Push の実配信（WEB_PUSH_DELIVERY・WEB_PUSH_SUBJECT。#241。ADR-0019 の D-36）', () => {
     const VAPID = {
       WEB_PUSH_DELIVERY: 'vapid',

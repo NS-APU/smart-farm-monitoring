@@ -434,6 +434,82 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
     ).toEqual(['humidityPercent', 'temperatureCelsius']);
   });
 
+  it('環境センサーの値の範囲（温度 −50〜100・照度 0〜200,000・CO2 0〜10,000）の外は、不正にして評価に使わず、元の値を残す。境界の値は有効（D-10）', async () => {
+    const context = await setup();
+    const timestamp = '2026-10-09T02:00:00Z';
+    context.clock.set(new Date('2026-10-09T02:05:00Z'));
+    context.placeFile(
+      'environment-sensor',
+      'range.json',
+      JSON.stringify({
+        sensorId: 'SENSOR-SAMPLE-01',
+        records: [
+          // 境界の値（有効）
+          { timestamp, temperatureCelsius: -50, illuminanceLux: 200_000, co2Ppm: 10_000 },
+          // 範囲外（不正）
+          { timestamp: '2026-10-09T02:01:00Z', temperatureCelsius: 100.5, illuminanceLux: 200_001 },
+          { timestamp: '2026-10-09T02:02:00Z', temperatureCelsius: -51, co2Ppm: 10_001 },
+        ],
+      }),
+    );
+
+    const summary = await context.container.ingestionService.runSource('environment-sensor');
+
+    expect(summary).toMatchObject({ recordCount: 3, rejectedCount: 4 });
+    const observations = await observationsOf(context, SENSOR_ID);
+    const invalid = observations.filter((item) => item.quality === 'INVALID');
+    expect(invalid.map((item) => [item.itemKey, item.value]).sort()).toEqual([
+      ['co2Ppm', 10_001],
+      ['illuminanceLux', 200_001],
+      ['temperatureCelsius', -51],
+      ['temperatureCelsius', 100.5],
+    ]);
+    expect(observations.filter((item) => item.quality === 'VALID')).toHaveLength(3);
+  });
+
+  describe('取り込みの計測日時の未来の許容（D-13。既定 5 分。設定 INGESTION_FUTURE_TOLERANCE_MINUTES）', () => {
+    const futureFile = (minutesAhead: number) =>
+      JSON.stringify({
+        sensorId: 'SENSOR-SAMPLE-01',
+        records: [
+          {
+            timestamp: new Date(TEST_NOW.getTime() + minutesAhead * 60_000).toISOString(),
+            temperatureCelsius: 22,
+          },
+        ],
+      });
+
+    it('既定: 受信の 5 分先までは有効。それを超える未来は、不正にして、棄却数に数える', async () => {
+      const context = await setup();
+      context.placeFile('environment-sensor', 'future-5.json', futureFile(5));
+      context.placeFile('environment-sensor', 'future-6.json', futureFile(6));
+
+      const summary = await context.container.ingestionService.runSource('environment-sensor');
+
+      expect(summary).toMatchObject({ recordCount: 1, rejectedCount: 1 });
+      const observations = await observationsOf(context, SENSOR_ID);
+      expect(observations.map((item) => item.quality).sort()).toEqual(['INVALID', 'VALID']);
+    });
+
+    it('設定値を変えると、許容も変わる（10 分に広げれば、6 分先は有効。0 分にすれば、5 分先も不正）', async () => {
+      const wide = await createTestContext({ env: { INGESTION_FUTURE_TOLERANCE_MINUTES: '10' } });
+      const strict = await createTestContext({ env: { INGESTION_FUTURE_TOLERANCE_MINUTES: '0' } });
+      for (const context of [wide, strict]) {
+        for (const equipment of equipmentSet()) {
+          await context.container.repositories.equipment.save(equipment);
+        }
+      }
+      wide.placeFile('environment-sensor', 'future-6.json', futureFile(6));
+      strict.placeFile('environment-sensor', 'future-5.json', futureFile(5));
+
+      const wideSummary = await wide.container.ingestionService.runSource('environment-sensor');
+      const strictSummary = await strict.container.ingestionService.runSource('environment-sensor');
+
+      expect(wideSummary).toMatchObject({ recordCount: 1, rejectedCount: 0 });
+      expect(strictSummary).toMatchObject({ recordCount: 0, rejectedCount: 1 });
+    });
+  });
+
   it('未登録のセンサーのデータは、読み取れなかったものとして数える', async () => {
     const context = await setup();
     context.placeFile(

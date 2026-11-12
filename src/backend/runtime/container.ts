@@ -222,6 +222,7 @@ function buildSettings(config: AppConfig, overrides: ContainerOverrides): AppSet
       retryBaseDelayMs: config.ingestionRetryBaseDelayMs,
       stopNotificationEnabled: config.ingestionStopNotificationEnabled,
       notifyFileFailures: config.ingestionFileFailureNotificationEnabled,
+      futureToleranceMinutes: config.ingestionFutureToleranceMinutes,
       stopAfterIntervals: config.staleAfterIntervals,
     },
     ...overrides.settings,
