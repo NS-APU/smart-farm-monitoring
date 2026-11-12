@@ -1543,18 +1543,20 @@ sequenceDiagram
   SCH->>JR: run JB-01 1 分ごと
   JR->>IS: runDueSources
   IS->>ST: listSources 保存が無ければ既定の 2<br>取り込み元
-  IS->>R: listEquipmentStartedAt 設備ごとの<br>最終の開始日時 1 回の Query
+  IS->>R: listEquipmentRuns 設備ごとの<br>最終の実行 1 回の Query
   loop 有効で実行中でない取り込み元
     IS->>IS: 設備ごとに 記録が無い または<br>その設備の取得間隔が過ぎたかを判定
     alt 間隔が来た設備がある
       IS->>IS: runSource で実行中の集合に追加<br>すでに実行中なら CONFLICT
       IS->>FSP: listFiles(sourceId) 最大 3 回<br>失敗後に 1 秒 2 秒と待つ
       alt 3 回とも失敗
-        IS->>R: addLog FAILURE attempts 3<br>errorMessage
+        IS->>R: addLog FAILURE attempts 3<br>errorMessage 取り込み元単位
+        IS->>R: recordEquipmentRuns FAILURE
         IS->>NS: notifyIngestionFailure 4.10
       else 取得できた
         IS->>IS: ファイルごとに processFile 次の図
-        IS->>R: addLog SUCCESS か PARTIAL か<br>FAILURE
+        IS->>R: recordEquipmentRuns 設備ごとに 1 回
+        IS->>R: addLog 設備ごと 新しいデータが<br>あった設備と失敗だけ 空振りは残さない
         opt recordCount が 1 以上
           IS->>EV: evaluateAll INGESTION<br>失敗しても取り込みの結果に影響させない
         end
@@ -2013,9 +2015,10 @@ stateDiagram-v2
   Discovered --> Imported : 解釈と保存に成功
 ```
 
-- 取り込みログは、ハウスごとの内訳（`facilities`。ハウスごとの結果と件数）を持つ。取り込んだ観測値の設備のハウスと、取り込めなかったファイルの設備（`sourceFilePath` が同じ）のハウスから決める。接続の失敗・設備に結びつかないファイルの失敗は、持たない。DynamoDB は、ハウス別の記録（`ILOGF#{ハウス}`）も書く。一般ユーザーは、`GET /ingestion/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
+- **取り込みログは、設備ごと**（#201。ADR-0016 の D-48）: 新しいデータがあった設備・ファイルを取り込めなかった設備ごとに、1 件（`equipmentId` を持つ）。**空振り（新しいデータがない成功）は、残さない**。設備に結びつかない結果（接続の失敗・一覧の取得の失敗・想定外の例外・どの設備にも結びつかない記録やファイルの失敗）は、取り込み元単位で 1 件（`equipmentId` なし。以前のログも同じ）。ファイルが 1 つの設備のもの（設備の `sourceFilePath`。HTTP）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備のログにする。1 つのファイルに複数の設備が入る場合（モック・S3）は、設備ごとの記録の数をそれぞれのログにし、取り込めなかった記録・ファイルは、取り込み元単位のログ（一部成功／失敗）にする。
+- 取り込みログは、ハウスごとの内訳（`facilities`。ハウスごとの結果と件数）を持つ。設備ごとのログは、その設備のハウス 1 つ。設備に結びつかないログは、取り込めなかったファイルの設備（`sourceFilePath` が同じ）のハウスだけ。接続の失敗・設備に結びつかないファイルの失敗は、持たない。DynamoDB は、ハウス別の記録（`ILOGF#{ハウス}`）も書く。一般ユーザーは、`GET /ingestion/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
 
-- 取り込み済みファイルの記録（`IngestedFileRecord`）と取り込みログ（`IngestionLog`）は、**追記のみ**で、更新・削除しない
+- 取り込みログ（`IngestionLog`）は、**追記のみ**で、更新・削除しない。取り込み済みファイルの記録（`IngestedFileRecord`）は、ファイルごとに最新の 1 件を上書きする（#201）。**設備ごとの最終の実行**（`EquipmentRunState`。開始・終了・結果・最後の成功・最後にデータが取れた日時）は、設備ごとに 1 件を上書きする（#201。`recordEquipmentRuns`。1 回の実行につき、設備ごとに 1 回の書き込み）。SC-11 の取り込み元ごとの「最終の実行」「最終の成功」は、その種別の設備の最終の実行から求める（設備が 1 つもなければ、取り込み元ごとの開始日時 `recordSourceStarted`）
 - 取り込みログの結果: 処理したファイルがない（すべて取り込み済みの場合を含む）、または、失敗したファイルも不正な値もなければ `SUCCESS`、一部だけ失敗（または不正な値）があり、取り込めた件数が 1 件以上なら `PARTIAL`、取り込めた件数が 0 なら `FAILURE`。一覧の取得に失敗した場合は `FAILURE`（`attempts` は試行回数）
 
 ## 連携キュー（FederationItem）
@@ -2348,7 +2351,7 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 **再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。
 
-**取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。接続方式 HTTP は、間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。モック・S3 は、設備のどれかの間隔が来たら、ファイル全体（最短の間隔で動く）。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込む設備の開始日時は、一覧の取得の前に記録する（`IngestionRepository.markEquipmentStarted`。DynamoDB は `EQINGEST`。新しい日時のときだけ更新）ため、失敗しても、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
+**取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。接続方式 HTTP は、間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。モック・S3 は、設備のどれかの間隔が来たら、ファイル全体（最短の間隔で動く）。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 
 **対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。
 
@@ -2697,16 +2700,16 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-11 の実測。Issue #198 の後）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #201 の PR 2 の後）
 
-計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（147 ファイル・3202 件成功・2 件スキップ）。
+計測対象は 291 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（147 ファイル・3208 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.13% | 7,576／7,642 | 95% 以上 |
-| 文   | 99.15% | 7,832／7,899 | 95% 以上 |
-| 関数 | 99.3% | 2,294／2,310 | 95% 以上 |
-| 分岐 | 95.35% | 4,722／4,952 | 95% 以上 |
+| 行   | 99.14% | 7,665／7,731 | 95% 以上 |
+| 文   | 99.16% | 7,926／7,993 | 95% 以上 |
+| 関数 | 99.31% | 2,304／2,320 | 95% 以上 |
+| 分岐 | 95.33% | 4,828／5,064 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2714,13 +2717,13 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 100.0% | 100.0% | 100.0% | 99.48% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
-| `src/backend/application` | 99.37% | 99.32% | 99.24% | 96.15% |
-| `src/backend/infrastructure` | 99.03% | 99.07% | 100.0% | 94.42% |
+| `src/backend/application` | 99.41% | 99.36% | 99.27% | 95.88% |
+| `src/backend/infrastructure` | 99.04% | 99.07% | 100.0% | 94.51% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.57% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
 | `src/frontend` | 99.13% | 99.17% | 99.29% | 95.37% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-repositories.ts`（85.36%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-admin-service.ts`（85.71%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ingestion-repositories.ts`（88%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`clear-bucket.ts`（89.47%）・`app-layout.tsx`（89.65%）
 
 ### E2E（Playwright）
 
@@ -2729,7 +2732,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-11 の実測（Issue #198 の後）: 147 ファイル・**3202 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3202 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #201 の PR 2 の後）: 147 ファイル・**3208 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3208 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 43（domain 10・application 10・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

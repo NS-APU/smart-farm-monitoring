@@ -896,11 +896,17 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeUndefined();
   });
 
-  it('取り込みログ: 新しい順に一覧でき、取り込み元で絞り込め、直近の開始日時を返す', async () => {
+  it('取り込みログ: 新しい順に一覧でき、取り込み元で絞り込める。設備ごとのログ（Issue #201）は、その取り込み元の絞り込みに含まれる', async () => {
     const { repositories } = create();
-    const log = (logId: string, sourceId: string, startedAt: string) => ({
+    const log = (
+      logId: string,
+      sourceId: string,
+      startedAt: string,
+      equipmentId?: typeof ROBOT_ID,
+    ) => ({
       logId,
       sourceId,
+      ...(equipmentId === undefined ? {} : { equipmentId }),
       startedAt,
       finishedAt: startedAt,
       result: 'SUCCESS' as const,
@@ -909,90 +915,108 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       rejectedCount: 0,
       attempts: 1,
     });
+    // 設備ごとのログは、設備の一覧（設備ごとの最終の実行）から探す実装がある（DynamoDB）ため、先に最終の実行を記録する
+    const started = new Date('2026-10-09T00:00:00.000Z');
+    await repositories.ingestion.recordEquipmentRuns(
+      [ROBOT_ID, SENSOR_ID].map((equipmentId) => ({
+        equipmentId,
+        startedAt: started,
+        finishedAt: started,
+        result: 'SUCCESS' as const,
+        dataIngested: false,
+      })),
+    );
     await repositories.ingestion.addLog(log('l-1', 'robot', '2026-10-09T01:00:00.000Z'));
-    await repositories.ingestion.addLog(log('l-2', 'robot', '2026-10-09T02:00:00.000Z'));
+    await repositories.ingestion.addLog(log('l-2', 'robot', '2026-10-09T02:00:00.000Z', ROBOT_ID));
     await repositories.ingestion.addLog(
-      log('l-3', 'environment-sensor', '2026-10-09T03:00:00.000Z'),
+      log('l-3', 'environment-sensor', '2026-10-09T03:00:00.000Z', SENSOR_ID),
+    );
+    await repositories.ingestion.addLog(
+      log('l-4', 'environment-sensor', '2026-10-09T04:00:00.000Z'),
     );
 
     const all = await repositories.ingestion.listLogs({}, { limit: 10 });
     const robot = await repositories.ingestion.listLogs({ sourceId: 'robot' }, { limit: 10 });
 
-    expect(all.items.map((item) => item.logId)).toEqual(['l-3', 'l-2', 'l-1']);
-    expect(robot.items).toHaveLength(2);
-    expect(await repositories.ingestion.lastStartedAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
-    );
-    expect(await repositories.ingestion.lastStartedAt('none')).toBeNull();
+    expect(all.items.map((item) => item.logId)).toEqual(['l-4', 'l-3', 'l-2', 'l-1']);
+    expect(all.items.map((item) => item.equipmentId)).toEqual([
+      undefined,
+      SENSOR_ID,
+      ROBOT_ID,
+      undefined,
+    ]);
+    expect(robot.items.map((item) => item.logId)).toEqual(['l-2', 'l-1']);
   });
 
-  it('取り込みログ: 直近の成功（結果が SUCCESS）の終了日時を返す。成功がなければ null', async () => {
+  it('取り込み: 取り込み元の最終の開始日時を、記録・取得できる。古い日時で戻さない。ログの追加では、変わらない（Issue #201）', async () => {
     const { repositories } = create();
-    const log = (logId: string, result: 'SUCCESS' | 'PARTIAL' | 'FAILURE', finishedAt: string) => ({
-      logId,
-      sourceId: 'robot',
-      startedAt: finishedAt,
-      finishedAt,
-      result,
+    const t1 = new Date('2026-10-09T01:00:00.000Z');
+    const t2 = new Date('2026-10-09T02:00:00.000Z');
+
+    await repositories.ingestion.recordSourceStarted('robot', t2);
+    await repositories.ingestion.recordSourceStarted('robot', t1);
+    await repositories.ingestion.addLog({
+      logId: 'l-1',
+      sourceId: 'environment-sensor',
+      startedAt: t2.toISOString(),
+      finishedAt: t2.toISOString(),
+      result: 'SUCCESS',
       filesProcessed: 1,
       recordCount: 1,
       rejectedCount: 0,
       attempts: 1,
     });
-    await repositories.ingestion.addLog(log('l-1', 'FAILURE', '2026-10-09T01:00:00.000Z'));
-    expect(await repositories.ingestion.lastSucceededAt('robot')).toBeNull();
-    await repositories.ingestion.addLog(log('l-2', 'SUCCESS', '2026-10-09T02:00:00.000Z'));
-    await repositories.ingestion.addLog(log('l-3', 'PARTIAL', '2026-10-09T03:00:00.000Z'));
 
-    expect(await repositories.ingestion.lastSucceededAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
-    );
-    expect(await repositories.ingestion.lastSucceededAt('none')).toBeNull();
+    expect(await repositories.ingestion.lastStartedAt('robot')).toEqual(t2);
+    expect(await repositories.ingestion.lastStartedAt('environment-sensor')).toBeNull();
+    expect(await repositories.ingestion.lastStartedAt('none')).toBeNull();
   });
 
-  it('取り込みログ: 新しいデータ（記録が1件以上）を取り込んだ直近の終了日時を返す。一度もなければ null（V-018）', async () => {
+  it('取り込み: 設備ごとの最終の実行（開始・終了・結果・最後の成功・最後にデータが取れた日時）を、上書きで 1 件ずつ記録・取得できる。新しい実行だけで更新し、空の指定は何もしない（Issue #197・#201）', async () => {
     const { repositories } = create();
-    const log = (logId: string, recordCount: number, finishedAt: string, sourceId = 'robot') => ({
-      logId,
-      sourceId,
-      startedAt: finishedAt,
-      finishedAt,
-      result: 'SUCCESS' as const,
-      filesProcessed: recordCount > 0 ? 1 : 0,
-      recordCount,
-      rejectedCount: 0,
-      attempts: 1,
+    expect((await repositories.ingestion.listEquipmentRuns()).size).toBe(0);
+    const at = (minute: number) => new Date(`2026-10-09T01:0${String(minute)}:00.000Z`);
+    const run = (
+      equipmentId: string,
+      minute: number,
+      result: 'SUCCESS' | 'PARTIAL' | 'FAILURE',
+      dataIngested: boolean,
+    ) => ({
+      equipmentId,
+      startedAt: at(minute),
+      finishedAt: at(minute + 1),
+      result,
+      dataIngested,
     });
-    await repositories.ingestion.addLog(log('l-1', 0, '2026-10-09T01:00:00.000Z'));
-    expect(await repositories.ingestion.lastDataIngestedAt('robot')).toBeNull();
-    await repositories.ingestion.addLog(log('l-2', 5, '2026-10-09T02:00:00.000Z'));
-    await repositories.ingestion.addLog(log('l-3', 0, '2026-10-09T03:00:00.000Z'));
-    await repositories.ingestion.addLog(
-      log('l-4', 9, '2026-10-09T04:00:00.000Z', 'environment-sensor'),
-    );
 
-    expect(await repositories.ingestion.lastDataIngestedAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
-    );
-    expect(await repositories.ingestion.lastDataIngestedAt('none')).toBeNull();
-  });
+    await repositories.ingestion.recordEquipmentRuns([
+      run('ROBOT-1', 1, 'SUCCESS', true),
+      run('SENSOR-1', 1, 'FAILURE', false),
+    ]);
+    // 空振り（成功・データなし）: 開始・終了・結果は更新し、最後にデータが取れた日時は、そのまま
+    await repositories.ingestion.recordEquipmentRuns([run('ROBOT-1', 3, 'SUCCESS', false)]);
+    // 失敗: 結果は更新するが、最後の成功・最後にデータが取れた日時は、そのまま
+    await repositories.ingestion.recordEquipmentRuns([run('ROBOT-1', 5, 'FAILURE', false)]);
+    // 古い実行は、戻さない
+    await repositories.ingestion.recordEquipmentRuns([run('ROBOT-1', 2, 'SUCCESS', true)]);
+    await repositories.ingestion.recordEquipmentRuns([]);
 
-  it('取り込み: 設備ごとの最終の開始日時を、記録・取得できる。新しい日時だけで更新し（古い日時で戻さない）、空の指定は何もしない（#197）', async () => {
-    const { repositories } = create();
-    expect((await repositories.ingestion.listEquipmentStartedAt()).size).toBe(0);
-
-    const t1 = new Date('2026-10-09T01:00:00.000Z');
-    const t2 = new Date('2026-10-09T02:00:00.000Z');
-    const t0 = new Date('2026-10-09T00:00:00.000Z');
-    await repositories.ingestion.markEquipmentStarted(['ROBOT-1', 'SENSOR-1'], t1);
-    await repositories.ingestion.markEquipmentStarted(['ROBOT-1'], t2);
-    await repositories.ingestion.markEquipmentStarted(['SENSOR-1'], t0);
-    await repositories.ingestion.markEquipmentStarted([], t2);
-
-    const states = await repositories.ingestion.listEquipmentStartedAt();
+    const states = await repositories.ingestion.listEquipmentRuns();
     expect(states.size).toBe(2);
-    expect(states.get('ROBOT-1')).toEqual(t2);
-    expect(states.get('SENSOR-1')).toEqual(t1);
+    expect(states.get('ROBOT-1')).toEqual({
+      startedAt: at(5),
+      finishedAt: at(6),
+      result: 'FAILURE',
+      lastSucceededAt: at(4),
+      lastDataAt: at(2),
+    });
+    expect(states.get('SENSOR-1')).toEqual({
+      startedAt: at(1),
+      finishedAt: at(2),
+      result: 'FAILURE',
+      lastSucceededAt: null,
+      lastDataAt: null,
+    });
   });
 
   describe('ハウス別のログ（#332。一般ユーザーが、閲覧できるハウスの分だけを見る）', () => {

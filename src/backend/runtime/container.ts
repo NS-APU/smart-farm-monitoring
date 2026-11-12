@@ -543,6 +543,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const ingestionAdminService = createIngestionAdminService({
     ingestionSettings,
     ingestion: repositories.ingestion,
+    equipment: repositories.equipment,
     federation: repositories.federation,
     ingestionService,
     profiles,

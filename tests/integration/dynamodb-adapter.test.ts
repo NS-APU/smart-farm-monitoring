@@ -5,7 +5,7 @@
 
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@smart-farm/shared/errors';
-import { NotificationIdSchema, toUserId } from '@smart-farm/shared/schemas/common';
+import { NotificationIdSchema, toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import type { Notification } from '@smart-farm/shared/schemas/notification';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import { compareObservations } from '../../src/backend/infrastructure/common/observation-rules.ts';
@@ -636,17 +636,75 @@ describe('取り込み（DynamoDB）', () => {
     expect(await ingestion.findIngestedFile('robot', 'c.json', 'h3')).toBeUndefined();
   });
 
-  it('取り込み元の直近の日時は、古いログを後から足しても、戻らない', async () => {
+  it('取り込み元の最終の開始日時は、古い日時で戻らない。設備ごとの最終の実行は、設備ごとの 1 件を、古い実行で戻さずに上書きする（Issue #201）', async () => {
     const { ingestion } = await setup();
 
-    await ingestion.addLog(log('l-2', 'robot', '2026-10-09T02:00:00.000Z'));
-    await ingestion.addLog(log('l-1', 'robot', '2026-10-09T01:00:00.000Z'));
+    await ingestion.recordSourceStarted('robot', new Date('2026-10-09T02:00:00.000Z'));
+    await ingestion.recordSourceStarted('robot', new Date('2026-10-09T01:00:00.000Z'));
+    const run = (minute: number, result: 'SUCCESS' | 'FAILURE', dataIngested: boolean) => ({
+      equipmentId: 'ROBOT-T1',
+      startedAt: new Date(`2026-10-09T02:0${String(minute)}:00.000Z`),
+      finishedAt: new Date(`2026-10-09T02:0${String(minute)}:30.000Z`),
+      result,
+      dataIngested,
+    });
+    await ingestion.recordEquipmentRuns([run(4, 'SUCCESS', true)]);
+    await ingestion.recordEquipmentRuns([run(2, 'FAILURE', false)]);
+    await ingestion.recordEquipmentRuns([run(6, 'FAILURE', false)]);
 
     expect(await ingestion.lastStartedAt('robot')).toEqual(new Date('2026-10-09T02:00:00.000Z'));
-    expect(await ingestion.lastSucceededAt('robot')).toEqual(new Date('2026-10-09T02:00:00.000Z'));
-    expect(await ingestion.lastDataIngestedAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
+    expect((await ingestion.listEquipmentRuns()).get('ROBOT-T1')).toEqual({
+      startedAt: new Date('2026-10-09T02:06:00.000Z'),
+      finishedAt: new Date('2026-10-09T02:06:30.000Z'),
+      result: 'FAILURE',
+      lastSucceededAt: new Date('2026-10-09T02:04:30.000Z'),
+      lastDataAt: new Date('2026-10-09T02:04:30.000Z'),
+    });
+  });
+
+  it('設備ごとのログは、設備ごとのパーティションに持ち、設備のないログ（取り込み元単位）と合わせて、新しい順にページを送れる。取り込み元で絞り込める', async () => {
+    const { ingestion } = await setup();
+    const withEquipment = (
+      logId: string,
+      sourceId: string,
+      startedAt: string,
+      equipmentId?: string,
+    ) => ({
+      ...log(logId, sourceId, startedAt),
+      ...(equipmentId === undefined ? {} : { equipmentId: toEquipmentId(equipmentId) }),
+    });
+    // 設備ごとの最終の実行（設備のパーティションの一覧の元）を、先に記録する
+    const started = new Date('2026-10-09T00:00:00.000Z');
+    await ingestion.recordEquipmentRuns(
+      ['ROBOT-T1', 'ROBOT-T2', 'SENSOR-T1'].map((equipmentId) => ({
+        equipmentId,
+        startedAt: started,
+        finishedAt: started,
+        result: 'SUCCESS' as const,
+        dataIngested: false,
+      })),
     );
+    await ingestion.addLog(withEquipment('l-1', 'robot', '2026-10-09T01:00:00.000Z', 'ROBOT-T1'));
+    await ingestion.addLog(withEquipment('l-2', 'robot', '2026-10-09T02:00:00.000Z', 'ROBOT-T2'));
+    await ingestion.addLog(withEquipment('l-3', 'sensor', '2026-10-09T03:00:00.000Z', 'SENSOR-T1'));
+    await ingestion.addLog(withEquipment('l-4', 'robot', '2026-10-09T04:00:00.000Z'));
+    await ingestion.addLog(withEquipment('l-5', 'sensor', '2026-10-09T05:00:00.000Z', 'SENSOR-T1'));
+
+    const first = await ingestion.listLogs({}, { limit: 3 });
+    const second = await ingestion.listLogs(
+      {},
+      { limit: 3, cursor: first.nextCursor ?? undefined },
+    );
+    const robot = await ingestion.listLogs({ sourceId: 'robot' }, { limit: 10 });
+
+    expect(first.items.map((entry) => entry.logId)).toEqual(['l-5', 'l-4', 'l-3']);
+    expect(second.items.map((entry) => entry.logId)).toEqual(['l-2', 'l-1']);
+    expect(second.nextCursor).toBeNull();
+    expect(robot.items.map((entry) => [entry.logId, entry.equipmentId])).toEqual([
+      ['l-4', undefined],
+      ['l-2', 'ROBOT-T2'],
+      ['l-1', 'ROBOT-T1'],
+    ]);
   });
 
   it('取り込みログは、取り込み元をまたいで、カーソルでページを送れる（新しい順）。取り込み元で絞ってもページを送れる', async () => {

@@ -29,6 +29,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
+  sensorJson,
   setMock,
 } from './support/app.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
@@ -46,6 +47,28 @@ async function runIngestionApi(
 ): Promise<void> {
   const response = await api(request, 'POST', `/ingestion/${sourceId}/run`);
   expect(response.status()).toBe(202);
+}
+
+/**
+ * 新しいデータになるファイルを置く（取り込みのログは、新しいデータがあった実行・失敗だけ残す。空振りは残さない。Issue #201）。
+ * 値を変えると、変わった観測値になり、ログが 1 件増える。
+ */
+function placeNewData(sourceId: 'robot' | 'environment-sensor', value: number): void {
+  if (sourceId === 'robot') {
+    placeFile(
+      'robot',
+      `new-${String(value)}.json`,
+      robotJson([{ hoursAgo: 1, fields: { harvestCount: value } }]),
+    );
+    return;
+  }
+  placeFile(
+    'environment-sensor',
+    `new-${String(value)}.json`,
+    sensorJson([
+      { hoursAgo: 1, temperature: 20 + value, humidity: 60, illuminance: 30000, co2: 900 },
+    ]),
+  );
 }
 
 const queueCount = (page: Page, status: string) =>
@@ -136,6 +159,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await openStatus(page);
     await expect(logRows(page)).toHaveCount(0);
 
+    placeFixture('robot', 'robot/robot-sample-001.json');
     await runIngestionApi(request, 'robot');
 
     await expect(logRows(page)).toHaveCount(1, { timeout: 20_000 });
@@ -274,8 +298,11 @@ test.describe('取り込み元の絞り込みと、ページ分割（10件ごと
     request,
   }) => {
     await prepareApp(request);
+    placeNewData('robot', 1);
     await runIngestionApi(request, 'robot');
+    placeNewData('environment-sensor', 1);
     await runIngestionApi(request, 'environment-sensor');
+    placeNewData('environment-sensor', 2);
     await runIngestionApi(request, 'environment-sensor');
     await openStatus(page);
     await expect(logRows(page)).toHaveCount(3);
@@ -299,6 +326,7 @@ test.describe('取り込み元の絞り込みと、ページ分割（10件ごと
   }, testInfo) => {
     await prepareApp(request);
     for (let index = 0; index < 11; index += 1) {
+      placeNewData('robot', index + 1);
       await runIngestionApi(request, 'robot');
     }
     await openStatus(page);
@@ -322,8 +350,10 @@ test.describe('取り込み元の絞り込みと、ページ分割（10件ごと
   }) => {
     await prepareApp(request);
     for (let index = 0; index < 11; index += 1) {
+      placeNewData('robot', index + 1);
       await runIngestionApi(request, 'robot');
     }
+    placeNewData('environment-sensor', 1);
     await runIngestionApi(request, 'environment-sensor');
     await openStatus(page);
     const logs = page.getByTestId('ingestion-logs');

@@ -65,9 +65,10 @@
 | 通知 | `NOTIF` | `{createdAt}#{notificationId}` | 新しい順の Query。`get`・`dedupKey` は、GSI1 |
 | 通知の既読 | `READ#{userId}` | `{notificationId}` | 既読にしたときに、条件つきで作る |
 | **カウンター** | `COUNTER` | `NOTIF_TOTAL`・`READ#{userId}`・`NFTOTAL#{facilityId}`・`NFREAD#{facilityId}#{userId}`・`FED#{status}` | 通知の総数、利用者ごとの既読数、連携の状態ごとの件数。トランザクションで更新する |
-| 取り込み済みファイル | `SRC#{sourceId}` | `FILE#{fileId}`（ファイルごとに、最新の版の 1 件を上書き。#201。以前の `FILE#{fileId}#{contentHash}`・`HASH#{contentHash}` は、読まない）・`STATE`（直近の開始・成功・データ取り込みの日時） | `findIngestedFile` は GetItem（最新の版のハッシュと比べる）。取り込み元の状態（`lastStartedAt` など）は、1 回の GetItem |
-| 設備ごとの取り込みの最終の開始 | `EQINGEST` | `{equipmentId}`（属性 `lastStarted`。ミリ秒） | 設備ごとの取得間隔の判定（#197）。取り込みのジョブが、毎分、全設備を 1 回の Query で読む。新しい日時のときだけ、条件つきで更新する（古い日時で戻さない） |
-| 取り込みログ | `ILOG#{sourceId}` | `{startedAt}#{logId}` | 取り込み元ごとの Query。全取り込み元は、併合。TTL |
+| 取り込み済みファイル | `SRC#{sourceId}` | `FILE#{fileId}`（ファイルごとに、最新の版の 1 件を上書き。#201。以前の `FILE#{fileId}#{contentHash}`・`HASH#{contentHash}` は、読まない）・`STATE`（直近の開始の日時。設備が 1 つもない取り込み元だけが、書く。#201） | `findIngestedFile` は GetItem（最新の版のハッシュと比べる）。取り込み元の状態（`lastStartedAt` など）は、1 回の GetItem |
+| 設備ごとの取り込みの最終の実行 | `EQINGEST` | `{equipmentId}`（属性 `lastStarted`・`lastFinished`・`lastResult`・`lastSucceeded`・`lastData`。ミリ秒） | 設備ごとの取得間隔の判定（#197）と、最終の実行・結果の表示（#201。空振りは、ログに残さないため、生存の確認は、ここで行う）。取り込みのジョブが、毎分、全設備を 1 回の Query で読む。1 回の実行につき、設備ごとに 1 回の更新で上書きする（新しい開始日時のときだけ。古い実行で戻さない）。設備ごとのログを探す設備の一覧も兼ねる |
+| 取り込みログ（設備に結びつかないもの） | `ILOG#{sourceId}` | `{startedAt}#{logId}` | 接続の失敗・どの設備にも結びつかない記録・以前のログ。取り込み元ごとの Query。取り込み元の一覧は `ILOGSRC`。TTL |
+| 取り込みログ（設備ごと。#201） | `ILOGE#{equipmentId}` | `{startedAt}#{logId}` | 新しいデータがあった実行・ファイルを取り込めなかった実行だけ（空振りは残さない）。全体は、設備のパーティションを併合して読む（設備の一覧は `EQINGEST`）。TTL |
 | ハウス別の取り込みの記録 | `ILOGF#{facilityId}` | `{startedAt}#{logId}#{facilityId}` | 取り込みログの `facilities`（ハウスごとの結果・件数）の内訳を、ログの追加のときに、ハウスごとに書く（一般ユーザーが、閲覧できるハウスのパーティションだけを、併合して読む。全体のログを読まない。#332）。TTL |
 | 連携項目 | `FED` | `{federationItemId}` | `listDue`・`listWaiting` は、未送信の項目だけが載る疎な GSI1（`FDUE` / `{nextAttemptAt}#{enqueuedAt}#{id}`。次の試行の日時の順）を、範囲で読む（期限が来た項目・先の項目だけを読み、溜まった件数に比例して読まない。#203） |
 | 連携ログ | `FLOG` | `{occurredAt}#{logId}` | TTL |

@@ -109,9 +109,23 @@ async function seedEquipment(repositories: ReturnType<typeof build>['repositorie
   }
 }
 
-async function latestLog(repositories: ReturnType<typeof build>['repositories']) {
-  const page = await repositories.ingestion.listLogs({ sourceId: 'robot' }, { limit: 1 });
-  return page.items[0];
+async function robotLogs(repositories: ReturnType<typeof build>['repositories']) {
+  return (await repositories.ingestion.listLogs({ sourceId: 'robot' }, { limit: 20 })).items;
+}
+
+/** ロボットの取り込みの、ハウスごとの内訳（設備ごとのログ〔Issue #201〕の内訳を、ハウスごとに合わせる）。 */
+async function facilitiesOfRobotLogs(repositories: ReturnType<typeof build>['repositories']) {
+  const page = await repositories.ingestion.listLogs({ sourceId: 'robot' }, { limit: 20 });
+  const byFacility = new Map<string, { facilityId: string; result: string; recordCount: number }>();
+  for (const entry of page.items.flatMap((log) => log.facilities ?? [])) {
+    const current = byFacility.get(entry.facilityId);
+    byFacility.set(entry.facilityId, {
+      facilityId: entry.facilityId,
+      result: current?.result === 'FAILURE' || entry.result === 'FAILURE' ? 'FAILURE' : 'SUCCESS',
+      recordCount: (current?.recordCount ?? 0) + entry.recordCount,
+    });
+  }
+  return [...byFacility.values()];
 }
 
 describe('取り込みログのハウス別の内訳（#332）', () => {
@@ -123,14 +137,14 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
     await service.runSource('robot');
 
-    const log = await latestLog(repositories);
-    expect(log?.facilities).toEqual(
+    const facilities = await facilitiesOfRobotLogs(repositories);
+    expect(facilities).toEqual(
       expect.arrayContaining([
         { facilityId: FACILITY_ID, result: 'SUCCESS', recordCount: 2 },
         { facilityId: FACILITY_2_ID, result: 'SUCCESS', recordCount: 1 },
       ]),
     );
-    expect(log?.facilities).toHaveLength(2);
+    expect(facilities).toHaveLength(2);
   });
 
   it('形式違いのファイルは、そのファイルのパスをもつ設備のハウスの失敗として記録し、他のハウスの成功は、そのまま記録する', async () => {
@@ -142,14 +156,14 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
     const summary = await service.runSource('robot');
 
     expect(summary.result).toBe('PARTIAL');
-    const log = await latestLog(repositories);
-    expect(log?.facilities).toEqual(
+    const facilities = await facilitiesOfRobotLogs(repositories);
+    expect(facilities).toEqual(
       expect.arrayContaining([
         { facilityId: FACILITY_ID, result: 'FAILURE', recordCount: 0 },
         { facilityId: FACILITY_2_ID, result: 'SUCCESS', recordCount: 1 },
       ]),
     );
-    expect(log?.facilities).toHaveLength(2);
+    expect(facilities).toHaveLength(2);
   });
 
   it('同じハウスに、成功したファイルと失敗したファイルがあれば、結果は失敗、件数は成功した分', async () => {
@@ -160,7 +174,7 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
     await service.runSource('robot');
 
-    expect((await latestLog(repositories))?.facilities).toEqual([
+    expect(await facilitiesOfRobotLogs(repositories)).toEqual([
       { facilityId: FACILITY_ID, result: 'FAILURE', recordCount: 1 },
     ]);
   });
@@ -171,9 +185,12 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
     await service.runSource('robot');
 
-    const log = await latestLog(repositories);
-    expect(log).toMatchObject({ result: 'FAILURE', filesProcessed: 1 });
-    expect(log?.facilities ?? []).toEqual([]);
+    // 設備に結びつかないため、取り込み元単位のログ（設備の指定なし。Issue #201）
+    const logs = await robotLogs(repositories);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ result: 'FAILURE', filesProcessed: 1 });
+    expect(logs[0]?.equipmentId).toBeUndefined();
+    expect(logs[0]?.facilities ?? []).toEqual([]);
   });
 
   it('ファイルサーバーに接続できない失敗は、ハウスの内訳に含めない', async () => {
@@ -182,18 +199,19 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
     await service.runSource('robot');
 
-    const log = await latestLog(repositories);
-    expect(log).toMatchObject({ result: 'FAILURE', errorMessage: expect.any(String) });
-    expect(log?.facilities ?? []).toEqual([]);
+    const logs = await robotLogs(repositories);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ result: 'FAILURE', errorMessage: expect.any(String) });
+    expect(logs[0]?.facilities ?? []).toEqual([]);
   });
 
-  it('新しいファイルがない取り込み（0 件）は、ハウスの内訳を持たない', async () => {
+  it('新しいファイルがない取り込み（0 件）は、ログに残さない（ハウスの内訳もない。Issue #201）', async () => {
     const { service, repositories } = build({ files: {} });
     await seedEquipment(repositories);
 
     await service.runSource('robot');
 
-    expect((await latestLog(repositories))?.facilities ?? []).toEqual([]);
+    expect(await robotLogs(repositories)).toEqual([]);
   });
 
   it('ハウス別の一覧には、ログの内訳が、そのハウスの分だけ載る', async () => {

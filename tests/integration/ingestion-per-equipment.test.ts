@@ -14,7 +14,10 @@ import {
   FileSourceUnavailableError,
   type FileSourcePort,
 } from '../../src/backend/application/ports/file-source-port.ts';
-import type { FormatProfile } from '../../src/backend/application/ports/format-profile.ts';
+import {
+  FormatError,
+  type FormatProfile,
+} from '../../src/backend/application/ports/format-profile.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
 import { DEFAULT_APP_SETTINGS } from '../../src/backend/application/settings.ts';
 import { createControllableClock } from '../../src/backend/infrastructure/local/clocks.ts';
@@ -48,13 +51,22 @@ interface ListCall {
  * 取り込みサービス。ファイルソースは、一覧の問い合わせ（取り込み元・ファイルパスの指定）を記録するスタブ。
  * 設備: ロボット 1（間隔の指定なし = 既定 1 分）・ロボット 2（5 分）・センサー 1（指定なし = 既定 5 分）。
  */
-async function build(options: { connection: IngestionSource['connection']; intervals?: boolean }) {
+async function build(options: {
+  connection: IngestionSource['connection'];
+  intervals?: boolean;
+  /** ファイルの置き換え（パス → 内容の設備の識別子。`+` で区切ると、1 つのファイルに複数の設備）。省略は、既定の 3 ファイル。 */
+  files?: Record<string, string>;
+  /** 記録の項目の値（既定は、収穫数 2）。不正な値を試すとき。 */
+  fields?: Record<string, number | string>;
+  /** 形式が仕様と異なる（解釈できない）ファイルのパス。 */
+  brokenFiles?: readonly string[];
+}) {
   const { repositories } = createLocalRepositories();
   const clock = createControllableClock(TEST_NOW);
   const listCalls: ListCall[] = [];
   /** true の間は、ファイルの一覧の取得が、接続できずに失敗する。 */
   const control = { listFails: false };
-  const files: Record<string, string> = {
+  const files: Record<string, string> = options.files ?? {
     [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01',
     [ROBOT_2_FILE]: 'ROBOT-SAMPLE-02',
     [SENSOR_1_FILE]: 'SENSOR-SAMPLE-01',
@@ -75,23 +87,29 @@ async function build(options: { connection: IngestionSource['connection']; inter
     },
     // 内容は、時刻ごとに変える（同じ内容は、取り込み済みとして、読み飛ばすため）
     readFile: (_sourceId, fileId) =>
-      Promise.resolve(`${files[fileId] ?? ''}@${String(clock.now().getTime())}`),
+      Promise.resolve(
+        `${files[fileId] ?? ''}@${options.brokenFiles?.includes(fileId) === true ? `broken:${fileId}:` : ''}${String(clock.now().getTime())}`,
+      ),
   };
   const profile: FormatProfile = {
     profileId: 'robot-json',
     version: 'test',
     status: 'PROVISIONAL',
     versionLabel: 'robot-json@test(PROVISIONAL)',
-    parse: (content) => ({
-      records: [
-        {
-          externalId: content.split('@')[0] ?? '',
+    parse: (content) => {
+      const [names = '', marker = ''] = content.split('@');
+      if (options.brokenFiles?.some((broken) => marker.startsWith(`broken:${broken}`))) {
+        throw new FormatError('形式が仕様と異なります');
+      }
+      return {
+        records: names.split('+').map((externalId) => ({
+          externalId,
           observedAt: '2026-10-09T01:00:00Z',
-          fields: { harvestCount: 2 },
-        },
-      ],
-      rejectedCount: 0,
-    }),
+          fields: options.fields ?? { harvestCount: 2 },
+        })),
+        rejectedCount: 0,
+      };
+    },
   };
   const ingestionSettings = createIngestionSettings(repositories.settings);
   await ingestionSettings.saveSources(
@@ -245,7 +263,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
 
     // ロボットのファイルは、どちらも対象外（パスなし・削除済み）。ロボットの取り込み元は、動かさない
     expect(first.sources).toEqual(['environment-sensor']);
-    const states = await repositories.ingestion.listEquipmentStartedAt();
+    const states = await repositories.ingestion.listEquipmentRuns();
     expect([...states.keys()]).toEqual(['SENSOR-T1']);
   });
 
@@ -259,7 +277,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
     const retry = await runAfter(30 * MS);
 
     expect(failed.sources).toEqual(['environment-sensor', 'robot']);
-    expect((await repositories.ingestion.listEquipmentStartedAt()).size).toBe(3);
+    expect((await repositories.ingestion.listEquipmentRuns()).size).toBe(3);
     expect(retryTooSoon.sources).toEqual([]);
     expect(retry.sources).toEqual(['robot']);
   });
@@ -270,7 +288,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
     });
 
     await service.runSource('robot');
-    const states = await repositories.ingestion.listEquipmentStartedAt();
+    const states = await repositories.ingestion.listEquipmentRuns();
     const immediately = await runAfter(0);
 
     // 手動: ファイルパスの指定なし（すべての設備のファイル）
@@ -293,7 +311,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
     const first = await runAfter(0);
 
     expect(first.sources).toEqual(['robot']);
-    expect([...(await repositories.ingestion.listEquipmentStartedAt()).keys()].sort()).toEqual([
+    expect([...(await repositories.ingestion.listEquipmentRuns()).keys()].sort()).toEqual([
       'ROBOT-T1',
       'ROBOT-T2',
     ]);
@@ -316,8 +334,8 @@ describe('接続方式 MOCK（モック・S3。1 つのファイルに、複数�
     ]);
     expect(after1.sources).toEqual(['robot']);
     expect(after2.sources).toEqual(['robot']);
-    const states = await repositories.ingestion.listEquipmentStartedAt();
-    expect(states.get('ROBOT-T2')?.toISOString()).toBe(
+    const states = await repositories.ingestion.listEquipmentRuns();
+    expect(states.get('ROBOT-T2')?.startedAt.toISOString()).toBe(
       new Date(TEST_NOW.getTime() + 2 * MINUTE).toISOString(),
     );
   });
@@ -353,5 +371,151 @@ describe('接続方式 MOCK（モック・S3。1 つのファイルに、複数�
 
     expect(after30s.sources).toEqual([]);
     expect(after1.sources).toEqual(['robot']);
+  });
+});
+
+describe('取り込みログは、設備ごと。空振りは残さず、設備ごとの最終の実行を持つ（Issue #201。ADR-0016 の D-48）', () => {
+  const logsOf = async (repositories: Awaited<ReturnType<typeof build>>['repositories']) =>
+    (await repositories.ingestion.listLogs({}, { limit: 50 })).items;
+
+  it('新しいデータがあった設備ごとに、ログを 1 件ずつ残す（設備・取り込み元・件数・結果・ハウス）', async () => {
+    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+
+    await runAfter(0);
+
+    const logs = (await logsOf(repositories)).sort((left, right) =>
+      String(left.equipmentId).localeCompare(String(right.equipmentId)),
+    );
+    expect(logs.map((log) => [log.equipmentId, log.sourceId, log.result, log.recordCount])).toEqual(
+      [
+        ['ROBOT-T1', 'robot', 'SUCCESS', 1],
+        ['ROBOT-T2', 'robot', 'SUCCESS', 1],
+        ['SENSOR-T1', 'environment-sensor', 'SUCCESS', 1],
+      ],
+    );
+    expect(logs[0]).toMatchObject({
+      filesProcessed: 1,
+      rejectedCount: 0,
+      facilities: [{ result: 'SUCCESS', recordCount: 1 }],
+    });
+  });
+
+  it('空振り（新しいデータがない成功）は、ログに残さない。設備ごとの最終の実行（開始・終了・結果）は、更新し、最後にデータが取れた日時は、そのまま', async () => {
+    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+    await runAfter(0);
+    const firstLogs = (await logsOf(repositories)).length;
+
+    // 1 分後: ロボット 1（既定 1 分）が動く。ファイルの内容は変わったが、観測値（同じ計測日時・同じ値）は同じ
+    await runAfter(MINUTE);
+
+    expect(await logsOf(repositories)).toHaveLength(firstLogs);
+    const state = (await repositories.ingestion.listEquipmentRuns()).get('ROBOT-T1');
+    expect(state?.startedAt.toISOString()).toBe(
+      new Date(TEST_NOW.getTime() + MINUTE).toISOString(),
+    );
+    expect(state?.result).toBe('SUCCESS');
+    expect(state?.lastDataAt?.toISOString()).toBe(TEST_NOW.toISOString());
+  });
+
+  it('接続できない失敗は、設備に結びつかないため、取り込み元ごとに 1 件（設備の指定なし）。設備ごとの最終の実行は、失敗にする', async () => {
+    const { runAfter, control, repositories } = await build({ connection: HTTP_CONNECTION });
+    control.listFails = true;
+
+    await runAfter(0);
+
+    const logs = await logsOf(repositories);
+    expect(logs.map((log) => [log.sourceId, log.equipmentId, log.result]).sort()).toEqual([
+      ['environment-sensor', undefined, 'FAILURE'],
+      ['robot', undefined, 'FAILURE'],
+    ]);
+    const states = await repositories.ingestion.listEquipmentRuns();
+    expect([...states.values()].map((state) => state.result)).toEqual([
+      'FAILURE',
+      'FAILURE',
+      'FAILURE',
+    ]);
+    expect(states.get('ROBOT-T1')?.lastSucceededAt).toBeNull();
+  });
+
+  it('設備のファイルが形式違いなら、その設備のログ（失敗）を残す。ほかの設備は、成功のログ', async () => {
+    const { runAfter, repositories } = await build({
+      connection: HTTP_CONNECTION,
+      brokenFiles: [ROBOT_2_FILE],
+    });
+
+    await runAfter(0);
+
+    const logs = await logsOf(repositories);
+    const robot2 = logs.find((log) => log.equipmentId === ROBOT_2_ID);
+    expect(robot2).toMatchObject({ result: 'FAILURE', sourceId: 'robot', recordCount: 0 });
+    expect(robot2?.errorMessage).toContain('1件のファイル');
+    expect(logs.find((log) => log.equipmentId === ROBOT_ID)?.result).toBe('SUCCESS');
+    expect((await repositories.ingestion.listEquipmentRuns()).get('ROBOT-T2')?.result).toBe(
+      'FAILURE',
+    );
+    expect((await repositories.ingestion.listEquipmentRuns()).get('ROBOT-T1')?.result).toBe(
+      'SUCCESS',
+    );
+  });
+
+  it('1 つのファイルに複数の設備が入る（モック・S3）ときは、設備ごとのログに件数を分ける。どの設備にも結びつかない記録は、取り込み元単位のログ（一部成功）に数える', async () => {
+    const { runAfter, repositories } = await build({
+      connection: { type: 'MOCK' },
+      files: { '/all.json': 'ROBOT-SAMPLE-01+ROBOT-SAMPLE-02+UNKNOWN-ROBOT' },
+    });
+
+    await runAfter(0);
+
+    const robotLogs = (await logsOf(repositories)).filter((log) => log.sourceId === 'robot');
+    const byEquipment = robotLogs
+      .filter((log) => log.equipmentId !== undefined)
+      .map((log) => [log.equipmentId, log.recordCount, log.result])
+      .sort();
+    expect(byEquipment).toEqual([
+      ['ROBOT-T1', 1, 'SUCCESS'],
+      ['ROBOT-T2', 1, 'SUCCESS'],
+    ]);
+    const unlinked = robotLogs.filter((log) => log.equipmentId === undefined);
+    expect(unlinked).toHaveLength(1);
+    expect(unlinked[0]).toMatchObject({ result: 'PARTIAL', recordCount: 0, rejectedCount: 1 });
+  });
+
+  it('設備が 1 つもない取り込み元は、取り込み元ごとの最終の開始日時を持つ（取得間隔の判定に使う）', async () => {
+    const { runAfter, repositories } = await build({ connection: { type: 'MOCK' } });
+    for (const id of [ROBOT_ID, ROBOT_2_ID]) {
+      const item = await repositories.equipment.get(id);
+      if (item !== undefined) {
+        await repositories.equipment.save({ ...item, isDeleted: true });
+      }
+    }
+
+    await runAfter(0);
+
+    expect((await repositories.ingestion.lastStartedAt('robot'))?.toISOString()).toBe(
+      TEST_NOW.toISOString(),
+    );
+  });
+
+  it('取り込めなかった不正な値は、その設備のログに数える。同じ不正な値が続いても（新しく保存した観測値がない）、ログを増やさない', async () => {
+    const { runAfter, repositories } = await build({
+      connection: HTTP_CONNECTION,
+      files: { [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01' },
+      // 収穫数に小数（整数の項目）は、不正
+      fields: { harvestCount: 1.5 },
+    });
+
+    await runAfter(0);
+    const first = await logsOf(repositories);
+    await runAfter(MINUTE);
+    const second = await logsOf(repositories);
+
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({
+      equipmentId: ROBOT_ID,
+      recordCount: 0,
+      rejectedCount: 1,
+      result: 'FAILURE',
+    });
+    expect(second).toHaveLength(1);
   });
 });

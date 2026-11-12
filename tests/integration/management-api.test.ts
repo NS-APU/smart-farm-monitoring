@@ -1510,6 +1510,25 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(body.sources[1]).toMatchObject({ lastStartedAt: null, lastSuccessAt: null });
   });
 
+  it('最終の実行・最終の成功は、設備ごとの最終の実行から求める。ログに残らない空振りでも更新し、失敗では、最終の成功を更新しない（Issue #201）', async () => {
+    const context = await withEquipment();
+    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await send(context, 'POST', '/ingestion/robot/run');
+    context.clock.advance(60_000);
+    // 新しいデータのない実行（ログには残らない）
+    await send(context, 'POST', '/ingestion/robot/run');
+    const empty = (await settings(context)).sources[0];
+    context.clock.advance(60_000);
+    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    await send(context, 'POST', '/ingestion/robot/run');
+    const failed = (await settings(context)).sources[0];
+
+    expect(empty?.lastStartedAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
+    expect(empty?.lastSuccessAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
+    expect(failed?.lastStartedAt).toBe(new Date(TEST_NOW.getTime() + 120_000).toISOString());
+    expect(failed?.lastSuccessAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
+  });
+
   it('接続先の参照名・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
     const context = await withEquipment();
 
@@ -1613,7 +1632,29 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(unknown.status).toBe(404);
   });
 
-  it('即時取得: 取り込んだ件数を返し、ログに記録する。同じファイルは、2回目は取り込まない', async () => {
+  /** 新しいデータになるファイルを置く（取り込みログは、新しいデータがあった実行だけ残す。Issue #201）。値を変えると、変わった観測値になる。 */
+  function placeNewRobotData(context: TestContext, name: string, harvestCount: number): void {
+    context.placeFile(
+      'robot',
+      name,
+      JSON.stringify({
+        robotId: 'ROBOT-SAMPLE-01',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount }],
+      }),
+    );
+  }
+  function placeNewSensorData(context: TestContext, name: string, temperature: number): void {
+    context.placeFile(
+      'environment-sensor',
+      name,
+      JSON.stringify({
+        sensorId: 'SENSOR-SAMPLE-01',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', temperatureCelsius: temperature }],
+      }),
+    );
+  }
+
+  it('即時取得: 取り込んだ件数を返し、ログに記録する。同じファイルは、2回目は取り込まない（新しいデータがなければ、ログに残さない）', async () => {
     const context = await withEquipment();
     context.placeFixture('robot', 'robot/robot-sample-001.json');
 
@@ -1634,15 +1675,20 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const logs = IngestionLogListResponseSchema.parse(
       await (await send(context, 'GET', '/ingestion/logs')).json(),
     );
-    expect(logs.items).toHaveLength(2);
+    // 1 回目（新しいデータあり）だけ。2 回目（新しいデータなし）は、残さない（Issue #201。ADR-0016 の D-48）
+    expect(logs.items).toHaveLength(1);
+    expect(logs.items[0]).toMatchObject({ sourceId: 'robot', equipmentId: 'ROBOT-T1' });
   });
 
   it('取り込みログは、取り込み元で絞り込め、新しい順に、ページ分割して返す', async () => {
     const context = await withEquipment();
+    placeNewRobotData(context, 'robot-1.json', 1);
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
+    placeNewSensorData(context, 'sensor-1.json', 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
     context.clock.advance(60_000);
+    placeNewRobotData(context, 'robot-2.json', 2);
     await send(context, 'POST', '/ingestion/robot/run');
 
     const all = IngestionLogListResponseSchema.parse(
@@ -1729,9 +1775,11 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   it('取り込みログ: 該当する取り込み元がなければ、空の一覧を返す。ページ分割は、取り込み元の絞り込みと併用できる', async () => {
     const context = await withEquipment();
     for (let count = 0; count < 3; count += 1) {
+      placeNewRobotData(context, `robot-${String(count)}.json`, count + 1);
       await send(context, 'POST', '/ingestion/robot/run');
       context.clock.advance(60_000);
     }
+    placeNewSensorData(context, 'sensor-1.json', 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
 
     const none = IngestionLogListResponseSchema.parse(

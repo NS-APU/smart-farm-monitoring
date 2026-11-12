@@ -21,7 +21,11 @@ import type {
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { FormatProfileRegistry } from '../ports/format-profile.ts';
-import type { FederationRepository, IngestionRepository } from '../ports/repositories.ts';
+import type {
+  EquipmentRepository,
+  FederationRepository,
+  IngestionRepository,
+} from '../ports/repositories.ts';
 import type { SecretPort } from '../ports/secret-port.ts';
 import { credentialsSecretValue, fileServerSecretReference } from './file-server-credentials.ts';
 import type { IngestionService } from './ingestion-service.ts';
@@ -52,6 +56,8 @@ export interface IngestionAdminService {
 export interface IngestionAdminServiceDeps {
   readonly ingestionSettings: IngestionSettings;
   readonly ingestion: IngestionRepository;
+  /** 設備（取り込み元の最終の実行を、その種別の設備の最終の実行から求める。Issue #201）。 */
+  readonly equipment: Pick<EquipmentRepository, 'list'>;
   readonly federation: FederationRepository;
   readonly ingestionService: Pick<IngestionService, 'isRunning'>;
   readonly profiles: FormatProfileRegistry;
@@ -62,10 +68,19 @@ export interface IngestionAdminServiceDeps {
   readonly isConnectionAllowed?: (connection: FileServerConnection) => boolean;
 }
 
+/** 日時のうち、最も新しいもの。なければ null。 */
+function latestDate(dates: readonly Date[]): Date | null {
+  return dates.reduce<Date | null>(
+    (latest, date) => (latest === null || date.getTime() > latest.getTime() ? date : latest),
+    null,
+  );
+}
+
 export function createIngestionAdminService(
   deps: IngestionAdminServiceDeps,
 ): IngestionAdminService {
   const { ingestionSettings, ingestion, federation, ingestionService, profiles, audit } = deps;
+  const equipmentRepository = deps.equipment;
   const { secrets } = deps;
   const isConnectionAllowed = deps.isConnectionAllowed ?? (() => true);
 
@@ -86,12 +101,24 @@ export function createIngestionAdminService(
 
   async function describe(): Promise<IngestionSettingsResponse> {
     const sources = await ingestionSettings.listSources();
+    // 取り込み元の最終の実行・最終の成功は、その種別の設備の、最終の実行から求める（設備ごとに持つ。Issue #201）
+    const [equipment, runs] = await Promise.all([
+      equipmentRepository.list(),
+      ingestion.listEquipmentRuns(),
+    ]);
     return {
       sources: await Promise.all(
         sources.map(async (source) => {
           const profile = profiles.get(source.profileId);
-          const lastStartedAt = await ingestion.lastStartedAt(source.sourceId);
-          const lastSucceededAt = await ingestion.lastSucceededAt(source.sourceId);
+          const memberRuns = equipment
+            .filter((item) => item.equipmentType === source.kind)
+            .flatMap((item) => runs.get(item.equipmentId) ?? []);
+          const lastStartedAt =
+            latestDate(memberRuns.map((run) => run.startedAt)) ??
+            (await ingestion.lastStartedAt(source.sourceId));
+          const lastSucceededAt = latestDate(
+            memberRuns.flatMap((run) => run.lastSucceededAt ?? []),
+          );
           return {
             ...source,
             formatProfile: {

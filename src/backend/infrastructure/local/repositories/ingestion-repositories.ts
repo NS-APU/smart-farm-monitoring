@@ -11,6 +11,7 @@ import {
 import {
   EquipmentIngestionStateSchema,
   IngestedFileRecordSchema,
+  SourceIngestionStateSchema,
 } from '../../../application/ports/records.ts';
 import type {
   FederationRepository,
@@ -18,7 +19,7 @@ import type {
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
-import { latestOf, paginated, saverOf } from './collection-helpers.ts';
+import { paginated, saverOf } from './collection-helpers.ts';
 
 /** ハウス別の記録の並び: 新しい順（同じ日時は、ログ・ハウスの識別子の降順。DynamoDB のソートキーと同じ順）。 */
 function byNewest(
@@ -47,6 +48,11 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
     'ingestionEquipmentStates',
     EquipmentIngestionStateSchema,
     (item) => item.equipmentId,
+  );
+  const sourceStates = store.collection(
+    'ingestionSourceStates',
+    SourceIngestionStateSchema,
+    (item) => item.sourceId,
   );
 
   const repository: IngestionRepository = {
@@ -83,51 +89,53 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
       return paginated(entries.sort(byNewest), page);
     },
     lastStartedAt(sourceId) {
-      return Promise.resolve(
-        latestOf(
-          ingestionLogs
-            .values()
-            .filter((log) => log.sourceId === sourceId)
-            .map((log) => log.startedAt),
-        ),
-      );
+      const state = sourceStates.get(sourceId);
+      return Promise.resolve(state === undefined ? null : new Date(state.startedAt));
     },
-    lastSucceededAt(sourceId) {
-      return Promise.resolve(
-        latestOf(
-          ingestionLogs
-            .values()
-            .filter((log) => log.sourceId === sourceId && log.result === 'SUCCESS')
-            .map((log) => log.finishedAt),
-        ),
-      );
-    },
-    listEquipmentStartedAt() {
-      return Promise.resolve(
-        new Map(
-          equipmentStates.values().map((state) => [state.equipmentId, new Date(state.startedAt)]),
-        ),
-      );
-    },
-    markEquipmentStarted(equipmentIds, at) {
+    recordSourceStarted(sourceId, at) {
       const startedAt = at.toISOString();
-      for (const equipmentId of equipmentIds) {
-        const current = equipmentStates.get(equipmentId);
-        if (current === undefined || current.startedAt < startedAt) {
-          equipmentStates.put({ equipmentId: toEquipmentId(equipmentId), startedAt });
-        }
+      const current = sourceStates.get(sourceId);
+      if (current === undefined || current.startedAt < startedAt) {
+        sourceStates.put({ sourceId, startedAt });
       }
       return Promise.resolve();
     },
-    lastDataIngestedAt(sourceId) {
+    listEquipmentRuns() {
       return Promise.resolve(
-        latestOf(
-          ingestionLogs
-            .values()
-            .filter((log) => log.sourceId === sourceId && log.recordCount > 0)
-            .map((log) => log.finishedAt),
+        new Map(
+          equipmentStates.values().map((state) => [
+            state.equipmentId,
+            {
+              startedAt: new Date(state.startedAt),
+              finishedAt: new Date(state.finishedAt),
+              result: state.result,
+              lastSucceededAt: state.succeededAt === undefined ? null : new Date(state.succeededAt),
+              lastDataAt: state.dataAt === undefined ? null : new Date(state.dataAt),
+            },
+          ]),
         ),
       );
+    },
+    recordEquipmentRuns(runs) {
+      for (const run of runs) {
+        const current = equipmentStates.get(run.equipmentId);
+        const startedAt = run.startedAt.toISOString();
+        if (current !== undefined && current.startedAt > startedAt) {
+          continue;
+        }
+        const finishedAt = run.finishedAt.toISOString();
+        const succeededAt = run.result === 'SUCCESS' ? finishedAt : current?.succeededAt;
+        const dataAt = run.dataIngested ? finishedAt : current?.dataAt;
+        equipmentStates.put({
+          equipmentId: toEquipmentId(run.equipmentId),
+          startedAt,
+          finishedAt,
+          result: run.result,
+          ...(succeededAt === undefined ? {} : { succeededAt }),
+          ...(dataAt === undefined ? {} : { dataAt }),
+        });
+      }
+      return Promise.resolve();
     },
   };
 
