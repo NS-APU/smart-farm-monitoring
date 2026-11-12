@@ -501,6 +501,46 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(await screen.findByText('未取得')).toBeDefined();
   });
 
+  it('手動のみの運用（自動取り込みが有効でない）は、「古い」「未取得」の警告を出さず、ヘッダーに「最終の手動入力」の日時を示し、案内とデータ入力への導線を表示する（Issue #202）', async () => {
+    renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(
+            dashboard({
+              dataFreshness: 'MANUAL',
+              lastReceivedAt: null,
+              lastManualInputAt: '2026-10-09T02:30:00.000Z',
+            }),
+          ),
+      },
+    });
+
+    expect(await screen.findByText(/自動取り込みが有効でない/)).toBeDefined();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(/データがまだ取り込まれていません/)).toBeNull();
+    expect(screen.queryByText('（古い）')).toBeNull();
+    expect(screen.queryByText('未取得')).toBeNull();
+    const header = await screen.findByText(/^最終の手動入力:/);
+    expect(header.closest('.header-data-status')?.textContent).toContain('2026/10/09 11:30:00');
+    expect(screen.queryByText(/^最終のデータ取得:/)).toBeNull();
+    const links = screen.getAllByRole('link', { name: 'データ入力へ' });
+    expect(links.at(-1)?.getAttribute('href')).toBe('/data-entry');
+  });
+
+  it('手動のみの運用で、手動入力がまだなければ、ヘッダーは「最終の手動入力: まだありません」', async () => {
+    renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(
+            dashboard({ dataFreshness: 'MANUAL', lastReceivedAt: null, lastManualInputAt: null }),
+          ),
+      },
+    });
+
+    const header = await screen.findByText(/^最終の手動入力:/);
+    expect(header.closest('.header-data-status')?.textContent).toContain('まだありません');
+  });
+
   it('設備が登録されていなければ、その旨と設備管理への導線を表示する', async () => {
     renderApp({ scenario: { equipment: () => jsonResponse({ facilities: [] }) } });
 
