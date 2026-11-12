@@ -93,6 +93,8 @@ export const MANAGEMENT_MESSAGES = {
     starOption: (stars: number) => `${String(stars)}スター`,
     note: '備考（所感・補足情報）',
     selectPlaceholder: '選択してください',
+    statusCodeHint: '登録済みのコードから選択',
+    statusCodeDeletedOption: '（登録なし・削除済み）',
     save: '保存する',
     savedTitle: '保存しました',
     savedLead: '入力内容を保存し、評価を更新しました。関連する観点の現在のステータスです',

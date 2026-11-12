@@ -50,7 +50,7 @@ export function EntryValues(props: { readonly entry: ManualEntry }): ReactNode {
         return (
           <li key={itemKey}>
             {item?.label ?? itemKey}:{' '}
-            <strong>{`${formatThreshold(value)}${item?.unit ?? ''}`}</strong>
+            <strong>{`${typeof value === 'number' ? formatThreshold(value) : value}${item?.unit ?? ''}`}</strong>
           </li>
         );
       })}
