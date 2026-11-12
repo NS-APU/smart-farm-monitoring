@@ -94,9 +94,9 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     const log = logRows(page).first();
     await expect(log).toHaveAttribute('data-result', 'SUCCESS');
     await expect(log).toContainText('ロボットデータ');
-    await expect(log.locator('td').nth(3)).toHaveText('1');
-    await expect(log.locator('td').nth(4)).toHaveText('14');
-    await expect(log.locator('td').nth(5)).toHaveText('0');
+    await expect(log.locator('td').nth(4)).toHaveText('1');
+    await expect(log.locator('td').nth(5)).toHaveText('14');
+    await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc08-ingestion');
 
     // 3. ロボットに対応づけて保存されている（SC-09）
