@@ -530,6 +530,88 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     });
   }
 
+  // 自動取り込みの項目は、すべて、手動でも入力できる（予備の入口。#192。ADR-0016 の D-10）
+  const itemInput = (page: Page, key: string) =>
+    mainArea(page).locator(`[data-field="items.${key}"] input`);
+
+  test('稼働情報（稼働時間・待機時間・収穫稼働時間・走行停止時間）を、ロボットに、手動で入力して保存できる。手動入力として保持する', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'OPERATION', observedAt: AT });
+    await expect(mainArea(page).getByTestId('entry-items').getByRole('textbox')).toHaveCount(4);
+    await itemInput(page, 'operatingHours').fill('5.5');
+    await itemInput(page, 'standbyHours').fill('1');
+    await itemInput(page, 'harvestOperatingHours').fill('4');
+    await itemInput(page, 'travelStoppedHours').fill('0.5');
+    await saveEntry(page);
+
+    await expect(page.getByTestId('entry-result')).toContainText('保存しました');
+    await goToMenu(page, '取り込み済みデータ');
+    const rows = page.getByTestId('observation-row');
+    await expect(rows).toHaveCount(4);
+    for (const row of await rows.all()) {
+      await expect(row).toContainText('手動入力');
+      await expect(row).toContainText('収穫ロボット1');
+    }
+    await expect(rows.filter({ hasText: '待機時間' })).toContainText('1');
+  });
+
+  const harvestValues: readonly {
+    name: string;
+    key: string;
+    value: string;
+    ok: boolean;
+    message: string;
+  }[] = [
+    { name: '収穫数 120 個', key: 'harvestCount', value: '120', ok: true, message: '' },
+    {
+      name: '収穫数 1.5 個（整数でない）',
+      key: 'harvestCount',
+      value: '1.5',
+      ok: false,
+      message: '収穫数は0以上の整数で指定してください',
+    },
+    {
+      name: '1 果実あたりの収穫時間 300 秒（手動入力の上限）',
+      key: 'harvestSecondsPerFruit',
+      value: '300',
+      ok: true,
+      message: '',
+    },
+    {
+      name: '1 果実あたりの収穫時間 300.1 秒（手動入力の上限の外）',
+      key: 'harvestSecondsPerFruit',
+      value: '300.1',
+      ok: false,
+      message: '1果実あたりの収穫時間は0以上300以下の数値で指定してください',
+    },
+  ];
+
+  for (const item of harvestValues) {
+    test(`収穫情報の ${item.name}は${item.ok ? '保存できる' : 'エラーになる（範囲を示す）'}`, async ({
+      page,
+      request,
+    }) => {
+      await prepareApp(request);
+      await openEntry(page);
+
+      await fillEntryForm(page, { equipment: ROBOT_ID, category: 'HARVEST', observedAt: AT });
+      await itemInput(page, item.key).fill(item.value);
+      await saveEntry(page);
+
+      if (item.ok) {
+        await expect(page.getByTestId('entry-result')).toBeVisible();
+      } else {
+        await expect(fieldError(page, `items.${item.key}`)).toHaveText(item.message);
+        await expect(page.getByTestId('entry-result')).toHaveCount(0);
+      }
+    });
+  }
+
   // 満足度は、スターで選ぶ（1〜5 以外は、画面では選べない）。範囲外・整数でない値は、API が拒否する（D-18）
   for (const value of [1, 2, 3, 4, 5]) {
     test(`満足度 ${String(value)}（スター）は保存できる（1〜5の整数。他の8観点は 3）`, async ({
