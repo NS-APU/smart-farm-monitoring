@@ -2315,7 +2315,7 @@ else:                                           VALID
 
 - 取り込み（`IngestionService.toObservations`）では、**値のない項目も観測値として保存する**。`MISSING` は `value: null`、`INVALID` は、数値・文字列なら元の値を保持したまま `INVALID` で保存する。`rejectedCount` に数えるのは、`MISSING`・`INVALID`・項目カタログにない項目・設備に対応づけられない記録・計測日時が読めない記録
 - 評価・集計に使うのは `VALID` と `LATE` のみ（`LATE` は使う）。取り込みログの `recordCount` も、この 2 つの数
-- 手動入力は、`validateManualEntry`（`shared/schemas/manual-entry.ts`）で検証し、品質は常に `VALID`。計測日時が、現在から 5 分を超える未来なら拒否
+- 手動入力は、`validateManualEntry`（`shared/schemas/manual-entry.ts`）で検証し、品質は常に `VALID`。入力の `items` の値は、数値または文字列（文字列は、ステータスコードだけ）。ステータスコードの登録の有無（登録済み・削除していない）は、`ManualEntryService` が `StatusCodeRepository` で確かめる（新規・修正）。画面は、登録済みのコードの選択肢から選ぶ（`StatusCodeField`。このカテゴリを選んでいる間だけ、`GET /status-codes` を 60 秒間隔で取得する）。計測日時が、現在から 5 分を超える未来なら拒否
 
 ## 3. 通知の生成と抑制（状態変化は出来事で判定。取り込み系は 60 分）
 
@@ -2706,37 +2706,37 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 293 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3289 件成功・2 件スキップ）。
+計測対象は 293 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（148 ファイル・3301 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.15% | 7,749／7,815 | 95% 以上 |
-| 文   | 99.17% | 8,014／8,081 | 95% 以上 |
-| 関数 | 99.31% | 2,330／2,346 | 95% 以上 |
-| 分岐 | 95.4% | 4,964／5,203 | 95% 以上 |
+| 行   | 99.15% | 7,770／7,836 | 95% 以上 |
+| 文   | 99.17% | 8,038／8,105 | 95% 以上 |
+| 関数 | 99.32% | 2,339／2,355 | 95% 以上 |
+| 分岐 | 95.4% | 4,987／5,227 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
 | 対象                         | 行     | 文     | 関数   | 分岐   |
 | ---------------------------- | ------ | ------ | ------ | ------ |
-| `src/shared` | 100.0% | 100.0% | 100.0% | 99.49% |
+| `src/shared` | 100.0% | 100.0% | 100.0% | 99.5% |
 | `src/backend/domain` | 98.95% | 98.99% | 99.13% | 95.87% |
-| `src/backend/application` | 99.42% | 99.38% | 99.29% | 95.68% |
+| `src/backend/application` | 99.43% | 99.38% | 99.29% | 95.71% |
 | `src/backend/infrastructure` | 99.05% | 99.08% | 100.0% | 94.82% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.74% |
 | `src/backend/runtime` | 97.71% | 97.73% | 92.5% | 93.06% |
-| `src/frontend` | 99.14% | 99.17% | 99.29% | 95.41% |
+| `src/frontend` | 99.14% | 99.18% | 99.3% | 95.38% |
 
 分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`container.ts`（88.57%）・`ingestion-admin-service.ts`（88.88%）・`clear-bucket.ts`（89.47%）
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・828 件（UC ごと 25 ファイル・818 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・830 件（UC ごと 25 ファイル・820 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3289 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3289 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3301 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3301 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

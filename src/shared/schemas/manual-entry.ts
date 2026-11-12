@@ -33,7 +33,14 @@ export function manualItemsOfCategory(category: Category): readonly ItemDefiniti
   return itemsOfCategory(category).filter((item) => item.origins.includes('MANUAL'));
 }
 
-export const ManualEntryItemsSchema = z.record(z.string(), z.number('値は数値で指定してください'));
+/** 項目の識別子 → 値。数値の項目は数値、ステータスコードは文字列（登録済みのコードの値。#192）。 */
+export const ManualEntryItemsSchema = z.record(
+  z.string(),
+  z.union([
+    z.number('値は数値で指定してください'),
+    z.string('値は数値または文字列で指定してください'),
+  ]),
+);
 
 /** POST・PUT /manual-entries の入力。 */
 export const ManualEntryInputSchema = z.object({
@@ -109,8 +116,12 @@ export function describeRange(item: ItemDefinition): string {
 
 /** 手動入力の項目の値が不正な場合の理由を返す。正しければ null。 */
 export function findItemValueViolation(item: ItemDefinition, value: unknown): string | null {
-  return isValidItemValue(item, value, true)
-    ? null
+  if (isValidItemValue(item, value, true)) {
+    return null;
+  }
+  // 文字列の項目（ステータスコード）は、登録済みのコードから選ぶ（登録の有無は、API が確かめる）
+  return item.valueType === 'string'
+    ? `${item.label}は、登録済みのコードから選択してください`
     : `${item.label}は${describeRange(item)}で指定してください`;
 }
 

@@ -181,12 +181,6 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
     ],
     ['カテゴリが存在しない', { category: 'UNKNOWN' }, 400, 'category'],
     [
-      '手動入力できないカテゴリ（ステータス。別の PR で加える）',
-      { category: 'STATUS' },
-      400,
-      'category',
-    ],
-    [
       '1 果実あたりの収穫時間が、手動入力の上限（300 秒）を超える',
       { category: 'HARVEST', items: { harvestSecondsPerFruit: 300.1 } },
       400,
@@ -286,6 +280,112 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
       'travelStoppedHours',
     ]);
     expect(stored.every((item) => item.quality === 'VALID')).toBe(true);
+  });
+
+  describe('ステータスコード（文字列の項目）の手動入力（#192 の PR 2。ステータスのカテゴリ）', () => {
+    const statusBody = (code: unknown, overrides: Partial<ManualEntryInput> = {}) =>
+      entryBody({
+        category: 'STATUS',
+        items: { statusCode: code } as ManualEntryInput['items'],
+        ...overrides,
+      });
+
+    it('登録済みのコードを、手動で入力して保存できる。観測値は、文字列の値の手動入力として保持する', async () => {
+      const context = await withEquipment();
+
+      const saved = await createEntry(context, statusBody('RUNNING_ERROR'));
+
+      expect(saved.entry).toMatchObject({
+        category: 'STATUS',
+        items: { statusCode: 'RUNNING_ERROR' },
+      });
+      const stored = (
+        await context.container.repositories.observations.query(
+          { equipmentIds: [ROBOT_ID] },
+          { limit: 10 },
+        )
+      ).items;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        itemKey: 'statusCode',
+        value: 'RUNNING_ERROR',
+        source: 'MANUAL',
+        quality: 'VALID',
+        category: 'STATUS',
+      });
+    });
+
+    it('登録のないコードは、項目のエラーで拒否する（何も保存しない）', async () => {
+      const context = await withEquipment();
+
+      const response = await send(context, 'POST', '/manual-entries', statusBody('NOT_REGISTERED'));
+
+      expect(response.status).toBe(400);
+      const error = await errorOf(response);
+      expect(error.fields).toContainEqual({
+        name: 'items.statusCode',
+        message: 'ステータスコードは、登録済み（削除していない）のコードから選択してください',
+      });
+      expect(
+        (
+          await context.container.repositories.observations.query(
+            { equipmentIds: [ROBOT_ID] },
+            { limit: 10 },
+          )
+        ).items,
+      ).toHaveLength(0);
+    });
+
+    it('削除済みのコードは、入力できない（新規・修正とも）。数値・空の文字列も、拒否する', async () => {
+      const context = await withEquipment();
+      const saved = await createEntry(context, statusBody('STANDBY'));
+      await send(context, 'DELETE', '/status-codes/STOPPED');
+
+      const created = await send(context, 'POST', '/manual-entries', statusBody('STOPPED'));
+      const updated = await send(
+        context,
+        'PUT',
+        `/manual-entries/${saved.entry.entryId}`,
+        statusBody('STOPPED'),
+      );
+
+      expect(created.status).toBe(400);
+      expect(updated.status).toBe(400);
+      for (const value of [5, '']) {
+        const response = await send(context, 'POST', '/manual-entries', statusBody(value));
+        expect(response.status).toBe(400);
+        expect((await errorOf(response)).fields?.map((field) => field.name)).toContain(
+          'items.statusCode',
+        );
+      }
+    });
+
+    it('修正で、別の登録済みのコードに変えられる。一覧・キーワード検索は、コードの文字列で引ける', async () => {
+      const context = await withEquipment();
+      const saved = await createEntry(context, statusBody('STANDBY'));
+
+      const updated = await send(
+        context,
+        'PUT',
+        `/manual-entries/${saved.entry.entryId}`,
+        statusBody('LOW_BATTERY'),
+      );
+
+      expect(updated.status).toBe(200);
+      const listed = ManualEntryListResponseSchema.parse(
+        await (await send(context, 'GET', '/manual-entries?q=low_battery')).json(),
+      );
+      expect(listed.items.map((entry) => entry.items)).toEqual([{ statusCode: 'LOW_BATTERY' }]);
+    });
+
+    it('手動入力のコードは、評価に使われる（異常のコードを入力すると、ステータスの観点が「異常」になる）', async () => {
+      const context = await withEquipment();
+
+      const saved = await createEntry(context, statusBody('RUNNING_ERROR'));
+
+      expect(saved.viewpointStatuses.length).toBeGreaterThan(0);
+      expect(saved.viewpointStatuses.some((item) => item.status === 'ERROR')).toBe(true);
+    });
   });
 
   it('満足度は 1〜5 の整数（境界値: 0 は不正、1 と 5 は正常、6 は不正）', async () => {

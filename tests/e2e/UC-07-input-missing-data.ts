@@ -560,6 +560,46 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await expect(rows.filter({ hasText: '待機時間' })).toContainText('1');
   });
 
+  test('ステータスコードを、登録済みのコードから選んで、ロボットに、手動で入力できる。保存すると、手動入力として保持し、入力済みデータの一覧に、コードを示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'STATUS', observedAt: AT });
+    const select = mainArea(page).locator('[data-field="items.statusCode"] select');
+    // 登録済み（削除していない）のコードを、名称（コード）で選ぶ
+    await expect(select.locator('option')).toContainText([
+      '選択してください',
+      '走行異常（RUNNING_ERROR）',
+    ]);
+    await select.selectOption('RUNNING_ERROR');
+    await saveEntry(page);
+
+    await expect(page.getByTestId('entry-result')).toContainText('保存しました');
+    await goToMenu(page, '取り込み済みデータ');
+    const rows = page.getByTestId('observation-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText('手動入力');
+    await expect(rows.first()).toContainText('ステータスコード');
+    await expect(rows.first()).toContainText('走行異常');
+  });
+
+  test('ステータスコードを選ばずに保存すると、エラーになる（保存しない）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'STATUS', observedAt: AT });
+    await saveEntry(page);
+
+    await expect(page.getByTestId('entry-result')).toHaveCount(0);
+    await expect(mainArea(page).getByText('1つ以上の項目を入力してください')).toBeVisible();
+  });
+
   const harvestValues: readonly {
     name: string;
     key: string;
