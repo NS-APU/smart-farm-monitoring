@@ -7,6 +7,7 @@
 
 import {
   CATEGORY_LABELS,
+  STATUS_CODE_ITEM_KEY,
   findItemDefinition,
   type Category,
 } from '@smart-farm/shared/constants/items';
@@ -88,7 +89,7 @@ export interface ManualEntryService {
 export interface ManualEntryServiceDeps {
   readonly repositories: Pick<
     Repositories,
-    'manualEntries' | 'observations' | 'equipment' | 'evaluations'
+    'manualEntries' | 'observations' | 'equipment' | 'evaluations' | 'statusCodes'
   >;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
@@ -100,8 +101,8 @@ export interface ManualEntryServiceDeps {
   readonly logger: Logger;
 }
 
-/** 手動入力の値の文字列（キーワード検索の対象。単位つき・なしの両方）。 */
-function valueTexts(itemKey: string, value: number): string[] {
+/** 手動入力の値の文字列（キーワード検索の対象。単位つき・なしの両方。文字列の値〔ステータスコード〕は、その文字列）。 */
+function valueTexts(itemKey: string, value: number | string): string[] {
   const item = findItemDefinition(itemKey);
   return [String(value), `${String(value)}${item?.unit ?? ''}`, item?.label ?? itemKey];
 }
@@ -147,8 +148,22 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);
 
-  function assertValid(input: ManualEntryInput): void {
+  async function assertValid(input: ManualEntryInput): Promise<void> {
     const fields = validateManualEntry({ ...input, note: input.note ?? '' }, clock.now());
+    // ステータスコードは、登録済み（削除していない）のコードだけ（#192）。値の形の誤りは、上で検出済み
+    const statusCode = input.items[STATUS_CODE_ITEM_KEY];
+    if (
+      typeof statusCode === 'string' &&
+      !fields.some((field) => field.name === `items.${STATUS_CODE_ITEM_KEY}`)
+    ) {
+      const definition = await repositories.statusCodes.get(statusCode);
+      if (definition === undefined || definition.isDeleted) {
+        fields.push({
+          name: `items.${STATUS_CODE_ITEM_KEY}`,
+          message: 'ステータスコードは、登録済み（削除していない）のコードから選択してください',
+        });
+      }
+    }
     if (fields.length > 0) {
       throw validationError(fields);
     }
@@ -266,7 +281,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
 
   return {
     async create(input, actor, scope = ALL_EQUIPMENT) {
-      assertValid(input);
+      await assertValid(input);
       assertInScope(scope, input.equipmentId);
       await findActiveEquipment(input.equipmentId);
       const entryId = ids.next();
@@ -302,7 +317,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
 
     async update(entryId, input, actor, scope = ALL_EQUIPMENT) {
       const before = await findEntry(entryId, scope);
-      assertValid(input);
+      await assertValid(input);
       assertInScope(scope, input.equipmentId);
       await findActiveEquipment(input.equipmentId);
       await assertNoConflict(input, entryId);

@@ -36,12 +36,13 @@ export const CATEGORY_LABELS: Readonly<Record<Category, string>> = {
 
 /**
  * 手動入力で選べるカテゴリ（FR-4.1）。自動取り込みの項目も、すべて、手動で入力できる（予備の入口。ADR-0016 の D-10。#192）。
- * ステータスは、文字列の項目（ステータスコード）のため、別の変更で加える。
+ * ステータスの項目（ステータスコード）は、文字列で、登録済みのコードから選ぶ。
  */
 export const MANUAL_INPUT_CATEGORIES: readonly Category[] = [
   'OPERABILITY',
   'HARVEST',
   'OPERATION',
+  'STATUS',
   'SAFETY',
   'COST',
   'FAILURE',
@@ -75,7 +76,6 @@ export interface ItemDefinition {
   readonly origins: readonly ObservationSource[];
 }
 
-const AUTO: readonly ObservationSource[] = ['AUTO_IMPORT'];
 const MANUAL: readonly ObservationSource[] = ['MANUAL'];
 const BOTH: readonly ObservationSource[] = ['AUTO_IMPORT', 'MANUAL'];
 
@@ -178,7 +178,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '',
     valueType: 'string',
     aggregation: 'STATUS',
-    origins: AUTO,
+    origins: BOTH,
   },
   // 環境情報（環境センサー、手動入力）
   {

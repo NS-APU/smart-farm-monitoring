@@ -6,6 +6,7 @@ import {
 } from '../../../src/shared/constants/items.ts';
 import { FUTURE_TOLERANCE_MINUTES, MAX_NOTE_LENGTH } from '../../../src/shared/constants/limits.ts';
 import {
+  ManualEntryInputSchema,
   describeRange,
   findItemValueViolation,
   manualItemsOfCategory,
@@ -172,14 +173,58 @@ describe('validateManualEntry（手動入力の検証）', () => {
     expect(names(errors).sort()).toEqual(['category', 'equipmentId', 'items', 'observedAt']);
   });
 
-  it('手動入力できないカテゴリ（ステータス・不明な値）は、エラー（ステータスは、別の PR で、手動入力に加える）', () => {
-    expect(validateManualEntry(draft({ category: 'STATUS', items: {} }), NOW)).toContainEqual({
+  it('手動入力できないカテゴリ（不明な値）は、エラー', () => {
+    expect(validateManualEntry(draft({ category: 'UNKNOWN', items: {} }), NOW)).toContainEqual({
       name: 'category',
       message: 'このカテゴリは手動で入力できません',
     });
     expect(
       names(validateManualEntry(draft({ category: 'UNKNOWN', items: { failureCount: 1 } }), NOW)),
     ).toContain('category');
+  });
+
+  describe('ステータスコード（文字列の項目。#192 の PR 2。ステータスのカテゴリ）', () => {
+    const status = (value: unknown) =>
+      validateManualEntry(draft({ category: 'STATUS', items: { statusCode: value } }), NOW);
+
+    it('ステータスのカテゴリで、ステータスコードを、文字列で入力できる', () => {
+      expect(manualItemsOfCategory('STATUS').map((definition) => definition.itemKey)).toEqual([
+        'statusCode',
+      ]);
+      expect(status('RUNNING')).toEqual([]);
+    });
+
+    it.each([
+      ['数値', 5],
+      ['空の文字列', ''],
+    ])('文字列でない・空のコード（%s）は、選択を求めるエラー', (_name, value) => {
+      expect(status(value)).toEqual([
+        {
+          name: 'items.statusCode',
+          message: 'ステータスコードは、登録済みのコードから選択してください',
+        },
+      ]);
+    });
+
+    it('数値の項目に、文字列は指定できない（範囲を示すエラー）', () => {
+      expect(validateManualEntry(draft({ items: { failureCount: 'abc' } }), NOW)).toEqual([
+        { name: 'items.failureCount', message: '故障回数は0以上の整数で指定してください' },
+      ]);
+    });
+
+    it('入力のスキーマは、数値と文字列を受け付ける（それ以外は受け付けない）', () => {
+      const parse = (items: unknown) =>
+        ManualEntryInputSchema.safeParse({
+          equipmentId: 'ROBOT-01',
+          category: 'STATUS',
+          observedAt: '2026-10-09T02:00:00.000Z',
+          items,
+        }).success;
+      expect(parse({ statusCode: 'RUNNING' })).toBe(true);
+      expect(parse({ failureCount: 2 })).toBe(true);
+      expect(parse({ statusCode: true })).toBe(false);
+      expect(parse({ statusCode: null })).toBe(false);
+    });
   });
 
   it('計測日時: 形式が不正ならエラー。未来は許容（5分）を超えるとエラーで、許容の範囲内なら有効', () => {

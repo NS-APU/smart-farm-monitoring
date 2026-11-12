@@ -216,10 +216,16 @@ async function seedManualEntries(
       observedMs -= MS_PER_MINUTE;
     }
     usedKeys.add(`${equipmentId}#${category}#${String(observedMs)}`);
-    const items: Record<string, number> = {};
+    const items: Record<string, number | string> = {};
     for (const item of itemsOfCategory(category).filter((candidate) =>
       candidate.origins.includes('MANUAL'),
     )) {
+      if (item.valueType === 'string') {
+        // 文字列の項目（ステータスコード）は、登録済みの合成のコードから選ぶ
+        items[item.itemKey] =
+          `STRESS_CODE_${String(1 + Math.floor(random() * Math.min(5, scale.statusCodes))).padStart(4, '0')}`;
+        continue;
+      }
       const min = item.min ?? 0;
       const max = Math.min(item.max ?? min + 20, min + 20);
       const value = min + random() * (max - min);
