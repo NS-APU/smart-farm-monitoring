@@ -241,6 +241,7 @@ function SourceCard(props: SourceCardProps): ReactNode {
           ran.value.filesProcessed,
           ran.value.recordCount,
           ran.value.rejectedCount,
+          ran.value.deletedEquipmentCount,
         )}`,
       });
     }
@@ -704,6 +705,9 @@ function LogTable(props: {
               <th scope="col" className="numeric">
                 {TEXT.logRejected}
               </th>
+              <th scope="col" className="numeric">
+                {TEXT.logDeleted}
+              </th>
               <th scope="col">{TEXT.logError}</th>
             </tr>
           </thead>
@@ -732,6 +736,9 @@ function LogTable(props: {
                 </td>
                 <td className="numeric" data-label={TEXT.logRejected}>
                   {log.rejectedCount}
+                </td>
+                <td className="numeric" data-label={TEXT.logDeleted}>
+                  {log.deletedEquipmentCount ?? MESSAGES.common.missingValue}
                 </td>
                 <td data-label={TEXT.logError}>
                   {log.errorMessage ?? MESSAGES.common.missingValue}

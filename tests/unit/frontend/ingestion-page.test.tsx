@@ -110,6 +110,7 @@ function baseRoutes(extra: Routes = {}): Routes {
             sourceId: 'unknown-src',
             // 設備に結びつかないログ（取り込み元単位）
             equipmentId: undefined,
+            deletedEquipmentCount: 2,
           }),
         ],
         nextCursor: null,
@@ -217,7 +218,10 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     // 設備の名前（設備に結びつかないログは、「—」）
     expect(logRows[0]?.querySelectorAll('td')[2]?.textContent).toBe('収穫ロボット1');
     expect(logRows[0]?.querySelectorAll('td')[7]?.textContent).toBe('—');
+    expect(logRows[0]?.querySelectorAll('td')[8]?.textContent).toBe('—');
     expect(logRows[1]?.querySelectorAll('td')[2]?.textContent).toBe('—');
+    // 削除済みの設備のレコードの数（取り込み元単位のログにある場合）
+    expect(logRows[1]?.querySelectorAll('td')[7]?.textContent).toBe('2');
     expect(logRows[1]?.textContent).toContain('unknown-src');
     expect(logRows[1]?.textContent).toContain('接続できませんでした');
 
@@ -247,6 +251,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       'ファイル数',
       '取得件数',
       '読み取れなかった数',
+      '削除済みの設備',
       'エラー内容',
     ]);
     expect(labelsOf(federationRow)).toHaveLength(4);
@@ -370,6 +375,31 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     const robot = await screen.findByTestId('source-robot');
     fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
     expect(await within(robot).findByText('接続先の参照名を確認してください')).toBeDefined();
+  });
+
+  it('即時取得: 削除済みの設備のレコードがあれば、「削除済みの設備の記録 N 件」を、読み取れなかった記録と別に示す（0 件のときは示さない。Issue #231）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'POST /ingestion/robot/run': () =>
+          jsonResponse({
+            sourceId: 'robot',
+            result: 'SUCCESS',
+            filesProcessed: 1,
+            recordCount: 4,
+            rejectedCount: 0,
+            deletedEquipmentCount: 2,
+            attempts: 1,
+          }),
+      }),
+    );
+    const robot = await screen.findByTestId('source-robot');
+
+    fireEvent.click(within(robot).getByRole('button', { name: '即時取得' }));
+
+    expect((await screen.findByTestId('result-robot')).textContent).toBe(
+      '取得しました（成功）: ファイル 1 件、取り込み 4 件、読み取れなかった記録 0 件、削除済みの設備の記録 2 件',
+    );
   });
 
   it('接続テスト: 結果のメッセージを示す（成功は成功の表示、失敗は失敗の表示）', async () => {
