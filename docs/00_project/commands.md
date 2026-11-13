@@ -338,6 +338,7 @@ $env:SMOKE_COLD_START = '1'; pnpm test:smoke smoke-03   # コールドスター�
 Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE_COLD_START -ErrorAction SilentlyContinue
 ```
 
+- **本番サイトでは、`pnpm test:smoke smoke-04` だけを実行する**（読み取りのみ）。引数なしの全件は、デモデータへ書き込むため、実行しない。`smoke-04` の 3 つ目（ログイン → ダッシュボード）は、設備が未登録の本番では、失敗する（operations.md 8.9）
 - 環境変数: `SMOKE_BASE_URL`（`https://` で始まる URL。パス・末尾のスラッシュは付けない）・`SMOKE_USER_ID`・`SMOKE_PASSWORD`（すべて必須。足りなければ、実行の最初にエラー。エラーに、パスワードは出ない）。値は、コード・ログ・結果に残らない。動画・トレースも取らない（パスワードが残るため）
 - テスト（`tests/smoke/`）: `smoke-01-flow.ts`（流れの確認。環境の**センサー（`SENSOR-01`）に、正常の範囲の値（温度 23℃・湿度 60%）の手動入力を 1 件保存し、終わりに削除する**。論理削除で、変更履歴には残る。途中で失敗して残ったときは、入力済みデータで「スモークテスト」を検索して削除する）、`smoke-02-performance.ts`（初期表示 5 回・自動更新 3 回・推移 3 回・取り込みの実行時間）、`smoke-03-cold-start.ts`（`SMOKE_COLD_START=1` のときだけ動く）。デモデータ（`ROBOT-01`・`SENSOR-01`）がある環境が前提
 - **推移の実測（NFR-3.5）には、1 か月分のデータが要る**。測る前に、`pnpm demo-data reset --yes` → `pnpm demo-data seed --days 30`（上の「デモデータの投入とリセット」）で、30 日分にする。測ったあとは、`reset --yes` → `seed` で、既定（3 日分）に戻す。評価する人が使っている間は、行わない

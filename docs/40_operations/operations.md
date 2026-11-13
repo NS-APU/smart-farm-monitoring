@@ -310,6 +310,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 - 手順 D より前に購読した端末は、暗号鍵を持たないため、**本文なし**で届く（既定の文言「新しい通知があります」）。「解除する」→「有効にする」で、本文つきになる。
 - 鍵を作り直したとき（漏えいの疑いなど）は、手順 A〜C を、すべてやり直す。**公開鍵が変わると、既存の購読には、届かなくなる**（プッシュサービスが、HTTP 403 を返す）。各端末が、「解除する」→「有効にする」をやり直す。
 - 費用: プッシュサービスへの送信は、無料。パラメータストアの標準のパラメータ・AWS 管理の暗号鍵は、無料。Lambda の実行時間の増加は、通知 1 件あたり数百 ms の見込みで、数円未満（**実測はしていない**）。
+- **本番サイトの読み替え**（2026-11-13。Issue #341。鍵・購読の有効化まで確認済み。受信・解除〔手順 E・F〕は、設備の登録の後）: 手順 A の鍵は、**本番用に新しく作る**（開発サイトと同じ値を使い回さない。10.2・security.md）。手順 B の秘密鍵のパスは `/sfm/production/web-push/vapid-private-key`（Lambda の権限は、環境ごとのパスの下だけ。10.1）。手順 C の変数は、Environment「production」の `SFM_WEB_PUSH_PUBLIC_KEY`・`SFM_WEB_PUSH_SUBJECT`（本番サイトの URL。**2 つとも**）で、デプロイは「Deploy production」（9.3）。手順 D は、本番サイトの URL で行う。手順 E は、手動入力で通知を起こすため、**本番に設備が登録されてから**行う（設備がないと、起こせない）
 - **確認の結果は、Issue #241 のコメントに記録する**（端末・OS・ブラウザの種類、期待どおりだったか、表示された文言）。実機で確認できなかった端末は、その旨を記録する（D-41 の確認事項）。
 
 ### 8.7 既存ユーザーのロールの移行（Issue #115。ユーザーが実行）
@@ -377,7 +378,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 
 開発サイト・本番サイトを、独自のサブドメイン（HTTPS。最低の TLS は 1.2）で配信する手順。cloudfront.net の既定の証明書は、最低の TLS のバージョンが **TLS 1.0 に固定される**ため、独自のサブドメイン（独自の証明書）にして、TLS 1.2 以上にする（ADR-0006）。**AWS の操作・GitHub の設定は、ユーザーが行う。ドメイン名・ホストゾーン名・アカウント ID・ゾーンの ID・ネームサーバーの名前は、リポジトリ・Issue・PR・チャットに書かない**（GitHub の Environment の変数にだけ設定する）。
 
-**確認の状況**: **開発サイトで、確認済み**（2026-11-10。ユーザーが実行。手順 8 の 4 つ〔HTTPS・ログイン・主な画面・`/health`・最低の TLS〕と、手順 9〔Web Push の購読のやり直し〕が、期待どおり）。本番サイトは、未実施（手順 J）。
+**確認の状況**: **開発サイトで、確認済み**（2026-11-10。ユーザーが実行。手順 8 の 4 つ〔HTTPS・ログイン・主な画面・`/health`・最低の TLS〕と、手順 9〔Web Push の購読のやり直し〕が、期待どおり）。**本番サイトも、確認済み**（2026-11-13。Issue #341。ユーザーが実行。手順 J。確認の結果は、9.9）。
 
 **構成（決定。ユーザーの判断。2026-11-10）**: 親のドメインのホストゾーンは、デプロイ先とは別のアカウントにある。そのため、**デプロイ先のアカウントに、サブドメイン用のホストゾーンを 1 つ作り、親のドメインのホストゾーンから委任する**（NS レコード）。開発サイト・本番サイトは、**同じホストゾーンを共有**する（レコードの名前だけが違う）。IaC は、このゾーンを検索して、証明書の DNS 検証のレコードと、サイトの A・AAAA（CloudFront への alias）のレコードを、自動で作る。
 
@@ -403,7 +404,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 | G（デプロイ） | Actions → 「Deploy development」→ Run workflow（ブランチ: `develop`）。証明書の発行（DNS 検証）は、数分〜十数分かかる | ワークフローが成功する。出力 `SiteUrl` が、新しい URL になる |
 | H（確認） | 下の「確認」 | すべて OK |
 | I（Web Push の購読のやり直し） | 新しい URL で、ログインし、通知の設定で、購読し直す（8.6 の手順。旧 URL での購読は、届かなくなる） | 新しい URL で、通知が届く |
-| J（本番サイト） | 開発サイトの確認の後に、同じ手順を、**A〜D を飛ばして**行う（ゾーン・委任・bootstrap は、共通）。差分の確認は、`$env:SFM_ENVIRONMENT = 'production'` を指定し、`SFM_DOMAIN_NAME` は `www.<ゾーン>`（9.2 の手順 3）。GitHub は、Environment `production` の変数（`SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`・`SFM_WEB_PUSH_SUBJECT`）。デプロイは、9.3 | 本番サイトが、`www.<ゾーン>` で、動く |
+| J（本番サイト） | 開発サイトの確認の後に、同じ手順を、**A〜D を飛ばして**行う（ゾーン・委任・bootstrap は、共通）。差分の確認は、`$env:SFM_ENVIRONMENT = 'production'` を指定し、`SFM_DOMAIN_NAME` は `www.<ゾーン>`（9.2 の手順 3）。GitHub は、Environment `production` の変数（`SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`・`SFM_WEB_PUSH_SUBJECT`）。デプロイは、9.3。**Web Push も同時に設定するときは、`SFM_WEB_PUSH_PUBLIC_KEY`・`SFM_WEB_PUSH_SUBJECT`（`https://www.<ゾーン>`）も、2 つとも、同じ Environment の変数に設定してから、1 回でデプロイする**（片方だけだと、synth でエラー）。差分の確認（手順 E に相当）にも、2 つを含める（Lambda の環境変数の更新だけが、加わる）。鍵は、8.6 の「本番サイトの読み替え」 | 本番サイトが、`www.<ゾーン>` で、動く |
 
 **確認**（手順 H。開発サイト。`<サイト>` は、新しいサイトの名前）
 1. 名前解決: `nslookup <サイト>`（CloudFront の IP が、出る）
@@ -412,6 +413,11 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 4. **最低の TLS が、1.2 以上**: `aws cloudfront get-distribution-config --id <DistributionId> --query "DistributionConfig.ViewerCertificate.[MinimumProtocolVersion,SSLSupportMethod]" --output text`（`DistributionId` は、`SfmEvaluation` の出力）が、`TLSv1.2_2021`・`sni-only`。（古い TLS を、クライアントから指定して確かめる方法は、クライアント・OpenSSL の設定で、結果が変わるため、判断に使わない）
 5. `SMOKE_BASE_URL` に新しい URL を指定して、`pnpm test:smoke`（`smoke-04` の応答ヘッダー・Cache-Control を含む）が成功する（手動実行）
 6. 結果（OK・NG）を、Issue #128 に報告する（ドメイン名・URL は、書かない）
+
+**本番サイトの確認（手順 J）の注意**
+- `nslookup` には、ホスト名だけを渡す（`https://` や末尾の `/` を付けない）。`curl.exe` の URL は、`https://<サイト>/health`（スラッシュを重ねない）
+- 確認の 5 は、**`pnpm test:smoke smoke-04` だけ**を実行する（読み取りのみ。ログインはする）。**引数なしの `pnpm test:smoke` は、実行しない**（`smoke-01`・`smoke-02` が、デモデータの `SENSOR-01` に書き込む。本番には、デモデータがなく、本番のデータは変更しない）
+- `smoke-04` の 3 つ目（ログイン → ダッシュボードが、CSP のもとで動く）は、**設備が登録されていない本番では、失敗する**（ダッシュボードが「設備が登録されていません」の表示で、観点の集計・カードを待って、時間切れになる。配信の問題ではない）。設備の登録の後に、通る。それまでは、`pnpm test:smoke smoke-04 --grep-invert "実際の画面"`（応答ヘッダーと Cache-Control の 2 件）と、ブラウザのコンソールに、CSP の違反が出ないことの目視で確認する
 
 **うまくいかないとき**
 - 証明書のスタックが、長く `CREATE_IN_PROGRESS`（20 分以上）: 委任が、効いていない。手順 C をやり直す。ゾーンに、検証用の CNAME（`_…`）が、作られているか、Route 53 のコンソールで確認する
@@ -464,7 +470,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 
 1. 変更が、PR の CI を通り、`develop` → `release/*` → `main` にマージされていることを確認する
 2. 「Deploy production」→ Run workflow（Branch: `main`）→ 承認者が承認する。実行中のデプロイは、止めない（CloudFormation の更新が、途中で止まるため）
-3. 確認は、7.2 の 4 と同じ（本番の `SiteUrl`）
+3. 確認は、7.2 の 4 と同じ（本番の `SiteUrl`）。`pnpm test:smoke` は、**本番では、`smoke-04` だけ**（8.9 の「本番サイトの確認の注意」。引数なしの全件は、デモデータへ書き込むため、実行しない）
 
 `main` への push（リリース・hotfix のマージ）でも、「Deploy production」が始まり、承認を待つ（Issue #89）。**承認は、必須**。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していることを確認する。承認待ちは、30 日で期限切れになる（承認しなければ、デプロイされない。手動実行で、やり直せる）。
 
@@ -514,7 +520,7 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 
 ### 9.8 実データの扱いの条件（確定。2026-10-22）
 
-ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（#115・#102・#127 は、完了。#128 は、開発サイトが完了で、**本番サイトの独自のサブドメインは #341**）（取り込み元の実ファイルサーバーの接続 #298 も要る。HTTP のアダプタ #119 は、実装済み）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
+ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（#115・#102・#127 は、完了。#128 は、開発サイトが完了で、**本番サイトの独自のサブドメインも、#341 で完了**。2026-11-13）（取り込み元の実ファイルサーバーの接続 #298 も要る。HTTP のアダプタ #119 は、実装済み）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
 
 ### 9.9 AWS での確認状況
 
@@ -528,6 +534,7 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | `main` への push による本番サイトの自動デプロイ（承認待ち → 承認 → 成功） | **確認済み**（2026-10-26。Issue #167。v0.3.0 のリリース〔PR #251〕。承認は、ユーザーが実行）。`release/0.3.0` → `main` のマージ（Merge commit）の直後に、「Deploy production」が、`push` で、**自動で始まり**、**承認待ち**（Environment `production` の Review deployments）になった。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していた。承認で、デプロイが進み、**成功した**。`<SiteUrl>/health` が `{"status":"ok",…}` を返した。同じ `main` への push のあとの、タグ `v0.3.0` の push・GitHub Release の作成・`main` → `develop` の反映 PR の作成は、承認待ちのデプロイと干渉しなかった（待機のまま） |
 | `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
 | 10 秘密情報（パラメータストア）の IAM の権限（Issue #206） | **開発サイトで確認済み**（2026-11-05。ユーザーが実行。10.3 の IAM のシミュレーター。環境変数・パラメータストアの権限・暗号化の鍵の権限が、すべて期待どおり）。実際の暗号化・復号は、#207・#241 で、秘密情報を使うときに確認する。**本番サイトは、未実施** |
+| 独自のサブドメインでの配信（8.9 手順 J。Issue #341）・本番の Web Push の設定（8.6 の読み替え） | **確認済み**（2026-11-13。ユーザーが実行）。差分の確認の後、Environment `production` の変数（`SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`・`SFM_WEB_PUSH_PUBLIC_KEY`・`SFM_WEB_PUSH_SUBJECT`）を設定し、「Deploy production」が成功した（承認つき）。確認: 名前解決・`/health`・HTTP から HTTPS へのリダイレクト・証明書（有効）・ログイン・主な画面（コンソールに CSP の違反なし）が OK。**最低の TLS は `TLSv1.2_2021`（`sni-only`）**。`pnpm test:smoke smoke-04` は、応答ヘッダーと Cache-Control の 2 件が成功。ログイン → ダッシュボードの 1 件は、**設備が未登録のため、失敗**（想定どおり。配信の問題ではない。設備の登録の後に、再実行する）。Web Push は、鍵（本番用）を作って秘密鍵をパラメータストアに登録し、新しい URL で、通知の設定を有効にできた。**受信・解除の確認は、未実施**（設備の登録の後） |
 | 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
 
 ## 10. 秘密情報（パラメータストア）の運用手順（Issue #206。ADR-0016 の D-55・ADR-0009）
