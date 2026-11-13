@@ -231,6 +231,35 @@ function fragmentsOfEvaluation(
   return [{ at: evaluatedAt, entity: entity as unknown as NgsiLdEntity }];
 }
 
+const EQUIPMENT_TYPES = new Set<string>(['FACILITY', 'ROBOT', 'SENSOR']);
+
+/**
+ * 設備の断片（D-35: 設備の名前・ID。親のハウスへの関連も持つ）。内容が正しくなければ、なし。
+ * データ上の識別子・取得間隔・ファイルパスなどは、送らない。
+ */
+function fragmentsOfEquipment(payload: Record<string, unknown>): NgsiLdFragment[] {
+  const { equipmentId, equipmentType, name, facilityId, changedAt } = payload;
+  if (
+    !isNonEmptyString(equipmentId) ||
+    !isNonEmptyString(equipmentType) ||
+    !EQUIPMENT_TYPES.has(equipmentType) ||
+    typeof name !== 'string' ||
+    !isNonEmptyString(changedAt)
+  ) {
+    return [];
+  }
+  const type = EQUIPMENT_ENTITY_TYPES[equipmentType as EquipmentType];
+  const entity: Record<string, unknown> = {
+    id: entityIdOf(type, equipmentId),
+    type,
+    name: { type: 'Property', value: name },
+    ...(isNonEmptyString(facilityId)
+      ? { refGreenhouse: relationship(equipmentEntityIdOf(facilityId, 'FACILITY')) }
+      : {}),
+  };
+  return [{ at: changedAt, entity: entity as unknown as NgsiLdEntity }];
+}
+
 /** 連携キューの項目を、エンティティの断片にする（送るものがなければ、空）。 */
 export function fragmentsOfItem(
   item: FederationItem,
@@ -238,6 +267,9 @@ export function fragmentsOfItem(
 ): NgsiLdFragment[] {
   if (item.targetType === 'EVALUATION') {
     return fragmentsOfEvaluation(item.payload, typeOf);
+  }
+  if (item.targetType === 'EQUIPMENT') {
+    return fragmentsOfEquipment(item.payload);
   }
   const observations = item.payload.observations;
   return Array.isArray(observations)

@@ -232,7 +232,7 @@ describe('評価（V-044・V-052）', () => {
       repositories: gated,
       criteria: createCriteriaService({ criteria: repositories.criteria }),
       notifications: context.container.notificationService,
-      federation: { enqueue: vi.fn(), runPending: vi.fn() },
+      federation: { enqueue: vi.fn(), runPending: vi.fn(), enqueueAllEquipment: vi.fn() },
       clock: context.clock,
       settings: {
         defaultIngestionIntervalMinutes: 15,

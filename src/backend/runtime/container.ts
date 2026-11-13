@@ -48,7 +48,10 @@ import {
   createStatusCodeService,
   type StatusCodeService,
 } from '../application/equipment/status-code-service.ts';
-import { createFederationService } from '../application/federation/federation-service.ts';
+import {
+  createFederationService,
+  type FederationService,
+} from '../application/federation/federation-service.ts';
 import {
   createFacilityLogService,
   type FacilityLogService,
@@ -181,6 +184,8 @@ export interface Container {
   readonly notificationService: NotificationService;
   readonly evaluationService: EvaluationService;
   readonly ingestionService: IngestionService;
+  /** 農業情報基盤との連携（連携キューへの追加・送信。Issue #177）。 */
+  readonly federationService: FederationService;
   readonly ingestionSettings: IngestionSettings;
   readonly jobRunner: JobRunner;
   /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
@@ -542,6 +547,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
     settings: repositories.settings,
+    federation,
     audit: auditService,
     evaluation: evaluationService,
     clock,
@@ -604,6 +610,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     evaluationService,
     ingestionSettings,
     ingestionService,
+    federation,
     auditService,
     manualEntryService,
     criteriaAdminService,
@@ -773,6 +780,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     notificationService: services.notificationService,
     evaluationService: services.evaluationService,
     ingestionService: services.ingestionService,
+    federationService: services.federation,
     ingestionSettings: services.ingestionSettings,
     jobRunner: services.jobRunner,
     jobLock: adapters.jobLock,

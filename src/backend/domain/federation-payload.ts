@@ -4,6 +4,8 @@
  * 観測値が多いファイルで、上限を超えて、積めない。観測値が上限の件数を超える場合は、複数の項目に分ける。
  */
 
+import type { Equipment } from '@smart-farm/shared/schemas/equipment';
+
 /**
  * 1 項目に入れる観測値の件数の上限。観測値 1 件は、約 300 バイト（JSON）で、1,000 件で約 300 KB（上限の約 400 KB の 3/4）。
  * DynamoDB Local での実測: 同じ形の観測値は、1,500 件（約 460 KB）まで保存でき、2,000 件で上限を超えた。
@@ -41,6 +43,23 @@ export function splitObservationPayload(
       part: { index: index + 1, total },
     },
   }));
+}
+
+/**
+ * 設備の連携の内容（D-35: 設備の名前・ID。ADR-0024）。親のハウス（ロボット・センサー）を持つ。
+ * データ上の識別子・取得間隔・ファイルパスなどは、含めない。
+ */
+export function equipmentFederationPayload(
+  equipment: Pick<Equipment, 'equipmentId' | 'equipmentType' | 'name' | 'facilityId'>,
+  changedAt: string,
+): Record<string, unknown> {
+  return {
+    equipmentId: equipment.equipmentId,
+    equipmentType: equipment.equipmentType,
+    name: equipment.name,
+    ...(equipment.facilityId === undefined ? {} : { facilityId: equipment.facilityId }),
+    changedAt,
+  };
 }
 
 /**

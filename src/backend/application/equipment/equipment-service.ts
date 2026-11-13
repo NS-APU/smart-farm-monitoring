@@ -14,7 +14,9 @@ import type {
 } from '@smart-farm/shared/schemas/equipment';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
+import { equipmentFederationPayload } from '../../domain/federation-payload.ts';
 import type { AuditService } from '../audit/audit-service.ts';
+import type { FederationService } from '../federation/federation-service.ts';
 import { requireActiveEquipment } from './require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
@@ -42,6 +44,8 @@ export interface EquipmentServiceDeps {
   readonly equipment: EquipmentRepository;
   /** 削除した設備のデータ上の識別子を残す（Issue #231）。 */
   readonly settings: SettingsRepository;
+  /** 設備の名前・ID を、連携キューに積む（登録・修正のとき。Issue #177。ADR-0024）。 */
+  readonly federation: Pick<FederationService, 'enqueue'>;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
   readonly clock: ClockPort;
@@ -58,6 +62,14 @@ function byCreation(left: Equipment, right: Equipment): number {
 export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentService {
   const { equipment: repository, audit, evaluation, clock, logger } = deps;
   const settingsRepository = deps.settings;
+
+  /** 設備の名前・ID を、連携キューに積む（D-35）。削除のときは、積まない（基盤のデータは、削除しない。D-28）。 */
+  const enqueueFederation = (equipment: Equipment): Promise<void> =>
+    deps.federation.enqueue({
+      targetType: 'EQUIPMENT',
+      targetRef: `equipment#${equipment.equipmentId}`,
+      payload: equipmentFederationPayload(equipment, clock.now().toISOString()),
+    });
 
   const findActive = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repository, equipmentId);
@@ -157,6 +169,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         actor,
         after: created,
       });
+      await enqueueFederation(created);
       await reevaluate();
       return created;
     },
@@ -208,6 +221,10 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         before,
         after: updated,
       });
+      // 名称・ハウスが変わったときだけ、連携する（取得間隔・ファイルパスなど、連携しない項目だけの修正では、積まない）
+      if (updated.name !== before.name || updated.facilityId !== before.facilityId) {
+        await enqueueFederation(updated);
+      }
       await reevaluate();
       return updated;
     },

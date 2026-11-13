@@ -18,6 +18,7 @@ import { createControllableClock } from '../../src/backend/infrastructure/local/
 /** 参照のみのテストで使わない依存（変更履歴・評価・時計・ログ）。 */
 const UNUSED_DEPS = {
   audit: { record: vi.fn(), list: vi.fn() },
+  federation: { enqueue: vi.fn() },
   evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn() },
   clock: createControllableClock(),
   logger: NULL_LOGGER,
