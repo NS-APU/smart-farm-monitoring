@@ -71,7 +71,7 @@ describe('FEDERATION_MODE=ngsi-ld の組み立て', () => {
       expect(request.headers['NGSILD-Tenant']).toBe('smart_farm_monitoring');
     }
     const entities = requests.flatMap(
-      (request) => JSON.parse(request.body) as Record<string, unknown>[],
+      (request) => JSON.parse(request.body ?? '[]') as Record<string, unknown>[],
     );
     expect(entities).toContainEqual(
       expect.objectContaining({

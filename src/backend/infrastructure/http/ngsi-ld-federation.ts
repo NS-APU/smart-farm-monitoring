@@ -62,6 +62,54 @@ function hasPartialErrors(body: string): boolean {
   }
 }
 
+/** 連携の Link ヘッダー（context）。 */
+function linkHeaderOf(contextUrl: string): string {
+  return `<${contextUrl}>; rel="http://www.w3.org/ns/json-ld#context"; type="application/ld+json"`;
+}
+
+export interface NgsiLdProbeResult {
+  readonly ok: boolean;
+  /** 利用者に示す文言（接続先・応答の本文を含めない）。 */
+  readonly message: string;
+}
+
+/**
+ * 接続の確認（SC-11）: テナント・context つきで、読み取りだけ（`GET /entities?type=Greenhouse&limit=1`）を送る。書き込みはしない。
+ * 結果は、成功か、理由だけ（状態コード・固定の文言）。接続先・応答の本文は、含めない。
+ */
+export async function probeNgsiLd(
+  connection: FederationConnection,
+  transport: NgsiLdTransport,
+  timeoutMs?: number,
+): Promise<NgsiLdProbeResult> {
+  const { endpoint } = connection;
+  try {
+    const response = await transport({
+      protocol: endpoint.protocol,
+      host: endpoint.host,
+      ...(endpoint.port === undefined ? {} : { port: endpoint.port }),
+      method: 'GET',
+      path: `${endpoint.basePath}/entities?type=Greenhouse&limit=1`,
+      headers: { 'NGSILD-Tenant': connection.tenant, Link: linkHeaderOf(connection.contextUrl) },
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
+    return response.status >= 200 && response.status < 300
+      ? { ok: true, message: '農業情報基盤に接続できました（読み取りだけを確認しました）' }
+      : {
+          ok: false,
+          message: `農業情報基盤は応答しましたが、確認の要求が成功しませんでした（HTTP ${String(response.status)}）`,
+        };
+  } catch (error) {
+    return {
+      ok: false,
+      message:
+        error instanceof NgsiLdTransportError
+          ? error.message
+          : '農業情報基盤に接続できませんでした',
+    };
+  }
+}
+
 export function createNgsiLdFederation(deps: NgsiLdFederationDeps): FederationPort {
   const { connection: readConnection, transport, equipment, timeoutMs } = deps;
 
@@ -90,7 +138,7 @@ export function createNgsiLdFederation(deps: NgsiLdFederationDeps): FederationPo
       const headers = {
         'Content-Type': 'application/json',
         'NGSILD-Tenant': connection.tenant,
-        Link: `<${connection.contextUrl}>; rel="http://www.w3.org/ns/json-ld#context"; type="application/ld+json"`,
+        Link: linkHeaderOf(connection.contextUrl),
       };
       for (const entities of requests) {
         let response;

@@ -167,6 +167,24 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'GET', path: '/ingestion/logs', access: 'ingestion:read', useCases: ['UC-16'] },
   {
     method: 'GET',
+    path: '/federation/settings',
+    access: 'ingestion:read',
+    useCases: ['UC-11', 'UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/federation/settings',
+    access: 'ingestion:configure',
+    useCases: ['UC-11', 'UC-15'],
+  },
+  {
+    method: 'POST',
+    path: '/federation/test',
+    access: 'ingestion:run',
+    useCases: ['UC-11', 'UC-15'],
+  },
+  {
+    method: 'GET',
     path: '/federation/logs',
     access: 'ingestion:read',
     useCases: ['UC-11', 'UC-16'],

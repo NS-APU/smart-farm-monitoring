@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
 import { IsoDateTimeSchema } from '@smart-farm/shared/schemas/common';
+import { FederationSettingsUpdateRequestSchema } from '@smart-farm/shared/schemas/federation-connection';
 import {
   IngestionCredentialsInputSchema,
   IngestionSettingsUpdateRequestSchema,
@@ -59,6 +60,17 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
           to: query.to === undefined ? undefined : new Date(query.to),
         }),
       );
+    },
+    // 連携先の設定（接続先は書き込み専用。ADR-0024。Issue #177）
+    async 'GET /federation/settings'(c) {
+      return c.json(await deps.federationAdminService.describe());
+    },
+    async 'PUT /federation/settings'(c) {
+      const input = await parseJsonBody(c, FederationSettingsUpdateRequestSchema);
+      return c.json(await deps.federationAdminService.update(input, actorOf(c)));
+    },
+    async 'POST /federation/test'(c) {
+      return c.json(await deps.federationAdminService.test());
     },
     async 'GET /federation/logs'(c) {
       const query = parseQuery(c, PageQuerySchema);

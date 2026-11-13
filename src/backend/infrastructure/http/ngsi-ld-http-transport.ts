@@ -44,8 +44,11 @@ export interface NgsiLdRequest {
   readonly port?: number;
   /** パスとクエリ（例: `/api/orion/ngsi-ld/v1/entityOperations/upsert?options=update`）。 */
   readonly path: string;
+  /** 既定は POST（upsert）。GET は、接続の確認（読み取りだけ）に使う。 */
+  readonly method?: 'GET' | 'POST';
   readonly headers: Readonly<Record<string, string>>;
-  readonly body: string;
+  /** POST の本文。GET は、持たない。 */
+  readonly body?: string;
   readonly timeoutMs?: number;
 }
 
@@ -55,7 +58,7 @@ export interface NgsiLdResponse {
   readonly body: string;
 }
 
-/** POST を 1 回送り、状態コードと本文を返す。状態コードの良し悪しは、判定しない（呼び出し側が判定する）。 */
+/** POST（または、GET）を 1 回送り、状態コードと本文を返す。状態コードの良し悪しは、判定しない（呼び出し側が判定する）。 */
 export type NgsiLdTransport = (request: NgsiLdRequest) => Promise<NgsiLdResponse>;
 
 /** 応答を待つ時間（ミリ秒）の既定。 */
@@ -93,7 +96,8 @@ export function createHttpNgsiLdTransport(
         ? undefined
         : createGuardedLookup(options.resolver ?? dnsLookup);
     const timeoutMs = request.timeoutMs ?? DEFAULT_NGSI_LD_TIMEOUT_MS;
-    const payload = Buffer.from(request.body, 'utf8');
+    const method = request.method ?? 'POST';
+    const payload = Buffer.from(request.body ?? '', 'utf8');
 
     return new Promise<NgsiLdResponse>((resolve, reject) => {
       const transport = request.protocol === 'HTTPS' ? https : http;
@@ -112,7 +116,7 @@ export function createHttpNgsiLdTransport(
       };
       const outgoing = transport.request(
         {
-          method: 'POST',
+          method,
           hostname,
           port: request.port ?? (request.protocol === 'HTTPS' ? 443 : 80),
           path: request.path,
@@ -120,7 +124,7 @@ export function createHttpNgsiLdTransport(
             'User-Agent': 'smart-farm-monitoring',
             Accept: 'application/json',
             ...request.headers,
-            'Content-Length': String(payload.length),
+            ...(method === 'POST' ? { 'Content-Length': String(payload.length) } : {}),
           },
           agent: false,
           ...(lookup === undefined ? {} : { lookup }),
@@ -160,7 +164,11 @@ export function createHttpNgsiLdTransport(
       outgoing.on('error', (error) => {
         fail(reasonOf(error));
       });
-      outgoing.end(payload);
+      if (method === 'POST') {
+        outgoing.end(payload);
+      } else {
+        outgoing.end();
+      }
     });
   };
 }

@@ -77,6 +77,32 @@ describe('NGSI-LD の HTTP の送信', () => {
     expect(received[0]?.headers['content-length']).toBe(String(Buffer.byteLength(BASE.body)));
   });
 
+  it('GET（接続の確認）は、本文を送らず、パス・ヘッダーを送る', async () => {
+    const { port, received } = await startServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end('[]');
+    });
+    const transport = createHttpNgsiLdTransport({ allowPrivateAddresses: true });
+
+    const result = await transport({
+      protocol: 'HTTP',
+      host: '127.0.0.1',
+      port,
+      method: 'GET',
+      path: '/api/orion/ngsi-ld/v1/entities?type=Greenhouse&limit=1',
+      headers: { 'NGSILD-Tenant': 'smart_farm_monitoring' },
+    });
+
+    expect(result).toEqual({ status: 200, body: '[]' });
+    expect(received[0]).toMatchObject({
+      method: 'GET',
+      url: '/api/orion/ngsi-ld/v1/entities?type=Greenhouse&limit=1',
+      body: '',
+    });
+    expect(received[0]?.headers['ngsild-tenant']).toBe('smart_farm_monitoring');
+    expect(received[0]?.headers['content-length']).toBeUndefined();
+  });
+
   it('204（本文なし）も、返す', async () => {
     const { port } = await startServer((_request, response) => {
       response.writeHead(204);

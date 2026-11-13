@@ -131,7 +131,11 @@ import {
 import type { NotifierPort } from '../application/ports/notifier-port.ts';
 import type { SecretPort } from '../application/ports/secret-port.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
-import { createNgsiLdFederation } from '../infrastructure/http/ngsi-ld-federation.ts';
+import { createNgsiLdFederation, probeNgsiLd } from '../infrastructure/http/ngsi-ld-federation.ts';
+import {
+  createFederationAdminService,
+  type FederationAdminService,
+} from '../application/federation/federation-admin-service.ts';
 import {
   createHttpNgsiLdTransport,
   type NgsiLdTransport,
@@ -176,6 +180,8 @@ export interface Container {
   readonly facilityAccessService: FacilityAccessService;
   readonly facilityScope: FacilityScopeService;
   readonly ingestionAdminService: IngestionAdminService;
+  /** 連携先の設定（SC-11。接続先は書き込み専用）。Issue #177。 */
+  readonly federationAdminService: FederationAdminService;
   readonly facilityLogService: FacilityLogService;
   readonly pushSubscriptionService: PushSubscriptionService;
   readonly dashboardQuery: DashboardQuery;
@@ -379,6 +385,8 @@ function buildAdapters(
           bucket: config.fileServerBucket,
         });
   // 秘密情報の保管先: パラメータストア（本番・開発サイト）、または、メモリ（ローカル・テスト）。使う場所は、#119・#207・#241 など
+  // メモリの保管先は、開発用のリセットで消すため、変数に持つ（パラメータストアのときは、使わない）
+  const memorySecrets = createMemorySecretPort();
   const secrets: SecretPort =
     config.secrets.provider === 'ssm' && config.secrets.pathPrefix !== undefined
       ? createSsmSecretPort({
@@ -386,7 +394,7 @@ function buildAdapters(
           pathPrefix: config.secrets.pathPrefix,
           logger,
         })
-      : createMemorySecretPort();
+      : memorySecrets;
   // Web Push の配信: vapid なら、プッシュサービスへ実際に送る（秘密鍵は、秘密情報から読む）。それ以外は、ダミー（記録だけ）
   const webPush: NotifierPort =
     config.webPushDelivery === 'vapid' &&
@@ -420,13 +428,14 @@ function buildAdapters(
     settings: repositories.settings,
     secrets,
   });
+  const federationTransport =
+    overrides.federationTransport ??
+    createHttpNgsiLdTransport({ allowPrivateAddresses: config.httpFileSourceAllowPrivate });
   const federationPort: FederationPort =
     config.federationMode === 'ngsi-ld'
       ? createNgsiLdFederation({
           connection: () => federationConnection.get(),
-          transport:
-            overrides.federationTransport ??
-            createHttpNgsiLdTransport({ allowPrivateAddresses: config.httpFileSourceAllowPrivate }),
+          transport: federationTransport,
           equipment: repositories.equipment,
           timeoutMs: DEFAULT_APP_SETTINGS.federation.ioTimeoutMs,
         })
@@ -438,7 +447,9 @@ function buildAdapters(
     jobLock: storage.jobLock,
     faults,
     mocks,
+    memorySecrets,
     federationPort,
+    federationTransport,
     federationConnection,
     webPush,
     fileSource,
@@ -590,6 +601,14 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
       !isBlockedConnectionHost(connection.host),
   });
   const facilityLogService = createFacilityLogService({ repositories });
+  const federationAdminService = createFederationAdminService({
+    store: adapters.federationConnection,
+    federation,
+    audit: auditService,
+    mode: config.federationMode,
+    probe: (connection) =>
+      probeNgsiLd(connection, adapters.federationTransport, settings.federation.ioTimeoutMs),
+  });
   const pushSubscriptionService = createPushSubscriptionService({
     subscriptions: repositories.pushSubscriptions,
     clock,
@@ -620,6 +639,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     facilityAccessService,
     facilityScope,
     ingestionAdminService,
+    federationAdminService,
     facilityLogService,
     pushSubscriptionService,
     jobRunner,
@@ -682,6 +702,8 @@ function buildDevControls(
       scheduler.reset();
       mocks.federation.reset();
       mocks.webPush.reset();
+      // 連携先の接続先など、メモリの秘密情報も、初期の状態に戻す（設定の保管は、データのリセットで戻る）
+      adapters.memorySecrets.clear();
       faults.fileServer.reset();
       faults.federation.reset();
       faults.webPush.reset();
@@ -762,6 +784,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     facilityAccessService: services.facilityAccessService,
     facilityScope: services.facilityScope,
     ingestionAdminService: services.ingestionAdminService,
+    federationAdminService: services.federationAdminService,
     facilityLogService: services.facilityLogService,
     pushSubscriptionService: services.pushSubscriptionService,
     dashboardQuery: createDashboardQuery({
