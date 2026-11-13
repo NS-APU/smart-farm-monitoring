@@ -8,11 +8,20 @@ import type { ManualEntrySortKey, SortDirection } from '@smart-farm/shared/const
 import type { NotificationKind, ReadState } from '@smart-farm/shared/constants/status';
 import { AuditLogListResponseSchema, type AuditOperation } from '@smart-farm/shared/schemas/audit';
 import {
+  FederationSettingsResponseSchema,
+  FederationTestResponseSchema,
+  type FederationSettingsUpdateRequest,
+} from '@smart-farm/shared/schemas/federation-connection';
+import {
   PublicUserSchema,
   UserListResponseSchema,
   type UserCreateRequest,
   type UserUpdateRequest,
 } from '@smart-farm/shared/schemas/auth';
+import {
+  FacilityAccessEntrySchema,
+  FacilityAccessResponseSchema,
+} from '@smart-farm/shared/schemas/facility-access';
 import {
   CriteriaViewSchema,
   type CriteriaUpdateRequest,
@@ -24,10 +33,14 @@ import {
 } from '@smart-farm/shared/schemas/equipment';
 import {
   ConnectionTestResponseSchema,
+  FacilityFederationLogListResponseSchema,
+  FacilityIngestionLogListResponseSchema,
   FederationLogListResponseSchema,
+  IngestionCredentialStatusSchema,
   IngestionLogListResponseSchema,
   IngestionRunResponseSchema,
   IngestionSettingsResponseSchema,
+  type IngestionCredentialsInput,
   type IngestionSettingsUpdateRequest,
 } from '@smart-farm/shared/schemas/ingestion';
 import {
@@ -38,12 +51,16 @@ import {
 import {
   NotificationListResponseSchema,
   PushStatusResponseSchema,
+  ReadAllResponseSchema,
+  UnreadCountResponseSchema,
+  type ReadAllRequest,
 } from '@smart-farm/shared/schemas/notification';
 import {
   StatusCodeDefinitionSchema,
   type StatusCodeCreateRequest,
   type StatusCodeUpdateRequest,
 } from '@smart-farm/shared/schemas/status-code';
+import type { PushSubscriptionDetails } from '../push/browser-push.ts';
 import type { ApiClient } from './client.ts';
 import { API_PATHS } from './paths.ts';
 
@@ -68,11 +85,24 @@ export function markNotificationRead(api: ApiClient, notificationId: string) {
   });
 }
 
-export function markAllNotificationsRead(
+/** 一括既読の範囲（種別・読み込んだ時点まで）の未読の件数（確認ダイアログの件数。D-39）。 */
+export function countUnreadNotifications(
   api: ApiClient,
-  filter: { readonly kind?: NotificationKind; readonly readState?: ReadState },
+  range: { readonly kind?: NotificationKind; readonly until: string },
 ) {
-  return api.command('/notifications/read-all', { method: 'POST', body: filter });
+  return api.request('/notifications/unread-count', {
+    query: { ...range },
+    schema: UnreadCountResponseSchema,
+  });
+}
+
+/** 読み込んだ時点（`until`）までの未読を、既読にする。新しく既読にした件数を返す。 */
+export function markAllNotificationsRead(api: ApiClient, request: ReadAllRequest) {
+  return api.request('/notifications/read-all', {
+    method: 'POST',
+    body: request,
+    schema: ReadAllResponseSchema,
+  });
 }
 
 // Web Push（SC-15）
@@ -84,8 +114,9 @@ export function getPushStatus(api: ApiClient, endpoint?: string) {
   });
 }
 
-export function subscribePush(api: ApiClient, endpoint: string) {
-  return api.command('/push-subscription', { method: 'PUT', body: { endpoint } });
+/** 購読を登録する。暗号鍵（keys）は、サーバーが本文つきで配信するために保存する（なければ、本文なし）。 */
+export function subscribePush(api: ApiClient, subscription: PushSubscriptionDetails) {
+  return api.command('/push-subscription', { method: 'PUT', body: subscription });
 }
 
 export function unsubscribePush(api: ApiClient, endpoint?: string) {
@@ -214,6 +245,19 @@ export function resetCriteria(api: ApiClient, viewpointId: string) {
   });
 }
 
+// 閲覧の割り当て（ハウスごと。SC-14。Issue #330）
+export function getFacilityAccess(api: ApiClient) {
+  return api.request('/facility-access', { schema: FacilityAccessResponseSchema });
+}
+
+export function setFacilityAccess(api: ApiClient, facilityId: string, userIds: readonly string[]) {
+  return api.request(`/facility-access/${encodeURIComponent(facilityId)}`, {
+    method: 'PUT',
+    body: { userIds },
+    schema: FacilityAccessEntrySchema,
+  });
+}
+
 // ユーザー（SC-14）
 export function listUsers(api: ApiClient) {
   return api.request('/users', { schema: UserListResponseSchema });
@@ -235,6 +279,26 @@ export function deleteUser(api: ApiClient, userId: string) {
   return api.command(API_PATHS.user(userId), { method: 'DELETE' });
 }
 
+// 連携先の設定（SC-11。ADR-0024。接続先は書き込み専用）
+export function getFederationSettings(api: ApiClient) {
+  return api.request('/federation/settings', { schema: FederationSettingsResponseSchema });
+}
+
+export function updateFederationSettings(api: ApiClient, input: FederationSettingsUpdateRequest) {
+  return api.request('/federation/settings', {
+    method: 'PUT',
+    body: input,
+    schema: FederationSettingsResponseSchema,
+  });
+}
+
+export function testFederation(api: ApiClient) {
+  return api.request('/federation/test', {
+    method: 'POST',
+    schema: FederationTestResponseSchema,
+  });
+}
+
 // 取り込み設定・状況（SC-11）
 export function getIngestionSettings(api: ApiClient) {
   return api.request('/ingestion/settings', { schema: IngestionSettingsResponseSchema });
@@ -245,6 +309,19 @@ export function updateIngestionSettings(api: ApiClient, input: IngestionSettings
     method: 'PUT',
     body: input,
     schema: IngestionSettingsResponseSchema,
+  });
+}
+
+/** 認証情報を登録・上書きする（書き込み専用。応答は、状態だけ）。 */
+export function saveIngestionCredentials(
+  api: ApiClient,
+  sourceId: string,
+  input: IngestionCredentialsInput,
+) {
+  return api.request(API_PATHS.ingestionCredentials(sourceId), {
+    method: 'PUT',
+    body: input,
+    schema: IngestionCredentialStatusSchema,
   });
 }
 
@@ -264,7 +341,17 @@ export function runIngestion(api: ApiClient, sourceId: string) {
 
 export function listIngestionLogs(
   api: ApiClient,
-  params: { readonly sourceId?: string; readonly limit?: number; readonly cursor?: string },
+  params: {
+    readonly sourceId?: string;
+    readonly equipmentId?: string;
+    /** 成功（SUCCESS）／失敗（FAILURE。一部成功を含む）。 */
+    readonly result?: 'SUCCESS' | 'FAILURE';
+    /** 開始日時の範囲（両端を含む。日時）。 */
+    readonly from?: string;
+    readonly to?: string;
+    readonly limit?: number;
+    readonly cursor?: string;
+  },
 ) {
   return api.request('/ingestion/logs', {
     query: { ...params },
@@ -279,5 +366,27 @@ export function listFederationLogs(
   return api.request('/federation/logs', {
     query: { ...params },
     schema: FederationLogListResponseSchema,
+  });
+}
+
+/** ハウス別の取り込みの記録（閲覧できるハウスの分だけ。一般ユーザー向け。Issue #332）。 */
+export function listFacilityIngestionLogs(
+  api: ApiClient,
+  params: { readonly limit?: number; readonly cursor?: string },
+) {
+  return api.request('/ingestion/facility-logs', {
+    query: { ...params },
+    schema: FacilityIngestionLogListResponseSchema,
+  });
+}
+
+/** ハウス別の連携の記録（閲覧できるハウスの分だけ。一般ユーザー向け。Issue #332）。 */
+export function listFacilityFederationLogs(
+  api: ApiClient,
+  params: { readonly limit?: number; readonly cursor?: string },
+) {
+  return api.request('/federation/facility-logs', {
+    query: { ...params },
+    schema: FacilityFederationLogListResponseSchema,
   });
 }

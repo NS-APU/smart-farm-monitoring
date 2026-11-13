@@ -43,16 +43,16 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await openAs(page, '/');
     await expect(page.getByText('設備が登録されていません。設備を登録してください')).toBeVisible();
 
-    // UC-14: Aが、利用者B（農作業者）を登録する。まだログインしていないので「未ログイン」
+    // UC-14: Aが、利用者B（管理者）を登録する。まだログインしていないので「未ログイン」
     await goToMenu(page, 'ユーザー');
     const addForm = page.getByTestId('user-add');
     await addForm.getByLabel('ユーザーID').fill(USER_B.userId);
     await addForm.getByLabel('ユーザー名').fill(USER_B.userName);
     await addForm.getByLabel('パスワード').fill(USER_B.password);
-    await addForm.getByLabel('ロール').selectOption('worker');
+    await addForm.getByLabel('ロール').selectOption('admin');
     await addForm.getByRole('button', { name: '登録する' }).click();
     await expect(page.getByTestId('users-notice')).toHaveText('登録しました');
-    await expect(userRow(page, USER_B.userId)).toContainText('農作業者');
+    await expect(userRow(page, USER_B.userId)).toContainText('管理者');
     await expect(userRow(page, USER_B.userId)).toContainText('未ログイン');
     await shot(page, testInfo, 'scenario-onboarding-a-registered');
 

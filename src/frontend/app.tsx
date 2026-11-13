@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from './auth/auth-context.tsx';
 import { AppLayout } from './components/app-layout.tsx';
 import { ErrorBoundary } from './components/error-boundary.tsx';
 import { ChangePasswordPage } from './pages/change-password-page.tsx';
+import { ProfilePage } from './pages/profile-page.tsx';
 import { LoadingView } from './components/state-views.tsx';
 import { DashboardPage } from './pages/dashboard-page.tsx';
 import { LoginPage, loginRedirectPath } from './pages/login-page.tsx';
@@ -74,6 +75,7 @@ export const SCREEN_ROUTES: readonly RouteDefinition[] = [
   { path: PATHS.settingsUsers, render: () => <UsersPage /> },
   { path: PATHS.settingsPush, render: () => <PushSettingsPage /> },
   { path: PATHS.changePassword, render: () => <ChangePasswordPage /> },
+  { path: PATHS.profile, render: () => <ProfilePage /> },
 ];
 
 function Redirect(props: { readonly to: string }): ReactNode {

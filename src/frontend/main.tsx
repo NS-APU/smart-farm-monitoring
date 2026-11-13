@@ -1,5 +1,7 @@
 /** ブラウザでの起動エントリ。ロジックを持たない（テストの対象は app.tsx）。 */
 
+// ほかの読み込みより先に（Zod の設定。CSP のもとで、eval を試さない。Issue #127）
+import './lib/zod-config.ts';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app.tsx';

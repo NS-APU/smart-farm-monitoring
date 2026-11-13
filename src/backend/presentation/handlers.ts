@@ -8,13 +8,20 @@
  */
 
 import { AppError } from '@smart-farm/shared/errors';
+import { filterEquipmentTree } from '../application/access/facility-scope.ts';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
 import {
   ChangePasswordRequestSchema,
+  OwnProfileUpdateRequestSchema,
   LoginRequestSchema,
   RefreshRequestSchema,
 } from '@smart-farm/shared/schemas/auth';
 import { NotificationIdSchema } from '@smart-farm/shared/schemas/common';
+import {
+  NotificationMemoInputSchema,
+  NotificationReadRangeSchema,
+  ReadAllRequestSchema,
+} from '@smart-farm/shared/schemas/notification';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { ApiDeps } from './api-deps.ts';
 import { createAdminHandlers } from './admin-handlers.ts';
@@ -22,9 +29,9 @@ import { bearerTokenOf } from './auth-guards.ts';
 import { clientAddressOf } from './client-address.ts';
 import { jsonWithEtag } from './etag.ts';
 import { createManualEntryHandlers } from './manual-entry-handlers.ts';
-import { HorizonQuerySchema, NotificationFilterSchema } from './query-schemas.ts';
-import { actorOf, resolveEquipmentId } from './request-helpers.ts';
-import { parseInput, parseJsonBody, parseOptionalJsonBody, parseQuery } from './request-parsing.ts';
+import { HorizonQuerySchema, NotificationFilterSchema, toOptionalDate } from './query-schemas.ts';
+import { actorOf, resolveEquipmentId, scopeOfRequest } from './request-helpers.ts';
+import { parseInput, parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 import { createViewpointHandlers } from './viewpoint-handlers.ts';
 
@@ -70,8 +77,16 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
       return c.json(deps.authService.toLoginResponse(session));
     },
 
+    async 'PUT /auth/profile'(c) {
+      const body = await parseJsonBody(c, OwnProfileUpdateRequestSchema);
+      return c.json(await deps.userService.updateOwnProfile(actorOf(c), body));
+    },
+
     async 'GET /equipment'(c) {
-      return c.json(await deps.equipmentService.getTree());
+      // 閲覧できるハウス（と配下）だけ（管理者は全部。Issue #330）
+      return c.json(
+        filterEquipmentTree(await scopeOfRequest(c, deps), await deps.equipmentService.getTree()),
+      );
     },
 
     async 'GET /dashboard'(c) {
@@ -80,7 +95,11 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
         c,
         await deps.dashboardQuery.get({
           // 省略時は、最初のハウス（ヘッダーで選択中の設備がない場合）
-          equipmentId: await resolveEquipmentId(deps, query.equipmentId),
+          equipmentId: await resolveEquipmentId(
+            deps,
+            query.equipmentId,
+            await scopeOfRequest(c, deps),
+          ),
           horizon: query.horizon,
           periodDays: query.periodDays,
         }),
@@ -93,31 +112,73 @@ export function createHandlers(deps: ApiDeps): Readonly<Record<string, RouteHand
 
     async 'GET /notifications'(c) {
       const query = parseQuery(c, NotificationListQuerySchema);
-      return c.json(await deps.notificationService.list(actorOf(c), query));
+      return c.json(
+        await deps.notificationService.list(actorOf(c), query, await scopeOfRequest(c, deps)),
+      );
     },
 
     async 'GET /notifications/unread-count'(c) {
+      // 範囲（種別・読み込んだ時点）の指定があれば、その範囲の未読の件数（一括既読の確認の件数）。なければ、すべての未読
+      const range = parseQuery(c, NotificationReadRangeSchema.partial());
       return c.json({
-        unreadCount: await deps.notificationService.unreadCount(actorOf(c)),
+        unreadCount: await deps.notificationService.unreadCount(
+          actorOf(c),
+          { kind: range.kind, until: toOptionalDate(range.until) },
+          await scopeOfRequest(c, deps),
+        ),
       });
     },
 
     async 'POST /notifications/read-all'(c) {
-      // 絞り込みの範囲（任意）を、本文で受ける。本文がなければ、全件
-      const filter = await parseOptionalJsonBody(c, NotificationFilterSchema);
-      await deps.notificationService.markAllRead(
+      // 読み込んだ時点（until）は必須（画面を開いたあとに届いた通知まで、既読にしない。D-39）
+      const request = await parseJsonBody(c, ReadAllRequestSchema);
+      const markedCount = await deps.notificationService.markAllRead(
         actorOf(c),
         omitUndefined({
-          kind: filter.kind,
-          readState: filter.readState,
+          kind: request.kind,
+          readState: request.readState,
+          until: new Date(request.until),
         }),
+        await scopeOfRequest(c, deps),
       );
-      return c.body(null, 204);
+      return c.json({ markedCount });
+    },
+
+    // 通知のメモ（ADR-0019 の D-42。#239）。追記と一覧のみ（編集・削除はない）
+    async 'POST /notifications/:notificationId/memos'(c) {
+      const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
+      const input = await parseJsonBody(c, NotificationMemoInputSchema);
+      const memo = await deps.notificationService.addMemo(
+        notificationId,
+        actorOf(c),
+        input,
+        await scopeOfRequest(c, deps),
+      );
+      if (memo === undefined) {
+        throw new AppError('NOT_FOUND', '通知が見つかりません');
+      }
+      return c.json(memo, 201);
+    },
+
+    async 'GET /notifications/:notificationId/memos'(c) {
+      const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
+      const items = await deps.notificationService.listMemos(
+        notificationId,
+        await scopeOfRequest(c, deps),
+      );
+      if (items === undefined) {
+        throw new AppError('NOT_FOUND', '通知が見つかりません');
+      }
+      return c.json({ items });
     },
 
     async 'POST /notifications/:notificationId/read'(c) {
       const notificationId = parseInput(NotificationIdSchema, c.req.param('notificationId'));
-      const found = await deps.notificationService.markRead(notificationId, actorOf(c));
+      const found = await deps.notificationService.markRead(
+        notificationId,
+        actorOf(c),
+        await scopeOfRequest(c, deps),
+      );
       if (!found) {
         throw new AppError('NOT_FOUND', '通知が見つかりません');
       }

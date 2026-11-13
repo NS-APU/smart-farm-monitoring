@@ -1,6 +1,7 @@
 /** 通知のスキーマ。data-dictionary.md 9.1、FR-7。 */
 
 import { z } from 'zod';
+import { MAX_NOTE_LENGTH } from '../constants/limits.ts';
 import {
   EquipmentIdSchema,
   EvaluationStatusSchema,
@@ -8,6 +9,7 @@ import {
   NotificationIdSchema,
   NotificationKindSchema,
   ReadStateSchema,
+  UserIdSchema,
   ViewpointIdSchema,
 } from './common.ts';
 
@@ -24,12 +26,36 @@ export const DeliverySchema = z.object({
 });
 export type Delivery = z.infer<typeof DeliverySchema>;
 
+/**
+ * Web Push の、購読ごとの配信の状態（Issue #237。ADR-0019 の D-38）。
+ * PENDING（未試行）・FAILURE（失敗。次の試行の日時に再送）・SUCCESS・ABANDONED（断念: 通知を作ってから 1 時間を過ぎた、または、購読が無効になった）。
+ */
+export const WEB_PUSH_DELIVERY_RESULTS = ['PENDING', 'SUCCESS', 'FAILURE', 'ABANDONED'] as const;
+
+export const WebPushDeliverySchema = z.object({
+  subscriptionId: z.string(),
+  result: z.enum(WEB_PUSH_DELIVERY_RESULTS),
+  attempts: z.number().int().nonnegative(),
+  /** 次の試行の日時（失敗のあと、再送する日時）。 */
+  nextAttemptAt: IsoDateTimeSchema.optional(),
+  updatedAt: IsoDateTimeSchema,
+  /** 失敗の内容。秘密情報・内部情報を含めない。 */
+  errorMessage: z.string().optional(),
+});
+export type WebPushDelivery = z.infer<typeof WebPushDeliverySchema>;
+
 export const NotificationSchema = z.object({
   notificationId: NotificationIdSchema,
   kind: NotificationKindSchema,
   viewpointId: ViewpointIdSchema.optional(),
   /** 対象の設備。取り込み失敗の通知では、取り込み元（sourceId）を示すため省略できる。 */
   equipmentId: EquipmentIdSchema.optional(),
+  /**
+   * 通知を閲覧できる範囲のハウス（Issue #331。ADR-0013）。状態変化の通知は、作成時の設備のハウス（ハウス自身は、その ID）で、固定する
+   * （設備が移動・削除されても、変えない）。取り込みの失敗・取得停止・連携の期限切れは、ハウスに属さないため、なし（全設備を閲覧できる利用者だけ）。
+   * 記録にない以前の通知は、移行コマンド（`pnpm migrate-notification-counters`）で補う。
+   */
+  facilityId: EquipmentIdSchema.optional(),
   sourceId: z.string().optional(),
   /** 異常検知の場合のステータス（注意・異常）。 */
   status: EvaluationStatusSchema.optional(),
@@ -38,26 +64,102 @@ export const NotificationSchema = z.object({
   /** 重複抑制のキー（観点・対象・ステータス。FR-7.3）。 */
   dedupKey: z.string(),
   deliveries: z.array(DeliverySchema),
+  /**
+   * Web Push の、購読ごとの配信の状態。最初の配信の実行時点の、有効な購読ごとに持つ。
+   * ない通知は、まだ配信の対象を決めていない（または、以前の形式）。`deliveries` の WEB_PUSH は、そのまとめの状態。
+   */
+  webPushDeliveries: z.array(WebPushDeliverySchema).optional(),
 });
 export type Notification = z.infer<typeof NotificationSchema>;
 
-/** API の応答の1件。既読状態は、ログイン中の利用者ごと（暫定。dev_spec.md 4章）。 */
+/**
+ * 通知の経過・回復日時（状態変化の通知だけ。ADR-0019 の D-42）。状態の変化の履歴から導出する（新しい保存はない）。
+ * - `changes`（経過）: 通知の時点から、同じ観点・設備の次の通知（なければ現在）までの、状態の変化（古い順）。
+ *   「不明」は含めず、同じ状態が続くものは 1 件にまとめる。次の通知の時点の状態も含む
+ * - `recovery`（回復日時）: 経過の中で、最初に「正常」に戻った日時と、通知の時点からの経過時間（秒）。正常がなければ null（未回復）
+ */
+export const NotificationProgressSchema = z.object({
+  changes: z.array(z.object({ status: EvaluationStatusSchema, changedAt: IsoDateTimeSchema })),
+  recovery: z
+    .object({ recoveredAt: IsoDateTimeSchema, elapsedSeconds: z.number().int().nonnegative() })
+    .nullable(),
+});
+export type NotificationProgress = z.infer<typeof NotificationProgressSchema>;
+
+/**
+ * 通知のメモ（利用者が入力する自由記述。ADR-0019 の D-42。#239）。共有（全員が読める）・追記のみ（編集・削除はない）。
+ * 入力者（ユーザー ID）と日時を持つ。農業情報基盤には送らない。
+ */
+export const NotificationMemoSchema = z.object({
+  memoId: z.string().min(1),
+  notificationId: NotificationIdSchema,
+  enteredBy: UserIdSchema,
+  body: z.string().min(1).max(MAX_NOTE_LENGTH),
+  createdAt: IsoDateTimeSchema,
+});
+export type NotificationMemo = z.infer<typeof NotificationMemoSchema>;
+
+/** POST /notifications/:id/memos の入力。前後の空白を除き、1〜2000 文字（手動入力のメモと同じ上限）。 */
+export const NotificationMemoInputSchema = z.object({
+  body: z
+    .string()
+    .trim()
+    .min(1, 'メモを入力してください')
+    .max(MAX_NOTE_LENGTH, `メモは${String(MAX_NOTE_LENGTH)}文字以内で入力してください`),
+});
+export type NotificationMemoInput = z.infer<typeof NotificationMemoInputSchema>;
+
+/** GET /notifications/:id/memos の応答（入力の古い順。全件）。 */
+export const NotificationMemoListResponseSchema = z.object({
+  items: z.array(NotificationMemoSchema),
+});
+export type NotificationMemoListResponse = z.infer<typeof NotificationMemoListResponseSchema>;
+
+/**
+ * API の応答の1件。既読状態は、ログイン中の利用者ごと（暫定。dev_spec.md 4章）。
+ * `progress` は、状態変化の通知だけ。経過を示せない（設備を削除した、など）ときは null（「不明」）。
+ */
 export const NotificationItemSchema = NotificationSchema.omit({
   dedupKey: true,
   deliveries: true,
+  webPushDeliveries: true,
 }).extend({
   readState: ReadStateSchema,
+  /** 通知に付いたメモの件数（#239）。 */
+  memoCount: z.number().int().nonnegative(),
+  progress: NotificationProgressSchema.nullable().optional(),
 });
 export type NotificationItem = z.infer<typeof NotificationItemSchema>;
 
 export const NotificationListResponseSchema = z.object({
   items: z.array(NotificationItemSchema),
   nextCursor: z.string().nullable(),
+  /** サーバーが通知を読み込んだ時点（#240）。画面は、これを一括既読の `until` に使う（以降に届いた通知を、既読にしない）。 */
+  asOf: IsoDateTimeSchema,
 });
 export type NotificationListResponse = z.infer<typeof NotificationListResponseSchema>;
 
 export const UnreadCountResponseSchema = z.object({ unreadCount: z.number().int().nonnegative() });
 export type UnreadCountResponse = z.infer<typeof UnreadCountResponseSchema>;
+
+/**
+ * 一括既読の範囲（#240。ADR-0019 の D-39）。`until`（読み込んだ時点）以前に届いた通知だけが対象。
+ * `GET /notifications/unread-count` のクエリ（`kind`・`until`）と、`POST /notifications/read-all` の本文で共通。
+ */
+export const NotificationReadRangeSchema = z.object({
+  kind: NotificationKindSchema.optional(),
+  until: IsoDateTimeSchema,
+});
+
+/** POST /notifications/read-all の入力。絞り込み（`kind`・`readState`）と、読み込んだ時点（`until`。必須）。 */
+export const ReadAllRequestSchema = NotificationReadRangeSchema.extend({
+  readState: ReadStateSchema.optional(),
+});
+export type ReadAllRequest = z.infer<typeof ReadAllRequestSchema>;
+
+/** POST /notifications/read-all の応答。新しく既読にした件数。 */
+export const ReadAllResponseSchema = z.object({ markedCount: z.number().int().nonnegative() });
+export type ReadAllResponse = z.infer<typeof ReadAllResponseSchema>;
 
 /** PUT /push-subscription の入力（端末ごとの購読。FR-7.2）。 */
 /** Web Push の購読の宛先。https のみ（サーバーが宛先へ送信する実装では、内部のアドレスへの接続の経路になるため、制限する。V-016）。 */
@@ -70,8 +172,21 @@ export const PushEndpointSchema = z
   })
   .max(2000);
 
+/**
+ * 購読の暗号鍵（#241）。本文つきの Web Push を送るために、ブラウザの購読が持つ公開鍵（p256dh）と認証の秘密（auth）を保存する。
+ * どちらも base64url。認証の秘密は、購読ごとの値（機密として扱い、ログ・エラー・画面に出さない）。
+ */
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+export const PushKeysSchema = z.object({
+  p256dh: z.string().min(1).max(128).regex(BASE64URL, '購読の鍵（p256dh）が正しくありません'),
+  auth: z.string().min(1).max(64).regex(BASE64URL, '購読の鍵（auth）が正しくありません'),
+});
+export type PushKeys = z.infer<typeof PushKeysSchema>;
+
+/** `keys` は任意（鍵を送らない以前の画面からの登録も受け付ける。その購読には、本文なしで送る）。 */
 export const PushSubscriptionRequestSchema = z.object({
   endpoint: PushEndpointSchema,
+  keys: PushKeysSchema.optional(),
 });
 export type PushSubscriptionRequest = z.infer<typeof PushSubscriptionRequestSchema>;
 

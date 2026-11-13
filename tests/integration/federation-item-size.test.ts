@@ -43,6 +43,7 @@ function serviceWith(federation: Parameters<typeof createFederationService>[0]['
   const sent: FederationItem[] = [];
   const service = createFederationService({
     federation,
+    equipment: { get: () => Promise.resolve(undefined), list: () => Promise.resolve([]) },
     notifications: { notifyFederationExpired: () => Promise.resolve(null) },
     port: {
       send: (items) => {
@@ -103,19 +104,22 @@ describe('連携キューの 1 項目の大きさ（#205）', () => {
     expect(sent[0]?.payload).not.toHaveProperty('part');
   });
 
-  it('取り込み: 観測値が多いファイル（環境センサーの CSV。700 行 × 4 項目 = 2,800 件）は、複数の項目に分けて積み、農業情報基盤へ、すべての観測値を送る', async () => {
+  it('取り込み: 観測値が多いファイル（環境センサーの JSON。700 記録 × 4 項目 = 2,800 件）は、複数の項目に分けて積み、農業情報基盤へ、すべての観測値を送る', async () => {
     const context = await createTestContext();
     for (const equipment of equipmentSet()) {
       await context.container.repositories.equipment.save(equipment);
     }
-    const rows = Array.from({ length: 700 }, (_, minute) => {
-      const at = new Date(TEST_NOW.getTime() - (minute + 1) * 60_000).toISOString();
-      return `${SENSOR_EXTERNAL_ID},${at},${String(25 + (minute % 5))},60,30000,900`;
-    });
+    const records = Array.from({ length: 700 }, (_, minute) => ({
+      timestamp: new Date(TEST_NOW.getTime() - (minute + 1) * 60_000).toISOString(),
+      temperatureCelsius: 25 + (minute % 5),
+      humidityPercent: 60,
+      illuminanceLux: 30000,
+      co2Ppm: 900,
+    }));
     context.placeFile(
       'environment-sensor',
-      'big.csv',
-      ['sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm', ...rows].join('\n'),
+      'big.json',
+      JSON.stringify({ sensorId: SENSOR_EXTERNAL_ID, records }),
     );
 
     const ingestion = await context.container.ingestionService.runSource('environment-sensor');
@@ -126,12 +130,12 @@ describe('連携キューの 1 項目の大きさ（#205）', () => {
     // 取り込みの観測値の項目: 1 つのファイル → 1,000・1,000・800 件の 3 項目（評価の結果の項目を除く）
     const received = context.container.dev?.mocks.federation.received() ?? [];
     const parts = received.filter((item) =>
-      item.targetRef.startsWith('environment-sensor#big.csv'),
+      item.targetRef.startsWith('environment-sensor#big.json'),
     );
     expect(parts.map((item) => item.targetRef)).toEqual([
-      'environment-sensor#big.csv#part-1-of-3',
-      'environment-sensor#big.csv#part-2-of-3',
-      'environment-sensor#big.csv#part-3-of-3',
+      'environment-sensor#big.json#part-1-of-3',
+      'environment-sensor#big.json#part-2-of-3',
+      'environment-sensor#big.json#part-3-of-3',
     ]);
     expect(parts.map((item) => (item.payload.observations as unknown[]).length)).toEqual([
       1000, 1000, 800,

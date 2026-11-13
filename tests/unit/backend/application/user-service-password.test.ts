@@ -29,7 +29,7 @@ function sessionOf(token: string): AuthSession {
     refreshToken: `refresh-${token}`,
     accessTokenExpiresAt: new Date(NOW.getTime() + 1_800_000),
     refreshTokenExpiresAt: new Date(NOW.getTime() + 604_800_000),
-    principal: { userId: USER, userName: '利用者', role: 'worker', mustChangePassword: false },
+    principal: { userId: USER, userName: '利用者', role: 'general', mustChangePassword: false },
   };
 }
 
@@ -44,7 +44,7 @@ async function build(revokedNewSessions: number) {
   await repositories.users.save({
     userId: USER,
     userName: '利用者',
-    role: 'worker',
+    role: 'general',
     mustChangePassword: true,
     createdAt: NOW.toISOString(),
   });
@@ -84,6 +84,7 @@ async function build(revokedNewSessions: number) {
     clock,
     sessions,
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
     delay(milliseconds) {
       delays.push(milliseconds);
       return Promise.resolve();

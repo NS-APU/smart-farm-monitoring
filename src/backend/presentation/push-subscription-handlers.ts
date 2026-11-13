@@ -21,7 +21,7 @@ export function createPushSubscriptionHandlers(
     },
     async 'PUT /push-subscription'(c) {
       const input = await parseJsonBody(c, PushSubscriptionRequestSchema);
-      await deps.pushSubscriptionService.subscribe(actorOf(c), input.endpoint);
+      await deps.pushSubscriptionService.subscribe(actorOf(c), input.endpoint, input.keys);
       return c.body(null, 204);
     },
     async 'DELETE /push-subscription'(c) {

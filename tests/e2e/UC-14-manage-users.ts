@@ -8,7 +8,7 @@
  *   代替フロー  同じユーザーIDを重複して登録しようとした場合は、エラーとする（FR-9.4 のユーザーIDは一意）
  *   事後条件    ユーザーの情報が保存されている
  *
- * 値の同値分割: ロール（農作業者＝全権限・閲覧者＝権限なし）、ユーザーID・ユーザー名の長さと文字種の境界、パスワード
+ * 値の同値分割: ロール（管理者＝全権限・一般＝手動入力のみ・閲覧者〔E2E 用〕＝参照のみ。ADR-0013）、ユーザーID・ユーザー名の長さと文字種の境界、パスワード
  * （8文字以上で英大文字・英小文字・数字を含む。境界: 7文字・8文字、各文字種の欠け）、操作（登録・編集・削除・確認の取り消し・自分自身の削除）、
  * 利用者（操作する人・操作される人。別のブラウザ）、権限（管理できる・できない）。
  * 関連するユースケース: UC-13（登録したユーザーでログイン。削除・パスワード変更の反映）、UC-12・UC-17・UC-19（ロールによる権限）。
@@ -16,11 +16,13 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   USER_B,
   VIEWER,
   accessToken,
   addUser,
   addUserWithTemporaryPassword,
+  apiOk,
   settlePassword,
   alignBrowserClock,
   confirmDialog,
@@ -87,7 +89,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     ]);
     const me = rowOf(page, E2E_USER.userId);
     await expect(me).toContainText(E2E_USER.userName);
-    await expect(me).toContainText('農作業者');
+    await expect(me).toContainText('管理者');
     await expect(me).toContainText('（ログイン中）');
     await expect(me).toContainText('2026/10/09 12:00:00');
     await expect(me.getByRole('button', { name: '削除' })).toBeDisabled();
@@ -109,12 +111,12 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
       userId: 'worker-new',
       userName: '新しい作業者',
       password: 'Abcdef12',
-      role: 'worker',
+      role: 'general',
     });
 
     await expect(notice(page)).toHaveText('登録しました');
     await expect(rowOf(page, 'worker-new')).toContainText('新しい作業者');
-    await expect(rowOf(page, 'worker-new')).toContainText('農作業者');
+    await expect(rowOf(page, 'worker-new')).toContainText('一般');
     await expect(rowOf(page, 'worker-new')).toContainText('未ログイン');
     // 入力欄はクリアされる（パスワードを画面に残さない）
     await expect(addForm(page).getByLabel('パスワード')).toHaveValue('');
@@ -282,7 +284,7 @@ test.describe('代替フロー: 同じユーザーIDを重複して登録しよ�
       userId: E2E_USER.userId,
       userName: '重複',
       password: 'Abcdef12',
-      role: 'worker',
+      role: 'general',
     });
 
     await expect(addForm(page).locator('[data-field="userId"] .field-error')).toHaveText(
@@ -400,7 +402,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
     });
   }
 
-  test('ロールが未選択ならエラー。ロールの選択肢は、定義済みのもの（農作業者・閲覧者）のみ', async ({
+  test('ロールが未選択ならエラー。ロールの選択肢は、定義済みのもの（管理者・一般・閲覧者）のみ', async ({
     page,
     request,
   }) => {
@@ -408,7 +410,8 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
     await openUsers(page);
     await expect(addForm(page).getByLabel('ロール').locator('option')).toHaveText([
       'ロールを選択してください',
-      '農作業者',
+      '管理者',
+      '一般',
       '閲覧者',
     ]);
 
@@ -489,6 +492,116 @@ test.describe('権限: ユーザーを管理する権限のない利用者（閲
   });
 });
 
+test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・権限の分割（Issue #115。ADR-0013。FR-9.5・FR-9.7）', () => {
+  test('一般には、メニューに「ユーザー」を表示せず、直接開いても権限がない旨を示す。「取り込み」は、閲覧できるハウスの記録だけを示す。管理用の API は、サーバー側でも拒否し、手動入力はできる', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, GENERAL);
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+    const menu = page.getByRole('navigation', { name: 'メニュー' });
+    await expect(menu.getByRole('link', { name: 'ユーザー', exact: true })).toHaveCount(0);
+    await expect(menu.getByRole('link', { name: '取り込み', exact: true })).toBeVisible();
+    await expect(menu.getByRole('link', { name: '設備', exact: true })).toBeVisible();
+
+    await page.goto('/settings/ingestion');
+    await expect(
+      page.getByRole('heading', { name: '取り込み・連携の記録', level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByTestId('source-robot')).toHaveCount(0);
+    await page.goto('/settings/users');
+    await expect(page.getByTestId('permission-notice')).toHaveText(
+      'ユーザーを管理する権限がありません',
+    );
+    await shot(page, testInfo, 'uc14-general-forbidden');
+
+    const token = await accessToken(request, GENERAL);
+    for (const path of ['/users', '/ingestion/settings', '/ingestion/logs', '/federation/logs']) {
+      const denied = await request.fetch(`/api/v1${path}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(denied.status(), path).toBe(403);
+    }
+    // 手動入力の画面は、開ける（入力の権限がある）
+    await page.goto('/data-entry');
+    await expect(page.getByTestId('permission-notice')).toHaveCount(0);
+  });
+
+  test('一般も、ヘッダーの「ユーザー名の変更」から、自分のユーザー名を変えられる。ロール・ユーザー ID は、変わらず、ユーザー管理の一覧にも反映される', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, GENERAL);
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+
+    await page.getByRole('link', { name: 'ユーザー名の変更' }).click();
+    await expect(page.getByRole('heading', { name: 'ユーザー名の変更', level: 1 })).toBeVisible();
+    await expect(page.getByTestId('profile-user-id')).toHaveText(GENERAL.userId);
+    await expect(page.getByLabel('ユーザー名', { exact: true })).toHaveValue(GENERAL.userName);
+    await expect(page.getByLabel('ロール')).toHaveCount(0);
+    await page.getByLabel('ユーザー名', { exact: true }).fill('E2E一般ユーザー（改）');
+    await page.getByRole('button', { name: 'ユーザー名を変更する' }).click();
+
+    await expect(page.getByTestId('profile-saved')).toHaveText('ユーザー名を変更しました');
+    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText('E2E一般ユーザー（改）');
+    await shot(page, testInfo, 'uc14-profile-saved');
+    // 画面を読み直しても、変更が残る（サーバーに保存されている）
+    await page.reload();
+    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText('E2E一般ユーザー（改）');
+    // 管理者のユーザー管理の一覧にも反映され、ロールは、一般のまま（管理者の API で確認する）
+    const list = await apiOk<{ items: { userId: string; userName: string; role: string }[] }>(
+      request,
+      'GET',
+      '/users',
+    );
+    expect(list.items.find((user) => user.userId === GENERAL.userId)).toMatchObject({
+      userName: 'E2E一般ユーザー（改）',
+      role: 'general',
+    });
+  });
+});
+
+test.describe('閲覧できるハウスがない一般ユーザー（閲覧の割り当て。Issue #330。ADR-0013。FR-9.8。割り当ての操作は、UC-12 の設備管理）', () => {
+  test('割り当てがない一般ユーザーは、何も閲覧できず、閲覧できるハウスがない旨が示される。範囲外の設備への手動入力も、できない（404）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, GENERAL);
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+
+    await expect(
+      page.getByText('閲覧できるハウスが割り当てられていません。管理者に連絡してください'),
+    ).toBeVisible();
+    await shot(page, testInfo, 'uc14-no-facility');
+    await page.goto('/data-entry');
+    await expect(page.getByTestId('no-equipment')).toContainText(
+      '閲覧できるハウスが割り当てられていません',
+    );
+    const token = await accessToken(request, GENERAL);
+    const denied = await request.fetch('/api/v1/manual-entries', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      data: {
+        equipmentId: 'ROBOT-01',
+        category: 'OPERABILITY',
+        observedAt: '2026-10-09T02:00:00.000Z',
+        items: { operationStepCount: 4, operationMinutes: 8, operationErrorCount: 0 },
+      },
+    });
+    expect(denied.status()).toBe(404);
+    const equipment = await request.fetch('/api/v1/equipment', {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(((await equipment.json()) as { facilities: unknown[] }).facilities).toEqual([]);
+  });
+});
+
 test.describe('事後条件: ユーザーの情報が保存されている（画面を読み直しても残る）', () => {
   test('登録・編集・削除の結果は、画面を読み直しても残り、エラー・登録・編集中の画面を撮影する', async ({
     page,
@@ -514,7 +627,7 @@ test.describe('事後条件: ユーザーの情報が保存されている（画
     await expect(editForm(page)).toBeVisible();
     await expect(editForm(page).getByLabel('ユーザー名')).toHaveValue(USER_B.userName);
     await expect(editForm(page).getByLabel('パスワード')).toHaveValue('');
-    await expect(editForm(page).getByLabel('ロール')).toHaveValue('worker');
+    await expect(editForm(page).getByLabel('ロール')).toHaveValue('admin');
     await shot(page, testInfo, 'uc14-edit');
     await editForm(page).getByLabel('ユーザー名').fill('保存された名前');
     await editForm(page).getByRole('button', { name: '保存' }).click();
@@ -611,7 +724,7 @@ test.describe('スマートフォン幅（375px）でも、ユーザー管理は
       userId: 'narrow-user',
       userName: '狭い画面の人',
       password: 'Abcdef12',
-      role: 'worker',
+      role: 'general',
     });
     await expect(notice(page)).toHaveText('登録しました');
     await shot(page, testInfo, 'uc14-registered-narrow');
@@ -632,7 +745,7 @@ test.describe('境界値: 長いユーザー名・ユーザーID（上限ちょ�
       userId: longId,
       userName: longName,
       password: 'Abcdef12',
-      role: 'worker',
+      role: 'general',
     });
 
     await expect(notice(page)).toHaveText('登録しました');

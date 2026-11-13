@@ -32,7 +32,7 @@ export interface FormatProfile {
   readonly profileId: string;
   readonly version: string;
   readonly status: FormatProfileStatus;
-  /** 解釈に使った版の表記（観測値に残す。例: `robot-json@0.1.0(PROVISIONAL)`）。 */
+  /** 解釈に使った版の表記（観測値に残す。例: `robot-json@0.2.0(PROVISIONAL)`）。 */
   readonly versionLabel: string;
   /** ファイルの内容を読む。読み取れない場合は FormatError を投げる。 */
   parse(content: string): ParsedFile;

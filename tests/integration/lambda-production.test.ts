@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { LOGIN_FAILURE_LIMIT } from '../../src/backend/infrastructure/common/auth-policy.ts';
 import { createContainer } from '../../src/backend/runtime/container.ts';
 import { runInitialUserCli } from '../../src/backend/runtime/initial-user-cli.ts';
+import { ORIGIN_SECRET_HEADER } from '../../src/backend/presentation/origin-guard.ts';
 import { createLambdaHandler } from '../../src/backend/runtime/lambda.ts';
 import { createFakeCognito } from '../support/fake-cognito.ts';
 import {
@@ -21,6 +22,10 @@ afterAll(dropDynamoTestTables);
 const PASSWORD = 'Dummy-Passw0rd-1';
 // インフラ（evaluation-stack.ts の CLIENT_IP_HEADER）と同じ値。CloudFront Function が、利用者の IP を入れる
 const CLIENT_IP_HEADER = 'x-sfm-viewer-ip';
+// CloudFront が、オリジンへの呼び出しに付ける秘密のヘッダーの値（Issue #102）。API の Lambda は、環境変数の ARN から、実行時に Secrets Manager で読む
+const ORIGIN_SECRET = 'dummyOriginSecret0123456789abcdefABCDEF0123456789';
+const ORIGIN_SECRET_ARN =
+  'arn:aws:secretsmanager:ap-northeast-1:111111111111:secret:SfmOriginSecret-AbCdEf';
 
 interface LambdaResponse {
   readonly statusCode: number;
@@ -75,7 +80,10 @@ function functionUrlEvent(
   };
 }
 
-async function productionHandler(extraEnv: Readonly<Record<string, string>> = {}) {
+async function productionHandler(
+  extraEnv: Readonly<Record<string, string>> = {},
+  options: { readonly withOriginSecret?: boolean; readonly secretReadFailures?: number } = {},
+) {
   const database = createDynamoTestDatabase();
   await database.ready;
   const fake = createFakeCognito({
@@ -93,6 +101,7 @@ async function productionHandler(extraEnv: Readonly<Record<string, string>> = {}
     COGNITO_USER_POOL_ID: 'pool-1',
     COGNITO_CLIENT_ID: 'client-1',
     CLIENT_IP_HEADER,
+    ...(options.withOriginSecret === false ? {} : { ORIGIN_VERIFY_ARN: ORIGIN_SECRET_ARN }),
     LOG_LEVEL: 'error',
     ...extraEnv,
   };
@@ -108,16 +117,40 @@ async function productionHandler(extraEnv: Readonly<Record<string, string>> = {}
     { info: () => undefined, error: () => undefined },
     { cognitoClient: fake },
   );
+  // Secrets Manager の偽物（読んだ回数と、指定した回数の失敗を記録する）
+  const reads: string[] = [];
+  let remainingFailures = options.secretReadFailures ?? 0;
   const handler = createLambdaHandler(env, {
     createContainer: (config, overrides) =>
       createContainer(config, { ...overrides, cognitoClient: fake }),
+    readOriginSecret: (arn) => {
+      reads.push(arn);
+      if (remainingFailures > 0) {
+        remainingFailures -= 1;
+        return Promise.reject(new Error('オリジンの秘密を読めませんでした'));
+      }
+      return Promise.resolve(ORIGIN_SECRET);
+    },
   });
+  // CloudFront 経由の呼び出し（秘密のヘッダーあり）
   const call = async (
     method: string,
     path: string,
     options: Parameters<typeof functionUrlEvent>[2] = {},
+  ) =>
+    (await handler(
+      functionUrlEvent(method, path, {
+        ...options,
+        headers: { [ORIGIN_SECRET_HEADER]: ORIGIN_SECRET, ...options.headers },
+      }),
+    )) as LambdaResponse;
+  // 関数の URL の直接の呼び出し（秘密のヘッダーなし）
+  const callDirect = async (
+    method: string,
+    path: string,
+    options: Parameters<typeof functionUrlEvent>[2] = {},
   ) => (await handler(functionUrlEvent(method, path, options))) as LambdaResponse;
-  return { call };
+  return { call, callDirect, handler, reads };
 }
 
 describe('Lambda のハンドラ（本番の設定: DynamoDB・Cognito）', () => {
@@ -200,5 +233,71 @@ describe('Lambda のハンドラ（本番の設定: DynamoDB・Cognito）', () =
 
     expect(blocked.statusCode).toBe(429);
     expect(otherViewer.statusCode).toBe(200);
+  });
+
+  it('関数の URL の直接の呼び出し（秘密のヘッダーなし）は、/health・ログインを含めて 403。利用者の IP のヘッダーを偽装しても、ログインの制限を回避できない（Issue #102）', async () => {
+    const { call, callDirect } = await productionHandler();
+    const direct = (password: string, viewerIp: string) =>
+      callDirect('POST', '/api/v1/auth/login', {
+        body: { userId: 'first-user', password },
+        headers: { [CLIENT_IP_HEADER]: viewerIp },
+      });
+
+    const health = await callDirect('GET', '/health');
+    const forged = await Promise.all(
+      Array.from({ length: LOGIN_FAILURE_LIMIT + 2 }, (_, index) =>
+        direct('wrong', `198.51.100.${String(index + 1)}`),
+      ),
+    );
+    const viaCloudFront = await call('POST', '/api/v1/auth/login', {
+      body: { userId: 'first-user', password: PASSWORD },
+      headers: { [CLIENT_IP_HEADER]: '198.51.100.200' },
+    });
+
+    expect(health.statusCode).toBe(403);
+    expect(forged.map((response) => response.statusCode)).toEqual(
+      Array(LOGIN_FAILURE_LIMIT + 2).fill(403),
+    );
+    expect(forged.every((response) => response.body === '')).toBe(true);
+    expect(viaCloudFront.statusCode).toBe(200);
+  });
+
+  it('本番の API の Lambda は、ORIGIN_VERIFY_ARN がないと、起動しない（検証が、黙って無効になることを防ぐ）', async () => {
+    const { handler, reads } = await productionHandler({}, { withOriginSecret: false });
+
+    await expect(handler(functionUrlEvent('GET', '/health'), {} as never)).rejects.toThrow(
+      'ORIGIN_VERIFY_ARN',
+    );
+    expect(reads).toEqual([]);
+  });
+
+  it('秘密は、環境変数の ARN から、実行時に Secrets Manager で読む。コールドスタートの 1 回だけで、以後の呼び出しでは、読み直さない（Issue #102）', async () => {
+    const { call, reads } = await productionHandler();
+
+    await call('GET', '/health');
+    await call('GET', '/health');
+    await call('GET', '/health');
+
+    expect(reads).toEqual([ORIGIN_SECRET_ARN]);
+  });
+
+  it('秘密を読めなかったときは、起動に失敗し（検証なしでは、動かない）、失敗を保持せず、次の呼び出しで、読み直す', async () => {
+    const { handler, call, reads } = await productionHandler({}, { secretReadFailures: 1 });
+
+    await expect(handler(functionUrlEvent('GET', '/health'), {} as never)).rejects.toThrow(
+      'オリジンの秘密',
+    );
+    const retried = await call('GET', '/health');
+
+    expect(retried.statusCode).toBe(200);
+    expect(reads).toHaveLength(2);
+  });
+
+  it('秘密の値を、環境変数（ORIGIN_VERIFY_SECRET）で渡した Lambda は、起動しない（秘密を、Lambda の設定に持たない）', async () => {
+    const { handler } = await productionHandler({ ORIGIN_VERIFY_SECRET: ORIGIN_SECRET });
+
+    await expect(handler(functionUrlEvent('GET', '/health'), {} as never)).rejects.toThrow(
+      'ORIGIN_VERIFY_ARN',
+    );
   });
 });

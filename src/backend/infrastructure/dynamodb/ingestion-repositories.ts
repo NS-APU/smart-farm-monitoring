@@ -1,14 +1,23 @@
 /**
  * 取り込み（取り込み済みファイル・ログ）と、連携（キュー・ログ）の Repository（DynamoDB 実装）。
  *
- * - 取り込み済みファイル: `SRC#{取り込み元}` / `FILE#{ファイル}#{ハッシュ}`、成功したハッシュ `HASH#{ハッシュ}`（最初の成功を残す）
- * - 取り込み元の状態: `SRC#{取り込み元}` / `STATE`（直近の開始・成功・データ取り込みの日時。ログの追加のたびに、最大値で更新する）
- * - 取り込みログ: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
+ * - 取り込み済みファイル（Issue #201）: `SRC#{取り込み元}` / `FILE#{ファイル}`。ファイルごとに、最新の版（ハッシュ・結果）の 1 件を上書きする
+ *   （1 つのファイルを随時更新する方式で、版ごとに増えないように。以前の、版ごとの `FILE#{ファイル}#{ハッシュ}`・`HASH#{ハッシュ}` は、読まない）
+ * - 取り込み元の状態（設備が 1 つもない取り込み元の取得間隔の判定）: `SRC#{取り込み元}` / `STATE`。属性 `lastStarted`（ミリ秒）。新しい値のときだけ更新する
+ * - 取り込みログ（設備に結びつかないもの。取り込み元単位）: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
+ * - 取り込みログ（設備ごと。Issue #201。新しいデータがあった実行・失敗だけ）: `ILOGE#{設備ID}` / `{開始日時}#{ログID}`。設備の一覧は、`EQINGEST` に持つ
+ * - 設備ごとの取り込みの最終の実行（Issue #197・#201。取得間隔の判定・最終の実行の表示）: `EQINGEST` / `{設備ID}`。属性 `lastStarted`・`lastFinished`・
+ *   `lastResult`・`lastSucceeded`・`lastData`（ミリ秒）。設備ごとに 1 件を、1 回の更新で上書きする（新しい開始日時のときだけ）。
+ *   全設備を、1 回の Query で読む（取り込みのジョブは、毎分、判定する）
+ * - ハウス別の取り込みの記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `ILOGF#{ハウス}` / `{開始日時}#{ログID}#{ハウス}`
  * - 連携の項目: `FED` / `{ID}`。未送信の項目だけが、疎な GSI1（`FDUE`）に載る。状態ごとの件数は、カウンター（`FED#{状態}`）
  * - 連携ログ: `FLOG` / `{日時}#{ログID}`
+ * - ハウス別の連携の記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `FLOGF#{ハウス}` / `{日時}#{ログID}#{ハウス}`
  */
 
 import {
+  FacilityFederationLogSchema,
+  FacilityIngestionLogSchema,
   FederationItemSchema,
   FederationLogSchema,
   IngestionLogSchema,
@@ -20,6 +29,7 @@ import {
   type IngestedFileRecord,
 } from '../../application/ports/records.ts';
 import type {
+  EquipmentRunState,
   FederationRepository,
   IngestionRepository,
 } from '../../application/ports/repositories.ts';
@@ -27,7 +37,6 @@ import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
 import {
   getItem,
-  isConditionalCheckFailed,
   putItem,
   queryAll,
   queryItems,
@@ -43,14 +52,28 @@ const FEDERATION_ITEM = 'FED';
 const FEDERATION_LOG = 'FLOG';
 const FEDERATION_DUE = 'FDUE';
 const INGESTION_SOURCES = 'ILOGSRC';
+const EQUIPMENT_INGESTION = 'EQINGEST';
+const INGESTION_RESULTS_STORED = ['SUCCESS', 'PARTIAL', 'FAILURE'] as const;
 
 const sourcePartition = (sourceId: string): string => `SRC#${sourceId}`;
 const logPartition = (sourceId: string): string => `ILOG#${sourceId}`;
-const fileSortKey = (fileId: string, contentHash: string): string =>
-  `FILE#${fileId}#${contentHash}`;
-const hashSortKey = (contentHash: string): string => `HASH#${contentHash}`;
+const equipmentLogPartition = (equipmentId: string): string => `ILOGE#${equipmentId}`;
+const facilityIngestionPartition = (facilityId: string): string => `ILOGF#${facilityId}`;
+const facilityFederationPartition = (facilityId: string): string => `FLOGF#${facilityId}`;
+const fileSortKey = (fileId: string): string => `FILE#${fileId}`;
 const STATE = 'STATE';
 const federationCounter = (status: FederationItem['status']): string => `FED#${status}`;
+
+/** 結果の絞り込み: 成功は SUCCESS。失敗は、FAILURE と、一部成功（PARTIAL）。 */
+function matchesResult(
+  result: 'SUCCESS' | 'PARTIAL' | 'FAILURE',
+  wanted: 'SUCCESS' | 'FAILURE' | undefined,
+): boolean {
+  if (wanted === undefined) {
+    return true;
+  }
+  return wanted === 'SUCCESS' ? result === 'SUCCESS' : result !== 'SUCCESS';
+}
 
 function toDate(value: unknown): Date | null {
   return typeof value === 'number' ? new Date(value) : null;
@@ -60,86 +83,155 @@ export function createIngestionRepository(db: Database): IngestionRepository {
   const table = db.tables.main;
   const files = mainAggregate(db, IngestedFileRecordSchema);
   const logs = mainAggregate(db, IngestionLogSchema);
+  const facilityLogs = mainAggregate(db, FacilityIngestionLogSchema);
 
-  /** 取り込み元の状態の日時を、新しい値のときだけ更新する（古いログを後から足しても、戻さない）。 */
-  async function raiseState(
-    sourceId: string,
-    attribute: string,
-    isoDateTime: string,
-  ): Promise<void> {
-    await updateItemIf(db, table, {
-      key: { pk: sourcePartition(sourceId), sk: STATE },
-      update: 'SET #a = :v',
-      condition: 'attribute_not_exists(#a) OR #a < :v',
-      names: { '#a': attribute },
-      values: { ':v': Date.parse(isoDateTime) },
-    });
-  }
-
-  async function stateOf(sourceId: string, attribute: string): Promise<Date | null> {
-    const state = await getItem(db, table, { pk: sourcePartition(sourceId), sk: STATE });
-    return toDate(state?.[attribute]);
+  /** 設備に結びつかないログ（取り込み元ごと）と、設備ごとのログの、すべてのパーティション。 */
+  async function allLogPartitions(sourceId: string | undefined): Promise<string[]> {
+    const [sources, equipment] = await Promise.all([
+      queryAll(db, table, INGESTION_SOURCES),
+      queryAll(db, table, EQUIPMENT_INGESTION),
+    ]);
+    return [
+      ...sources
+        .map((item) => String(item.sk))
+        .filter((candidate) => sourceId === undefined || candidate === sourceId)
+        .map(logPartition),
+      ...equipment.map((item) => equipmentLogPartition(String(item.sk))),
+    ];
   }
 
   return {
     async findIngestedFile(sourceId, fileId, contentHash) {
-      // 識別子とハッシュが同じ記録（結果を問わない）、または、ハッシュが同じ成功の記録
-      const [sameFile, sameContent] = await Promise.all([
-        files.get(sourcePartition(sourceId), fileSortKey(fileId, contentHash)),
-        files.get(sourcePartition(sourceId), hashSortKey(contentHash)),
-      ]);
-      return sameFile ?? sameContent;
+      // 同じ識別子の、最新の版が、同じハッシュなら、取り込み済み（結果を問わない）
+      const latest = await files.get(sourcePartition(sourceId), fileSortKey(fileId));
+      return latest?.contentHash === contentHash ? latest : undefined;
     },
     async recordFile(record: IngestedFileRecord) {
-      const partition = sourcePartition(record.sourceId);
-      await files.put(partition, fileSortKey(record.fileId, record.contentHash), record);
-      if (record.result === 'SUCCESS') {
-        // 同じ内容の最初の成功を残す（ファイル名が違っても、同じ内容は、取り込み済み）
-        try {
-          await putItem(
-            db,
-            table,
-            { pk: partition, sk: hashSortKey(record.contentHash), data: record },
-            'attribute_not_exists(pk)',
-          );
-        } catch (error) {
-          if (!isConditionalCheckFailed(error)) {
-            throw error;
-          }
-        }
-      }
+      await files.put(sourcePartition(record.sourceId), fileSortKey(record.fileId), record);
     },
     async addLog(log) {
-      await logs.put(logPartition(log.sourceId), timedSortKey(log.startedAt, log.logId), log);
-      await putItem(db, table, { pk: INGESTION_SOURCES, sk: log.sourceId });
-      await Promise.all([
-        raiseState(log.sourceId, 'lastStarted', log.startedAt),
-        log.result === 'SUCCESS'
-          ? raiseState(log.sourceId, 'lastSucceeded', log.finishedAt)
-          : Promise.resolve(),
-        log.recordCount > 0
-          ? raiseState(log.sourceId, 'lastDataIngested', log.finishedAt)
-          : Promise.resolve(),
-      ]);
+      // 設備ごとのログは、設備のパーティションに、設備に結びつかないログは、取り込み元のパーティションに持つ
+      await logs.put(
+        log.equipmentId === undefined
+          ? logPartition(log.sourceId)
+          : equipmentLogPartition(log.equipmentId),
+        timedSortKey(log.startedAt, log.logId),
+        log,
+      );
+      // ハウスごとの内訳は、ハウス別の記録としても持つ（一般ユーザーが、全体のログを読まずに、自分のハウスの分だけを読めるように）
+      for (const entry of log.facilities ?? []) {
+        await facilityLogs.put(
+          facilityIngestionPartition(entry.facilityId),
+          timedSortKey(log.startedAt, `${log.logId}#${entry.facilityId}`),
+          {
+            logId: log.logId,
+            facilityId: entry.facilityId,
+            sourceId: log.sourceId,
+            occurredAt: log.startedAt,
+            result: entry.result,
+            recordCount: entry.recordCount,
+          },
+        );
+      }
+      if (log.equipmentId === undefined) {
+        await putItem(db, table, { pk: INGESTION_SOURCES, sk: log.sourceId });
+      }
     },
     async listLogs(filter, page) {
+      // 設備を指定すれば、その設備のパーティションと、取り込み元のパーティションだけを読む。指定がなければ、
+      // 設備に結びつかないログ（取り込み元ごと）と、設備ごとのログを、併合する（設備の一覧は、設備ごとの最終の実行の項目）
       const partitions =
-        filter.sourceId === undefined
-          ? (await queryAll(db, table, INGESTION_SOURCES)).map((item) =>
-              logPartition(String(item.sk)),
-            )
-          : [logPartition(filter.sourceId)];
+        filter.equipment === undefined
+          ? await allLogPartitions(filter.sourceId)
+          : [
+              equipmentLogPartition(filter.equipment.equipmentId),
+              ...(filter.equipment.sourceId === undefined
+                ? []
+                : [logPartition(filter.equipment.sourceId)]),
+            ];
       const result = await pageBySortKey(db, {
         partitions,
         forward: false,
         limit: page.limit,
         cursor: page.cursor,
+        lower: filter.from === undefined ? undefined : instantKey(filter.from.toISOString()),
+        upper:
+          filter.to === undefined ? undefined : upperBoundOf(instantKey(filter.to.toISOString())),
+        accept: (item) => {
+          const log = logs.parse(item);
+          return (
+            (filter.sourceId === undefined || log.sourceId === filter.sourceId) &&
+            matchesResult(log.result, filter.result) &&
+            // 設備のパーティションには、設備のログだけ、取り込み元のパーティションには、設備に結びつかないログだけがある
+            (filter.equipment === undefined ||
+              log.equipmentId === undefined ||
+              log.equipmentId === filter.equipment.equipmentId)
+          );
+        },
       });
       return { items: result.items.map(logs.parse), nextCursor: result.nextCursor };
     },
-    lastStartedAt: (sourceId) => stateOf(sourceId, 'lastStarted'),
-    lastSucceededAt: (sourceId) => stateOf(sourceId, 'lastSucceeded'),
-    lastDataIngestedAt: (sourceId) => stateOf(sourceId, 'lastDataIngested'),
+    async listFacilityLogs(facilityIds, page) {
+      const result = await pageBySortKey(db, {
+        partitions: facilityIds.map(facilityIngestionPartition),
+        forward: false,
+        limit: page.limit,
+        cursor: page.cursor,
+      });
+      return { items: result.items.map(facilityLogs.parse), nextCursor: result.nextCursor };
+    },
+    async listEquipmentRuns() {
+      const states = new Map<string, EquipmentRunState>();
+      for (const item of await queryAll(db, table, EQUIPMENT_INGESTION)) {
+        const startedAt = toDate(item.lastStarted);
+        const finishedAt = toDate(item.lastFinished);
+        const result = INGESTION_RESULTS_STORED.find((candidate) => candidate === item.lastResult);
+        if (startedAt !== null && finishedAt !== null && result !== undefined) {
+          states.set(String(item.sk), {
+            startedAt,
+            finishedAt,
+            result,
+            lastSucceededAt: toDate(item.lastSucceeded),
+            lastDataAt: toDate(item.lastData),
+          });
+        }
+      }
+      return states;
+    },
+    async recordEquipmentRuns(runs) {
+      await Promise.all(
+        runs.map((run) =>
+          updateItemIf(db, table, {
+            key: { pk: EQUIPMENT_INGESTION, sk: run.equipmentId },
+            update: [
+              'SET lastStarted = :s, lastFinished = :f, lastResult = :r',
+              ...(run.result === 'SUCCESS' ? ['lastSucceeded = :f'] : []),
+              ...(run.dataIngested ? ['lastData = :f'] : []),
+            ].join(', '),
+            // 新しい実行のときだけ、更新する（古い実行で戻さない）。まだ記録がなければ、作る
+            condition: 'attribute_not_exists(lastStarted) OR lastStarted <= :s',
+            values: {
+              ':s': run.startedAt.getTime(),
+              ':f': run.finishedAt.getTime(),
+              ':r': run.result,
+            },
+          }),
+        ),
+      );
+    },
+    async lastStartedAt(sourceId) {
+      const state = await getItem(db, table, { pk: sourcePartition(sourceId), sk: STATE });
+      return toDate(state?.lastStarted);
+    },
+    async recordSourceStarted(sourceId, at) {
+      await updateItemIf(db, table, {
+        key: { pk: sourcePartition(sourceId), sk: STATE },
+        update: 'SET #a = :v',
+        condition: 'attribute_not_exists(#a) OR #a < :v',
+        names: { '#a': 'lastStarted' },
+        values: { ':v': at.getTime() },
+      });
+    },
   };
 }
 
@@ -147,6 +239,7 @@ export function createFederationRepository(db: Database): FederationRepository {
   const table = db.tables.main;
   const items = mainAggregate(db, FederationItemSchema);
   const logs = mainAggregate(db, FederationLogSchema);
+  const facilityLogs = mainAggregate(db, FacilityFederationLogSchema);
 
   /**
    * 項目を保存し、状態が変わったら、同じトランザクションで、状態ごとの件数を更新する。
@@ -232,7 +325,31 @@ export function createFederationRepository(db: Database): FederationRepository {
       );
     },
     update: save,
-    addLog: (entry) => logs.put(FEDERATION_LOG, timedSortKey(entry.occurredAt, entry.logId), entry),
+    async addLog(entry) {
+      await logs.put(FEDERATION_LOG, timedSortKey(entry.occurredAt, entry.logId), entry);
+      for (const facility of entry.facilities ?? []) {
+        await facilityLogs.put(
+          facilityFederationPartition(facility.facilityId),
+          timedSortKey(entry.occurredAt, `${entry.logId}#${facility.facilityId}`),
+          {
+            logId: entry.logId,
+            facilityId: facility.facilityId,
+            occurredAt: entry.occurredAt,
+            result: entry.result,
+            itemCount: facility.itemCount,
+          },
+        );
+      }
+    },
+    async listFacilityLogs(facilityIds, page) {
+      const result = await pageBySortKey(db, {
+        partitions: facilityIds.map(facilityFederationPartition),
+        forward: false,
+        limit: page.limit,
+        cursor: page.cursor,
+      });
+      return { items: result.items.map(facilityLogs.parse), nextCursor: result.nextCursor };
+    },
     async listLogs(page) {
       const result = await pageBySortKey(db, {
         partitions: [FEDERATION_LOG],

@@ -11,6 +11,7 @@ import {
 } from '../../../../src/backend/domain/evaluation/scope-evaluator.ts';
 import { getViewpointDefinition } from '../../../../src/backend/domain/evaluation/viewpoints/registry.ts';
 import {
+  DEFAULT_FUTURE_TOLERANCE_MINUTES,
   DEFAULT_LATE_AFTER_MINUTES,
   classifyValue,
 } from '../../../../src/backend/domain/observation-quality.ts';
@@ -20,7 +21,6 @@ import {
   buildIngestionFailureMessage,
   buildStatusChangeDedupKey,
   buildStatusChangeMessage,
-  isNotifiableTransition,
   isWithinSuppression,
 } from '../../../../src/backend/domain/notification-rules.ts';
 import { describeRobotState } from '../../../../src/backend/domain/status-code.ts';
@@ -146,23 +146,6 @@ describe('ステータスコードの状態判定', () => {
 });
 
 describe('通知の規則', () => {
-  it.each([
-    [null, 'CAUTION', true],
-    [null, 'ERROR', true],
-    ['NORMAL', 'CAUTION', true],
-    ['CAUTION', 'ERROR', true],
-    ['ERROR', 'CAUTION', true],
-    ['UNKNOWN', 'ERROR', true],
-    ['CAUTION', 'CAUTION', false],
-    ['ERROR', 'ERROR', false],
-    ['CAUTION', 'NORMAL', false],
-    ['NORMAL', 'UNKNOWN', false],
-    [null, 'NORMAL', false],
-    [null, 'UNKNOWN', false],
-  ] as const)('直前が %s で、新しい状態が %s のとき、通知は %s', (previous, next, expected) => {
-    expect(isNotifiableTransition(previous, next)).toBe(expected);
-  });
-
   it('重複抑制のキーは、観点・対象・ステータスから作る', () => {
     expect(buildStatusChangeDedupKey('safety', 'ROBOT-1', 'ERROR')).toBe(
       'STATUS_CHANGE#safety#ROBOT-1#ERROR',
@@ -199,6 +182,7 @@ describe('取り込んだ値の品質の判定', () => {
     observedAt,
     receivedAt: new Date('2026-10-09T02:05:00Z'),
     lateAfterMinutes: DEFAULT_LATE_AFTER_MINUTES,
+    futureToleranceMinutes: DEFAULT_FUTURE_TOLERANCE_MINUTES,
     statusCodes: statusCodeMap(),
   };
 
@@ -207,6 +191,24 @@ describe('取り込んだ値の品質の判定', () => {
     expect(classifyValue('humidityPercent', 0, context)).toEqual({ quality: 'VALID' });
     expect(classifyValue('humidityPercent', 100, context)).toEqual({ quality: 'VALID' });
     expect(classifyValue('statusCode', 'RUNNING', context)).toEqual({ quality: 'VALID' });
+  });
+
+  it('1 果実あたりの収穫時間は、データとしては 3,600 秒まで有効（手動入力の上限 300 秒より広い。#192）', () => {
+    expect(classifyValue('harvestSecondsPerFruit', 301, context)).toEqual({ quality: 'VALID' });
+    expect(classifyValue('harvestSecondsPerFruit', 3600, context)).toEqual({ quality: 'VALID' });
+  });
+
+  it.each([
+    ['温度の下限', 'temperatureCelsius', -50],
+    ['温度の上限', 'temperatureCelsius', 100],
+    ['照度の下限', 'illuminanceLux', 0],
+    ['照度の上限', 'illuminanceLux', 200_000],
+    ['CO2 濃度の下限', 'co2Ppm', 0],
+    ['CO2 濃度の上限', 'co2Ppm', 10_000],
+    ['1 果実あたりの収穫時間の下限', 'harvestSecondsPerFruit', 0],
+    ['1 果実あたりの収穫時間の上限', 'harvestSecondsPerFruit', 3600],
+  ] as const)('範囲の境界値（%s）は有効にする（D-10）', (_name, itemKey, value) => {
+    expect(classifyValue(itemKey, value, context)).toEqual({ quality: 'VALID' });
   });
 
   it('値がなければ欠損にする（0 で代用しない）', () => {
@@ -222,6 +224,14 @@ describe('取り込んだ値の品質の判定', () => {
     ['数値の項目に無限大', 'temperatureCelsius', Number.POSITIVE_INFINITY],
     ['ステータスコードに数値', 'statusCode', 5],
     ['定義にないステータスコード', 'statusCode', 'NOT_DEFINED'],
+    ['温度が範囲外（−50 未満）', 'temperatureCelsius', -50.1],
+    ['温度が範囲外（100 超）', 'temperatureCelsius', 100.1],
+    ['照度が範囲外（0 未満）', 'illuminanceLux', -1],
+    ['照度が範囲外（200,000 超）', 'illuminanceLux', 200_001],
+    ['CO2 濃度が範囲外（0 未満）', 'co2Ppm', -1],
+    ['CO2 濃度が範囲外（10,000 超）', 'co2Ppm', 10_001],
+    ['1 果実あたりの収穫時間が範囲外（0 未満）', 'harvestSecondsPerFruit', -0.1],
+    ['1 果実あたりの収穫時間が範囲外（3,600 秒超）', 'harvestSecondsPerFruit', 3600.1],
   ] as const)('%s は不正にする', (_name, itemKey, value) => {
     expect(classifyValue(itemKey, value, context).quality).toBe('INVALID');
   });
@@ -239,6 +249,22 @@ describe('取り込んだ値の品質の判定', () => {
 
     expect(classifyValue('humidityPercent', 50, future)).toMatchObject({ quality: 'INVALID' });
     expect(classifyValue('humidityPercent', 50, slightlyFuture).quality).toBe('VALID');
+  });
+
+  it('未来の許容は、設定値で変えられる（既定 5 分。ちょうどは許容。D-13）', () => {
+    const fiveMinutesAhead = { ...context, observedAt: new Date('2026-10-09T02:10:00Z') };
+    const sixMinutesAhead = { ...context, observedAt: new Date('2026-10-09T02:11:00Z') };
+
+    expect(classifyValue('humidityPercent', 50, fiveMinutesAhead).quality).toBe('VALID');
+    expect(classifyValue('humidityPercent', 50, sixMinutesAhead).quality).toBe('INVALID');
+    expect(
+      classifyValue('humidityPercent', 50, { ...sixMinutesAhead, futureToleranceMinutes: 10 })
+        .quality,
+    ).toBe('VALID');
+    expect(
+      classifyValue('humidityPercent', 50, { ...fiveMinutesAhead, futureToleranceMinutes: 0 })
+        .quality,
+    ).toBe('INVALID');
   });
 
   it('受信が計測から基準の時間より遅れたら遅延にする（ちょうどは遅延ではない）', () => {

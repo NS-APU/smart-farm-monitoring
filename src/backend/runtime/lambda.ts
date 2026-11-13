@@ -7,9 +7,14 @@
  * （config.ts の parseLambdaConfig）。本番（APP_MODE=production）は、DynamoDB・Cognito が必須（ADR-0009）。
  */
 
+import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { handle } from '@hono/aws-lambda';
+import {
+  createOriginSecretReader,
+  type OriginSecretReader,
+} from '../infrastructure/secrets-manager/origin-secret-reader.ts';
 import { createApp } from '../presentation/create-app.ts';
-import { parseLambdaConfig } from './config.ts';
+import { ConfigError, parseLambdaConfig } from './config.ts';
 import { createContainer } from './container.ts';
 
 type LambdaHandler = ReturnType<typeof handle>;
@@ -17,6 +22,8 @@ type LambdaHandler = ReturnType<typeof handle>;
 /** テストで、組み立てを差し替えるための依存。 */
 export interface LambdaHandlerDeps {
   readonly createContainer?: typeof createContainer;
+  /** オリジンの秘密を、Secrets Manager から読む関数（テストで、偽物に差し替える。Issue #102）。 */
+  readonly readOriginSecret?: OriginSecretReader;
 }
 
 export function createLambdaHandler(
@@ -24,12 +31,25 @@ export function createLambdaHandler(
   deps: LambdaHandlerDeps = {},
 ): LambdaHandler {
   const build = deps.createContainer ?? createContainer;
+  const readOriginSecret =
+    deps.readOriginSecret ??
+    ((arn: string) => createOriginSecretReader({ client: new SecretsManagerClient({}) })(arn));
   let ready: Promise<LambdaHandler> | undefined;
 
   async function initialize(): Promise<LambdaHandler> {
-    const container = build(parseLambdaConfig(env));
+    const config = parseLambdaConfig(env);
+    // 本番の API は、関数の URL の直接の呼び出しを拒否する（秘密のヘッダーの検証。Issue #102）。設定がないまま、黙って無効にならないよう、起動しない
+    if (config.mode === 'production' && config.originVerifyArn === undefined) {
+      throw new ConfigError('本番の API の Lambda では、環境変数 ORIGIN_VERIFY_ARN が必須です');
+    }
+    // 秘密は、コールドスタートの 1 回だけ、Secrets Manager から読む（読めなければ、起動に失敗し、次の呼び出しで、読み直す）
+    const originVerifySecret =
+      config.originVerifyArn === undefined
+        ? undefined
+        : await readOriginSecret(config.originVerifyArn);
+    const container = build(config);
     await container.initialize();
-    return handle(createApp(container));
+    return handle(createApp({ ...container, originVerifySecret }));
   }
 
   return async (event, context) => {

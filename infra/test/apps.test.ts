@@ -66,6 +66,45 @@ describe('CDK アプリの組み立て', () => {
     });
   });
 
+  it('評価環境: Web Push の実配信（SFM_WEB_PUSH_PUBLIC_KEY・SFM_WEB_PUSH_SUBJECT）を、API・ジョブの両方の Lambda の環境変数に渡す。指定しなければ、渡さない（ダミー。#241）', () => {
+    const variablesOf = (app: App): Record<string, unknown>[] => {
+      const stack = app.node.findChild('SfmEvaluation') as Stack;
+      return Object.values(
+        Template.fromStack(stack).findResources('AWS::Lambda::Function') as Record<
+          string,
+          { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+        >,
+      )
+        .filter((resource) => resource.Properties.Environment?.Variables.APP_MODE !== undefined)
+        .map((resource) => resource.Properties.Environment?.Variables ?? {});
+    };
+
+    const specified = variablesOf(
+      createEvaluationApp(
+        {
+          SFM_WEB_PUSH_PUBLIC_KEY: 'dummy-vapid-public-key',
+          SFM_WEB_PUSH_SUBJECT: 'https://monitoring.example.test/',
+        },
+        assets(),
+      ),
+    );
+    const unspecified = variablesOf(createEvaluationApp({}, assets()));
+
+    expect(specified).toHaveLength(2);
+    for (const variables of specified) {
+      expect(variables).toMatchObject({
+        WEB_PUSH_DELIVERY: 'vapid',
+        WEB_PUSH_PUBLIC_KEY: 'dummy-vapid-public-key',
+        WEB_PUSH_SUBJECT: 'https://monitoring.example.test/',
+      });
+    }
+    for (const variables of unspecified) {
+      expect(variables).not.toHaveProperty('WEB_PUSH_DELIVERY');
+      expect(variables).not.toHaveProperty('WEB_PUSH_PUBLIC_KEY');
+      expect(variables).not.toHaveProperty('WEB_PUSH_SUBJECT');
+    }
+  });
+
   it('評価環境: アカウントだけを指定しても、証明書のスタックは作らない', () => {
     const app = createEvaluationApp({ CDK_DEFAULT_ACCOUNT: '111111111111' }, assets());
     expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
@@ -179,6 +218,27 @@ describe('CDK アプリの組み立て', () => {
         ]),
       );
     }
+  });
+
+  it('秘密情報（パラメータストア）のパスの接頭辞は、サイトの環境ごとに分ける（開発 /sfm/development/・本番 /sfm/production/）。Lambda の環境変数と、IAM のリソースに入る（Issue #206）', () => {
+    const resourcesOf = (app: App, stackName: string) =>
+      Template.fromStack(app.node.findChild(stackName) as Stack).toJSON().Resources as Record<
+        string,
+        { Type: string; Properties: Record<string, unknown> }
+      >;
+    const development = resourcesOf(createEvaluationApp({}, assets()), 'SfmEvaluation');
+    const production = resourcesOf(
+      createEvaluationApp({ SFM_ENVIRONMENT: 'production' }, assets()),
+      'SfmProductionEvaluation',
+    );
+
+    expect(JSON.stringify(development)).toContain('/sfm/development/');
+    expect(JSON.stringify(development)).not.toContain('/sfm/production/');
+    expect(JSON.stringify(production)).toContain('/sfm/production/');
+    expect(JSON.stringify(production)).not.toContain('/sfm/development/');
+    // IAM のリソースは、環境のパスの下だけ
+    expect(JSON.stringify(development)).toContain('parameter/sfm/development/*');
+    expect(JSON.stringify(production)).toContain('parameter/sfm/production/*');
   });
 
   it('本番サイト（SFM_ENVIRONMENT=production）: 開発サイトとは別の名前のスタックを作る（データ・ユーザー・URL を共有しない）', () => {

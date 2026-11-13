@@ -22,12 +22,15 @@ import type { Observation, ObservationListResponse } from '@smart-farm/shared/sc
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/source-items.ts';
+import { ALL_EQUIPMENT, canViewEquipment, type EquipmentScope } from '../access/facility-scope.ts';
 import { EQUIPMENT_NOT_FOUND_MESSAGE } from '../equipment/require-active-equipment.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
 import type { Repositories } from '../ports/repositories.ts';
 
 export interface ObservationListParams {
   readonly equipmentId?: EquipmentId | undefined;
+  /** 閲覧範囲（省略は全設備。Issue #330）。範囲外の設備の指定は、存在しないもの（NOT_FOUND）。指定しなければ、範囲内の設備だけ。 */
+  readonly scope?: EquipmentScope | undefined;
   readonly viewpointId?: string | undefined;
   readonly category?: Category | undefined;
   readonly itemKey?: string | undefined;
@@ -140,8 +143,16 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
 
   return {
     async list(params) {
+      const scope = params.scope ?? ALL_EQUIPMENT;
+      if (params.equipmentId !== undefined && !canViewEquipment(scope, params.equipmentId)) {
+        throw new AppError('NOT_FOUND', EQUIPMENT_NOT_FOUND_MESSAGE);
+      }
+      if (scope.kind === 'limited' && scope.equipmentIds.size === 0) {
+        return { items: [], nextCursor: null };
+      }
       const allEquipment = await repositories.equipment.list();
-      let equipmentIds: readonly EquipmentId[] | undefined;
+      let equipmentIds: readonly EquipmentId[] | undefined =
+        scope.kind === 'limited' ? [...scope.equipmentIds] : undefined;
       if (params.equipmentId !== undefined) {
         // 削除済みの設備の元データも参照できる（他の画面と違い、isDeleted を見ない。現状の判定を保つ）
         const equipment = allEquipment.find((item) => item.equipmentId === params.equipmentId);

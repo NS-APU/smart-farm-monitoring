@@ -5,5 +5,5 @@
     "types": ["node", "vite/client"],
     "jsx": "react-jsx"
   },
-  "include": ["./**/*.ts", "./**/*.tsx"]
+  "include": ["./**/*.ts", "./**/*.tsx", "../src/backend/infrastructure/web-push/web-push.d.ts"]
 }

@@ -11,6 +11,7 @@ import {
   ViewpointIdSchema,
   EquipmentIdSchema,
 } from '@smart-farm/shared/schemas/common';
+import { PushKeysSchema } from '@smart-farm/shared/schemas/notification';
 
 /** ユーザー（パスワードのハッシュを含む。API には出さない）。 */
 export const UserRecordSchema = z.object({
@@ -32,6 +33,16 @@ export const UserRecordSchema = z.object({
 });
 export type UserRecord = z.infer<typeof UserRecordSchema>;
 
+/**
+ * 閲覧の割り当て（ハウスごと。Issue #330。ADR-0013）。このハウス（配下のロボット・センサーを含む）を、閲覧できる一般ユーザー。
+ * 設備の記録には持たない（設備の階層は、全員に返すため、ほかのユーザーの ID が漏れる）。管理者は、全ハウスを閲覧できる（記録の対象外）。
+ */
+export const FacilityAccessRecordSchema = z.object({
+  facilityId: EquipmentIdSchema,
+  userIds: z.array(UserIdSchema),
+});
+export type FacilityAccessRecord = z.infer<typeof FacilityAccessRecordSchema>;
+
 /** 取り込み済みファイルの記録（再取り込みの防止。FR-1.6）。 */
 export const IngestedFileRecordSchema = z.object({
   sourceId: z.string(),
@@ -43,6 +54,30 @@ export const IngestedFileRecordSchema = z.object({
   errorMessage: z.string().optional(),
 });
 export type IngestedFileRecord = z.infer<typeof IngestedFileRecordSchema>;
+
+/**
+ * 設備ごとの、取り込みの最終の実行（Issue #197・#201。ADR-0016 の D-11・D-48）。設備ごとに 1 件（上書き）。
+ * 取り込みのジョブが、「最終の開始から、その設備の取得間隔が過ぎたか」を判定する。空振りは、ログに残さないため、
+ * 実行したこと（生存の確認）は、ここで分かる。
+ */
+export const EquipmentIngestionStateSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  startedAt: IsoDateTimeSchema,
+  finishedAt: IsoDateTimeSchema,
+  result: z.enum(['SUCCESS', 'PARTIAL', 'FAILURE']),
+  /** 最後に成功（SUCCESS）した実行の終了日時。 */
+  succeededAt: IsoDateTimeSchema.optional(),
+  /** 最後に新しいデータ（1 件以上の記録）を取り込んだ実行の終了日時。 */
+  dataAt: IsoDateTimeSchema.optional(),
+});
+export type EquipmentIngestionState = z.infer<typeof EquipmentIngestionStateSchema>;
+
+/** 取り込み元ごとの、取り込みの最終の開始日時（設備が 1 つもない取り込み元の、取得間隔の判定。Issue #201）。 */
+export const SourceIngestionStateSchema = z.object({
+  sourceId: z.string(),
+  startedAt: IsoDateTimeSchema,
+});
+export type SourceIngestionState = z.infer<typeof SourceIngestionStateSchema>;
 
 /** 観点の最終ステータスの変化の記録（通知の判定と、ステータスの推移。FR-6.10）。 */
 export const StatusChangeEntrySchema = z.object({
@@ -58,6 +93,8 @@ export const PushSubscriptionRecordSchema = z.object({
   subscriptionId: z.string(),
   userId: UserIdSchema,
   endpoint: z.string().min(1),
+  /** 本文つきの配信に使う暗号鍵（#241）。鍵の保存より前に登録した購読は、持たない（本文なしで送る）。 */
+  keys: PushKeysSchema.optional(),
   isActive: z.boolean(),
   createdAt: IsoDateTimeSchema,
 });

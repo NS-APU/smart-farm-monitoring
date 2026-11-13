@@ -6,13 +6,18 @@
  * モック、Web Push のダミー、アプリ内の認証、操作できる時計を使う（AWS なしで E2E・負荷テストを動かす）。
  */
 
-import {
-  DEFAULT_ROLE_CONFIG,
-  createAccessPolicy,
-  type AccessPolicy,
-} from '../application/auth/access-policy.ts';
+import { createAccessPolicy, type AccessPolicy } from '../application/auth/access-policy.ts';
 import { createAuthService, type AuthService } from '../application/auth/auth-service.ts';
+import { createNotificationRecipients } from '../application/access/notification-recipients.ts';
 import { createUserService, type UserService } from '../application/auth/user-service.ts';
+import {
+  createFacilityAccessService,
+  type FacilityAccessService,
+} from '../application/access/facility-access-service.ts';
+import {
+  createFacilityScopeService,
+  type FacilityScopeService,
+} from '../application/access/facility-scope.ts';
 import { createAuditService, type AuditService } from '../application/audit/audit-service.ts';
 import {
   createManualEntryService,
@@ -43,7 +48,14 @@ import {
   createStatusCodeService,
   type StatusCodeService,
 } from '../application/equipment/status-code-service.ts';
-import { createFederationService } from '../application/federation/federation-service.ts';
+import {
+  createFederationService,
+  type FederationService,
+} from '../application/federation/federation-service.ts';
+import {
+  createFacilityLogService,
+  type FacilityLogService,
+} from '../application/ingestion/facility-log-service.ts';
 import {
   createIngestionSettings,
   type IngestionSettings,
@@ -78,6 +90,7 @@ import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { S3Client } from '@aws-sdk/client-s3';
+import { SSMClient } from '@aws-sdk/client-ssm';
 import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../infrastructure/dynamodb/dynamodb-repositories.ts';
@@ -104,7 +117,31 @@ import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
 import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
+import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
+import { readHttpFile, statHttpFile } from '../infrastructure/http/http-file-reader.ts';
+import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
+import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
+import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
+import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
+import { createLibrarySender } from '../infrastructure/web-push/library-sender.ts';
+import {
+  createWebPushNotifier,
+  type WebPushSender,
+} from '../infrastructure/web-push/web-push-notifier.ts';
+import type { NotifierPort } from '../application/ports/notifier-port.ts';
+import type { SecretPort } from '../application/ports/secret-port.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
+import { createNgsiLdFederation, probeNgsiLd } from '../infrastructure/http/ngsi-ld-federation.ts';
+import {
+  createFederationAdminService,
+  type FederationAdminService,
+} from '../application/federation/federation-admin-service.ts';
+import {
+  createHttpNgsiLdTransport,
+  type NgsiLdTransport,
+} from '../infrastructure/http/ngsi-ld-http-transport.ts';
+import { createFederationConnectionStore } from '../application/federation/federation-connection-store.ts';
+import type { FederationPort } from '../application/ports/federation-port.ts';
 import {
   DEMO_ROBOT_ID,
   DEMO_SENSOR_ID,
@@ -140,7 +177,12 @@ export interface Container {
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
   readonly userService: UserService;
+  readonly facilityAccessService: FacilityAccessService;
+  readonly facilityScope: FacilityScopeService;
   readonly ingestionAdminService: IngestionAdminService;
+  /** 連携先の設定（SC-11。接続先は書き込み専用）。Issue #177。 */
+  readonly federationAdminService: FederationAdminService;
+  readonly facilityLogService: FacilityLogService;
   readonly pushSubscriptionService: PushSubscriptionService;
   readonly dashboardQuery: DashboardQuery;
   readonly viewpointQuery: ViewpointQuery;
@@ -148,10 +190,14 @@ export interface Container {
   readonly notificationService: NotificationService;
   readonly evaluationService: EvaluationService;
   readonly ingestionService: IngestionService;
+  /** 農業情報基盤との連携（連携キューへの追加・送信。Issue #177）。 */
+  readonly federationService: FederationService;
   readonly ingestionSettings: IngestionSettings;
   readonly jobRunner: JobRunner;
   /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
   readonly jobLock: JobLockPort;
+  /** 秘密情報の保管先（接続先の認証情報・Web Push の秘密鍵。値は、ログ・画面・履歴に出さない）。 */
+  readonly secrets: SecretPort;
   readonly scheduler: Scheduler;
   /** 開発用の操作（時計・モック・リセット）。環境変数 DEV_API_ENABLED で明示した場合だけ有効（既定・本番では undefined）。 */
   readonly dev: DevApiDeps | undefined;
@@ -159,6 +205,8 @@ export interface Container {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（接続元の識別）。 */
   readonly clientIpHeader: string | undefined;
+  /** CloudFront が付ける秘密のヘッダーの値（関数の URL の直接の呼び出しの拒否。未指定は検証しない。Issue #102）。 */
+  readonly originVerifySecret: string | undefined;
   /** 初期データ・最初のユーザー・（指定なら）デモデータを用意する。起動時に1度呼ぶ。 */
   initialize(): Promise<void>;
   /** 未保存のデータを書き出し、スケジューラを止める。 */
@@ -174,6 +222,12 @@ export interface ContainerOverrides {
   readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
   /** S3 のクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly s3Client?: Pick<S3Client, 'send'>;
+  /** パラメータストアのクライアント（テストで、偽のクライアントに差し替える）。 */
+  readonly ssmClient?: SsmCommandSender;
+  /** Web Push の送信の関数（テストで、偽物に差し替える。WEB_PUSH_DELIVERY=vapid のとき使う）。 */
+  readonly webPushSender?: WebPushSender;
+  /** 農業情報基盤への送信（テストで、偽物に差し替える。FEDERATION_MODE=ngsi-ld のとき使う）。 */
+  readonly federationTransport?: NgsiLdTransport;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -188,6 +242,7 @@ function buildSettings(config: AppConfig, overrides: ContainerOverrides): AppSet
       retryBaseDelayMs: config.ingestionRetryBaseDelayMs,
       stopNotificationEnabled: config.ingestionStopNotificationEnabled,
       notifyFileFailures: config.ingestionFileFailureNotificationEnabled,
+      futureToleranceMinutes: config.ingestionFutureToleranceMinutes,
       stopAfterIntervals: config.staleAfterIntervals,
     },
     ...overrides.settings,
@@ -329,6 +384,30 @@ function buildAdapters(
           client: overrides.s3Client ?? new S3Client({}),
           bucket: config.fileServerBucket,
         });
+  // 秘密情報の保管先: パラメータストア（本番・開発サイト）、または、メモリ（ローカル・テスト）。使う場所は、#119・#207・#241 など
+  // メモリの保管先は、開発用のリセットで消すため、変数に持つ（パラメータストアのときは、使わない）
+  const memorySecrets = createMemorySecretPort();
+  const secrets: SecretPort =
+    config.secrets.provider === 'ssm' && config.secrets.pathPrefix !== undefined
+      ? createSsmSecretPort({
+          client: overrides.ssmClient ?? new SSMClient({}),
+          pathPrefix: config.secrets.pathPrefix,
+          logger,
+        })
+      : memorySecrets;
+  // Web Push の配信: vapid なら、プッシュサービスへ実際に送る（秘密鍵は、秘密情報から読む）。それ以外は、ダミー（記録だけ）
+  const webPush: NotifierPort =
+    config.webPushDelivery === 'vapid' &&
+    config.webPushPublicKey !== undefined &&
+    config.webPushSubject !== undefined
+      ? createWebPushNotifier({
+          secrets,
+          publicKey: config.webPushPublicKey,
+          subject: config.webPushSubject,
+          send: overrides.webPushSender ?? createLibrarySender(),
+          logger,
+        })
+      : mocks.webPush;
   const policy = createAccessPolicy(config.roles);
   const { auth, credentials }: Identity =
     config.cognito === undefined
@@ -343,6 +422,24 @@ function buildAdapters(
       : buildCognitoIdentity(config.cognito, storage, clock, overrides);
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
+  // 農業情報基盤への連携: FEDERATION_MODE=ngsi-ld のとき、NGSI-LD のアダプタ（接続先・テナント・context は、設定から読む。ADR-0024）。
+  // 既定は、モック（ローカル・テスト）。アダプタでは、接続先が未設定のあいだ、連携は保留になる（モックのように、受け取ったことにしない）
+  const federationConnection = createFederationConnectionStore({
+    settings: repositories.settings,
+    secrets,
+  });
+  const federationTransport =
+    overrides.federationTransport ??
+    createHttpNgsiLdTransport({ allowPrivateAddresses: config.httpFileSourceAllowPrivate });
+  const federationPort: FederationPort =
+    config.federationMode === 'ngsi-ld'
+      ? createNgsiLdFederation({
+          connection: () => federationConnection.get(),
+          transport: federationTransport,
+          equipment: repositories.equipment,
+          timeoutMs: DEFAULT_APP_SETTINGS.federation.ioTimeoutMs,
+        })
+      : mocks.federation;
   return {
     repositories,
     store,
@@ -350,7 +447,13 @@ function buildAdapters(
     jobLock: storage.jobLock,
     faults,
     mocks,
+    memorySecrets,
+    federationPort,
+    federationTransport,
+    federationConnection,
+    webPush,
     fileSource,
+    secrets,
     policy,
     auth,
     credentials,
@@ -371,14 +474,16 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, mocks, fileSource, policy, auth, credentials, profiles } = adapters;
+  const { repositories, webPush, fileSource, policy, auth, credentials, profiles } = adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
   const notificationService = createNotificationService({
     notifications: repositories.notifications,
+    evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
-    webPush: mocks.webPush,
+    recipients: createNotificationRecipients({ repositories, policy }),
+    webPush,
     clock,
     ids,
     settings: settings.notification,
@@ -386,8 +491,9 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   });
   const federation = createFederationService({
     federation: repositories.federation,
+    equipment: repositories.equipment,
     notifications: notificationService,
-    port: mocks.federation,
+    port: adapters.federationPort,
     clock,
     ids,
     settings: settings.federation,
@@ -402,14 +508,25 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     settings,
     logger,
   });
-  const ingestionSettings = createIngestionSettings(
-    repositories.settings,
-    settings.defaultIngestionIntervalMinutes,
-  );
+  const ingestionSettings = createIngestionSettings(repositories.settings);
+  // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
+  const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
+  const routedFileSource = createRoutingFileSource({
+    base: fileSource,
+    ingestionSettings,
+    equipment: repositories.equipment,
+    secrets: adapters.secrets,
+    maxFileBytes: settings.ingestion.maxFileBytes,
+    http: {
+      probe: (input) => probeHttpFile({ ...input, allowPrivateAddresses }),
+      stat: (input) => statHttpFile({ ...input, allowPrivateAddresses }),
+      read: (input) => readHttpFile({ ...input, allowPrivateAddresses }),
+    },
+  });
   const ingestionService = createIngestionService({
     repositories,
     ingestionSettings,
-    fileSource,
+    fileSource: routedFileSource,
     profiles,
     evaluation: evaluationService,
     notifications: notificationService,
@@ -440,6 +557,8 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   });
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
+    settings: repositories.settings,
+    federation,
     audit: auditService,
     evaluation: evaluationService,
     clock,
@@ -459,14 +578,36 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     clock,
     sessions: auth,
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
   });
+  const facilityAccessService = createFacilityAccessService({
+    repositories,
+    policy,
+    audit: auditService,
+  });
+  const facilityScope = createFacilityScopeService({ repositories });
   const ingestionAdminService = createIngestionAdminService({
     ingestionSettings,
     ingestion: repositories.ingestion,
+    equipment: repositories.equipment,
     federation: repositories.federation,
     ingestionService,
     profiles,
     audit: auditService,
+    secrets: adapters.secrets,
+    isConnectionAllowed: (connection) =>
+      connection.type !== 'HTTP' ||
+      config.httpFileSourceAllowPrivate ||
+      !isBlockedConnectionHost(connection.host),
+  });
+  const facilityLogService = createFacilityLogService({ repositories });
+  const federationAdminService = createFederationAdminService({
+    store: adapters.federationConnection,
+    federation,
+    audit: auditService,
+    mode: config.federationMode,
+    probe: (connection) =>
+      probeNgsiLd(connection, adapters.federationTransport, settings.federation.ioTimeoutMs),
   });
   const pushSubscriptionService = createPushSubscriptionService({
     subscriptions: repositories.pushSubscriptions,
@@ -488,13 +629,18 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     evaluationService,
     ingestionSettings,
     ingestionService,
+    federation,
     auditService,
     manualEntryService,
     criteriaAdminService,
     equipmentService,
     statusCodeService,
     userService,
+    facilityAccessService,
+    facilityScope,
     ingestionAdminService,
+    federationAdminService,
+    facilityLogService,
     pushSubscriptionService,
     jobRunner,
     scheduler,
@@ -556,6 +702,8 @@ function buildDevControls(
       scheduler.reset();
       mocks.federation.reset();
       mocks.webPush.reset();
+      // 連携先の接続先など、メモリの秘密情報も、初期の状態に戻す（設定の保管は、データのリセットで戻る）
+      adapters.memorySecrets.clear();
       faults.fileServer.reset();
       faults.federation.reset();
       faults.webPush.reset();
@@ -618,11 +766,6 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
   if (dev !== undefined) {
     logger.warn('開発用 API が有効です。本番・共有環境では無効にしてください');
   }
-  if (config.roles === DEFAULT_ROLE_CONFIG) {
-    logger.warn(
-      '既定のロール（全利用者が全権限を持つ1ロール）で動作しています。ROLE_DEFINITIONS_JSON で、権限を分けてください',
-    );
-  }
 
   return {
     config,
@@ -638,7 +781,11 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     manualEntryService: services.manualEntryService,
     criteriaAdminService: services.criteriaAdminService,
     userService: services.userService,
+    facilityAccessService: services.facilityAccessService,
+    facilityScope: services.facilityScope,
     ingestionAdminService: services.ingestionAdminService,
+    federationAdminService: services.federationAdminService,
+    facilityLogService: services.facilityLogService,
     pushSubscriptionService: services.pushSubscriptionService,
     dashboardQuery: createDashboardQuery({
       repositories,
@@ -656,13 +803,16 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     notificationService: services.notificationService,
     evaluationService: services.evaluationService,
     ingestionService: services.ingestionService,
+    federationService: services.federation,
     ingestionSettings: services.ingestionSettings,
     jobRunner: services.jobRunner,
     jobLock: adapters.jobLock,
+    secrets: adapters.secrets,
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,
     clientIpHeader: config.clientIpHeader,
+    originVerifySecret: config.originVerifySecret,
     initialize: () => initialize(),
     close() {
       services.scheduler.stop();

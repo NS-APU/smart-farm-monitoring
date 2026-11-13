@@ -45,7 +45,7 @@ describe('実行設定（環境変数）', () => {
       trustedProxyHops: 0,
     });
     expect(config.initialUser).toBeUndefined();
-    expect(Object.keys(config.roles)).toEqual(['worker']);
+    expect(Object.keys(config.roles)).toEqual(['admin', 'general']);
   });
 
   it('PERSISTENCE=dynamodb: テーブル名・接続先・リージョンを読み込む（メモリ・ファイルでは、持たない）', () => {
@@ -262,6 +262,177 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('ファイル単位の失敗の通知（INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED。#236。ADR-0019 の D-37）', () => {
+    it('既定は、通知する。false を指定すると、通知しない', () => {
+      expect(parseConfig({}).ingestionFileFailureNotificationEnabled).toBe(true);
+      expect(
+        parseConfig({ INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: 'false' })
+          .ingestionFileFailureNotificationEnabled,
+      ).toBe(false);
+    });
+  });
+
+  describe('取り込みの計測日時の未来の許容（INGESTION_FUTURE_TOLERANCE_MINUTES。#200。ADR-0016 の D-13）', () => {
+    it('既定は 5 分。分で指定できる（0〜60）', () => {
+      expect(parseConfig({}).ingestionFutureToleranceMinutes).toBe(5);
+      expect(
+        parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: '10' }).ingestionFutureToleranceMinutes,
+      ).toBe(10);
+      expect(
+        parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: '0' }).ingestionFutureToleranceMinutes,
+      ).toBe(0);
+      expect(
+        parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: '60' }).ingestionFutureToleranceMinutes,
+      ).toBe(60);
+    });
+
+    it.each([
+      ['負', '-1'],
+      ['上限（60）超', '61'],
+      ['小数', '1.5'],
+      ['数値でない', 'long'],
+    ])('範囲外・不正な値は、設定エラー: %s', (_name, value) => {
+      expect(() => parseConfig({ INGESTION_FUTURE_TOLERANCE_MINUTES: value })).toThrow(
+        'INGESTION_FUTURE_TOLERANCE_MINUTES',
+      );
+    });
+  });
+
+  describe('農業情報基盤との連携の方式（FEDERATION_MODE。#177。ADR-0024）', () => {
+    it('既定は mock（モック。ローカル・テスト）。ngsi-ld を指定すると、NGSI-LD のアダプタを使う', () => {
+      expect(parseConfig({}).federationMode).toBe('mock');
+      expect(parseConfig({ FEDERATION_MODE: 'ngsi-ld' }).federationMode).toBe('ngsi-ld');
+    });
+
+    it('それ以外の値は、設定エラー', () => {
+      expect(() => parseConfig({ FEDERATION_MODE: 'orion' })).toThrow('FEDERATION_MODE');
+    });
+  });
+
+  describe('Web Push の実配信（WEB_PUSH_DELIVERY・WEB_PUSH_SUBJECT。#241。ADR-0019 の D-36）', () => {
+    const VAPID = {
+      WEB_PUSH_DELIVERY: 'vapid',
+      WEB_PUSH_PUBLIC_KEY: 'dummy-public-key',
+      WEB_PUSH_SUBJECT: 'https://monitoring.example.test/',
+    };
+
+    it('既定は dummy（実際には送らない）。連絡先は、持たない', () => {
+      const config = parseConfig({});
+
+      expect(config.webPushDelivery).toBe('dummy');
+      expect(config.webPushSubject).toBeUndefined();
+    });
+
+    it('vapid: 公開鍵と、連絡先（https の URL）があれば、実配信にする', () => {
+      const config = parseConfig(VAPID);
+
+      expect(config.webPushDelivery).toBe('vapid');
+      expect(config.webPushPublicKey).toBe('dummy-public-key');
+      expect(config.webPushSubject).toBe('https://monitoring.example.test/');
+    });
+
+    it('dummy のまま、公開鍵・連絡先を指定してもよい（購読は、受け付ける。配信は、しない）', () => {
+      const config = parseConfig({ ...VAPID, WEB_PUSH_DELIVERY: 'dummy' });
+
+      expect(config.webPushDelivery).toBe('dummy');
+      expect(config.webPushPublicKey).toBe('dummy-public-key');
+    });
+
+    it.each([
+      ['公開鍵がない', { WEB_PUSH_PUBLIC_KEY: undefined }, 'WEB_PUSH_PUBLIC_KEY'],
+      ['連絡先がない', { WEB_PUSH_SUBJECT: undefined }, 'WEB_PUSH_SUBJECT'],
+    ])('vapid で、%s場合は、設定エラー', (_name, override, variable) => {
+      expect(() => parseConfig({ ...VAPID, ...override })).toThrow(ConfigError);
+      expect(() => parseConfig({ ...VAPID, ...override })).toThrow(variable);
+    });
+
+    it.each(['mailto:person@example.test', 'http://monitoring.example.test/', 'monitoring'])(
+      '連絡先は、https の URL のみ（%s は、設定エラー。個人のメールアドレスを、設定に持たない）',
+      (subject) => {
+        expect(() => parseConfig({ ...VAPID, WEB_PUSH_SUBJECT: subject })).toThrow(ConfigError);
+      },
+    );
+
+    it('不正な WEB_PUSH_DELIVERY は、設定エラー', () => {
+      expect(() => parseConfig({ WEB_PUSH_DELIVERY: 'real' })).toThrow(ConfigError);
+    });
+
+    it('Lambda の設定でも、同じ（vapid は、公開鍵・連絡先が必要）', () => {
+      const lambda = { APP_MODE: 'local', PERSISTENCE: 'memory' };
+
+      expect(parseLambdaConfig({ ...lambda, ...VAPID }).webPushDelivery).toBe('vapid');
+      expect(() => parseLambdaConfig({ ...lambda, WEB_PUSH_DELIVERY: 'vapid' })).toThrow(
+        ConfigError,
+      );
+    });
+  });
+
+  describe('ファイルサーバー（HTTP）の内部のアドレスの許可（HTTP_FILE_SOURCE_ALLOW_PRIVATE。#172。ADR-0022）', () => {
+    it('既定は、拒否（SSRF の対策）', () => {
+      expect(parseConfig({}).httpFileSourceAllowPrivate).toBe(false);
+      expect(
+        parseConfig({ HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'false' }).httpFileSourceAllowPrivate,
+      ).toBe(false);
+    });
+
+    it('ローカル・テストでは、true を指定すると、許可する', () => {
+      expect(
+        parseConfig({ HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' }).httpFileSourceAllowPrivate,
+      ).toBe(true);
+      expect(
+        parseConfig({ APP_MODE: 'test', HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' })
+          .httpFileSourceAllowPrivate,
+      ).toBe(true);
+    });
+
+    it('本番（APP_MODE=production）では、指定しても、拒否する', () => {
+      expect(
+        parseConfig({
+          APP_MODE: 'production',
+          HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true',
+          ...PRODUCTION_ADAPTERS,
+        }).httpFileSourceAllowPrivate,
+      ).toBe(false);
+    });
+  });
+
+  describe('秘密情報の保管（CREDENTIAL_STORE・CREDENTIAL_PATH_PREFIX。#206。D-55）', () => {
+    it('既定は、メモリ（ローカル・テスト）。接頭辞は、なし', () => {
+      expect(parseConfig({}).secrets).toEqual({ provider: 'memory' });
+    });
+
+    it('ssm（パラメータストア）は、パスの接頭辞が要る', () => {
+      expect(
+        parseConfig({ CREDENTIAL_STORE: 'ssm', CREDENTIAL_PATH_PREFIX: '/sfm/development/' })
+          .secrets,
+      ).toEqual({ provider: 'ssm', pathPrefix: '/sfm/development/' });
+      expect(() => parseConfig({ CREDENTIAL_STORE: 'ssm' })).toThrow('CREDENTIAL_PATH_PREFIX');
+    });
+
+    it.each([
+      ['先頭が / でない', 'sfm/development/'],
+      ['末尾が / でない', '/sfm/development'],
+      ['大文字', '/SFM/development/'],
+      ['空の階層', '/sfm//development/'],
+      ['上の階層への移動', '/sfm/../development/'],
+      ['空白を含む', '/sfm/dev elopment/'],
+    ])('パスの接頭辞が不正なときは、設定エラー: %s', (_name, prefix) => {
+      expect(() =>
+        parseConfig({ CREDENTIAL_STORE: 'ssm', CREDENTIAL_PATH_PREFIX: prefix }),
+      ).toThrow('CREDENTIAL_PATH_PREFIX');
+    });
+
+    it('不明な保管先は、設定エラー', () => {
+      expect(() => parseConfig({ CREDENTIAL_STORE: 'vault' })).toThrow('CREDENTIAL_STORE');
+    });
+
+    it('メモリのときは、接頭辞を指定しても、使わない（設定エラーにしない）', () => {
+      expect(parseConfig({ CREDENTIAL_PATH_PREFIX: '/sfm/development/' }).secrets).toEqual({
+        provider: 'memory',
+      });
+    });
+  });
+
   it('デモデータの日数（DEMO_SEED_DAYS）は、1〜31 の整数。範囲外は設定エラー', () => {
     expect(parseConfig({ DEMO_SEED_DAYS: '30' }).demoSeedDays).toBe(30);
     expect(parseConfig({ DEMO_SEED_DAYS: '1' }).demoSeedDays).toBe(1);
@@ -365,6 +536,55 @@ describe('実行設定（環境変数）', () => {
     );
   });
 
+  describe('秘密のヘッダーの検証（ORIGIN_VERIFY_SECRET。Issue #102）', () => {
+    const SECRET = 'dummyOriginSecret0123456789abcdefABCDEF0123456789';
+
+    it('既定は指定なし（検証しない）。指定した値を、そのまま読み込む', () => {
+      expect(parseConfig({}).originVerifySecret).toBeUndefined();
+      expect(parseConfig({ ORIGIN_VERIFY_SECRET: SECRET }).originVerifySecret).toBe(SECRET);
+    });
+
+    const ARN = 'arn:aws:secretsmanager:ap-northeast-1:111111111111:secret:SfmOriginSecret-AbCdEf';
+
+    it('秘密の保管先の ARN（ORIGIN_VERIFY_ARN。秘密の値ではない）は、既定は指定なし。指定した値を、読み込む。ARN として正しくない値は、設定エラー', () => {
+      expect(parseConfig({}).originVerifyArn).toBeUndefined();
+      expect(parseConfig({ ORIGIN_VERIFY_ARN: ARN }).originVerifyArn).toBe(ARN);
+      for (const value of ['', 'not-an-arn', 'arn:aws:s3:::bucket']) {
+        expect(() => parseConfig({ ORIGIN_VERIFY_ARN: value }), value).toThrow('ORIGIN_VERIFY_ARN');
+      }
+    });
+
+    it('Lambda では、秘密の値を環境変数（ORIGIN_VERIFY_SECRET）で渡せない（ARN で指定する。秘密を、Lambda の設定に持たない）', () => {
+      const lambda = { APP_MODE: 'test', PERSISTENCE: 'memory' };
+
+      expect(parseLambdaConfig({ ...lambda, ORIGIN_VERIFY_ARN: ARN }).originVerifyArn).toBe(ARN);
+      expect(() => parseLambdaConfig({ ...lambda, ORIGIN_VERIFY_SECRET: SECRET })).toThrow(
+        'ORIGIN_VERIFY_ARN',
+      );
+    });
+
+    it.each([
+      'short',
+      'has space 0123456789012345678901234567890123',
+      'with-dash-0123456789012345678901234567890123',
+      '',
+    ])(
+      '短すぎる・英数字以外を含む・空の値は、設定エラーにする（エラーの内容に、値を含めない）',
+      (value) => {
+        let message = '';
+        try {
+          parseConfig({ ORIGIN_VERIFY_SECRET: value });
+        } catch (error) {
+          message = error instanceof Error ? error.message : '';
+        }
+        expect(message).toContain('ORIGIN_VERIFY_SECRET');
+        if (value !== '') {
+          expect(message).not.toContain(value);
+        }
+      },
+    );
+  });
+
   describe('信頼するプロキシの段数（V-007）', () => {
     it('既定は 0（X-Forwarded-For を信頼しない）。指定した段数を読み込む', () => {
       expect(parseConfig({}).trustedProxyHops).toBe(0);
@@ -396,12 +616,12 @@ describe('実行設定（環境変数）', () => {
   });
 
   describe('最初のユーザー（環境変数の初期ユーザー）', () => {
-    it('3つの変数がそろっていれば、既定のロールで読み込む', () => {
+    it('3つの変数がそろっていれば、既定のロール（管理者）で読み込む', () => {
       expect(parseConfig(INITIAL_USER).initialUser).toEqual({
         userId: 'first-user',
         userName: '最初のユーザー',
         password: 'Dummy-Passw0rd-1',
-        role: 'worker',
+        role: 'admin',
       });
     });
 

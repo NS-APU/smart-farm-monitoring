@@ -6,6 +6,7 @@ import {
 } from '../../../src/shared/constants/items.ts';
 import { FUTURE_TOLERANCE_MINUTES, MAX_NOTE_LENGTH } from '../../../src/shared/constants/limits.ts';
 import {
+  ManualEntryInputSchema,
   describeRange,
   findItemValueViolation,
   manualItemsOfCategory,
@@ -48,6 +49,75 @@ describe('manualItemsOfCategory', () => {
   });
 });
 
+describe('自動取り込みの項目を、手動でも入力できる（予備の入口。#192。ADR-0016 の D-10）', () => {
+  it('稼働情報の 4 項目と、収穫情報の収穫数・1 果実あたりの収穫時間を、手動入力の項目にする', () => {
+    expect(manualItemsOfCategory('OPERATION').map((definition) => definition.itemKey)).toEqual([
+      'operatingHours',
+      'standbyHours',
+      'harvestOperatingHours',
+      'travelStoppedHours',
+    ]);
+    const harvest = manualItemsOfCategory('HARVEST').map((definition) => definition.itemKey);
+    expect(harvest).toContain('harvestCount');
+    expect(harvest).toContain('harvestSecondsPerFruit');
+  });
+
+  it('稼働情報の手動入力は、エラーなしで検証を通る（0 以上の数値）', () => {
+    const items = {
+      operatingHours: 5.5,
+      standbyHours: 1,
+      harvestOperatingHours: 4,
+      travelStoppedHours: 0,
+    };
+    expect(validateManualEntry(draft({ category: 'OPERATION', items }), NOW)).toEqual([]);
+    expect(
+      validateManualEntry(draft({ category: 'OPERATION', items: { operatingHours: -1 } }), NOW),
+    ).toEqual([
+      { name: 'items.operatingHours', message: '稼働時間は0以上の数値で指定してください' },
+    ]);
+  });
+
+  it('収穫数は 0 以上の整数（手動入力）', () => {
+    const harvest = (value: number) =>
+      validateManualEntry(draft({ category: 'HARVEST', items: { harvestCount: value } }), NOW);
+    expect(harvest(0)).toEqual([]);
+    expect(harvest(12)).toEqual([]);
+    expect(harvest(1.5)).toEqual([
+      { name: 'items.harvestCount', message: '収穫数は0以上の整数で指定してください' },
+    ]);
+    expect(harvest(-1)).toHaveLength(1);
+  });
+
+  describe('1 果実あたりの収穫時間: 手動入力は 0〜300 秒（データとしては 0〜3,600 秒）', () => {
+    const perFruit = (value: number) =>
+      validateManualEntry(
+        draft({ category: 'HARVEST', items: { harvestSecondsPerFruit: value } }),
+        NOW,
+      );
+
+    it('説明に、手動入力の範囲を示す', () => {
+      expect(describeRange(item('harvestSecondsPerFruit'))).toBe('0以上300以下の数値');
+    });
+
+    it.each([0, 0.1, 300])('%s 秒は有効（境界を含む）', (value) => {
+      expect(perFruit(value)).toEqual([]);
+    });
+
+    it.each([-0.1, 300.1, 3600])('%s 秒は、手動入力の範囲外（範囲を示すエラー）', (value) => {
+      expect(perFruit(value)).toEqual([
+        {
+          name: 'items.harvestSecondsPerFruit',
+          message: '1果実あたりの収穫時間は0以上300以下の数値で指定してください',
+        },
+      ]);
+    });
+
+    it('データとしての上限（3,600 秒）は、別に保つ（項目の定義）', () => {
+      expect(item('harvestSecondsPerFruit')).toMatchObject({ max: 3600, manualMax: 300 });
+    });
+  });
+});
+
 describe('describeRange（入力できる値の説明）', () => {
   it('下限だけの整数・数値、下限と上限のある整数を説明する', () => {
     expect(describeRange(item('operationStepCount'))).toBe('0以上の整数');
@@ -55,6 +125,13 @@ describe('describeRange（入力できる値の説明）', () => {
     expect(describeRange({ ...item('operationStepCount'), min: 1, max: 5 })).toBe(
       '1以上5以下の整数',
     );
+  });
+
+  it('環境情報の項目は、データとして許容する範囲（上限・下限）を説明する（D-10）', () => {
+    expect(describeRange(item('temperatureCelsius'))).toBe('-50以上100以下の数値');
+    expect(describeRange(item('humidityPercent'))).toBe('0以上100以下の数値');
+    expect(describeRange(item('illuminanceLux'))).toBe('0以上200000以下の数値');
+    expect(describeRange(item('co2Ppm'))).toBe('0以上10000以下の数値');
   });
 
   it('範囲がなければ、型だけを説明する', () => {
@@ -96,14 +173,58 @@ describe('validateManualEntry（手動入力の検証）', () => {
     expect(names(errors).sort()).toEqual(['category', 'equipmentId', 'items', 'observedAt']);
   });
 
-  it('手動入力できないカテゴリ（稼働情報・不明な値）は、エラー', () => {
-    expect(validateManualEntry(draft({ category: 'OPERATION', items: {} }), NOW)).toContainEqual({
+  it('手動入力できないカテゴリ（不明な値）は、エラー', () => {
+    expect(validateManualEntry(draft({ category: 'UNKNOWN', items: {} }), NOW)).toContainEqual({
       name: 'category',
       message: 'このカテゴリは手動で入力できません',
     });
     expect(
       names(validateManualEntry(draft({ category: 'UNKNOWN', items: { failureCount: 1 } }), NOW)),
     ).toContain('category');
+  });
+
+  describe('ステータスコード（文字列の項目。#192 の PR 2。ステータスのカテゴリ）', () => {
+    const status = (value: unknown) =>
+      validateManualEntry(draft({ category: 'STATUS', items: { statusCode: value } }), NOW);
+
+    it('ステータスのカテゴリで、ステータスコードを、文字列で入力できる', () => {
+      expect(manualItemsOfCategory('STATUS').map((definition) => definition.itemKey)).toEqual([
+        'statusCode',
+      ]);
+      expect(status('RUNNING')).toEqual([]);
+    });
+
+    it.each([
+      ['数値', 5],
+      ['空の文字列', ''],
+    ])('文字列でない・空のコード（%s）は、選択を求めるエラー', (_name, value) => {
+      expect(status(value)).toEqual([
+        {
+          name: 'items.statusCode',
+          message: 'ステータスコードは、登録済みのコードから選択してください',
+        },
+      ]);
+    });
+
+    it('数値の項目に、文字列は指定できない（範囲を示すエラー）', () => {
+      expect(validateManualEntry(draft({ items: { failureCount: 'abc' } }), NOW)).toEqual([
+        { name: 'items.failureCount', message: '故障回数は0以上の整数で指定してください' },
+      ]);
+    });
+
+    it('入力のスキーマは、数値と文字列を受け付ける（それ以外は受け付けない）', () => {
+      const parse = (items: unknown) =>
+        ManualEntryInputSchema.safeParse({
+          equipmentId: 'ROBOT-01',
+          category: 'STATUS',
+          observedAt: '2026-10-09T02:00:00.000Z',
+          items,
+        }).success;
+      expect(parse({ statusCode: 'RUNNING' })).toBe(true);
+      expect(parse({ failureCount: 2 })).toBe(true);
+      expect(parse({ statusCode: true })).toBe(false);
+      expect(parse({ statusCode: null })).toBe(false);
+    });
   });
 
   it('計測日時: 形式が不正ならエラー。未来は許容（5分）を超えるとエラーで、許容の範囲内なら有効', () => {
@@ -142,6 +263,32 @@ describe('validateManualEntry（手動入力の検証）', () => {
     const errors = validateManualEntry(draft({ items: { failureCount: -1 } }), NOW);
     expect(names(errors)).toEqual(['items.failureCount']);
     expect(validateManualEntry(draft({ items: { failureCount: 'abc' } }), NOW)).toHaveLength(1);
+  });
+
+  describe('環境情報の値の範囲（D-10。範囲外は保存できない。境界値は有効）', () => {
+    const environment = (items: Record<string, number>) =>
+      validateManualEntry(draft({ category: 'ENVIRONMENT', items }), NOW);
+
+    it.each([
+      ['temperatureCelsius', -50, 100],
+      ['humidityPercent', 0, 100],
+      ['illuminanceLux', 0, 200_000],
+      ['co2Ppm', 0, 10_000],
+    ] as const)('%s: 下限（%d）・上限（%d）は有効', (key, min, max) => {
+      expect(environment({ [key]: min })).toEqual([]);
+      expect(environment({ [key]: max })).toEqual([]);
+    });
+
+    it.each([
+      ['temperatureCelsius', -50.1, '温度は-50以上100以下の数値で指定してください'],
+      ['temperatureCelsius', 100.1, '温度は-50以上100以下の数値で指定してください'],
+      ['illuminanceLux', -1, '照度は0以上200000以下の数値で指定してください'],
+      ['illuminanceLux', 200_001, '照度は0以上200000以下の数値で指定してください'],
+      ['co2Ppm', -1, 'CO2濃度は0以上10000以下の数値で指定してください'],
+      ['co2Ppm', 10_001, 'CO2濃度は0以上10000以下の数値で指定してください'],
+    ] as const)('%s: 範囲外の値（%d）は、範囲を示すエラー', (key, value, message) => {
+      expect(environment({ [key]: value })).toEqual([{ name: `items.${key}`, message }]);
+    });
   });
 
   describe('満足度（D-18: 9観点すべてが必須）', () => {

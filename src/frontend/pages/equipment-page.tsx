@@ -2,28 +2,85 @@
  * SC-10 設備管理（UC-12。FR-2）。ハウス → ロボット／環境センサーの階層の表示と、登録・変更・削除（論理削除。確認を求める）。
  * 設備IDは一意（重複はエラー）。ロボット・センサーは、ハウスに属する。変更は、取り込み・評価・表示に反映される。
  * 設備を変更する権限（equipment:manage）がなければ、参照のみ。
+ * ハウスの行には、ユーザーを管理する権限（user:manage）があれば、閲覧できる一般ユーザーを示し、割り当てる操作を出す（Issue #330。
+ * ハウス側から、一般ユーザーを個別に割り当てる。管理者は、すべてのハウスを閲覧できる）。
  */
 
-import { useState, type ReactNode, type SyntheticEvent } from 'react';
-import { EQUIPMENT_TYPES } from '@smart-farm/shared/constants/status';
+import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
+import {
+  EQUIPMENT_INTERVAL_MINUTES_OPTIONS,
+  EQUIPMENT_TYPES,
+} from '@smart-farm/shared/constants/status';
 import {
   EquipmentCreateRequestSchema,
   EquipmentUpdateRequestSchema,
+  effectiveIntervalMinutes,
   type Equipment,
 } from '@smart-farm/shared/schemas/equipment';
-import { createEquipment, deleteEquipment, updateEquipment } from '../api/management-endpoints.ts';
+import {
+  createEquipment,
+  deleteEquipment,
+  getFacilityAccess,
+  updateEquipment,
+} from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
+import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Icon } from '../components/icon.tsx';
+import { FacilityAccessPanel } from './facility-access-panel.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
+
+/** 取得間隔の選択（設備ごと。Issue #197）。空は、種別ごとの既定。 */
+function IntervalField(props: {
+  readonly value: string;
+  readonly error: string | undefined;
+  readonly onChange: (value: string) => void;
+}): ReactNode {
+  return (
+    <Field
+      label={TEXT.interval}
+      name="intervalMinutes"
+      error={props.error}
+      hint={TEXT.intervalHint}
+    >
+      {(control) => (
+        <select
+          {...control}
+          value={props.value}
+          onChange={(event) => {
+            props.onChange(event.target.value);
+          }}
+        >
+          <option value="">{TEXT.intervalDefaultOption}</option>
+          {EQUIPMENT_INTERVAL_MINUTES_OPTIONS.map((minutes) => (
+            <option key={minutes} value={String(minutes)}>
+              {TEXT.intervalOption(minutes)}
+            </option>
+          ))}
+        </select>
+      )}
+    </Field>
+  );
+}
+
+/** 一覧の取得間隔の表示。指定があればその値、なければ種別ごとの既定。ハウスは持たない。 */
+function intervalCell(equipment: Equipment): string {
+  const effective = effectiveIntervalMinutes(equipment);
+  if (effective === undefined) {
+    return MESSAGES.common.missingValue;
+  }
+  return equipment.intervalMinutes === undefined
+    ? TEXT.intervalDefault(effective)
+    : TEXT.intervalOption(effective);
+}
 
 interface FormProps {
   readonly facilities: readonly Equipment[];
@@ -115,6 +172,8 @@ function ChildForm(props: FormProps): ReactNode {
   const [equipmentId, setEquipmentId] = useState('');
   const [name, setName] = useState('');
   const [externalId, setExternalId] = useState('');
+  const [sourceFilePath, setSourceFilePath] = useState('');
+  const [interval, setInterval] = useState('');
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const errors = { ...clientErrors, ...submit.fieldErrors };
 
@@ -126,6 +185,8 @@ function ChildForm(props: FormProps): ReactNode {
       name,
       ...(facilityId === '' ? {} : { facilityId }),
       ...(externalId.trim() === '' ? {} : { externalId }),
+      ...(sourceFilePath.trim() === '' ? {} : { sourceFilePath: sourceFilePath.trim() }),
+      ...(interval === '' ? {} : { intervalMinutes: Number(interval) }),
     });
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
@@ -137,6 +198,8 @@ function ChildForm(props: FormProps): ReactNode {
       setEquipmentId('');
       setName('');
       setExternalId('');
+      setSourceFilePath('');
+      setInterval('');
       reloadEquipment();
       props.onDone(TEXT.created);
     }
@@ -226,6 +289,23 @@ function ChildForm(props: FormProps): ReactNode {
             />
           )}
         </Field>
+        <Field
+          label={TEXT.sourceFilePath}
+          name="sourceFilePath"
+          error={errors.sourceFilePath}
+          hint={TEXT.sourceFilePathHint}
+        >
+          {(control) => (
+            <input
+              {...control}
+              value={sourceFilePath}
+              onChange={(event) => {
+                setSourceFilePath(event.target.value);
+              }}
+            />
+          )}
+        </Field>
+        <IntervalField value={interval} error={errors.intervalMinutes} onChange={setInterval} />
       </div>
       <FormError message={submit.formMessage} />
       <div className="form-actions">
@@ -248,6 +328,10 @@ function EditForm(
   const [name, setName] = useState(equipment.name);
   const [facilityId, setFacilityId] = useState(equipment.facilityId ?? '');
   const [externalId, setExternalId] = useState(equipment.externalId ?? '');
+  const [sourceFilePath, setSourceFilePath] = useState(equipment.sourceFilePath ?? '');
+  const [interval, setInterval] = useState(
+    equipment.intervalMinutes === undefined ? '' : String(equipment.intervalMinutes),
+  );
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const errors = { ...clientErrors, ...submit.fieldErrors };
   const isFacility = equipment.equipmentType === 'FACILITY';
@@ -258,6 +342,10 @@ function EditForm(
       name,
       ...(isFacility || facilityId === '' ? {} : { facilityId }),
       ...(externalId.trim() === '' ? {} : { externalId }),
+      ...(isFacility || sourceFilePath.trim() === ''
+        ? {}
+        : { sourceFilePath: sourceFilePath.trim() }),
+      ...(isFacility || interval === '' ? {} : { intervalMinutes: Number(interval) }),
     });
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
@@ -331,6 +419,27 @@ function EditForm(
             />
           )}
         </Field>
+        {isFacility ? null : (
+          <Field
+            label={TEXT.sourceFilePath}
+            name="sourceFilePath"
+            error={errors.sourceFilePath}
+            hint={TEXT.sourceFilePathHint}
+          >
+            {(control) => (
+              <input
+                {...control}
+                value={sourceFilePath}
+                onChange={(event) => {
+                  setSourceFilePath(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        )}
+        {isFacility ? null : (
+          <IntervalField value={interval} error={errors.intervalMinutes} onChange={setInterval} />
+        )}
       </div>
       <FormError message={submit.formMessage} />
       <div className="form-actions">
@@ -349,7 +458,15 @@ export function EquipmentPage(): ReactNode {
   const { api } = useAuth();
   const { equipmentTree, equipmentList, equipmentError, reloadEquipment } = useAppState();
   const canManage = usePermission('equipment:manage');
+  // 閲覧の割り当て（ハウスごと）は、ユーザーを管理する権限がある利用者だけ（API も、その権限を要求する）
+  const canAssign = usePermission('user:manage');
+  const fetchAccess = useCallback(
+    async () => (canAssign ? await getFacilityAccess(api) : undefined),
+    [api, canAssign],
+  );
+  const access = usePolling(fetchAccess);
   const submit = useSubmit();
+  const [assigning, setAssigning] = useState<Equipment | undefined>(undefined);
   const [editing, setEditing] = useState<Equipment | undefined>(undefined);
   const [deleting, setDeleting] = useState<Equipment | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
@@ -379,6 +496,25 @@ export function EquipmentPage(): ReactNode {
     setNotice(message);
   }
 
+  /** ハウスを閲覧できる一般ユーザーの表示（行の列）。 */
+  function accessCell(equipment: Equipment): ReactNode {
+    if (equipment.equipmentType !== 'FACILITY') {
+      return MESSAGES.common.missingValue;
+    }
+    if (access.error !== undefined) {
+      return <span className="muted">{TEXT.facilityAccess.loadFailed}</span>;
+    }
+    if (access.data === undefined) {
+      return MESSAGES.common.missingValue;
+    }
+    const names = new Map(access.data.users.map((user) => [user.userId, user.userName]));
+    const assigned = (
+      access.data.facilities.find((item) => item.facilityId === equipment.equipmentId)?.userIds ??
+      []
+    ).flatMap((userId) => names.get(userId) ?? []);
+    return assigned.length === 0 ? TEXT.facilityAccess.none : assigned.join('、');
+  }
+
   function row(equipment: Equipment, isChild: boolean): ReactNode {
     return (
       <tr
@@ -392,29 +528,48 @@ export function EquipmentPage(): ReactNode {
         <td>{equipment.equipmentId}</td>
         <td>{equipment.name}</td>
         <td>{equipment.externalId ?? MESSAGES.common.missingValue}</td>
-        {canManage ? (
+        <td>{equipment.sourceFilePath ?? MESSAGES.common.missingValue}</td>
+        <td>{intervalCell(equipment)}</td>
+        {canAssign ? <td>{accessCell(equipment)}</td> : null}
+        {canManage || canAssign ? (
           <td>
             <div className="row-actions">
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => {
-                  setNotice(undefined);
-                  setEditing(equipment);
-                }}
-              >
-                {TEXT.edit}
-              </button>
-              <button
-                type="button"
-                className="button-danger-outline"
-                onClick={() => {
-                  setNotice(undefined);
-                  setDeleting(equipment);
-                }}
-              >
-                {MESSAGES.form.delete}
-              </button>
+              {canManage ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => {
+                    setNotice(undefined);
+                    setEditing(equipment);
+                  }}
+                >
+                  {TEXT.edit}
+                </button>
+              ) : null}
+              {canAssign && equipment.equipmentType === 'FACILITY' ? (
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => {
+                    setNotice(undefined);
+                    setAssigning(equipment);
+                  }}
+                >
+                  {TEXT.facilityAccess.assign}
+                </button>
+              ) : null}
+              {canManage ? (
+                <button
+                  type="button"
+                  className="button-danger-outline"
+                  onClick={() => {
+                    setNotice(undefined);
+                    setDeleting(equipment);
+                  }}
+                >
+                  {MESSAGES.form.delete}
+                </button>
+              ) : null}
             </div>
           </td>
         ) : null}
@@ -443,7 +598,10 @@ export function EquipmentPage(): ReactNode {
               <th scope="col">{TEXT.id}</th>
               <th scope="col">{TEXT.name}</th>
               <th scope="col">{TEXT.externalId}</th>
-              {canManage ? <th scope="col">{TEXT.actions}</th> : null}
+              <th scope="col">{TEXT.sourceFilePath}</th>
+              <th scope="col">{TEXT.interval}</th>
+              {canAssign ? <th scope="col">{TEXT.facilityAccess.column}</th> : null}
+              {canManage || canAssign ? <th scope="col">{TEXT.actions}</th> : null}
             </tr>
           </thead>
           <tbody>{equipmentList.map((item) => row(item, item.equipmentType !== 'FACILITY'))}</tbody>
@@ -469,6 +627,24 @@ export function EquipmentPage(): ReactNode {
       <section className="panel" aria-label={TEXT.title}>
         {body}
       </section>
+      {canAssign && assigning !== undefined && access.data !== undefined ? (
+        <section className="panel">
+          <FacilityAccessPanel
+            key={assigning.equipmentId}
+            facility={assigning}
+            entry={access.data.facilities.find((item) => item.facilityId === assigning.equipmentId)}
+            users={access.data.users}
+            onSaved={(message) => {
+              setAssigning(undefined);
+              setNotice(message);
+              access.reload();
+            }}
+            onCancel={() => {
+              setAssigning(undefined);
+            }}
+          />
+        </section>
+      ) : null}
       {canManage && editing !== undefined ? (
         <section className="panel">
           <EditForm

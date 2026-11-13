@@ -79,7 +79,7 @@ export const WORKER_LOGIN: LoginResponse = {
     userId: toUserId('worker-1'),
     userName: '農作業者A',
     role: 'worker',
-    permissions: ['equipment:manage', 'user:manage'],
+    permissions: ['equipment:manage', 'equipment:view-all', 'ingestion:read', 'user:manage'],
     mustChangePassword: false,
   },
 };
@@ -151,7 +151,8 @@ export function dashboard(overrides: Partial<DashboardResponse> = {}): Dashboard
     evaluatedAt: '2026-10-09T03:00:00.000Z',
     lastReceivedAt: '2026-10-09T02:55:00.000Z',
     dataFreshness: 'FRESH',
-    staleThresholdMinutes: 45,
+    staleEquipment: [],
+    lastManualInputAt: null,
     summary: { NORMAL: 1, CAUTION: 1, ERROR: 0, UNKNOWN: 1 },
     viewpoints: [
       card(),

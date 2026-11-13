@@ -144,11 +144,11 @@ describe('識別子の生成・秘密情報・停止の再現', () => {
     expect(ids.next()).not.toBe(ids.next());
   });
 
-  it('秘密情報は、参照名に対応する環境変数 SECRET_<参照名> から読む', () => {
+  it('秘密情報は、参照名に対応する環境変数 SECRET_<参照名> から読む（非同期。#206 で、参照名を小文字の形式にした）', async () => {
     const secrets = createEnvSecretPort({ SECRET_FILE_SERVER: 'dummy-secret' });
 
-    expect(secrets.get('FILE_SERVER')).toBe('dummy-secret');
-    expect(secrets.get('OTHER')).toBeUndefined();
+    expect(await secrets.get('file-server')).toBe('dummy-secret');
+    expect(await secrets.get('other')).toBeUndefined();
   });
 
   it('停止・遅延の設定を、一部だけ変更できる', () => {
@@ -663,7 +663,7 @@ describe('Web Push のダミー', () => {
   it('配信した内容を記録する。リセットで消える', async () => {
     const push = createDummyWebPush({ faults: createFaultController() });
 
-    expect(await push.deliver(notification, subscription)).toBe('DELIVERED');
+    expect(await push.deliver(notification, subscription, { ttlSeconds: 3600 })).toBe('DELIVERED');
 
     expect(push.delivered()).toEqual([{ notificationId: 'n-1', subscriptionId: 's-1' }]);
     push.reset();
@@ -675,20 +675,22 @@ describe('Web Push のダミー', () => {
     const push = createDummyWebPush({ faults });
 
     faults.set({ mode: 'DOWN' });
-    await expect(push.deliver(notification, subscription)).rejects.toBeInstanceOf(
-      NotificationDeliveryError,
-    );
+    await expect(
+      push.deliver(notification, subscription, { ttlSeconds: 3600 }),
+    ).rejects.toBeInstanceOf(NotificationDeliveryError);
     faults.set({ mode: 'REJECT' });
 
-    expect(await push.deliver(notification, subscription)).toBe('SUBSCRIPTION_GONE');
+    expect(await push.deliver(notification, subscription, { ttlSeconds: 3600 })).toBe(
+      'SUBSCRIPTION_GONE',
+    );
     expect(push.delivered()).toEqual([]);
   });
 });
 
-describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV）', () => {
+describe('FormatProfile（仮決めのロボット JSON・環境センサー JSON。1 つのファイルを随時更新する方式）', () => {
   const registry = createDefaultFormatProfileRegistry();
   const robot = registry.get('robot-json');
-  const sensor = registry.get('environment-sensor-csv');
+  const sensor = registry.get('environment-sensor-json');
   if (robot === undefined || sensor === undefined) {
     throw new Error('テストの前提: 仮決めの FormatProfile がある');
   }
@@ -698,9 +700,15 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV
   it('版と状態（仮決め）を持ち、解釈に使った版の表記を作る', () => {
     expect(robot).toMatchObject({
       profileId: 'robot-json',
+      version: '0.2.0',
+      status: 'PROVISIONAL',
+      versionLabel: 'robot-json@0.2.0(PROVISIONAL)',
+    });
+    expect(sensor).toMatchObject({
+      profileId: 'environment-sensor-json',
       version: '0.1.0',
       status: 'PROVISIONAL',
-      versionLabel: 'robot-json@0.1.0(PROVISIONAL)',
+      versionLabel: 'environment-sensor-json@0.1.0(PROVISIONAL)',
     });
     expect(registry.get('none')).toBeUndefined();
   });
@@ -735,15 +743,25 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV
     expect(() => robot.parse(content)).toThrow(FormatError);
   });
 
+  it('UTF-8 の BOM つきの JSON（Windows の道具の出力）も、読める。ロボットも、環境センサーも', () => {
+    const bom = String.fromCodePoint(0xfeff);
+
+    expect(robot.parse(bom + fixture('robot/robot-sample-001.json')).records).toHaveLength(2);
+    expect(
+      sensor.parse(bom + fixture('environment-sensor/sensor-sample-001.json')).records,
+    ).toHaveLength(3);
+  });
+
   it('JSON の記録がオブジェクトでなければ、読み取れなかった数に数える', () => {
     const parsed = robot.parse('{"robotId":"R","records":[1,"a",null]}');
 
     expect(parsed).toEqual({ records: [], rejectedCount: 3 });
   });
 
-  it('環境センサー（CSV）を読み、空の値は欠損（null）、数値は数値に変換する', () => {
-    const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-001.csv'));
+  it('環境センサー（JSON）を、記録ごとに、項目の識別子へ対応づけて読む。null は欠損（null）のまま渡す', () => {
+    const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-001.json'));
 
+    expect(parsed.rejectedCount).toBe(0);
     expect(parsed.records).toHaveLength(3);
     expect(parsed.records[0]).toMatchObject({
       externalId: 'SENSOR-SAMPLE-01',
@@ -753,22 +771,30 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV
     expect(parsed.records[2]?.fields.temperatureCelsius).toBeNull();
   });
 
-  it('CSV の数値でない値は、そのまま渡し（検証で不正にする）、列の数が合わない行は読み取れなかった数に数える', () => {
-    const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-002-invalid.csv'));
+  it('環境センサー: 数値でない値は、そのまま渡し（検証で不正にする）、計測日時のない記録は読み取れなかった数に数える', () => {
+    const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-002-invalid.json'));
 
     expect(parsed.rejectedCount).toBe(1);
+    expect(parsed.records).toHaveLength(2);
     expect(parsed.records[0]?.fields.temperatureCelsius).toBe('abc');
   });
 
   it.each([
-    ['見出し行がない', ''],
-    ['見出しが仕様と異なる', fixture('environment-sensor/sensor-sample-003-bad-header.csv')],
+    ['JSON として読み取れない', 'header,only\n1,2\n'],
+    ['空の', ''],
+    [
+      '構造が仕様と異なる（設備の識別子・記録の配列がない）',
+      fixture('environment-sensor/sensor-sample-003-bad-structure.json'),
+    ],
+    ['設備の識別子（sensorId）がない', '{"records":[]}'],
   ])('環境センサー: %s ファイルは、形式違いとして扱う', (_name, content) => {
     expect(() => sensor.parse(content)).toThrow(FormatError);
   });
 
-  it('CSV の項目が見出しにない場合は、その項目を含めない', () => {
-    const parsed = sensor.parse('sensor_id,timestamp,temperature_c\nS,2026-10-09T01:00:00Z,20\n');
+  it('環境センサー: 記録にない項目は、含めない', () => {
+    const parsed = sensor.parse(
+      '{"sensorId":"S","records":[{"timestamp":"2026-10-09T01:00:00Z","temperatureCelsius":20}]}',
+    );
 
     expect(parsed.records[0]?.fields).toEqual({ temperatureCelsius: 20 });
   });
@@ -835,7 +861,7 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV
       }
     });
 
-    it('プロファイルの utcOffsetMinutes で、解釈するタイムゾーンを変えられる。CSV も同じ', () => {
+    it('プロファイルの utcOffsetMinutes で、解釈するタイムゾーンを変えられる。環境センサー（既定は日本時間）も同じ', () => {
       const utcProfile = createDeclarativeProfile({
         profileId: 'utc-json',
         version: '1',
@@ -850,13 +876,12 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV
       expect(utcProfile.parse(jsonWith('2026-10-09T10:00:00')).records[0]?.observedAt).toBe(
         '2026-10-09T10:00:00.000Z',
       );
-      expect(
-        sensor.parse('sensor_id,timestamp,temperature_c\nS,2026-10-09 10:00:00,20\n').records[0]
-          ?.observedAt,
-      ).toBe('2026-10-09T01:00:00.000Z');
-      expect(
-        sensor.parse('sensor_id,timestamp,temperature_c\nS,10/09/2026,20\n').rejectedCount,
-      ).toBe(1);
+      const sensorJson = (timestamp: string) =>
+        JSON.stringify({ sensorId: 'S', records: [{ timestamp, temperatureCelsius: 20 }] });
+      expect(sensor.parse(sensorJson('2026-10-09 10:00:00')).records[0]?.observedAt).toBe(
+        '2026-10-09T01:00:00.000Z',
+      );
+      expect(sensor.parse(sensorJson('10/09/2026')).rejectedCount).toBe(1);
     });
   });
 
@@ -885,11 +910,13 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー CSV
       });
     });
 
-    it('CSV: 設定した項目の列が、見出しに1つもなければ、行がなくても、形式違いにする', () => {
-      expect(() => sensor.parse('sensor_id,timestamp,temp,humid\n')).toThrow(FormatError);
-      expect(() =>
-        sensor.parse('sensor_id,timestamp,temp,humid\nS,2026-10-09T01:00:00Z,20,50\n'),
-      ).toThrow('見出し');
+    it('環境センサー: すべての記録で、設定した項目が1つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
+      const content = JSON.stringify({
+        sensorId: 'S',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
+      });
+
+      expect(() => sensor.parse(content)).toThrow('項目名');
     });
   });
 

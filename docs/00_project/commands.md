@@ -46,6 +46,12 @@ pnpm data:backup restore store-<日時>.json
 # 最初のユーザー（管理者）の作成（Cognito。手元で 1 回だけ。環境変数と手順は「最初のユーザー（Cognito）」の節）
 pnpm initial-user
 
+# 既存ユーザーのロールの移行（worker → admin。Issue #115。AWS は operations.md 8.7、ローカルは下の「ロールの移行（ローカル）」）
+pnpm migrate-user-roles
+
+# 既存の通知の移行（ハウスの補完と、ハウスごとのカウンターの再集計。Issue #331。AWS は operations.md 8.8。ローカルのファイル〔PERSISTENCE=file〕は、ハウスの補完だけ）
+pnpm migrate-notification-counters
+
 # Lint / 型検査 / フォーマット
 pnpm lint            # ESLint（eslint .）→ oxlint（jsx-a11y。.oxlintrc.json）
 pnpm typecheck
@@ -95,7 +101,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 | GitHub Actions 用のロールの作成・削除 | `pnpm --filter @smart-farm/infra run deploy:oidc` ・ `destroy:oidc` | あり |
 
 - **AWS に接続するコマンドは、ユーザーが実行する**（AGENTS.md 12 章。AI エージェントは、AWS への適用をしない）。実行の前に、**対象の AWS アカウントのプロファイルを指定**する（別のアカウントに作らないため。ほかの用途のプロファイルでは、実行しない）。PowerShell: `$env:AWS_PROFILE = '<プロファイル名>'`、Git Bash: `export AWS_PROFILE=<プロファイル名>`。確認: `aws sts get-caller-identity`（出力のアカウント ID は、チャット・Issue・PR に貼らない）
-- アカウント ID・ドメイン名・ホストゾーン名は、リポジトリに書かない。アカウントは、認証から自動で決まる。独自のサブドメインは、環境変数 `SFM_DOMAIN_NAME`（例: `evaluation.<ドメイン>`）・`SFM_HOSTED_ZONE_NAME`（例: `<ドメイン>`）の**両方**で指定する（未指定なら、cloudfront.net の URL）
+- アカウント ID・ドメイン名・ホストゾーン名は、リポジトリに書かない。アカウントは、認証から自動で決まる。独自のサブドメインは、環境変数 `SFM_DOMAIN_NAME`（例: `dev.<ゾーン>`）・`SFM_HOSTED_ZONE_NAME`（例: `<ゾーン>`。**デプロイ先のアカウントにある、サブドメイン用のホストゾーン**。親のドメインから委任する）の**両方**で指定する（未指定なら、cloudfront.net の URL）。ゾーンの作成・委任・確認の手順は、[operations.md](../40_operations/operations.md) 8.9
 - テスト（CDK の assertions）は、`pnpm test:unit` に含まれる（`infra/test/`）。`cdk synth` の結果（`infra/cdk.out/`）と、検索結果のキャッシュ（`infra/cdk.context.json`）は、Git 管理外
 
 ### 初回の設定（1 回だけ。ユーザーが手元から行う）
@@ -223,7 +229,30 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 6. **接続元の制限（失敗 5 回 → 429）は、最後に確認する**。この制限は、手元のマシン全体にかかり、Cognito 自身のロックも重なるため、**約 15 分は、ログインできなくなる**
 7. **後始末**: 確認用のバックエンドを止める（自分で起動したものだけ）。確認用のユーザーは、検証用のパスワードのため、評価に使う前に、削除するか、パスワードを変える。`SfmData` は、削除しない（削除の保護がある）
 
-## 実行結果（2026-10-21。Sprint 2 のサーバーレス化の実装後。`develop` のコミット 21098db）
+## 実行結果（2026-11-11。設備ごとの取得間隔〔Issue #197 の PR 1。#194 の子〕の後。`develop` の `3d7a67f`〔#342 のマージ〕に、#197 の変更を加えた状態）
+
+手元（Windows）で実行した値。E2E は、開発サーバーのポート（5173・8787）と競合しないよう、空きポート（18787・15173）で実行した（`dev-ports.ts` を一時的に変え、実行後に戻した）。GitHub Actions の結果は、PR に記載する。
+
+| コマンド | 結果 |
+|----------|------|
+| `pnpm format:check` / `pnpm lint` / `pnpm typecheck` | すべて成功 |
+| `pnpm test:unit`（単体・結合。IaC のテストを含む。DynamoDB Local が要る。`--maxWorkers=3`） | 161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）。カバレッジ: 行 99.13%・分岐 95.18%・関数 99.3%・文 99.14%（基準は、すべて 95% 以上） |
+| `pnpm test:e2e`（E2E） | 834 件（UC-01〜UC-24 の 824 件〔25 ファイル〕と、`scenario-*.ts` の 10 件〔7 ファイル〕）。手元では、権限・閲覧範囲に関わる UC（UC-01・05・07・12・13・14・16〜19・シナリオのユーザーの受け入れ。334 件）が、すべて成功し、画面の場所を設備管理に変えたあとは、UC-01・12・14・シナリオの 101 件が、すべて成功。通知の閲覧範囲（#331）では、UC-05・10・22・23・24 の 145 件が、すべて成功。取り込み・連携のログのハウス別（#332）では、UC-11・14・15・16・22 の 157 件が、すべて成功（test.spec.md 34.3・35.3・36.3）。画面の配信ヘッダー（#127）では、`pnpm test:csp` の 3 件が成功（test.spec.md 37.3） |
+
+## 実行結果（2026-11-09。通知の見直し・依存の更新・古い画面への対応などの後。`develop` の `352367a` の前後）
+
+手元（Windows）で実行した値と、GitHub Actions（`ubuntu-24.04`。`ci:full` の PR）の値（Issue #318）。E2E・負荷テストは、手元では、開発サーバーのポート（5173・8787）と競合しないよう、空きポート（18787・15173）で実行した（負荷テスト・一部の E2E）。
+
+| コマンド | 結果 |
+|----------|------|
+| `pnpm format:check` / `pnpm lint` / `pnpm typecheck` | すべて成功（PR #324 の時点） |
+| `pnpm test:unit`（単体・結合。IaC のテストを含む。DynamoDB Local が要る。`--maxWorkers=3`） | 127 ファイル・2862 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）。約 3 分（187 秒）。カバレッジ: 行 99.20%・分岐 95.58%・関数 99.52%・文 99.21%（基準は、すべて 95% 以上。as-built.md） |
+| `pnpm test:e2e`（E2E） | 809 件（UC-01〜UC-24 の 799 件〔25 ファイル〕と、`scenario-*.ts` の 10 件〔7 ファイル〕）。CI（`ci:full`）で、4 つのシャードに分けて、すべて成功（各シャード約 7 分。PR #327） |
+| `pnpm test:stress`（負荷テスト） | 4 件（単独利用・同時接続・取り込みの大量実行・モバイル幅の表示）。CI・手元（約 2.2 分）とも、すべて成功（NG 0）。2026-11-09 に、通知の出来事の判定（D-38）に合わせて、UC-10 の手順を変更した（#320。それ以前は、`develop` で失敗していた） |
+
+件数・ファイル数の内訳は、test.spec.md 1.2。サーバーレス環境（AWS）の実測（`pnpm test:smoke`）は、「サーバーレス環境のスモークテスト・性能の実測」と test.spec.md 13.3（2026-10 の実測。今回は、再実行していない）。以下は、過去の時点の実行結果。
+
+## 実行結果（過去の時点。2026-10-21。Sprint 2 のサーバーレス化の実装後。`develop` のコミット 21098db）
 
 `develop` の 21098db（Issue #81 のブランチは、ドキュメントのみの差）を、手元（Windows）で実行した値。E2E・負荷テストは、GitHub Actions（`ubuntu-24.04`。PR #124 の `ci:full`）の値（手元では、開発サーバーのポート（5173・8787）と競合するため、実行していない）。
 
@@ -255,7 +284,8 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 
 - 初期ユーザーは、ユーザーが1人もいないときだけ作られる。`PERSISTENCE=file`（`.env.example` の既定）では、`.local-data/store.json` にユーザーが保存されるため、2回目以降の起動で `.env` のユーザーIDやパスワードを変えても、反映されない（変えるときは、ログイン後に、ユーザー管理（SC-14）で、パスワードを再設定する。または、`.local-data/store.json` を削除して、作り直す）
 - `INITIAL_USER_*` を指定しないと、ユーザーが作られず、ログインできない
-- 初期ユーザーのロールは、既定の1ロール `worker`（全権限）。`ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` で変えられる（dev_spec.md 3.3）
+- 初期ユーザーのロールは、既定の管理者 `admin`（全権限）。既定のロールは、管理者 `admin`・一般 `general`（手動入力のみ）の 2 つ（ADR-0013）。`ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` で変えられる（dev_spec.md 3.3）
+- **ロールの移行（ローカル）**: ロールを 2 つに分ける前（Issue #115 より前）に作った `.local-data/store.json` のユーザーは、ロールが `worker` のままで、権限がなくなる。次のどちらかで直す。(1) `$env:PERSISTENCE='file'; pnpm migrate-user-roles`（`DATA_FILE` の既定は `.local-data/store.json`。`MIGRATE_DRY_RUN=true` で、人数の確認だけ）。(2) `.local-data/store.json` を消して、`.env` の初期ユーザーを作り直す（データも消える）。開発サーバーを止めてから実行する
 - パスワードは、ハッシュ化（scrypt）して保存し、ログに出さない（security.md）。実際の運用では、`.env.example` のダミー値を使わず、別の値にする
 
 ## テストの出力
@@ -267,6 +297,17 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 | E2E の HTML レポート | `./test-result/playwright-report/` |
 
 `./test-result/` は Git 管理外（負荷テストのログ・レポートと、テスト仕様書 `test.spec.md` を除く）。
+
+## 画面の CSP の確認
+
+```bash
+pnpm test:csp     # 本番ビルドの画面に、CloudFront と同じ CSP を付けて、主な画面を一巡し、CSP の違反が出ないことを確認する（Issue #127）。約 20 秒
+```
+
+- バックエンドと、フロントエンド（本番ビルドを `vite preview` で配信）を起動して実行する。ポートは E2E と同じ（5173・8787）のため、`pnpm test:e2e` と同時に実行しない
+- CSP の値は、`infra/lib/content-security-policy.ts`（CloudFront の応答ヘッダーポリシーと同じ定数）。画面に、外部の資源・インラインのスクリプトを加えて、違反が出たときは、画面かこの定数を直す
+- CI には載せていない（手元で実行する）。AWS 上の応答ヘッダーは、`pnpm test:smoke`（`smoke-04-delivery-headers.ts`）で確認する
+- 構成の詳細は dev_spec.md 6.7
 
 ## 負荷テスト
 
@@ -345,7 +386,7 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 - 実行環境は、ubuntu-24.04（GitHub Actions のランナー。`ubuntu-latest` は、Ubuntu 26 へ移行するため、固定している）・Node.js 24・`packageManager` に指定した pnpm。E2E・負荷テストは、Playwright の公式のコンテナ（`mcr.microsoft.com/playwright:v<版>-noble`。ブラウザとシステムのライブラリを含む。ダイジェストで固定）で実行する。Playwright の版（`package.json`・`pnpm-lock.yaml`）を上げるときは、`.github/workflows/ci.yml` のコンテナの版とダイジェストも、合わせて更新する（合っていないと、`e2e-shard` ジョブの「Playwright の版を確かめる」が失敗して知らせる）
 - 手元（Windows）では実行しないファイル権限のテスト（2 件）は、CI（Linux）で実行される
 - CI の `stress` ジョブは、`STRESS_LIMIT_FACTOR=1.5`（許容時間を 1.5 倍）で実行する。GitHub のランナーは、CPU の速さが実行のたびに違い、同時 10 人の保存（UC-06）が、許容 3 秒付近（約 2〜3.5 秒）で、超えたり超えなかったりしたため（PR #58）。NFR の値そのものは、変えていない
-- 画面のレイアウトの検査（E2E・負荷テスト）は、フォントに依存するため、`e2e-shard`・`stress` のジョブで、日本語のフォント（Noto Sans CJK JP の Regular・Bold）を入れる。GitHub 上の公式のファイル（notofonts/noto-cjk のタグ `Sans2.004`）を、ハッシュで検証して取得する（`.github/actions/install-japanese-fonts`。Ubuntu のパッケージ `fonts-noto-cjk` 1:20230817+repack1-3 と、バイト単位で同じ）。`apt` は、Ubuntu のミラーが遅いと、取得だけで 20 分近くかかったため、使わない（Issue #185）
+- 画面のレイアウトの検査（E2E・負荷テスト）は、フォントに依存するため、`e2e-shard`・`stress` のジョブで、日本語のフォント（Noto Sans CJK JP の Regular・Bold）を入れる。GitHub 上の公式のファイル（notofonts/noto-cjk のタグ `Sans2.004`）を、ハッシュで検証して取得する（`.github/actions/install-japanese-fonts`。Ubuntu のパッケージ `fonts-noto-cjk` 1:20230817+repack1-3 と、バイト単位で同じ）。`apt` は、Ubuntu のミラーが遅いと、取得だけで 20 分近くかかったため、使わない（Issue #185）。**取得したフォントは、`actions/cache` に保存する**（Issue #322。GitHub の障害で、フォントの取得が失敗し、E2E・負荷テストの全ジョブが、テストの前に止まったため）。キャッシュを復元したあとも、ハッシュを検証し、合わなければ、取得し直す（処理は `install-fonts.sh`）。PR の CI は、その PR 自身のキャッシュと、`develop` のキャッシュだけを読める（別の PR のものは読めない）ため、`develop` のキャッシュを、専用のワークフロー（`.github/workflows/warm-font-cache.yml`。フォントのアクションを変えたときの push、週 1 回、手動実行）で作る・更新する。このワークフローは、必須のチェックではない（失敗しても、PR のマージには影響しない）。キャッシュは、7 日間使われないと消える。取得元のコミット・ハッシュを変えると、キャッシュのキー（アクションの定義のハッシュ）が変わり、作り直される
 - 失敗したときの E2E のスクリーンショット・トレース・エラーの文脈（シャードごと。`e2e-failure-<番号>`）と、負荷テストの結果ログは、Actions の成果物（Artifacts）から取得できる。CI では、E2E の動画を撮らない（手元は、常に撮る）
 
 ## 環境変数
@@ -354,4 +395,4 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 
 ## 外部サービス
 
-開発・テストに、外部サービスは不要（ファイルサーバー・農業情報基盤・Web Push は、ローカルのモック。dev_spec.md 3.5）。本番の接続先は未確定（Q-002、Q-005）。
+開発・テストに、外部サービスは不要（ファイルサーバー・農業情報基盤・Web Push は、ローカルのモック。dev_spec.md 3.5）。本番の接続先: ファイルサーバーは未確定（Q-002）。農業情報基盤は、NGSI-LD（`FEDERATION_MODE=ngsi-ld`。接続先は画面で設定。ADR-0024。手順は federation-platform-setup.md）。

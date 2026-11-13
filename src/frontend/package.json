@@ -1,6 +1,6 @@
 {
   "name": "@smart-farm/frontend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "フロントエンド（React + Vite の SPA）",
@@ -12,7 +12,7 @@
     "@smart-farm/shared": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.2",

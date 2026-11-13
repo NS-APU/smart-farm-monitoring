@@ -17,7 +17,7 @@
  */
 
 import { join } from 'node:path';
-import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { ArnFormat, CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import { type ICertificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { type IUserPool, type IUserPoolClient } from 'aws-cdk-lib/aws-cognito';
 import { type ITable } from 'aws-cdk-lib/aws-dynamodb';
@@ -32,6 +32,8 @@ import {
   FunctionCode,
   FunctionEventType,
   FunctionRuntime,
+  HeadersFrameOption,
+  HeadersReferrerPolicy,
   HttpVersion,
   OriginRequestPolicy,
   PriceClass,
@@ -50,7 +52,8 @@ import { RetentionDays, LogGroup } from 'aws-cdk-lib/aws-logs';
 import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
-import { BucketDeployment, Source } from 'aws-cdk-lib/aws-s3-deployment';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
+import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
 import {
   DEMO_FEED_INTERVAL_MINUTES,
@@ -66,7 +69,10 @@ import {
   LOGIN_FAILURE_WINDOW_MINUTES,
   type LoginFailurePolicy,
 } from '../../src/backend/infrastructure/common/auth-policy.ts';
+import { ORIGIN_SECRET_HEADER } from '../../src/backend/presentation/origin-guard.ts';
+import { DEFAULT_SITE_ENVIRONMENT, type SiteEnvironment } from './config.ts';
 import { bundledLambdaCode } from './bundle-lambda.ts';
+import { STATIC_CONTENT_SECURITY_POLICY } from './content-security-policy.ts';
 
 /** ファイルの拡張子がないパス（SPA の画面のパス）を、index.html に書き換える。API のパスには、付けない。 */
 export const SPA_REWRITE_CODE = `function handler(event) {
@@ -109,11 +115,28 @@ export const COGNITO_ACTIONS = [
   'cognito-idp:AdminUserGlobalSignOut',
 ] as const;
 
+/**
+ * 秘密情報（接続先の認証情報・Web Push の秘密鍵。パラメータストアの SecureString）に使う操作（Issue #206。ADR-0016 の D-55）。
+ * 環境ごとのパス（`/sfm/<環境>/`）の下だけ。API の Lambda（画面の登録・接続テスト）は、読み取りと書き込み。
+ * ジョブの Lambda（取り込み・連携）は、読み取りだけ。削除は、どちらにも付けない。
+ */
+export const SSM_API_ACTIONS = ['ssm:GetParameter', 'ssm:PutParameter'] as const;
+export const SSM_JOB_ACTIONS = ['ssm:GetParameter'] as const;
+/**
+ * パラメータストアの暗号化（AWS の管理の鍵）に使う操作。パラメータストア経由（kms:ViaService）の利用に限る。
+ * API は、復号と暗号化（書き込み）。ジョブは、復号だけ。
+ */
+export const KMS_SSM_API_ACTIONS = ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey'] as const;
+export const KMS_SSM_JOB_ACTIONS = ['kms:Decrypt'] as const;
+
 /** ファイルサーバーのモックのバケットの、ファイルの保持日数（合成データのファイル。古いファイルは、取り込みの対象に、残さない）。 */
 export const FILE_SERVER_RETENTION_DAYS = 3;
 
 /** API・ジョブの Lambda が、ファイルサーバーのモックの S3 に使う操作（読み取りのみ。書き込み・削除は、しない）。 */
 export const S3_READ_ACTIONS = ['s3:ListBucket', 's3:GetObject'] as const;
+
+/** API の Lambda が、オリジンの秘密（Secrets Manager）に使う操作（読み取りのみ。この秘密だけ。Issue #102）。 */
+export const ORIGIN_SECRET_READ_ACTION = 'secretsmanager:GetSecretValue';
 
 /** 合成データを生成する Lambda が、ファイルサーバーのモックの S3 に使う操作（書き込みのみ。取り込み元の下だけ。読み取り・削除は、しない）。 */
 export const S3_WRITE_ACTION = 's3:PutObject';
@@ -158,6 +181,17 @@ export interface EvaluationStackProps extends StackProps {
    * 既定は、失敗 5 回 / 15 分（Issue #244。D-44）。一部だけを指定すると、残りは、既定の値。
    */
   readonly loginFailurePolicy?: Partial<LoginFailurePolicy>;
+  /**
+   * Web Push の実配信（#241）。指定すると、API・ジョブの Lambda が、プッシュサービスへ実際に送る（WEB_PUSH_DELIVERY=vapid）。
+   * 公開鍵は、VAPID の公開鍵（公開の値）。連絡先は、アプリの https の URL。秘密鍵は、パラメータストア（SecretPort）に置く。
+   * 指定しなければ、ダミー（購読も受け付けない）。
+   */
+  readonly webPush?: { readonly publicKey: string; readonly subject: string };
+  /**
+   * サイトの環境（development・production。既定は development）。秘密情報の、パラメータストアのパスの接頭辞
+   * （`/sfm/<環境>/`）になる。環境ごとにパスを分け、開発サイトが、本番サイトの秘密情報を読めないようにする（Issue #206）。
+   */
+  readonly siteEnvironment?: SiteEnvironment;
 }
 
 export class EvaluationStack extends Stack {
@@ -204,6 +238,7 @@ export class EvaluationStack extends Stack {
     // メモリ・タイムアウトは、初期値（Issue #79 の実測で調整する）: CPU はメモリに比例するため 1024 MB、
     // タイムアウトは、CloudFront のオリジンの応答の上限（30 秒）の内側
     const { data } = props;
+    const credentialPathPrefix = `/sfm/${props.siteEnvironment ?? DEFAULT_SITE_ENVIRONMENT}/`;
     // API とジョブの Lambda が共有する、バックエンドの環境変数。秘密情報ではない（ID・テーブル名）。
     // 値は、データのスタックの出力から取る（リポジトリに ID を書かない）
     const backendEnvironment = {
@@ -215,7 +250,21 @@ export class EvaluationStack extends Stack {
       DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
       DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
       FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName,
+      // 秘密情報の保管先（パラメータストア）と、環境ごとのパスの接頭辞。値は、パスの名前で、秘密情報ではない（Issue #206）
+      CREDENTIAL_STORE: 'ssm',
+      CREDENTIAL_PATH_PREFIX: credentialPathPrefix,
       LOG_LEVEL: 'info',
+      // 農業情報基盤との連携は、NGSI-LD のアダプタ（Issue #177。ADR-0024）。接続先・テナント・context は、画面（SC-11）で設定する。
+      // 接続先が未設定のあいだは、連携は保留になる（モックのように、受け取ったことにしない）
+      FEDERATION_MODE: 'ngsi-ld',
+      // Web Push の実配信（#241）。公開鍵と連絡先（公開の値）。秘密鍵は、環境変数に持たず、パラメータストアから読む
+      ...(props.webPush === undefined
+        ? {}
+        : {
+            WEB_PUSH_DELIVERY: 'vapid',
+            WEB_PUSH_PUBLIC_KEY: props.webPush.publicKey,
+            WEB_PUSH_SUBJECT: props.webPush.subject,
+          }),
     };
     // 最小権限: 2 つのテーブル（インデックスを含む）への、必要な操作だけ
     const dataTablesPolicy = (): PolicyStatement =>
@@ -237,6 +286,42 @@ export class EvaluationStack extends Stack {
         resources: [fileServerBucket.arnForObjects('*')],
       }),
     ];
+    // 秘密情報（パラメータストア）: 環境のパスの下だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由の利用に限る
+    const credentialParametersArn = this.formatArn({
+      service: 'ssm',
+      resource: 'parameter',
+      resourceName: `${credentialPathPrefix.slice(1)}*`,
+      arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+    });
+    const credentialPolicies = (
+      ssmActions: readonly string[],
+      kmsActions: readonly string[],
+    ): PolicyStatement[] => [
+      new PolicyStatement({ actions: [...ssmActions], resources: [credentialParametersArn] }),
+      new PolicyStatement({
+        actions: [...kmsActions],
+        resources: [
+          this.formatArn({
+            service: 'kms',
+            resource: 'key',
+            resourceName: '*',
+            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+          }),
+        ],
+        conditions: { StringEquals: { 'kms:ViaService': `ssm.${this.region}.amazonaws.com` } },
+      }),
+    ];
+    // 関数の URL の直接の呼び出しの防止（Issue #102。ADR-0010）: CloudFront が、オリジンへの呼び出しに、秘密のヘッダーを付け、
+    // API の Lambda が、値を検証する（一致しない呼び出しは、403）。値は、Secrets Manager に、自動生成する（英数字 64 文字。
+    // リポジトリ・テンプレートには、書かない。デプロイのときに、動的な参照で、CloudFront の設定と Lambda の環境変数に、同じ値が入る）。
+    // 名前は、固定しない（スタックを作り直しても、削除待ちの名前と衝突しない）。スタックの削除で、一緒に消す
+    const originSecret = new Secret(this, 'OriginSecret', {
+      description:
+        'CloudFront が、API のオリジンへの呼び出しに付ける秘密のヘッダーの値（直接の呼び出しの防止。Issue #102）',
+      generateSecretString: { passwordLength: 64, excludePunctuation: true },
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    const originSecretValue = originSecret.secretValue.unsafeUnwrap();
     const apiFunction = new LambdaFunction(this, 'ApiFunction', {
       code: bundledLambdaCode(join(import.meta.dirname, '../../src/backend/runtime/lambda.ts')),
       handler: 'index.handler',
@@ -248,6 +333,9 @@ export class EvaluationStack extends Stack {
       environment: {
         ...backendEnvironment,
         CLIENT_IP_HEADER,
+        // 秘密のヘッダーの検証（API の Lambda だけ。ジョブ・デモの Lambda には、関数の URL がない）。値は、持たない。秘密の ARN だけを渡し、
+        // Lambda が、コールドスタートで、Secrets Manager から読む（秘密の値を、Lambda の設定に持たない）
+        ORIGIN_VERIFY_ARN: originSecret.secretArn,
         EVALUATION_ON_WRITE: 'deferred',
         // ログインを受けるのは、API だけ（ジョブの Lambda には、持たない）。値は、IaC のデプロイで決める（コードの変更は、要らない）
         LOGIN_FAILURE_LIMIT: String(props.loginFailurePolicy?.limit ?? LOGIN_FAILURE_LIMIT),
@@ -260,9 +348,19 @@ export class EvaluationStack extends Stack {
         removalPolicy: RemovalPolicy.DESTROY,
       }),
     });
+    // 秘密の読み取り: この秘密の GetSecretValue だけ（API の Lambda だけ。Issue #102）
+    apiFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [ORIGIN_SECRET_READ_ACTION],
+        resources: [originSecret.secretArn],
+      }),
+    );
     // Cognito は、ユーザープールに限る
     apiFunction.addToRolePolicy(dataTablesPolicy());
     for (const statement of fileServerReadPolicies()) {
+      apiFunction.addToRolePolicy(statement);
+    }
+    for (const statement of credentialPolicies(SSM_API_ACTIONS, KMS_SSM_API_ACTIONS)) {
       apiFunction.addToRolePolicy(statement);
     }
     apiFunction.addToRolePolicy(
@@ -294,6 +392,9 @@ export class EvaluationStack extends Stack {
     for (const statement of fileServerReadPolicies()) {
       jobFunction.addToRolePolicy(statement);
     }
+    for (const statement of credentialPolicies(SSM_JOB_ACTIONS, KMS_SSM_JOB_ACTIONS)) {
+      jobFunction.addToRolePolicy(statement);
+    }
     for (const plan of DEFAULT_SCHEDULE) {
       new Rule(this, `Schedule${plan.jobId.replace('-', '')}`, {
         description: `ジョブ ${plan.jobId} を ${String(plan.intervalMinutes)} 分ごとに起動する`,
@@ -322,7 +423,9 @@ export class EvaluationStack extends Stack {
       runtime: FunctionRuntime.JS_2_0,
     });
     const apiBehavior = {
-      origin: new FunctionUrlOrigin(apiUrl),
+      origin: new FunctionUrlOrigin(apiUrl, {
+        customHeaders: { [ORIGIN_SECRET_HEADER]: originSecretValue },
+      }),
       functionAssociations: [{ function: viewerIp, eventType: FunctionEventType.VIEWER_REQUEST }],
       viewerProtocolPolicy: ViewerProtocolPolicy.HTTPS_ONLY,
       allowedMethods: AllowedMethods.ALLOW_ALL,
@@ -331,6 +434,32 @@ export class EvaluationStack extends Stack {
       originRequestPolicy: OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
       responseHeadersPolicy: ResponseHeadersPolicy.SECURITY_HEADERS,
     };
+    // 画面（静的ファイル）の応答ヘッダー（Issue #127）。マネージドポリシー SECURITY_HEADERS と同じヘッダーに、CSP（frame-ancestors を含む）を加え、
+    // X-Frame-Options を DENY にする（埋め込みを許さない）。API（/api/*・/health）は、これまでのマネージドポリシーのまま
+    // （API の応答の CSP は、バックエンドが付ける）
+    const staticHeadersPolicy = new ResponseHeadersPolicy(this, 'StaticHeadersPolicy', {
+      comment:
+        '画面の配信: SECURITY_HEADERS と同じヘッダー + CSP・X-Frame-Options DENY（Issue #127）',
+      securityHeadersBehavior: {
+        contentSecurityPolicy: {
+          contentSecurityPolicy: STATIC_CONTENT_SECURITY_POLICY,
+          override: true,
+        },
+        contentTypeOptions: { override: true },
+        frameOptions: { frameOption: HeadersFrameOption.DENY, override: true },
+        referrerPolicy: {
+          referrerPolicy: HeadersReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN,
+          override: true,
+        },
+        strictTransportSecurity: {
+          accessControlMaxAge: Duration.days(365),
+          includeSubdomains: false,
+          preload: false,
+          override: true,
+        },
+        xssProtection: { protection: true, modeBlock: true, override: true },
+      },
+    });
     const distribution = new Distribution(this, 'Distribution', {
       comment: 'smart-farm-monitoring evaluation environment',
       defaultRootObject: 'index.html',
@@ -338,7 +467,7 @@ export class EvaluationStack extends Stack {
         origin: S3BucketOrigin.withOriginAccessControl(siteBucket),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: CachePolicy.CACHING_OPTIMIZED,
-        responseHeadersPolicy: ResponseHeadersPolicy.SECURITY_HEADERS,
+        responseHeadersPolicy: staticHeadersPolicy,
         functionAssociations: [
           { function: spaRewrite, eventType: FunctionEventType.VIEWER_REQUEST },
         ],
@@ -357,18 +486,37 @@ export class EvaluationStack extends Stack {
     });
 
     // 画面のファイルを配置し、CloudFront のキャッシュを無効化する（デプロイのたびに、最新の画面になる）。
-    // 配置の補助の Lambda のログも、保持期間を絞り、スタックを消すと一緒に消す（CDK の既定は 731 日・残る。Issue #80）
-    new BucketDeployment(this, 'SiteDeployment', {
+    // 配置の補助の Lambda のログも、保持期間を絞り、スタックを消すと一緒に消す（CDK の既定は 731 日・残る。Issue #80）。
+    // ブラウザのキャッシュの指定（Cache-Control。Issue #323）のため、2 つに分けて配置する:
+    // - assets/（ファイル名にハッシュがある。内容が変わればファイル名も変わる）: 長期のキャッシュ（immutable）
+    // - それ以外（index.html・sw.js・manifest）: 毎回、更新を確認する（no-cache。ETag で、変わっていなければ 304）。
+    //   古い index.html を使い続けて、デプロイで削除された古い部品を取得しにいく（画面が開かない）ことを防ぐ
+    // どちらも、prune（配置元にないファイルの削除）を使う。include・exclude で、互いのファイルを、削除しない範囲にする
+    const siteLogGroup = new LogGroup(this, 'SiteDeploymentLogGroup', {
+      retention: RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    const assetsDeployment = new BucketDeployment(this, 'SiteAssetsDeployment', {
       sources: [Source.asset(props.frontendAssetPath)],
       destinationBucket: siteBucket,
+      exclude: ['*'],
+      include: ['assets/*'],
+      cacheControl: [CacheControl.fromString('public, max-age=31536000, immutable')],
+      prune: true,
+      logGroup: siteLogGroup,
+    });
+    const siteDeployment = new BucketDeployment(this, 'SiteDeployment', {
+      sources: [Source.asset(props.frontendAssetPath)],
+      destinationBucket: siteBucket,
+      exclude: ['assets/*'],
+      cacheControl: [CacheControl.noCache()],
       distribution,
       distributionPaths: ['/*'],
       prune: true,
-      logGroup: new LogGroup(this, 'SiteDeploymentLogGroup', {
-        retention: RetentionDays.ONE_MONTH,
-        removalPolicy: RemovalPolicy.DESTROY,
-      }),
+      logGroup: siteLogGroup,
     });
+    // 新しい index.html は、新しい assets/ を配置したあとに、公開する（部品がない時間を作らない）
+    siteDeployment.node.addDependency(assetsDeployment);
 
     if (domainName !== undefined && hostedZoneName !== undefined) {
       const zone = HostedZone.fromLookup(this, 'HostedZone', { domainName: hostedZoneName });

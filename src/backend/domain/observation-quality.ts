@@ -1,7 +1,8 @@
 /**
  * 取り込んだ値の品質の判定（FR-1.6。純粋関数）。
  * 欠損・不正・遅延を区別して扱う。扱いの定義は未確定（FR-1.6 の TODO）のため、暫定の規則（dev_spec.md 4章）:
- * - 項目がカタログにない、型・範囲が合わない、ステータスコードが未定義、計測日時が未来 → INVALID（不正）
+ * - 項目がカタログにない、型・範囲が合わない、ステータスコードが未定義、計測日時が未来（許容を超える） → INVALID（不正）
+ *   （カタログにない項目は、取り込みの側で、判定の前に、保存せず、棄却数に数える。ここの判定は、念のためのもの）
  * - 値がない（null）→ MISSING（欠損）
  * - 受信が計測より一定時間以上遅れた → LATE（遅延）。値は評価に使う
  * - それ以外 → VALID
@@ -12,13 +13,15 @@ import {
   findItemDefinition,
   isValidItemValue,
 } from '@smart-farm/shared/constants/items';
-import { FUTURE_TOLERANCE_MINUTES } from '@smart-farm/shared/constants/limits';
 import type { ObservationQuality } from '@smart-farm/shared/constants/status';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 
 /** 受信が計測より何分遅れたら「遅延」とするか（暫定）。 */
 export const DEFAULT_LATE_AFTER_MINUTES = 60;
+
+/** 計測日時が、受信より何分先まで「未来」としないか（時計のずれの許容。取り込みの既定。設定で変えられる。D-13）。 */
+export const DEFAULT_FUTURE_TOLERANCE_MINUTES = 5;
 
 /** 評価に使う品質（正常と遅延）。 */
 export function isUsableQuality(quality: ObservationQuality): boolean {
@@ -40,6 +43,8 @@ export interface QualityContext {
   readonly observedAt: Date;
   readonly receivedAt: Date;
   readonly lateAfterMinutes: number;
+  /** 計測日時が、受信より何分先までなら、未来としないか。 */
+  readonly futureToleranceMinutes: number;
   readonly statusCodes: ReadonlyMap<string, StatusCodeDefinition>;
 }
 
@@ -53,7 +58,7 @@ export function classifyValue(
     return { quality: 'INVALID', reason: `未定義の項目です: ${itemKey}` };
   }
   const lagMinutes = (context.receivedAt.getTime() - context.observedAt.getTime()) / MS_PER_MINUTE;
-  if (lagMinutes < -FUTURE_TOLERANCE_MINUTES) {
+  if (lagMinutes < -context.futureToleranceMinutes) {
     return { quality: 'INVALID', reason: '計測日時が未来です' };
   }
   if (rawValue === null || rawValue === undefined) {

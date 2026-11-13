@@ -37,7 +37,7 @@ export interface E2eUser {
   readonly userId: string;
   readonly userName: string;
   readonly password: string;
-  readonly role: 'worker' | 'viewer';
+  readonly role: 'admin' | 'general' | 'viewer';
 }
 
 /** 2人目以降の利用者（明らかにダミーとわかる値）。 */
@@ -45,7 +45,14 @@ export const USER_B: E2eUser = {
   userId: 'e2e-user-b',
   userName: 'E2E利用者B',
   password: 'Dummy-Passw0rd-b1',
-  role: 'worker',
+  role: 'admin',
+};
+/** 一般ユーザー（手動入力のみ。ロールの権限の確認用）。 */
+export const GENERAL: E2eUser = {
+  userId: 'e2e-general',
+  userName: 'E2E一般ユーザー',
+  password: 'Dummy-Passw0rd-g1',
+  role: 'general',
 };
 export const VIEWER: E2eUser = {
   userId: 'e2e-viewer',
@@ -108,6 +115,36 @@ export async function apiOk<Body = unknown>(
   const response = await api(request, method, path, body);
   expect(response.ok(), `${method} ${path}: ${String(response.status())}`).toBe(true);
   return (response.status() === 204 ? undefined : await response.json()) as Body;
+}
+
+/**
+ * 設備（ロボット・センサー）の取得間隔（分）を、API で設定する（Issue #197。取得間隔は、設備ごとの設定）。
+ * 修正は、設備の項目を置き換えるため、現在の値を読み、取得間隔だけを変えて、送る。
+ */
+export async function setEquipmentInterval(
+  request: APIRequestContext,
+  equipmentId: string,
+  intervalMinutes: number,
+): Promise<void> {
+  const tree = await apiOk<{
+    facilities: {
+      facility: Record<string, unknown>;
+      children: Record<string, unknown>[];
+    }[];
+  }>(request, 'GET', '/equipment');
+  const item = tree.facilities
+    .flatMap((entry) => [entry.facility, ...entry.children])
+    .find((candidate) => candidate.equipmentId === equipmentId);
+  if (item === undefined) {
+    throw new Error(`設備が見つかりません: ${equipmentId}`);
+  }
+  await apiOk(request, 'PUT', `/equipment/${equipmentId}`, {
+    name: item.name,
+    ...(item.facilityId === undefined ? {} : { facilityId: item.facilityId }),
+    ...(item.externalId === undefined ? {} : { externalId: item.externalId }),
+    ...(item.sourceFilePath === undefined ? {} : { sourceFilePath: item.sourceFilePath }),
+    intervalMinutes,
+  });
 }
 
 /** ジョブ（JB-01〜JB-04）を起動する（開発用 API）。 */
@@ -282,8 +319,8 @@ export function robotJson(
   });
 }
 
-/** 環境センサーの CSV（合成データ）。 */
-export function sensorCsv(
+/** 環境センサーの JSON（合成データ。設備の識別子 sensorId + 記録の配列）。空の文字列は欠損（null）、数値の文字列は数値にする（数値でない文字列は、そのまま）。 */
+export function sensorJson(
   rows: readonly {
     hoursAgo: number;
     temperature: number | string;
@@ -293,13 +330,22 @@ export function sensorCsv(
   }[],
   sensorId: string = SENSOR_EXTERNAL_ID,
 ): string {
-  const lines = rows.map(
-    (row) =>
-      `${sensorId},${new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString()},${String(row.temperature)},${String(row.humidity)},${String(row.illuminance)},${String(row.co2)}`,
-  );
-  return ['sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm', ...lines].join(
-    '\n',
-  );
+  const value = (raw: number | string) => {
+    if (raw === '') {
+      return null;
+    }
+    return typeof raw === 'string' && Number.isFinite(Number(raw)) ? Number(raw) : raw;
+  };
+  return JSON.stringify({
+    sensorId,
+    records: rows.map((row) => ({
+      timestamp: new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString(),
+      temperatureCelsius: value(row.temperature),
+      humidityPercent: value(row.humidity),
+      illuminanceLux: value(row.illuminance),
+      co2Ppm: value(row.co2),
+    })),
+  });
 }
 
 // 準備・ブラウザ

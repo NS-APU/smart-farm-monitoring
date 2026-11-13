@@ -17,10 +17,16 @@ import {
 } from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
 import {
+  FEDERATION_MODES,
+  type FederationMode,
+} from '@smart-farm/shared/schemas/federation-connection';
+import {
   DEFAULT_FEDERATION_EXPIRY_DAYS,
   MAX_FEDERATION_EXPIRY_DAYS,
+  MAX_FUTURE_TOLERANCE_MINUTES,
   MIN_FEDERATION_EXPIRY_DAYS,
 } from '../application/settings.ts';
+import { DEFAULT_FUTURE_TOLERANCE_MINUTES } from '../domain/observation-quality.ts';
 import {
   LOGIN_FAILURE_LIMIT,
   LOGIN_FAILURE_WINDOW_MINUTES,
@@ -32,8 +38,11 @@ import {
 } from '../infrastructure/common/auth-policy.ts';
 import { LOG_LEVELS, type LogLevel } from '../infrastructure/logging/json-logger.ts';
 import { namedErrorClass } from '../application/named-error.ts';
+import { ORIGIN_SECRET_PATTERN } from '../presentation/origin-guard.ts';
 
 export const APP_MODES = ['local', 'test', 'production'] as const;
+
+export { FEDERATION_MODES, type FederationMode };
 export type AppMode = (typeof APP_MODES)[number];
 
 /** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: DynamoDB（ADR-0007）。 */
@@ -82,6 +91,16 @@ const EnvSchema = z.object({
    * S3 の `<バケット>/<取り込み元>/` を使う。Lambda には、ローカルのディレクトリがないため、評価環境は、これを指定する。
    */
   FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
+  /**
+   * 秘密情報（接続先の認証情報・Web Push の秘密鍵）の保管先（Issue #206。D-55）。memory = メモリ（ローカル・テスト）、
+   * ssm = パラメータストア（SecureString。本番・開発サイト）。名前に SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
+   */
+  CREDENTIAL_STORE: z.enum(['memory', 'ssm']).default('memory'),
+  /** ssm のときの、パスの接頭辞（環境ごと。先頭と末尾が /。例: /sfm/development/）。 */
+  CREDENTIAL_PATH_PREFIX: z
+    .string()
+    .regex(/^\/([a-z0-9][a-z0-9._-]*\/)+$/)
+    .optional(),
   SEED_MODE: z.enum(SEED_MODES).default('NONE'),
   /**
    * 手動入力の保存・修正・削除の応答の前に、評価を再計算するか（Issue #123。ADR-0014）。`sync`（既定。ローカル・E2E）は、再計算する。
@@ -112,17 +131,41 @@ const EnvSchema = z.object({
     .min(MIN_FEDERATION_EXPIRY_DAYS)
     .max(MAX_FEDERATION_EXPIRY_DAYS)
     .default(DEFAULT_FEDERATION_EXPIRY_DAYS),
-  /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知しない）。 */
-  INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(false),
+  /** 農業情報基盤との連携の方式（mock: モック〔ローカル・テスト〕／ngsi-ld: NGSI-LD のアダプタ。ADR-0024。#177）。 */
+  FEDERATION_MODE: z.enum(FEDERATION_MODES).default('mock'),
+  /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知する。ADR-0019 の D-37）。 */
+  INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(true),
+  /** 取り込みの計測日時の未来の許容（分。既定 5 分。受信より、これを超えて先の計測日時は、不正。手動入力は、5 分固定。D-13）。 */
+  INGESTION_FUTURE_TOLERANCE_MINUTES: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_FUTURE_TOLERANCE_MINUTES)
+    .default(DEFAULT_FUTURE_TOLERANCE_MINUTES),
   /** 新しいデータが届かない取り込み元を、「データ取得の停止」として通知するか（V-018。暫定仕様）。 */
   INGESTION_STOP_NOTIFICATION_ENABLED: BooleanFromString.default(true),
   /** Web Push の購読に使う公開鍵（VAPID）。未指定なら、Web Push の購読を受け付けない（画面内の通知のみ）。 */
   WEB_PUSH_PUBLIC_KEY: z.string().min(1).optional(),
   /**
+   * Web Push の配信の方式（#241）。dummy（既定）: 実際には送らず、記録だけ（ローカル・テスト）。
+   * vapid: プッシュサービスへ実際に送る（VAPID。秘密鍵は、秘密情報の web-push/vapid-private-key）。公開鍵・連絡先が必要。
+   */
+  WEB_PUSH_DELIVERY: z.enum(['dummy', 'vapid']).default('dummy'),
+  /** Web Push の VAPID の連絡先（アプリの https の URL。個人のメールアドレスは、設定に持たない）。 */
+  WEB_PUSH_SUBJECT: z
+    .url({ protocol: /^https$/ })
+    .max(500)
+    .optional(),
+  /**
    * 開発用 API（時計・モック・リセット・ジョブの強制実行）を有効にするか。既定は無効。
    * E2E・負荷テストの設定で、明示的に有効にする。本番（production）では、指定にかかわらず無効（V-001）。
    */
   DEV_API_ENABLED: BooleanFromString.default(false),
+  /**
+   * ファイルサーバー（HTTP）の接続先に、内部のアドレス（ループバック・プライベート・リンクローカル）を許可するか（Issue #172。ADR-0022）。
+   * 既定は拒否（SSRF の対策）。ローカル・E2E・テストで、手元の HTTP サーバーに接続するときだけ指定する。本番（production）では、指定にかかわらず拒否。
+   */
+  HTTP_FILE_SOURCE_ALLOW_PRIVATE: BooleanFromString.default(false),
   /**
    * 信頼するプロキシの段数。0（既定）なら、X-Forwarded-For を信頼せず、接続情報の接続元を使う。
    * N なら、X-Forwarded-For の末尾から N 番目（信頼するプロキシが付けた値）を、接続元とみなす（V-007）。
@@ -155,6 +198,20 @@ const EnvSchema = z.object({
     .trim()
     .toLowerCase()
     .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'ヘッダー名（英数字とハイフン）で指定してください')
+    .optional(),
+  // CloudFront が、オリジンに付ける秘密のヘッダーの値（Issue #102）。ローカル・テストで、値を直接、渡す（Lambda では、使えない）。
+  // エラーには、変数の名前だけを出す（値を含めない）
+  ORIGIN_VERIFY_SECRET: z
+    .string()
+    .regex(ORIGIN_SECRET_PATTERN, '英数字 32〜128 文字で指定してください')
+    .optional(),
+  // 上の秘密の値を保管している Secrets Manager の秘密の ARN（秘密の値ではない）。API の Lambda が、コールドスタートで、読む（lambda.ts）
+  ORIGIN_VERIFY_ARN: z
+    .string()
+    .regex(
+      /^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$/,
+      'Secrets Manager の秘密の ARN で指定してください',
+    )
     .optional(),
 });
 
@@ -194,6 +251,11 @@ export interface AppConfig {
   readonly fileServerDirectory: string;
   /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
   readonly fileServerBucket: string | undefined;
+  /** 秘密情報の保管先。ssm のときは、パスの接頭辞が要る。 */
+  readonly secrets: {
+    readonly provider: 'memory' | 'ssm';
+    readonly pathPrefix?: string;
+  };
   readonly seedMode: SeedMode;
   /** 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。 */
   readonly evaluationOnWrite: EvaluationOnWrite;
@@ -210,13 +272,28 @@ export interface AppConfig {
   readonly federationExpiryDays: number;
   readonly ingestionStopNotificationEnabled: boolean;
   readonly ingestionFileFailureNotificationEnabled: boolean;
+  readonly ingestionFutureToleranceMinutes: number;
+  readonly federationMode: FederationMode;
   readonly webPushPublicKey: string | undefined;
+  /** Web Push の配信の方式（dummy: 記録だけ／vapid: 実際に送る）。 */
+  readonly webPushDelivery: 'dummy' | 'vapid';
+  /** VAPID の連絡先（https の URL）。vapid のときは必ずある。 */
+  readonly webPushSubject: string | undefined;
   /** 開発用の API（時計・モック・リセット）を有効にするか。環境変数で明示したときだけ有効で、本番では常に無効。 */
   readonly devApiEnabled: boolean;
+  /** ファイルサーバー（HTTP）の接続先に、内部のアドレスを許可するか（本番は、常に false）。 */
+  readonly httpFileSourceAllowPrivate: boolean;
   /** 信頼するプロキシの段数（接続元の識別。0 なら X-Forwarded-For を信頼しない）。 */
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（小文字。接続元の識別。未指定なら使わない）。 */
   readonly clientIpHeader: string | undefined;
+  /**
+   * CloudFront が、オリジンに付ける秘密のヘッダーの値（Issue #102）。指定があれば、API は、値が一致しない呼び出し（関数の URL の直接の呼び出し）を、
+   * 403 で拒否する。未指定は、検証しない（ローカル・E2E）。API の Lambda は、本番では必須（lambda.ts）。
+   */
+  readonly originVerifySecret: string | undefined;
+  /** オリジンの秘密を保管している Secrets Manager の秘密の ARN（秘密の値ではない）。API の Lambda が、実行時に読む（lambda.ts）。 */
+  readonly originVerifyArn: string | undefined;
   /** 接続元ごとのログインの失敗の制限（失敗 `limit` 回 / `windowMinutes` 分。既定は 5 回 / 15 分。D-44）。 */
   readonly loginFailurePolicy: LoginFailurePolicy;
 }
@@ -323,6 +400,31 @@ function parseCognito(parsed: z.infer<typeof EnvSchema>): CognitoConfig | undefi
   };
 }
 
+/** Web Push を実際に送る（vapid）には、公開鍵と連絡先が要る（足りないまま、起動しない）。 */
+function assertWebPushDelivery(parsed: z.infer<typeof EnvSchema>): void {
+  if (parsed.WEB_PUSH_DELIVERY !== 'vapid') {
+    return;
+  }
+  for (const [name, value] of [
+    ['WEB_PUSH_PUBLIC_KEY', parsed.WEB_PUSH_PUBLIC_KEY],
+    ['WEB_PUSH_SUBJECT', parsed.WEB_PUSH_SUBJECT],
+  ] as const) {
+    if (value === undefined) {
+      throw new ConfigError(`WEB_PUSH_DELIVERY=vapid では、${name} の指定が必要です`);
+    }
+  }
+}
+
+function parseSecrets(parsed: z.infer<typeof EnvSchema>): AppConfig['secrets'] {
+  if (parsed.CREDENTIAL_STORE === 'memory') {
+    return { provider: 'memory' };
+  }
+  if (parsed.CREDENTIAL_PATH_PREFIX === undefined) {
+    throw new ConfigError('CREDENTIAL_STORE=ssm では、CREDENTIAL_PATH_PREFIX の指定が必要です');
+  }
+  return { provider: 'ssm', pathPrefix: parsed.CREDENTIAL_PATH_PREFIX };
+}
+
 function parseEnv(env: Readonly<Record<string, string | undefined>>): z.infer<typeof EnvSchema> {
   const result = EnvSchema.safeParse(env);
   if (!result.success) {
@@ -368,6 +470,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
   const dynamodb = parseDynamoDb(parsed);
   const cognito = parseCognito(parsed);
   assertProductionAdapters(parsed.APP_MODE, cognito, dynamodb);
+  assertWebPushDelivery(parsed);
   return {
     mode: parsed.APP_MODE,
     host: parsed.HOST,
@@ -378,6 +481,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     cognito,
     fileServerDirectory: parsed.FILE_SERVER_DIR,
     fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
+    secrets: parseSecrets(parsed),
     seedMode: parsed.SEED_MODE,
     evaluationOnWrite: parsed.EVALUATION_ON_WRITE,
     demoSeedDays: parsed.DEMO_SEED_DAYS,
@@ -392,10 +496,18 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     federationExpiryDays: parsed.FEDERATION_EXPIRY_DAYS,
     ingestionStopNotificationEnabled: parsed.INGESTION_STOP_NOTIFICATION_ENABLED,
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
+    ingestionFutureToleranceMinutes: parsed.INGESTION_FUTURE_TOLERANCE_MINUTES,
+    federationMode: parsed.FEDERATION_MODE,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
+    webPushDelivery: parsed.WEB_PUSH_DELIVERY,
+    webPushSubject: parsed.WEB_PUSH_SUBJECT,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
+    httpFileSourceAllowPrivate:
+      parsed.HTTP_FILE_SOURCE_ALLOW_PRIVATE && parsed.APP_MODE !== 'production',
     trustedProxyHops: parsed.TRUSTED_PROXY_HOPS,
     clientIpHeader: parsed.CLIENT_IP_HEADER,
+    originVerifySecret: parsed.ORIGIN_VERIFY_SECRET,
+    originVerifyArn: parsed.ORIGIN_VERIFY_ARN,
     loginFailurePolicy: {
       limit: parsed.LOGIN_FAILURE_LIMIT,
       windowMinutes: parsed.LOGIN_FAILURE_WINDOW_MINUTES,
@@ -430,6 +542,12 @@ export function parseLambdaConfig(env: Readonly<Record<string, string | undefine
     // 起動のたび（コールドスタートのたび）に、デモデータを投入しない。評価環境のデモデータは、別の入口で投入する（Issue #77）
     throw new ConfigError(
       'Lambda では、SEED_MODE は使えません（デモデータは、別の入口で投入します）',
+    );
+  }
+  // 秘密の値は、Lambda の環境変数（設定）に持たない。Secrets Manager の ARN（ORIGIN_VERIFY_ARN）で指定し、実行時に読む（Issue #102）
+  if (config.originVerifySecret !== undefined) {
+    throw new ConfigError(
+      'Lambda では、ORIGIN_VERIFY_SECRET は使えません（秘密の値は、ORIGIN_VERIFY_ARN の Secrets Manager から、実行時に読みます）',
     );
   }
   // ジョブは、EventBridge から起動する（Issue #76）。Lambda の中で、タイマーによるスケジューラを動かさない

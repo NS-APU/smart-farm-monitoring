@@ -13,6 +13,7 @@ import { buildErrorBody, handleError, handleNotFound } from './errors.ts';
 import { authenticateRequest, requirePermission } from './auth-guards.ts';
 import { createHandlers } from './handlers.ts';
 import { requestContext } from './middleware.ts';
+import { originGuard } from './origin-guard.ts';
 import { MAX_BODY_BYTES } from './request-parsing.ts';
 import { ROUTE_TABLE, routeKey, type RouteSpec } from './route-table.ts';
 import type { RouteHandler } from './route-types.ts';
@@ -30,6 +31,10 @@ const PASSWORD_CHANGE_ALLOWED_ROUTES: ReadonlySet<string> = new Set([
 export function createApp(deps: ApiDeps, routes: readonly RouteSpec[] = ROUTE_TABLE): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   app.use('*', requestContext(deps.logger));
+  // 関数の URL の直接の呼び出し（CloudFront の秘密のヘッダーがない呼び出し）を、すべて拒否する（Issue #102）。ほかの処理より前
+  if (deps.originVerifySecret !== undefined) {
+    app.use('*', originGuard(deps.originVerifySecret, deps.logger));
+  }
   app.onError(handleError);
   app.notFound(handleNotFound);
 

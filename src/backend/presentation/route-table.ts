@@ -30,6 +30,8 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'POST', path: '/auth/refresh', access: 'PUBLIC', useCases: ['UC-13'] },
   { method: 'POST', path: '/auth/logout', access: 'LOGIN', useCases: ['UC-13'] },
   { method: 'POST', path: '/auth/password', access: 'LOGIN', useCases: ['UC-13', 'UC-14'] },
+  // 自身のユーザー情報（ユーザー名）の編集。ロール・ユーザー ID は、変えられない（FR-9.7）
+  { method: 'PUT', path: '/auth/profile', access: 'LOGIN', useCases: ['UC-14'] },
   // 設備（SC-10）
   { method: 'GET', path: '/equipment', access: 'LOGIN', useCases: ['UC-01', 'UC-12'] },
   { method: 'POST', path: '/equipment', access: 'equipment:manage', useCases: ['UC-12'] },
@@ -120,14 +122,33 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'LOGIN',
     useCases: ['UC-05', 'UC-22'],
   },
+  // 通知のメモ（追記は、手動入力と同じ権限。読むのは、ログインしていれば、できる。ADR-0019 の D-42）
+  {
+    method: 'POST',
+    path: '/notifications/:notificationId/memos',
+    access: 'manual-entry:write',
+    useCases: ['UC-22'],
+  },
+  {
+    method: 'GET',
+    path: '/notifications/:notificationId/memos',
+    access: 'LOGIN',
+    useCases: ['UC-22'],
+  },
   { method: 'GET', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'PUT', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'DELETE', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   // 取り込み・連携（SC-11）
-  { method: 'GET', path: '/ingestion/settings', access: 'LOGIN', useCases: ['UC-15'] },
+  { method: 'GET', path: '/ingestion/settings', access: 'ingestion:read', useCases: ['UC-15'] },
   {
     method: 'PUT',
     path: '/ingestion/settings',
+    access: 'ingestion:configure',
+    useCases: ['UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/ingestion/:sourceId/credentials',
     access: 'ingestion:configure',
     useCases: ['UC-15'],
   },
@@ -143,11 +164,50 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'ingestion:run',
     useCases: ['UC-08', 'UC-09', 'UC-15', 'UC-24'],
   },
-  { method: 'GET', path: '/ingestion/logs', access: 'LOGIN', useCases: ['UC-16'] },
-  { method: 'GET', path: '/federation/logs', access: 'LOGIN', useCases: ['UC-11', 'UC-16'] },
+  { method: 'GET', path: '/ingestion/logs', access: 'ingestion:read', useCases: ['UC-16'] },
+  {
+    method: 'GET',
+    path: '/federation/settings',
+    access: 'ingestion:read',
+    useCases: ['UC-11', 'UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/federation/settings',
+    access: 'ingestion:configure',
+    useCases: ['UC-11', 'UC-15'],
+  },
+  {
+    method: 'POST',
+    path: '/federation/test',
+    access: 'ingestion:run',
+    useCases: ['UC-11', 'UC-15'],
+  },
+  {
+    method: 'GET',
+    path: '/federation/logs',
+    access: 'ingestion:read',
+    useCases: ['UC-11', 'UC-16'],
+  },
+  // ハウス別の記録（閲覧できるハウスの分だけ。一般ユーザーも使える。ADR-0013）
+  { method: 'GET', path: '/ingestion/facility-logs', access: 'LOGIN', useCases: ['UC-16'] },
+  {
+    method: 'GET',
+    path: '/federation/facility-logs',
+    access: 'LOGIN',
+    useCases: ['UC-11', 'UC-16'],
+  },
   // ユーザー（SC-14）
   { method: 'GET', path: '/users', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'POST', path: '/users', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'PUT', path: '/users/:userId', access: 'user:manage', useCases: ['UC-14'] },
   { method: 'DELETE', path: '/users/:userId', access: 'user:manage', useCases: ['UC-14'] },
+  // 閲覧の割り当て（ハウスごと。SC-14。Issue #330）
+  { method: 'GET', path: '/facility-access', access: 'user:manage', useCases: ['UC-14'] },
+  {
+    method: 'PUT',
+    path: '/facility-access/:facilityId',
+    access: 'user:manage',
+    useCases: ['UC-14'],
+  },
 ];

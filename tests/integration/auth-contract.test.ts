@@ -47,7 +47,7 @@ const ADMIN = {
   userId: 'admin-user',
   userName: '管理者',
   password: 'Dummy-Passw0rd-1',
-  role: 'worker',
+  role: 'admin',
 };
 
 interface Subject {
@@ -83,6 +83,7 @@ function build(
     clock,
     sessions: auth,
     pushSubscriptions: repositories.pushSubscriptions,
+    facilityAccess: repositories.facilityAccess,
     // 新しいセッションが有効になるのを待つ間（実際は待つ）、時計を進める（凍結した時計では、待っても、時間が進まないため）
     delay: (milliseconds) => {
       clock.advance(milliseconds);
@@ -166,7 +167,7 @@ describe.each(FACTORIES)('認証・資格情報の契約（$name）', ({ create 
     expect(session.principal).toEqual({
       userId: ADMIN.userId,
       userName: '管理者',
-      role: 'worker',
+      role: 'admin',
       mustChangePassword: false,
     });
     expect(session.accessTokenExpiresAt.getTime()).toBe(
@@ -345,7 +346,7 @@ describe.each(FACTORIES)('認証・資格情報の契約（$name）', ({ create 
       userId: toUserId('new-user'),
       userName: '新しいユーザー',
       password: 'Dummy-Passw0rd-2',
-      role: 'worker',
+      role: 'general',
     };
 
     it('作成したユーザーは、そのパスワードでログインできる。同じユーザーIDの重複は、競合', async () => {
@@ -482,7 +483,7 @@ describe('実装ごとに違う振る舞い（ADR-0008）', () => {
             userId: toUserId('member-1'),
             userName: '利用者1',
             password: TEMPORARY,
-            role: 'worker',
+            role: 'general',
           },
           toUserId(ADMIN.userId),
         );
@@ -589,12 +590,12 @@ describe('実装ごとに違う振る舞い（ADR-0008）', () => {
 
         await userService.update(
           member,
-          { userName: '利用者1', role: 'worker', password: 'Dummy-Passw0rd-reset' },
+          { userName: '利用者1', role: 'general', password: 'Dummy-Passw0rd-reset' },
           admin,
         );
         await userService.update(
           admin,
-          { userName: '管理者', role: 'worker', password: 'Dummy-Passw0rd-self' },
+          { userName: '管理者', role: 'admin', password: 'Dummy-Passw0rd-self' },
           admin,
         );
 

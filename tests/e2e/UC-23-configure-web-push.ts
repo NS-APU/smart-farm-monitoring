@@ -79,6 +79,25 @@ test.describe('基本フロー: Web Push 通知を有効にし、以降の通知
     await expect(state(page)).toContainText('有効');
   });
 
+  test('有効にすると、購読の宛先に加えて、暗号鍵（p256dh・auth）を、サーバーへ送る（本文つきの配信のため。#241）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openPushSettings(page);
+    const registration = page.waitForRequest(
+      (candidate) => candidate.url().endsWith('/push-subscription') && candidate.method() === 'PUT',
+    );
+
+    await enable(page).click();
+
+    expect((await registration).postDataJSON()).toEqual({
+      endpoint: `${ENDPOINT_PREFIX}device-1`,
+      keys: { p256dh: 'e2e_p256dh-key', auth: 'e2e_auth-secret' },
+    });
+    await expect(state(page)).toContainText('有効');
+  });
+
   test('有効にした後に作られた通知（UC-10）は、画面内の通知に加えて、Web Push で配信される。解除すると、配信されない（UC-23 の基本フロー全体）', async ({
     page,
     request,
@@ -219,6 +238,10 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     await runJob(request, 'JB-04');
     expect(await deliveredPushes(request)).toHaveLength(0);
     await setMock(request, 'web-push', 'UP');
+    // 次の試行の日時（失敗の 1 分後）の前は、再送しない。1 分後の配信で届く
+    await runJob(request, 'JB-04');
+    expect(await deliveredPushes(request)).toHaveLength(0);
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
 
     expect(await deliveredPushes(request)).toHaveLength(created.length);
@@ -226,7 +249,7 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     await expect(page.getByTestId('notification-row')).toHaveCount(created.length);
   });
 
-  test('配信の再送は、最大3回（初回を含む）まで。3回失敗した通知は、それ以降は再送されない', async ({
+  test('配信の再送は、1 分から倍々の間隔で、通知を作ってから 1 時間まで。1 時間を過ぎた通知は、復旧しても、配信されない（Issue #237）', async ({
     page,
     request,
   }) => {
@@ -236,11 +259,17 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     await expect(state(page)).toContainText('有効');
     await seedAbnormalEnvironment(request);
     await setMock(request, 'web-push', 'DOWN');
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // 失敗のたびに、次の試行の日時まで進めて、再送する（0・1・3・7・15・31 分後の 6 回。次の試行の間隔は、1・2・4・8・16・32 分）。6 回目の失敗のあとの次の試行は、63 分後
+    for (const wait of [0, 1, 2, 4, 8, 16]) {
+      await advanceMinutes(request, wait);
       await runJob(request, 'JB-04');
     }
+    await advanceMinutes(request, 32);
 
+    // 通知を作ってから 63 分。1 時間を過ぎたため、復旧しても、断念して、配信しない
     await setMock(request, 'web-push', 'UP');
+    await runJob(request, 'JB-04');
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
 
     expect(await deliveredPushes(request)).toHaveLength(0);

@@ -114,6 +114,13 @@ export const UserUpdateRequestSchema = z.object({
 });
 export type UserUpdateRequest = z.infer<typeof UserUpdateRequestSchema>;
 
+/**
+ * PUT /auth/profile（自身のユーザー情報の編集。FR-9.7）。ユーザー名だけを受け付ける。
+ * ロール・ユーザー ID は、変えられない（送られても、読み捨てる）。パスワードは、POST /auth/password で変える。
+ */
+export const OwnProfileUpdateRequestSchema = z.object({ userName: UserNameSchema });
+export type OwnProfileUpdateRequest = z.infer<typeof OwnProfileUpdateRequestSchema>;
+
 export const RoleOptionSchema = z.object({ roleId: z.string(), name: z.string() });
 
 export const UserListResponseSchema = z.object({

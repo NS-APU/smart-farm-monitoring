@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-16。ユーザーの判断。Issue #75）。ただし、「6. 利用者の接続元の識別」は、AWS での確認で想定が誤っていたため、[ADR-0010](./0010-client-ip-from-cloudfront-function.md) で置換した（2026-10-20）
 - 日付: 2026-10-16
+- 更新（2026-11-05。#206）: **`SecretPort` と、パラメータストア（SecureString。標準）の実装を、行った**（下の「秘密情報を扱う口」は、実装済み）。`SecretPort` は、非同期の `get`（`refresh` で、すぐ取り直す）・`set`・`status`。値は、5 分、プロセスの中でキャッシュする。環境変数は、`CREDENTIAL_STORE=ssm` と、環境ごとのパスの接頭辞 `CREDENTIAL_PATH_PREFIX`（`/sfm/<環境>/`）で、秘密ではない（値の名前に、SECRET・KEY を含めない）。API の Lambda は、そのパスの下の `ssm:GetParameter`・`ssm:PutParameter`、ジョブの Lambda は、`ssm:GetParameter` だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由（`kms:ViaService`）の利用に限る（security.md・operations.md 10 章）。
 - 更新（2026-10-24。#143）: 「3. 秘密情報」の `SecretPort` の設計（値は、コールドスタートで 1 度だけ取得してキャッシュ）は、[ADR-0016](./0016-ingestion-federation-rules.md)（D-55）で、**5 分の期限つきのキャッシュ（認証に失敗したら、すぐ取り直す）**と、**読み取りと書き込みの権限を分ける**形に更新した。`SecretPort` は、非同期の読み取り・書き込み・状態の確認を持つ。
 - 関連: [ADR-0002](./0002-deployment-serverless.md)、[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0008](./0008-cognito-authentication.md)、[architecture.md](../architecture/architecture.md) 11 章・13 章、[security.md](../../20_development/security.md)
 
@@ -20,7 +21,7 @@
 - Lambda の設定（`parseLambdaConfig`）は、これまでの制約（`APP_MODE`・`PERSISTENCE` の明示、ファイルの永続化の拒否、開発用 API の無効化）に加えて、次を行う。
   - **`SEED_MODE` が `NONE` 以外なら、設定エラー**: コールドスタートのたびに、デモデータを投入しない。評価環境のデモデータは、別の入口で投入する（Issue #77）。
   - **スケジューラ（`SCHEDULER_ENABLED`）を、常に無効にする**: Lambda の中で、タイマーを動かさない。取り込み・評価のジョブは、EventBridge から起動する（Issue #76）。
-- **モックのまま残すもの**: ファイルサーバー・農業情報基盤との連携・Web Push の配信は、評価環境では、モックで動かす（S3 のファイルのモックは Issue #77）。このため、取り込みの実行・テスト接続の API は、Issue #77 までは、失敗として応答する（Lambda は落ちない）。
+- **モックのまま残すもの**: ファイルサーバー・農業情報基盤との連携・Web Push の配信は、評価環境では、モックで動かす（2026-11-13 の更新: 農業情報基盤との連携は、NGSI-LD のアダプタに替えた。ADR-0024・#177）（S3 のファイルのモックは Issue #77。**Web Push の配信は、#241 で、設定 `WEB_PUSH_DELIVERY=vapid` により、実配信にできる。既定は、モック**）。このため、取り込みの実行・テスト接続の API は、Issue #77 までは、失敗として応答する（Lambda は落ちない）。
 
 ### 2. 配信経路
 
@@ -31,8 +32,8 @@ CloudFront → 関数の URL（認証 `NONE`。同じオリジンの `/api/*`・
 - Lambda の環境変数は、次の 9 つ。`APP_MODE=production`・`PERSISTENCE=dynamodb`・`AUTH_PROVIDER=cognito`・`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`・`TRUSTED_PROXY_HOPS`・`LOG_LEVEL`。
 - ID・テーブル名は、**秘密情報ではない**。値は、`SfmData` の出力（スタック間の参照）から取り、リポジトリには書かない。
 - **現時点で、Lambda が持つ秘密情報は、ない**。AWS（DynamoDB・Cognito）へは、Lambda の IAM ロールで認証する（アクセスキーを持たない）。パスワード・トークン・キーに当たる名前の環境変数は持たない（テストで確認する）。開発用 API・デモデータ・初期ユーザー（`INITIAL_USER_*`）の設定も、持たない。
-- **秘密情報を扱う口（`SecretPort`）と、AWS Systems Manager パラメータストア（SecureString）の実装は、今回は行わない**（ユーザーの判断）。必要になるのは、実際の農業情報基盤の認証情報や、Web Push の秘密鍵（VAPID）を、モックから実物に替えるとき。そのときの設計は、次のとおり。
-  - アプリケーション層に、`SecretPort`（名前から値を取得する）を置き、インフラ層に、パラメータストアのアダプタを置く。値は、コールドスタートで 1 度だけ取得してキャッシュし、ログ・エラーの本文に出さない。
+- **（当初の判断。2026-11-05 の #206 で、実装した）秘密情報を扱う口（`SecretPort`）と、AWS Systems Manager パラメータストア（SecureString）の実装は、今回は行わない**（ユーザーの判断）。必要になるのは、実際の農業情報基盤の認証情報や、Web Push の秘密鍵（VAPID）を、モックから実物に替えるとき。そのときの設計は、次のとおり。
+  - アプリケーション層に、`SecretPort`（名前から値を取得する）を置き、インフラ層に、パラメータストアのアダプタを置く。値は、コールドスタートで 1 度だけ取得してキャッシュし（#143 の D-55 で、5 分の期限つきに更新）、ログ・エラーの本文に出さない。
   - パラメータは、SecureString。Lambda のロールに、**そのパラメータの ARN に限った** `ssm:GetParameter`（と、KMS の復号）を付ける。環境変数には、パラメータの名前だけを置く。
   - 費用が増える場合（Secrets Manager は、秘密 1 件あたり月額がかかる）は、パラメータストア（標準）を第一候補とする。
 

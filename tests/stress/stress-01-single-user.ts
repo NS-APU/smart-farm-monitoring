@@ -482,6 +482,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   // UC-10 異常・注意を検知して通知する（手動入力の保存 → 通知。定期のジョブ JB-02・配信 JB-04）
   // ---------------------------------------------------------------------------------------------
+  // 新しい異常の通知は、正常が一定時間（15 分）続いたあとの悪化（新しい出来事）のときだけ作られる（ADR-0019 の D-38）。
+  // 直前の手順（UC-07）で、状態は正常になっている。短い行き来（同じ出来事）で通知が作られないよう、サーバーの時計を進める
+  const recurrence = await api(request, USER, 'POST', '/dev/clock/advance', { minutes: 16 });
+  expect(recurrence.ok()).toBe(true);
   await form.getByLabel('対象の設備').selectOption('SENSOR-01');
   await form.getByLabel('カテゴリ').selectOption('ENVIRONMENT');
   // 異常な値は、最も新しい計測日時（現在の分）で入力する（短期の評価は、最新の値を使う）
@@ -791,17 +795,11 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['robot', 'ロボットデータ'],
     ['environment-sensor', '環境センサーデータ'],
   ] as const) {
-    await sourceCard(id).getByLabel('取得間隔').selectOption({ label: '5分' });
-    await m(
-      'UC-15',
-      `${name}の取得間隔を5分に変更して「設定を保存」を押す`,
-      '取り込み設定・状況（SC-11）',
-      'operation',
-      {
-        act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
-        respond: () => expect(result(id)).toHaveText('設定を保存しました'),
-      },
-    );
+    // 取得間隔は、設備ごとの設定（Issue #197）。この画面では、接続先の参照名を変えずに、保存を押す
+    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み設定・状況（SC-11）', 'operation', {
+      act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
+      respond: () => expect(result(id)).toHaveText('設定を保存しました'),
+    });
   }
   await m(
     'UC-15',
@@ -859,7 +857,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
 
-  // UC-08・UC-09 定期取り込み（JB-01）: 取得間隔（5分）が過ぎたことにして、ジョブを起動する
+  // UC-08・UC-09 定期取り込み（JB-01）: 設備ごとの取得間隔（既定: ロボット 1 分・センサー 5 分）が過ぎたことにして、ジョブを起動する
   await menu('取り込み').click();
   await ingestionShown();
   placeRobotFiles({ startIndex: 100, ...FILES });
@@ -885,11 +883,12 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const logs = page.getByTestId('ingestion-logs');
   await m(
     'UC-16',
-    '取り込みのログを、取り込み元（ロボットデータ）で絞り込む',
+    '取り込みのログを、設備（ロボット）で絞り込む',
     '取り込み設定・状況（SC-11）',
     'screen',
     {
-      act: () => logs.getByLabel('取り込み元').selectOption('robot'),
+      // 取り込み元の選択は、設備の選択に変わった（Issue #201）。設備の絞り込みは、その設備の取り込み元の失敗も含む
+      act: () => logs.getByLabel('設備', { exact: true }).selectOption('ROBOT-01'),
       respond: async () => {
         await expect(loadingView(page)).toHaveCount(0);
         await expectEveryRowContains(logRows, 'ロボット');
@@ -904,7 +903,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   });
   await m('UC-16', '取り込みのログの絞り込みを解除する', '取り込み設定・状況（SC-11）', 'screen', {
-    act: () => logs.getByLabel('取り込み元').selectOption(''),
+    act: () => logs.getByLabel('設備', { exact: true }).selectOption(''),
     respond: () => expectListShown(page, 'ingestion-log-row'),
   });
   const federation = page.getByTestId('federation-section');
@@ -1048,7 +1047,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     respond: () => expect(page.getByTestId('unread-count')).not.toHaveText(unreadBefore),
   });
   await m('UC-22', '絞り込みの範囲（未読）を、まとめて既読にする', '通知（SC-05）', 'operation', {
-    act: () => page.getByRole('button', { name: '絞り込みの範囲を既読にする' }).click(),
+    act: async () => {
+      await page.getByRole('button', { name: '絞り込みの範囲を既読にする' }).click();
+      await page.getByTestId('confirm-dialog').getByRole('button', { name: '既読にする' }).click();
+    },
     respond: () => expect(page.getByTestId('unread-count')).toHaveText('0'),
   });
   await m(
@@ -1059,9 +1061,13 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     {
       act: async () => {
         await page.getByLabel('既読状態').selectOption('');
+        // 直前の操作で、未読はなくなっているため、確認は開かず、既読にする通知がない旨が示される（D-39）
         await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
       },
       respond: async () => {
+        await expect(page.getByTestId('notifications-notice')).toContainText(
+          '既読にする未読の通知はありません',
+        );
         await expect(page.getByTestId('unread-count')).toHaveText('0');
         await expectListShown(page, 'notification-row');
       },

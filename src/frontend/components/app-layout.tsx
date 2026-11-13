@@ -37,6 +37,7 @@ const NAV_ITEMS: readonly NavItem[] = [
 /** 「設定」の下にまとめる項目（機能仕様書 2.3）。 */
 const SETTINGS_ITEMS: readonly NavItem[] = [
   { to: PATHS.settingsEquipment, label: MESSAGES.nav.equipment, icon: 'nav-equipment' },
+  // 取り込みの参照権限がない利用者（一般）には、閲覧できるハウスの記録だけを示す（Issue #332）。メニューは、全員に表示する
   { to: PATHS.settingsIngestion, label: MESSAGES.nav.ingestion, icon: 'nav-ingestion' },
   { to: PATHS.settingsStatusCodes, label: MESSAGES.nav.statusCodes, icon: 'nav-status-codes' },
   {
@@ -115,13 +116,18 @@ function DataStatusText(): ReactNode {
   if (dataStatus === undefined) {
     return null;
   }
-  const text =
-    dataStatus.freshness === 'NONE'
+  // 手動のみの運用（自動取り込みが有効でない）は、「最終のデータ取得」の代わりに、「最終の手動入力」を示す（Issue #202）
+  const isManual = dataStatus.freshness === 'MANUAL';
+  const text = isManual
+    ? dataStatus.lastManualInputAt === null
+      ? MESSAGES.layout.noManualInput
+      : formatDateTimeJst(dataStatus.lastManualInputAt)
+    : dataStatus.freshness === 'NONE'
       ? MESSAGES.layout.notReceived
       : formatDateTimeJst(dataStatus.lastReceivedAt);
   return (
     <p className={`header-data-status data-${dataStatus.freshness.toLowerCase()}`}>
-      <span>{MESSAGES.layout.lastReceived}: </span>
+      <span>{isManual ? MESSAGES.layout.lastManualInput : MESSAGES.layout.lastReceived}: </span>
       <span>{text}</span>
       {dataStatus.freshness === 'STALE' ? <strong>（{MESSAGES.layout.stale}）</strong> : null}
     </p>
@@ -329,6 +335,7 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
               <div className="header-user">
                 <Icon name="user" size={18} />
                 <span aria-label={MESSAGES.layout.user}>{user?.userName}</span>
+                <Link to={PATHS.profile}>{MESSAGES.profile.link}</Link>
                 <Link to={PATHS.changePassword}>{MESSAGES.changePassword.link}</Link>
                 <button
                   type="button"

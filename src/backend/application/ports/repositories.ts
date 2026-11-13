@@ -25,15 +25,18 @@ import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { ManualEntry } from '@smart-farm/shared/schemas/manual-entry';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import type {
+  FacilityFederationLog,
+  FacilityIngestionLog,
   FederationItem,
   FederationLog,
   IngestionLog,
 } from '@smart-farm/shared/schemas/ingestion';
-import type { Notification } from '@smart-farm/shared/schemas/notification';
+import type { Notification, NotificationMemo } from '@smart-farm/shared/schemas/notification';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import type {
   IngestedFileRecord,
+  FacilityAccessRecord,
   PushSubscriptionRecord,
   StatusChangeEntry,
   UserRecord,
@@ -110,8 +113,17 @@ export interface ObservationRepository {
   /** 最終のデータ取得日時（受信日時の最大。設備を指定した場合はその設備のみ）。1件もなければ null。 */
   latestReceivedAt(
     equipmentIds?: readonly EquipmentId[],
-    options?: { readonly autoImportOnly?: boolean },
+    options?: { readonly autoImportOnly?: boolean; readonly manualOnly?: boolean },
   ): Promise<Date | null>;
+  /**
+   * 設備ごとの最終のデータ取得日時（設備 ID → 受信日時の最大）。データのない設備は含めない。`autoImportOnly` は、自動取り込みのみ
+   * （手動入力・論理削除を除く）。設備ごとの「古い」の基準の判定に使う（Issue #198。ADR-0016 の D-12）。
+   * `manualOnly` は、手動入力のみ（論理削除を除く。最終の手動入力の日時。手動のみの運用の表示に使う。Issue #202）。
+   */
+  receivedAtByEquipment(
+    equipmentIds: readonly EquipmentId[],
+    options?: { readonly autoImportOnly?: boolean; readonly manualOnly?: boolean },
+  ): Promise<ReadonlyMap<EquipmentId, Date>>;
 }
 
 export interface EvaluationRepository {
@@ -140,6 +152,12 @@ export interface EvaluationRepository {
 export interface NotificationListFilter {
   readonly kind?: NotificationKind;
   readonly readState?: ReadState;
+  /** この日時以前（ちょうどを含む）に作成された通知だけ。一括既読が、画面を読み込んだあとに届いた通知を、既読にしないための上限（#240）。 */
+  readonly until?: Date;
+  /**
+   * 閲覧範囲（Issue #331）: 指定したハウスの通知だけ（ハウスに属さない通知は、含めない）。空は、何も含めない。省略は、すべての通知（全設備を閲覧できる利用者）。
+   */
+  readonly facilityIds?: readonly EquipmentId[];
 }
 
 export interface NotificationWithReadState {
@@ -147,8 +165,38 @@ export interface NotificationWithReadState {
   readonly isRead: boolean;
 }
 
+/** 状態変化の通知の、設備・観点・作成日時（通知の経過を導出するとき、同じ設備・観点の「次の通知」を探すために使う。Issue #238）。 */
+export interface StatusChangeNotificationTime {
+  readonly equipmentId: EquipmentId;
+  readonly viewpointId: ViewpointId;
+  readonly createdAt: string;
+}
+
+/** 通知のハウスの補完・ハウスごとのカウンターの再集計の結果（移行コマンド。Issue #331）。 */
+export interface FacilityIndexRebuildResult {
+  /** 確認した通知の数。 */
+  readonly notifications: number;
+  /** ハウス（`facilityId`）を補った通知の数。 */
+  readonly assigned: number;
+  /** 再集計したカウンターの数（ローカルの実装は、カウンターを持たないため 0）。 */
+  readonly counters: number;
+  /** ハウスの数・利用者の数（再集計の対象）。 */
+  readonly facilities: number;
+  readonly users: number;
+}
+
 export interface NotificationRepository {
   add(notification: Notification): Promise<void>;
+  /**
+   * 保守（移行コマンドだけが使う。Issue #331）: ハウス（`facilityId`）のない通知に、`facilityOf` で求めたハウスを補い、ハウスごとのカウンター
+   * （通知の総数・`userIds` の利用者ごとの既読数）を、通知・既読の記録から再集計する（絶対値で書くため、何度実行しても同じ）。
+   * `dryRun` なら、書き込まず、件数だけを返す。
+   */
+  rebuildFacilityIndex(options: {
+    readonly facilityOf: (notification: Notification) => EquipmentId | undefined;
+    readonly userIds: readonly UserId[];
+    readonly dryRun: boolean;
+  }): Promise<FacilityIndexRebuildResult>;
   get(notificationId: NotificationId): Promise<Notification | undefined>;
   findLatestByDedupKey(dedupKey: string): Promise<Notification | undefined>;
   /** 新しい順。既読状態は利用者ごと（暫定）。 */
@@ -157,14 +205,33 @@ export interface NotificationRepository {
     filter: NotificationListFilter,
     page: PageRequest,
   ): Promise<Page<NotificationWithReadState>>;
-  unreadCount(userId: UserId): Promise<number>;
+  /**
+   * 未読の件数。`facilityIds` を指定すると、そのハウスの通知だけ（ハウスごとのカウンターの合計。Issue #331）。省略は、すべての通知。
+   */
+  unreadCount(userId: UserId, facilityIds?: readonly EquipmentId[]): Promise<number>;
   /** 既読にする。通知がなければ false。 */
   markRead(notificationId: NotificationId, userId: UserId, readAt: Date): Promise<boolean>;
-  /** 絞り込みの範囲の未読を、すべて既読にする。既読にした件数を返す。 */
+  /** 絞り込みの範囲（`until` 以前を含む）の未読の件数。一括既読の確認の件数で、`markAllRead` が既読にする件数と一致する。 */
+  countUnread(userId: UserId, filter: NotificationListFilter): Promise<number>;
+  /** 絞り込みの範囲（`until` 以前を含む）の未読を、すべて既読にする。新しく既読にした件数を返す。 */
   markAllRead(userId: UserId, filter: NotificationListFilter, readAt: Date): Promise<number>;
   update(notification: Notification): Promise<void>;
-  /** 配信が未完了（PENDING、または再送の余地がある FAILURE）の通知。 */
-  listUndelivered(maxAttempts: number): Promise<Notification[]>;
+  /** メモを追記する（追記のみ。編集・削除はない。ADR-0019 の D-42。#239）。通知の存在は、呼び出し側が確かめる。 */
+  addMemo(memo: NotificationMemo): Promise<void>;
+  /** 通知のメモ。入力の古い順（同じ日時は、メモの識別子の順）。なければ空。 */
+  listMemos(notificationId: NotificationId): Promise<NotificationMemo[]>;
+  /** 通知ごとのメモの件数（通知の識別子 → 件数）。メモがなければ 0。 */
+  memoCounts(notificationIds: readonly NotificationId[]): Promise<Map<NotificationId, number>>;
+  /**
+   * Web Push の配信が必要な通知（まとめの状態が未完了〔PENDING〕のもの。購読ごとの状態を持たない以前の形式の失敗も、購読ごとの形式で終了させるため、含む）。
+   * 再送の上限・期限は、呼び出し側（通知サービス）が、購読ごとの状態で判断する（ADR-0019 の D-38）。
+   */
+  listUndelivered(): Promise<Notification[]>;
+  /**
+   * 指定した日時より新しい（その日時ちょうどは含めない）、状態変化の通知（STATUS_CHANGE）の、設備・観点・作成日時。古い順。
+   * 通知の経過・回復日時の導出（ADR-0019 の D-42）で、同じ設備・観点の次の通知を探すために使う。
+   */
+  listStatusChangeTimes(since: Date): Promise<StatusChangeNotificationTime[]>;
 }
 
 export interface IngestionRepository {
@@ -176,13 +243,65 @@ export interface IngestionRepository {
   ): Promise<IngestedFileRecord | undefined>;
   recordFile(record: IngestedFileRecord): Promise<void>;
   addLog(log: IngestionLog): Promise<void>;
-  listLogs(filter: { readonly sourceId?: string }, page: PageRequest): Promise<Page<IngestionLog>>;
-  /** 取り込み元の直近の開始日時（取得間隔の判定に使う）。 */
+  /**
+   * 取り込みログを、新しい順に返す（並べ替えは、ない）。絞り込み（Issue #201。ADR-0016 の D-48）:
+   * 取り込み元（`sourceId`）、設備（`equipment`。その設備のログと、`sourceId` を指定すれば、その取り込み元の、設備に結びつかないログ）、
+   * 結果（`SUCCESS`＝成功、`FAILURE`＝失敗。一部成功〔PARTIAL。取り込めなかったものがある〕を含む）、期間（開始日時。両端を含む）。
+   */
+  listLogs(filter: IngestionLogFilter, page: PageRequest): Promise<Page<IngestionLog>>;
+  /**
+   * 指定したハウスの取り込みの記録（ログの facilities の内訳）を、新しい順に返す（Issue #332。一般ユーザー向け）。
+   * ハウスの内訳がないログ（接続の失敗・以前のログなど）は、含めない。ハウスの指定が空なら、空。
+   */
+  listFacilityLogs(
+    facilityIds: readonly string[],
+    page: PageRequest,
+  ): Promise<Page<FacilityIngestionLog>>;
+  /**
+   * 取り込み元の直近の開始日時（設備が 1 つもない取り込み元の、取得間隔の判定に使う）。`recordSourceStarted` で記録した値。
+   * 一度もなければ null。ログの追加では、変わらない（空振りは、ログに残さないため。Issue #201）。
+   */
   lastStartedAt(sourceId: string): Promise<Date | null>;
-  /** 取り込み元の直近の成功（結果が SUCCESS）の終了日時。成功がなければ null。 */
-  lastSucceededAt(sourceId: string): Promise<Date | null>;
-  /** 取り込み元が、新しいデータ（1件以上の記録）を取り込んだ直近の終了日時。一度もなければ null（データ取得の停止の判定に使う）。 */
-  lastDataIngestedAt(sourceId: string): Promise<Date | null>;
+  /** 取り込み元の直近の開始日時を記録する。新しい日時のときだけ、更新する（古い日時で戻さない）。 */
+  recordSourceStarted(sourceId: string, at: Date): Promise<void>;
+  /** 設備ごとの、取り込みの最終の実行（設備 ID → 状態。記録のない設備は含まない。取得間隔の判定・SC-11 の最終の実行。Issue #197・#201）。 */
+  listEquipmentRuns(): Promise<ReadonlyMap<string, EquipmentRunState>>;
+  /**
+   * 設備ごとの最終の実行を記録する（設備ごとに 1 件を上書き。1 回の実行につき、設備ごとに 1 回の書き込み）。新しい開始日時のときだけ
+   * 更新する（古い実行で戻さない）。最後の成功・最後にデータが取れた日時は、その実行が、成功・データありのときだけ進める。空の指定は、何もしない。
+   */
+  recordEquipmentRuns(runs: readonly EquipmentRunRecord[]): Promise<void>;
+}
+
+/** 取り込みログの絞り込み。 */
+export interface IngestionLogFilter {
+  readonly sourceId?: string | undefined;
+  readonly equipment?:
+    { readonly equipmentId: string; readonly sourceId: string | undefined } | undefined;
+  readonly result?: 'SUCCESS' | 'FAILURE' | undefined;
+  readonly from?: Date | undefined;
+  readonly to?: Date | undefined;
+}
+
+/** 設備ごとの、取り込みの最終の実行（Issue #201）。 */
+export interface EquipmentRunState {
+  readonly startedAt: Date;
+  readonly finishedAt: Date;
+  readonly result: IngestionLog['result'];
+  /** 最後に成功（SUCCESS）した実行の終了日時。成功がなければ null。 */
+  readonly lastSucceededAt: Date | null;
+  /** 最後に新しいデータ（1 件以上の記録）を取り込んだ実行の終了日時。なければ null。 */
+  readonly lastDataAt: Date | null;
+}
+
+/** 設備の、取り込みの 1 回の実行の記録。 */
+export interface EquipmentRunRecord {
+  readonly equipmentId: string;
+  readonly startedAt: Date;
+  readonly finishedAt: Date;
+  readonly result: IngestionLog['result'];
+  /** 新しいデータ（1 件以上の記録）を取り込んだか。 */
+  readonly dataIngested: boolean;
 }
 
 export interface FederationRepository {
@@ -194,6 +313,11 @@ export interface FederationRepository {
   update(item: FederationItem): Promise<void>;
   addLog(entry: FederationLog): Promise<void>;
   listLogs(page: PageRequest): Promise<Page<FederationLog>>;
+  /** 指定したハウスの連携の記録（ログの facilities の内訳）を、新しい順に返す（Issue #332。一般ユーザー向け）。 */
+  listFacilityLogs(
+    facilityIds: readonly string[],
+    page: PageRequest,
+  ): Promise<Page<FacilityFederationLog>>;
   countByStatus(): Promise<Record<FederationItem['status'], number>>;
 }
 
@@ -240,6 +364,15 @@ export interface UserRepository {
   delete(userId: UserId): Promise<void>;
 }
 
+/** 閲覧の割り当て（ハウスごと。Issue #330）。一覧は、ハウスの識別子の順。 */
+export interface FacilityAccessRepository {
+  list(): Promise<FacilityAccessRecord[]>;
+  get(facilityId: EquipmentId): Promise<FacilityAccessRecord | undefined>;
+  /** 同じハウスは上書きする。 */
+  save(record: FacilityAccessRecord): Promise<void>;
+  delete(facilityId: EquipmentId): Promise<void>;
+}
+
 export interface PushSubscriptionRepository {
   /** 同じ識別子（利用者・端末ごと）は上書きする。 */
   save(subscription: PushSubscriptionRecord): Promise<void>;
@@ -269,6 +402,7 @@ export interface Repositories {
   readonly auditLogs: AuditLogRepository;
   readonly manualEntries: ManualEntryRepository;
   readonly users: UserRepository;
+  readonly facilityAccess: FacilityAccessRepository;
   readonly pushSubscriptions: PushSubscriptionRepository;
   readonly settings: SettingsRepository;
 }

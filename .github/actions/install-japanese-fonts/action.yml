@@ -9,39 +9,41 @@
 # ライセンスは、SIL Open Font License 1.1（取得して使うだけで、再配布しない）。
 #
 # 取得元（notofonts/noto-cjk のタグ Sans2.004 のコミット）を変えるときは、ハッシュも、新しいファイルで計算し直す。
+#
+# キャッシュ（Issue #322）: GitHub の障害（2026-11-09。raw が 504 を返し続けた）で、E2E・負荷テストの全ジョブが、
+# テストの前に止まったため、取得したフォント（約 40 MB）を、`actions/cache` に保存する。
+# - キー: このファイルのハッシュ（取得元のコミット・ハッシュを変えると、自動で作り直す）
+# - **復元したあとも、ハッシュを検証する**（合わなければ、捨てて、取得し直す）。検証に通ったものだけが、保存される
+# - PR の CI は、その PR 自身のキャッシュと、`develop` のキャッシュだけを読める（別の PR のものは読めない）。
+#   `develop` のキャッシュは、専用のワークフロー（.github/workflows/warm-font-cache.yml）が、作る・更新する
+# 処理は、install-fonts.sh（手元でも、取得元を差し替えて、動作を確かめられる）。
 name: 日本語のフォントを入れる
-description: Noto Sans CJK JP（Regular・Bold）を、ハッシュで検証して取得し、フォントとして使えるようにする
+description: Noto Sans CJK JP（Regular・Bold）を、キャッシュまたは取得から用意し、ハッシュで検証して、フォントとして使えるようにする
+
+inputs:
+  install:
+    description: フォントとして入れる（/usr/local/share/fonts。root が必要）か。false なら、取得・検証・キャッシュの保存だけを行う（キャッシュを温めるワークフロー用）
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
-    - name: フォントを取得し、検証し、入れる
+    # 取得したフォントの置き場（ランナーの一時のディレクトリ。コンテナのジョブでも、書き込める）。これを、キャッシュする
+    - name: フォントのキャッシュを復元する
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/noto-cjk
+        key: noto-cjk-${{ hashFiles('.github/actions/install-japanese-fonts/action.yml') }}
+
+    - name: フォントを用意し、検証し、入れる
       shell: bash
       env:
         NOTO_CJK_COMMIT: 523d033d6cb47f4a80c58a35753646f5c3608a78
         REGULAR_SHA256: b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a
         BOLD_SHA256: faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb
-      run: |
-        set -euo pipefail
-        dir=/usr/local/share/fonts/noto-cjk
-        mkdir -p "$dir"
-        for weight in Regular Bold; do
-          file="NotoSansCJK-${weight}.ttc"
-          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
-            -o "$dir/$file" \
-            "https://github.com/notofonts/noto-cjk/raw/${NOTO_CJK_COMMIT}/Sans/OTC/${file}"
-        done
-        echo "${REGULAR_SHA256}  ${dir}/NotoSansCJK-Regular.ttc" | sha256sum -c -
-        echo "${BOLD_SHA256}  ${dir}/NotoSansCJK-Bold.ttc" | sha256sum -c -
-        # フォントの一覧を更新し、使えることを確かめる（fontconfig のコマンドが、ない環境では、確認を省く）
-        if command -v fc-cache > /dev/null; then fc-cache -f "$dir"; fi
-        if command -v fc-list > /dev/null; then
-          # パイプで grep -q に渡さない（grep が先に終わると、fc-list が SIGPIPE を受け、pipefail で、一致していても失敗する）
-          families="$(fc-list : family)"
-          if ! grep -q "Noto Sans CJK JP" <<< "$families"; then
-            echo "::error::Noto Sans CJK JP が、フォントとして見つかりません。見つかったフォントの一覧（先頭 30 件）:"
-            head -n 30 <<< "$families"
-            exit 1
-          fi
-          fc-match "Noto Sans CJK JP:weight=bold"
-        fi
+        CACHE_DIR: ${{ runner.temp }}/noto-cjk
+        INSTALL: ${{ inputs.install }}
+      # `${{ github.action_path }}` は、コンテナのジョブ（E2E・負荷テスト）では、ホストのパスになり、コンテナの中から見えない。
+      # 環境変数 GITHUB_ACTION_PATH は、コンテナの中のパスで、正しい
+      run: bash "$GITHUB_ACTION_PATH/install-fonts.sh"

@@ -20,6 +20,7 @@ export const MESSAGES = {
       '最新の情報を取得できませんでした。表示は、前回取得した内容です（再接続を試みています）',
     newNotifications: (count: number) => `新しい通知が${String(count)}件あります`,
     renderFailed: '画面を表示できませんでした。ダッシュボードへ戻って、やり直してください',
+    updated: '新しい版に更新されました。画面を再読み込みしてください',
     backToDashboard: 'ダッシュボードへ戻る',
   },
   login: {
@@ -47,6 +48,18 @@ export const MESSAGES = {
     sameAsCurrent: '新しいパスワードは、現在のパスワードと違うものにしてください',
     link: 'パスワードの変更',
   },
+  profile: {
+    title: 'ユーザー名の変更',
+    lead: 'ログインしているご自身のユーザー名を変えます。ユーザーID・ロールは、変えられません。パスワードは、「パスワードの変更」から変えます',
+    userId: 'ユーザーID',
+    userName: 'ユーザー名',
+    submit: 'ユーザー名を変更する',
+    submitting: '変更中…',
+    nameRequired: 'ユーザー名を入力してください',
+    nameTooLong: 'ユーザー名は200文字以内で入力してください',
+    saved: 'ユーザー名を変更しました',
+    link: 'ユーザー名の変更',
+  },
   layout: {
     skipToContent: '本文へ移動',
     menu: 'メニュー',
@@ -56,6 +69,9 @@ export const MESSAGES = {
     unreadNotifications: '未読の通知',
     lastReceived: '最終のデータ取得',
     notReceived: '未取得',
+    /** 手動のみの運用（自動取り込みが有効でない）のヘッダー。最終の手動入力の日時（Issue #202）。 */
+    lastManualInput: '最終の手動入力',
+    noManualInput: 'まだありません',
     stale: '古い',
     user: 'ログイン中のユーザー',
     logout: 'ログアウト',
@@ -84,9 +100,15 @@ export const MESSAGES = {
     periodDays: { 1: '当日', 7: '直近7日', 30: '直近30日', 60: '直近60日', 90: '直近90日' },
     lastReceivedAt: '最終のデータ取得',
     freshnessStale: 'データが古くなっています。取り込みの状況を確認してください',
+    freshnessManual:
+      '自動取り込みが有効でないため、手動入力のデータで評価しています。「古い」「未取得」の警告は、出しません',
+    /** 古い設備の名前（先頭の 3 つ。残りは「ほか N 件」）。どの設備かの設計は #158。 */
+    staleEquipment: (names: readonly string[], rest: number) =>
+      `古い設備: ${names.map((name) => `「${name}」`).join('')}${rest > 0 ? `ほか ${String(rest)} 件` : ''}`,
     freshnessNone:
       'データがまだ取り込まれていません。データ入力または取り込み設定を確認してください',
     noEquipment: '設備が登録されていません。設備を登録してください',
+    noViewableFacility: '閲覧できるハウスが割り当てられていません。管理者に連絡してください',
     recommendedAction: '推奨アクション',
     evaluatedPeriod: '判定の対象期間',
     customCriteria: 'カスタムの判断基準',

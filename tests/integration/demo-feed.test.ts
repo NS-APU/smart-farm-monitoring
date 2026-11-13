@@ -25,64 +25,70 @@ const OPTIONS = { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES, buckets: DEMO_FEE
 const NOW = new Date('2026-10-20T04:22:30.000Z');
 
 describe('合成データのファイルの生成（buildDemoFeedFiles）', () => {
-  it('現在を含む、直近の区間ごとに、ロボットの JSON と、環境センサーの CSV を、1 つずつ作る', () => {
+  it('取り込み元ごとに、1 つのファイル（latest.json）を作る。どちらも JSON で、直近の区間の記録を、古い順に持つ（1 つのファイルを随時上書きする方式。ADR-0016 の D-08）', () => {
     const files = buildDemoFeedFiles(NOW, OPTIONS);
 
-    expect(files).toHaveLength(DEMO_FEED_BUCKETS * 2);
     expect(files.map((file) => `${file.sourceId}/${file.name}`)).toEqual([
-      'robot/robot-20261020T0330Z.json',
-      'environment-sensor/sensor-20261020T0330Z.csv',
-      'robot/robot-20261020T0345Z.json',
-      'environment-sensor/sensor-20261020T0345Z.csv',
-      'robot/robot-20261020T0400Z.json',
-      'environment-sensor/sensor-20261020T0400Z.csv',
-      'robot/robot-20261020T0415Z.json',
-      'environment-sensor/sensor-20261020T0415Z.csv',
+      'robot/latest.json',
+      'environment-sensor/latest.json',
     ]);
-    expect(
-      files
-        .filter((file) => file.sourceId === 'robot')
-        .every((file) => file.contentType === 'application/json'),
-    ).toBe(true);
-    expect(
-      files
-        .filter((file) => file.sourceId !== 'robot')
-        .every((file) => file.contentType === 'text/csv'),
-    ).toBe(true);
+    expect(files.every((file) => file.contentType === 'application/json')).toBe(true);
+    const timestamps = files.map((file) =>
+      (JSON.parse(file.content) as { records: { timestamp: string }[] }).records.map(
+        (record) => record.timestamp,
+      ),
+    );
+    const expected = [
+      '2026-10-20T03:30:00.000Z',
+      '2026-10-20T03:45:00.000Z',
+      '2026-10-20T04:00:00.000Z',
+      '2026-10-20T04:15:00.000Z',
+    ];
+    expect(timestamps).toEqual([expected, expected]);
   });
 
-  it('内容は、区間の時刻から決まる（同じ区間は同じ内容。実行の時刻が違っても、同じ区間は同じ）。区間が変われば、値も変わる', () => {
+  it('内容は、区間の時刻から決まる（同じ区間は同じ内容。実行の時刻が違っても、同じ区間は同じ）。区間が変われば、最も古い記録が外れ、新しい記録が増える', () => {
     const first = buildDemoFeedFiles(NOW, OPTIONS);
     const sameBucketLater = buildDemoFeedFiles(new Date('2026-10-20T04:29:59.000Z'), OPTIONS);
     const nextBucket = buildDemoFeedFiles(new Date('2026-10-20T04:31:00.000Z'), OPTIONS);
 
     expect(sameBucketLater).toEqual(first);
-    // 次の区間では、最も古い区間が外れ、新しい区間が増える。重なる区間（04:15 など）は、同じ内容
-    const byName = (files: typeof first) => new Map(files.map((file) => [file.name, file.content]));
-    expect(byName(nextBucket).get('robot-20261020T0415Z.json')).toBe(
-      byName(first).get('robot-20261020T0415Z.json'),
-    );
-    expect(byName(nextBucket).get('robot-20261020T0430Z.json')).toBeDefined();
-    expect(byName(nextBucket).get('robot-20261020T0330Z.json')).toBeUndefined();
-    expect(byName(first).get('robot-20261020T0400Z.json')).not.toBe(
-      byName(first).get('robot-20261020T0415Z.json'),
-    );
+    const recordsOf = (files: typeof first) =>
+      new Map(
+        (
+          JSON.parse(files[0]?.content ?? '{}') as {
+            records: { timestamp: string }[];
+          }
+        ).records.map((record) => [record.timestamp, JSON.stringify(record)]),
+      );
+    const before = recordsOf(first);
+    const after = recordsOf(nextBucket);
+    // 重なる区間（04:15 など）の記録は、同じ内容。最も古い区間（03:30）は、外れる（消えた行は、取り込みで反映しない）
+    expect(after.get('2026-10-20T04:15:00.000Z')).toBe(before.get('2026-10-20T04:15:00.000Z'));
+    expect(after.has('2026-10-20T04:30:00.000Z')).toBe(true);
+    expect(after.has('2026-10-20T03:30:00.000Z')).toBe(false);
+    expect(before.get('2026-10-20T04:00:00.000Z')).not.toBe(before.get('2026-10-20T04:15:00.000Z'));
   });
 
-  it('ロボットは、FormatProfile（robot-json）が読める形（ロボット ID・1 件の記録）、センサーは、ヘッダーつきの CSV', () => {
+  it('ロボットは robotId、センサーは sensorId と、記録の配列を持つ（FormatProfile が読める形）', () => {
     const files = buildDemoFeedFiles(NOW, { intervalMinutes: 15, buckets: 1 });
     const robot = JSON.parse(files[0]?.content ?? '{}') as {
       robotId: string;
       records: Record<string, unknown>[];
     };
-    const sensor = (files[1]?.content ?? '').split('\n');
+    const sensor = JSON.parse(files[1]?.content ?? '{}') as {
+      sensorId: string;
+      records: Record<string, unknown>[];
+    };
 
     expect(robot.robotId).toBe('ROBOT-SAMPLE-01');
     expect(robot.records).toHaveLength(1);
     expect(robot.records[0]).toMatchObject({ timestamp: '2026-10-20T04:15:00.000Z' });
-    expect(sensor[0]).toBe('sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm');
-    expect(sensor[1]?.startsWith('SENSOR-SAMPLE-01,2026-10-20T04:15:00.000Z,')).toBe(true);
-    expect(sensor[2]).toBe('');
+    expect(sensor.sensorId).toBe('SENSOR-SAMPLE-01');
+    expect(sensor.records).toHaveLength(1);
+    expect(Object.keys(sensor.records[0] ?? {}).sort()).toEqual(
+      ['co2Ppm', 'humidityPercent', 'illuminanceLux', 'temperatureCelsius', 'timestamp'].sort(),
+    );
   });
 });
 
@@ -103,24 +109,23 @@ describe('合成データを生成する Lambda のハンドラ（createDemoFeed
 
     const result = await handler();
 
-    expect(result).toEqual({ files: DEMO_FEED_BUCKETS * 2 });
-    expect(s3.keys()).toContain('robot/robot-20261020T0415Z.json');
-    expect(s3.keys()).toContain('environment-sensor/sensor-20261020T0415Z.csv');
-    expect(s3.contentTypeOf('robot/robot-20261020T0415Z.json')).toBe('application/json');
-    expect(s3.contentTypeOf('environment-sensor/sensor-20261020T0415Z.csv')).toBe('text/csv');
+    expect(result).toEqual({ files: 2 });
+    expect(s3.keys().sort()).toEqual(['environment-sensor/latest.json', 'robot/latest.json']);
+    expect(s3.contentTypeOf('robot/latest.json')).toBe('application/json');
+    expect(s3.contentTypeOf('environment-sensor/latest.json')).toBe('application/json');
     // 置くのは、取り込み元の下だけ
     expect(s3.keys().every((key) => /^(robot|environment-sensor)\//.test(key))).toBe(true);
   });
 
-  it('もう一度実行しても、同じ名前・同じ内容（増えない・内容は変わらない）', async () => {
+  it('もう一度実行しても、同じファイルを上書きする（増えない。同じ区間なら、内容も変わらない）', async () => {
     const { s3, handler } = setup();
     await handler();
-    const before = s3.contentOf('robot/robot-20261020T0415Z.json');
+    const before = s3.contentOf('robot/latest.json');
 
     await handler();
 
-    expect(s3.keys()).toHaveLength(DEMO_FEED_BUCKETS * 2);
-    expect(s3.contentOf('robot/robot-20261020T0415Z.json')).toBe(before);
+    expect(s3.keys()).toHaveLength(2);
+    expect(s3.contentOf('robot/latest.json')).toBe(before);
   });
 
   it('バケットの指定がなければ、設定エラー。S3 のエラーは、そのまま投げる（再試行はしない）', async () => {
@@ -158,7 +163,7 @@ describe('置いたファイルの取り込み（JB-01）', () => {
       { FILE_SERVER_S3_BUCKET: BUCKET },
       { client: s3, clock, logger: NULL_LOGGER },
     )();
-    return { container };
+    return { container, s3, clock };
   }
 
   it('取り込みのジョブが、置いたファイルを読み、ロボット・環境センサーの観測値を保存して、評価を更新する', async () => {
@@ -187,16 +192,44 @@ describe('置いたファイルの取り込み（JB-01）', () => {
       ]),
     );
     expect(robot.every((item) => item.source === 'AUTO_IMPORT')).toBe(true);
-    expect(await container.repositories.ingestion.lastStartedAt('robot')).not.toBeNull();
+    // 設備ごとの最終の実行（Issue #201）が、記録されている
+    expect(
+      (await container.repositories.ingestion.listEquipmentRuns()).get(ROBOT_ID),
+    ).toBeDefined();
   });
 
-  it('同じファイルを、もう一度生成して、取り込んでも、観測値は増えない（取り込み済みの記録）', async () => {
+  it('同じファイルを、もう一度取り込んでも、観測値は増えない（内容のハッシュが同じ）', async () => {
     const { container } = await ingestAfterFeed();
     const first = await container.ingestionService.runSource('robot');
 
     const second = await container.ingestionService.runSource('robot');
 
-    expect(first).toMatchObject({ result: 'SUCCESS', filesProcessed: DEMO_FEED_BUCKETS });
+    expect(first).toMatchObject({ result: 'SUCCESS', filesProcessed: 1 });
     expect(second.filesProcessed).toBe(0);
+  });
+
+  it('次の区間で、ファイルが上書きされたら、新しい区間の観測値だけを取り込む（消えた古い区間は、反映しない。受信日時は、新しい分だけ）', async () => {
+    const { container, s3, clock } = await ingestAfterFeed();
+    await container.ingestionService.runSource('robot');
+    const before = await container.repositories.observations.query(
+      { equipmentIds: [ROBOT_ID], includeDeleted: true },
+      { limit: 200 },
+    );
+    clock.freeze(new Date('2026-10-20T04:31:00.000Z'));
+    await createDemoFeedHandler(
+      { FILE_SERVER_S3_BUCKET: BUCKET },
+      { client: s3, clock, logger: NULL_LOGGER },
+    )();
+    // 上書きの直後（更新から 1 秒以内）は、読まずに次の周期に回す。読める時刻まで進める
+    s3.setModifiedAt('robot/latest.json', new Date('2026-10-20T04:30:00.000Z'));
+
+    const summary = await container.ingestionService.runSource('robot');
+
+    const after = await container.repositories.observations.query(
+      { equipmentIds: [ROBOT_ID], includeDeleted: true },
+      { limit: 200 },
+    );
+    expect(summary).toMatchObject({ filesProcessed: 1, recordCount: 6 });
+    expect(after.items).toHaveLength(before.items.length + 6);
   });
 });

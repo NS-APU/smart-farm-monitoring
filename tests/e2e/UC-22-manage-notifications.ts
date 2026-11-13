@@ -11,31 +11,39 @@
  *
  * 値の同値分割: 種別（すべて・異常検知・データ取得失敗）× 既読状態（すべて・未読・既読）の9通り、既読にする範囲
  * （個別・絞り込みの範囲・すべて）、件数（0件・1ページ・複数ページ）、利用者（既読は利用者ごと）。
+ * 通知の経過・回復日時（Issue #238。D-42）: 通知一覧の API が、通知ごとに、次の通知までの経過と、最初に正常に戻った日時を返す。
+ * 通知のメモ（Issue #239。D-42）: 利用者が、通知にメモを追記でき（共有・追記のみ）、入力者と日時が残る。通知一覧が、メモの件数を返す。
  * 関連するユースケース: UC-05（通知から対象の確認へ）、UC-10・UC-24（通知の発生）。
  */
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   HOUSE_ID,
   ROBOT_ID,
   SENSOR_ID,
   USER_B,
+  accessToken,
   addUser,
   alignBrowserClock,
+  api,
   apiOk,
+  confirmDialog,
   newUserSession,
   openAs,
   prepareApp,
   unreadBadge,
 } from './support/app.ts';
 import {
+  type ApiNotification,
   failIngestion,
   failIngestionRepeatedly,
   listNotifications,
   markReadViaApi,
   seedAbnormalEnvironment,
 } from './support/notifications.ts';
-import { shot } from './support/viewpoint-scenarios.ts';
+import { advanceMinutes } from './support/app.ts';
+import { environmentData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 import { expectHeaderIntact, locatorOf } from './support/pages.ts';
 
 const rows = locatorOf('notification-row');
@@ -225,6 +233,8 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     await expect(rows(page)).toHaveCount(2);
 
     await page.getByRole('button', { name: '絞り込みの範囲を既読にする' }).click();
+    await expect(page.getByTestId('confirm-dialog')).toContainText('未読の通知 2 件を既読にします');
+    await confirmDialog(page, '既読にする');
 
     await expect(rows(page).first()).toHaveAttribute('data-read-state', 'READ');
     await expect(rows(page).nth(1)).toHaveAttribute('data-read-state', 'READ');
@@ -244,12 +254,43 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     await expect(page.getByRole('button', { name: '絞り込みの範囲を既読にする' })).toBeDisabled();
 
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await expect(page.getByTestId('confirm-dialog')).toContainText('未読の通知 5 件を既読にします');
+    await confirmDialog(page, '既読にする');
 
     await expect(unreadBadge(page)).toHaveText('0');
     for (const row of await rows(page).all()) {
       await expect(row).toHaveAttribute('data-read-state', 'READ');
     }
     await shot(page, testInfo, 'uc22-all-read');
+  });
+
+  test('一括既読の確認で「キャンセル」を選ぶと、既読にならない。既読にする未読がないときは、確認せず、その旨を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareFiveNotifications(request);
+    await openNotifications(page);
+
+    await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    const dialog = page.getByTestId('confirm-dialog');
+    await expect(dialog).toContainText('未読の通知 5 件を既読にします');
+    await expect(dialog).toContainText('読み込んだ時点より後に届いた通知は、既読にしません');
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(unreadBadge(page)).toHaveText('5');
+    // 既読にしたあとは、既読にする未読がない（確認は開かず、その旨を示す）
+    await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(page, '既読にする');
+    await expect(page.getByTestId('notifications-notice')).toContainText(
+      '5 件の通知を既読にしました',
+    );
+    await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await expect(page.getByTestId('notifications-notice')).toContainText(
+      '既読にする未読の通知はありません',
+    );
+    await expect(dialog).toBeHidden();
+    await expect(unreadBadge(page)).toHaveText('0');
   });
 
   test('既読にした通知を、未読の絞り込みで探すと、表示されない', async ({ page, request }) => {
@@ -387,6 +428,7 @@ test.describe('シナリオ: 複数の利用者（A・B）が、同じ通知を�
     }
     // 利用者B: 全件を既読にする
     await b.page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(b.page, '既読にする');
     await expect(unreadBadge(b.page)).toHaveText('0');
     await shot(b.page, testInfo, 'uc22-user-b-all-read');
 
@@ -576,8 +618,269 @@ for (const viewport of NOTIFICATION_VIEWPORTS) {
       await expectUnreadBadgeIntact(page, '104');
       await page.getByRole('button', { name: 'すべての通知を既読にする' }).scrollIntoViewIfNeeded();
       await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+      await confirmDialog(page, '既読にする');
       await expectUnreadBadgeIntact(page, '0');
       await expectNotificationTableNotCrushed(page);
     });
   });
 }
+
+test.describe('通知の経過・回復日時（API。Issue #238。D-42）', () => {
+  test('異常 → 正常（5 分後）→ 異常（25 分後）: 最初の通知は、経過（異常 → 正常 → 異常）と回復（5 分）を返し、最新の通知は、未回復', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 40 }));
+    await advanceMinutes(request, 5);
+    await seed(request, environmentData({ temperature: 22 }));
+    await advanceMinutes(request, 20);
+    await seed(request, environmentData({ temperature: 40 }));
+
+    const sensor = (await listNotifications(request)).filter(
+      (item) => item.equipmentId === SENSOR_ID && item.viewpointId === 'environmentalAdaptability',
+    );
+    const [latest, oldest] = sensor;
+
+    expect(sensor).toHaveLength(2);
+    expect(oldest?.progress?.changes.map((change) => change.status)).toEqual([
+      'ERROR',
+      'NORMAL',
+      'ERROR',
+    ]);
+    expect(oldest?.progress?.recovery?.elapsedSeconds).toBe(300);
+    expect(latest?.progress?.changes.map((change) => change.status)).toEqual(['ERROR']);
+    expect(latest?.progress?.recovery).toBeNull();
+  });
+
+  test('取り込み失敗の通知には、経過を付けない', async ({ request }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+
+    const [failure] = await listNotifications(request);
+
+    expect(failure?.kind).toBe('INGESTION_FAILURE');
+    expect(failure !== undefined && 'progress' in failure).toBe(false);
+  });
+});
+
+test.describe('通知のメモ（API。Issue #239。D-42）', () => {
+  test('通知にメモを追記すると、入力者と日時が残り、一覧は入力の古い順。通知一覧が、メモの件数を返す', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+    const [notification] = await listNotifications(request);
+    expect(notification?.memoCount).toBe(0);
+    const id = notification?.notificationId ?? '';
+
+    const first = await apiOk<{ memoId: string; enteredBy: string; body: string }>(
+      request,
+      'POST',
+      `/notifications/${id}/memos`,
+      { body: '  ファイルサーバーを再起動して復旧した  ' },
+    );
+    await advanceMinutes(request, 5);
+    await apiOk(request, 'POST', `/notifications/${id}/memos`, { body: '復旧を確認した' });
+
+    expect(first.body).toBe('ファイルサーバーを再起動して復旧した');
+    expect(first.enteredBy).not.toBe('');
+    const memos = await apiOk<{ items: { body: string; createdAt: string }[] }>(
+      request,
+      'GET',
+      `/notifications/${id}/memos`,
+    );
+    expect(memos.items.map((item) => item.body)).toEqual([
+      'ファイルサーバーを再起動して復旧した',
+      '復旧を確認した',
+    ]);
+    expect(
+      Date.parse(memos.items[1]?.createdAt ?? '') - Date.parse(memos.items[0]?.createdAt ?? ''),
+    ).toBe(5 * 60_000);
+    expect((await listNotifications(request))[0]?.memoCount).toBe(2);
+  });
+
+  test('不正な本文（空・2001 文字）は 400。編集・削除はできない（追記のみ）。通知がなければ 404', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+    const id = (await listNotifications(request))[0]?.notificationId ?? '';
+    const memo = await apiOk<{ memoId: string }>(request, 'POST', `/notifications/${id}/memos`, {
+      body: 'メモ',
+    });
+
+    const empty = await api(request, 'POST', `/notifications/${id}/memos`, { body: '  ' });
+    const tooLong = await api(request, 'POST', `/notifications/${id}/memos`, {
+      body: 'あ'.repeat(2001),
+    });
+    const update = await api(request, 'PUT', `/notifications/${id}/memos/${memo.memoId}`, {
+      body: '修正',
+    });
+    const remove = await api(request, 'DELETE', `/notifications/${id}/memos/${memo.memoId}`);
+    const missing = await api(request, 'POST', '/notifications/none/memos', { body: 'メモ' });
+
+    expect([empty.status(), tooLong.status()]).toEqual([400, 400]);
+    expect([update.status(), remove.status()]).toEqual([404, 404]);
+    expect(missing.status()).toBe(404);
+    expect((await listNotifications(request))[0]?.memoCount).toBe(1);
+  });
+});
+
+test.describe('一括既読は、読み込んだ時点までに限る（API。Issue #240。D-39）', () => {
+  test('一覧の読み込んだ時点（asOf）までの未読だけを既読にし、件数を返す。あとに届いた通知は、未読のまま', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+    const loaded = await apiOk<{ items: unknown[]; asOf: string }>(
+      request,
+      'GET',
+      '/notifications?limit=100',
+    );
+    expect(loaded.items).toHaveLength(1);
+    // 画面を読み込んだあとに、別の通知が届く
+    await advanceMinutes(request, 1);
+    await failIngestion(request, ['environment-sensor']);
+
+    const counted = await apiOk<{ unreadCount: number }>(
+      request,
+      'GET',
+      `/notifications/unread-count?until=${encodeURIComponent(loaded.asOf)}`,
+    );
+    const marked = await apiOk<{ markedCount: number }>(
+      request,
+      'POST',
+      '/notifications/read-all',
+      {
+        until: loaded.asOf,
+      },
+    );
+
+    expect(counted.unreadCount).toBe(1);
+    expect(marked.markedCount).toBe(1);
+    const rest = await listNotifications(request, '&readState=UNREAD');
+    expect(rest).toHaveLength(1);
+    expect(rest[0]?.message).toContain('環境センサーデータ');
+  });
+
+  test('読み込んだ時点（until）がない一括既読は、400。何も既読にしない', async ({ request }) => {
+    await prepareApp(request);
+    await failIngestion(request, ['robot']);
+
+    const withoutUntil = await api(request, 'POST', '/notifications/read-all', {});
+    const invalid = await api(request, 'POST', '/notifications/read-all', { until: 'きのう' });
+
+    expect([withoutUntil.status(), invalid.status()]).toEqual([400, 400]);
+    expect(await listNotifications(request, '&readState=UNREAD')).toHaveLength(1);
+  });
+});
+
+test.describe('通知の閲覧範囲（ハウスごと。Issue #331。ADR-0013・ADR-0019 の D-41。FR-9.8）', () => {
+  /** ハウス 2（ハウス 2 の環境センサー）を登録し、ハウス 1・ハウス 2 の環境の温度を異常にして、通知を作る。取り込みの失敗の通知（ハウスに属さない）も作る。 */
+  async function prepareTwoHouses(request: Parameters<typeof prepareApp>[0]): Promise<void> {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'SENSOR-02',
+      equipmentType: 'SENSOR',
+      name: '環境センサー2',
+      facilityId: 'HOUSE-02',
+    });
+    await seedAbnormalEnvironment(request);
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: 'SENSOR-02',
+          itemKey: 'temperatureCelsius',
+          observedAt: hoursAgo(1),
+          value: 40,
+        },
+      ],
+    });
+    await failIngestion(request, ['robot']);
+  }
+
+  const generalApi = async (
+    request: Parameters<typeof prepareApp>[0],
+    method: 'GET' | 'POST',
+    path: string,
+  ) =>
+    request.fetch(`/api/v1${path}`, {
+      method,
+      headers: { authorization: `Bearer ${await accessToken(request, GENERAL)}` },
+    });
+
+  test('一般ユーザーには、割り当てられたハウスの通知だけが、一覧・未読の件数に出る。ハウスに属さない通知（取り込みの失敗）は、管理者のみ。範囲外の通知は、既読にもできない（404）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareTwoHouses(request);
+    await addUser(request, GENERAL);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-02', { userIds: [GENERAL.userId] });
+
+    // 管理者: 両方のハウスと、取り込みの失敗の通知
+    const all = await listNotifications(request);
+    const houses = new Set(
+      all.filter((item) => item.equipmentId !== undefined).map((item) => item.equipmentId),
+    );
+    expect(houses.has('SENSOR-01') || houses.has('HOUSE-01')).toBe(true);
+    expect(houses.has('SENSOR-02') || houses.has('HOUSE-02')).toBe(true);
+    expect(all.some((item) => item.kind === 'INGESTION_FAILURE')).toBe(true);
+
+    // 一般ユーザー（API）: ハウス 2 の通知だけ
+    const listed = (await (
+      await generalApi(request, 'GET', '/notifications?limit=100')
+    ).json()) as {
+      items: ApiNotification[];
+    };
+    expect(listed.items.length).toBeGreaterThan(0);
+    for (const item of listed.items) {
+      expect(['HOUSE-02', 'SENSOR-02'], item.message).toContain(item.equipmentId);
+    }
+    const other = all.find((item) => item.equipmentId === 'SENSOR-01');
+    expect(other).toBeDefined();
+    expect(
+      (
+        await generalApi(request, 'POST', `/notifications/${other?.notificationId ?? ''}/read`)
+      ).status(),
+    ).toBe(404);
+    expect(
+      (
+        await generalApi(request, 'GET', `/notifications/${other?.notificationId ?? ''}/memos`)
+      ).status(),
+    ).toBe(404);
+
+    // 一般ユーザー（画面）: ヘッダーの未読の件数と、通知の一覧の行が、範囲の通知の数と一致する
+    const count = listed.items.length;
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+    await expect(unreadBadge(page)).toHaveText(String(count));
+    await page.goto('/notifications');
+    await expect(rows(page)).toHaveCount(count);
+    // ハウスに属さない通知（取り込みの失敗。種別「データ取得失敗」）は、一般ユーザーの一覧には出ない
+    await expect(rows(page).filter({ hasText: 'データ取得失敗' })).toHaveCount(0);
+    await shot(page, testInfo, 'uc22-scoped');
+  });
+
+  test('割り当てがない一般ユーザーには、通知が出ない（一覧は空・未読の件数は 0）。管理者が割り当てると、すぐに出る', async ({
+    request,
+  }) => {
+    await prepareTwoHouses(request);
+    await addUser(request, GENERAL);
+    const unreadOf = async () =>
+      (
+        (await (await generalApi(request, 'GET', '/notifications/unread-count')).json()) as {
+          unreadCount: number;
+        }
+      ).unreadCount;
+
+    expect(await unreadOf()).toBe(0);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-02', { userIds: [GENERAL.userId] });
+
+    expect(await unreadOf()).toBeGreaterThan(0);
+  });
+});

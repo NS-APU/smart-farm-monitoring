@@ -14,6 +14,8 @@ import {
 } from '../../src/backend/infrastructure/local/clocks.ts';
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { hashPassword } from '../../src/backend/infrastructure/local/password-hasher.ts';
+import type { WebPushSender } from '../../src/backend/infrastructure/web-push/web-push-notifier.ts';
+import type { NgsiLdTransport } from '../../src/backend/infrastructure/http/ngsi-ld-http-transport.ts';
 import { ErrorResponseSchema } from '../../src/shared/schemas/api.ts';
 import { LoginResponseSchema } from '../../src/shared/schemas/auth.ts';
 import { toUserId } from '../../src/shared/schemas/common.ts';
@@ -58,6 +60,10 @@ export interface TestContextOptions {
   readonly now?: Date;
   /** ログの出力先（ログに秘密情報が含まれないことの検証用）。省略すると、何も出力しない。 */
   readonly logger?: Logger;
+  /** Web Push の送信の関数の偽物（WEB_PUSH_DELIVERY=vapid のとき、プッシュサービスへの送信の代わりに使う）。 */
+  readonly webPushSender?: WebPushSender;
+  /** 農業情報基盤への送信の偽物（FEDERATION_MODE=ngsi-ld のとき、実際の接続の代わりに使う）。 */
+  readonly federationTransport?: NgsiLdTransport;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -79,6 +85,10 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     clock,
     ids: createSequentialIdGenerator('test'),
     logger: options.logger ?? NULL_LOGGER,
+    ...(options.webPushSender === undefined ? {} : { webPushSender: options.webPushSender }),
+    ...(options.federationTransport === undefined
+      ? {}
+      : { federationTransport: options.federationTransport }),
   });
   await container.initialize();
   const app = createApp(container);
@@ -186,14 +196,16 @@ export async function addUserAndLogin(
   return LoginResponseSchema.parse(await response.json()).accessToken;
 }
 
-/** 3ロール（管理者・評価者・閲覧者）の設定の例。ロールの分け方は未確定（Q-017）のため、設定で切り替える。 */
+/** 3ロール（管理者・評価者・閲覧者）の設定の例。既定の 2 ロール（管理者・一般）以外にも、設定の変更だけで対応できることの確認用。 */
 export const THREE_ROLES_JSON = JSON.stringify({
   admin: {
     name: '管理者',
     permissions: [
       'equipment:manage',
+      'equipment:view-all',
       'ingestion:configure',
       'ingestion:run',
+      'ingestion:read',
       'status-code:manage',
       'manual-entry:write',
       'criteria:edit',
@@ -203,7 +215,13 @@ export const THREE_ROLES_JSON = JSON.stringify({
   },
   evaluator: {
     name: '評価者',
-    permissions: ['manual-entry:write', 'criteria:edit', 'ingestion:run', 'audit:read'],
+    permissions: [
+      'manual-entry:write',
+      'criteria:edit',
+      'ingestion:run',
+      'ingestion:read',
+      'audit:read',
+    ],
   },
   viewer: { name: '閲覧者', permissions: [] },
 });

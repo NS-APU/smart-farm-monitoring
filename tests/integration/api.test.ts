@@ -114,10 +114,10 @@ describe('認証（UC-13）', () => {
     expect(body.user).toMatchObject({
       userId: TEST_USER.userId,
       userName: TEST_USER.userName,
-      role: 'worker',
+      role: 'admin',
     });
-    // 既定は1ロール（農作業者）で、全権限を持つ
-    expect(body.user.permissions).toHaveLength(8);
+    // 既定の最初のユーザーは、管理者で、全権限を持つ
+    expect(body.user.permissions).toHaveLength(10);
     expect(body.accessTokenExpiresAt).toBe(
       new Date(TEST_NOW.getTime() + 30 * 60_000).toISOString(),
     );
@@ -295,13 +295,24 @@ describe('認証・認可（全ルート）', () => {
   const fill = (path: string) => path.replace(/:[A-Za-z]+/g, 'x');
   const protectedRoutes = ROUTE_TABLE.filter((spec) => spec.access !== 'PUBLIC');
 
-  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更（POST /auth/password。Issue #245）を網羅している（重複なし）', () => {
+  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更・ユーザー名の編集（POST /auth/password・PUT /auth/profile。Issue #245・#115）・閲覧の割り当て（GET・PUT /facility-access。Issue #330）・認証情報の登録（PUT /ingestion/{sourceId}/credentials。Issue #207）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）・ハウス別の取り込み・連携のログ（GET /ingestion/facility-logs・GET /federation/facility-logs。Issue #332）・連携先の設定（GET・PUT /federation/settings・POST /federation/test。Issue #177）を網羅している（重複なし）', () => {
     const keys = ROUTE_TABLE.map(routeKey);
 
     expect(new Set(keys).size).toBe(keys.length);
-    expect(ROUTE_TABLE).toHaveLength(41);
+    expect(ROUTE_TABLE).toHaveLength(52);
     expect(keys).toContain('GET /push-subscription');
     expect(keys).toContain('POST /auth/password');
+    expect(keys).toContain('PUT /auth/profile');
+    expect(keys).toContain('GET /facility-access');
+    expect(keys).toContain('PUT /facility-access/:facilityId');
+    expect(keys).toContain('PUT /ingestion/:sourceId/credentials');
+    expect(keys).toContain('POST /notifications/:notificationId/memos');
+    expect(keys).toContain('GET /notifications/:notificationId/memos');
+    expect(keys).toContain('GET /ingestion/facility-logs');
+    expect(keys).toContain('GET /federation/facility-logs');
+    expect(keys).toContain('GET /federation/settings');
+    expect(keys).toContain('PUT /federation/settings');
+    expect(keys).toContain('POST /federation/test');
     expect(ROUTE_TABLE.filter((spec) => spec.access === 'PUBLIC').map(routeKey)).toEqual([
       'POST /auth/login',
       'POST /auth/refresh',
@@ -373,6 +384,7 @@ describe('認証・認可（全ルート）', () => {
             'manual-entry:write',
             'criteria:edit',
             'ingestion:run',
+            'ingestion:read',
             'audit:read',
           ].includes(spec.access);
           expect(passes(evaluatorStatus)).toBe(evaluatorHasIt);
@@ -678,26 +690,33 @@ describe('通知（UC-05, UC-22）', () => {
     expect(readList.items.map((item) => item.notificationId)).toEqual([first?.notificationId]);
   });
 
-  it('一括で既読にでき、本文で範囲を絞れる（本文なしは全件）', async () => {
+  it('一括で既読にでき、本文で範囲を絞れる。読み込んだ時点（until）が必須で、既読にした件数を返す（#240）', async () => {
     const context = await withNotifications();
     const token = await context.login();
+    const until = '2099-01-01T00:00:00.000Z';
 
-    const none = await context.request('/notifications/read-all', {
+    const filtered = await context.request('/notifications/read-all', {
       method: 'POST',
       token,
-      body: { kind: 'INGESTION_FAILURE' },
+      body: { kind: 'INGESTION_FAILURE', until },
     });
     const countAfterFilter = await (
       await context.request('/notifications/unread-count', { token })
     ).json();
-    const all = await context.request('/notifications/read-all', { method: 'POST', token });
+    const all = await context.request('/notifications/read-all', {
+      method: 'POST',
+      token,
+      body: { until },
+    });
     const countAfterAll = await (
       await context.request('/notifications/unread-count', { token })
     ).json();
 
-    expect(none.status).toBe(204);
+    expect(filtered.status).toBe(200);
+    expect(await filtered.json()).toEqual({ markedCount: 0 });
     expect(countAfterFilter).toEqual({ unreadCount: 3 });
-    expect(all.status).toBe(204);
+    expect(all.status).toBe(200);
+    expect(await all.json()).toEqual({ markedCount: 3 });
     expect(countAfterAll).toEqual({ unreadCount: 0 });
   });
 
@@ -713,14 +732,19 @@ describe('通知（UC-05, UC-22）', () => {
       body: 'x',
       headers: { authorization: `Bearer ${await context.login()}` },
     });
-    const withFilter = await context.request('/notifications/read-all', {
+    const withoutUntil = await context.request('/notifications/read-all', {
       method: 'POST',
       body: { readState: 'UNREAD' },
+    });
+    const withFilter = await context.request('/notifications/read-all', {
+      method: 'POST',
+      body: { readState: 'UNREAD', until: '2099-01-01T00:00:00.000Z' },
     });
 
     expect(invalidBody.status).toBe(400);
     expect(notJson.status).toBe(400);
-    expect(withFilter.status).toBe(204);
+    expect(withoutUntil.status).toBe(400);
+    expect(withFilter.status).toBe(200);
   });
 });
 

@@ -1,11 +1,17 @@
 /** 通知の Repository（ローカル実装）。通知の既読は、通知と利用者の組ごとに記録する。 */
 
 import { z } from 'zod';
-import { NotificationSchema, type Notification } from '@smart-farm/shared/schemas/notification';
+import {
+  NotificationMemoSchema,
+  NotificationSchema,
+  type Notification,
+} from '@smart-farm/shared/schemas/notification';
 import type {
   NotificationListFilter,
   NotificationRepository,
+  StatusChangeNotificationTime,
 } from '../../../application/ports/repositories.ts';
+import { needsWebPushDelivery } from '../../../domain/notification-delivery.ts';
 import type { LocalStore } from '../local-store.ts';
 import { paginated, readKey, saverOf } from './collection-helpers.ts';
 
@@ -27,6 +33,15 @@ function matchesNotification(
   if (filter.kind !== undefined && notification.kind !== filter.kind) {
     return false;
   }
+  if (filter.until !== undefined && Date.parse(notification.createdAt) > filter.until.getTime()) {
+    return false;
+  }
+  if (
+    filter.facilityIds !== undefined &&
+    (notification.facilityId === undefined || !filter.facilityIds.includes(notification.facilityId))
+  ) {
+    return false;
+  }
   if (filter.readState === 'READ' && !isRead) {
     return false;
   }
@@ -42,11 +57,41 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
   const notificationReads = store.collection('notificationReads', NotificationReadSchema, (item) =>
     readKey(item.notificationId, item.userId),
   );
+  const notificationMemos = store.collection(
+    'notificationMemos',
+    NotificationMemoSchema,
+    (item) => item.memoId,
+  );
   const isReadBy = (notification: Notification, userId: string): boolean =>
     notificationReads.get(readKey(notification.notificationId, userId)) !== undefined;
 
   return {
     add: saverOf(notifications),
+    rebuildFacilityIndex({ facilityOf, userIds, dryRun }) {
+      // ローカルの実装は、ハウスごとのカウンターを持たない（件数は、通知から数える）。ハウスだけを補う
+      let assigned = 0;
+      const facilities = new Set<string>();
+      const all = notifications.values();
+      for (const item of all) {
+        const facilityId = item.facilityId ?? facilityOf(item);
+        if (facilityId !== undefined) {
+          facilities.add(facilityId);
+        }
+        if (item.facilityId === undefined && facilityId !== undefined) {
+          assigned += 1;
+          if (!dryRun) {
+            notifications.put({ ...item, facilityId });
+          }
+        }
+      }
+      return Promise.resolve({
+        notifications: all.length,
+        assigned,
+        counters: 0,
+        facilities: facilities.size,
+        users: userIds.length,
+      });
+    },
     get: (notificationId) => Promise.resolve(notifications.get(notificationId)),
     findLatestByDedupKey(dedupKey) {
       // 最も新しい1件だけが必要なため、並べ替えず、1回の走査で求める
@@ -69,8 +114,16 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
         .map((notification) => ({ notification, isRead: isReadBy(notification, userId) }));
       return paginated(matched, page);
     },
-    unreadCount: (userId) =>
-      Promise.resolve(notifications.values().filter((item) => !isReadBy(item, userId)).length),
+    unreadCount: (userId, facilityIds) =>
+      Promise.resolve(
+        notifications
+          .values()
+          .filter(
+            (item) =>
+              !isReadBy(item, userId) &&
+              matchesNotification(item, false, facilityIds === undefined ? {} : { facilityIds }),
+          ).length,
+      ),
     markRead(notificationId, userId, readAt) {
       if (notifications.get(notificationId) === undefined) {
         return Promise.resolve(false);
@@ -80,6 +133,13 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
       }
       return Promise.resolve(true);
     },
+    countUnread: (userId, filter) =>
+      Promise.resolve(
+        notifications
+          .values()
+          .filter((item) => !isReadBy(item, userId) && matchesNotification(item, false, filter))
+          .length,
+      ),
     markAllRead(userId, filter, readAt) {
       let count = 0;
       for (const item of notifications.values()) {
@@ -94,17 +154,49 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
       }
       return Promise.resolve(count);
     },
-    update: saverOf(notifications),
-    listUndelivered: (maxAttempts) =>
+    listStatusChangeTimes(since) {
+      const times: StatusChangeNotificationTime[] = [];
+      for (const item of notifications.values()) {
+        if (
+          item.kind === 'STATUS_CHANGE' &&
+          item.equipmentId !== undefined &&
+          item.viewpointId !== undefined &&
+          Date.parse(item.createdAt) > since.getTime()
+        ) {
+          times.push({
+            equipmentId: item.equipmentId,
+            viewpointId: item.viewpointId,
+            createdAt: item.createdAt,
+          });
+        }
+      }
+      return Promise.resolve(
+        times.sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+      );
+    },
+    addMemo: saverOf(notificationMemos),
+    listMemos: (notificationId) =>
       Promise.resolve(
-        notifications.values().filter((item) => {
-          const webPush = item.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
-          return (
-            webPush !== undefined &&
-            (webPush.result === 'PENDING' ||
-              (webPush.result === 'FAILURE' && webPush.attempts < maxAttempts))
-          );
-        }),
+        notificationMemos
+          .values()
+          .filter((item) => item.notificationId === notificationId)
+          .sort(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) ||
+              left.memoId.localeCompare(right.memoId),
+          ),
       ),
+    memoCounts(notificationIds) {
+      const counts = new Map(notificationIds.map((id) => [id, 0]));
+      for (const item of notificationMemos.values()) {
+        const count = counts.get(item.notificationId);
+        if (count !== undefined) {
+          counts.set(item.notificationId, count + 1);
+        }
+      }
+      return Promise.resolve(counts);
+    },
+    update: saverOf(notifications),
+    listUndelivered: () => Promise.resolve(notifications.values().filter(needsWebPushDelivery)),
   };
 }

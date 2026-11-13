@@ -184,7 +184,7 @@ describe('Cognito の認証の組み立てと、最初のユーザーを作る�
           userId: toUserId('second-user'),
           userName: '2 人目',
           password: 'Dummy-Passw0rd-2',
-          role: 'worker',
+          role: 'general',
         },
         toUserId('first-user'),
       );

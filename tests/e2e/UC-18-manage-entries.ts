@@ -858,7 +858,7 @@ const LONG_USER = {
   userId: `u${'a'.repeat(99)}`,
   userName: '長い名前の入力者',
   password: 'Dummy-Passw0rd-l1',
-  role: 'worker',
+  role: 'admin',
 } as const;
 const LONG_NOTE_JAPANESE = '長い備考。'.repeat(400);
 const LONG_NOTE_ASCII = 'x'.repeat(2000);

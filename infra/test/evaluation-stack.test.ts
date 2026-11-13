@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { App, Stack } from 'aws-cdk-lib';
-import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Capture, Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { describe, expect, it } from 'vitest';
 import {
@@ -16,12 +16,19 @@ import {
   JOB_LAMBDA_TIMEOUT_SECONDS,
   JOB_LEASE_MS,
 } from '../../src/backend/application/jobs/job-schedule.ts';
+import { ORIGIN_SECRET_HEADER } from '../../src/backend/presentation/origin-guard.ts';
+import { STATIC_CONTENT_SECURITY_POLICY } from '../lib/content-security-policy.ts';
 import { DataStack } from '../lib/data-stack.ts';
 import {
   COGNITO_ACTIONS,
   DYNAMODB_ACTIONS,
+  KMS_SSM_API_ACTIONS,
+  KMS_SSM_JOB_ACTIONS,
+  SSM_API_ACTIONS,
+  SSM_JOB_ACTIONS,
   CLIENT_IP_HEADER,
   FILE_SERVER_RETENTION_DAYS,
+  ORIGIN_SECRET_READ_ACTION,
   S3_READ_ACTIONS,
   S3_WRITE_ACTION,
   EvaluationStack,
@@ -186,6 +193,138 @@ describe('評価環境のスタック: 画面の配信（S3 + CloudFront）', ()
       DistributionPaths: ['/*'],
     });
   });
+
+  it('画面のファイルは、2 つに分けて配置する。ハッシュ付きの assets/ は、長期のキャッシュ（immutable）、それ以外（index.html・sw.js・manifest）は、毎回、更新を確認する（no-cache）。Issue #323', () => {
+    const { template } = plainStack();
+    const deployments = Object.entries(
+      template.findResources('Custom::CDKBucketDeployment') as Record<
+        string,
+        {
+          DependsOn?: string[];
+          Properties: {
+            Exclude?: string[];
+            Include?: string[];
+            Prune?: boolean;
+            DistributionPaths?: string[];
+            SystemMetadata?: Record<string, string>;
+          };
+        }
+      >,
+    );
+
+    expect(deployments).toHaveLength(2);
+    const assets = deployments.find(([, deployment]) =>
+      deployment.Properties.Include?.includes('assets/*'),
+    );
+    const rest = deployments.find(([, deployment]) =>
+      deployment.Properties.Exclude?.includes('assets/*'),
+    );
+    expect(assets).toBeDefined();
+    expect(rest).toBeDefined();
+    // ハッシュ付きの部品: ファイル名が変わらない限り、内容は変わらない。長く、キャッシュしてよい
+    expect(assets?.[1].Properties.Exclude).toEqual(['*']);
+    expect(assets?.[1].Properties.Include).toEqual(['assets/*']);
+    expect(assets?.[1].Properties.SystemMetadata?.['cache-control']).toBe(
+      'public, max-age=31536000, immutable',
+    );
+    // index.html など: 毎回、更新を確認する（変わっていなければ、304）。古い index.html を使い続けない
+    expect(rest?.[1].Properties.Include).toBeUndefined();
+    expect(rest?.[1].Properties.SystemMetadata?.['cache-control']).toBe('no-cache');
+    // 互いのファイルを、削除（prune）しない。キャッシュの無効化は、全ファイルを配置したあとの 1 回だけ
+    expect(assets?.[1].Properties.Prune).toBe(true);
+    expect(rest?.[1].Properties.Prune).toBe(true);
+    expect(rest?.[1].Properties.DistributionPaths).toEqual(['/*']);
+    expect(assets?.[1].Properties.DistributionPaths).toBeUndefined();
+    // 新しい index.html は、新しい assets/ を配置したあとに、公開する（先に、index.html が新しくなって、部品がない時間を作らない）
+    expect(rest?.[1].DependsOn).toContain(assets?.[0]);
+  });
+});
+
+/** CSP のヘッダーの値を、ディレクティブ → 値の一覧にする。 */
+function directivesOf(policy: string): Map<string, string[]> {
+  return new Map(
+    policy
+      .split(';')
+      .map((part) => part.trim().split(/\s+/))
+      .filter(([name]) => name !== undefined && name !== '')
+      .map(([name, ...values]) => [name ?? '', values] as const),
+  );
+}
+
+describe('評価環境のスタック: 画面の配信ヘッダー（CSP・frame-ancestors。Issue #127）', () => {
+  const SECURITY_HEADERS_POLICY_ID = '67f7725c-6f97-4210-82d7-5512b31e9d03';
+
+  it('CSP は、画面が動く最小の許可（同じオリジンだけ）。スクリプトのインライン・eval を許さず、インラインのスタイルは、style 属性だけに限る。埋め込みは許さない', () => {
+    const directives = directivesOf(STATIC_CONTENT_SECURITY_POLICY);
+
+    expect(directives.get('default-src')).toEqual(["'self'"]);
+    expect(directives.get('script-src')).toEqual(["'self'"]);
+    expect(directives.get('style-src')).toEqual(["'self'"]);
+    expect(directives.get('style-src-attr')).toEqual(["'unsafe-inline'"]);
+    for (const name of ['img-src', 'font-src', 'connect-src', 'worker-src', 'manifest-src']) {
+      expect(directives.get(name), name).toEqual(["'self'"]);
+    }
+    expect(directives.get('object-src')).toEqual(["'none'"]);
+    expect(directives.get('base-uri')).toEqual(["'self'"]);
+    expect(directives.get('form-action')).toEqual(["'self'"]);
+    expect(directives.get('frame-ancestors')).toEqual(["'none'"]);
+    // 'unsafe-inline' は style-src-attr だけ。'unsafe-eval'・外部のオリジン（http・https・*）は、どこにも許さない
+    expect(STATIC_CONTENT_SECURITY_POLICY.match(/'unsafe-inline'/g)).toHaveLength(1);
+    expect(STATIC_CONTENT_SECURITY_POLICY).not.toMatch(/unsafe-eval|https?:|\*/);
+  });
+
+  it('画面の配信に、独自の応答ヘッダーポリシー（CSP・X-Frame-Options DENY と、これまでのマネージドポリシーと同じヘッダー）を付ける', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::CloudFront::ResponseHeadersPolicy', {
+      ResponseHeadersPolicyConfig: Match.objectLike({
+        SecurityHeadersConfig: {
+          ContentSecurityPolicy: {
+            ContentSecurityPolicy: STATIC_CONTENT_SECURITY_POLICY,
+            Override: true,
+          },
+          FrameOptions: { FrameOption: 'DENY', Override: true },
+          ContentTypeOptions: { Override: true },
+          ReferrerPolicy: { ReferrerPolicy: 'strict-origin-when-cross-origin', Override: true },
+          StrictTransportSecurity: {
+            AccessControlMaxAgeSec: 31536000,
+            IncludeSubdomains: false,
+            Preload: false,
+            Override: true,
+          },
+          XSSProtection: { Protection: true, ModeBlock: true, Override: true },
+        },
+      }),
+    });
+    const policies = template.findResources('AWS::CloudFront::ResponseHeadersPolicy');
+    expect(Object.keys(policies)).toHaveLength(1);
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        DefaultCacheBehavior: Match.objectLike({
+          ResponseHeadersPolicyId: { Ref: Object.keys(policies)[0] },
+        }),
+      }),
+    });
+  });
+
+  it('API（/api/*・/health）の応答は、これまでのマネージドポリシーのまま（API の CSP は、バックエンドが付ける）', () => {
+    const { template } = plainStack();
+
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        CacheBehaviors: Match.arrayEquals([
+          Match.objectLike({
+            PathPattern: '/api/*',
+            ResponseHeadersPolicyId: SECURITY_HEADERS_POLICY_ID,
+          }),
+          Match.objectLike({
+            PathPattern: '/health',
+            ResponseHeadersPolicyId: SECURITY_HEADERS_POLICY_ID,
+          }),
+        ]),
+      }),
+    });
+  });
 });
 
 describe('評価環境のスタック: API（Lambda の関数の URL）', () => {
@@ -267,6 +406,104 @@ function roleStatements(template: Template, functionId = 'ApiFunction'): PolicyS
     .filter(([logicalId]) => logicalId.startsWith(`${functionId}ServiceRoleDefaultPolicy`))
     .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement);
 }
+
+describe('評価環境のスタック: 関数の URL への直接の呼び出しの防止（秘密のヘッダー。Issue #102。ADR-0010）', () => {
+  it('Secrets Manager に、秘密の値を自動生成する（英数字だけ・64 文字。名前は固定せず、スタックの作り直しで、衝突しない）。値は、リポジトリ・テンプレートに、書かない', () => {
+    const { template } = plainStack();
+
+    template.resourceCountIs('AWS::SecretsManager::Secret', 1);
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      GenerateSecretString: Match.objectLike({ PasswordLength: 64, ExcludePunctuation: true }),
+    });
+    const secrets = Object.values(
+      template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        { Properties: { Name?: unknown }; DeletionPolicy?: string }
+      >,
+    );
+    expect(secrets[0]?.Properties.Name).toBeUndefined();
+    expect(secrets[0]?.DeletionPolicy).toBe('Delete');
+  });
+
+  it('API のオリジン（関数の URL）にだけ、秘密のヘッダーを付ける。S3 のオリジンには、付けない', () => {
+    const { template } = plainStack();
+    const headers = new Capture();
+
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Origins: Match.arrayWith([Match.objectLike({ OriginCustomHeaders: headers })]),
+      }),
+    });
+
+    expect(headers.asArray()).toEqual([
+      { HeaderName: ORIGIN_SECRET_HEADER, HeaderValue: expect.anything() as unknown },
+    ]);
+    const distribution = Object.values(
+      template.findResources('AWS::CloudFront::Distribution') as Record<
+        string,
+        { Properties: { DistributionConfig: { Origins: { OriginCustomHeaders?: unknown }[] } } }
+      >,
+    )[0];
+    const origins = distribution?.Properties.DistributionConfig.Origins ?? [];
+    expect(origins.filter((origin) => origin.OriginCustomHeaders !== undefined)).toHaveLength(1);
+    // /api/*・/health は、どちらも、このオリジンへ向ける
+    expect(origins).toHaveLength(2);
+  });
+
+  it('API の Lambda の環境変数は、秘密の ARN だけ（ORIGIN_VERIFY_ARN。秘密の値は、持たない）。ジョブ・デモの Lambda には、持たせない。CloudFront のヘッダーは、動的な参照（リテラルでない）', () => {
+    const { template } = plainStack();
+    const environment = new Capture();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ ORIGIN_VERIFY_ARN: environment }) },
+    });
+    const header = new Capture();
+    template.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Origins: Match.arrayWith([
+          Match.objectLike({ OriginCustomHeaders: [Match.objectLike({ HeaderValue: header })] }),
+        ]),
+      }),
+    });
+
+    const [secretId] = Object.keys(template.findResources('AWS::SecretsManager::Secret'));
+    expect(environment.asObject()).toEqual({ Ref: secretId });
+    // CloudFront のヘッダーだけが、秘密の値を、動的な参照で持つ。Lambda の環境変数には、値を持たない
+    expect(JSON.stringify(header.asObject())).toContain('resolve:secretsmanager:');
+    const functions = Object.values(
+      template.findResources('AWS::Lambda::Function') as Record<
+        string,
+        { Properties: { Environment?: { Variables?: Record<string, unknown> } } }
+      >,
+    );
+    for (const resource of functions) {
+      const variables = resource.Properties.Environment?.Variables ?? {};
+      expect(JSON.stringify(variables)).not.toContain('resolve:secretsmanager');
+      expect(variables.ORIGIN_VERIFY_SECRET).toBeUndefined();
+    }
+    const withArn = functions.filter(
+      (resource) => resource.Properties.Environment?.Variables?.ORIGIN_VERIFY_ARN !== undefined,
+    );
+    expect(withArn).toHaveLength(1);
+  });
+
+  it('IAM: API の Lambda だけが、この秘密の GetSecretValue（読み取りのみ）を持つ。ジョブの Lambda は、持たない', () => {
+    const { template } = plainStack();
+    const [secretId] = Object.keys(template.findResources('AWS::SecretsManager::Secret'));
+    const secretStatements = (functionId: string) =>
+      roleStatements(template, functionId).filter((statement) =>
+        [statement.Action].flat().some((action) => action.startsWith('secretsmanager:')),
+      );
+
+    const api = secretStatements('ApiFunction');
+    expect(api).toHaveLength(1);
+    expect(api[0]).toMatchObject({
+      Action: ORIGIN_SECRET_READ_ACTION,
+      Effect: 'Allow',
+      Resource: { Ref: secretId },
+    });
+    expect(secretStatements('JobFunction')).toEqual([]);
+  });
+});
 
 describe('評価環境のスタック: API はバックエンド本体（Issue #75。ADR-0009）', () => {
   function environmentOf(template: Template): Record<string, unknown> {
@@ -360,6 +597,98 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     expect(withSetting[0]?.Properties.Environment?.Variables.CLIENT_IP_HEADER).toBe(
       CLIENT_IP_HEADER,
     );
+  });
+
+  it('環境変数: 秘密情報の保管先は、パラメータストア（環境ごとのパスの接頭辞）。API とジョブの両方に、同じ設定を持つ（#206。D-55）', () => {
+    const dev = plainStack();
+    const app = newApp();
+    const production = new EvaluationStack(app, 'Evaluation', {
+      frontendAssetPath: frontendAssets(),
+      data: new DataStack(app, 'Data'),
+      siteEnvironment: 'production',
+    });
+    const functions = (template: Template) =>
+      Object.values(
+        template.findResources('AWS::Lambda::Function') as Record<
+          string,
+          { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+        >,
+      ).filter((resource) => resource.Properties.Environment?.Variables.APP_MODE !== undefined);
+
+    for (const resource of functions(dev.template)) {
+      expect(resource.Properties.Environment?.Variables).toMatchObject({
+        CREDENTIAL_STORE: 'ssm',
+        CREDENTIAL_PATH_PREFIX: '/sfm/development/',
+      });
+    }
+    const productionFunctions = functions(Template.fromStack(production));
+    expect(productionFunctions).toHaveLength(2);
+    for (const resource of productionFunctions) {
+      expect(resource.Properties.Environment?.Variables).toMatchObject({
+        CREDENTIAL_STORE: 'ssm',
+        CREDENTIAL_PATH_PREFIX: '/sfm/production/',
+      });
+    }
+  });
+
+  it('環境変数: 農業情報基盤との連携は、NGSI-LD のアダプタ（FEDERATION_MODE=ngsi-ld）。API（設定・接続の確認）とジョブ（送信）の両方に持つ（#177。ADR-0024）', () => {
+    const { template } = plainStack();
+    const functions = Object.values(
+      template.findResources('AWS::Lambda::Function') as Record<
+        string,
+        { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+      >,
+    ).filter((resource) => resource.Properties.Environment?.Variables.APP_MODE !== undefined);
+
+    expect(functions).toHaveLength(2);
+    for (const resource of functions) {
+      expect(resource.Properties.Environment?.Variables).toMatchObject({
+        FEDERATION_MODE: 'ngsi-ld',
+      });
+    }
+  });
+
+  it('IAM（API）: パラメータストアは、環境のパスの下だけ（読み取り・書き込み）。復号・暗号化は、SSM 経由の利用に限る。ワイルドカードの全リソースはない（#206）', () => {
+    const { template } = plainStack();
+    const statements = roleStatements(template);
+    const actionsOf = (statement: PolicyStatementJson): string[] => [statement.Action].flat();
+    const ssm = statements.filter((statement) =>
+      actionsOf(statement).some((action) => action.startsWith('ssm:')),
+    );
+    const kms = statements.filter((statement) =>
+      actionsOf(statement).some((action) => action.startsWith('kms:')),
+    );
+
+    expect(ssm).toHaveLength(1);
+    expect(kms).toHaveLength(1);
+    const [ssmStatement] = ssm;
+    const [kmsStatement] = kms;
+    if (ssmStatement === undefined || kmsStatement === undefined) {
+      throw new Error('テストの前提');
+    }
+    expect(actionsOf(ssmStatement).sort()).toEqual([...SSM_API_ACTIONS].sort());
+    expect(JSON.stringify(ssmStatement.Resource)).toContain('parameter/sfm/development/*');
+    expect(actionsOf(kmsStatement).sort()).toEqual([...KMS_SSM_API_ACTIONS].sort());
+    expect(JSON.stringify(kmsStatement)).toContain('kms:ViaService');
+    expect(JSON.stringify(kmsStatement)).toContain('ssm.');
+    for (const statement of statements) {
+      expect(statement.Resource).not.toBe('*');
+    }
+  });
+
+  it('IAM（ジョブ）: パラメータストアは、読み取りだけ。書き込み・削除はない（#206）', () => {
+    const { template } = plainStack();
+    const statements = roleStatements(template, 'JobFunction');
+    const actions = statements.flatMap((statement) => [statement.Action].flat());
+
+    expect(actions).toEqual(expect.arrayContaining([...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS]));
+    expect(actions.filter((action) => action.startsWith('ssm:'))).toEqual([...SSM_JOB_ACTIONS]);
+    expect(actions).not.toContain('kms:Encrypt');
+    expect(actions).not.toContain('kms:GenerateDataKey');
+    const ssm = statements.find((statement) =>
+      [statement.Action].flat().some((action) => action.startsWith('ssm:')),
+    );
+    expect(JSON.stringify(ssm?.Resource)).toContain('parameter/sfm/development/*');
   });
 
   it('秘密情報（パスワード・トークン・キー・シークレット）を、環境変数に持たない。開発用 API・デモデータ・初期ユーザーの設定もない', () => {
@@ -528,10 +857,14 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
       [statement.Action].flat().some((action) => action.startsWith('dynamodb:')),
     );
 
-    // 許可する操作は、DynamoDB の必要な操作と、ファイルサーバーのモックの読み取りだけ（Cognito・書き込み・削除はない）
-    expect(actions.sort()).toEqual([...DYNAMODB_ACTIONS, ...S3_READ_ACTIONS].sort());
+    // 許可する操作は、DynamoDB の必要な操作と、ファイルサーバーのモックの読み取りと、秘密情報（パラメータストア）の読み取り・復号だけ
+    // （Cognito・書き込み・削除はない。パラメータストアの書き込みは、API だけ。#206）
+    expect(actions.sort()).toEqual(
+      [...DYNAMODB_ACTIONS, ...S3_READ_ACTIONS, ...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS].sort(),
+    );
     expect(actions).not.toContain('dynamodb:Scan');
-    expect(statements).toHaveLength(3);
+    expect(actions).not.toContain('ssm:PutParameter');
+    expect(statements).toHaveLength(5);
     expect(dynamodb).toHaveLength(1);
     expect(dynamodb[0]?.Resource).toHaveLength(4);
     for (const statement of statements) {

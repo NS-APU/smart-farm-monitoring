@@ -35,7 +35,8 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
+  setEquipmentInterval,
   setMock,
   unreadBadge,
 } from './support/app.ts';
@@ -93,9 +94,9 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     const log = logRows(page).first();
     await expect(log).toHaveAttribute('data-result', 'SUCCESS');
     await expect(log).toContainText('ロボットデータ');
-    await expect(log.locator('td').nth(3)).toHaveText('1');
-    await expect(log.locator('td').nth(4)).toHaveText('14');
-    await expect(log.locator('td').nth(5)).toHaveText('0');
+    await expect(log.locator('td').nth(4)).toHaveText('1');
+    await expect(log.locator('td').nth(5)).toHaveText('14');
+    await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc08-ingestion');
 
     // 3. ロボットに対応づけて保存されている（SC-09）
@@ -208,11 +209,13 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     }
   });
 
-  test('定期の取り込み（JB-01）でも、同じように取り込まれる。取得間隔（15分）が過ぎるまでは、実行しない', async ({
+  test('定期の取り込み（JB-01）でも、同じように取り込まれる。取得間隔（設備ごとの設定。15分）が過ぎるまでは、実行しない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 取得間隔は、設備ごとの設定（#197。既定は、ロボット 1 分）。この検証は、15 分にする
+    await setEquipmentInterval(request, ROBOT_ID, 15);
     placeFile('robot', 'a.json', robotJson(speedRecords('RUNNING')));
 
     await runJob(request, 'JB-01');
@@ -236,13 +239,15 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     request,
   }) => {
     await prepareApp(request);
+    // 取得間隔は、設備ごとの設定（#197）。ロボットは、15 分にする
+    await setEquipmentInterval(request, ROBOT_ID, 15);
     placeFile('robot', 'a.json', robotJson(speedRecords('RUNNING')));
 
     const first = await apiOk<{ executed: string[] }>(request, 'POST', '/dev/scheduler/tick', {});
     await advanceMinutes(request, 1);
     const second = await apiOk<{ executed: string[] }>(request, 'POST', '/dev/scheduler/tick', {});
 
-    // 取り込みのジョブ（JB-01）は、1分ごとに起動するが、取り込み元ごとの取得間隔（15分）が来たときだけ、実行する
+    // 取り込みのジョブ（JB-01）は、1分ごとに起動するが、設備ごとの取得間隔（15分に設定）が来たときだけ、取り込む
     expect(first.executed).toEqual(expect.arrayContaining(['JB-01', 'JB-02', 'JB-03', 'JB-04']));
     expect(second.executed).toContain('JB-01');
     await openIngestion(page);
@@ -254,7 +259,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
 });
 
 test.describe('代替フロー: 同じファイルを重複して取り込まない', () => {
-  test('同じファイルを、もう一度取得しても、取り込まない。名前を変えた同じ内容のファイルも、取り込まない', async ({
+  test('同じファイルを、もう一度取得しても、取り込まない。名前を変えた同じ内容のファイルは、別のファイルとして読むが、同じ値は保存しない（#201）', async ({
     page,
     request,
   }) => {
@@ -267,9 +272,9 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
 
     // 同じファイル → 取り込まない
     await expect(await runNow(page, 'robot')).toContainText('ファイル 0 件、取り込み 0 件');
-    // 名前を変えた同じ内容 → 取り込まない
+    // 名前を変えた同じ内容 → 別のファイルとして読むが、同じ値（同じ計測日時・同じ値）は、触らない（取り込み 0 件）
     placeFile('robot', 'copy-of-a.json', content);
-    await expect(await runNow(page, 'robot')).toContainText('ファイル 0 件、取り込み 0 件');
+    await expect(await runNow(page, 'robot')).toContainText('ファイル 1 件、取り込み 0 件');
 
     await openObservations(page);
     await expect(observationRows(page)).toHaveCount(14);
@@ -331,7 +336,11 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     const first = await runNow(page, 'robot');
     await expect(first).toContainText('取得しました（一部成功）');
     await expect(first).toContainText('ファイル 2 件、取り込み 14 件');
-    await expect(logRows(page).first()).toContainText('1件のファイルを取り込めませんでした');
+    // 取り込めなかったファイル（設備に結びつかない）は、取り込み元単位のログ。取り込めたファイルは、設備のログ（Issue #201）
+    await expect(
+      logRows(page).filter({ hasText: '1件のファイルを取り込めませんでした' }),
+    ).toHaveCount(1);
+    await expect(logRows(page)).toHaveCount(2);
     const second = await runNow(page, 'robot');
 
     await expect(second).toContainText('ファイル 0 件');
@@ -526,8 +535,8 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     placeFixture('robot', 'robot/robot-sample-003-broken.json');
     placeFile(
       'environment-sensor',
-      'sensor.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 20, humidity: 60, illuminance: 30000, co2: 800 }]),
+      'sensor.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 20, humidity: 60, illuminance: 30000, co2: 800 }]),
     );
 
     await runJob(request, 'JB-01');

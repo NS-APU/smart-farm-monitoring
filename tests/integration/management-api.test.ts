@@ -180,7 +180,12 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
       'observedAt',
     ],
     ['カテゴリが存在しない', { category: 'UNKNOWN' }, 400, 'category'],
-    ['自動取り込みのみのカテゴリ（稼働情報）', { category: 'OPERATION' }, 400, 'category'],
+    [
+      '1 果実あたりの収穫時間が、手動入力の上限（300 秒）を超える',
+      { category: 'HARVEST', items: { harvestSecondsPerFruit: 300.1 } },
+      400,
+      'items.harvestSecondsPerFruit',
+    ],
     ['項目が空', { items: {} }, 400, 'items'],
     [
       'カテゴリに属さない項目',
@@ -228,6 +233,159 @@ describe('手動入力の登録（UC-06、UC-07。POST /manual-entries）', () =
     const response = await send(context, 'POST', '/manual-entries', entryBody({ observedAt }));
 
     expect(response.status).toBe(status);
+  });
+
+  it('自動取り込みの項目（稼働情報の 4 項目・収穫数・1 果実あたりの収穫時間）を、手動で入力して保存できる。手動入力として保持し、境界値（300 秒）も保存できる（#192）', async () => {
+    const context = await withEquipment();
+
+    const operation = await createEntry(
+      context,
+      entryBody({
+        category: 'OPERATION',
+        items: {
+          operatingHours: 5.5,
+          standbyHours: 1,
+          harvestOperatingHours: 4,
+          travelStoppedHours: 0,
+        },
+      }),
+    );
+    const harvest = await createEntry(
+      context,
+      entryBody({
+        category: 'HARVEST',
+        items: { harvestCount: 120, harvestSecondsPerFruit: 300 },
+      }),
+    );
+
+    expect(operation.entry.category).toBe('OPERATION');
+    expect(harvest.entry.items).toEqual({ harvestCount: 120, harvestSecondsPerFruit: 300 });
+    const stored = (
+      await context.container.repositories.observations.query(
+        { equipmentIds: [ROBOT_ID] },
+        { limit: 50 },
+      )
+    ).items;
+    expect(
+      stored
+        .filter((item) => item.source === 'MANUAL')
+        .map((item) => item.itemKey)
+        .sort(),
+    ).toEqual([
+      'harvestCount',
+      'harvestOperatingHours',
+      'harvestSecondsPerFruit',
+      'operatingHours',
+      'standbyHours',
+      'travelStoppedHours',
+    ]);
+    expect(stored.every((item) => item.quality === 'VALID')).toBe(true);
+  });
+
+  describe('ステータスコード（文字列の項目）の手動入力（#192 の PR 2。ステータスのカテゴリ）', () => {
+    const statusBody = (code: unknown, overrides: Partial<ManualEntryInput> = {}) =>
+      entryBody({
+        category: 'STATUS',
+        items: { statusCode: code } as ManualEntryInput['items'],
+        ...overrides,
+      });
+
+    it('登録済みのコードを、手動で入力して保存できる。観測値は、文字列の値の手動入力として保持する', async () => {
+      const context = await withEquipment();
+
+      const saved = await createEntry(context, statusBody('RUNNING_ERROR'));
+
+      expect(saved.entry).toMatchObject({
+        category: 'STATUS',
+        items: { statusCode: 'RUNNING_ERROR' },
+      });
+      const stored = (
+        await context.container.repositories.observations.query(
+          { equipmentIds: [ROBOT_ID] },
+          { limit: 10 },
+        )
+      ).items;
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        itemKey: 'statusCode',
+        value: 'RUNNING_ERROR',
+        source: 'MANUAL',
+        quality: 'VALID',
+        category: 'STATUS',
+      });
+    });
+
+    it('登録のないコードは、項目のエラーで拒否する（何も保存しない）', async () => {
+      const context = await withEquipment();
+
+      const response = await send(context, 'POST', '/manual-entries', statusBody('NOT_REGISTERED'));
+
+      expect(response.status).toBe(400);
+      const error = await errorOf(response);
+      expect(error.fields).toContainEqual({
+        name: 'items.statusCode',
+        message: 'ステータスコードは、登録済み（削除していない）のコードから選択してください',
+      });
+      expect(
+        (
+          await context.container.repositories.observations.query(
+            { equipmentIds: [ROBOT_ID] },
+            { limit: 10 },
+          )
+        ).items,
+      ).toHaveLength(0);
+    });
+
+    it('削除済みのコードは、入力できない（新規・修正とも）。数値・空の文字列も、拒否する', async () => {
+      const context = await withEquipment();
+      const saved = await createEntry(context, statusBody('STANDBY'));
+      await send(context, 'DELETE', '/status-codes/STOPPED');
+
+      const created = await send(context, 'POST', '/manual-entries', statusBody('STOPPED'));
+      const updated = await send(
+        context,
+        'PUT',
+        `/manual-entries/${saved.entry.entryId}`,
+        statusBody('STOPPED'),
+      );
+
+      expect(created.status).toBe(400);
+      expect(updated.status).toBe(400);
+      for (const value of [5, '']) {
+        const response = await send(context, 'POST', '/manual-entries', statusBody(value));
+        expect(response.status).toBe(400);
+        expect((await errorOf(response)).fields?.map((field) => field.name)).toContain(
+          'items.statusCode',
+        );
+      }
+    });
+
+    it('修正で、別の登録済みのコードに変えられる。一覧・キーワード検索は、コードの文字列で引ける', async () => {
+      const context = await withEquipment();
+      const saved = await createEntry(context, statusBody('STANDBY'));
+
+      const updated = await send(
+        context,
+        'PUT',
+        `/manual-entries/${saved.entry.entryId}`,
+        statusBody('LOW_BATTERY'),
+      );
+
+      expect(updated.status).toBe(200);
+      const listed = ManualEntryListResponseSchema.parse(
+        await (await send(context, 'GET', '/manual-entries?q=low_battery')).json(),
+      );
+      expect(listed.items.map((entry) => entry.items)).toEqual([{ statusCode: 'LOW_BATTERY' }]);
+    });
+
+    it('手動入力のコードは、評価に使われる（異常のコードを入力すると、ステータスの観点が「異常」になる）', async () => {
+      const context = await withEquipment();
+
+      const saved = await createEntry(context, statusBody('RUNNING_ERROR'));
+
+      expect(saved.viewpointStatuses.length).toBeGreaterThan(0);
+      expect(saved.viewpointStatuses.some((item) => item.status === 'ERROR')).toBe(true);
+    });
   });
 
   it('満足度は 1〜5 の整数（境界値: 0 は不正、1 と 5 は正常、6 は不正）', async () => {
@@ -1280,7 +1438,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     userId: 'worker-2',
     userName: '作業者2',
     password: 'Dummy-Passw0rd-new',
-    role: 'worker',
+    role: 'general',
   };
 
   it('一覧は、ロールの選択肢つきで、パスワードのハッシュを含めずに返す', async () => {
@@ -1289,9 +1447,12 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const body = UserListResponseSchema.parse(await (await send(context, 'GET', '/users')).json());
 
     expect(body.items).toHaveLength(1);
-    expect(body.items[0]).toMatchObject({ userId: 'test-user', role: 'worker' });
+    expect(body.items[0]).toMatchObject({ userId: 'test-user', role: 'admin' });
     expect(body.items[0]?.lastLoginAt).toBeDefined();
-    expect(body.roles).toEqual([{ roleId: 'worker', name: '農作業者' }]);
+    expect(body.roles).toEqual([
+      { roleId: 'admin', name: '管理者' },
+      { roleId: 'general', name: '一般' },
+    ]);
     expect(JSON.stringify(body)).not.toContain('scrypt');
   });
 
@@ -1342,7 +1503,8 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const context = await createTestContext({
       env: {
         ROLE_DEFINITIONS_JSON: JSON.stringify({
-          worker: { name: '農作業者', permissions: ['user:manage'] },
+          admin: { name: '管理者', permissions: ['user:manage'] },
+          general: { name: '一般', permissions: [] },
           viewer: { name: '閲覧者', permissions: [] },
         }),
       },
@@ -1372,9 +1534,9 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
   });
 
   it.each([
-    ['ユーザー名が空', { userName: '', role: 'worker' }, 400],
+    ['ユーザー名が空', { userName: '', role: 'general' }, 400],
     ['定義されていないロール', { userName: 'x', role: 'boss' }, 400],
-    ['パスワードが条件を満たさない', { userName: 'x', role: 'worker', password: 'short' }, 400],
+    ['パスワードが条件を満たさない', { userName: 'x', role: 'general', password: 'short' }, 400],
   ])('変更の検証（%s）', async (_name, body, status) => {
     const context = await createTestContext();
     await send(context, 'POST', '/users', NEW_USER);
@@ -1398,7 +1560,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const afterDelete = await send(context, 'GET', '/equipment', undefined, otherToken);
     const missingUpdate = await send(context, 'PUT', '/users/nobody', {
       userName: 'x',
-      role: 'worker',
+      role: 'general',
     });
 
     expect(self.status).toBe(409);
@@ -1415,7 +1577,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     await send(context, 'POST', '/users', { ...NEW_USER, password });
     await send(context, 'PUT', `/users/${NEW_USER.userId}`, {
       userName: '改名',
-      role: 'worker',
+      role: 'general',
       password: 'Dummy-Passw0rd-audit2',
     });
     await send(context, 'DELETE', `/users/${NEW_USER.userId}`);
@@ -1439,9 +1601,9 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     expect(update?.before).toEqual({
       userId: NEW_USER.userId,
       userName: NEW_USER.userName,
-      role: 'worker',
+      role: 'general',
     });
-    expect(update?.after).toEqual({ userId: NEW_USER.userId, userName: '改名', role: 'worker' });
+    expect(update?.after).toEqual({ userId: NEW_USER.userId, userName: '改名', role: 'general' });
     const text = JSON.stringify(audit);
     expect(text).not.toContain('Dummy-Passw0rd');
     expect(text).not.toContain('scrypt');
@@ -1452,12 +1614,13 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
     const context = await createTestContext({
       env: {
         ROLE_DEFINITIONS_JSON: JSON.stringify({
-          worker: { name: '農作業者', permissions: ['user:manage'] },
+          admin: { name: '管理者', permissions: ['user:manage'] },
+          general: { name: '一般', permissions: [] },
           viewer: { name: '閲覧者', permissions: [] },
         }),
       },
     });
-    await send(context, 'POST', '/users', NEW_USER);
+    await send(context, 'POST', '/users', { ...NEW_USER, role: 'admin' });
     await markPasswordChanged(context, NEW_USER.userId);
     const login = await context.app.request('/api/v1/auth/login', {
       method: 'POST',
@@ -1496,17 +1659,35 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const robot = body.sources[0];
     expect(robot).toMatchObject({
       connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
       isEnabled: true,
       isRunning: false,
-      formatProfile: { versionLabel: 'robot-json@0.1.0(PROVISIONAL)', status: 'PROVISIONAL' },
+      formatProfile: { versionLabel: 'robot-json@0.2.0(PROVISIONAL)', status: 'PROVISIONAL' },
       lastStartedAt: TEST_NOW.toISOString(),
       lastSuccessAt: TEST_NOW.toISOString(),
     });
     expect(body.sources[1]).toMatchObject({ lastStartedAt: null, lastSuccessAt: null });
   });
 
-  it('接続先の参照名・取得間隔・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
+  it('最終の実行・最終の成功は、設備ごとの最終の実行から求める。ログに残らない空振りでも更新し、失敗では、最終の成功を更新しない（Issue #201）', async () => {
+    const context = await withEquipment();
+    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await send(context, 'POST', '/ingestion/robot/run');
+    context.clock.advance(60_000);
+    // 新しいデータのない実行（ログには残らない）
+    await send(context, 'POST', '/ingestion/robot/run');
+    const empty = (await settings(context)).sources[0];
+    context.clock.advance(60_000);
+    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    await send(context, 'POST', '/ingestion/robot/run');
+    const failed = (await settings(context)).sources[0];
+
+    expect(empty?.lastStartedAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
+    expect(empty?.lastSuccessAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
+    expect(failed?.lastStartedAt).toBe(new Date(TEST_NOW.getTime() + 120_000).toISOString());
+    expect(failed?.lastSuccessAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
+  });
+
+  it('接続先の参照名・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
@@ -1514,7 +1695,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
         {
           sourceId: 'robot',
           connectionRef: 'FILE_SERVER_2',
-          intervalMinutes: 360,
           isEnabled: false,
         },
       ],
@@ -1524,41 +1704,39 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const body = await settings(context);
     expect(body.sources[0]).toMatchObject({
       connectionRef: 'FILE_SERVER_2',
-      intervalMinutes: 360,
       isEnabled: false,
     });
-    expect(body.sources[1]).toMatchObject({
-      connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
-    });
+    expect(body.sources[1]).toMatchObject({ connectionRef: 'FILE_SERVER_MOCK' });
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?targetType=ingestion-settings')).json(),
     );
     expect(audit.items).toHaveLength(1);
   });
 
-  it.each([5, 15, 30, 60, 360, 1440])(
-    '取得間隔 %i 分は保存できる（候補の全値）',
-    async (interval) => {
-      const context = await withEquipment();
+  it('取得間隔は、設備ごとの設定（Issue #197）。以前のクライアントが、取り込み元の取得間隔を送っても、無視して保存し、設定にも応答にも残らない', async () => {
+    const context = await withEquipment();
 
-      const response = await send(context, 'PUT', '/ingestion/settings', {
-        sources: [
-          {
-            sourceId: 'robot',
-            connectionRef: 'FILE_SERVER_MOCK',
-            intervalMinutes: interval,
-            isEnabled: true,
-          },
-        ],
-      });
+    const response = await send(context, 'PUT', '/ingestion/settings', {
+      sources: [
+        {
+          sourceId: 'robot',
+          connectionRef: 'FILE_SERVER_MOCK',
+          intervalMinutes: 360,
+          isEnabled: true,
+        },
+      ],
+    });
 
-      expect(response.status).toBe(200);
-    },
-  );
+    expect(response.status).toBe(200);
+    expect(
+      JSON.stringify(await (await send(context, 'GET', '/ingestion/settings')).json()),
+    ).not.toContain('intervalMinutes');
+    expect(
+      JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
+    ).not.toContain('intervalMinutes');
+  });
 
   it.each([
-    ['候補にない取得間隔', { intervalMinutes: 10 }, 'sources.0.intervalMinutes'],
     ['参照名が空', { connectionRef: '' }, 'sources.0.connectionRef'],
     ['参照名に使えない文字', { connectionRef: 'bad ref!' }, 'sources.0.connectionRef'],
     ['参照名が長すぎる', { connectionRef: 'a'.repeat(101) }, 'sources.0.connectionRef'],
@@ -1571,7 +1749,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
         {
           sourceId: 'robot',
           connectionRef: 'FILE_SERVER_MOCK',
-          intervalMinutes: 15,
           isEnabled: true,
           ...override,
         },
@@ -1587,7 +1764,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const source = {
       sourceId: 'robot',
       connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 15,
       isEnabled: true,
     };
 
@@ -1614,7 +1790,29 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(unknown.status).toBe(404);
   });
 
-  it('即時取得: 取り込んだ件数を返し、ログに記録する。同じファイルは、2回目は取り込まない', async () => {
+  /** 新しいデータになるファイルを置く（取り込みログは、新しいデータがあった実行だけ残す。Issue #201）。値を変えると、変わった観測値になる。 */
+  function placeNewRobotData(context: TestContext, name: string, harvestCount: number): void {
+    context.placeFile(
+      'robot',
+      name,
+      JSON.stringify({
+        robotId: 'ROBOT-SAMPLE-01',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount }],
+      }),
+    );
+  }
+  function placeNewSensorData(context: TestContext, name: string, temperature: number): void {
+    context.placeFile(
+      'environment-sensor',
+      name,
+      JSON.stringify({
+        sensorId: 'SENSOR-SAMPLE-01',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', temperatureCelsius: temperature }],
+      }),
+    );
+  }
+
+  it('即時取得: 取り込んだ件数を返し、ログに記録する。同じファイルは、2回目は取り込まない（新しいデータがなければ、ログに残さない）', async () => {
     const context = await withEquipment();
     context.placeFixture('robot', 'robot/robot-sample-001.json');
 
@@ -1635,15 +1833,20 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     const logs = IngestionLogListResponseSchema.parse(
       await (await send(context, 'GET', '/ingestion/logs')).json(),
     );
-    expect(logs.items).toHaveLength(2);
+    // 1 回目（新しいデータあり）だけ。2 回目（新しいデータなし）は、残さない（Issue #201。ADR-0016 の D-48）
+    expect(logs.items).toHaveLength(1);
+    expect(logs.items[0]).toMatchObject({ sourceId: 'robot', equipmentId: 'ROBOT-T1' });
   });
 
   it('取り込みログは、取り込み元で絞り込め、新しい順に、ページ分割して返す', async () => {
     const context = await withEquipment();
+    placeNewRobotData(context, 'robot-1.json', 1);
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
+    placeNewSensorData(context, 'sensor-1.json', 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
     context.clock.advance(60_000);
+    placeNewRobotData(context, 'robot-2.json', 2);
     await send(context, 'POST', '/ingestion/robot/run');
 
     const all = IngestionLogListResponseSchema.parse(
@@ -1730,9 +1933,11 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   it('取り込みログ: 該当する取り込み元がなければ、空の一覧を返す。ページ分割は、取り込み元の絞り込みと併用できる', async () => {
     const context = await withEquipment();
     for (let count = 0; count < 3; count += 1) {
+      placeNewRobotData(context, `robot-${String(count)}.json`, count + 1);
       await send(context, 'POST', '/ingestion/robot/run');
       context.clock.advance(60_000);
     }
+    placeNewSensorData(context, 'sensor-1.json', 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
 
     const none = IngestionLogListResponseSchema.parse(
@@ -1758,6 +1963,90 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(new Set([...first.items, ...second.items].map((item) => item.sourceId))).toEqual(
       new Set(['robot']),
     );
+  });
+
+  describe('取り込みログの絞り込み（設備・結果・期間。Issue #201。ADR-0016 の D-48）', () => {
+    const logsOf = async (context: TestContext, query: string) =>
+      IngestionLogListResponseSchema.parse(
+        await (await send(context, 'GET', `/ingestion/logs${query}`)).json(),
+      ).items;
+
+    /** ロボット（成功 → 接続の失敗〔設備に結びつかない〕）と、環境センサー（成功）のログを作る。 */
+    async function seedLogs() {
+      const context = await withEquipment();
+      placeNewRobotData(context, 'robot-1.json', 1);
+      await send(context, 'POST', '/ingestion/robot/run');
+      context.clock.advance(60_000);
+      placeNewSensorData(context, 'sensor-1.json', 20);
+      await send(context, 'POST', '/ingestion/environment-sensor/run');
+      context.clock.advance(60_000);
+      context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+      await send(context, 'POST', '/ingestion/robot/run');
+      context.container.dev?.faults.fileServer.set({ mode: 'UP' });
+      return context;
+    }
+
+    it('設備で絞り込むと、その設備のログと、その設備の取り込み元の、設備に結びつかないログ（接続の失敗）を返す', async () => {
+      const context = await seedLogs();
+
+      const robot = await logsOf(context, `?equipmentId=${ROBOT_ID}`);
+      const sensor = await logsOf(context, `?equipmentId=${SENSOR_ID}`);
+
+      expect(robot.map((log) => [log.sourceId, log.equipmentId, log.result])).toEqual([
+        ['robot', undefined, 'FAILURE'],
+        ['robot', ROBOT_ID, 'SUCCESS'],
+      ]);
+      expect(sensor.map((log) => [log.sourceId, log.equipmentId, log.result])).toEqual([
+        ['environment-sensor', SENSOR_ID, 'SUCCESS'],
+      ]);
+    });
+
+    it('結果で絞り込める（成功／失敗）。期間（日時。両端を含む）でも、絞り込める。組み合わせられる', async () => {
+      const context = await seedLogs();
+      const base = TEST_NOW.getTime();
+
+      const success = await logsOf(context, '?result=SUCCESS');
+      const failure = await logsOf(context, '?result=FAILURE');
+      const period = await logsOf(
+        context,
+        `?from=${new Date(base + 60_000).toISOString()}&to=${new Date(base + 60_000).toISOString()}`,
+      );
+      const combined = await logsOf(
+        context,
+        `?equipmentId=${ROBOT_ID}&result=SUCCESS&to=${new Date(base).toISOString()}`,
+      );
+
+      expect(success.map((log) => log.result)).toEqual(['SUCCESS', 'SUCCESS']);
+      expect(failure.map((log) => log.result)).toEqual(['FAILURE']);
+      expect(period.map((log) => log.sourceId)).toEqual(['environment-sensor']);
+      expect(combined.map((log) => [log.equipmentId, log.result])).toEqual([[ROBOT_ID, 'SUCCESS']]);
+    });
+
+    it('登録のない設備は、空の一覧（設備に結びつかないログも含めない）。条件が不正なら、400', async () => {
+      const context = await seedLogs();
+
+      expect(await logsOf(context, '?equipmentId=NO-SUCH-EQUIPMENT')).toEqual([]);
+      for (const query of ['?result=PARTIAL', '?result=ALL', '?from=2026-10-09', '?to=yesterday']) {
+        expect((await send(context, 'GET', `/ingestion/logs${query}`)).status).toBe(400);
+      }
+    });
+
+    it('取り込み設定・状況に、設備ごとの最終の実行（開始・結果・最後の成功・最後にデータが取れた日時）を含める。一度も実行していない設備は、なし', async () => {
+      const context = await seedLogs();
+
+      const [robot, sensor] = (await settings(context)).sources;
+
+      const robotRun = robot?.equipment.find((item) => item.equipmentId === ROBOT_ID);
+      expect(robotRun).toMatchObject({
+        name: expect.any(String),
+        lastResult: 'FAILURE',
+        lastStartedAt: new Date(TEST_NOW.getTime() + 120_000).toISOString(),
+        lastSuccessAt: TEST_NOW.toISOString(),
+        lastDataAt: TEST_NOW.toISOString(),
+      });
+      expect(sensor?.equipment.map((item) => item.equipmentId)).toEqual([SENSOR_ID]);
+      expect(sensor?.equipment[0]).toMatchObject({ lastResult: 'SUCCESS' });
+    });
   });
 
   it('取り込みログ: 失敗した取り込みは、失敗の内容（内部情報なし）を記録して返す。成功は、失敗の内容を持たない', async () => {

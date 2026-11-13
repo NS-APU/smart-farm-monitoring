@@ -1,7 +1,7 @@
 /**
  * データのリセット（DynamoDB。Issue #77。ADR-0012）。評価環境のデモデータを、消して、投入し直すための操作。
  * 観測値のテーブルの全項目と、Main テーブルのうち、**残すパーティション以外**の全項目を、消す。
- * 残すもの: ユーザー（`USER`。ユーザーの記録。Cognito のユーザーは、別）・ログインの試行回数の記録（`LOGINFAIL`。
+ * 残すもの: ユーザー（`USER`。ユーザーの記録。Cognito のユーザーは、別）・閲覧の割り当て（`FACACC`。Issue #330）・ログインの試行回数の記録（`LOGINFAIL`。
  * リセットで、制限を解かない）・ジョブのロック（`JOBLOCK`。実行中のジョブを、妨げない）。
  * テーブルの定義（キー・インデックス・TTL・バックアップの設定）は、変えない（項目だけを消す）。
  * 手元のコマンド（`pnpm demo-data reset`）からだけ使う。API・Lambda からは、呼べない。
@@ -11,7 +11,7 @@ import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { batchWriteItems, type Database, type Item } from './operations.ts';
 
 /** リセットで、残すパーティション（Main テーブル）。 */
-export const KEPT_PARTITIONS = ['USER', 'LOGINFAIL', 'JOBLOCK'] as const;
+export const KEPT_PARTITIONS = ['USER', 'FACACC', 'LOGINFAIL', 'JOBLOCK'] as const;
 
 export interface ResetResult {
   readonly observations: number;

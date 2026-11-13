@@ -13,10 +13,11 @@
 | `AUTH_PROVIDER` | `cognito`（Amazon Cognito。ADR-0008）。`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` に、`SfmData` のスタックの出力を指定する。`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない。ローカル・テストは、既定の `local` | 本番の Lambda は、パスワードを Cognito に預ける（アプリ内の認証は、セッションをメモリに持つため、Lambda では使えない） |
 | `FILE_SERVER_S3_BUCKET` | 評価環境の Lambda は、IaC が、ファイルサーバーのモックのバケットを指定する（Issue #77）。取り込み元ごとに `<バケット>/<取り込み元の識別子>/` にファイルを置く。**置くのは、合成データだけ**（実データ・個人情報は置かない） | Lambda には、ローカルのディレクトリがない。未指定の `FILE_SERVER_DIR` は、ローカル用 |
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
-| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、全利用者が全権限を持つ1ロールで動作し、起動時に警告が出る | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（決定。ADR-0013。実装は #115） |
+| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、既定の 2 ロール（管理者 `admin`＝全権限、一般 `general`＝手動入力のみ）で動作する | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（ADR-0013。実装済み〔#115〕） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
 | `LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` | 既定は、失敗 5 回 / 15 分（IaC が、API の Lambda に、この値を設定する）。**共有の IP などで、誤ってロックされる事例が出たら、回数を増やす・時間を短くする**。変えるときは、GitHub の Environment（development・production）の変数 `SFM_LOGIN_FAILURE_LIMIT`（1〜100）・`SFM_LOGIN_FAILURE_WINDOW_MINUTES`（1〜1440 分）を設定して、デプロイし直す（ワークフローが、そのまま CDK に渡す。未設定なら 5 回 / 15 分。コードの変更は、要らない。手元からのデプロイは、同名の環境変数を指定する）。ローカルは、`LOGIN_FAILURE_LIMIT`・`LOGIN_FAILURE_WINDOW_MINUTES` を指定する | ログインの試行回数の制限（接続元ごと。FR-9.2。D-44）。アカウント単位のロックは、Cognito が持つ（値は、設定できない）。回数を大きくするほど、総当たりに弱くなる |
 | `CLIENT_IP_HEADER` | 評価環境は、`x-sfm-viewer-ip`（IaC で設定する。CloudFront の Function が、利用者の IP を入れる）。**AWS で、ログの `clientKey` が利用者の IP になることを確認する**（ADR-0010） | ログインの試行回数の制限の接続元（V-007）。CloudFront を経由しない呼び出しでは、クライアントが値を付けられる |
+| `ORIGIN_VERIFY_ARN` | 評価環境は、IaC が、Secrets Manager の秘密の ARN を設定する（秘密の値ではない）。**本番の API の Lambda は、必須**（ないと、起動しない）。API の Lambda が、コールドスタートで、秘密を読み、CloudFront の秘密のヘッダーと一致しない呼び出し（関数の URL の直接の呼び出し）を、403 で拒否する（Issue #102。ADR-0010 の追記）。Lambda では、値を直接渡す `ORIGIN_VERIFY_SECRET` は、使えない（ローカルの確認用） | 関数の URL の直接の呼び出しでの、利用者の IP のヘッダーの偽装・ログインの試行回数の制限の回避の防止 |
 | `SEED_MODE` | `NONE` | デモデータを混ぜない |
 | `EVALUATION_ON_WRITE` | 評価環境の API の Lambda は、`deferred`（IaC が指定する）。ローカル・E2E は、既定の `sync` | `deferred` は、手動入力の保存・削除の応答の前に、評価を再計算せず、定期の評価（JB-02。5 分ごと）が更新する。反映は最大 5 分遅れる。データが増えると、評価の再計算（直近 90 日の読み出し）が重くなり、保存・削除が遅くなるため（Issue #79・#123。ADR-0014） |
 | `INITIAL_USER_*` | ローカルのみ（`AUTH_PROVIDER=cognito` では、使えない。最初のユーザーは、手元で `pnpm initial-user` を 1 回だけ実行して作る。commands.md）。初回のみ。初回のログイン後に、ヘッダーの「パスワードの変更」から、自分でパスワードを変更する（最初のユーザーは、変更を強制しない。2 人目以降の、管理者が決めたパスワードは、本人が最初のログインで変更する。D-45）。秘密情報として扱い、リポジトリ・ログに残さない | security.md |
@@ -46,9 +47,9 @@
 
 ## 4. 異常の通知への対応（HITL）
 
-- 観点のステータスが「注意」「異常」に変わると、通知が作られる（ダッシュボードのヘッダー・通知の画面。Web Push は、購読した端末）
+- 観点のステータスが「注意」「異常」に変わると、通知が作られる（正常が 15 分以上続いたあとの悪化、または、同じ出来事の中で重くなるとき。改善・「不明」は通知しない。ダッシュボードのヘッダー・通知の画面。Web Push は、購読した端末）
 - **データ取得の停止**: 新しいデータが、取得間隔×3（既定）を超えて届かない場合、「データ取得停止」の通知が作られる（暫定仕様。`INGESTION_STOP_NOTIFICATION_ENABLED` で無効にできる）。ロボット・センサーの電源・通信・ファイルの出力を確認する
-- **データ取得失敗**: ファイルサーバーに接続できない場合の通知。接続先・認証情報の設定（取り込み設定）と、ファイルサーバーを確認する
+- **データ取得失敗**: ファイルサーバーに接続できない場合と、ファイル単位の失敗（読み取り不可・形式違い・大きすぎる。既定で通知。`INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED`）の通知。同じ取り込み元・状況の通知は、60 分に 1 件。接続先・認証情報の設定（取り込み設定）と、ファイルサーバーを確認する
 - 画面の判断基準を変更すると、全員の評価・通知に反映される。変更履歴（変更履歴の画面）で、いつ・誰が変更したかを確認できる
 
 ## 5. 定期作業（目安）
@@ -65,10 +66,35 @@
 画面は、ブラウザの History API でルーティングする SPA。静的配信（S3 + CloudFront。ADR-0006）で、次を満たす設定が必要になる。評価環境の IaC（`infra/lib/evaluation-stack.ts`）での実装状況を、各項目に示す。
 
 - 深い URL（例: `/viewpoints/harvest-accuracy`）の再読み込みを、`index.html` へ書き換える（404 にしない）: **実装済み**（CloudFront Function（viewer-request）で書き換える。API の 403・404 は書き換えない。ADR-0006）
-- `index.html` のキャッシュは短く、`assets/`（ハッシュつきのファイル名）は長く: **一部**。CloudFront は、静的配信に `CACHING_OPTIMIZED` を使い、デプロイのたびに、`/*` を無効化する（`BucketDeployment`。`index.html` は、デプロイの直後に、新しい版になる）。S3 のオブジェクトの `Cache-Control` は、設定していない（ブラウザ側のキャッシュの指定。Issue #127）
+- `index.html` のキャッシュは短く、`assets/`（ハッシュつきのファイル名）は長く: **実装済み**（Issue #323）。画面のファイルを、2 つの `BucketDeployment` に分けて配置し、S3 のオブジェクトの `Cache-Control` を指定する。`assets/` は `public, max-age=31536000, immutable`（長期のキャッシュ）、それ以外（`index.html`・`sw.js`・`manifest.webmanifest`）は `no-cache`（毎回、`ETag` で更新を確認する。変わっていなければ 304）。新しい `index.html` は、新しい `assets/` を配置したあとに、公開する（依存関係）。CloudFront は、静的配信に `CACHING_OPTIMIZED` を使い、デプロイのたびに、`/*` を無効化する。注意: 内容が変わらず、再配置されないファイルは、`Cache-Control` が付き直らない（内容が変わった時点で、付く。`index.html` は、毎回、再配置される）。古い画面を開いたままの利用者へは、画面が、検出して、再読み込みを案内する（7.6）
 - サービスワーカー（`/sw.js`）・マニフェストは、サイトのルート（`/`）で配信する（サブパスでの配信は、ルーティング・Web Push が動かない）: **実装済み**（S3 のルートに置き、同じオリジンで配信する）
 - API（`/api/v1/*`）は、同じオリジンから配信する: **実装済み**（CloudFront が、`/api/*` と `/health` を、API の Lambda の関数の URL へ振り分ける。CORS は不要。ADR-0006）
-- セキュリティヘッダー（HSTS・CSP・`frame-ancestors`・`Referrer-Policy`）を、配信側にも設定する。API の応答には、バックエンドが付けている（V-015）: **一部**。CloudFront の応答ヘッダーポリシーは、AWS のマネージドポリシー `SECURITY_HEADERS` を使っている。画面（静的ファイル）の CSP・`frame-ancestors` は、設定していない（Issue #127）
+- セキュリティヘッダー（HSTS・CSP・`frame-ancestors`・`Referrer-Policy`）を、配信側にも設定する。API の応答には、バックエンドが付けている（V-015）: **実装済み**（Issue #127）。画面（静的ファイル）の応答には、CloudFront の応答ヘッダーポリシー（独自。`StaticHeadersPolicy`）が、AWS のマネージドポリシー `SECURITY_HEADERS` と同じヘッダー（HSTS 1 年・`X-Content-Type-Options`・`Referrer-Policy: strict-origin-when-cross-origin`・`X-XSS-Protection`）に加えて、**CSP**（`infra/lib/content-security-policy.ts`。`default-src 'self'`・`script-src 'self'`・`style-src 'self'`・`style-src-attr 'unsafe-inline'`〔React の `style` 属性だけ。推移の帯の幅〕・`img-src`・`font-src`・`connect-src`・`worker-src`・`manifest-src` は `'self'`・`object-src 'none'`・`base-uri 'self'`・`form-action 'self'`・`frame-ancestors 'none'`）と、`X-Frame-Options: DENY` を付ける（強制。画面を、ほかのサイトに埋め込めない）。API（`/api/*`・`/health`）の動作は、これまでのマネージドポリシーのまま（API の CSP は、バックエンドが付ける）。**画面に、外部の資源（フォント・画像・外部の API）やインラインのスクリプトを加えるときは、CSP も変える**（変えないと、画面が動かない）。確認: 手元で `pnpm test:csp`（本番ビルドの画面に、同じ CSP を付けて、主な画面を一巡し、違反が出ないこと。`pnpm test:e2e` と同時に実行しない）。AWS では、`pnpm test:smoke`（`smoke-04-delivery-headers.ts`。応答ヘッダー・Cache-Control・ログイン〜ダッシュボードの違反なし）と、ブラウザの開発者ツールのコンソールに、CSP の違反が出ないこと。違反が出た場合は、コンソールの違反の内容（ディレクティブ・ブロックされた URL）から、`content-security-policy.ts` を直して、再デプロイする
+
+### 6.1 関数の URL への直接の呼び出しの防止（Issue #102。ADR-0010 の追記）
+
+API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront を経由せずに、直接も呼べる。CloudFront が、API のオリジンへの呼び出しに、秘密のヘッダー（`x-sfm-origin-secret`）を付け、API の Lambda が、値を検証する。一致しない呼び出し（直接の呼び出し）は、`/health`・ログインを含めて、本文なしの 403 で拒否する。
+
+- **秘密の値**: Secrets Manager に、IaC（`SfmEvaluation`）が、自動生成する（英数字 64 文字。`OriginSecret`）。リポジトリ・テンプレートには、書かない。CloudFront のヘッダーには、デプロイのときに、動的な参照で入る。**API の Lambda は、環境変数に値を持たず**、環境変数 `ORIGIN_VERIFY_ARN`（秘密の ARN）で、コールドスタートの 1 回だけ、Secrets Manager から読む（IAM は、この秘密の `GetSecretValue` だけ）
+- **デプロイの直後**: CloudFront の設定が、全エッジに行き渡るまでの数分間、Lambda が先に新しくなると、画面・API が、403 になることがある（秘密のヘッダーが、まだ付かないため）。数分待って、確認する。続く場合は、下の「うまくいかないとき」
+- **値の入れ替え**: Secrets Manager の秘密の値を変えたら、**同じデプロイで、CloudFront のヘッダーも、変わる**。API の Lambda は、実行環境が入れ替わるまで、古い値で動くため、デプロイ（コードの更新）で、入れ替える。秘密の値は、人が、読む・書く必要は、ない（スタックを作り直すと、新しい値になる）
+
+**確認の状況**: 開発サイトで、**確認済み**（2026-11-10。ユーザーが実行。1〜5 のすべて OK。ADR-0010 の「検証（#102）」）。本番サイトへの適用後にも、同じ手順で確認する。
+
+**確認の手順（ユーザーが実行する。開発サイト。AWS の認証は、手元のプロファイルを使う。値・URL・ARN を、リポジトリ・Issue に書かない）**
+
+1. 関数の URL を取る: `aws lambda get-function-url-config --function-name <ApiFunctionName> --query FunctionUrl --output text`（`ApiFunctionName` は、`SfmEvaluation` の出力）
+2. **直接の呼び出しが、403 になる**: `curl -i <関数の URL>health`（`HTTP/… 403`・本文なし）
+3. **偽装が、効かない**: `curl -i -X POST <関数の URL>api/v1/auth/login -H "content-type: application/json" -H "x-sfm-viewer-ip: 203.0.113.9" -d '{"userId":"dummy","password":"dummy"}'` を、**7 回以上**、IP の値を変えながら実行する。**すべて 403**（401・429 にならない。ログインの処理に、届いていない）
+4. **CloudFront 経由が、動く**: `curl -i https://<サイトの URL>/health` が 200。画面で、ログイン → ダッシュボードの表示ができる。`pnpm test:smoke`（手動実行）が成功する
+5. **Cognito のユーザーごとのロックの挙動（ADR-0008 の未確認の項目）**: 検証用のユーザー（本番のユーザーは、使わない）で、**別のネットワーク 2 つ以上**（例: 社内の回線とスマートフォンの回線）から、誤ったパスワードで、ログインを試す。**どの接続元も、接続元ごとの制限（既定は 5 回 / 15 分）に達しない回数**（例: 接続元ごとに 3 回）で、合計 5 回以上にする。そのあと、正しいパスワードで、ログインして、ロックされるか（拒否されるか）・解除されるまでの時間を、記録する
+6. 結果（OK・NG、NG のときは、状況）を、Issue #102 に報告する。報告をもとに、ADR-0010 の「検証（#102）」・ADR-0008 を更新する
+
+**うまくいかないとき**
+
+- 4. が 403 のまま（数分待っても）: CloudFront の設定が、反映されていない可能性。`aws cloudfront get-distribution --id <DistributionId> --query Distribution.Status` が `Deployed` か確認する。API の Lambda のログ（7.6）に、「オリジンの検証に失敗したため、呼び出しを拒否しました」が出ていれば、ヘッダーが、届いていない（または、値が違う）
+- Lambda が起動しない（5xx）: ログに、「オリジンの秘密を、Secrets Manager から読めませんでした（<エラーの種類>）」が出ていれば、API の Lambda の権限（`secretsmanager:GetSecretValue`）・秘密の ARN・リージョンを確認する。「オリジンの秘密の値が正しくありません」は、秘密が、英数字 32〜128 文字でない（手動で書き換えた場合）
+- 緊急で、検証を止めたいとき: 前の版を、デプロイする（7.3）。環境変数での無効化は、設けていない（本番で、黙って無効になることを防ぐため）
 
 ## 7. 評価環境（AWS）のデプロイ・ロールバック・初期化・障害時の確認
 
@@ -173,6 +199,7 @@
 | API が遅い・タイムアウトする | Lambda のタイムアウトは 29 秒（CloudFront の上限 30 秒の内側）。ログの `OperationTimeoutError`。DynamoDB の調整（スロットリング）のエラー |
 | 長時間アクセスがないあと、最初のログイン・画面の表示が遅い（約 3 秒） | Lambda のコールドスタート（許容している。NFR-3.4 は、コールドスタートなら 6 秒以内。2 回目以降は約 1.4 秒。Issue #79・#168）。毎回遅い場合は、Logs Insights（7.7）で、Init Duration と実行時間を確認する |
 | デプロイの直後から、おかしい | 7.3 のロールバック |
+| 特定の画面だけ（例: 設定 > 取り込み・ステータスコード）が、「新しい版に更新されました。画面を再読み込みしてください」（または、「画面を表示できませんでした」）になる。ほかの画面は、開く | **デプロイのあとに、古い画面（古い `index.html`・バンドル）を使い続けている**。ブラウザのコンソールに `Failed to fetch dynamically imported module: …/assets/<画面>-<ハッシュ>.js`（その URL が 403）が出る。デプロイで、古い画面の部品が削除されるため。画面の「再読み込み」で直る（`index.html` を `no-cache` にしたため〔6 章。Issue #323〕、再読み込みで、新しい版になる）。直らなければ、強制再読み込み（`Ctrl + Shift + R`）、サイトの閲覧データの削除、iPhone のホーム画面のアプリは、完全に終了して、開き直す（Issue #323）。画面は、この失敗を検出して、1 回だけ、自動で再読み込みする |
 
 - 障害時の連絡先・エスカレーション（運用体制）: 利用者 → システムの管理者（受注者）→ 運用・保守の担当（受注者）。**連絡先は、リポジトリの外で管理する**（公開のため。決定。[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md)）
 
@@ -201,7 +228,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ## 8. 開発サイトと本番サイト（評価環境の運用方針）
 
-決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割・設備の割り当ては、まだ実装されていない**（Issue #115・#116）。本番サイトは、AWS に作成した（Issue #117。9 章。2026-10-22）。
+決定の記録は、[ADR-0013](../10_design/adr/0013-environments-and-access-control.md)（Issue #78）。**ロールの分割は、実装済み**（Issue #115。8.7）。**設備の割り当ては、実装済み**（Issue #330。設備管理のハウスの行の「閲覧の割り当て」。ハウス側から行う）。通知（#331。8.8）は、実装済み。取り込み/連携のログ（#332）は、まだ。本番サイトは、AWS に作成した（Issue #117。9 章。2026-10-22）。
 
 ### 8.1 サイト
 
@@ -209,7 +236,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 |---|-----------|------------|
 | 目的 | 開発の間の、出来栄えの評価 | 現場での実証実験 |
 | デプロイ元のブランチ | `develop`（基本）。動作確認で、ほかのブランチを使うことがある（8.3） | `main` |
-| データ | **基本は合成データ**。実際のロボット・センサーとの結合確認では、実データを取り込むことがある（個人情報は不可。条件は、ADR-0013・[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) に記録した。接続のアダプタは Issue #119） | **実データ可（個人情報は不可）**。扱う条件は、確定済み（ADR-0013 6 章。Issue #117） |
+| データ | **基本は合成データ**。実際のロボット・センサーとの結合確認では、実データを取り込むことがある（個人情報は不可。条件は、ADR-0013・[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) に記録した。HTTP の接続のアダプタは、#119 で実装済み。実ファイルサーバーへの接続は #298） | **実データ可（個人情報は不可）**。扱う条件は、確定済み（ADR-0013 6 章。Issue #117） |
 | 状態 | 現在の評価環境（`SfmData`・`SfmEvaluation`。7 章） | **AWS に作成した**（9 章。Issue #117。2026-10-22。`main` から、承認つき） |
 
 - 2 つのサイトは、データ・ユーザー・URL を共有しない（別のスタック・別のテーブル・別のユーザープール・別の S3）
@@ -218,7 +245,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 ### 8.2 アクセス制御
 
 - **ログインは、必須**。多要素認証は、設けない。初期ユーザーは、システムの構築時に、**管理者のロールで**作る（7.4）。2 人目以降は、管理者が、画面で作る
-- **ロールは、管理者・一般の 2 種類**: 管理者は、すべての操作ができる。一般は、**管理者が割り当てた設備の閲覧・手動入力・自身のユーザー情報の編集**に限る。操作ごとの可否は、ADR-0013 の表。**実装前（現在）は、全員が全権限を持つ 1 ロール**
+- **ロールは、管理者・一般の 2 種類**: 管理者は、すべての操作ができる。一般は、**管理者が割り当てた設備の閲覧・手動入力・自身のユーザー情報の編集**に限る。操作ごとの可否は、ADR-0013 の表。**ロールの分割・設備の割り当て・通知の絞り込み（#331）は実装済み**（取り込みの状況・ログは、管理者のみ。#332）。実データを扱う間は、一般ユーザーを登録しない。一般ユーザーを登録したら、管理者が、設備管理のハウスの行の「閲覧の割り当て」で、そのハウスを閲覧できる一般ユーザーを選ぶ（割り当てがないと、何も閲覧できない）
 
 ### 8.3 更新の方針
 
@@ -231,6 +258,166 @@ filter @type = "REPORT" and ispresent(@initDuration)
 - フィードバックは、会議・メール等で聞き取り、**開発者が Issue にする**（個人・組織が特定されない形で書く。リポジトリは公開）。Sprint 3 以降の優先度づけにつなげる
 - 期間: 開発サイトは、開発が一段落するまで。本番サイトは、実証実験の計画に従う（未定）
 - 顧客向けの案内（URL・ログインの方法など）は、作らない（本スプリントでは必須でないため）
+
+### 8.5 ファイルサーバー（HTTP）の接続確認（公開サーバー。Issue #119。ユーザーが実行）
+
+開発サイトの Lambda から、インターネット上の公開サーバーに接続し、取り込みを確かめる（到達性・TLS・認証情報〔パラメータストア〕の読み出し・取り込みの費用）。宇都宮大学のファイルサーバーへの切り替えは、別の Issue（#298）。**開発サイトのデータを変更する操作を含むため、ユーザーが実行する**（AI エージェントは、評価環境に対して実行しない。AGENTS.md 12 章）。
+
+**前提**: 開発サイトに、`develop`（#119 の変更を含む）がデプロイされている。管理者でログインする。公開サーバーは、このリポジトリの**合成データ**（`tests/fixtures/file-server/robot/robot-sample-001.json`。データ上の識別子 `ROBOT-SAMPLE-01`）を、GitHub の raw で配信するものを使う（認証なし。`Last-Modified` を返さないため、毎回、取得される）。
+
+| 手順 | 操作 | 期待する結果 |
+|------|------|--------------|
+| 1 | 設備（SC-10）で、データ上の識別子が `ROBOT-SAMPLE-01` のロボットを、修正する（なければ、登録する）。ファイルパスに、`/NS-APU/smart-farm-monitoring/develop/tests/fixtures/file-server/robot/robot-sample-001.json` を入力して保存 | 一覧にファイルパスが表示される |
+| 2 | 取り込み設定（SC-11）で、ロボットデータの接続方式を「HTTP・HTTPS（ファイルサーバー）」、プロトコルを HTTPS、ホストを `raw.githubusercontent.com`、ポートを空、認証方式を「なし」にして保存 | 「設定を保存しました」 |
+| 3 | 「接続テスト」 | 「接続できました」（Lambda からの到達・TLS が確認できる） |
+| 4 | 「即時取得」 | 「取得しました（成功）」。ファイル 1 件、取り込み 14 件。取り込みログに、成功が記録される。もう一度「即時取得」しても、ファイル 0 件（同じ内容は、取り込まない） |
+
+**手順 5（認証情報〔パラメータストア〕の確認。#207）**: 手順 4 までで使った公開サーバー（GitHub の raw）は、認証のヘッダーを付けたリクエストに **404 を返す**（認証を受け付けない）。そのため、認証の確認には使えない。次の、**認証の成否で応答が変わる公開サーバー**を使う（値は、公開されているテスト用のダミー。実際の秘密情報ではない）。**ファイルの取り込み（「即時取得」）は、しない**（応答が、取り込みの形式ではないため）。確認の間は、SC-11 の「自動取り込みを有効にする」のチェックを外す（定期の取り込みが、この相手に接続して、失敗を記録するのを避ける）。
+
+| 手順 | 操作 | 期待する結果 |
+|------|------|--------------|
+| 5-0 | SC-11 のロボットのカードで、「自動取り込みを有効にする」のチェックを外す | — |
+| 5-A-1（Basic 認証。値の内容まで確認できる） | 設備（SC-10）のファイルパスを `/basic-auth` にして保存。SC-11 で、接続方式を HTTP・HTTPS、ホストを `postman-echo.com`、ポートを空、認証方式を「Basic 認証」にして保存し、認証情報に、ユーザー名 `postman`・パスワード `password`（このサービスが公開しているテスト用の値）を登録 | 「認証情報を保存しました」→「設定済み」 |
+| 5-A-2 | 「接続テスト」 | **「接続できました」**。このサーバーは、ユーザー名・パスワードが一致するときだけ 200 を返す。パラメータストアの値の読み出し・Basic 認証のヘッダーの組み立て・送信が、通ったことの確認 |
+| 5-A-3（任意） | パスワードを `wrong` にして登録し、「接続テスト」 | **「認証に失敗しました」**。5-A-2 の成功が、登録した値を使った結果だと分かる |
+| 5-B（Bearer。任意） | ファイルパスを `/bearer`、ホストを `httpbin.org`、認証方式を「Bearer トークン」にして保存し、トークンに `dummy-token` を登録 → 「接続テスト」 | **「接続できました」**（トークンがないと 401）。httpbin.org が混み合って 5xx を返すときは、5-A だけでよい |
+
+- 失敗したときの見方: 「認証情報が設定されていません」は、登録していない（認証方式を変えたあと、設定を保存してから登録する）。「認証情報を読み出せません」は、パラメータストアの読み出しの失敗（IAM〔`ssm:GetParameter`〕・パスのどちらか。10.4）。「認証に失敗しました」は、値の誤り（または、更新の反映待ち。最長 5 分）。「ファイルが見つかりません」は、認証を受け付けないサーバー（GitHub の raw など）を使っている場合に出る（この確認の合格ではない）
+
+**手順 7（後片付け。必須）**: SC-11 で、ロボットデータの接続方式を「モック」に戻し、「自動取り込みを有効にする」にチェックを入れて保存する。SC-10 で、手順 1 で設定したファイルパスを空にし、取得間隔を元（既定。設備ごとの設定）に戻して保存する（取り込んだ観測値は、不要なら、設備の削除などで消す）。登録した認証情報は、別のダミーの値で上書きして、無効にする（10.2）。開発サイトの合成データの生成（ADR-0012）と、混ざらないようにする。
+
+- 取り込んだ記録の計測日時は、固定（2026-10-09）のため、評価では「古いデータ」になる。接続の確認が目的で、評価の値は見ない。
+- **費用の実測（#295。手順 6。任意）**: 手順 4 のあと、SC-10 で、設備の取得間隔を最短（1 分）にして一定期間（例: 1 日）動かし、AWS のコスト管理・メトリクスで、DynamoDB・Lambda の使用量を確認し、見積もり（architecture.md 11.6）と比べる。終わったら、手順 7 で戻す。
+- 公開サーバー（GitHub の raw）は、認証なしのリクエストに、回数の制限がある。取得間隔（設備ごと）を短くするほど、回数が増える（既定のロボット 1 分・センサー 5 分で、1 設備 1 ファイルなら、1 日 約 1,700 回の概算）。制限に当たったら、設備の取得間隔を延ばす。
+- 失敗の理由は、画面に、固定の文言（接続できません／認証に失敗しました／ファイルが見つかりません など）で示される。接続先・ファイルパス・認証情報は、画面・ログに出ない。詳細は、API の Lambda のログ（7.6）の `warn` で、取り込み元・試行回数だけを確認できる。
+
+### 8.6 Web Push の実配信の設定と、実機での確認（Issue #241。ユーザーが実行）
+
+開発サイトで、Web Push を、実際の端末へ届ける設定と、確認の手順（ADR-0019 の D-36）。**AWS の操作・GitHub の設定・実機の操作は、ユーザーが行う。** 鍵の値は、チャット・Issue・PR・ログ・コミットに、書かない。
+
+**前提**: 開発サイトに、`develop`（#241 の変更を含む）がデプロイされている。AWS のコマンドを使う PowerShell で、プロファイルとリージョンを設定する（`$env:AWS_PROFILE = '<プロファイル名>'`・`$env:AWS_DEFAULT_REGION = 'ap-northeast-1'`。リージョンを指定しないと、`You must specify a region` で失敗する）。`aws sts get-caller-identity` で、対象が大学のアカウントであることを確認する。端末は、PC・Android の Chrome・Edge、または、iPhone・iPad（iOS・iPadOS 16.4 以降。**ホーム画面に追加したウェブアプリ**として開く。Safari のタブのままでは、Web Push は使えない。ADR-0019 の D-41）。HTTPS で開く（開発サイトは、HTTPS）。
+
+| 手順 | 操作 | 期待する結果 |
+|------|------|--------------|
+| A（鍵の生成） | 手元の PowerShell で、**まず、リポジトリの外の一時のディレクトリへ移る**（`Set-Location $env:TEMP`。リポジトリの中に作ると、誤ってコミットする恐れがある）。次を実行する（Node.js 24 以上。依存の追加は不要）。**秘密鍵は、画面に出さず、一時のファイル（`vapid-private.txt`）に書く**。公開鍵だけが、画面に出る。`node -e "const c=require('node:crypto');const e=c.createECDH('prime256v1');e.generateKeys();require('node:fs').writeFileSync('vapid-private.txt',e.getPrivateKey('base64url'));console.log(e.getPublicKey('base64url'))"` | 公開鍵（87 文字の base64url）が、1 行、表示される。`vapid-private.txt` ができる（43 文字） |
+| B（秘密鍵の登録） | 前提の、プロファイル・リージョンの設定を済ませてから、10.2 の例のとおり、`aws ssm put-parameter --name /sfm/development/web-push/vapid-private-key --type SecureString --tier Standard --overwrite --value file://vapid-private.txt` を実行する。同じディレクトリ（`$env:TEMP`）で実行する。**登録したら、すぐに、`Remove-Item vapid-private.txt` で削除する**（鍵の値を、画面・チャット・Issue・PR に貼らない） | 登録に成功する。`aws ssm get-parameter --name /sfm/development/web-push/vapid-private-key --query "Parameter.LastModifiedDate"`（**`--with-decryption` を付けない**）で、更新日時が返る |
+| C（公開鍵・連絡先の設定とデプロイ） | GitHub の Environment「development」の変数に、`SFM_WEB_PUSH_PUBLIC_KEY`（手順 A の公開鍵）と `SFM_WEB_PUSH_SUBJECT`（開発サイトの URL。`https://` で始まる。個人のメールアドレスは使わない）を、**2 つとも**設定する。Actions の「Deploy development」を実行する | デプロイが成功する。API・ジョブの Lambda の環境変数に、`WEB_PUSH_DELIVERY=vapid`・公開鍵・連絡先が入る（2 つのうち片方だけを設定すると、デプロイの synth で、エラーになる）。確認（任意）: ジョブの関数の名前は、ワークフローのログの出力 `JobFunctionName`、または、`aws lambda list-functions --query "Functions[?starts_with(FunctionName,'SfmEvaluation')].FunctionName"` の、`JobFunction` を含むもの。`$job = '実際の関数の名前'` としてから、`aws lambda get-function-configuration --function-name $job --query "Environment.Variables.[WEB_PUSH_DELIVERY,WEB_PUSH_SUBJECT]"` を実行し、`vapid` と連絡先が返る（**名前は、引用符で囲んで入力する。`<` `>` は、入力しない**） |
+| D（有効化） | 実機で、開発サイトにログインし、メニュー「通知の設定」を開く。「有効にする」を押し、ブラウザの通知の許可を「許可」する | 状態が「有効」になる（この端末の購読と、暗号鍵が、サーバーに登録される） |
+| E（受信） | 通知を起こす。例: 手動入力（SC-06）で、設備「環境センサー1」・種別「環境」・計測日時「現在」・温度 40・湿度 60・照度 30000・CO2 900 を保存する（温度が、異常の値）。手動入力のあとの評価は、定期のジョブ（JB-02）が行うため、**通知まで、最大 5〜6 分**かかる。さらに、配信のジョブ（JB-04）が、1 分ごとに配信する（**合計で、最大 6〜7 分**）。または、取り込み設定（SC-11）で、ファイルサーバーの接続を失敗させ、「即時取得」を押す（こちらは、すぐに通知が作られ、最大 1〜2 分） | 端末に、通知（見出し「異常検知」または「データ取得失敗」と、メッセージ）が、表示される（画面を開いていなくても）。通知を選ぶと、通知の画面（SC-05）が開く |
+| F（解除） | 「通知の設定」で、「解除する」を押す。もう一度、通知を起こす | 端末に、通知は届かない（画面内の通知には、残る） |
+
+- **失敗したときの見方**: API の Lambda・ジョブの Lambda のログ（7.6）の `warn`「Web Push の配信に失敗しました」の `reason`（理由）を見る。`秘密鍵が設定されていません`: 手順 B（パスのとおりに登録したか。環境は `development`）。`秘密鍵を読み取れません`: IAM（`ssm:GetParameter`・暗号化の鍵の `kms:Decrypt`。10.3・10.4）。`HTTP 401・403`: 公開鍵と秘密鍵が、対になっていない（手順 A をやり直し、B・C を両方更新する）、連絡先が不正、または、購読が、別の公開鍵で作られている（各端末で、解除 → 有効化をやり直す）。`HTTP 400`: 購読の内容の不正。`HTTP 404・410`: 購読が無効（自動で破棄される。再度「有効にする」）。`HTTP 429・5xx`・`接続できません`: 一時的な失敗（1 分から倍々で、通知を作ってから 1 時間まで、再送される）。
+- 手順 D より前に購読した端末は、暗号鍵を持たないため、**本文なし**で届く（既定の文言「新しい通知があります」）。「解除する」→「有効にする」で、本文つきになる。
+- 鍵を作り直したとき（漏えいの疑いなど）は、手順 A〜C を、すべてやり直す。**公開鍵が変わると、既存の購読には、届かなくなる**（プッシュサービスが、HTTP 403 を返す）。各端末が、「解除する」→「有効にする」をやり直す。
+- 費用: プッシュサービスへの送信は、無料。パラメータストアの標準のパラメータ・AWS 管理の暗号鍵は、無料。Lambda の実行時間の増加は、通知 1 件あたり数百 ms の見込みで、数円未満（**実測はしていない**）。
+- **確認の結果は、Issue #241 のコメントに記録する**（端末・OS・ブラウザの種類、期待どおりだったか、表示された文言）。実機で確認できなかった端末は、その旨を記録する（D-41 の確認事項）。
+
+### 8.7 既存ユーザーのロールの移行（Issue #115。ユーザーが実行）
+
+ロールを、「農作業者（`worker`）」の 1 種類から、「管理者（`admin`）・一般（`general`）」の 2 種類に分けたため、**ロール `worker` の既存のユーザーは、新しい版では、権限を持たない**（ログインはできるが、何もできない。ユーザー管理もできず、画面からは直せない）。次の手順で、DynamoDB のユーザーの記録のロールを、`admin` に移す。**新しい版を AWS にデプロイしたあとに、実行する**（デプロイの前に移すと、古い版は `admin` を知らないため、移した直後から、デプロイまでの間、全員が権限を失う。デプロイのあとなら、移した直後〔次のリクエスト〕から効く）。コマンドは、手元のソースの、新しい版（`develop` の最新）で実行する（移す先のロールの検証に、手元のロール定義を使うため）。
+
+- 開発サイト: `develop` へのマージで、新しい版がデプロイされる（8.3）。そのあとに、実行する
+- 本番サイト: 新しい版を `main` からデプロイ（9.3）したあとに、実行する（`$stack` を `SfmProductionData` にする）
+
+```powershell
+# PowerShell の例。<…> を、置き換える
+$env:AWS_PROFILE = '<プロファイル名>'
+$env:AWS_DEFAULT_REGION = 'ap-northeast-1'
+$stack = 'SfmData'   # 本番サイトは 'SfmProductionData'
+$data = aws cloudformation describe-stacks --stack-name $stack --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
+$env:PERSISTENCE = 'dynamodb'
+$env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'ObservationsTableName' }).OutputValue
+$env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
+# 1. 対象の人数を確認する（書き込まない）
+$env:MIGRATE_DRY_RUN = 'true'
+pnpm migrate-user-roles
+# 2. 移す（ロール worker のユーザーを、admin に）
+Remove-Item Env:MIGRATE_DRY_RUN
+pnpm migrate-user-roles
+# 3. 環境変数を消す（ほかのコマンドが、AWS を向かないように）
+Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE -ErrorAction SilentlyContinue
+```
+
+- 出力は、人数だけ（ユーザー ID・名前は出さない）。例: `ロール「worker」のユーザー 2 人を、「admin」に移しました`
+- 何度実行しても同じ（移す対象がなければ、何もしない）。途中で失敗しても、再実行できる。移す先・移す元は、`MIGRATE_TO_ROLE`・`MIGRATE_FROM_ROLE` で変えられる（既定は、`admin`・`worker`）
+- AWS の認証情報・権限が足りないときは、エラーの名前だけが出る（`AccessDeniedException` など）。DynamoDB の読み書きの権限（開発サイトでは、`pnpm initial-user` と同じプロファイル）が要る
+- 移したあとは、管理者でログインし、「設定 > ユーザー」で、一般にしたいユーザーのロールを、一般に変える。確認: 管理者のメニューに「ユーザー」「取り込み」が出ること、一般のユーザーのメニューには出ないこと
+- ロールを戻す必要があるときは、新しい版のロール定義に `worker` がないため、このコマンドでは戻せない（画面で、ロールを変える）
+
+### 8.8 既存の通知の移行（Issue #331。ユーザーが実行）
+
+通知を、閲覧できる利用者にだけ表示・配信するため、通知に、閲覧範囲のハウス（`facilityId`）と、ハウスごとのカウンター（通知の総数・利用者ごとの既読数）を持たせた。**それ以前の通知には、どちらもない**ため、新しい版を AWS にデプロイしたあとに、次の手順で補う。移行の前は、ハウスの情報がない通知は、一般ユーザーには見えず、一般ユーザーの未読の件数は、低く出る（安全側。管理者は、変わらない）。
+
+```powershell
+# PowerShell の例。<…> を、置き換える
+$env:AWS_PROFILE = '<プロファイル名>'
+$env:AWS_DEFAULT_REGION = 'ap-northeast-1'
+$stack = 'SfmData'   # 本番サイトは 'SfmProductionData'
+$data = aws cloudformation describe-stacks --stack-name $stack --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
+$env:PERSISTENCE = 'dynamodb'
+$env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'ObservationsTableName' }).OutputValue
+$env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
+# 1. 対象の件数を確認する（書き込まない）
+$env:MIGRATE_DRY_RUN = 'true'
+pnpm migrate-notification-counters
+# 2. 移す（通知にハウスを補い、ハウスごとのカウンターを再集計する）
+Remove-Item Env:MIGRATE_DRY_RUN
+pnpm migrate-notification-counters
+# 3. 環境変数を消す（ほかのコマンドが、AWS を向かないように）
+Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE -ErrorAction SilentlyContinue
+```
+
+- 出力は、件数だけ（通知の内容は出さない）。例: `通知 120 件を確認し、118 件にハウスを補いました。ハウスごとのカウンターを、再集計しました（ハウス 2 つ・利用者 5 人）`
+- 何度実行しても同じ（カウンターは、通知・既読の記録から、絶対値で書く）。途中で失敗しても、再実行できる。実行の間に作られた通知・既読が、反映されないことがある（再実行で直る）
+- ハウスに属さない通知（取り込みの失敗・取得停止・連携の期限切れ）と、設備が見つからない通知は、ハウスを補わない（全設備を閲覧できる利用者〔管理者〕だけが、見える）
+- コマンドは、手元のソースの、新しい版（`develop` の最新）で実行する。AWS の認証情報・DynamoDB の読み書きの権限が要る（8.7 と同じプロファイル）
+- 確認: 一般ユーザーでログインし、通知の一覧・ヘッダーの未読の件数が、割り当てたハウスの通知だけであること
+
+### 8.9 独自のサブドメインでの配信（Issue #128。ADR-0006 の追記。ユーザーが実行）
+
+開発サイト・本番サイトを、独自のサブドメイン（HTTPS。最低の TLS は 1.2）で配信する手順。cloudfront.net の既定の証明書は、最低の TLS のバージョンが **TLS 1.0 に固定される**ため、独自のサブドメイン（独自の証明書）にして、TLS 1.2 以上にする（ADR-0006）。**AWS の操作・GitHub の設定は、ユーザーが行う。ドメイン名・ホストゾーン名・アカウント ID・ゾーンの ID・ネームサーバーの名前は、リポジトリ・Issue・PR・チャットに書かない**（GitHub の Environment の変数にだけ設定する）。
+
+**確認の状況**: **開発サイトで、確認済み**（2026-11-10。ユーザーが実行。手順 8 の 4 つ〔HTTPS・ログイン・主な画面・`/health`・最低の TLS〕と、手順 9〔Web Push の購読のやり直し〕が、期待どおり）。本番サイトは、未実施（手順 J）。
+
+**構成（決定。ユーザーの判断。2026-11-10）**: 親のドメインのホストゾーンは、デプロイ先とは別のアカウントにある。そのため、**デプロイ先のアカウントに、サブドメイン用のホストゾーンを 1 つ作り、親のドメインのホストゾーンから委任する**（NS レコード）。開発サイト・本番サイトは、**同じホストゾーンを共有**する（レコードの名前だけが違う）。IaC は、このゾーンを検索して、証明書の DNS 検証のレコードと、サイトの A・AAAA（CloudFront への alias）のレコードを、自動で作る。
+
+| | 名前の形（`<ゾーン>` は、サブドメイン用のホストゾーンの名前。例: `sfm.<親ドメイン>`） | 環境変数 `SFM_HOSTED_ZONE_NAME` | 環境変数 `SFM_DOMAIN_NAME` |
+|---|---|---|---|
+| 開発サイト | `dev.<ゾーン>` | `<ゾーン>` | `dev.<ゾーン>` |
+| 本番サイト | `www.<ゾーン>` | `<ゾーン>`（同じ） | `www.<ゾーン>` |
+
+- **費用**（概算。実測は未確認）: ホストゾーン 1 つで月 US$0.50（1 ドル 150 円の仮定で約 75 円）。ACM の公開証明書・CloudFront の別名・CloudFront への alias のレコードは、無料。親のホストゾーンの費用は、変わらない
+- **切り替えで影響を受けること**: (1) サイトの URL が変わる。cloudfront.net の URL は、**CloudFront の仕様で、止められず、最低の TLS も旧のまま**。利用者には、新しい URL を案内する。(2) **Web Push の購読は、サイトの URL（オリジン）ごと**のため、新しい URL で、通知の設定を、やり直す（手順 I）。(3) `SFM_WEB_PUSH_SUBJECT`（連絡先の URL）を、新しい URL に更新する
+
+**手順**（PowerShell。`<…>` は、置き換える。AWS のコマンドは、対象のアカウントのプロファイルを指定してから実行する）
+
+| 手順 | 操作 | 期待する結果 |
+|------|------|--------------|
+| A（ゾーンの作成。**1 回だけ**） | デプロイ先のアカウントで、サブドメイン用のホストゾーンを作る。`$env:AWS_PROFILE = '<プロファイル名>'`、`$zone = '<ゾーン>'`、`$created = aws route53 create-hosted-zone --name $zone --caller-reference "sfm-$(Get-Date -Format yyyyMMddHHmmss)" \| ConvertFrom-Json`、`$created.DelegationSet.NameServers`（4 つのネームサーバー。次の手順で使う。**どこにも貼らない**） | ゾーンが作られ、ネームサーバーが 4 つ出る。コンソールの Route 53 → ホストゾーンに、出る |
+| B（委任。**1 回だけ**） | **親のドメインのホストゾーンがあるアカウント**の Route 53 で、そのホストゾーンに、レコードを作る。名前: ゾーンのうち、親のドメインより左の部分（例: `sfm`）。タイプ: **NS**。値: 手順 A の 4 つのネームサーバー（1 行に 1 つ）。TTL: 300 | レコードが作られる |
+| C（委任の確認。**必ず、デプロイの前に**） | `nslookup -type=NS $zone 8.8.8.8`（反映に、数分かかることがある） | **手順 A の 4 つのネームサーバー**が、出る。出ない間は、先へ進まない（委任が効く前に、デプロイすると、証明書の DNS 検証が、待ち続けて、止まる） |
+| C の補足（確認できないとき） | **`nslookup` で、手順 A の 4 つの名前が、出ないことがある**（DNS のキャッシュ・応答の形による。開発サイトでは、10 分待っても出なかったが、委任は、実際には効いており、そのままデプロイして、成功した。2026-11-10）。親のドメインの SOA に、独自名のネームサーバー（例: `ns1.…`。Route 53 の「独自名のネームサーバー」）が出ることもあり、**その名前だけでは、Route 53 かどうかを、判断できない**。出ない場合は、(1) 手順 B のレコード（名前・タイプ NS・値 4 つ）を、見直し、(2) 見直しても、同じなら、デプロイして、**証明書のスタックが、先へ進むか**で確認する（検証が通らなければ、`CREATE_IN_PROGRESS` のまま、止まる。止まったら、20 分で、手順 B・C に戻る） | 証明書のスタックが、数分〜十数分で、完了する |
+| D（us-east-1 の bootstrap。**1 回だけ**） | `pnpm --filter @smart-farm/infra run bootstrap:certificate`（プロファイルを指定したまま） | `CDKToolkit` のスタックが、us-east-1 に作られる |
+| E（差分の確認。開発サイト） | `$env:SFM_DOMAIN_NAME = 'dev.<ゾーン>'`、`$env:SFM_HOSTED_ZONE_NAME = $zone`、`pnpm build`、`pnpm --filter @smart-farm/infra run diff`、**必ず、`Remove-Item Env:SFM_DOMAIN_NAME, Env:SFM_HOSTED_ZONE_NAME`** | 追加・変更は、(1) 証明書のスタック `SfmEvaluationCertificate`（新規。証明書・リージョンをまたぐ参照の補助）、(2) `SfmEvaluation` の CloudFront（`Aliases`・`ViewerCertificate` の変更）、Route 53 の A・AAAA のレコード（追加）、リージョンをまたぐ参照の補助（追加）。**CloudFront・S3・Lambda・Secrets Manager・DynamoDB の「置き換え」（`[-/+]`）が出たら、中止して、差分を知らせる**。`SfmData` は、変わらない。`infra/cdk.context.json`（ゾーンの検索結果。Git 管理外）に、ドメインの情報が残る。共有しない |
+| F（GitHub の設定） | リポジトリの Settings → Environments → `development` の変数に、`SFM_DOMAIN_NAME`（`dev.<ゾーン>`）・`SFM_HOSTED_ZONE_NAME`（`<ゾーン>`）を設定する（2 つとも）。`SFM_WEB_PUSH_SUBJECT` を、新しい URL（`https://dev.<ゾーン>`）に更新する（8.6） | 変数が設定される |
+| G（デプロイ） | Actions → 「Deploy development」→ Run workflow（ブランチ: `develop`）。証明書の発行（DNS 検証）は、数分〜十数分かかる | ワークフローが成功する。出力 `SiteUrl` が、新しい URL になる |
+| H（確認） | 下の「確認」 | すべて OK |
+| I（Web Push の購読のやり直し） | 新しい URL で、ログインし、通知の設定で、購読し直す（8.6 の手順。旧 URL での購読は、届かなくなる） | 新しい URL で、通知が届く |
+| J（本番サイト） | 開発サイトの確認の後に、同じ手順を、**A〜D を飛ばして**行う（ゾーン・委任・bootstrap は、共通）。差分の確認は、`$env:SFM_ENVIRONMENT = 'production'` を指定し、`SFM_DOMAIN_NAME` は `www.<ゾーン>`（9.2 の手順 3）。GitHub は、Environment `production` の変数（`SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`・`SFM_WEB_PUSH_SUBJECT`）。デプロイは、9.3 | 本番サイトが、`www.<ゾーン>` で、動く |
+
+**確認**（手順 H。開発サイト。`<サイト>` は、新しいサイトの名前）
+1. 名前解決: `nslookup <サイト>`（CloudFront の IP が、出る）
+2. `curl.exe -i https://<サイト>/health` が **200**。`curl.exe -i http://<サイト>/` は、HTTPS へ**リダイレクト**（301・302）
+3. ブラウザで、`https://<サイト>/` を開き、**証明書が有効**（鍵のアイコン → 証明書。発行元は Amazon。対象は、サイトの名前）。ログイン → ダッシュボード・手動入力・通知・推移が、動く（コンソールに、CSP の違反が出ない。ADR-0006 の #127）
+4. **最低の TLS が、1.2 以上**: `aws cloudfront get-distribution-config --id <DistributionId> --query "DistributionConfig.ViewerCertificate.[MinimumProtocolVersion,SSLSupportMethod]" --output text`（`DistributionId` は、`SfmEvaluation` の出力）が、`TLSv1.2_2021`・`sni-only`。（古い TLS を、クライアントから指定して確かめる方法は、クライアント・OpenSSL の設定で、結果が変わるため、判断に使わない）
+5. `SMOKE_BASE_URL` に新しい URL を指定して、`pnpm test:smoke`（`smoke-04` の応答ヘッダー・Cache-Control を含む）が成功する（手動実行）
+6. 結果（OK・NG）を、Issue #128 に報告する（ドメイン名・URL は、書かない）
+
+**うまくいかないとき**
+- 証明書のスタックが、長く `CREATE_IN_PROGRESS`（20 分以上）: 委任が、効いていない。手順 C をやり直す。ゾーンに、検証用の CNAME（`_…`）が、作られているか、Route 53 のコンソールで確認する
+- `cdk diff`・デプロイが、「ホストゾーンが見つからない」: プロファイル（アカウント）が違う、または、`SFM_HOSTED_ZONE_NAME` が、手順 A のゾーンの名前と、違う。IaC は、`SFM_DOMAIN_NAME` が、ゾーンのサブドメインでなければ、エラーにする
+- 名前が、解決されない: DNS の反映待ち（数分）。続く場合は、ゾーンに A・AAAA のレコードがあるか、確認する
+- **戻す**: GitHub の Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME` を、削除（`SFM_WEB_PUSH_SUBJECT` は、元の URL に戻す）し、再デプロイする（cloudfront.net の URL に戻る。Route 53 のレコードは、スタックの更新で、消える）。その後、CloudFormation のコンソールで、us-east-1 の `SfmEvaluationCertificate` を、削除する（`destroy` は、評価環境のすべてのスタックを削除するため、使わない）。ゾーン・親の NS レコードは、残してよい
 
 ## 9. 本番サイトの運用手順（Issue #117。ADR-0013）
 
@@ -248,7 +435,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 | ワークフロー | 「Deploy development」 | 「Deploy production」（`main` 以外では動かない） |
 | データ | 基本は合成データ | 実データ可（個人情報は不可。9.8） |
 | 合成データの生成（デモ）の Lambda | あり | **なし** |
-| ファイルサーバーのモックの S3 | あり（デモが置く） | あり（**空のまま**。実ファイルサーバーのアダプタは、Issue #119。Lambda の取り込みの失敗を避けるため） |
+| ファイルサーバーのモックの S3 | あり（デモが置く） | あり（**空のまま**。HTTP のアダプタは、#119 で実装済み。実ファイルサーバーに切り替えるまで、空のまま。Lambda の取り込みの失敗を避けるため） |
 | `pnpm demo-data` | 使える | **使えない**（`SFM_ENVIRONMENT=production` のとき実行しない安全装置） |
 | データの保護（削除の保護・RETAIN・PITR 35 日・ログ 30 日） | あり | 同じ |
 
@@ -261,7 +448,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
    - Deployment branches and tags: **Selected branches** → `main` だけ
    - Required reviewers: **T-Ishikawa-R**（Prevent self-review は、オフ）
    - Environment のシークレット `AWS_DEPLOY_ROLE_ARN`: 手順 1 の `ProductionDeployRoleArn`
-   - 独自のサブドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`（2 つとも。開発サイトとは別のサブドメイン）
+   - 独自のサブドメインを使うときは、Environment の変数 `SFM_DOMAIN_NAME`・`SFM_HOSTED_ZONE_NAME`（2 つとも。開発サイトとは別のサブドメイン。手順は 8.9）
 3. **差分の確認**（推奨）: 次のとおり。作られるのは、本番の 2 つのスタック（`SfmProductionData`・`SfmProductionEvaluation`）だけで、開発サイトのスタックは、出ない
    ```powershell
    $env:AWS_PROFILE = '<プロファイル名>'
@@ -307,7 +494,7 @@ pnpm initial-user
 Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:COGNITO_CLIENT_ID, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:INITIAL_USER_ID, Env:INITIAL_USER_NAME, Env:INITIAL_USER_PASSWORD, Env:INITIAL_USER_ROLE -ErrorAction SilentlyContinue
 ```
 
-- 最初のユーザーのロールは、ロール定義の最初の、ユーザー管理の権限を持つロール（現在は 1 ロール。ロールの分割（Issue #115）の後は、管理者）。2 人目以降は、管理者が、画面（ユーザー管理）で作る
+- 最初のユーザーのロールは、ロール定義の最初の、ユーザー管理の権限を持つロール（既定のロールでは、管理者 `admin`）。2 人目以降は、管理者が、画面（ユーザー管理）で作る
 
 ### 9.6 バックアップ・復元
 
@@ -327,7 +514,7 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 
 ### 9.8 実データの扱いの条件（確定。2026-10-22）
 
-ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（取り込み元の実ファイルサーバーのアダプタ #119 も要る）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
+ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（#115・#102・#127 は、完了。#128 は、開発サイトが完了で、**本番サイトの独自のサブドメインは #341**）（取り込み元の実ファイルサーバーの接続 #298 も要る。HTTP のアダプタ #119 は、実装済み）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
 
 ### 9.9 AWS での確認状況
 
@@ -340,4 +527,89 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | 9.7 データの削除と、再作成 | **確認済み**（2026-10-22。ユーザーが実行。データが空の状態）。評価環境のスタック（`SfmProductionEvaluation`）の削除 → 保護の解除 → データのスタック（`SfmProductionData`）の削除 → DynamoDB のテーブル 2 つの削除 → Cognito のユーザープールの削除（コンソール）が成功した。削除の確認（スタックがない・本番のテーブルがない）と、**開発サイトが無事なこと**（スタックの状態・`/health`）も確認した。続けて「Deploy production」で再作成し、`/health`・最初のユーザーの作成・ログイン・ダッシュボードの表示・ジョブのログにエラーがないことを確認した（IaC で同じ環境を再作成できる。`SiteUrl` は新しくなる）。**削除のコマンドは、`SFM_ENVIRONMENT=production` を指定しないと、開発サイトを消す**。実行の前に、`diff` の `Stack` の行が、本番の 2 スタックだけであることを確認する（`pnpm --filter @smart-farm/infra run diff`） |
 | `main` への push による本番サイトの自動デプロイ（承認待ち → 承認 → 成功） | **確認済み**（2026-10-26。Issue #167。v0.3.0 のリリース〔PR #251〕。承認は、ユーザーが実行）。`release/0.3.0` → `main` のマージ（Merge commit）の直後に、「Deploy production」が、`push` で、**自動で始まり**、**承認待ち**（Environment `production` の Review deployments）になった。承認の前に、`main` の CI（PR の E2E・負荷テストを含む）が成功していた。承認で、デプロイが進み、**成功した**。`<SiteUrl>/health` が `{"status":"ok",…}` を返した。同じ `main` への push のあとの、タグ `v0.3.0` の push・GitHub Release の作成・`main` → `develop` の反映 PR の作成は、承認待ちのデプロイと干渉しなかった（待機のまま） |
 | `main` 以外からの本番デプロイの拒否 | **確認済み**（2026-10-22）。「Deploy production」を、`develop` から手動実行（Use workflow from: `develop`）したところ、ジョブがスキップされ、承認の依頼も出なかった（ワークフローの条件 `github.ref`） |
+| 10 秘密情報（パラメータストア）の IAM の権限（Issue #206） | **開発サイトで確認済み**（2026-11-05。ユーザーが実行。10.3 の IAM のシミュレーター。環境変数・パラメータストアの権限・暗号化の鍵の権限が、すべて期待どおり）。実際の暗号化・復号は、#207・#241 で、秘密情報を使うときに確認する。**本番サイトは、未実施** |
 | 9.4 ロールバック・9.6 バックアップ | 未実施（開発サイトの同等の手順は、確認済み: 7.3・backup-restore.md・commands.md） |
+
+## 10. 秘密情報（パラメータストア）の運用手順（Issue #206。ADR-0016 の D-55・ADR-0009）
+
+接続先の認証情報（ファイルサーバー・農業情報基盤）と、Web Push の秘密鍵（VAPID）は、**AWS Systems Manager パラメータストアの SecureString（標準）**に保管する。値は、AWS の管理の鍵で暗号化される。**AWS への接続・値の登録は、ユーザーが行う**（AGENTS.md 12 章。値を、チャット・Issue・PR・リポジトリに書かない）。
+
+### 10.1 構成
+
+| 項目 | 内容 |
+|------|------|
+| パス | `/sfm/<環境>/<種類>/<名前>`。環境は、`development`（開発サイト）・`production`（本番サイト）。種類の例: `file-server`・`federation`・`web-push` |
+| 参照名（アプリ） | `<種類>/<名前>`（例: `file-server/robot`・`web-push/vapid-private-key`）。小文字・数字・`.`・`_`・`-` の 1〜4 階層（1 階層 64 文字まで）。それ以外は、アプリが、拒否する |
+| 権限（IaC） | API の Lambda: そのパスの下の `ssm:GetParameter`・`ssm:PutParameter`。ジョブの Lambda: `ssm:GetParameter` だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由（`kms:ViaService`）の利用に限る。**開発サイトの権限では、本番のパス（`/sfm/production/`）を読めない** |
+| 環境変数（Lambda） | `CREDENTIAL_STORE=ssm`・`CREDENTIAL_PATH_PREFIX=/sfm/<環境>/`（秘密ではない。IaC が設定する） |
+| キャッシュ | アプリは、読み取りの結果を、5 分、Lambda の実行環境の中で持つ。値を更新したあと、ほかの実行環境が、新しい値を使うまで、最長 5 分。接続先の認証に失敗したときは、アプリが、すぐ取り直す |
+| 上限 | 1 つの値は、4 KB まで（標準のパラメータの上限）。空の値は、保存できない |
+| 値の形式（ファイルサーバーの認証情報。#172） | 参照名は `file-server/<取り込み元の識別子>`（`robot`・`environment-sensor`）。認証方式ごとに、Basic は JSON `{"username":"…","password":"…"}`（ユーザー名に `:` を含めない）、Bearer はトークンの文字列、API キーは API キーの文字列（送るヘッダー名は、画面で設定）。Bearer・API キーは、前後の空白・改行を取り除く。表示できる ASCII だけ（ヘッダーの注入を避ける）。形式が違うと、接続テスト（SC-11）が「認証情報の形式が正しくありません」になる。登録のあとは、接続テストで確かめる（ADR-0022） |
+
+### 10.2 値の登録・更新
+
+- **ファイルサーバーの認証情報**（`file-server/<取り込み元>`）は、管理者が、SC-11（取り込み設定・状況）の「認証情報」から、書き込み専用で登録する（#207。上書きのみで、保存後は再表示しない。「設定済み／未設定」と更新日時を示す）。次の手動の手順は、画面がない値（Web Push の秘密鍵など）に使う
+
+- 値は、コマンドの履歴に残らない方法で渡す（例: PowerShell で、`Read-Host -AsSecureString` で受け取った値を使う。値を、コマンドの引数に直接書かない）。
+- 作成・更新の例（`<値のファイル>` は、値だけを書いた、一時のファイル。登録後に、安全に削除する）:
+
+```powershell
+aws ssm put-parameter --name /sfm/development/web-push/vapid-private-key --type SecureString --tier Standard --overwrite --value file://<値のファイル>
+```
+
+- 状態の確認（**値は、復号しない**。`--with-decryption` を付けない）:
+
+```powershell
+aws ssm get-parameter --name /sfm/development/web-push/vapid-private-key --query "Parameter.LastModifiedDate"
+```
+
+- 本番サイトは、パスを `/sfm/production/…` にして、同じ手順で登録する。**開発サイトと本番サイトで、同じ値を使い回さない**（security.md）。
+- 削除は、アプリからは、しない（ユーザーが、AWS で行う）。
+
+### 10.3 IaC の適用後の確認（IAM。値を使わずに確認できる）
+
+アプリが、秘密情報を使う処理は、ファイルサーバーの認証情報（#207。SC-11 の登録と接続テスト）が入った。HTTP の取得（#119。認証情報の読み出しを含む）も入った。Web Push の秘密鍵（#241。実配信の設定と実機での確認は 8.6）も入った。実行時の確認の範囲は、これらに限られる。**適用後は、IAM のシミュレーターで、権限を確認する**（ユーザーが実行）。プロファイル（`$env:AWS_PROFILE`）とリージョン（`--region ap-northeast-1`）を指定し、対象が大学のアカウントであることを、`aws sts get-caller-identity` で確認してから行う。
+
+- **リソースは、1 つずつ**シミュレートする。**複数のリソースを渡すと、判定が、操作ごとに 1 つにまとめられ**（1 つでも許可されないと、全体が implicitDeny）、期待どおりの設定でも、すべて implicitDeny に見える。
+- API・ジョブの Lambda の実行ロールは、スタックの出力（`ApiFunctionName`・`JobFunctionName`）の関数から、`aws lambda get-function-configuration --query Role` で取る。
+
+```powershell
+$env:AWS_PROFILE = '<プロファイル名>'
+$region = 'ap-northeast-1'
+$account = aws sts get-caller-identity --region $region --query Account --output text
+$dev  = "arn:aws:ssm:${region}:${account}:parameter/sfm/development/file-server/robot"
+$prod = "arn:aws:ssm:${region}:${account}:parameter/sfm/production/file-server/robot"
+foreach ($role in $apiRole, $jobRole) {
+  foreach ($target in @(@('development', $dev), @('production', $prod))) {
+    "---- $($role.Split('/')[-1]) × $($target[0])"
+    aws iam simulate-principal-policy --policy-source-arn $role --action-names ssm:GetParameter ssm:PutParameter ssm:DeleteParameter --resource-arns $target[1] --query "EvaluationResults[].[EvalActionName,EvalDecision]" --output text
+  }
+}
+```
+
+| ロール × パス | GetParameter | PutParameter | DeleteParameter |
+|---------------|--------------|--------------|-----------------|
+| API × `/sfm/development/…` | allowed | allowed | implicitDeny |
+| API × `/sfm/production/…` | implicitDeny | implicitDeny | implicitDeny |
+| ジョブ × `/sfm/development/…` | allowed | implicitDeny | implicitDeny |
+| ジョブ × `/sfm/production/…` | implicitDeny | implicitDeny | implicitDeny |
+
+暗号化の鍵（`kms:ViaService` の条件）は、鍵の ARN（`arn:aws:kms:<リージョン>:<アカウント ID>:key/<任意の ID>`）に対して、`--context-entries "ContextKeyName=kms:ViaService,ContextKeyValues=ssm.<リージョン>.amazonaws.com,ContextKeyType=string"` を付けて、`kms:Decrypt`・`kms:Encrypt`・`kms:GenerateDataKey` を確認する。
+
+| ロール | 条件あり（パラメータストア経由） | 条件なし（直接の利用） |
+|--------|----------------------------------|------------------------|
+| API | `Decrypt`・`Encrypt`・`GenerateDataKey` が allowed | `Decrypt` は implicitDeny |
+| ジョブ | `Decrypt` が allowed。`Encrypt`・`GenerateDataKey` は implicitDeny | `Decrypt` は implicitDeny |
+
+**シミュレーターの限界**: 見るのは、ロールの IAM のポリシーだけ。AWS の管理の鍵（`alias/aws/ssm`）のキーポリシーは、評価しない。実際に、暗号化・復号できるかは、秘密情報を使う処理（#207・#241）が入ったときに、確かめる（足りなければ、`AccessDeniedException`）。
+
+**確認済み**: 開発サイトで、2026-11-05（ユーザーが実行。Issue #206。PR #290 のブランチの「Deploy development」のあと）。環境変数（`CREDENTIAL_STORE=ssm`・`CREDENTIAL_PATH_PREFIX=/sfm/development/`。API・ジョブの両方）、上の 2 つの表の、すべての判定が、期待どおりだった。アカウント ID は、記録しない（リポジトリ・Issue・PR に書かない）。**本番サイトは、本番のデプロイ（`main` へのマージ）のあとに、パスを `/sfm/production/` にして、同じ確認を行う**（未実施）。
+
+### 10.4 障害時
+
+- 「秘密情報を読み取れませんでした」「秘密情報を保存できませんでした」が出るとき: ログの `errorName`（エラーの種類の名前だけ。値・AWS のエラーの内容は、ログに出さない）を確認する。`AccessDeniedException` なら、10.3 の IAM と、暗号化の鍵の権限を確認する。`ThrottlingException` は、時間をおいて、再び試す。
+- 認証に失敗する（接続先の認証情報を、AWS で更新した直後）: アプリは、認証の失敗で、すぐ取り直す。それでも失敗するときは、最長 5 分待つ。
+
+## 11. 農業情報基盤との連携の準備・確認（Issue #177。ADR-0024）
+
+農業情報基盤（NGSI-LD）への連携は、画面（SC-11）の「連携先の設定」で、接続先・テナント・context を設定し、有効にする。基盤側の準備（QuantumLeap への購読）と確認の手順は、[federation-platform-setup.md](./federation-platform-setup.md)（ユーザーが実行。ADR-0024。#177）。基盤は、ふだん停止していて、停止中は連携が「保留」になる（破棄の期限は、既定 30 日。設定で変えられる）。

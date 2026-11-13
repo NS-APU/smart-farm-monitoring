@@ -2,117 +2,174 @@
 
 import {
   FederationItemSchema,
+  type FacilityFederationLog,
+  type FacilityIngestionLog,
   type FederationItem,
   FederationLogSchema,
   IngestionLogSchema,
+  type IngestionLog,
 } from '@smart-farm/shared/schemas/ingestion';
 import {
+  EquipmentIngestionStateSchema,
   IngestedFileRecordSchema,
-  type IngestedFileRecord,
+  SourceIngestionStateSchema,
 } from '../../../application/ports/records.ts';
 import type {
   FederationRepository,
+  IngestionLogFilter,
   IngestionRepository,
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
-import { latestOf, paginated, saverOf } from './collection-helpers.ts';
+import { toEquipmentId } from '@smart-farm/shared/schemas/common';
+import { paginated, saverOf } from './collection-helpers.ts';
+
+/** ハウス別の記録の並び: 新しい順（同じ日時は、ログ・ハウスの識別子の降順。DynamoDB のソートキーと同じ順）。 */
+function byNewest(
+  left: { readonly occurredAt: string; readonly logId: string; readonly facilityId: string },
+  right: { readonly occurredAt: string; readonly logId: string; readonly facilityId: string },
+): number {
+  return (
+    right.occurredAt.localeCompare(left.occurredAt) ||
+    right.logId.localeCompare(left.logId) ||
+    right.facilityId.localeCompare(left.facilityId)
+  );
+}
+
+/** 設備の絞り込み: その設備のログと、（取り込み元を指定すれば）その取り込み元の、設備に結びつかないログ。 */
+function matchesEquipment(log: IngestionLog, equipment: IngestionLogFilter['equipment']): boolean {
+  if (equipment === undefined) {
+    return true;
+  }
+  return log.equipmentId === undefined
+    ? equipment.sourceId !== undefined && log.sourceId === equipment.sourceId
+    : log.equipmentId === equipment.equipmentId;
+}
+
+/** 結果の絞り込み: 成功は SUCCESS。失敗は、FAILURE と、一部成功（PARTIAL）。 */
+function matchesResult(
+  result: IngestionLog['result'],
+  wanted: IngestionLogFilter['result'],
+): boolean {
+  if (wanted === undefined) {
+    return true;
+  }
+  return wanted === 'SUCCESS' ? result === 'SUCCESS' : result !== 'SUCCESS';
+}
 
 export interface LocalIngestionRepository {
   readonly repository: IngestionRepository;
-  /** 取り込み済みファイルの索引を捨てる（次の参照で、全件から作り直す）。 */
-  resetIndex(): void;
 }
 
 export function createIngestionRepository(store: LocalStore): LocalIngestionRepository {
   const ingestedFiles = store.collection(
     'ingestedFiles',
     IngestedFileRecordSchema,
-    (item) => `${item.sourceId}#${item.fileId}#${item.contentHash}`,
+    (item) => `${item.sourceId}#${item.fileId}`,
   );
   const ingestionLogs = store.collection('ingestionLogs', IngestionLogSchema, (item) => item.logId);
-
-  // 取り込み元と内容のハッシュの組 → 成功した記録（ファイル名が違っても、同じ内容は、取り込み済み）。
-  // 件数が増えても、全件を走査しない（V-082）。読み込み・全消去で、作り直す
-  let successByHash: Map<string, IngestedFileRecord> | undefined;
-  const hashKey = (record: Pick<IngestedFileRecord, 'sourceId' | 'contentHash'>): string =>
-    `${record.sourceId}#${record.contentHash}`;
-  function successIndex(): Map<string, IngestedFileRecord> {
-    if (successByHash === undefined) {
-      successByHash = new Map();
-      for (const record of ingestedFiles.values()) {
-        if (record.result === 'SUCCESS' && !successByHash.has(hashKey(record))) {
-          successByHash.set(hashKey(record), record);
-        }
-      }
-    }
-    return successByHash;
-  }
+  const equipmentStates = store.collection(
+    'ingestionEquipmentStates',
+    EquipmentIngestionStateSchema,
+    (item) => item.equipmentId,
+  );
+  const sourceStates = store.collection(
+    'ingestionSourceStates',
+    SourceIngestionStateSchema,
+    (item) => item.sourceId,
+  );
 
   const repository: IngestionRepository = {
     findIngestedFile(sourceId, fileId, contentHash) {
-      // 識別子とハッシュが同じ記録（結果を問わない）、または、ハッシュが同じ成功の記録
-      return Promise.resolve(
-        ingestedFiles.get(`${sourceId}#${fileId}#${contentHash}`) ??
-          successIndex().get(hashKey({ sourceId, contentHash })),
-      );
+      // 同じ識別子の、最新の版が、同じハッシュなら、取り込み済み（結果を問わない。Issue #201）
+      const latest = ingestedFiles.get(`${sourceId}#${fileId}`);
+      return Promise.resolve(latest?.contentHash === contentHash ? latest : undefined);
     },
-    async recordFile(record) {
-      await saverOf(ingestedFiles)(record);
-      if (successByHash !== undefined && record.result === 'SUCCESS') {
-        if (!successByHash.has(hashKey(record))) {
-          successByHash.set(hashKey(record), record);
-        }
-      }
-    },
+    recordFile: saverOf(ingestedFiles),
     addLog: saverOf(ingestionLogs),
     listLogs(filter, page) {
       const matched = ingestionLogs
         .values()
         .filter((log) => filter.sourceId === undefined || log.sourceId === filter.sourceId)
+        .filter((log) => matchesEquipment(log, filter.equipment))
+        .filter((log) => matchesResult(log.result, filter.result))
+        .filter(
+          (log) =>
+            (filter.from === undefined || log.startedAt >= filter.from.toISOString()) &&
+            (filter.to === undefined || log.startedAt <= filter.to.toISOString()),
+        )
         .sort(
           (left, right) =>
             right.startedAt.localeCompare(left.startedAt) || right.logId.localeCompare(left.logId),
         );
       return paginated(matched, page);
     },
+    listFacilityLogs(facilityIds, page) {
+      const entries: FacilityIngestionLog[] = ingestionLogs.values().flatMap((log) =>
+        (log.facilities ?? [])
+          .filter((entry) => facilityIds.includes(entry.facilityId))
+          .map((entry) => ({
+            logId: log.logId,
+            facilityId: entry.facilityId,
+            sourceId: log.sourceId,
+            occurredAt: log.startedAt,
+            result: entry.result,
+            recordCount: entry.recordCount,
+          })),
+      );
+      return paginated(entries.sort(byNewest), page);
+    },
     lastStartedAt(sourceId) {
+      const state = sourceStates.get(sourceId);
+      return Promise.resolve(state === undefined ? null : new Date(state.startedAt));
+    },
+    recordSourceStarted(sourceId, at) {
+      const startedAt = at.toISOString();
+      const current = sourceStates.get(sourceId);
+      if (current === undefined || current.startedAt < startedAt) {
+        sourceStates.put({ sourceId, startedAt });
+      }
+      return Promise.resolve();
+    },
+    listEquipmentRuns() {
       return Promise.resolve(
-        latestOf(
-          ingestionLogs
-            .values()
-            .filter((log) => log.sourceId === sourceId)
-            .map((log) => log.startedAt),
+        new Map(
+          equipmentStates.values().map((state) => [
+            state.equipmentId,
+            {
+              startedAt: new Date(state.startedAt),
+              finishedAt: new Date(state.finishedAt),
+              result: state.result,
+              lastSucceededAt: state.succeededAt === undefined ? null : new Date(state.succeededAt),
+              lastDataAt: state.dataAt === undefined ? null : new Date(state.dataAt),
+            },
+          ]),
         ),
       );
     },
-    lastSucceededAt(sourceId) {
-      return Promise.resolve(
-        latestOf(
-          ingestionLogs
-            .values()
-            .filter((log) => log.sourceId === sourceId && log.result === 'SUCCESS')
-            .map((log) => log.finishedAt),
-        ),
-      );
-    },
-    lastDataIngestedAt(sourceId) {
-      return Promise.resolve(
-        latestOf(
-          ingestionLogs
-            .values()
-            .filter((log) => log.sourceId === sourceId && log.recordCount > 0)
-            .map((log) => log.finishedAt),
-        ),
-      );
+    recordEquipmentRuns(runs) {
+      for (const run of runs) {
+        const current = equipmentStates.get(run.equipmentId);
+        const startedAt = run.startedAt.toISOString();
+        if (current !== undefined && current.startedAt > startedAt) {
+          continue;
+        }
+        const finishedAt = run.finishedAt.toISOString();
+        const succeededAt = run.result === 'SUCCESS' ? finishedAt : current?.succeededAt;
+        const dataAt = run.dataIngested ? finishedAt : current?.dataAt;
+        equipmentStates.put({
+          equipmentId: toEquipmentId(run.equipmentId),
+          startedAt,
+          finishedAt,
+          result: run.result,
+          ...(succeededAt === undefined ? {} : { succeededAt }),
+          ...(dataAt === undefined ? {} : { dataAt }),
+        });
+      }
+      return Promise.resolve();
     },
   };
 
-  return {
-    repository,
-    resetIndex() {
-      successByHash = undefined;
-    },
-  };
+  return { repository };
 }
 
 /** 送信していない項目（送信済み・期限切れ（破棄）を除く）。 */
@@ -176,6 +233,20 @@ export function createFederationRepository(store: LocalStore): FederationReposit
             right.logId.localeCompare(left.logId),
         );
       return paginated(sorted, page);
+    },
+    listFacilityLogs(facilityIds, page) {
+      const entries: FacilityFederationLog[] = federationLogs.values().flatMap((log) =>
+        (log.facilities ?? [])
+          .filter((entry) => facilityIds.includes(entry.facilityId))
+          .map((entry) => ({
+            logId: log.logId,
+            facilityId: entry.facilityId,
+            occurredAt: log.occurredAt,
+            result: log.result,
+            itemCount: entry.itemCount,
+          })),
+      );
+      return paginated(entries.sort(byNewest), page);
     },
     countByStatus() {
       const counts = { PENDING: 0, SENT: 0, FAILED: 0, HELD: 0, EXPIRED: 0 };

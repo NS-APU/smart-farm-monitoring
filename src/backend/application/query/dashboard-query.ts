@@ -14,6 +14,7 @@ import {
   type ViewpointMeta,
 } from '@smart-farm/shared/constants/viewpoints';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
+import { staleThresholdMinutesOf, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
   DashboardResponse,
   DataFreshness,
@@ -25,6 +26,7 @@ import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { UNKNOWN_ACTION } from '../../domain/evaluation/messages.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
+import { isAutoIngestionTarget } from '../ingestion/auto-target.ts';
 import type { IngestionSettings } from '../ingestion/ingestion-settings.ts';
 import { requireActiveEquipment } from '../equipment/require-active-equipment.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
@@ -46,7 +48,7 @@ export interface DashboardQuery {
 export interface DashboardQueryDeps {
   readonly repositories: Pick<Repositories, 'equipment' | 'observations' | 'evaluations'>;
   readonly ingestionSettings: IngestionSettings;
-  readonly settings: Pick<AppSettings, 'defaultIngestionIntervalMinutes' | 'staleAfterIntervals'>;
+  readonly settings: Pick<AppSettings, 'staleAfterIntervals'>;
   readonly clock: ClockPort;
 }
 
@@ -117,32 +119,60 @@ function summarize(cards: readonly ViewpointCard[]): DashboardResponse['summary'
   return summary;
 }
 
-/** 最終の受信日時から、データの新しさを判定する（基準を超えて古ければ STALE）。 */
-function classifyFreshness(
-  lastReceived: Date | null,
+/**
+ * データの新しさを、設備ごとに判定する（Issue #198。ADR-0016 の D-12）。設備（ハウスなら配下のロボット・センサー）の、
+ * 最終の受信日時が、その設備の基準（取得間隔 × 倍数、最低 3 分）を超えて古ければ、その設備は古い。1 つでも古ければ STALE。
+ * まだデータのない設備は、判定しない（どの設備にもデータがなければ、NONE）。
+ */
+function judgeFreshness(
+  members: readonly Equipment[],
+  receivedAt: ReadonlyMap<EquipmentId, Date>,
   now: Date,
-  thresholdMinutes: number,
-): DataFreshness {
-  if (lastReceived === null) {
-    return 'NONE';
+  multiplier: number,
+): {
+  readonly freshness: DataFreshness;
+  readonly lastReceived: Date | null;
+  readonly staleEquipment: DashboardResponse['staleEquipment'];
+} {
+  const staleEquipment: DashboardResponse['staleEquipment'][number][] = [];
+  let lastReceived: Date | null = null;
+  let hasData = false;
+  for (const member of members) {
+    const received = receivedAt.get(member.equipmentId);
+    const thresholdMinutes = staleThresholdMinutesOf(member, multiplier);
+    if (received === undefined || thresholdMinutes === undefined) {
+      continue;
+    }
+    hasData = true;
+    if (lastReceived === null || received.getTime() > lastReceived.getTime()) {
+      lastReceived = received;
+    }
+    if (now.getTime() - received.getTime() > thresholdMinutes * MS_PER_MINUTE) {
+      staleEquipment.push({
+        equipmentId: member.equipmentId,
+        name: member.name,
+        lastReceivedAt: received.toISOString(),
+        thresholdMinutes,
+      });
+    }
   }
-  return now.getTime() - lastReceived.getTime() > thresholdMinutes * MS_PER_MINUTE
-    ? 'STALE'
-    : 'FRESH';
+  return {
+    freshness: !hasData ? 'NONE' : staleEquipment.length > 0 ? 'STALE' : 'FRESH',
+    lastReceived,
+    staleEquipment,
+  };
+}
+
+/** 日時のうち、最も新しいもの。なければ null。 */
+function latestOfDates(dates: readonly Date[]): Date | null {
+  return dates.reduce<Date | null>(
+    (latest, date) => (latest === null || date.getTime() > latest.getTime() ? date : latest),
+    null,
+  );
 }
 
 export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
   const { repositories, ingestionSettings, settings, clock } = deps;
-
-  /** 「データが古い」とみなす基準（分）= 最短の取得間隔 × 設定の倍数（暫定。FR-6.3）。 */
-  async function staleThresholdMinutes(): Promise<number> {
-    const sources = (await ingestionSettings.listSources()).filter((source) => source.isEnabled);
-    const interval =
-      sources.length === 0
-        ? settings.defaultIngestionIntervalMinutes
-        : Math.min(...sources.map((source) => source.intervalMinutes));
-    return interval * settings.staleAfterIntervals;
-  }
 
   return {
     async get(params) {
@@ -160,11 +190,44 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
           .map((result) => result.evaluatedAt)
           .sort()
           .at(-1) ?? null;
-      // データの新しさは、ロボット・センサーからの自動取り込みで判定する（手動入力で、供給の停止が隠れないように。V-024）
-      const lastReceived = await repositories.observations.latestReceivedAt(scope.equipmentIds, {
-        autoImportOnly: true,
-      });
-      const thresholdMinutes = await staleThresholdMinutes();
+      // データの新しさは、ロボット・センサーからの自動取り込みで、設備ごとに判定する（手動入力で、供給の停止が隠れないように。V-024）。
+      // 自動取り込みの対象でない設備（取り込み元が無効・取得先がない）は、判定しない。対象が 1 つもなければ、手動のみの運用（Issue #202）
+      const members = allEquipment.filter(
+        (item) =>
+          !item.isDeleted &&
+          item.equipmentType !== 'FACILITY' &&
+          scope.equipmentIds.includes(item.equipmentId),
+      );
+      const sources = await ingestionSettings.listSources();
+      const targets = members.filter((item) => isAutoIngestionTarget(item, sources));
+      if (members.length > 0 && targets.length === 0) {
+        const manualAt = await repositories.observations.receivedAtByEquipment(
+          members.map((item) => item.equipmentId),
+          { manualOnly: true },
+        );
+        return {
+          equipmentId: params.equipmentId,
+          horizon: params.horizon,
+          periodDays: params.periodDays ?? DEFAULT_PERIOD_DAYS,
+          evaluatedAt,
+          lastReceivedAt: null,
+          dataFreshness: 'MANUAL',
+          lastManualInputAt: toIsoOrNull(latestOfDates([...manualAt.values()])),
+          staleEquipment: [],
+          summary: summarize(cards),
+          viewpoints: cards,
+        };
+      }
+      const receivedAt = await repositories.observations.receivedAtByEquipment(
+        targets.map((item) => item.equipmentId),
+        { autoImportOnly: true },
+      );
+      const { freshness, lastReceived, staleEquipment } = judgeFreshness(
+        targets,
+        receivedAt,
+        now,
+        settings.staleAfterIntervals,
+      );
 
       return {
         equipmentId: params.equipmentId,
@@ -172,8 +235,9 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
         periodDays: params.periodDays ?? DEFAULT_PERIOD_DAYS,
         evaluatedAt,
         lastReceivedAt: toIsoOrNull(lastReceived),
-        dataFreshness: classifyFreshness(lastReceived, now, thresholdMinutes),
-        staleThresholdMinutes: thresholdMinutes,
+        dataFreshness: freshness,
+        lastManualInputAt: null,
+        staleEquipment,
         summary: summarize(cards),
         viewpoints: cards,
       };

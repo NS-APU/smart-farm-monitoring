@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
+import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import { App } from '../../../src/frontend/app.tsx';
 import { safeNextPath } from '../../../src/frontend/pages/login-page.tsx';
 import { withBaseRoutes } from '../../support/management-frontend.ts';
@@ -278,7 +279,7 @@ describe('共通のヘッダー・ナビゲーション', () => {
     renderApp({
       handler: (request) =>
         request.path === '/notifications'
-          ? jsonResponse({ items: [], nextCursor: null })
+          ? jsonResponse({ items: [], nextCursor: null, asOf: '2026-10-09T01:00:00.000Z' })
           : base(request),
     });
     await screen.findByText('農作業者A');
@@ -444,6 +445,44 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(await screen.findByText('（古い）')).toBeDefined();
   });
 
+  it('古い設備があれば、警告に、その設備の名前を示す（最大 3 つ。それ以上は「ほか N 件」。どの設備かの設計は #158）', async () => {
+    const stale = (index: number) => ({
+      equipmentId: toEquipmentId(`ROBOT-${String(index)}`),
+      name: `ロボット${String(index)}`,
+      lastReceivedAt: '2026-10-09T02:00:00.000Z',
+      thresholdMinutes: 3,
+    });
+    const view = renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(dashboard({ dataFreshness: 'STALE', staleEquipment: [stale(1), stale(2)] })),
+      },
+    });
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('データが古くなっています');
+    expect(alert.textContent).toContain('ロボット1');
+    expect(alert.textContent).toContain('ロボット2');
+    expect(alert.textContent).not.toContain('ほか');
+    view.unmount();
+
+    renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(
+            dashboard({
+              dataFreshness: 'STALE',
+              staleEquipment: [stale(1), stale(2), stale(3), stale(4), stale(5)],
+            }),
+          ),
+      },
+    });
+    const many = await screen.findByRole('alert');
+    expect(many.textContent).toContain('ロボット3');
+    expect(many.textContent).not.toContain('ロボット4');
+    expect(many.textContent).toContain('ほか 2 件');
+  });
+
   it('データが未取得の場合は、その旨と次の操作を示し、ヘッダーは「未取得」と示す', async () => {
     renderApp({
       scenario: {
@@ -460,6 +499,46 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
 
     expect(await screen.findByText(/データがまだ取り込まれていません/)).toBeDefined();
     expect(await screen.findByText('未取得')).toBeDefined();
+  });
+
+  it('手動のみの運用（自動取り込みが有効でない）は、「古い」「未取得」の警告を出さず、ヘッダーに「最終の手動入力」の日時を示し、案内とデータ入力への導線を表示する（Issue #202）', async () => {
+    renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(
+            dashboard({
+              dataFreshness: 'MANUAL',
+              lastReceivedAt: null,
+              lastManualInputAt: '2026-10-09T02:30:00.000Z',
+            }),
+          ),
+      },
+    });
+
+    expect(await screen.findByText(/自動取り込みが有効でない/)).toBeDefined();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByText(/データがまだ取り込まれていません/)).toBeNull();
+    expect(screen.queryByText('（古い）')).toBeNull();
+    expect(screen.queryByText('未取得')).toBeNull();
+    const header = await screen.findByText(/^最終の手動入力:/);
+    expect(header.closest('.header-data-status')?.textContent).toContain('2026/10/09 11:30:00');
+    expect(screen.queryByText(/^最終のデータ取得:/)).toBeNull();
+    const links = screen.getAllByRole('link', { name: 'データ入力へ' });
+    expect(links.at(-1)?.getAttribute('href')).toBe('/data-entry');
+  });
+
+  it('手動のみの運用で、手動入力がまだなければ、ヘッダーは「最終の手動入力: まだありません」', async () => {
+    renderApp({
+      scenario: {
+        dashboard: () =>
+          jsonResponse(
+            dashboard({ dataFreshness: 'MANUAL', lastReceivedAt: null, lastManualInputAt: null }),
+          ),
+      },
+    });
+
+    const header = await screen.findByText(/^最終の手動入力:/);
+    expect(header.closest('.header-data-status')?.textContent).toContain('まだありません');
   });
 
   it('設備が登録されていなければ、その旨と設備管理への導線を表示する', async () => {

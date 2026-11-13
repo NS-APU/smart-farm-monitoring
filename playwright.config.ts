@@ -49,6 +49,8 @@ export default defineConfig({
         APP_MODE: 'test',
         // 開発用 API（時計・モック・リセット）は、既定で無効。E2E では、明示的に有効にする
         DEV_API_ENABLED: 'true',
+        // ファイルサーバー（HTTP）の接続設定の E2E は、手元（127.0.0.1）のテスト用サーバーに接続する。内部のアドレスの拒否は、既定で有効（Issue #172）
+        HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true',
         // ログインの試行回数の制限は、接続元ごと。E2E は、X-Forwarded-For（1段のプロキシが付けた値とみなす）で、テストごとに接続元を分ける
         TRUSTED_PROXY_HOPS: '1',
         PORT: String(BACKEND_PORT),
@@ -62,7 +64,7 @@ export default defineConfig({
         INGESTION_RETRY_BASE_DELAY_MS: '10',
         // ロール: 農作業者（全権限）と閲覧者（権限なし）。権限による表示・操作の制限を、E2E で確かめる
         ROLE_DEFINITIONS_JSON: E2E_ROLE_DEFINITIONS_JSON,
-        INITIAL_USER_ROLE: 'worker',
+        INITIAL_USER_ROLE: 'admin',
         // Web Push の公開鍵（ダミー）。ブラウザの購読は、E2E ではスタブにする
         WEB_PUSH_PUBLIC_KEY:
           'ZHVtbXktd2ViLXB1c2gtcHVibGljLWtleS1mb3ItZTJlLTAxMjM0NTY3ODktYWJjZGVmZ2hpamtsbW5vcC1xcnM',

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { toUserId } from '@smart-farm/shared/schemas/common';
+import { toEquipmentId, toUserId, type EquipmentId } from '@smart-farm/shared/schemas/common';
 import { createIngestionService } from '../../src/backend/application/ingestion/ingestion-service.ts';
 import { createIngestionSettings } from '../../src/backend/application/ingestion/ingestion-settings.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
@@ -13,13 +13,22 @@ import { createControllableClock } from '../../src/backend/infrastructure/local/
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { createDefaultFormatProfileRegistry } from '../../src/backend/infrastructure/format-profiles/declarative-profile.ts';
-import { equipmentSet, ROBOT_ID } from '../support/builders.ts';
+import {
+  equipmentSet,
+  FACILITY_ID,
+  observation,
+  ROBOT_2_ID,
+  ROBOT_ID,
+  SENSOR_ID,
+  secondHouseSet,
+} from '../support/builders.ts';
 import {
   createTestContext,
   TEST_NOW,
   TEST_USER,
   type TestContext,
 } from '../support/test-context.ts';
+import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 
@@ -29,7 +38,7 @@ const ROBOT_FILE = JSON.stringify({
 });
 
 function metaOf(name: string, sizeBytes = 1) {
-  return { fileId: name, name, modifiedAt: TEST_NOW, sizeBytes };
+  return { fileId: name, name, modifiedAt: STUB_MODIFIED_AT, sizeBytes };
 }
 
 /** ポートをスタブにした取り込みサービス（外部通信・想定外の例外の検証用）。 */
@@ -56,7 +65,7 @@ async function build(
   const clock = createControllableClock(TEST_NOW);
   const service = createIngestionService({
     repositories,
-    ingestionSettings: createIngestionSettings(repositories.settings, 15),
+    ingestionSettings: createIngestionSettings(repositories.settings),
     fileSource,
     profiles: createDefaultFormatProfileRegistry(),
     evaluation: {
@@ -71,9 +80,15 @@ async function build(
       unreadCount: vi.fn(),
       markRead: vi.fn(),
       markAllRead: vi.fn(),
+      addMemo: vi.fn(),
+      listMemos: vi.fn(),
       deliverPending: vi.fn(),
     },
-    federation: { enqueue: vi.fn().mockResolvedValue(undefined), runPending: vi.fn() },
+    federation: {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      runPending: vi.fn(),
+      enqueueAllEquipment: vi.fn(),
+    },
     clock,
     ids: createSequentialIdGenerator(),
     settings: { ...DEFAULT_APP_SETTINGS.ingestion, retryBaseDelayMs: 0, ...options.settings },
@@ -125,8 +140,19 @@ describe('取り込み失敗の通知（V-017。FR-7.4）', () => {
     expect(notifications[0]?.message).toContain('形式が仕様と異なる');
   });
 
-  it('既定（設定なし）では、ファイル単位の失敗（形式違い）を通知しない（UC-24 の仕様。通知の条件は発注者の確認待ち）', async () => {
+  it('既定（設定なし）でも、ファイル単位の失敗（形式違い）を、取り込み失敗として通知する（ADR-0019 の D-37。Issue #236）', async () => {
     const context = await setup();
+    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
+
+    await context.container.ingestionService.runSource('robot');
+
+    const notifications = await notificationsOf(context);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({ kind: 'INGESTION_FAILURE', sourceId: 'robot' });
+  });
+
+  it('設定（INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED=false）で、ファイル単位の失敗の通知を、オフにできる', async () => {
+    const context = await setup({ INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: 'false' });
     context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
 
     await context.container.ingestionService.runSource('robot');
@@ -175,6 +201,15 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
   const THRESHOLD_MINUTES = INTERVAL_MINUTES * DEFAULT_APP_SETTINGS.staleAfterIntervals;
 
   async function ingestOnce(context: TestContext) {
+    // 取得間隔は、設備ごとの設定（Issue #197）。停止の基準は、その種別の設備の最長の取得間隔 × 倍数
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({
+      ...robot,
+      intervalMinutes: INTERVAL_MINUTES,
+    });
     context.placeFixture('robot', 'robot/robot-sample-001.json');
     await context.container.ingestionService.runSource('robot');
   }
@@ -247,6 +282,173 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
   });
 });
 
+describe('データ供給の停止の検知: 設備ごとの基準（Issue #198。ADR-0016 の D-12）', () => {
+  const minutesAgo = (context: TestContext, minutes: number) =>
+    new Date(context.clock.now().getTime() - minutes * 60_000).toISOString();
+
+  /** 設備のデータを、「分前に受け取った」ことにして保存する（自動取り込み）。 */
+  async function receive(
+    context: TestContext,
+    equipmentId: EquipmentId,
+    minutes: number,
+  ): Promise<void> {
+    await context.container.repositories.observations.saveMany([
+      observation({
+        equipmentId,
+        itemKey: 'harvestCount',
+        value: 1,
+        observedAt: minutesAgo(context, minutes),
+      }),
+    ]);
+  }
+
+  async function withSecondRobot(): Promise<TestContext> {
+    const context = await setup();
+    for (const equipment of secondHouseSet()) {
+      await context.container.repositories.equipment.save(equipment);
+    }
+    return context;
+  }
+
+  it('設備ごとの基準（その設備の取得間隔 × 3、最低 3 分）で判定する。既定のロボット 1 分は、3 分を超えたら通知する（取り込み元の最長の間隔に引きずられない）', async () => {
+    const context = await setup();
+    await receive(context, ROBOT_ID, 4);
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toMatchObject({ kind: 'INGESTION_FAILURE', sourceId: 'robot' });
+    expect(stopped[0]?.message).toContain('テストロボット');
+  });
+
+  it('自動取り込みの対象でない設備（HTTP で、設備ごとのファイルパスがない）は、取り込み元が有効でも、停止を通知しない（手動のみの運用。Issue #202）。ファイルパスがあれば、通知する', async () => {
+    const context = await setup();
+    const sources = await context.container.ingestionSettings.listSources();
+    await context.container.ingestionSettings.saveSources(
+      sources.map((source) => ({
+        ...source,
+        connection: {
+          type: 'HTTP' as const,
+          protocol: 'HTTPS' as const,
+          host: 'files.example.invalid',
+          authMethod: 'NONE' as const,
+          apiKeyHeaderName: 'X-API-Key',
+        },
+      })),
+    );
+    await receive(context, ROBOT_ID, 10);
+
+    await context.container.ingestionService.runDueSources();
+    const withoutPath = await stoppedNotificationsOf(context);
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({
+      ...robot,
+      sourceFilePath: '/robots/robot-1.json',
+    });
+    await context.container.ingestionService.runDueSources();
+
+    expect(withoutPath).toEqual([]);
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+  });
+
+  it('最低 3 分: 3 分までは通知しない（境界）', async () => {
+    const context = await setup();
+    await receive(context, ROBOT_ID, 3);
+
+    await context.container.ingestionService.runDueSources();
+
+    expect(await stoppedNotificationsOf(context)).toEqual([]);
+  });
+
+  it('設備の取得間隔を長くすると、その設備の基準が延びる（ロボットを 30 分にすると、89 分は通知せず、91 分は通知する）', async () => {
+    const context = await setup();
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    await context.container.repositories.equipment.save({ ...robot, intervalMinutes: 30 });
+    await receive(context, ROBOT_ID, 89);
+    await context.container.ingestionService.runDueSources();
+    const before = await stoppedNotificationsOf(context);
+    context.clock.advance(2 * 60_000);
+
+    await context.container.ingestionService.runDueSources();
+
+    expect(before).toEqual([]);
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+  });
+
+  it('同じ種別の別の設備が新しくても、止まった設備は通知する（取り込み元の最終ではなく、設備ごと）', async () => {
+    const context = await withSecondRobot();
+    await receive(context, ROBOT_ID, 10);
+    await receive(context, ROBOT_2_ID, 1);
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.message).toContain('テストロボット');
+    expect(stopped[0]?.message).not.toContain('テストロボット2');
+  });
+
+  it('止まった設備が複数でも、取り込み元ごとに 1 件にまとめる（設備の名前を、すべて含める）', async () => {
+    const context = await withSecondRobot();
+    await receive(context, ROBOT_ID, 10);
+    await receive(context, ROBOT_2_ID, 10);
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.message).toContain('テストロボット');
+    expect(stopped[0]?.message).toContain('テストロボット2');
+  });
+
+  it('止まった設備が 4 つ以上なら、先頭の 3 つの名前と「ほか N 件」にする', async () => {
+    const context = await setup();
+    for (const index of [1, 2, 3, 4]) {
+      const equipmentId = toEquipmentId(`ROBOT-X${String(index)}`);
+      await context.container.repositories.equipment.save({
+        equipmentId,
+        equipmentType: 'ROBOT',
+        name: `ロボットX${String(index)}`,
+        facilityId: FACILITY_ID,
+        isDeleted: false,
+        createdAt: '2026-10-01T00:00:00.000Z',
+      });
+      await receive(context, equipmentId, 10);
+    }
+
+    await context.container.ingestionService.runDueSources();
+
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]?.message).toContain('ロボットX1');
+    expect(stopped[0]?.message).toContain('ロボットX3');
+    expect(stopped[0]?.message).not.toContain('ロボットX4');
+    expect(stopped[0]?.message).toContain('ほか 1 件');
+  });
+
+  it('種別が違う設備は、それぞれの取り込み元で判定する（センサー 5 分は、15 分まで通知しない）', async () => {
+    const context = await setup();
+    await receive(context, SENSOR_ID, 10);
+
+    await context.container.ingestionService.runDueSources();
+    const early = await stoppedNotificationsOf(context);
+    context.clock.advance(6 * 60_000);
+    await context.container.ingestionService.runDueSources();
+
+    expect(early).toEqual([]);
+    const stopped = await stoppedNotificationsOf(context);
+    expect(stopped).toHaveLength(1);
+    expect(stopped[0]).toMatchObject({ sourceId: 'environment-sensor' });
+  });
+});
+
 describe('構造の変更の検出（V-019）', () => {
   it('項目名がすべて変わり、1つも読み取れないファイルは、形式違いとして失敗にする（0件の成功にしない）', async () => {
     const context = await setup();
@@ -266,12 +468,15 @@ describe('構造の変更の検出（V-019）', () => {
     expect(logs.items[0]?.errorMessage).toContain('取り込めませんでした');
   });
 
-  it('列名が変わった CSV も、形式違いとして失敗にする', async () => {
+  it('項目名が変わった JSON も、形式違いとして失敗にする', async () => {
     const context = await setup();
     context.placeFile(
       'environment-sensor',
-      'renamed.csv',
-      'sensor_id,timestamp,temp,humid\nSENSOR-SAMPLE-01,2026-10-09T01:00:00Z,20,50\n',
+      'renamed.json',
+      JSON.stringify({
+        sensorId: 'SENSOR-SAMPLE-01',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
+      }),
     );
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');

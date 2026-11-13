@@ -14,6 +14,7 @@ import type { UserId } from '@smart-farm/shared/schemas/common';
 import type {
   PublicUser,
   UserCreateRequest,
+  OwnProfileUpdateRequest,
   UserListResponse,
   UserUpdateRequest,
 } from '@smart-farm/shared/schemas/auth';
@@ -24,7 +25,11 @@ import type { AuthPort, AuthSession } from '../ports/auth-port.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { CredentialPort } from '../ports/credential-port.ts';
 import type { UserRecord } from '../ports/records.ts';
-import type { PushSubscriptionRepository, UserRepository } from '../ports/repositories.ts';
+import type {
+  FacilityAccessRepository,
+  PushSubscriptionRepository,
+  UserRepository,
+} from '../ports/repositories.ts';
 import type { AccessPolicy } from './access-policy.ts';
 
 const USER_TARGET_TYPE = 'user' satisfies AuditTargetType;
@@ -71,6 +76,11 @@ export interface UserService {
     input: ChangeOwnPasswordInput,
     clientKey: string,
   ): Promise<AuthSession>;
+  /**
+   * 本人が、自分のユーザー名を変更する（FR-9.7。一般を含む）。ロール・ユーザー ID・パスワードには触れない
+   * （ロールの変更は、ユーザー管理〔user:manage〕だけ）。変更の履歴（操作履歴）に、操作者を本人として残す。
+   */
+  updateOwnProfile(userId: UserId, input: OwnProfileUpdateRequest): Promise<PublicUser>;
 }
 
 export interface UserServiceDeps {
@@ -85,6 +95,8 @@ export interface UserServiceDeps {
   /** 新しいセッションが有効になるのを待つ間隔（ミリ秒）の待ち。既定は、実際の待ち（テストで差し替える）。 */
   readonly delay?: (milliseconds: number) => Promise<void>;
   readonly pushSubscriptions: PushSubscriptionRepository;
+  /** ユーザーを削除したときに、閲覧の割り当て（ハウスごと）から外す（Issue #330）。 */
+  readonly facilityAccess: FacilityAccessRepository;
 }
 
 /** パスワードのハッシュを含まない形（応答・変更履歴用）。 */
@@ -98,7 +110,8 @@ function toPublicUser(user: UserRecord): PublicUser {
 }
 
 export function createUserService(deps: UserServiceDeps): UserService {
-  const { users, policy, credentials, audit, clock, sessions, pushSubscriptions } = deps;
+  const { users, policy, credentials, audit, clock, sessions, pushSubscriptions, facilityAccess } =
+    deps;
   const delay = deps.delay ?? wait;
 
   function assertKnownRole(role: string): void {
@@ -233,6 +246,21 @@ export function createUserService(deps: UserServiceDeps): UserService {
       return toPublicUser(updated);
     },
 
+    async updateOwnProfile(userId, input) {
+      const before = await findUser(userId);
+      const updated: UserRecord = { ...before, userName: input.userName };
+      await users.save(updated);
+      await audit.record({
+        operation: 'UPDATE',
+        targetType: USER_TARGET_TYPE,
+        targetId: userId,
+        actor: userId,
+        before: toPublicUser(before),
+        after: toPublicUser(updated),
+      });
+      return toPublicUser(updated);
+    },
+
     async changeOwnPassword(userId, input, clientKey) {
       if (input.newPassword === input.currentPassword) {
         throw validationError([
@@ -283,6 +311,14 @@ export function createUserService(deps: UserServiceDeps): UserService {
       await users.delete(userId);
       await sessions.revokeSessionsOf(userId);
       await pushSubscriptions.deleteByUser(userId);
+      for (const record of await facilityAccess.list()) {
+        if (record.userIds.includes(userId)) {
+          await facilityAccess.save({
+            ...record,
+            userIds: record.userIds.filter((assigned) => assigned !== userId),
+          });
+        }
+      }
       await audit.record({
         operation: 'DELETE',
         targetType: USER_TARGET_TYPE,

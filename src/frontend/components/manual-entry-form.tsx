@@ -4,12 +4,20 @@
  * 入力は、API と同じ検証（shared）で、保存の前に確認する（API が正）。保存後は、関連観点のステータスを返す。
  */
 
-import { useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type SyntheticEvent,
+} from 'react';
 import {
   CATEGORY_LABELS,
   MANUAL_INPUT_CATEGORIES,
   SATISFACTION_MAX_STARS,
   type Category,
+  type ItemDefinition,
 } from '@smart-farm/shared/constants/items';
 import {
   ManualEntryInputSchema,
@@ -19,8 +27,10 @@ import {
   type ManualEntry,
   type ManualEntrySaveResponse,
 } from '@smart-farm/shared/schemas/manual-entry';
+import { getStatusCodes } from '../api/endpoints.ts';
 import { createManualEntry, updateManualEntry } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
+import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { useAppState } from './app-state.tsx';
@@ -85,6 +95,54 @@ function categoryOf(value: string): Category | undefined {
   return MANUAL_INPUT_CATEGORIES.find((candidate) => candidate === value);
 }
 
+const STATUS_CODE_REFRESH_MS = 60_000;
+
+/**
+ * 文字列の項目（ステータスコード）の入力欄。登録済み（削除していない）のコードから、名称（コード）で選ぶ（#192）。
+ * この欄を表示している間だけ、ステータスコードの一覧を取得する。修正で、すでに登録のないコードが入っているときは、その値も選択肢に残す（保存のとき、API が拒否する）。
+ */
+function StatusCodeField(props: {
+  readonly item: ItemDefinition;
+  readonly value: string;
+  readonly error: string | undefined;
+  readonly onChange: (value: string) => void;
+}): ReactNode {
+  const { api } = useAuth();
+  const fetchStatusCodes = useCallback(() => getStatusCodes(api), [api]);
+  const statusCodes = usePolling(fetchStatusCodes, STATUS_CODE_REFRESH_MS);
+  const registered = (statusCodes.data?.items ?? []).filter((definition) => !definition.isDeleted);
+  const missing =
+    props.value !== '' && !registered.some((definition) => definition.code === props.value);
+  return (
+    <Field
+      label={props.item.label}
+      name={`items.${props.item.itemKey}`}
+      error={props.error}
+      hint={TEXT.statusCodeHint}
+    >
+      {(control) => (
+        <select
+          {...control}
+          value={props.value}
+          onChange={(event) => {
+            props.onChange(event.target.value);
+          }}
+        >
+          <option value="">{TEXT.selectPlaceholder}</option>
+          {registered.map((definition) => (
+            <option key={definition.code} value={definition.code}>
+              {`${definition.name}（${definition.code}）`}
+            </option>
+          ))}
+          {missing ? (
+            <option value={props.value}>{`${props.value}${TEXT.statusCodeDeletedOption}`}</option>
+          ) : null}
+        </select>
+      )}
+    </Field>
+  );
+}
+
 export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
   const { entry } = props;
   const { api } = useAuth();
@@ -134,10 +192,16 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
     event.preventDefault();
     const enteredItems: Record<string, unknown> = {};
     for (const [itemKey, text] of Object.entries(values)) {
-      if (items.some((item) => item.itemKey === itemKey) && text.trim() !== '') {
-        // 全角の数字・記号も、数値として読む（日本語の入力環境で、入力しやすいため）
-        const number = Number(normalizeNumberText(text));
-        enteredItems[itemKey] = Number.isNaN(number) ? text : number;
+      const definition = items.find((item) => item.itemKey === itemKey);
+      if (definition !== undefined && text.trim() !== '') {
+        if (definition.valueType === 'string') {
+          // 文字列の項目（ステータスコード）は、選んだコードの値のまま送る
+          enteredItems[itemKey] = text.trim();
+        } else {
+          // 全角の数字・記号も、数値として読む（日本語の入力環境で、入力しやすいため）
+          const number = Number(normalizeNumberText(text));
+          enteredItems[itemKey] = Number.isNaN(number) ? text : number;
+        }
       }
     }
     const iso = jstDateTimeToIso(observedAt);
@@ -271,6 +335,16 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
                   error={errors[`items.${item.itemKey}`]}
                   onChange={(stars) => {
                     setValues({ ...values, [item.itemKey]: String(stars) });
+                  }}
+                />
+              ) : item.valueType === 'string' ? (
+                <StatusCodeField
+                  key={item.itemKey}
+                  item={item}
+                  value={values[item.itemKey] ?? ''}
+                  error={errors[`items.${item.itemKey}`]}
+                  onChange={(value) => {
+                    setValues({ ...values, [item.itemKey]: value });
                   }}
                 />
               ) : (

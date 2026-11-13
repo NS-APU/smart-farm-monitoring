@@ -16,6 +16,13 @@ export interface ApiNotification {
   readonly message: string;
   readonly createdAt: string;
   readonly readState: 'UNREAD' | 'READ';
+  /** 通知に付いたメモの件数（#239）。 */
+  readonly memoCount: number;
+  /** 状態変化の通知だけ。経過と回復日時（D-42）。経過を示せないときは null。 */
+  readonly progress?: {
+    readonly changes: readonly { status: string; changedAt: string }[];
+    readonly recovery: { recoveredAt: string; elapsedSeconds: number } | null;
+  } | null;
 }
 
 /** 温度 40℃（異常）の環境の値を入れて、評価する。環境適応性（ハウス・センサー）と、データ活用度合い（ハウス）の通知が作られる。 */

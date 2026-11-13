@@ -9,17 +9,19 @@
  *   代替フロー  ・構成の変更（追加・変更・削除）も可能とする（削除時の過去データの扱い: 論理削除。データは残り、評価の対象から外れる）
  *               ・同一の識別子を重複して登録しようとした場合は、エラーとする
  *
- * 値の同値分割: 設備の種別（ハウス・ロボット・環境センサー）、設備ID・名称の長さ（空・境界・超過）と文字種、データ上の識別子（なし・あり・重複）、
+ * 値の同値分割: 設備の種別（ハウス・ロボット・環境センサー）、設備ID・名称の長さ（空・境界・超過）と文字種、データ上の識別子（なし・あり・重複）、ファイルパス（なし・あり・重複・不正な形式。Issue #119）、取得間隔（既定・1・5・10・15・30・60 分・候補にない値・ハウス。Issue #197）、
  * 削除（ロボット・センサー・ハウス（配下ごと）・確認の取り消し）、権限（変更できる・参照のみ）。
  * 関連するユースケース: UC-08・UC-09（構成にもとづく取り込み）、UC-01（表示の対象）、UC-11（連携）、UC-07（入力の対象）、UC-15。
  */
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   ROBOT_EXTERNAL_ID,
   SENSOR_EXTERNAL_ID,
   USER_B,
   VIEWER,
+  accessToken,
   addUser,
   advanceMinutes,
   alignBrowserClock,
@@ -33,7 +35,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
-  sensorCsv,
+  sensorJson,
   settlePassword,
   unreadBadge,
 } from './support/app.ts';
@@ -70,6 +72,8 @@ async function addChild(
     id: string;
     name: string;
     externalId?: string;
+    sourceFilePath?: string;
+    intervalMinutes?: number;
   },
 ): Promise<void> {
   const form = childForm(page);
@@ -78,6 +82,10 @@ async function addChild(
   await form.getByLabel('設備ID').fill(values.id);
   await form.getByLabel('名称').fill(values.name);
   await form.getByLabel('データ上の識別子').fill(values.externalId ?? '');
+  await form.getByLabel('ファイルパス').fill(values.sourceFilePath ?? '');
+  if (values.intervalMinutes !== undefined) {
+    await form.getByLabel('取得間隔').selectOption(String(values.intervalMinutes));
+  }
   await form.getByRole('button', { name: '登録する' }).click();
 }
 
@@ -103,6 +111,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       id: 'ROBOT-A',
       name: 'A収穫ロボット',
       externalId: 'ROBOT-A-FILE',
+      sourceFilePath: '/data/robot-a.json',
     });
     await expect(rowOf(page, 'ROBOT-A')).toBeVisible();
     await addChild(page, {
@@ -119,6 +128,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     await expect(rows(page).nth(0)).toContainText('Aハウス');
     await expect(rows(page).nth(1)).toContainText('ロボット');
     await expect(rows(page).nth(1)).toContainText('ROBOT-A-FILE');
+    await expect(rows(page).nth(1)).toContainText('/data/robot-a.json');
     await expect(rows(page).nth(2)).toContainText('環境センサー');
     await expect(rows(page).nth(1).locator('td').first()).toHaveClass(/tree-child/);
     await shot(page, testInfo, 'uc12-tree');
@@ -186,8 +196,8 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     );
     placeFile(
       'environment-sensor',
-      'a.csv',
-      sensorCsv(
+      'a.json',
+      sensorJson(
         [{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }],
         'SENSOR-A-FILE',
       ),
@@ -338,6 +348,118 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
 
     await expect(notice(page)).toHaveText('登録しました');
   });
+
+  test('ファイルパスは、同じ種別の設備の中で、重複を登録できない。形式が不正なら、登録できない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEquipment(page);
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-01',
+      id: 'ROBOT-02',
+      name: '2台目',
+      sourceFilePath: '/data/shared.json',
+    });
+    await expect(notice(page)).toHaveText('登録しました');
+
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-01',
+      id: 'ROBOT-03',
+      name: '3台目',
+      sourceFilePath: 'data/robot-03.json',
+    });
+    await expect(
+      childForm(page).locator('[data-field="sourceFilePath"] .field-error'),
+    ).toContainText('/ で始まるファイル 1 つを');
+    await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-01',
+      id: 'ROBOT-03',
+      name: '3台目',
+      sourceFilePath: '/data/shared.json',
+    });
+    await expect(childForm(page).locator('[data-field="sourceFilePath"] .field-error')).toHaveText(
+      '同じファイルパスがすでに登録されています',
+    );
+    await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+  });
+});
+
+test.describe('設備ごとの取得間隔（Issue #197。ADR-0016 の D-11）', () => {
+  /** 一覧の「取得間隔」の列（設備の行の、6 つ目）。 */
+  const intervalOf = (page: Page, equipmentId: string) =>
+    rowOf(page, equipmentId).locator('td').nth(5);
+
+  test('一覧に、取得間隔（指定した値。未設定は、種別ごとの既定）を示す。登録・修正で、設定・変更・既定に戻せる。ハウスには、項目がない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEquipment(page);
+    await expect(intervalOf(page, 'HOUSE-01')).toHaveText('—');
+    await expect(intervalOf(page, 'ROBOT-01')).toHaveText('既定（1 分）');
+    await expect(intervalOf(page, 'SENSOR-01')).toHaveText('既定（5 分）');
+
+    // 登録で、指定する
+    await addChild(page, {
+      type: 'SENSOR',
+      facility: 'HOUSE-01',
+      id: 'SENSOR-02',
+      name: '2個目のセンサー',
+      intervalMinutes: 15,
+    });
+    await expect(notice(page)).toHaveText('登録しました');
+    await expect(intervalOf(page, 'SENSOR-02')).toHaveText('15 分');
+    await expect(childForm(page).getByLabel('取得間隔')).toHaveValue('');
+
+    // 修正で、変更し、既定に戻す
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    const edit = page.getByTestId('equipment-edit');
+    await expect(edit.getByLabel('取得間隔')).toHaveValue('');
+    await edit.getByLabel('取得間隔').selectOption('30');
+    await shot(page, testInfo, 'uc12-interval-edit');
+    await edit.getByRole('button', { name: '保存' }).click();
+    await expect(notice(page)).toHaveText('修正しました');
+    await expect(intervalOf(page, 'ROBOT-01')).toHaveText('30 分');
+
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    await page.getByTestId('equipment-edit').getByLabel('取得間隔').selectOption('');
+    await page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click();
+    await expect(notice(page)).toHaveText('修正しました');
+    await expect(intervalOf(page, 'ROBOT-01')).toHaveText('既定（1 分）');
+
+    // ハウスには、取得間隔の項目がない
+    await rowOf(page, 'HOUSE-01').getByRole('button', { name: '修正' }).click();
+    await expect(page.getByTestId('equipment-edit').getByLabel('取得間隔')).toHaveCount(0);
+  });
+
+  test('サーバー側でも、候補にない取得間隔（6 時間・日次など）は、拒否する（400）。ハウスにも指定できない', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    const update = (equipmentId: string, body: Record<string, unknown>) =>
+      api(request, 'PUT', `/equipment/${equipmentId}`, body);
+
+    const sixHours = await update('ROBOT-01', {
+      name: 'ロボット',
+      facilityId: 'HOUSE-01',
+      intervalMinutes: 360,
+    });
+    const house = await update('HOUSE-01', { name: 'ハウス', intervalMinutes: 5 });
+    const valid = await update('ROBOT-01', {
+      name: 'ロボット',
+      facilityId: 'HOUSE-01',
+      intervalMinutes: 10,
+    });
+
+    expect(sixHours.status()).toBe(400);
+    expect(house.status()).toBe(400);
+    expect(valid.status()).toBe(200);
+  });
 });
 
 test.describe('入力の検証（設備ID・名称・親のハウス）', () => {
@@ -448,7 +570,7 @@ test.describe('入力の検証（設備ID・名称・親のハウス）', () => 
 });
 
 test.describe('代替フロー: 構成の変更（修正・削除）', () => {
-  test('名称・データ上の識別子を修正できる。設備IDと種別は、変更できない', async ({
+  test('名称・データ上の識別子・ファイルパスを修正できる。設備IDと種別は、変更できない', async ({
     page,
     request,
   }, testInfo) => {
@@ -463,11 +585,13 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await shot(page, testInfo, 'uc12-edit');
     await edit.getByLabel('名称').fill('改名したロボット');
     await edit.getByLabel('データ上の識別子').fill('ROBOT-FILE-9');
+    await edit.getByLabel('ファイルパス').fill('/data/robot-01.json');
     await edit.getByRole('button', { name: '保存' }).click();
 
     await expect(notice(page)).toHaveText('修正しました');
     await expect(rowOf(page, 'ROBOT-01')).toContainText('改名したロボット');
     await expect(rowOf(page, 'ROBOT-01')).toContainText('ROBOT-FILE-9');
+    await expect(rowOf(page, 'ROBOT-01')).toContainText('/data/robot-01.json');
     await expect(page.getByTestId('equipment-edit')).toHaveCount(0);
     // ヘッダーの設備の選択にも反映される
     await expect(page.getByRole('banner').getByLabel('対象の設備')).toContainText(
@@ -608,7 +732,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(page.getByTestId('no-equipment')).toBeVisible();
   });
 
-  test('削除したロボットのデータ上の識別子のファイルは、取り込みの対象から外れる（除外として数え、観測値は増えない）', async ({
+  test('削除したロボットのデータ上の識別子のファイルは、取り込みの対象から外れる（「削除済みの設備」として別に数え、棄却数に含めない。観測値は増えず、ログも増やさない。Issue #231）', async ({
     page,
     request,
   }) => {
@@ -623,13 +747,14 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
       'after-delete.json',
       robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }]),
     );
-    await runJob(request, 'JB-01');
 
     await goToMenu(page, '取り込み');
-    const robotLog = logRows(page).filter({ hasText: 'ロボット' }).first();
-    await expect(robotLog.locator('td').nth(3)).toHaveText('1'); // 処理したファイル
-    await expect(robotLog.locator('td').nth(4)).toHaveText('0'); // 取り込んだ件数
-    await expect(robotLog.locator('td').nth(5)).toHaveText('1'); // 除外した件数
+    // 削除済みの設備のレコード 1 件は、読み取れなかった記録（棄却）に数えず、別に数える
+    await expect(await runNow(page, 'robot')).toContainText(
+      'ファイル 1 件、取り込み 0 件、読み取れなかった記録 0 件、削除済みの設備の記録 1 件',
+    );
+    // 削除済みの設備のレコードだけの実行は、ログに残さない
+    await expect(logRows(page)).toHaveCount(0);
     await page.goto('/observations');
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       0,
@@ -660,10 +785,20 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await runJob(request, 'JB-01');
 
     await goToMenu(page, '取り込み');
-    const robotLog = logRows(page).filter({ hasText: 'ロボット' }).first();
-    await expect(robotLog.locator('td').nth(3)).toHaveText('2');
-    await expect(robotLog.locator('td').nth(4)).toHaveText('1');
-    await expect(robotLog.locator('td').nth(5)).toHaveText('1');
+    // 新しい識別子のファイル: 設備のログ（ファイル 1・取得 1・読み取れなかった 0）。古い識別子のファイル: どの設備にも結びつかず、
+    // 取り込み元単位のログ（ファイル 1・取得 0・読み取れなかった 1。Issue #201）
+    const robotLogs = logRows(page).filter({ hasText: 'ロボット' });
+    await expect(robotLogs).toHaveCount(2);
+    const linked = robotLogs.filter({ has: page.locator('.log-result', { hasText: /^成功$/ }) });
+    const unlinked = robotLogs.filter({
+      has: page.locator('.log-result', { hasText: /^一部成功$/ }),
+    });
+    await expect(linked.locator('td').nth(4)).toHaveText('1');
+    await expect(linked.locator('td').nth(5)).toHaveText('1');
+    await expect(linked.locator('td').nth(6)).toHaveText('0');
+    await expect(unlinked.locator('td').nth(4)).toHaveText('1');
+    await expect(unlinked.locator('td').nth(5)).toHaveText('0');
+    await expect(unlinked.locator('td').nth(6)).toHaveText('1');
     await page.goto('/observations');
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
@@ -672,6 +807,82 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
     ).toContainText('7個');
+  });
+});
+
+test.describe('閲覧の割り当て（ハウスごと）。Issue #330。ADR-0013。FR-9.8。ハウス側から、一般ユーザーを個別に割り当てる', () => {
+  const house = (page: Page) => rowOf(page, 'HOUSE-01');
+  const panel = (page: Page) => page.getByTestId('facility-access');
+
+  test('管理者が、ハウスの行から、閲覧できる一般ユーザーを割り当てると、その一般ユーザーは、そのハウスだけを閲覧できる。外すと、すぐに見えなくなる', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: 'HOUSE-02',
+    });
+    await addUser(request, GENERAL);
+    await openEquipment(page);
+
+    // ハウスの行に、閲覧できる一般ユーザーを示す（最初は、なし）。ロボットの行には、割り当ての操作がない
+    await expect(page.getByRole('columnheader', { name: '閲覧できるユーザー' })).toBeVisible();
+    await expect(house(page)).toContainText('なし');
+    await expect(
+      rowOf(page, 'ROBOT-01').getByRole('button', { name: '閲覧の割り当て' }),
+    ).toHaveCount(0);
+
+    // ハウス2 の「閲覧の割り当て」で、一般ユーザーを選んで、保存する
+    await rowOf(page, 'HOUSE-02').getByRole('button', { name: '閲覧の割り当て' }).click();
+    await expect(panel(page).getByRole('heading')).toContainText('ハウス2');
+    const save = panel(page).getByRole('button', { name: '割り当てを保存' });
+    await expect(save).toBeDisabled();
+    await panel(page)
+      .getByRole('checkbox', { name: `${GENERAL.userName}が閲覧できる` })
+      .check();
+    await shot(page, testInfo, 'uc12-facility-access');
+    await save.click();
+    await expect(notice(page)).toHaveText('「ハウス2」の閲覧の割り当てを保存しました');
+    await expect(rowOf(page, 'HOUSE-02')).toContainText(GENERAL.userName);
+    await expect(house(page)).toContainText('なし');
+    await page.reload();
+    await expect(rowOf(page, 'HOUSE-02')).toContainText(GENERAL.userName);
+
+    // 一般ユーザー（別のブラウザ）: 設備の選択は、ハウス2（と配下）だけ。ハウス1 は、存在しないものとして扱う（404）
+    const general = await newUserSession(browser, testInfo, 'general');
+    await openAs(general.page, '/', GENERAL);
+    const select = general.page.getByLabel('対象の設備');
+    await expect(select).toContainText('ハウス2');
+    await expect(select).toContainText('収穫ロボット2');
+    await expect(select).not.toContainText('ハウス1');
+    await expect(select).not.toContainText('収穫ロボット1');
+    const token = await accessToken(request, GENERAL);
+    const status = async (path: string) =>
+      (
+        await request.fetch(`/api/v1${path}`, { headers: { authorization: `Bearer ${token}` } })
+      ).status();
+    expect(await status('/dashboard?equipmentId=HOUSE-01')).toBe(404);
+    expect(await status('/dashboard?equipmentId=HOUSE-02')).toBe(200);
+    expect(await status('/observations?equipmentId=ROBOT-01')).toBe(404);
+
+    // 割り当てを外すと、すぐに（次のリクエストから）見えなくなる
+    await rowOf(page, 'HOUSE-02').getByRole('button', { name: '閲覧の割り当て' }).click();
+    await panel(page)
+      .getByRole('checkbox', { name: `${GENERAL.userName}が閲覧できる` })
+      .uncheck();
+    await panel(page).getByRole('button', { name: '割り当てを保存' }).click();
+    await expect(rowOf(page, 'HOUSE-02')).toContainText('なし');
+    expect(await status('/dashboard?equipmentId=HOUSE-02')).toBe(404);
+    await general.context.close();
   });
 });
 
@@ -691,6 +902,9 @@ test.describe('権限: 設備を変更する権限のない利用者（閲覧者
     await expect(rows(page)).toHaveCount(3);
     await expect(page.getByRole('button', { name: '修正' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '削除' })).toHaveCount(0);
+    // 閲覧の割り当て（ユーザーを管理する権限が要る）の列・操作も、表示しない
+    await expect(page.getByRole('button', { name: '閲覧の割り当て' })).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: '閲覧できるユーザー' })).toHaveCount(0);
     await expect(facilityForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc12-readonly');
     const login = await request.post('/api/v1/auth/login', {
@@ -772,8 +986,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     );
     placeFile(
       'environment-sensor',
-      'sensor.csv',
-      sensorCsv([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor.json',
+      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');
@@ -845,6 +1059,7 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await openAs(b.page, '/notifications', USER_B);
     await expect(unreadBadge(b.page)).toHaveText(String(unreadForA + 1));
     await b.page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
+    await confirmDialog(b.page, '既読にする');
     await expect(unreadBadge(b.page)).toHaveText('0');
     await page.reload();
     await expect(unreadBadge(page)).toHaveText(String(unreadForA));

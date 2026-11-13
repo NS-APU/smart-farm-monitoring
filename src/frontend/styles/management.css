@@ -657,7 +657,7 @@ textarea {
 
 /* 設備の表: 狭い幅でも、列が 1 文字ずつ折り返すほど押しつぶされないよう、最小の幅を保つ（表の枠の中で横にスクロールする） */
 .equipment-table {
-  min-width: 640px;
+  min-width: 760px;
 }
 
 .equipment-table th,
@@ -665,10 +665,11 @@ textarea {
   white-space: nowrap;
 }
 
-/* 設備ID・名称・データ上の識別子（長いことがある）は、折り返す。種別・操作は、折り返さない */
+/* 設備ID・名称・データ上の識別子・ファイルパス（長いことがある）は、折り返す。種別・操作は、折り返さない */
 .equipment-table td:nth-child(2),
 .equipment-table td:nth-child(3),
-.equipment-table td:nth-child(4) {
+.equipment-table td:nth-child(4),
+.equipment-table td:nth-child(5) {
   min-width: 10em;
   white-space: normal;
   overflow-wrap: anywhere;

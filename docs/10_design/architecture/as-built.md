@@ -48,7 +48,7 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 実ファイルサーバー・実農業情報基盤・実 Web Push 配信・Secrets の接続（評価環境では、ファイルサーバー・農業情報基盤・Web Push は、モックのまま）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
+- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 宇都宮大学のファイルサーバーへの接続（HTTP のアダプタは、#119 で実装済み。接続先・認証情報は #298）・実農業情報基盤（Secrets は、パラメータストア版が実装済み。#206。**実 Web Push 配信も、実装済み**〔#241。`WEB_PUSH_DELIVERY=vapid`。開発サイトで、実機への配信を確認済み〕。評価環境のファイルサーバーは、モック。**農業情報基盤は、NGSI-LD のアダプタ**〔#177。ADR-0024。`FEDERATION_MODE=ngsi-ld`。IaC で設定。接続先を画面で設定するまでは、連携は保留。ローカル・テストは、モック〕）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
 - 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
@@ -63,9 +63,9 @@
 | D-01 | DB | DynamoDB（architecture.md 13.1。ADR-0005） | **DynamoDB の Repository を実装**（`infrastructure/dynamodb/`。`PERSISTENCE=dynamodb`。ADR-0007。DynamoDB Local で契約テストを通し、AWS で確認済み）。ローカルは、`PERSISTENCE=memory\|file`（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション） | 実装済み（AWS で確認済み） |
 | D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito で確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | 実装済み（手元から AWS で確認済み） |
 | D-03 | ホスティング・ジョブ起動 | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章） | **Amplify は使わず**、IaC（`infra/`。AWS CDK）で、画面（S3 + CloudFront）・API の Lambda（`runtime/lambda.ts`。本番の組み立て。ADR-0009）・ジョブの Lambda と EventBridge の 4 つのルール（`runtime/job-lambda.ts`。ADR-0011）・データ（DynamoDB・Cognito）・合成データの生成の Lambda（ADR-0012）を作る（ADR-0006。Issue #71・#75・#76・#77）。デプロイは、GitHub Actions + OIDC（手動実行） | 実装済み（AWS で確認済み。画面のホスティングは、Amplify ではなく S3 + CloudFront） |
-| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリを見立てたモック（`mock-file-server.ts`）と、S3 を見立てたモック（`s3/s3-file-source.ts`。評価環境の Lambda 用。ADR-0012）のみ。**実サーバー用のアダプタは、ない**（Issue #119。Q-002 の回答待ち）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。`SecretPort` の実装（`env-secret.ts`）はあるが、`container.ts` から接続されていない | 未実装（モックのみ） |
-| D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信はダミー（`dummy-web-push.ts`。記録のみ）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は実装済み。VAPID の秘密鍵・送信ライブラリはない                                                                           | 未実装                           |
-| D-06 | 農業情報基盤との連携       | 連携方式は Q-005 で未確定（architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）のみ                                                                                                                                                                         | 未実装（仕様も未確定）           |
+| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリを見立てたモック（`mock-file-server.ts`）と、S3 を見立てたモック（`s3/s3-file-source.ts`。評価環境の Lambda 用。ADR-0012）。**HTTP のアダプタ**（Issue #119。ADR-0023）がある: 取り込み元ごとの接続設定（`connection`。接続方式 MOCK／HTTP。ADR-0022。#172）と、設備ごとのファイルパス（`sourceFilePath`）で、**接続テスト・一覧（HEAD）・取得（GET。大きさの上限）**をする（`infrastructure/http/`: `http-client.ts`〔共通。内部のアドレスを拒否・リダイレクトに従わない〕・`http-probe.ts`・`http-file-reader.ts`）。`routing-file-source.ts` が、接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイル）。**宇都宮大学のサーバーとは、未接続**（接続先・認証情報・実ファイルの形式は、別の Issue。#298）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。認証情報は、`SecretPort`（`file-server/<取り込み元>`）から読む。値は、SC-11 から、管理者が書き込み専用で登録する（#207） | 一部（HTTP のアダプタは、汎用のサーバーで確認。宇都宮大学のサーバーへの接続は #298） |
+| D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信は、`WEB_PUSH_DELIVERY=vapid` で、実配信（`web-push/web-push-notifier.ts`。送信は `library-sender.ts`〔`web-push` 3.6.7〕。秘密鍵は SecretPort）。既定の `dummy` は、ダミー（`dummy-web-push.ts`。記録のみ。ローカル・テスト）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は、購読の暗号鍵（p256dh・auth）も送る                                                                           | 実装済み（#241。実機の確認は、運用手順 8.6） |
+| D-06 | 農業情報基盤との連携       | 連携方式は、NGSI-LD（Orion-LD）の upsert（ADR-0024。architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）と、NGSI-LD のアダプタ（`http/ngsi-ld-federation.ts`。`FEDERATION_MODE=ngsi-ld`）                                                                                                                                                                         | 一部実装（#177 の PR 1。設備の連携・設定の画面は、PR 2・3）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
 | D-08 | 評価の対象                 | 「影響を受ける設備・観点に絞って行う」（architecture.md 7章）                                                                                             | `EvaluationService` が、設備ごとに、全観点×全期間（長期 5 窓、短期評価を持つ観点はさらに短期 1 窓）を評価し、保存する。取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけ（`evaluateAffected`）、設備・ステータスコード・判断基準の変更後・定期（JB-02）は、全設備（`evaluateAll`）                      | 一部実装（保存後は絞り込み済み。手順10）                             |
 | D-09 | 段階間の受け渡し | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2） | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）。**AWS の API の Lambda では、手動入力の保存・修正・削除は、評価を呼ばない**（`EVALUATION_ON_WRITE=deferred`。D-22） | 実装の具体化 |
@@ -94,8 +94,8 @@
 | I-03 | （**解消。手順9後半**: ユーザーの削除でセッションを失効し、セッションにユーザーの作成日時（世代）を持たせた） **削除したユーザーと同じ ID で再登録すると、削除前のトークンが再び有効になる**。セッションは `userId` に結びつけてメモリに残り、`verifyAccessToken` は `userId` でユーザーを引き直すため（`.speccheck/UC-14` にも記載）                                                                                                                                                                                                                | `infrastructure/local/local-auth.ts`                                                                             |
 | I-04 | （**解消。手順9後半**: パスワードの再設定でセッションを失効する。本人の操作では、現在のセッションだけを残す） **パスワードを再設定しても、発行済みのセッションが失効しない**（`.speccheck/UC-13`・`UC-14` にも記載）                                                                                                                                                                                                                                                                                                                                 | `user-service.ts`（`update`）・`local-auth.ts`                                                                   |
 | I-05 | （**解消。手順9後半**: `TRUSTED_PROXY_HOPS`（既定 0。`X-Forwarded-For` を信頼しない）。dev_spec.md 4章 No.33。評価環境は、関数の URL が `X-Forwarded-For` を切り詰めるため、CloudFront の Function が入れるヘッダーを、`CLIENT_IP_HEADER` で読む。Issue #100・ADR-0010） **接続元の識別に、クライアントが付けた `X-Forwarded-For` の先頭をそのまま使う**。ログインの試行回数の制限（失敗 5 回／15 分）を、毎回違う値を付けて回避できる。本番では、プロキシが付ける値に合わせる必要がある（`.speccheck/UC-13` にも記載）                                                                                                                                                                                         | `presentation/middleware.ts`（`clientKeyOf`）                                                                    |
-| I-06 | **Web Push の配信状態が、通知ごとに 1 つ**（購読ごとではない）。購読が複数あり、一部だけ失敗すると、通知全体が `FAILURE` となり、次の JB-04 で、すでに届いた購読にも再配信される（二重配信。`.speccheck/UC-10`・`UC-23` にも記載）                                                                                                                                                                                                     | `notification-service.ts`（`deliverPending`）                                                                    |
-| I-07 | **通知の作成時に購読がなくても、JB-04 の次の実行で、Web Push は `SUCCESS`（試行 1）になる**。その後に購読した端末へは、その通知は配信されない                                                                                                                                                                                                                                                                                          | `notification-service.ts`（`deliverPending`。購読がない場合、`failure` が未設定のまま `SUCCESS` として保存する） |
+| I-06 | （**解消。#237**: 配信の状態を購読ごとに持つ。失敗した購読にだけ再送する。dev_spec.md 4章 No.19）~~**Web Push の配信状態が、通知ごとに 1 つ**（購読ごとではない）。購読が複数あり、一部だけ失敗すると、通知全体が `FAILURE` となり、次の JB-04 で、すでに届いた購読にも再配信される（二重配信。`.speccheck/UC-10`・`UC-23` にも記載）~~                                                                                                                                                                                                     | `notification-service.ts`（`deliverPending`）                                                                    |
+| I-07 | （**設計として明記。#237**: 配信の対象は、最初の配信の実行時点の有効な購読。購読がなければ、配信は完了〔`SUCCESS`・試行 0〕。そのあとに購読した端末には、過去の通知を配信しない。画面内の通知で見られる）**通知の作成時に購読がなくても、JB-04 の次の実行で、Web Push は `SUCCESS` になる**。その後に購読した端末へは、その通知は配信されない                                                                                                                                                                                                                                                                                          | `notification-service.ts`（`deliverPending`。購読がない場合、`failure` が未設定のまま `SUCCESS` として保存する） |
 | I-08 | **取り込みの再試行は、ファイルの一覧の取得（`listFiles`）のみ**。個々のファイルの読み取り（`readFile`）の失敗は、再試行せず、そのファイルを失敗として数える（取り込み済みの記録は残さないため、次回の取り込みで再び対象になる）                                                                                                                                                                                                        | `ingestion-service.ts`（`listFilesWithRetry`・`processFile`）                                                    |
 | I-09 | **連携キューの 1 回の送信は、項目ごとではなく、バッチ全体で 1 つの結果**（成功・保留・失敗）になる。保留（`HELD`）と失敗（`FAILED`）は、同じ間隔（倍々・上限 12 時間）で、回数の上限なしに再試行される。**送信に成功すると、溜まった保留・失敗の項目の次の試行を、今に戻す**（古い順に、1 回の成功につき最大でバッチの件数。#203）                                                                                                                                                                                                                                 | `federation-service.ts`（`runPending`）・`ingestion-repositories.ts`（`listDue`・`listWaiting`）                                    |
 | I-10 | **取り込みのログは、取り込みごとに 1 件、ファイルが 0 件でも追加される**。保存期間・件数の上限の定めはない（ローカルは無制限。`.speccheck/UC-16` にも記載）                                                                                                                                                                                                                                                                            | `ingestion-service.ts`（`runSourceUnlocked`）                                                                    |
@@ -111,7 +111,7 @@
 - 外部通信のタイムアウト（`application/with-timeout.ts`）、失敗のログ用フィールド（`application/error-fields.ts`）、プロセスの終了処理（`runtime/shutdown.ts`）、データファイルのバックアップ・復元（`infrastructure/local/data-backup.ts`）を追加した
 - 評価（`evaluateAll`・`evaluateAffected`）は、同時に1つだけ実行し、設備ごとの失敗を分離する。取り込み・手動入力の保存後は、データが変わった設備とハウスだけを評価する。設備ごとの区切りでイベントループへ制御を戻し、待機中の要求は設備をまとめて1回にする。取り込みは、データ取得の停止の通知・ファイルの大きさの上限・タイムゾーンのない日時の解釈（日本時間）・構造の変更の検出を持つ
 - 性能: 観測値の一覧は上位の件数だけを選ぶページ分割、設備ごとの索引、計測日時の順の索引（一覧の既定の並べ替えで、先頭のページだけを取り出す。手順10）、最終の受信日時のキャッシュ、取り込み済みファイルの索引、手動入力の重複確認の一意キー参照
-- フロントエンド: 更新の一時的な失敗でデータを保持（`usePolling` の `refreshError`）、API クライアントのタイムアウト、エラーバウンダリ、権限の表示の更新、確認ダイアログのキーボード操作、管理系の画面の遅延読み込み
+- フロントエンド: 更新の一時的な失敗でデータを保持（`usePolling` の `refreshError`）、API クライアントのタイムアウト、エラーバウンダリ（画面の部品〔遅延読み込みのチャンク〕の取得の失敗は、デプロイのあとに、古い画面を使い続けているときに起きるため、専用に扱う: 1 回だけ自動で再読み込みし、続けて失敗するときは、「新しい版に更新されました」と再読み込みのボタンを示す。`lib/page-reload.ts`・`components/error-boundary.tsx`。#323）、権限の表示の更新、確認ダイアログのキーボード操作、管理系の画面の遅延読み込み
 
 # アプリケーション概要説明
 
@@ -121,19 +121,19 @@
 
 処理の骨格は次のとおり。
 
-1. **取り込む**: ファイルサーバー（実装はモック）のロボットデータ（JSON）・環境センサーデータ（CSV）を、定期（または即時）に取り込む。取り込めないデータは、農作業者が手動で入力する
+1. **取り込む**: ファイルサーバー（実装はモック）のロボットデータ（JSON）・環境センサーデータ（JSON）を、定期（または即時）に取り込む。取り込めないデータは、農作業者が手動で入力する
 2. **評価する**: 観測値を、10 の観点・短期と長期の視点で集計し、判断基準（上限型・下限型・範囲型の閾値）で「正常・注意・異常・不明」を判定する。診断メッセージと推奨アクションを付ける
 3. **見せる・知らせる**: ダッシュボード・観点の詳細・推移・満足度のレーダーチャートで示す。「注意」「異常」への変化を通知する（画面内＋ Web Push）
-4. **連携する**: 取り込んだデータ・手動入力・評価結果を、連携キューに積み、農業情報基盤へ非同期に送る（実装はモック）
+4. **連携する**: 取り込んだデータ・手動入力・評価結果を、連携キューに積み、農業情報基盤へ非同期に送る（NGSI-LD のアダプタ。ローカル・テストは、モック）
 
 ## 利用者
 
 | 利用者       | 実装での扱い                                                                                                                                                                                             |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 農作業者     | ロールの設定（`ROLE_DEFINITIONS_JSON`）で、操作ごとの権限（8 種）を割り当てる。**既定は 1 ロール `worker`（農作業者）が全権限**を持つ                                                                    |
-| 閲覧者       | 固定のロールではない。権限を持たないロール（`permissions: []`）を定義すると、「要ログイン」の操作（参照・既読・Web Push の購読）のみできる。E2E のサーバーは、`worker` と `viewer` の 2 ロールで起動する |
+| 管理者       | ロール `admin`。全 10 権限を持つ（全設備を閲覧する `equipment:view-all` を含む）（ADR-0013。最初のユーザー〔`pnpm initial-user`〕のロール）。ロール・権限は、設定（`ROLE_DEFINITIONS_JSON`）で変えられる |
+| 一般         | ロール `general`。手動入力（`manual-entry:write`）と、ログインしていれば使える操作（参照・既読・Web Push の購読・自身のユーザー名の編集・パスワードの変更）ができる。取り込みの設定・全体のログ・連携のログは、管理者のみ（`ingestion:read`）。閲覧できるハウスの割り当て（#330）・通知（#331）・取り込み・連携のハウス別の記録（#332）は、割り当てたハウスの分だけ。E2E のサーバーは、`admin`・`general` に、参照のみの確認用の `viewer`（`ingestion:read` のみ）を加えて起動する |
 | システム     | スケジューラ（`Scheduler`）と、取り込み・評価・連携・通知の配信のジョブ（JB-01〜JB-04）                                                                                                                  |
-| 外部システム | ファイルサーバー（ロボットデータ・環境センサーデータ。実装はモック）、農業情報基盤（連携先。実装はモック）                                                                                               |
+| 外部システム | ファイルサーバー（ロボットデータ・環境センサーデータ。実装はモック）、農業情報基盤（連携先。NGSI-LD のアダプタ。ローカル・テストは、モック）                                                                                               |
 
 ## 主な機能
 
@@ -152,8 +152,8 @@
 | SC-07 | 入力データ一覧（検索・修正・削除）                       | `/data-entry/list`                  | `entry-list-page.tsx`                          | 参照は要ログイン、修正・削除は `manual-entry:write`                                    |
 | SC-08 | 変更履歴                                                 | `/data-entry/history`               | `entry-history-page.tsx`                       | `audit:read`                                                                           |
 | SC-09 | 取り込み済みデータ一覧                                   | `/observations`                     | `observations-page.tsx`                        | 要ログイン                                                                             |
-| SC-10 | 設備管理                                                 | `/settings/equipment`               | `equipment-page.tsx`                           | 参照は要ログイン、変更は `equipment:manage`                                            |
-| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 参照は要ログイン、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
+| SC-10 | 設備管理                                                 | `/settings/equipment`               | `equipment-page.tsx`・`facility-access-panel.tsx` | 参照は要ログイン、変更は `equipment:manage`。ハウスの行の閲覧の割り当て（#330）は `user:manage` |
+| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 閲覧は `ingestion:read`（ないと、`facility-ingestion-view.tsx` が、閲覧できるハウスの取り込み・連携の記録だけを示す。メニューは全員に表示。#332）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
 | SC-12 | ステータスコード管理                                     | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
 | SC-13 | 判断基準の編集                                           | `/viewpoints/:viewpointId/criteria` | `criteria-edit-page.tsx`                       | 参照は要ログイン、編集は `criteria:edit`                                               |
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
@@ -179,12 +179,14 @@
 |                                | `GET /audit-logs`                                                                                                                   | `audit:read`                          |
 | ステータスコード               | `GET /status-codes`                                                                                                                 | LOGIN                                 |
 |                                | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`                                                                           | `status-code:manage`                  |
-| 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`POST /notifications/:notificationId/read` | LOGIN                                 |
+| 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET /notifications/:notificationId/memos`・`POST /notifications/:notificationId/read` | LOGIN。メモの追記 `POST /notifications/:notificationId/memos`（#239）は `manual-entry:write`                                 |
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
-| 取り込み・連携                 | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`                                                            | LOGIN                                 |
-|                                | `PUT /ingestion/settings`                                                                                                           | `ingestion:configure`                 |
+| 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
+|                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings`                                                            | `ingestion:read`                      |
+|                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`                                                                   | `ingestion:configure`                 |
 |                                | `POST /ingestion/:sourceId/test`・`POST /ingestion/:sourceId/run`                                                                   | `ingestion:run`                       |
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
+| 閲覧の割り当て                 | `GET /facility-access`・`PUT /facility-access/:facilityId`                                                                          | `user:manage`                         |
 | ヘルスチェック                 | `GET /health`（`/api/v1` の外）                                                                                                     | 認証なし。外部の状態に依存しない      |
 | 開発用（ローカル・テストのみ） | `/api/v1/dev/*`（時計・ジョブ・スケジューラ・モックの停止と遅延・データのリセットと投入）                                           | 要ログインのみ（権限なし。課題 I-01） |
 
@@ -201,7 +203,7 @@
 
 | ID    | ジョブ     | 呼び出す処理                                                                   | 既定の実行間隔（`DEFAULT_SCHEDULE`） |
 | ----- | ---------- | ------------------------------------------------------------------------------ | ------------------------------------ |
-| JB-01 | 取り込み   | `IngestionService.runDueSources()`（取り込み元ごとの取得間隔が来たものを実行） | 1 分ごとに判定                       |
+| JB-01 | 取り込み   | `IngestionService.runDueSources()`（設備ごとの取得間隔が来たものを実行。#197） | 1 分ごとに判定                       |
 | JB-02 | 評価       | `EvaluationService.evaluateAll('SCHEDULED')`                                   | 5 分                                 |
 | JB-03 | 連携       | `FederationService.runPending()`                                               | 5 分                                 |
 | JB-04 | 通知の配信 | `NotificationService.deliverPending()`                                         | 1 分                                 |
@@ -226,13 +228,13 @@
 |                | `@hono/node-server`                     | `^2.1.4`                        | 2.1.4                                         |
 |                | `@hono/aws-lambda`                      | `^1.0.1`                        | 1.0.1                                         |
 | AWS SDK（バックエンドの本番のアダプタ） | `@aws-sdk/client-dynamodb`・`lib-dynamodb`・`client-cognito-identity-provider`・`client-s3` | `^3.1147.0`・`^3.1147.0`・`^3.1148.0`・`^3.1148.0` | 3.1147.0・3.1147.0・3.1148.0・3.1148.0 |
-| スキーマ・検証 | Zod                                     | `^4.6.5`                        | 4.6.5                                         |
+| スキーマ・検証 | Zod                                     | `^4.6.6`                        | 4.6.7                                         |
 | フロントエンド | React・React DOM                        | `^19.3.0`                       | 19.3.0                                        |
 |                | Vite                                    | `~8.3.1`                        | 8.3.3                                         |
 |                | `@vitejs/plugin-react`                  | `^6.1.2`                        | 6.1.2                                         |
-| テスト         | Vitest・`@vitest/coverage-v8`           | `^4.1.11`                       | 4.1.11                                        |
+| テスト         | Vitest・`@vitest/coverage-v8`           | `^4.1.12`                       | 4.1.12                                        |
 |                | Playwright（`@playwright/test`）        | `^1.64.0`                       | 1.64.0                                        |
-|                | Testing Library（react・dom）・jsdom    | `^16.3.3`・`^10.4.2`・`^30.1.2` | 16.3.3・10.4.2・30.1.2                        |
+|                | Testing Library（react・dom）・jsdom    | `^16.3.3`・`^10.4.2`・`^30.1.3` | 16.3.3・10.4.2・30.1.3                        |
 | 静的解析       | ESLint・typescript-eslint・各プラグイン | `^9.39.5`・`^8.71.1`            | 9.39.5・8.71.1                                |
 |                | oxlint（jsx-a11y の検査のみ）           | `~1.84.0`                       | 1.84.0                                        |
 | ビルド         | esbuild（CSS の最小化。Lambda のコードのまとめ）   | `^0.28.0`                       | 0.28.2                                        |
@@ -264,13 +266,14 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | データベース             | DynamoDB                                  | **実装済み**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS で確認済み（Lambda から。バックアップ・復元・全データの削除と再作成を含む））。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
 | 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。AWS で確認済み（手元のバックエンドから、Lambda からも）。IaC は `SfmData`（ユーザープール・クライアント）。ローカルの既定は、アプリ内の認証（`createLocalAuth`） |
 | 実行                     | Lambda＋ EventBridge                      | API の Lambda（`createLambdaHandler`。`@hono/aws-lambda` の `handle`。ADR-0009）と、ジョブの Lambda（`createJobLambdaHandler`。EventBridge の 4 つのルールが起動する。Issue #76。ADR-0011） |
-| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）。実サーバーのアダプタは未実装（Issue #119） |
-| 農業情報基盤             | 連携方式は Q-005 で未確定                 | モック（成功・停止・遅延・拒否を再現）                                                                                              |
-| Web Push                 | 外部の配信サービス                        | ダミー（配信の記録のみ）。購読と受信のブラウザ側は実装済み                                                                          |
-| 秘密情報                 | シークレット管理サービス                  | `SecretPort` の環境変数版（`SECRET_<参照名>`）はあるが、未接続                                                                      |
+| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）と、HTTP（設備ごとのファイルパスで、一覧・取得・接続テスト。ADR-0023。#119）。宇都宮大学のサーバーへの接続は、別の Issue（#298） |
+| 農業情報基盤             | 連携方式は、NGSI-LD（Orion-LD）の upsert（ADR-0024。認証なし）                 | モック（成功・停止・遅延・拒否を再現）。`FEDERATION_MODE=ngsi-ld` で、NGSI-LD のアダプタ（接続先が未設定のあいだは、保留）                                                                                              |
+| Web Push                 | 外部の配信サービス                        | `vapid`: プッシュサービスへ実際に送る（#241）。`dummy`（既定）: 配信の記録のみ。購読と受信のブラウザ側は実装済み                                                                          |
+| 秘密情報                 | シークレット管理サービス                  | `SecretPort`（非同期の `get`・`set`・`status`）の、パラメータストア版（SecureString。#206）と、メモリ・環境変数版がある。使う場所は、ファイルサーバーの認証情報の登録と接続テスト（#207）。HTTP の取得（#119）でも、認証のヘッダーの組み立てに使う。Web Push の VAPID の秘密鍵の読み出し（#241。`web-push/vapid-private-key`））                                                                      |
 | ホスティング・IaC・CI/CD | Amplify Hosting・Amplify Gen 2 または CDK | `infra/`（AWS CDK）に、評価環境（S3 + CloudFront・API の Lambda・ジョブの Lambda と EventBridge・合成データの生成の Lambda）と、データ（DynamoDB・Cognito）、GitHub の OIDC のスタック。デプロイは `deploy-development.yml`・`deploy-production.yml`（手動実行。本番サイトは `main` だけ・承認が必要。Issue #117。本番サイトは、AWS に未作成）。Amplify は使わない（ADR-0006）。AWS で確認済み |
 | 負荷テスト               | `pnpm test:stress`                        | 実装済み（Playwright。大量データの状態で、全ユースケースの操作の応答時間を計測。dev_spec.md 6.5。結果は `test-result/stresstest.result.log`） |
 | スモークテスト・性能の実測 | `pnpm test:smoke`                       | 実装済み（Playwright。評価環境（AWS）に対する、流れの確認と、初期表示・推移・自動更新・取り込みの実行時間・コールドスタートの実測。手動実行。dev_spec.md 6.6。Issue #79）。AWS で実行済み（2026-10-21。test.spec.md 13.3）。コールドスタートの実測も、実行済み（長時間アクセスがないあとの最初のログインは、約 3.2 秒。既知の制約として許容。test.spec.md 13.3） |
+| 画面の CSP の確認 | `pnpm test:csp` | 実装済み（Playwright。本番ビルドの画面に、CloudFront と同じ CSP〔`infra/lib/content-security-policy.ts`〕を付けて、主な画面を一巡し、違反が出ないことを確認する。手元で実行。dev_spec.md 6.7。Issue #127）。AWS 上の応答ヘッダーは、`pnpm test:smoke`（`smoke-04-delivery-headers.ts`）で確認する |
 
 差の詳細は、「設計との差分」（D-01〜D-22）を参照する。
 
@@ -282,7 +285,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 | use-cases.md のアクター | 実装での扱い                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------- |
-| 農作業者                | 権限を持つロール（既定の `worker` は全 8 権限）でログインした利用者                         |
+| 農作業者                | 権限を持つロール（既定は、管理者 `admin`＝全 10 権限、一般 `general`＝手動入力のみ）でログインした利用者 |
 | 閲覧者                  | 権限なしのロール（例: E2E の `viewer`）でログインした利用者。コード上は固定のロールではない |
 | （システム）            | `Scheduler` と `JobRunner`（JB-01〜JB-04）                                                  |
 | ファイルサーバー        | `FileSourcePort` の先。取り込み（UC-08・UC-09）で読み取られる（実装はモック）               |
@@ -406,8 +409,8 @@ flowchart LR
   UC10 -. "状態変化をキューに積む" .-> UC11
 ```
 
-- 「Web Push の配信先」は、`NotifierPort` の先。実装はダミー（配信の記録のみ）
-- 取り込み（UC-08・UC-09）の評価の更新は、取り込んだ件数が 1 件以上のときに行う。取得失敗は、一覧の取得を 3 回試しても失敗した場合のみ通知する（UC-24）。形式違いのファイルは通知しない
+- 「Web Push の配信先」は、`NotifierPort` の先。実装は、`WEB_PUSH_DELIVERY` で選ぶ: `vapid`（プッシュサービスへ実際に送る。#241）、`dummy`（配信の記録のみ。既定）
+- 取り込み（UC-08・UC-09）の評価の更新は、取り込んだ件数が 1 件以上のときに行う。取得失敗（一覧の取得を 3 回試しても失敗）に加えて、ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、既定で通知する（`INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED`。UC-24。ADR-0019 の D-37）。旧: 形式違いのファイルは通知しない
 
 ## UC と画面・API・ジョブの対応表
 
@@ -430,7 +433,7 @@ flowchart LR
 | UC-13 | ログイン・ログアウトする                           | SC-01                                            | `/auth/login`・`/auth/refresh`・`/auth/logout`                                          | -                       | PUBLIC（ログアウトは LOGIN）           | `AuthService`・`createLocalAuth`                       |
 | UC-14 | ユーザーを管理する                                 | SC-14                                            | `/users` 一式                                                                           | -                       | `user:manage`                          | `UserService`                                          |
 | UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | SC-11                                            | `/ingestion/settings`・`/ingestion/:id/test`・`/ingestion/:id/run`                      | JB-01                   | `ingestion:configure`・`ingestion:run` | `IngestionAdminService`・`IngestionService`            |
-| UC-16 | 取り込み・連携の状況を確認する                     | SC-11                                            | `GET /ingestion/logs`・`GET /federation/logs`                                           | JB-01・JB-03            | LOGIN                                  | `IngestionAdminService`                                |
+| UC-16 | 取り込み・連携の状況を確認する                     | SC-11                                            | `GET /ingestion/logs`・`GET /federation/logs`・`GET /ingestion/facility-logs`・`GET /federation/facility-logs` | JB-01・JB-03            | LOGIN                                  | `IngestionAdminService`                                |
 | UC-17 | ステータスコードを管理する                         | SC-12                                            | `/status-codes` 一式                                                                    | -                       | `status-code:manage`（参照は LOGIN）   | `StatusCodeService`                                    |
 | UC-18 | 入力済みデータを管理する（一覧・修正・削除・履歴） | SC-07・SC-08                                     | `/manual-entries`・`GET /audit-logs`                                                    | JB-02                   | `manual-entry:write`・`audit:read`     | `ManualEntryService`・`AuditService`                   |
 | UC-19 | 判断基準を編集する                                 | SC-13（SC-03 から）                              | `/viewpoints/:id/criteria` 一式                                                         | JB-02                   | `criteria:edit`（参照は LOGIN）        | `CriteriaAdminService`                                 |
@@ -454,6 +457,8 @@ classDiagram
     +string name
     +EquipmentId facilityId?
     +string externalId?
+    +string sourceFilePath?
+    +number intervalMinutes? 1・5・10・15・30・60 分（#197）
     +boolean isDeleted
     +IsoDateTime createdAt
   }
@@ -540,7 +545,7 @@ classDiagram
   StatusCodeDefinition --> JudgedStatus
 ```
 
-- **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。削除は論理削除（`isDeleted`）
+- **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。`sourceFilePath` は、ファイルサーバー（HTTP）の、この設備のファイルの場所（ロボット・センサーだけ。同じ種別の中で一意。[ADR-0023](../adr/0023-http-file-source-per-equipment-file.md)）。削除は論理削除（`isDeleted`）
 - **Observation**: 共通形式の観測値。一意キーは `設備ID#項目#計測日時#取得元`（`observationKey`）。欠損は `null`（0 で代用しない）。取り込みの観測値は `sourceFileId`・`formatProfileVersion`、手動入力の観測値は `enteredBy`・`note`・`manualEntryId` を持つ
 - **ManualEntry**: 1 回の入力（設備・カテゴリ・計測日時・項目の値・備考）。項目ごとの観測値（取得元 `MANUAL`・品質 `VALID`）としても保存される
 - **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`RATING`・`STATUS`）・取得元（自動・手動）を持つ
@@ -621,6 +626,22 @@ classDiagram
     +IsoDateTime createdAt
     +string dedupKey
     +Delivery deliveries
+    +WebPushDelivery webPushDeliveries?
+  }
+  class WebPushDelivery {
+    +string subscriptionId
+    +WebPushDeliveryResult result
+    +number attempts
+    +IsoDateTime nextAttemptAt?
+    +IsoDateTime updatedAt
+    +string errorMessage?
+  }
+  class NotificationMemo {
+    +string memoId
+    +NotificationId notificationId
+    +UserId enteredBy
+    +string body
+    +IsoDateTime createdAt
   }
   class Delivery {
     +DeliveryChannel channel
@@ -671,7 +692,7 @@ classDiagram
 - **Criterion**: 指標ごとの条件。`UPPER`（`cautionFrom`・`errorFrom`）・`LOWER`（`errorBelow`・`cautionBelow`）・`RANGE`（`errorLower`・`normalLower`・`normalUpper`・`errorUpper`）の 3 形。閾値の大小関係は Zod の `superRefine` で検証する
 - **EvaluationResult**: 設備×観点×視点×期間ごとの**最新の結果を上書き**して保存する。保存の一意キーは `設備ID#観点ID#視点#期間（短期は 0）`。履歴は持たない（ステータスの推移は `StatusChangeEntry` から作る）
 - **StatusChangeEntry**: 観点の最終ステータス（短期・長期（7 日）のうち「不明」を除いた悪い方）が変わったときに追記する。最新の 1 件（`lastStatusChanges`）と履歴（`statusChangeHistory`）の 2 コレクションに保存する
-- **Notification**: 重複抑制のキー `dedupKey` と、配信の状態 2 つ（画面内は作成時に `SUCCESS`、Web Push は `PENDING` から始まる）を持つ。既読は、通知とは別の `NotificationRead`（通知×利用者）で持つ
+- **Notification**: 重複抑制のキー `dedupKey`（取り込みの失敗・停止、連携の期限切れの 60 分の抑制に使う。状態変化の通知には使わない）と、配信の状態 2 つ（画面内は作成時に `SUCCESS`、Web Push は `PENDING` から始まる。`deliveries`）、Web Push の**購読ごとの状態** `webPushDeliveries`（`WebPushDelivery`。#237）を持つ。**メモ**（`NotificationMemo`。共有・追記のみ。#239）は、通知とは別の項目で持ち、通知一覧の応答に件数 `memoCount` を返す。既読は、通知とは別の `NotificationRead`（通知×利用者）で持つ
 
 ## 取り込み・連携・利用者・監査
 
@@ -682,6 +703,7 @@ classDiagram
     +IngestionSourceKind kind
     +string profileId
     +string connectionRef
+    +FileServerConnection connection
     +IngestionInterval intervalMinutes
     +boolean isEnabled
   }
@@ -697,6 +719,7 @@ classDiagram
     +number attempts
     +string formatProfileVersion?
     +string errorMessage?
+    +FacilityIngestion[] facilities? ハウスごとの結果（#332）
   }
   class IngestedFileRecord {
     +string sourceId
@@ -725,6 +748,7 @@ classDiagram
     +IsoDateTime enqueuedAt
     +IsoDateTime updatedAt
     +IsoDateTime nextAttemptAt
+    +string[] facilityIds? 送るデータの設備のハウス（#332）
   }
   class FederationLogEntry {
     +string logId
@@ -732,6 +756,7 @@ classDiagram
     +FederationLogResult result
     +number itemCount
     +string message?
+    +FacilityFederation[] facilities? ハウスごとの項目数（#332）
   }
   class UserRecord {
     +UserId userId
@@ -754,8 +779,13 @@ classDiagram
     +string subscriptionId
     +UserId userId
     +string endpoint
+    +PushKeys keys?
     +boolean isActive
     +IsoDateTime createdAt
+  }
+  class PushKeys {
+    +string p256dh
+    +string auth
   }
   class AuditLogEntry {
     +string auditId
@@ -783,17 +813,17 @@ classDiagram
   FederationItem "0..*" --> "0..*" FederationLogEntry : 送信の結果を記録
 ```
 
-- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）のみで、認証情報の値は持たない。取得間隔は 5・15・30・60・360・1440 分のいずれか
-- **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID#内容のハッシュ`。形式違いのファイルは `FAILURE` で記録する
-- **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.1.0(PROVISIONAL)`・`environment-sensor-csv@0.1.0(PROVISIONAL)`）
+- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。保存がなければ `MOCK`。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）
+- **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID`（ファイルごとに、最新の版の 1 件を上書き。#201）。形式違いのファイルは `FAILURE` で記録する
+- **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
 - **Session**: `createLocalAuth` がメモリ上に持つ（アクセストークン・リフレッシュトークンの SHA-256 のみ保持。平文は持たない）。永続化しないため、再起動で全員が再ログインになる
 - **AuditLogEntry**: 変更履歴。対象の種類は `manual-entry`・`criteria`・`equipment`・`status-code`・`user`・`ingestion-settings` の 6 つ。`before`・`after` は、パスワードのハッシュを含まない形で記録する
-- **RoleDefinition / Permission**: 設定（`ROLE_DEFINITIONS_JSON`）で与える。権限は 8 種（`equipment:manage`・`ingestion:configure`・`ingestion:run`・`status-code:manage`・`manual-entry:write`・`criteria:edit`・`user:manage`・`audit:read`）
+- **RoleDefinition / Permission**: 設定（`ROLE_DEFINITIONS_JSON`）で与える。既定は、管理者 `admin`（全権限）・一般 `general`（`manual-entry:write` のみ）。権限は 9 種（`equipment:manage`・`ingestion:configure`・`ingestion:run`・`ingestion:read`・`status-code:manage`・`manual-entry:write`・`criteria:edit`・`user:manage`・`audit:read`）
 
 ## 永続化のコレクション（ローカルの Repository）
 
-`createLocalRepositories`（`local-repositories.ts`。集約ごとの実装は `local/repositories/`）が、`LocalStore` に 18 のコレクションを登録する。読み込み時に、Zod のスキーマで検証する（壊れたデータを内部に渡さない）。
+`createLocalRepositories`（`local-repositories.ts`。集約ごとの実装は `local/repositories/`）が、`LocalStore` に 20 のコレクションを登録する。読み込み時に、Zod のスキーマで検証する（壊れたデータを内部に渡さない）。
 
 | コレクション          | 型                     | キー                                        |
 | --------------------- | ---------------------- | ------------------------------------------- |
@@ -806,13 +836,15 @@ classDiagram
 | `statusChangeHistory` | StatusChangeEntry      | `設備ID#観点ID#changedAt`                   |
 | `notifications`       | Notification           | `notificationId`                            |
 | `notificationReads`   | 通知×利用者の既読      | `通知ID#利用者ID`                           |
-| `ingestedFiles`       | IngestedFileRecord     | `取り込み元#ファイルID#ハッシュ`            |
+| `notificationMemos`   | NotificationMemo       | `memoId`（#239）                            |
+| `ingestedFiles`       | IngestedFileRecord     | `取り込み元#ファイルID`                     |
 | `ingestionLogs`       | IngestionLog           | `logId`                                     |
 | `federationItems`     | FederationItem         | `federationItemId`                          |
 | `federationLogs`      | FederationLogEntry     | `logId`                                     |
 | `auditLogs`           | AuditLogEntry          | `auditId`                                   |
 | `manualEntries`       | ManualEntry            | `entryId`                                   |
 | `users`               | UserRecord             | `userId`                                    |
+| `facilityAccess`      | FacilityAccessRecord   | `facilityId`（#330）                        |
 | `pushSubscriptions`   | PushSubscriptionRecord | `sub-<利用者と宛先の SHA-256 の先頭 24 桁>` |
 | `settings`            | キーと値               | `key`（現状は `ingestion.sources` のみ）    |
 
@@ -973,11 +1005,11 @@ flowchart LR
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
-| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）・`s3/s3-file-source.ts`（S3 のモック。Lambda 用。`FILE_SERVER_S3_BUCKET` を指定したときに使う。Issue #77。ADR-0012）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
-| `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON・CSV の FormatProfile）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
-| `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | 農業情報基盤用（Q-005）                       |
-| `NotifierPort`                             | `ports/notifier-port.ts`        | `local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
-| `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**どこにも接続されていない**                                                                                        | シークレット管理サービス                      |
+| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）・`s3/s3-file-source.ts`（S3 のモック。Lambda 用。`FILE_SERVER_S3_BUCKET` を指定したときに使う。Issue #77。ADR-0012）。取り込み元の接続方式で、`application/ingestion/routing-file-source.ts` が振り分ける。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
+| `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON の FormatProfile。CSV は #174 で削除）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
+| `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | `http/ngsi-ld-federation.ts`（NGSI-LD の upsert。`FEDERATION_MODE=ngsi-ld`。ADR-0024）                       |
+| `NotifierPort`                             | `ports/notifier-port.ts`        | `web-push/web-push-notifier.ts`（実配信。#241。結果: 2xx 配信・404/410 購読が無効・それ以外 失敗）、`local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
+| `SecretPort`                               | `ports/secret-port.ts`          | `local/env-secret.ts`（`SECRET_<参照名>`）。**パラメータストア版は、コンテナが保管先として組み立てる（#206）。使う場所は、まだない**                                                                                        | シークレット管理サービス                      |
 
 ポートの契約に沿った振る舞いの検証は、Repository は `repository-contract.test.ts`（メモリ・ファイル・DynamoDB（DynamoDB Local）の 3 実装に、同じテストを適用）、ほかのアダプタは `tests/unit/backend/infrastructure/adapters.test.ts` で行う。
 
@@ -1036,7 +1068,7 @@ flowchart LR
 ```
 
 - `createLambdaHandler(env)` は、最初の呼び出しで `parseConfig` → `createContainer` → `initialize` → `handle(createApp(container))` を 1 度だけ行い、再利用する。設定は `parseLambdaConfig`（`APP_MODE`・`PERSISTENCE` の明示が必須。`SEED_MODE` は使えない。開発用 API・スケジューラは常に無効）。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009）
-- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS で確認済み**（2026-10-20。4 つのルールが周期どおりに起動し、ジョブが `EXECUTED` で終わる。ADR-0011 の「検証」））。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
+- 実線は、コードと IaC がある（Issue #75 で、API の Lambda を、バックエンド本体（`runtime/lambda.ts`）にし、`SfmData` の DynamoDB・Cognito を、環境変数と最小権限の IAM でつないだ。**AWS で確認済み**（2026-10-20。ADR-0009・ADR-0010）。ログイン・認証つきの呼び出し・画面・利用者の IP の識別（Issue #100）。初回の応答は体感 1 秒以内。実測は Issue #79）。EventBridge からのジョブの起動は、Issue #76 で実装した（ジョブ専用の Lambda と 4 つのルール。**AWS で確認済み**（2026-10-20。4 つのルールが周期どおりに起動し、ジョブが `EXECUTED` で終わる。ADR-0011 の「検証」））。ファイルサーバー・農業情報基盤・Web Push は、モックのまま（S3 のファイルのモックは、Issue #77。**Web Push は、公開鍵・連絡先を設定すると、実配信にできる**〔#241〕。既定はモック）。Lambda の環境変数・IAM・メモリ・配布物は、ADR-0009
 
 ## フロントエンドの構成
 
@@ -1099,21 +1131,23 @@ flowchart LR
 ```
 
 - **認証（誰か）**: `AuthPort`。ローカルの実装は、アプリ内のユーザー ID・パスワード。アクセストークン 30 分・リフレッシュトークン 7 日。ログインの失敗が、同じ接続元から 15 分間に 5 回（既定。環境変数で変えられる）に達すると、`RATE_LIMITED`（429）
-- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、1 ロール `worker`（農作業者。全 8 権限）
+- **認可（何ができるか）**: `AccessPolicy`（`application/auth/access-policy.ts`）。`RoleConfig`（ロール ID → 名前と権限の配列）から作る。未知のロールは権限なし。既定は、`admin`（管理者。全 10 権限）・`general`（一般。`manual-entry:write` のみ）の 2 ロール（ADR-0013）。**閲覧範囲**: `FacilityScope`（`application/access/facility-scope.ts`）が、リクエストごとに、権限 `equipment:view-all`（既定では管理者）がある利用者は全設備、ほかは、ハウスごとの割り当て（`facilityAccess`。管理は `FacilityAccessService`）に含まれるハウスと、配下のロボット・センサーに絞る（削除済み・存在しないハウスの割り当ては無効。割り当てがなければ、何も閲覧できない）。範囲外の設備は、存在しないもの（404）として扱う。適用先: 設備の階層（`GET /equipment`）・ダッシュボード・観点の詳細・推移（`resolveEquipmentId`）・観測値の一覧（`ObservationQuery`。範囲内の設備だけ）・手動入力の一覧・登録・修正・削除（`ManualEntryService`。範囲外の設備への登録・付け替えも 404。他人の入力にも、範囲内なら、修正・削除できる）。**通知（#331）**: 通知に、作成時のハウス（`facilityId`）を持たせ、一覧・未読の件数（ハウスごとのカウンターの合計）・既読・一括既読・メモを、閲覧できるハウスの通知に絞る（`NotificationService` の `scope`。範囲外・ハウスなしは、全設備を閲覧できない利用者には存在しない〔404〕）。移行は `pnpm migrate-notification-counters`（`runtime/migrate-notification-counters-cli.ts`）。**取り込み/連携のログ（#332）は、未適用**以前の既定のロール `worker` は、未知のロール（権限なし）。既存のユーザーは、`pnpm migrate-user-roles`（`runtime/migrate-user-roles-cli.ts`）で移す
 - **ルートごとの宣言**: `route-table.ts` の `access`（`PUBLIC`・`LOGIN`・権限名）。`createApp` は、すべてのルートにハンドラがなければ起動時にエラーにする（認可の宣言だけが残ることを防ぐ）
 - **ロール・権限の変更**: `verifyAccessToken` が、リクエストごとにユーザーを引き直し、`permissionsOf` が、設定から権限を導く。ユーザーの削除・ロールの変更は、次のリクエストから効く。画面の権限（メニュー・ボタンの表示）は、ログイン・セッション更新時の値
-- **画面側**: `usePermission(permission)`、メニューの権限による絞り込み（`/settings/users` は `user:manage`）、権限のない操作の案内（`PermissionNotice`）。表示制御のみで、サーバー側の拒否が正
+- **画面側**: `usePermission(permission)`、メニューの権限による絞り込み（`/settings/users` は `user:manage`、`/settings/ingestion` は `ingestion:read`）、権限のない操作の案内（`PermissionNotice`）。表示制御のみで、サーバー側の拒否が正
 - **変更履歴**: 手動入力・判断基準・設備・ステータスコード・ユーザー・取り込み設定の変更は、操作の種別・対象・変更者・変更前後を記録する（`AuditService`）。ユーザーの前後は、パスワードのハッシュを含まない形（`PublicUser`）
 
 | 権限                  | 要求するルート                                                        | 画面         |
 | --------------------- | --------------------------------------------------------------------- | ------------ |
 | `equipment:manage`    | `POST /equipment`・`PUT`・`DELETE /equipment/:id`                     | SC-10        |
-| `ingestion:configure` | `PUT /ingestion/settings`                                             | SC-11        |
+| `ingestion:configure` | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`     | SC-11        |
 | `ingestion:run`       | `POST /ingestion/:sourceId/test`・`/run`                              | SC-11        |
+| `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
 | `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
 | `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset` | SC-13        |
-| `user:manage`         | `/users` の 4 ルート                                                  | SC-14        |
+| `equipment:view-all`  | 権限を要求するルートはない。閲覧範囲の判定（全設備を閲覧できるか）に使う（#330）                    | -            |
+| `user:manage`         | `/users` の 4 ルート・`/facility-access` の 2 ルート                  | SC-14        |
 | `audit:read`          | `GET /audit-logs`                                                     | SC-08        |
 
 ## 設定・環境変数
@@ -1135,15 +1169,21 @@ flowchart LR
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
 | `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123。ADR-0014） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
-| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE`                    | なし（1 ロール `worker`） | ロールと権限の定義、初期ユーザーのロール                                                                                                        |
+| `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 管理者 `admin`・一般 `general` の 2 ロール | ロールと権限の定義、初期ユーザーのロール（既定は、ユーザー管理の権限を持つ最初のロール＝`admin`） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
 | `LOG_LEVEL`                                                     | `info`                    | `debug`／`info`／`warn`／`error`                                                                                                                |
-| `DEFAULT_INGESTION_INTERVAL_MINUTES`                            | `15`                      | 取得間隔の既定（5・15・30・60・360・1440）。データ活用度合いのスロットの幅にも使う                                                              |
-| `STALE_AFTER_INTERVALS`                                         | `3`                       | 「データが古い」の基準（取得間隔の何倍か）                                                                                                      |
+| `DEFAULT_INGESTION_INTERVAL_MINUTES`                            | `15`                      | データ活用度合いのスロットの幅（5・15・30・60・360・1440。取り込みの取得間隔は、設備ごとの設定で、この値を使わない。#197）                       |
+| `STALE_AFTER_INTERVALS`                                         | `3`                       | 「データが古い」の基準（設備の取得間隔の何倍か。最低 3 分）                                                                                                   |
 | `FEDERATION_EXPIRY_DAYS`                                         | `30`                      | 連携の破棄の期限（日。1〜365）。積んでからこの日数を過ぎても送れていない項目を、破棄する（#204）                                                |
 | `INGESTION_RETRY_BASE_DELAY_MS`                                 | `1000`                    | 取り込みの再試行の待ち時間の基準（E2E では 10）                                                                                                 |
+| `FEDERATION_MODE` | `mock` | 農業情報基盤との連携の方式（`mock`／`ngsi-ld`。ADR-0024。#177） |
+| `INGESTION_FUTURE_TOLERANCE_MINUTES` | `5` | 取り込みの計測日時の未来の許容（分。0〜60）。受信より、これを超えて先の計測日時は、不正にする。手動入力は、5 分固定（#200） |
 | `WEB_PUSH_PUBLIC_KEY`                                           | なし                      | VAPID の公開鍵。なければ、Web Push の購読を受け付けない（503）                                                                                  |
-| `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版）。現状、読み出す処理がない                                                                                            |
+| `WEB_PUSH_DELIVERY`                                             | `dummy`                   | Web Push の配信の方式（#241）。`vapid` は、公開鍵・`WEB_PUSH_SUBJECT` が必須（足りなければ、起動しない）                                                                                  |
+| `WEB_PUSH_SUBJECT`                                              | なし                      | VAPID の連絡先（https の URL。個人のメールアドレスは使わない）                                                                                  |
+| `CREDENTIAL_STORE`                                              | `memory`                  | 秘密情報の保管先（`memory`・`ssm`＝パラメータストア）。`ssm` は、本番・開発サイト（#206）。名前に、SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
+| `CREDENTIAL_PATH_PREFIX`                                        | なし                      | `ssm` のときの、パスの接頭辞（先頭と末尾が `/`。例: `/sfm/development/`）。`ssm` では、必須
+| `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版。テスト用）。参照名の `/`・`-` は `_` になる（例: `file-server/robot` → `SECRET_FILE_SERVER_ROBOT`）。コンテナは、使わない                                                                                            |
 
 アプリケーション層の動作設定（`application/settings.ts` の `DEFAULT_APP_SETTINGS`）と、その他のコード内の定数は次のとおり。
 
@@ -1151,9 +1191,11 @@ flowchart LR
 | -------------------------------- | ----------------------------------- | ------------------------------------------- |
 | 取り込みの試行回数・再試行の待ち | 3 回、`1000 × 2^(n-1)` ミリ秒       | `settings.ts`・`ingestion-service.ts`       |
 | 「遅延」の判定                   | 受信が計測より 60 分を超えて遅れた  | `observation-quality.ts`                    |
-| 計測日時の未来の許容             | 5 分                                | `observation-quality.ts`・`manual-entry.ts` |
-| 通知の抑制                       | 60 分                               | `notification-rules.ts`                     |
-| Web Push の配信の試行回数        | 3 回                                | `settings.ts`                               |
+| 計測日時の未来の許容             | 取り込み: 既定 5 分（`INGESTION_FUTURE_TOLERANCE_MINUTES`。0〜60。#200）。手動入力: 5 分（固定） | `observation-quality.ts`・`settings.ts`・`manual-entry.ts` |
+| 値の範囲（不正にする）           | 温度 −50〜100・湿度 0〜100・照度 0〜200,000・CO2 0〜10,000・1 果実あたりの収穫時間 0〜3,600（取り込み・手動入力の共通。#200）。手動入力だけの上限は、`manualMax`（1 果実あたりの収穫時間 300。#192） | `items.ts`（`min`・`max`・`manualMax`）・`isValidItemValue` |
+| 通知の抑制（取り込みの失敗・停止、連携の期限切れ） | 60 分                               | `notification-rules.ts`                     |
+| 状態変化の通知の出来事の区切り（正常が続いた時間。#236） | 15 分 | `notification-rules.ts`・`settings.ts`（`recurrenceAfterNormalMinutes`） |
+| Web Push の再送の間隔・断念の期限（#237） | 1 分から倍々・上限 60 分／通知を作ってから 60 分 | `notification-delivery.ts`・`settings.ts`（`webPushRetryBaseMinutes`・`webPushRetryMaxMinutes`・`webPushExpiryMinutes`） |
 | 連携の 1 回の件数・再試行の間隔  | 100 件、5 分の倍々、上限 720 分     | `settings.ts`・`federation-service.ts`      |
 | 短期視点の対象期間               | 直近 24 時間                        | `scope-evaluator.ts`                        |
 | 長期視点の期間                   | 1・7・30・60・90 日（既定 7。満足度は 30） | `shared/constants/status.ts`・`viewpoints.ts`（`defaultPeriodDays`） |
@@ -1329,7 +1371,7 @@ sequenceDiagram
       else 変わった
         EV->>REP: evaluations.appendStatusChange
         EV->>FS: enqueue EVALUATION 設備と観点
-        opt 注意または異常へ変わった isNotifiableTransition
+        opt 注意・異常へ変わり isNotifiableStatusChange<br>履歴から出来事で判定 を通った
           EV->>NS: notifyStatusChange 4.10
         end
       end
@@ -1389,6 +1431,7 @@ sequenceDiagram
     ES->>REP: get(equipmentId)<br>削除済みを含め存在すれば CONFLICT<br>409
     ES->>REP: 親のハウスが有効かを<br>assertFacility<br>ロボット・センサーのみ
     ES->>REP: list で externalId<br>が同じ種別の中で一意かを<br>assertExternalIdUnique 重複は<br>CONFLICT
+    ES->>REP: list で sourceFilePath<br>が同じ種別の中で一意かを<br>assertSourceFilePathUnique<br>重複は CONFLICT
     ES->>REP: save(isDeleted false createdAt)
     ES->>AU: record CREATE
     ES->>EV: evaluateAll EQUIPMENT_CHANGE
@@ -1503,17 +1546,20 @@ sequenceDiagram
   SCH->>JR: run JB-01 1 分ごと
   JR->>IS: runDueSources
   IS->>ST: listSources 保存が無ければ既定の 2<br>取り込み元
+  IS->>R: listEquipmentRuns 設備ごとの<br>最終の実行 1 回の Query
   loop 有効で実行中でない取り込み元
-    IS->>R: lastStartedAt(sourceId)<br>ログの開始日時の最大
-    alt 前回が無い または 取得間隔が過ぎた
+    IS->>IS: 設備ごとに 記録が無い または<br>その設備の取得間隔が過ぎたかを判定
+    alt 間隔が来た設備がある
       IS->>IS: runSource で実行中の集合に追加<br>すでに実行中なら CONFLICT
       IS->>FSP: listFiles(sourceId) 最大 3 回<br>失敗後に 1 秒 2 秒と待つ
       alt 3 回とも失敗
-        IS->>R: addLog FAILURE attempts 3<br>errorMessage
+        IS->>R: addLog FAILURE attempts 3<br>errorMessage 取り込み元単位
+        IS->>R: recordEquipmentRuns FAILURE
         IS->>NS: notifyIngestionFailure 4.10
       else 取得できた
         IS->>IS: ファイルごとに processFile 次の図
-        IS->>R: addLog SUCCESS か PARTIAL か<br>FAILURE
+        IS->>R: recordEquipmentRuns 設備ごとに 1 回
+        IS->>R: addLog 設備ごと 新しいデータが<br>あった設備と失敗だけ 空振りは残さない
         opt recordCount が 1 以上
           IS->>EV: evaluateAll INGESTION<br>失敗しても取り込みの結果に影響させない
         end
@@ -1602,32 +1648,42 @@ sequenceDiagram
 
 - 項目が積まれるのは、取り込み（`IngestionService`）・手動入力の登録・修正・削除（`ManualEntryService`）・観点ステータスの変化（`EvaluationService`）の保存時（`FederationService.enqueue`。`PENDING`・`attempts` 0・`nextAttemptAt` は積んだ時刻）。観測値の配列（`payload.observations`）が 1,000 件を超えるときは、1,000 件ごとの複数の項目に分けて積む（参照は `{元の参照}#part-{番号}-of-{総数}`、内容に `part: { index, total }`。`splitObservationPayload`。DynamoDB の 1 項目の上限（約 400 KB）に収めるため。#205）
 - 農業情報基盤が停止中（`HELD`）でも、他の処理は止まらない。復旧後は、最初に送信に成功したとき、溜まった保留・失敗の項目の次の試行が今に戻り（1 回の成功につき最大でバッチの件数）、次の実行（5 分以内）で送られる（再送の間隔の計算は、「特徴的アルゴリズム説明」の連携の再送）
+- **連携先の設定**（#177。ADR-0024）: `FederationAdminService`（`application/federation/federation-admin-service.ts`）。設定は `FederationConnectionStore`（接続先は `SecretPort` の `federation/endpoint`、テナント・context・有効は設定の保管 `federation.settings`）。更新は、接続先を先に保存し、設定を保存し、無効 → 有効のとき `enqueueAllEquipment` を呼び、変更履歴（`ingestion-settings`。接続先の値は残さない）を記録する。接続の確認は `probeNgsiLd`（読み取りだけ）。画面は `FederationSettingsPanel`（SC-11 の「農業情報基盤への連携」）。開発用リセットは、メモリの秘密情報（`MemorySecretPort.clear`）も戻す
 - 画面（SC-11）は、`GET /federation/logs` で、結果の記録（新しい順）と、連携キューの状態ごとの件数（`PENDING`・`SENT`・`FAILED`・`HELD`・`EXPIRED`）を表示する
 
 ## 4.10 通知の生成と配信（UC-05・UC-10・UC-22・UC-24。JB-04）
 
-**生成**（評価の状態変化、または取り込みの失敗から）
+**生成**（評価の状態変化、または取り込みの失敗・停止、連携の期限切れから）
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant SRC as EvaluationService または IngestionService
+  participant EV as EvaluationService
+  participant ING as IngestionService または FederationService
   participant NS as NotificationService
   participant NR as NotificationRepository
+  participant ER as EvaluationRepository
 
-  SRC->>NS: notifyStatusChange または<br>notifyIngestionFailure
-  NS->>NS: メッセージと dedupKey を作る<br>観点と設備とステータス または<br>取り込み元
+  EV->>ER: 「注意」「異常」へ変わったとき<br>listStatusChanges 履歴 今回の変化を含めない
+  EV->>EV: isNotifiableStatusChange(履歴, 次, now, 15)<br>不明は通知しない 正常が 15 分以上続いたあとの<br>悪化は新しい出来事 同じ出来事は重くなるときだけ<br>改善は通知しない
+  alt 通知する
+    EV->>NS: notifyStatusChange
+    NS->>NR: add 時間による抑制はしない<br>配信は IN_APP が SUCCESS<br>WEB_PUSH が PENDING attempts 0
+  else 通知しない
+    EV->>EV: 何もしない 状態の変化の履歴には追記する
+  end
+  ING->>NS: notifyIngestionFailure または<br>notifyFederationExpired
   NS->>NR: findLatestByDedupKey(dedupKey)
   NS->>NS: isWithinSuppression(最新の<br>createdAt, now, 60 分)
   alt 60 分未満
-    NS-->>SRC: null 作らない
+    NS-->>ING: null 作らない
   else 60 分以上 または 初回
     NS->>NR: add 配信は IN_APP が SUCCESS<br>WEB_PUSH が PENDING attempts 0
-    NS-->>SRC: Notification
+    NS-->>ING: Notification
   end
 ```
 
-**配信（JB-04）と、画面での確認**
+**配信（JB-04）と、画面での確認**（Web Push の配信は、購読ごと。ADR-0019 の D-38。#237・#241）
 
 ```mermaid
 sequenceDiagram
@@ -1640,23 +1696,34 @@ sequenceDiagram
   participant UI as ヘッダーと SC-05
 
   SCH->>NS: JB-04 の deliverPending 1 分ごと
-  NS->>NR: listUndelivered(3) WEB_PUSH が<br>PENDING または FAILURE で試行 3<br>回未満
+  NS->>NR: listUndelivered() Web Push のまとめが<br>PENDING の通知 疎な索引 UNDELIVERED
+  NS->>PR: listActive 1 回の実行で 1 度
   loop 通知ごと
-    NS->>PR: listActive<br>利用者を区別せず有効な購読すべて
-    loop 購読ごと
-      NS->>WP: deliver(notification,<br>subscription)
-      alt SUBSCRIPTION_GONE
-        NS->>PR: deactivate(subscriptionId)
-      else NotificationDeliveryError
-        NS->>NS: failure に理由を記録
+    NS->>NS: 購読ごとの状態 webPushDeliveries<br>なければ 有効な購読ごとに PENDING を作る<br>購読がなければ配信は完了 SUCCESS
+    loop 未完了の購読ごと
+      alt 通知を作ってから 60 分を過ぎた または 購読が無効になった
+        NS->>NS: ABANDONED 断念
+      else FAILURE で 次の試行の日時の前
+        NS->>NS: 再送しない
+      else
+        NS->>WP: deliver(notification, subscription,<br>ttlSeconds 期限までの残り)
+        alt SUBSCRIPTION_GONE
+          NS->>PR: deactivate(subscriptionId)
+          NS->>NS: ABANDONED
+        else NotificationDeliveryError または<br>タイムアウト
+          NS->>NS: FAILURE 理由と<br>次の試行の日時 1 分から倍々 上限 60 分<br>ログ warn に reason
+        else 配信できた
+          NS->>NS: SUCCESS
+        end
       end
     end
-    NS->>NR: update WEB_PUSH を SUCCESS または<br>FAILURE にして attempts を 1<br>増やす
+    NS->>NR: update webPushDeliveries と まとめの状態<br>未完了の間は PENDING すべて成功 または<br>相手なしで SUCCESS 断念があれば FAILURE
   end
 
   UI->>NS: API 経由で GET<br>/notifications/unread-count を約<br>10 秒ごと
-  UI->>NS: GET /notifications<br>絞り込みとカーソル
-  UI->>NS: POST /notifications/:id/read 個別<br>または POST read-all 範囲指定
+  UI->>NS: GET /notifications<br>絞り込みとカーソル 応答に asOf 読み込んだ時点
+  NS->>NR: 状態変化の通知は、listStatusChangeTimes<br>で次の通知を探し、状態変化の履歴<br>（EvaluationRepository の listStatusChanges）<br>から経過・回復日時 progress を導出（#238）<br>memoCounts で メモの件数 memoCount（#239）
+  UI->>NS: POST /notifications/:id/read 個別<br>または 一括: GET unread-count?until で件数を確認し<br>POST read-all（until 必須。読み込み時点まで。#240）
   NS->>NR: markRead(notificationId, userId,<br>now) 既読は通知と利用者の組で保存
   UI->>UI: notifyUnreadChanged<br>で未読件数を読み直す
 ```
@@ -1681,11 +1748,11 @@ sequenceDiagram
     PG->>PB: requestPermission ブラウザの確認
     PG->>PB: subscribe(publicKey)
     PB->>SW: register /sw.js と<br>pushManager.subscribe<br>applicationServerKey
-    PB-->>PG: endpoint
-    PG->>APP: PUT /push-subscription に<br>endpoint を送る
-    APP->>PS: subscribe(userId, endpoint)
+    PB-->>PG: endpoint と 暗号鍵<br>keys p256dh・auth
+    PG->>APP: PUT /push-subscription に<br>endpoint と keys を送る
+    APP->>PS: subscribe(userId, endpoint, keys)
     Note over PS: publicKey が未設定なら<br>SERVICE_UNAVAILABLE 503
-    PS->>PR: save subscriptionId<br>は利用者と宛先の SHA-256 isActive<br>true
+    PS->>PR: save subscriptionId<br>は利用者と宛先の SHA-256 keys isActive<br>true
   else 解除する
     PG->>PB: unsubscribe 解除した宛先
     PG->>APP: DELETE /push-subscription に<br>endpoint を送る
@@ -1725,7 +1792,7 @@ sequenceDiagram
   else 取り込み設定の更新 PUT /ingestion/settings
     APP->>IA: update(input, actor) 権限<br>ingestion:configure
     IA->>SR: listSources 経由で現在の設定を取得
-    IA->>IA: sourceId の存在と重複を確認<br>connectionRef と intervalMinutes<br>と isEnabled のみ変更<br>指定のない取り込み元は残す
+    IA->>IA: sourceId の存在と重複を確認<br>connectionRef・connection<br>isEnabled を変更<br>（connection は省略で保持。内部のアドレスは拒否）<br>指定のない取り込み元は残す
     IA->>SR: set ingestion.sources
     IA->>AU: record UPDATE ingestion-settings<br>before と after
   end
@@ -1748,8 +1815,8 @@ sequenceDiagram
   API->>APP: If-None-Match に前回の ETag<br>同じトークンのとき
   APP->>APP: 認証 LOGIN
   APP->>DQ: get(params) resolveEquipmentId<br>で省略時は最初のハウス
-  DQ->>REP: equipment.get と listLatest と<br>latestReceivedAt
-  DQ->>DQ: 観点ごとに短期と長期を合成<br>データの新しさを判定
+  DQ->>REP: equipment.get と listLatest と<br>receivedAtByEquipment 設備ごと
+  DQ->>DQ: 観点ごとに短期と長期を合成<br>データの新しさを設備ごとに判定
   DQ-->>APP: DashboardResponse<br>評価はこの呼び出しでは行わない
   APP->>APP: jsonWithEtag 本文の SHA-256 を<br>ETag にする
   alt If-None-Match が一致
@@ -1794,7 +1861,7 @@ sequenceDiagram
 
 | モデル                                   | 生成                                                             | 更新                                           | 削除                                                     |
 | ---------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------- |
-| 設備                                     | `EquipmentService.create`                                        | `update`（名称・親・データ上の識別子）         | 論理削除（ハウスは配下も）。同じ設備 ID は再登録できない |
+| 設備                                     | `EquipmentService.create`                                        | `update`（名称・親・データ上の識別子・ファイルパス）         | 論理削除（ハウスは配下も）。同じ設備 ID は再登録できない |
 | 観測値                                   | 取り込み（`IngestionService`）、手動入力（`ManualEntryService`） | 同じ一意キーは上書き                           | 手動入力の観測値のみ、論理削除                           |
 | 手動入力                                 | `ManualEntryService.create`                                      | `update`                                       | 論理削除（観測値も削除済みにする）                       |
 | 評価結果                                 | `EvaluationService.evaluateAll`                                  | 同じキーを上書き                               | なし（設備を削除しても残る）                             |
@@ -1815,13 +1882,13 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> Active : POST equipment で登録
-  Active --> Active : PUT equipment で名称 親のハウス データ上の識別子を修正
+  Active --> Active : PUT equipment で名称 親のハウス データ上の識別子 ファイルパスを修正
   Active --> Deleted : DELETE equipment で論理削除 ハウスは配下も
   Deleted --> [*]
 ```
 
 - 生成: 設備 ID（一意。削除済みの ID も重複として拒否）・種別・名称・親のハウス（ロボット・センサーは必須）・データ上の識別子（任意。同じ種別の中で一意）。`createdAt` は登録時刻
-- 更新: 名称・親のハウス（ロボット・センサーのみ）・データ上の識別子。設備 ID・種別は変えられない
+- 更新: 名称・親のハウス（ロボット・センサーのみ）・データ上の識別子・ファイルパス・取得間隔（`intervalMinutes`。いずれもロボット・センサーのみ。ハウスに指定すると検証エラー。#197）。設備 ID・種別は変えられない
 - 削除: `isDeleted: true`。ハウスを削除すると、配下の有効なロボット・センサーも同時に削除する。**復活の操作はない**（同じ設備 ID で再登録すると CONFLICT）。削除した設備のデータ上の識別子は、別の設備で使える（重複の検査が、削除済みを除くため）
 - いずれの変更も、変更履歴に記録し、評価を更新する。削除した設備の観測値・評価結果は残る
 
@@ -1878,11 +1945,11 @@ stateDiagram-v2
 
   [*] --> UNKNOWN : 設備の登録直後 評価前は評価結果なし
   UNKNOWN --> NORMAL : データがそろい 基準に収まる
-  UNKNOWN --> CAUTION : データがそろい 注意の範囲 通知する
-  UNKNOWN --> ERROR : データがそろい 異常の範囲 通知する
-  NORMAL --> CAUTION : 指標が注意の範囲へ 通知する
-  CAUTION --> ERROR : 指標が異常の範囲へ 通知する
-  ERROR --> CAUTION : 異常から注意へ 通知する
+  UNKNOWN --> CAUTION : データがそろい 注意の範囲 出来事の判定で通知
+  UNKNOWN --> ERROR : データがそろい 異常の範囲 出来事の判定で通知
+  NORMAL --> CAUTION : 指標が注意の範囲へ 出来事の判定で通知
+  CAUTION --> ERROR : 指標が異常の範囲へ 出来事の判定で通知
+  ERROR --> CAUTION : 異常から注意へ 改善のため通知しない
   CAUTION --> NORMAL : 基準に戻る 通知しない
   ERROR --> NORMAL : 基準に戻る 通知しない
   NORMAL --> UNKNOWN : 必要なデータが足りない 通知しない
@@ -1898,20 +1965,21 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  state "PENDING 配信待ち attempts 0" as PENDING
+  state "PENDING 未試行" as PENDING
   state "SUCCESS 配信済み" as SUCCESS
-  state "FAILURE 失敗 attempts が 1 または 2" as FAILURE
-  state "FAILURE 失敗 attempts が 3 で再送しない" as GAVEUP
+  state "FAILURE 失敗 次の試行の日時に再送" as FAILURE
+  state "ABANDONED 断念" as ABANDONED
 
-  [*] --> PENDING : 通知の作成 画面内の配信は作成時に SUCCESS
-  PENDING --> SUCCESS : JB-04 の deliverPending で失敗なし 購読が無い場合も
-  PENDING --> FAILURE : JB-04 で配信に失敗
+  [*] --> PENDING : 最初の配信の実行 有効な購読ごとに作る 画面内の配信は作成時に SUCCESS
+  PENDING --> SUCCESS : 配信できた
+  PENDING --> FAILURE : 配信に失敗
+  PENDING --> ABANDONED : 購読が無効 または 作成から 60 分経過
   FAILURE --> SUCCESS : 再送に成功
-  FAILURE --> FAILURE : 再送に失敗 attempts が 3 未満
-  FAILURE --> GAVEUP : 再送に失敗し attempts が 3 に達する
+  FAILURE --> FAILURE : 再送に失敗 間隔は 1 分から倍々 上限 60 分
+  FAILURE --> ABANDONED : 購読が無効 または 作成から 60 分経過
 ```
 
-上は、通知の **Web Push の配信状態**（`deliveries` の `WEB_PUSH`）。画面内の配信（`IN_APP`）は、作成時に `SUCCESS`（試行 1）で固定。
+上は、**購読ごと**の配信の状態（通知の `webPushDeliveries`。ADR-0019 の D-38。#237）。通知の `deliveries` の `WEB_PUSH` は、そのまとめ（未完了の購読がある間は `PENDING`。すべて `SUCCESS`、または配信する相手がなければ `SUCCESS`。断念があれば `FAILURE` で終了）。画面内の配信（`IN_APP`）は、作成時に `SUCCESS`（試行 1）で固定。
 
 ```mermaid
 stateDiagram-v2
@@ -1920,8 +1988,8 @@ stateDiagram-v2
 ```
 
 - 既読は、**利用者ごと**（`NotificationRead` が通知×利用者の組を持つ）。ある利用者が既読にしても、他の利用者の未読は変わらない。未読に戻す操作はない
-- 通知は削除されない。作成は、重複抑制（同じ `dedupKey` の最新の通知から 60 分未満は作らない）を通った場合のみ
-- Web Push は、利用者を区別せず、有効な購読すべてへ配信する。購読が無効（`SUBSCRIPTION_GONE`）と返ると、その購読を無効にする
+- 通知は削除されない。作成は、状態変化の通知は、出来事の判定（`isNotifiableStatusChange`）を通った場合のみ、取り込みの失敗・停止・連携の期限切れの通知は、重複抑制（同じ `dedupKey` の最新の通知から 60 分未満は作らない）を通った場合のみ
+- Web Push は、**最初の配信の実行時点の、有効な購読**（**宛先は、通知のハウスを閲覧できる利用者の購読だけ**。`NotificationRecipients`〔`application/access/notification-recipients.ts`〕が、全設備を閲覧する権限をもつ利用者と、そのハウスに割り当てた一般ユーザーを返す。ハウスに属さない通知は、全設備を閲覧できる利用者だけ。宛先は、最初の配信の時点で決まる。#331）へ、購読ごとに配信する（そのあとに購読した端末には、過去の通知を配信しない）。失敗した購読にだけ再送する（1 分から倍々・上限 60 分。通知を作ってから 60 分で断念）。購読が無効（`SUBSCRIPTION_GONE`）と返ると、その購読を無効にして断念する。有効期限（TTL）は、期限までの残りの秒数。実配信（`WEB_PUSH_DELIVERY=vapid`）の本文は、購読の暗号鍵で暗号化する（#241）
 
 ## 取り込み設定・取り込みログ・取り込み済みファイル（UC-15・UC-16）
 
@@ -1933,7 +2001,7 @@ stateDiagram-v2
   Enabled --> Enabled : PUT ingestion settings で接続先の参照名と取得間隔を変更
 ```
 
-- 取り込み元の設定は、保存がなければコードの既定（`robot`・`environment-sensor`。取得間隔 15 分）を返す。更新すると、`settings` コレクションのキー `ingestion.sources` に保存し、変更履歴を残す。取り込み元の追加・削除の操作はない
+- 取り込み元の設定は、保存がなければコードの既定（`robot`・`environment-sensor`）を返す。更新すると、`settings` コレクションのキー `ingestion.sources` に保存し、変更履歴を残す。取り込み元の追加・削除の操作はない
 - 実行中かどうかは、メモリ上の集合（`running`）のみで持つ。二重実行は CONFLICT。サーバーを再起動すると消える
 
 ```mermaid
@@ -1946,12 +2014,16 @@ stateDiagram-v2
 
   [*] --> Discovered : listFiles
   Discovered --> ReadFailed : readFile が失敗 記録せず次回また対象
-  Discovered --> Skipped : 識別子とハッシュ または 内容のハッシュが同じ記録がある
+  Discovered --> Skipped : 同じ識別子の最新の版と ハッシュが同じ
   Discovered --> ParseFailed : FormatError
   Discovered --> Imported : 解釈と保存に成功
 ```
 
-- 取り込み済みファイルの記録（`IngestedFileRecord`）と取り込みログ（`IngestionLog`）は、**追記のみ**で、更新・削除しない
+- **取り込みログは、設備ごと**（#201。ADR-0016 の D-48）: 新しいデータがあった設備・ファイルを取り込めなかった設備ごとに、1 件（`equipmentId` を持つ）。**空振り（新しいデータがない成功）は、残さない**。設備に結びつかない結果（接続の失敗・一覧の取得の失敗・想定外の例外・どの設備にも結びつかない記録やファイルの失敗）は、取り込み元単位で 1 件（`equipmentId` なし。以前のログも同じ）。ファイルが 1 つの設備のもの（設備の `sourceFilePath`。HTTP）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備のログにする。1 つのファイルに複数の設備が入る場合（モック・S3）は、設備ごとの記録の数をそれぞれのログにし、取り込めなかった記録・ファイルは、取り込み元単位のログ（一部成功／失敗）にする。
+- **取り込みログの取得**（`GET /ingestion/logs`。#201 の PR 3）: 新しい順（並べ替えなし）。絞り込み: 取り込み元（`sourceId`）、設備（`equipmentId`。その設備のログと、その設備の取り込み元の、設備に結びつかないログ。取り込み元は、設備の種別と同じ種別の取り込み元から決める。登録のない設備は、その設備のログだけ）、結果（`SUCCESS`／`FAILURE`。失敗は一部成功を含む）、期間（`from`・`to`。開始日時。両端を含む）。DynamoDB は、設備を指定すると、設備と取り込み元の 2 つのパーティションだけを読み、期間はソートキーの範囲、結果はアプリ側の条件で絞る。画面（SC-11）は、設備・結果・期間（日本時間の日付）の絞り込みを URL（`equipment`・`result`・`from`・`to`）に反映し、1 ページ 20 件。取り込み設定・状況の応答（`GET /ingestion/settings`）は、取り込み元ごとに、その種別の設備ごとの最終の実行（`equipment`: 設備・日時・結果・最後の成功・最後にデータが取れた日時）を含む
+- 取り込みログは、ハウスごとの内訳（`facilities`。ハウスごとの結果と件数）を持つ。設備ごとのログは、その設備のハウス 1 つ。設備に結びつかないログは、取り込めなかったファイルの設備（`sourceFilePath` が同じ）のハウスだけ。接続の失敗・設備に結びつかないファイルの失敗は、持たない。DynamoDB は、ハウス別の記録（`ILOGF#{ハウス}`）も書く。一般ユーザーは、`GET /ingestion/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
+
+- 取り込みログ（`IngestionLog`）は、**追記のみ**で、更新・削除しない。取り込み済みファイルの記録（`IngestedFileRecord`）は、ファイルごとに最新の 1 件を上書きする（#201）。**設備ごとの最終の実行**（`EquipmentRunState`。開始・終了・結果・最後の成功・最後にデータが取れた日時）は、設備ごとに 1 件を上書きする（#201。`recordEquipmentRuns`。1 回の実行につき、設備ごとに 1 回の書き込み）。SC-11 の取り込み元ごとの「最終の実行」「最終の成功」は、その種別の設備の最終の実行から求める（設備が 1 つもなければ、取り込み元ごとの開始日時 `recordSourceStarted`）
 - 取り込みログの結果: 処理したファイルがない（すべて取り込み済みの場合を含む）、または、失敗したファイルも不正な値もなければ `SUCCESS`、一部だけ失敗（または不正な値）があり、取り込めた件数が 1 件以上なら `PARTIAL`、取り込めた件数が 0 なら `FAILURE`。一覧の取得に失敗した場合は `FAILURE`（`attempts` は試行回数）
 
 ## 連携キュー（FederationItem）
@@ -1984,7 +2056,7 @@ stateDiagram-v2
 ```
 
 - 項目は削除されない。`SENT` 以外は、`nextAttemptAt` が来るたびに再び送信の対象になる（試行回数の上限はない）。ほかの項目の送信に成功すると、保留・失敗の項目の `nextAttemptAt` が、今に戻る（`attempts` は変わらない）
-- 結果は、送信のたびに連携の記録（`FederationLogEntry`。成功・失敗・保留・期限切れ、件数、メッセージ）として、追記のみで残る
+- 結果は、送信のたびに連携の記録（`FederationLogEntry`。成功・失敗・保留・期限切れ、件数、メッセージ）として、追記のみで残る。項目は、積むときに、送るデータの設備のハウス（`facilityIds`）を持ち、記録は、ハウスごとの項目数（`facilities`）を持つ。DynamoDB は、ハウス別の記録（`FLOGF#{ハウス}`）も書く。一般ユーザーは、`GET /federation/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
 
 ## ステータスコード（StatusCodeDefinition）
 
@@ -2059,8 +2131,8 @@ stateDiagram-v2
   Deleted --> [*]
 ```
 
-- 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）
-- ユーザーを削除しても、その購読は削除されない（課題 I-02）
+- 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）。登録の入力は `{ endpoint, keys? }`（`keys` は p256dh・auth。本文つきの配信に使う。#241）
+- ユーザーを削除すると、その購読も削除される（`UserService.delete` が `deleteByUser` を呼ぶ。課題 I-02 は解消）
 
 ## 変更履歴（AuditLogEntry）
 
@@ -2216,7 +2288,7 @@ combineHorizonStatuses(短期, 長期):
 - 「不明」は比較に使わない。片方が「不明」なら、もう片方を採る。両方が「不明」（短期評価を持たない観点は長期のみ）なら「不明」
 - **通知・連携・状態変化の基準**は、短期と、**観点ごとの既定の期間の長期**（`defaultPeriodDays`。満足度は 30 日、ほかは 7 日）の合成。ダッシュボードのカードの最終ステータスは、短期と、**選んだ期間**（選んでいなければ、観点ごとの既定の期間）の長期の合成（`DashboardQuery`）。期間を選ぶと、カードのステータスは、通知の基準と異なりうる
 - 評価結果がまだ保存されていない観点（設備の登録直後など）は、ダッシュボード・詳細で「不明」（診断メッセージ: `評価がまだ行われていません`）
-- 「不明」への変化は、通知しない（暫定仕様）が、状態変化の記録と連携キューには積む
+- 「不明」への変化は、通知しない（決定。ADR-0019 の D-37）が、状態変化の記録と連携キューには積む
 
 ### 1.7 判断基準の検証（保存前）
 
@@ -2235,7 +2307,7 @@ combineHorizonStatuses(短期, 長期):
 遅れ（分）= (受信日時 − 計測日時) ÷ 60,000
 
 if 項目がない:                                  INVALID（未定義の項目）
-if 遅れ < −5:                                   INVALID（計測日時が未来）    ← 欠損の判定より先
+if 遅れ < −未来の許容（既定 5。設定）:               INVALID（計測日時が未来）    ← 欠損の判定より先
 if 値が null または undefined:                  MISSING
 if 値が型・範囲に合わない:                       INVALID                      （整数・数値・最小・最大。文字列は空でない）
 if 項目が statusCode で、コードが未定義または論理削除: INVALID（未定義のステータスコード）
@@ -2245,45 +2317,50 @@ else:                                           VALID
 
 - 取り込み（`IngestionService.toObservations`）では、**値のない項目も観測値として保存する**。`MISSING` は `value: null`、`INVALID` は、数値・文字列なら元の値を保持したまま `INVALID` で保存する。`rejectedCount` に数えるのは、`MISSING`・`INVALID`・項目カタログにない項目・設備に対応づけられない記録・計測日時が読めない記録
 - 評価・集計に使うのは `VALID` と `LATE` のみ（`LATE` は使う）。取り込みログの `recordCount` も、この 2 つの数
-- 手動入力は、`validateManualEntry`（`shared/schemas/manual-entry.ts`）で検証し、品質は常に `VALID`。計測日時が、現在から 5 分を超える未来なら拒否
+- 手動入力は、`validateManualEntry`（`shared/schemas/manual-entry.ts`）で検証し、品質は常に `VALID`。入力の `items` の値は、数値または文字列（文字列は、ステータスコードだけ）。ステータスコードの登録の有無（登録済み・削除していない）は、`ManualEntryService` が `StatusCodeRepository` で確かめる（新規・修正）。画面は、登録済みのコードの選択肢から選ぶ（`StatusCodeField`。このカテゴリを選んでいる間だけ、`GET /status-codes` を 60 秒間隔で取得する）。計測日時が、現在から 5 分を超える未来なら拒否
 
-## 3. 通知の生成と抑制（60 分）
+## 3. 通知の生成と抑制（状態変化は出来事で判定。取り込み系は 60 分）
 
 ```text
-isNotifiableTransition(前, 次) = (次 が CAUTION または ERROR) and (前 != 次)       ※ 前が null も含む
+isNotifiableStatusChange(履歴, 次, now, 正常が続いた分 N=15):                         ※ 履歴 = 観点の最終ステータスの変化の履歴（今回の変化を含めない）
+  次 が CAUTION または ERROR でなければ false
+  時系列 = 履歴から UNKNOWN を除いたもの
+  時系列が空なら true                                                                 ※ 最初の評価
+  最後が NORMAL で、now − その日時 ≥ N 分 なら true                                   ※ 正常が続いたあとの悪化 = 新しい出来事
+  到達した重大度 = いまの出来事（N 分以上続いた NORMAL より後）の、CAUTION=1・ERROR=2 の最大
+  return 重大度(次) > 到達した重大度                                                  ※ 改善・行き来・同じ重大度は false
 
-dedupKey（状態変化）   = "STATUS_CHANGE#" + 観点ID + "#" + 設備ID + "#" + ステータス
+dedupKey（状態変化）   = "STATUS_CHANGE#" + 観点ID + "#" + 設備ID + "#" + ステータス   ※ 通知に残す。状態変化の通知の抑制には使わない
 dedupKey（取り込み失敗）= "INGESTION_FAILURE#" + 取り込み元ID
 dedupKey（連携の期限切れ）= "FEDERATION_EXPIRED"
 
-isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) = (now − 作成日時) < 60分
+isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) = (now − 作成日時) < 60分   ※ 取り込みの失敗・停止、連携の期限切れだけ
 ```
 
-- 作る条件は、**最終ステータスが「注意」「異常」へ変わったとき**（前回と同じ状態が続く間は、評価側で何もしない）。「不明」には通知しない
-- 抑制は、**同じキーの直近の通知から 60 分未満**なら、作らない（ちょうど 60 分で、作れる）。キーに**ステータスが含まれる**ため、「注意」の通知の直後に「異常」へ変わると、別のキーとして通知される。「正常 → 注意 → 正常 → 注意」と 60 分以内に繰り返したときの 2 回目は、抑制される
+- 作る条件は、**最終ステータスが「注意」「異常」へ悪化したとき**（`evaluation-service.ts` の `recordStatusChanges`）。評価側は、最終ステータスが前回（「不明」を含む）と変わったときだけ、変化を記録し、「注意」「異常」への変化のときだけ、履歴を読んで通知を判定する。「不明」には通知せず、判定でも無視する（履歴には、残す）
+- 状態変化の通知は、**時間による抑制をしない**（再発を通知するため）。出来事の区切りは、15 分以上続いた正常（`settings.notification.recurrenceAfterNormalMinutes`）。同じ出来事の中では、通知した重大度より重いときだけ通知する（「注意」→「異常」は通知。「異常」→「注意」→「異常」の 2 回目の「異常」は、通知しない）
 - 取り込み失敗の通知は、取り込み元ごとに 1 つのキー。取り込みが間隔ごとに失敗し続けても、60 分に 1 回まで
 - 通知には、ステータス・観点名・設備名・診断メッセージ（または取り込み元の表示名と理由）を含める。`【異常】収穫精度（ハウス1）: …`、`【データ取得失敗】ロボットデータ: …`
-- 配信: 画面内は作成と同時に `SUCCESS`。Web Push は、JB-04 が `PENDING`・試行 3 回未満の `FAILURE` の通知を、有効な購読すべてへ配信する。配信の失敗が、評価・取り込み・画面内の通知に影響しない
+- 配信（#237）: 画面内は作成と同時に `SUCCESS`。Web Push は、JB-04 が、まとめの状態が `PENDING` の通知（購読ごとの状態を持たない以前の形式の失敗も、終了させるため含む）について、購読ごとの状態（`webPushDeliveries`）を、最初の実行時点の有効な購読で作り、未試行と、次の試行の日時が来た失敗の購読だけに配信する。失敗は、1 分から倍々（上限 60 分）で再送し、作成から 60 分で断念する。配信の失敗が、評価・取り込み・画面内の通知に影響しない
 
 ## 4. 取り込みの重複判定・再試行
 
-**重複の判定**（`findIngestedFile`。`local/repositories/ingestion-repositories.ts`）: 同じ取り込み元で、**内容のハッシュ（SHA-256）が同じ**記録のうち、「ファイルの識別子が同じ」**または**「記録の結果が成功」のものがあれば、取り込まない。
+**重複の判定**（`findIngestedFile`。`local/repositories/ingestion-repositories.ts`）: 同じ取り込み元の、**同じファイルの識別子の、最新の版の記録**が、**内容のハッシュ（SHA-256）も同じ**なら、取り込まない（結果が成功でも失敗でも。#201。記録は、ファイルごとに最新の 1 件で、新しい版を記録すると上書きする）。
 
-| ケース                                       | 記録の有無                 | 結果                                                             |
-| -------------------------------------------- | -------------------------- | ---------------------------------------------------------------- |
-| 同じファイル・同じ内容                       | あり（成功または失敗）     | 取り込まない                                                     |
-| 同じファイル・内容が変わった                 | ハッシュが違うため、なし   | 新しい版として取り込む。同じ一意キーの観測値は上書き             |
-| 名前が違う・同じ内容（前回が成功）           | あり（成功）               | 取り込まない                                                     |
-| 名前が違う・同じ内容（前回が形式違いで失敗） | 識別子が違い、成功でもない | 重複とは判定せず、処理する（同じ内容のため、再び形式違いになる） |
-| 読み取りに失敗（`readFile`）                 | 記録しない                 | 次回の取り込みで、また対象になる                                 |
+| ケース                                       | 記録の有無                         | 結果                                                                                       |
+| -------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| 同じファイル・同じ内容                       | あり（成功または失敗）             | 取り込まない                                                                               |
+| 同じファイル・内容が変わった                 | 最新の版のハッシュが違うため、なし | 新しい版として取り込む。同じ一意キーの観測値は上書き。記録は、新しい版に上書き             |
+| 名前が違う・同じ内容                         | 識別子が違うため、なし             | 別のファイルとして読む。観測値は、同じ値（同じ計測日時・同じ値）なら、保存・連携しない（D-08） |
+| 読み取りに失敗（`readFile`）                 | 記録しない                         | 次回の取り込みで、また対象になる                                                           |
 
 **再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。
 
-**取り込みの実行判定**（`runDueSources`）: `now − 直近の開始日時 ≥ 取得間隔`、または、これまでに実行がなければ実行する。取り込みログの追加が、「実行した」記録を兼ねる。
+**取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。接続方式 HTTP は、間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。モック・S3 は、設備のどれかの間隔が来たら、ファイル全体（最短の間隔で動く）。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 
-**対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。
+**対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。ただし、**削除した設備の識別子**（設備の記録が残っている削除済みの設備と、削除のときに設定 `equipment.deletedExternalIds` に残した識別子。登録中の設備にある識別子は除く）の記録は、「削除済みの設備」として別に数え（`deletedEquipmentCount`）、保存せず、拒否にも数えない（#231。ADR-0018 の D-28）。取り込みの結果と、取り込み元単位のログ（`IngestionLog.deletedEquipmentCount`。削除済みの設備のレコードだけの実行は、ログを残さない）に持つ。
 
-**FormatProfile の解釈**: JSON は、`recordsPath` の配列と `equipmentIdPath` の設備識別子、記録ごとの `timestampField`。CSV は、見出し行・区切り文字・設備列・時刻列。構造が仕様と異なるファイル全体は `FormatError`、読み取れない行・記録は拒否の件数に数える。
+**FormatProfile の解釈**: JSON は、`recordsPath` の配列と `equipmentIdPath` の設備識別子、記録ごとの `timestampField`（先頭の BOM は取り除く）。CSV は、扱わない（#174 で削除）。構造が仕様と異なるファイル全体は `FormatError`、読み取れない記録は拒否の件数に数える。**取り込みは、変わった観測値だけを保存・連携に積み**（同じ一意キーで値と品質が同じなら触らず、受信日時もそのまま）、**更新日時が 1 秒以内のファイルは次の周期に回す**（ADR-0016 の D-08。#174・#199）。
 
 ## 5. 連携の再送（倍々・上限 12 時間）
 
@@ -2443,7 +2520,8 @@ for 区間:
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | ページ分割             | カーソルは、オフセットを base64url にした不透明な文字列。`limit + offset` の位置から続きを返し、続きがあれば `nextCursor`。不正なカーソルは `VALIDATION_ERROR` | `local/repositories/collection-helpers.ts`（`paginated`） |
 | 並べ替えの安定化       | 同じ値のときは、計測日時 → 一意キーの順で並べ、ページ分割の結果を安定させる                                                                                    | `compareObservations` ほか                         |
-| 取得間隔の「古い」判定 | `最短の有効な取得間隔 × STALE_AFTER_INTERVALS（3）`（既定 15 × 3 ＝ 45 分）を超えて、最終の受信から経った場合 `STALE`、受信が 1 件もなければ `NONE`            | `dashboard-query.ts`                               |
+| 取得間隔の「古い」判定（設備ごと。#198） | 設備（ハウスなら配下のロボット・センサー）ごとに、`max(設備の取得間隔 × STALE_AFTER_INTERVALS（3）, 3 分)`（既定 ロボット 3 分・センサー 15 分）を超えて、最終の受信から経った設備が 1 つでもあれば `STALE`（`staleEquipment` に、その設備を返す）、データのある設備がなければ `NONE`            | `dashboard-query.ts`                               |
+| 手動のみの運用（#202） | 選んだ設備（ハウスなら配下のロボット・センサー）に、自動取り込みの対象（同じ種別の取り込み元が有効で、取得先がある。HTTP は `sourceFilePath`。モック・S3 は種別が合えば対象。`isAutoIngestionTarget`）が 1 つもなければ `MANUAL`（警告しない。`lastManualInputAt` に、最終の手動入力〔論理削除を除く受信日時の最大。`receivedAtByEquipment` の `manualOnly`〕を返す）。「データ取得停止」の通知も、対象でない設備は対象にしない | `dashboard-query.ts`・`auto-target.ts` |
 | パスワードのハッシュ   | `scrypt`（ソルト 16 バイト、鍵 64 バイト）。形式 `scrypt$<salt>$<hash>`。比較は `timingSafeEqual`                                                              | `password-hasher.ts`                               |
 | ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、窓（既定 15 分。`LOGIN_FAILURE_WINDOW_MINUTES`）の中で、上限（既定 5 回。`LOGIN_FAILURE_LIMIT`）に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
 | 評価の単位             | ハウス＝ハウスと配下の観測値をまとめて評価。ロボット・センサー＝その設備のみ                                                                                   | `scope.ts`                                         |
@@ -2460,13 +2538,14 @@ for 区間:
 
 | 種類                   | 配置                                                                                                             | 実行                       | 対象と外部依存                                                                                                                                                                                     |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 単体テスト（shared）   | `tests/unit/shared/`（3 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
-| 単体テスト（backend）  | `tests/unit/backend/{domain,application,infrastructure,runtime}/`（10 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
-| 単体テスト（frontend） | `tests/unit/frontend/`（14 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（7 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
-| E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 24 ファイル＋ `scenario-*.ts` の 6 ファイル。補助は `support/` の 8 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
-| 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に CSV 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-header`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
-| 補助                   | `tests/support/`（6 ファイル）                                                                                   | -                          | `test-context.ts`（結合テストの組み立て）、`builders.ts`（データ生成）、`frontend.ts`・`management-frontend.ts`（画面の単体テストの API のスタブと描画）、`viewpoint-fixtures.ts`、`response.d.ts` |
+| 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
+| 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
+| 単体テスト（frontend） | `tests/unit/frontend/`（30 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
+| 結合テスト             | `tests/integration/`（52 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
+| E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
+| 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
+| 補助                   | `tests/support/`（15 ファイル）                                                                                   | -                          | `test-context.ts`（結合テストの組み立て）、`builders.ts`（データ生成）、`frontend.ts`・`management-frontend.ts`（画面の単体テストの API のスタブと描画）、`viewpoint-fixtures.ts`、`response.d.ts` |
 
 - 単体テストのファイル名は、対象のファイル名ではなく、テーマ別（例: `domain-rules.test.ts`・`measures.test.ts`・`application-misc.test.ts`）。`presentation/` には、対応する単体テストのディレクトリがなく、結合テスト（`app.request`）で検証する
 - テストケース名は、「条件と期待結果」がわかる日本語（`describe` と `it`）。1 つのテストで 1 つの振る舞いを確かめる方針
@@ -2585,23 +2664,25 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-02     | `UC-02-view-viewpoint-detail.ts`                                  | `viewpoint-queries`（観点の詳細・元データ）                                                                  | `frontend/viewpoint-pages.test.tsx`                                                                                                              |
 | UC-03     | `UC-03-view-trend.ts`                                             | `viewpoint-queries`（推移）                                                                                  | `backend/domain/series.test.ts`・`frontend/charts.test.tsx`                                                                                      |
 | UC-04     | `UC-04-view-recommended-action.ts`                                | `viewpoint-queries`                                                                                          | `backend/domain/viewpoint-evaluation.test.ts`（診断メッセージと推奨アクション）                                                                  |
-| UC-05     | `UC-05-check-alert.ts`                                            | `evaluation-notification`（通知の一覧・既読）                                                                | `frontend/notifications-page.test.tsx`                                                                                                           |
+| UC-05     | `UC-05-check-alert.ts`                                            | `evaluation-notification`（通知の一覧・既読）・`notification-read-all`（一括既読。#240）                      | `frontend/notifications-page.test.tsx`                                                                                                           |
 | UC-06・07 | `UC-06-record-recovery.ts`・`UC-07-input-missing-data.ts`         | `management-api`（手動入力の登録）                                                                           | `shared/manual-entry.test.ts`・`frontend/entry-pages.test.tsx`                                                                                   |
 | UC-08・09 | `UC-08-import-robot-data.ts`・`UC-09-import-sensor-data.ts`       | `ingestion`                                                                                                  | `backend/infrastructure/adapters.test.ts`（FormatProfile・ファイルサーバーのモック）・`backend/domain/domain-rules.test.ts`（品質判定）          |
-| UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知）                                                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
+| UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知。出来事の判定・再発・抑制。#236）                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
-| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`                                                                                             | `frontend/users-page.test.tsx`                                                                                                                   |
-| UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`                                                                                | `frontend/ingestion-page.test.tsx`                                                                                                               |
-| UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`                                                                                                            |
+| UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`facility-access`・`facility-scope-api`（閲覧の割り当て・閲覧範囲の絞り込み。#330）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）                                                                                                                   |
+| UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`ingestion-connection.test.tsx`                                                                                                               |
+| UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`・`frontend/stale-chunk.test.tsx`（古い画面の部品の取得の失敗。#323）                                                                                                            |
 | UC-18     | `UC-18-manage-entries.ts`                                         | `management-api`（入力済みデータの管理・変更履歴）                                                           | `frontend/entry-pages.test.tsx`                                                                                                                  |
 | UC-19     | `UC-19-edit-criteria.ts`                                          | `management-api`                                                                                             | `frontend/criteria-edit-page.test.tsx`・`shared/criteria-text.test.ts`・`shared/shared.test.ts`（判断基準の検証）                                |
 | UC-20     | `UC-20-view-observations.ts`                                      | `viewpoint-queries`（観測値の一覧）                                                                          | `frontend/observations-page.test.tsx`                                                                                                            |
 | UC-21     | `UC-21-view-satisfaction.ts`                                      | `viewpoint-queries`（満足度の詳細）                                                                          | `frontend/viewpoint-pages.test.tsx`・`charts.test.tsx`（レーダーチャート）                                                                       |
-| UC-22     | `UC-22-manage-notifications.ts`                                   | `evaluation-notification`                                                                                    | `frontend/notifications-page.test.tsx`                                                                                                           |
-| UC-23     | `UC-23-configure-web-push.ts`                                     | `management-api`（購読）・`evaluation-notification`（Web Push の配信と再送）                                 | `frontend/push.test.tsx`                                                                                                                         |
+| UC-22     | `UC-22-manage-notifications.ts`                                   | `evaluation-notification`・`notification-read-all`（#240）・`notification-memo`（#239）                      | `frontend/notifications-page.test.tsx`                                                                                                           |
+| UC-23     | `UC-23-configure-web-push.ts`                                     | `management-api`（購読）・`evaluation-notification`（Web Push の配信と再送）・`web-push-delivery`（実配信・購読の暗号鍵。#241） | `frontend/push.test.tsx`・`backend/infrastructure/web-push-notifier.test.ts`・`web-push-library-sender.test.ts`                                                                                                                         |
 | UC-24     | `UC-24-notify-ingestion-failure.ts`                               | `ingestion`（取り込み失敗の通知）                                                                            | -                                                                                                                                                |
+
+新しいテストの記録（追加・変更の経緯と、仮の ID）は、test.spec.md の 14〜33 章（索引は 1.4）。IaC のテスト（`infra/test/`）・負荷テスト（`tests/stress/`）・スモークテスト（`tests/smoke/`）は、上の表に含めない。
 
 そのほか: `runtime.test.ts`・`config.test.ts`（組み立て・Node サーバー・Lambda ハンドラ・設定）、`router-polling.test.tsx`（ルーター・ポーリング・日時の表示）、`seeded-data.test.ts`・`dev-seed.test.ts`（開発用 API のデータ投入）、`repository-contract.test.ts`（Repository の契約）。
 
@@ -2616,6 +2697,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | `pnpm test:e2e`                     | `playwright test`                                                                                  |
 | `pnpm test:stress`                  | `playwright test -c playwright.stress.config.ts`（負荷テスト。`pnpm test` には含めない）           |
 | `pnpm test:smoke`                   | `playwright test -c playwright.smoke.config.ts`（評価環境（AWS）に対する、スモークテスト・性能の実測。手動実行。`pnpm test` には含めない） |
+| `pnpm test:csp`                     | `playwright test -c playwright.csp.config.ts`（画面の CSP の確認。本番ビルドの画面に、CloudFront と同じ CSP を付けて、主な画面を一巡する。`pnpm test` には含めない） |
 | `pnpm lint`                         | `eslint .`（依存の向きの検査を含む）                                                               |
 | `pnpm typecheck`                    | ルート・shared・backend・frontend・tests の `tsc`                                                  |
 | `pnpm format` / `pnpm format:check` | Prettier（`docs/`・`README.md`・`AGENTS.md`・`tests/fixtures/` などは `.prettierignore` で対象外） |
@@ -2624,39 +2706,39 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ## 現在の件数・カバレッジ（`test-result/` から確認できる値）
 
-### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。生成日時 2026-10-11 01:33）
+### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 160 ファイル。生成は、`src/` の最終更新（2026-10-11 01:30）より後。
+計測対象は 300 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（161 ファイル・3483 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.6%  | 4,039／4,055         | 95% 以上 |
-| 文   | 99.61% | 4,191／4,207         | 95% 以上 |
-| 関数 | 99.76% | 1,300／1,303         | 95% 以上 |
-| 分岐 | 96.29% | 2,442／2,536         | 95% 以上 |
+| 行   | 99.13% | 8,096／8,167 | 95% 以上 |
+| 文   | 99.14% | 8,371／8,443 | 95% 以上 |
+| 関数 | 99.3% | 2,432／2,449 | 95% 以上 |
+| 分岐 | 95.18% | 5,244／5,509 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
 | 対象                         | 行     | 文     | 関数   | 分岐   |
 | ---------------------------- | ------ | ------ | ------ | ------ |
-| `src/shared`                 | 100%   | 100%   | 100%   | 100%   |
-| `src/backend/domain`         | 99.72% | 99.73% | 100%   | 96.12% |
-| `src/backend/application`    | 99.6%  | 99.61% | 100%   | 95.46% |
-| `src/backend/infrastructure` | 99.68% | 99.69% | 100%   | 97.94% |
-| `src/backend/presentation`   | 99.25% | 99.27% | 100%   | 94.9%  |
-| `src/backend/runtime`        | 99.24% | 99.25% | 100%   | 95.24% |
-| `src/frontend`               | 99.58% | 99.6%  | 99.53% | 96.02% |
+| `src/shared` | 99.77% | 99.78% | 100.0% | 99.11% |
+| `src/backend/domain` | 98.9% | 98.95% | 99.27% | 95.1% |
+| `src/backend/application` | 99.45% | 99.4% | 99.31% | 95.61% |
+| `src/backend/infrastructure` | 98.96% | 98.99% | 99.86% | 94.3% |
+| `src/backend/presentation` | 99.44% | 99.45% | 100.0% | 94.74% |
+| `src/backend/runtime` | 97.75% | 97.77% | 92.68% | 93.15% |
+| `src/frontend` | 99.16% | 99.2% | 99.32% | 95.4% |
 
-分岐が 90% を下回るファイルは、`access-policy.ts`（71.42%）・`ingestion-settings.ts`（60%）・`node-server.ts`（71.42%）・`jst.ts`（65%）・`use-permission.ts`（50%）・`auth-context.tsx`（75%）・`state-views.tsx`（75%）ほか、分岐の数が少ない（2〜28）ファイル。行が 0% のファイルは、未使用の `placeholder-page.tsx`（1 行）。
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`ngsi-ld-http-transport.ts`（82.6%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`federation-connection-store.ts`（85%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`ingestion-admin-service.ts`（88.88%）・`ngsi-ld-federation.ts`（88.88%）・`container.ts`（89.18%）・`clear-bucket.ts`（89.47%）
 
-### E2E（Playwright。`test-result/playwright-report/`・`test-result/e2e/.last-run.json`。生成日時 2026-10-11 01:43）
+### E2E（Playwright）
 
-- 直近の実行（`.last-run.json`）は、`status: passed`・失敗なし。レポートに含まれるのは、**`UC-24-notify-ingestion-failure.ts` の 1 ファイルのみ**で、20 件（期待どおり 20・失敗 0・不安定 0・スキップ 0）
-- 全 E2E（30 ファイル）の件数・結果は、`test-result/` に直近の全件の出力がなく、**確認できない**（`outputDir` は実行のたびに上書きされるため）
+- 全 E2E は、32 ファイル・834 件（UC ごと 25 ファイル・824 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-テストの成功・失敗の件数は、`test-result/` に出力がなく（カバレッジのみ）、**確認できない**。[commands.md](../../00_project/commands.md) に件数の記載があるが、本書では確認していないため、転記しない。テストファイルの数は、`tests/unit` 27（shared 3・backend 10・frontend 14）＋ `tests/integration` 7 ＝ 34 ファイル（本書の解析時のファイル数）。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3483 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3483 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

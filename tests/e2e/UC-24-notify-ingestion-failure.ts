@@ -129,12 +129,12 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     await expect(failureRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(1);
   });
 
-  test('一方の取り込み元だけが失敗する場合（ロボットは接続でき、センサーは形式違いのファイル）、形式違いは通知しない', async ({
+  test('一方の取り込み元だけが失敗する場合（ロボットは接続でき、センサーは形式違いのファイル）、形式違いも、既定で通知する（ADR-0019 の D-37。#236）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-header.csv');
+    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-structure.json');
     // ロボットは、接続でき、ファイルがなくても成功する
     const robot = await apiOk<{ result: string }>(request, 'POST', '/ingestion/robot/run');
     expect(robot.result).toBe('SUCCESS');
@@ -142,8 +142,10 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
 
-    // 形式違い・不正な値は、取り込みのログに記録する（UC-08・UC-09）。接続の失敗とは、区別して、通知しない
-    await expect(failureRows(page)).toHaveCount(0);
+    // 形式違いのファイルは、取り込みのログに記録し（UC-08・UC-09）、既定で、取り込み失敗として通知する（ファイル単位の失敗。D-37）
+    await expect(failureRows(page)).toHaveCount(1);
+    await expect(failureRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(1);
+    await expect(failureRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(0);
   });
 });
 
@@ -327,8 +329,9 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     await expect(failureRows(page).first()).toHaveAttribute('data-read-state', 'UNREAD');
     await shot(page, testInfo, 'uc24-push-failed');
 
-    // 復旧後の再送で届く。再送を繰り返しても、二重には配信しない
+    // 復旧後の再送（次の試行の日時は、失敗の 1 分後）で届く。再送を繰り返しても、二重には配信しない
     await setMock(request, 'web-push', 'UP');
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
     const delivered = await deliveredPushes(request);
     expect(delivered.map((item) => item.notificationId)).toEqual([created?.notificationId]);
@@ -336,7 +339,7 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     expect(await deliveredPushes(request)).toHaveLength(1);
   });
 
-  test('再送は、最大3回（初回を含む）まで。3回失敗した取り込み失敗の通知は、復旧後も再送されないが、画面内の通知は残る', async ({
+  test('再送は、1 分から倍々の間隔で、通知を作ってから 1 時間まで。1 時間を過ぎた取り込み失敗の通知は、復旧後も配信されないが、画面内の通知は残る（Issue #237）', async ({
     page,
     request,
   }) => {
@@ -347,11 +350,17 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     await setMock(request, 'file-server', 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await setMock(request, 'web-push', 'DOWN');
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    // 失敗のたびに、次の試行の日時まで進めて、再送する（0・1・3・7・15・31 分後の 6 回。次の試行の間隔は、1・2・4・8・16・32 分）。6 回目の失敗のあとの次の試行は、63 分後
+    for (const wait of [0, 1, 2, 4, 8, 16]) {
+      await advanceMinutes(request, wait);
       await runJob(request, 'JB-04');
     }
+    await advanceMinutes(request, 32);
 
+    // 通知を作ってから 63 分。1 時間を過ぎたため、復旧しても、断念して、配信しない
     await setMock(request, 'web-push', 'UP');
+    await runJob(request, 'JB-04');
+    await advanceMinutes(request, 1);
     await runJob(request, 'JB-04');
 
     expect(await deliveredPushes(request)).toHaveLength(0);
@@ -457,7 +466,7 @@ for (const viewport of VIEWPORTS) {
       await shot(page, testInfo, `uc24-notifications-${String(viewport.width)}`);
     });
 
-    test('SC-11: 失敗の取り込み（長い接続先の参照名100文字・失敗のログ13件・2ページ）でも、取り込み元のカード・結果の表示・ログの表が崩れない', async ({
+    test('SC-11: 失敗の取り込み（長い接続先の参照名100文字・失敗のログ23件・2ページ）でも、取り込み元のカード・結果の表示・ログの表が崩れない', async ({
       page,
       request,
     }, testInfo) => {
@@ -472,7 +481,8 @@ for (const viewport of VIEWPORTS) {
         })),
       });
       await setMock(request, 'file-server', 'DOWN');
-      for (let index = 0; index < 6; index += 1) {
+      // 1 ページは 20 件（Issue #201）。22 件 + 即時取得 1 件 = 23 件で、2 ページになる
+      for (let index = 0; index < 11; index += 1) {
         await apiOk(request, 'POST', '/ingestion/robot/run');
         await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
         await advanceMinutes(request, 61);
@@ -486,7 +496,7 @@ for (const viewport of VIEWPORTS) {
       const result = await runNow(page, 'robot');
 
       await expect(result).toContainText('取得しました（失敗）');
-      await expect(logRows(page)).toHaveCount(10);
+      await expect(logRows(page)).toHaveCount(20);
       await expect(logRows(page).first()).toContainText('ファイルサーバーに接続できませんでした');
       // 日時は、1 行（30px 未満）。ただし、スマートフォン幅（375px）では、フォントによって幅が変わり、2 行（約 51px）に
       // 折り返されることがある（Linux の Noto Sans CJK JP。CI で確認）。3 行以上に潰れないこと（60px 未満）を確認する。
@@ -528,7 +538,7 @@ for (const viewport of VIEWPORTS) {
           expect(rect.right, `${sourceId} の内側の右端`).toBeLessThanOrEqual(right + 1);
         }
       }
-      // 2ページ目（失敗のログ 13 件のうちの残り）
+      // 2ページ目（失敗のログ 23 件のうちの残り）
       await page.getByTestId('ingestion-logs').getByRole('button', { name: '次へ' }).click();
       await expect(logRows(page)).toHaveCount(3);
       await expectTableIntact(page, '.log-table', 'tbody tr td:last-child', tableChecks);

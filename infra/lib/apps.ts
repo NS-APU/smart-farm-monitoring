@@ -55,6 +55,8 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
       data,
       includeDemoFeed,
       loginFailurePolicy,
+      ...(config.webPush === undefined ? {} : { webPush: config.webPush }),
+      siteEnvironment: config.environment,
     });
     return app;
   }
@@ -70,6 +72,8 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
     data,
     includeDemoFeed,
     loginFailurePolicy,
+    ...(config.webPush === undefined ? {} : { webPush: config.webPush }),
+    siteEnvironment: config.environment,
     domainName,
     hostedZoneName,
     certificate: certificateStack.certificate,

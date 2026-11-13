@@ -286,21 +286,35 @@ export function createObservationRepository(
       );
     },
     latestReceivedAt(equipmentIds, options = {}) {
-      const cacheKey = `${options.autoImportOnly === true ? 'auto' : 'all'}|${equipmentIds === undefined ? '*' : equipmentIds.join(',')}`;
+      const mode =
+        options.autoImportOnly === true ? 'auto' : options.manualOnly === true ? 'manual' : 'all';
+      const cacheKey = `${mode}|${equipmentIds === undefined ? '*' : equipmentIds.join(',')}`;
       const cached = latestCache.get(cacheKey);
       if (cached !== undefined) {
         return Promise.resolve(cached);
       }
-      // 自動取り込みのみ（手動入力・削除済みを除く）を指定すると、ロボット・センサーからのデータの新しさを返す
+      // 自動取り込みのみ（手動入力・削除済みを除く）を指定すると、ロボット・センサーからのデータの新しさを返す。
+      // 手動入力のみ（削除済みを除く）を指定すると、最終の手動入力の日時を返す（Issue #202）
+      const sourceOnly = mode === 'auto' ? 'AUTO_IMPORT' : mode === 'manual' ? 'MANUAL' : undefined;
       const targets =
-        options.autoImportOnly === true
-          ? observationsOf(equipmentIds).filter(
-              (item) => item.source === 'AUTO_IMPORT' && !item.isDeleted,
-            )
-          : observationsOf(equipmentIds);
+        sourceOnly === undefined
+          ? observationsOf(equipmentIds)
+          : observationsOf(equipmentIds).filter(
+              (item) => item.source === sourceOnly && !item.isDeleted,
+            );
       const latest = latestOf(targets.map((item) => item.receivedAt));
       latestCache.set(cacheKey, latest);
       return Promise.resolve(latest);
+    },
+    async receivedAtByEquipment(equipmentIds, options = {}) {
+      const received = new Map<EquipmentId, Date>();
+      for (const equipmentId of new Set(equipmentIds)) {
+        const latest = await repository.latestReceivedAt([equipmentId], options);
+        if (latest !== null) {
+          received.set(equipmentId, latest);
+        }
+      }
+      return received;
     },
   };
 

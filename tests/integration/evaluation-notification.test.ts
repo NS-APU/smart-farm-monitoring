@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
-import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
+import { NotificationIdSchema, toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import { createEvaluationService } from '../../src/backend/application/evaluation/evaluation-service.ts';
@@ -18,6 +18,7 @@ import {
 } from '../../src/backend/application/jobs/job-runner.ts';
 import { createScheduler, DEFAULT_SCHEDULE } from '../../src/backend/application/jobs/scheduler.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
+import { DEFAULT_APP_SETTINGS } from '../../src/backend/application/settings.ts';
 import {
   generateAutoObservations,
   generateManualObservations,
@@ -48,6 +49,15 @@ async function setup() {
 }
 
 type Context = Awaited<ReturnType<typeof setup>>;
+
+/** ロボット・センサーの取得間隔を、15 分にする（設備ごとの設定。Issue #197。「データが古い」の基準は、取得間隔 × 3）。 */
+async function useFifteenMinuteIntervals(context: Context): Promise<void> {
+  for (const equipment of equipmentSet()) {
+    if (equipment.equipmentType !== 'FACILITY') {
+      await context.container.repositories.equipment.save({ ...equipment, intervalMinutes: 15 });
+    }
+  }
+}
 
 function temperature(value: number, observedAt: string) {
   return observation({ equipmentId: SENSOR_ID, itemKey: 'temperatureCelsius', value, observedAt });
@@ -201,9 +211,12 @@ describe('評価（JB-02）', () => {
       repositories: context.container.repositories,
       criteria: { getEffective: vi.fn(), getAllEffective: () => Promise.resolve(new Map()) },
       notifications: context.container.notificationService,
-      federation: { enqueue: vi.fn(), runPending: vi.fn() },
+      federation: { enqueue: vi.fn(), runPending: vi.fn(), enqueueAllEquipment: vi.fn() },
       clock: context.clock,
-      settings: { defaultIngestionIntervalMinutes: 15 },
+      settings: {
+        defaultIngestionIntervalMinutes: 15,
+        notification: DEFAULT_APP_SETTINGS.notification,
+      },
       logger: NULL_LOGGER,
     });
 
@@ -320,37 +333,111 @@ describe('異常検知と通知（UC-10）', () => {
     ).toHaveLength(2);
   });
 
-  it('状態が行き来しても、抑制の期間内の同じ状態の通知は繰り返さず、期間が過ぎたら通知する', async () => {
-    const context = await setup();
-    /** 指定した分だけ時計を進め、直前の時刻の温度を取り込んで、評価する。 */
-    async function evaluateAfter(minutes: number, celsius: number) {
+  describe('通知の条件（Issue #236。D-37・D-38・D-42）', () => {
+    /** 観測の日時は固定（同じ日時の値を上書きして、状態を切り替える。直近 24 時間・7 日の窓に入る）。 */
+    const OBSERVED_AT = new Date(TEST_NOW.getTime() - HOUR_MS).toISOString();
+
+    /** 指定した分だけ時計を進め、センサーの温度を上書きして、評価する。 */
+    async function evaluateAfter(context: Context, minutes: number, celsius: number) {
       context.clock.advance(minutes * 60_000);
       await context.container.repositories.observations.saveMany([
-        temperature(celsius, new Date(context.clock.now().getTime() - 60_000).toISOString()),
+        temperature(celsius, OBSERVED_AT),
       ]);
-      return (await context.container.evaluationService.evaluateAll('DEV')).notificationsCreated;
+      return context.container.evaluationService.evaluateAll('DEV');
     }
-    const environmentNotifications = async () =>
+
+    /** 環境適応性（ハウス・センサーの 2 設備）の通知。 */
+    const environmentNotifications = async (context: Context) =>
       (await notificationsOf(context)).filter(
         (item) => item.viewpointId === 'environmentalAdaptability',
       );
 
-    const first = await evaluateAfter(0, 30);
-    const backToNormal = await evaluateAfter(5, 15);
-    const cautionAgainSoon = await evaluateAfter(5, 30);
-    const countWhileSuppressed = (await environmentNotifications()).length;
-    await evaluateAfter(60, 15);
-    const cautionAfterSuppression = await evaluateAfter(5, 30);
+    it('再発: 異常 → 正常が 15 分以上続く → 異常 は、新しい出来事として通知する（60 分以内でも抑制しない）', async () => {
+      const context = await setup();
 
-    // 初回: 環境適応性（ハウス・センサー）と、データ活用度合い（ハウス）
-    expect(first).toBe(3);
-    expect(backToNormal).toBe(0);
-    // 10分後の同じ「注意」は、抑制の期間（60分）内のため、通知しない
-    expect(cautionAgainSoon).toBe(0);
-    expect(countWhileSuppressed).toBe(2);
-    // 抑制の期間が過ぎたあとの「注意」は、通知する
-    expect(cautionAfterSuppression).toBe(2);
-    expect(await environmentNotifications()).toHaveLength(4);
+      await evaluateAfter(context, 0, 45);
+      await evaluateAfter(context, 5, 15);
+      const recurred = await evaluateAfter(context, 20, 45);
+
+      // 正常は、5 分後から 20 分続いた。2 設備で、「異常」を再び通知する（直前の通知から 25 分）
+      expect(recurred.notificationsCreated).toBe(2);
+      expect(await environmentNotifications(context)).toHaveLength(4);
+    });
+
+    it('短い行き来: 異常 → 正常が 15 分未満 → 異常 は、同じ出来事として通知しない', async () => {
+      const context = await setup();
+
+      await evaluateAfter(context, 0, 45);
+      await evaluateAfter(context, 5, 15);
+      const again = await evaluateAfter(context, 10, 45);
+
+      expect(again.notificationsCreated).toBe(0);
+      expect(await environmentNotifications(context)).toHaveLength(2);
+    });
+
+    it('改善（異常 → 注意）は、通知しない', async () => {
+      const context = await setup();
+
+      await evaluateAfter(context, 0, 45);
+      const improved = await evaluateAfter(context, 5, 30);
+
+      expect(improved.statusChanges).toBeGreaterThan(0);
+      expect(improved.notificationsCreated).toBe(0);
+      const notifications = await environmentNotifications(context);
+      expect(notifications).toHaveLength(2);
+      expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
+    });
+
+    it('注意 → 異常 → 注意 → 異常: 悪化（注意 → 異常）は通知し、同じ出来事で、異常を繰り返さない', async () => {
+      const context = await setup();
+
+      const caution = await evaluateAfter(context, 0, 30);
+      const error = await evaluateAfter(context, 5, 45);
+      const improved = await evaluateAfter(context, 5, 30);
+      const errorAgain = await evaluateAfter(context, 5, 45);
+
+      expect(caution.notificationsCreated).toBe(3);
+      expect(error.notificationsCreated).toBe(2);
+      expect(improved.notificationsCreated).toBe(0);
+      expect(errorAgain.notificationsCreated).toBe(0);
+      expect(await environmentNotifications(context)).toHaveLength(4);
+    });
+
+    it('不明を挟んだ再通知はしない: 注意 → 不明（データなし）→ 注意 は、継続とみなす', async () => {
+      const context = await setup();
+      await evaluateAfter(context, 0, 30);
+
+      // 8 日後には、観測値が、短期・長期（7 日）の窓から外れ、「不明」になる
+      context.clock.advance(8 * 24 * HOUR_MS);
+      const unknown = await context.container.evaluationService.evaluateAll('DEV');
+      await context.container.repositories.observations.saveMany([
+        temperature(30, new Date(context.clock.now().getTime() - HOUR_MS).toISOString()),
+      ]);
+      const cautionAgain = await context.container.evaluationService.evaluateAll('DEV');
+
+      expect(unknown.notificationsCreated).toBe(0);
+      const last = await context.container.repositories.evaluations.getLastStatusChange(
+        SENSOR_ID,
+        'environmentalAdaptability',
+      );
+      expect(last?.status).toBe('CAUTION');
+      expect(cautionAgain.notificationsCreated).toBe(0);
+      expect(await environmentNotifications(context)).toHaveLength(2);
+    });
+
+    it('不明の記録は、状態の変化の履歴に残る（ステータスの推移・経過のため）', async () => {
+      const context = await setup();
+      await evaluateAfter(context, 0, 30);
+
+      context.clock.advance(8 * 24 * HOUR_MS);
+      await context.container.evaluationService.evaluateAll('DEV');
+
+      const history = await context.container.repositories.evaluations.listStatusChanges(
+        SENSOR_ID,
+        'environmentalAdaptability',
+      );
+      expect(history.map((entry) => entry.status)).toEqual(['CAUTION', 'UNKNOWN']);
+    });
   });
 
   it('正常・不明の評価では、通知を作らない（不明の通知は不要とする暫定）', async () => {
@@ -445,40 +532,59 @@ describe('通知の一覧・既読（UC-05, UC-22）', () => {
   });
 });
 
-describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04）', () => {
-  async function withSubscription() {
+describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。ADR-0019 の D-38）', () => {
+  const MINUTE_MS = 60_000;
+
+  async function withSubscriptions(subscriptionIds: readonly string[] = ['s-1']) {
     const context = await setup();
     await context.container.repositories.observations.saveMany([
       temperature(30, new Date(TEST_NOW.getTime() - HOUR_MS).toISOString()),
     ]);
     await context.container.evaluationService.evaluateAll('DEV');
-    await context.container.repositories.pushSubscriptions.save({
-      subscriptionId: 's-1',
-      userId: USER,
-      endpoint: 'https://push.invalid/1',
-      isActive: true,
-      createdAt: TEST_NOW.toISOString(),
-    });
+    for (const subscriptionId of subscriptionIds) {
+      await context.container.repositories.pushSubscriptions.save({
+        subscriptionId,
+        userId: USER,
+        endpoint: `https://push.invalid/${subscriptionId}`,
+        isActive: true,
+        createdAt: TEST_NOW.toISOString(),
+      });
+    }
     return context;
   }
 
-  async function pushDelivery(context: Context) {
-    const [notification] = await notificationsOf(context);
-    return notification?.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
+  const webPushOf = (notification: Awaited<ReturnType<typeof notificationsOf>>[number]) =>
+    notification.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
+
+  /** 最初の通知（古い順）。 */
+  async function firstNotification(context: Context) {
+    const notifications = await notificationsOf(context);
+    const first = notifications.toSorted((left, right) =>
+      left.createdAt.localeCompare(right.createdAt),
+    )[0];
+    if (first === undefined) {
+      throw new Error('テストの前提');
+    }
+    return first;
   }
 
-  it('購読している端末へ配信し、配信の結果を記録する', async () => {
-    const context = await withSubscription();
+  const deliver = (context: Context) => context.container.notificationService.deliverPending();
+  const failWith = (context: Context, mode: 'UP' | 'DOWN' | 'REJECT') =>
+    context.container.dev?.faults.webPush.set({ mode });
 
-    const summary = await context.container.notificationService.deliverPending();
+  it('購読している端末へ配信し、購読ごとの配信の状態と、まとめの状態を記録する。配信済みの通知は、再び配信しない', async () => {
+    const context = await withSubscriptions();
+
+    const summary = await deliver(context);
 
     expect(summary).toEqual({ notificationsProcessed: 3, delivered: 3, failed: 0 });
     expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(3);
-    expect(await pushDelivery(context)).toMatchObject({ result: 'SUCCESS', attempts: 1 });
-    // 配信済みの通知は、再び配信しない
-    expect(await context.container.notificationService.deliverPending()).toMatchObject({
-      notificationsProcessed: 0,
-    });
+    const notification = await firstNotification(context);
+    expect(webPushOf(notification)).toMatchObject({ result: 'SUCCESS', attempts: 1 });
+    expect(notification.webPushDeliveries).toMatchObject([
+      { subscriptionId: 's-1', result: 'SUCCESS', attempts: 1 },
+    ]);
+    expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
   });
 
   it('購読がなければ、配信する相手がなく、配信は完了とする（画面内の通知のみ）', async () => {
@@ -488,68 +594,247 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04）', () => {
     ]);
     await context.container.evaluationService.evaluateAll('DEV');
 
-    const summary = await context.container.notificationService.deliverPending();
+    const summary = await deliver(context);
 
-    expect(summary).toMatchObject({ delivered: 3, failed: 0 });
+    expect(summary).toEqual({ notificationsProcessed: 3, delivered: 0, failed: 0 });
+    expect(context.container.dev?.mocks.webPush.delivered()).toEqual([]);
+    expect(webPushOf(await firstNotification(context))).toMatchObject({
+      result: 'SUCCESS',
+      attempts: 0,
+    });
+    expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
+  });
+
+  it('配信の対象は、最初の配信の実行時点の購読。そのあとに購読した端末には、過去の通知を配信しない（I-07）', async () => {
+    const context = await setup();
+    await context.container.repositories.observations.saveMany([
+      temperature(30, new Date(TEST_NOW.getTime() - HOUR_MS).toISOString()),
+    ]);
+    await context.container.evaluationService.evaluateAll('DEV');
+    await deliver(context);
+
+    await context.container.repositories.pushSubscriptions.save({
+      subscriptionId: 's-late',
+      userId: USER,
+      endpoint: 'https://push.invalid/late',
+      isActive: true,
+      createdAt: context.clock.now().toISOString(),
+    });
+    const summary = await deliver(context);
+
+    expect(summary).toMatchObject({ notificationsProcessed: 0, delivered: 0 });
     expect(context.container.dev?.mocks.webPush.delivered()).toEqual([]);
   });
 
-  it('配信に失敗したら記録して再送し、試行回数の上限で止める。画面内の通知には影響しない', async () => {
-    const context = await withSubscription();
-    context.container.dev?.faults.webPush.set({ mode: 'DOWN' });
+  it('配信に失敗したら、購読ごとに記録して、1 分後に再送する。次の試行の日時の前は、再送しない。画面内の通知には影響しない', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
 
-    const first = await context.container.notificationService.deliverPending();
-    const delivery = await pushDelivery(context);
-    await context.container.notificationService.deliverPending();
-    await context.container.notificationService.deliverPending();
-    const afterLimit = await context.container.notificationService.deliverPending();
+    const first = await deliver(context);
+    const afterFailure = await firstNotification(context);
+    const tooSoon = await deliver(context);
+    context.clock.advance(MINUTE_MS);
+    const retry = await deliver(context);
 
-    expect(first).toMatchObject({ failed: 3 });
-    expect(delivery).toMatchObject({
-      result: 'FAILURE',
-      attempts: 1,
-      errorMessage: 'Web Push の配信サービスに接続できません',
+    expect(first).toMatchObject({ failed: 3, delivered: 0 });
+    expect(afterFailure.webPushDeliveries).toEqual([
+      {
+        subscriptionId: 's-1',
+        result: 'FAILURE',
+        attempts: 1,
+        nextAttemptAt: new Date(TEST_NOW.getTime() + MINUTE_MS).toISOString(),
+        updatedAt: TEST_NOW.toISOString(),
+        errorMessage: 'Web Push の配信サービスに接続できません',
+      },
+    ]);
+    expect(webPushOf(afterFailure)).toMatchObject({ result: 'PENDING', attempts: 1 });
+    // 次の試行の日時の前は、再送しない
+    expect(tooSoon).toMatchObject({ delivered: 0, failed: 0 });
+    expect(retry).toMatchObject({ failed: 3 });
+    expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
+      attempts: 2,
     });
-    expect(await pushDelivery(context)).toMatchObject({ result: 'FAILURE', attempts: 3 });
-    expect(afterLimit.notificationsProcessed).toBe(0);
     expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
   });
 
-  it('復旧後の再送で配信できる', async () => {
-    const context = await withSubscription();
-    context.container.dev?.faults.webPush.set({ mode: 'DOWN' });
-    await context.container.notificationService.deliverPending();
-    context.container.dev?.faults.webPush.set({ mode: 'UP' });
+  it('再送の間隔は、1 分から倍々（1・2・4・8・16・32 分）。通知を作ってから 1 時間（60 分）で、断念する。断念した通知は、画面内の通知として残る', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
+    const nextAttempts: number[] = [];
 
-    const retry = await context.container.notificationService.deliverPending();
+    // 失敗のたびに、次の試行の日時まで、時計を進めて、再送する
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      await deliver(context);
+      const entry = (await firstNotification(context)).webPushDeliveries?.[0];
+      const nextAt = Date.parse(entry?.nextAttemptAt ?? '');
+      nextAttempts.push((nextAt - context.clock.now().getTime()) / MINUTE_MS);
+      context.clock.advance(nextAt - context.clock.now().getTime());
+    }
 
-    expect(retry).toMatchObject({ delivered: 3, failed: 0 });
-    expect(await pushDelivery(context)).toMatchObject({ result: 'SUCCESS', attempts: 2 });
+    expect(nextAttempts).toEqual([1, 2, 4, 8, 16, 32]);
+    // 6 回目の失敗（31 分後）のあと、次の試行は 63 分後。作成から 60 分を過ぎているため、再送せずに、断念する
+    expect(context.clock.now().getTime() - TEST_NOW.getTime()).toBe(63 * MINUTE_MS);
+    const abandoned = await deliver(context);
+    expect(abandoned).toMatchObject({ delivered: 0, failed: 0 });
+    const notification = await firstNotification(context);
+    expect(notification.webPushDeliveries?.[0]).toMatchObject({
+      result: 'ABANDONED',
+      attempts: 6,
+    });
+    expect(webPushOf(notification)).toMatchObject({ result: 'FAILURE', attempts: 6 });
+    expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
+    expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
   });
 
-  it('購読が無効（解除・期限切れ）なら、購読を無効にする', async () => {
-    const context = await withSubscription();
-    context.container.dev?.faults.webPush.set({ mode: 'REJECT' });
+  it('失敗した購読にだけ、再送する。届いた購読には、再配信しない（二重配信がない）', async () => {
+    const context = await withSubscriptions(['s-ok', 's-ng']);
+    const webPush = context.container.dev?.mocks.webPush;
+    if (webPush === undefined) {
+      throw new Error('テストの前提');
+    }
+    const calls: string[] = [];
+    let recovered = false;
+    vi.spyOn(webPush, 'deliver').mockImplementation((_notification, subscription) => {
+      calls.push(subscription.subscriptionId);
+      return subscription.subscriptionId === 's-ng' && !recovered
+        ? Promise.reject(new Error('想定外'))
+        : Promise.resolve('DELIVERED');
+    });
 
-    await context.container.notificationService.deliverPending();
+    await deliver(context);
+    context.clock.advance(MINUTE_MS);
+    recovered = true;
+    await deliver(context);
+
+    // 通知 3 件 × 購読 2 件 = 6 回、そのあと、失敗した購読への再送が 3 回。届いた購読へは、1 通知につき 1 回だけ
+    expect(calls.filter((id) => id === 's-ok')).toHaveLength(3);
+    expect(calls.filter((id) => id === 's-ng')).toHaveLength(6);
+    const notification = await firstNotification(context);
+    expect(notification.webPushDeliveries).toMatchObject([
+      { subscriptionId: 's-ok', result: 'SUCCESS', attempts: 1 },
+      { subscriptionId: 's-ng', result: 'SUCCESS', attempts: 2 },
+    ]);
+    expect(webPushOf(notification)).toMatchObject({ result: 'SUCCESS', attempts: 3 });
+  });
+
+  it('復旧後の再送で配信できる', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
+    await deliver(context);
+    failWith(context, 'UP');
+    context.clock.advance(MINUTE_MS);
+
+    const retry = await deliver(context);
+
+    expect(retry).toMatchObject({ delivered: 3, failed: 0 });
+    expect(webPushOf(await firstNotification(context))).toMatchObject({
+      result: 'SUCCESS',
+      attempts: 2,
+    });
+  });
+
+  it('Web Push の有効期限（TTL）は、期限（通知を作ってから 1 時間）までの残りの秒数。再送が遅れると、短くなる', async () => {
+    const context = await withSubscriptions();
+    const webPush = context.container.dev?.mocks.webPush;
+    if (webPush === undefined) {
+      throw new Error('テストの前提');
+    }
+    const spy = vi.spyOn(webPush, 'deliver');
+    failWith(context, 'DOWN');
+    await deliver(context);
+    context.clock.advance(10 * MINUTE_MS);
+    await deliver(context);
+
+    const ttls = spy.mock.calls.map((call) => call[2].ttlSeconds);
+
+    expect(ttls.slice(0, 3)).toEqual([3600, 3600, 3600]);
+    expect(ttls.slice(3)).toEqual([3000, 3000, 3000]);
+  });
+
+  it('購読が無効（解除・期限切れ）なら、購読を無効にして、その購読への配信は断念する', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'REJECT');
+
+    await deliver(context);
 
     expect(await context.container.repositories.pushSubscriptions.listActive()).toEqual([]);
+    // 購読は、最初に配信した通知で、無効と分かる（以降の通知は、有効な購読がないため、配信する相手がない）
+    const abandoned = (await notificationsOf(context)).filter(
+      (item) => item.webPushDeliveries?.[0]?.result === 'ABANDONED',
+    );
+    expect(abandoned).toHaveLength(1);
+    expect(abandoned[0] === undefined ? undefined : webPushOf(abandoned[0])).toMatchObject({
+      result: 'FAILURE',
+    });
+  });
+
+  it('再送待ちの間に、購読が解除（無効に）されたら、その購読への配信は断念する', async () => {
+    const context = await withSubscriptions();
+    failWith(context, 'DOWN');
+    await deliver(context);
+    await context.container.repositories.pushSubscriptions.deactivate('s-1');
+    context.clock.advance(MINUTE_MS);
+
+    const summary = await deliver(context);
+
+    expect(summary).toMatchObject({ delivered: 0, failed: 0 });
+    expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
+      result: 'ABANDONED',
+    });
   });
 
   it('配信の失敗が通知のエラー以外（想定外）でも、記録して再送の対象にする', async () => {
-    const context = await withSubscription();
+    const context = await withSubscriptions();
     const webPush = context.container.dev?.mocks.webPush;
     if (webPush === undefined) {
       throw new Error('テストの前提');
     }
     vi.spyOn(webPush, 'deliver').mockRejectedValue(new Error('想定外'));
 
-    await context.container.notificationService.deliverPending();
+    await deliver(context);
 
-    expect(await pushDelivery(context)).toMatchObject({
+    expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
       result: 'FAILURE',
       errorMessage: '配信に失敗しました',
     });
+  });
+
+  it('購読ごとの状態を持たない、以前の形式の通知: 未完了なら、購読ごとの形式で配信する。失敗は、配信せずに終了させる', async () => {
+    const context = await setup();
+    const repository = context.container.repositories.notifications;
+    await context.container.repositories.pushSubscriptions.save({
+      subscriptionId: 's-1',
+      userId: USER,
+      endpoint: 'https://push.invalid/1',
+      isActive: true,
+      createdAt: TEST_NOW.toISOString(),
+    });
+    const legacy = (id: string, result: 'PENDING' | 'FAILURE') => ({
+      notificationId: NotificationIdSchema.parse(id),
+      kind: 'INGESTION_FAILURE' as const,
+      sourceId: 'robot',
+      message: '【データ取得失敗】ロボットデータ: 接続できません',
+      createdAt: TEST_NOW.toISOString(),
+      dedupKey: `INGESTION_FAILURE#${id}`,
+      deliveries: [
+        {
+          channel: 'WEB_PUSH' as const,
+          result,
+          attempts: result === 'PENDING' ? 0 : 3,
+          updatedAt: TEST_NOW.toISOString(),
+        },
+      ],
+    });
+    await repository.add(legacy('n-pending', 'PENDING'));
+    await repository.add(legacy('n-failure', 'FAILURE'));
+
+    const summary = await deliver(context);
+
+    expect(summary).toMatchObject({ notificationsProcessed: 2, delivered: 1, failed: 0 });
+    expect(context.container.dev?.mocks.webPush.delivered()).toMatchObject([
+      { notificationId: 'n-pending', subscriptionId: 's-1' },
+    ]);
+    expect(await repository.listUndelivered()).toEqual([]);
   });
 });
 
@@ -707,6 +992,7 @@ describe('ダッシュボード（UC-01）', () => {
 
   it('観点を表示順に、ステータス・主要メトリクス・診断メッセージ・推奨アクションつきで返し、件数を集計する', async () => {
     const context = await setup();
+    await useFifteenMinuteIntervals(context);
     await context.container.repositories.observations.saveMany([
       ...generateAutoObservations({
         robotId: ROBOT_ID,
@@ -750,11 +1036,12 @@ describe('ダッシュボード（UC-01）', () => {
     expect(Object.values(dashboard.summary).reduce((a, b) => a + b, 0)).toBe(10);
     expect(dashboard.evaluatedAt).toBe(TEST_NOW.toISOString());
     expect(dashboard.dataFreshness).toBe('FRESH');
-    expect(dashboard.staleThresholdMinutes).toBe(45);
+    expect(dashboard.staleEquipment).toEqual([]);
   });
 
   it('最終のデータ取得から取得間隔の3倍が過ぎたら、データが古いとする', async () => {
     const context = await setup();
+    await useFifteenMinuteIntervals(context);
     await context.container.repositories.observations.saveMany([
       temperature(20, new Date(TEST_NOW.getTime() - 60_000).toISOString()),
     ]);
@@ -770,6 +1057,140 @@ describe('ダッシュボード（UC-01）', () => {
     expect(boundary.dataFreshness).toBe('FRESH');
     expect(stale.dataFreshness).toBe('STALE');
     expect(stale.lastReceivedAt).toBe(new Date(TEST_NOW.getTime() - 60_000).toISOString());
+    expect(stale.staleEquipment).toEqual([
+      {
+        equipmentId: SENSOR_ID,
+        name: must(equipmentSet().find((item) => item.equipmentId === SENSOR_ID)).name,
+        lastReceivedAt: new Date(TEST_NOW.getTime() - 60_000).toISOString(),
+        thresholdMinutes: 45,
+      },
+    ]);
+  });
+
+  describe('手動のみの運用（自動取り込みが有効でない間。Issue #202。ADR-0016 の D-12）', () => {
+    const minutesAgo = (minutes: number) =>
+      new Date(TEST_NOW.getTime() - minutes * 60_000).toISOString();
+    const autoData = (equipmentId: typeof ROBOT_ID, itemKey: string, minutes: number) =>
+      observation({ equipmentId, itemKey, value: 1, observedAt: minutesAgo(minutes) });
+    const manualData = (
+      equipmentId: typeof ROBOT_ID,
+      minutes: number,
+      overrides: { isDeleted?: boolean } = {},
+    ) =>
+      observation({
+        equipmentId,
+        itemKey: 'failureCount',
+        value: 0,
+        source: 'MANUAL',
+        observedAt: minutesAgo(minutes),
+        ...overrides,
+      });
+
+    /** 指定した種別の取り込み元を、無効にする。 */
+    async function disable(context: Context, ...kinds: ('ROBOT' | 'SENSOR')[]) {
+      const sources = await context.container.ingestionSettings.listSources();
+      await context.container.ingestionSettings.saveSources(
+        sources.map((source) => ({ ...source, isEnabled: !kinds.includes(source.kind) })),
+      );
+    }
+
+    it('ロボット・センサーとも自動取り込みが有効でなければ、警告せず（古い・未取得にしない）、最終の手動入力の日時を返す。以前の自動取り込みのデータが古くても、警告しない', async () => {
+      const context = await setup();
+      await disable(context, 'ROBOT', 'SENSOR');
+      await context.container.repositories.observations.saveMany([
+        autoData(ROBOT_ID, 'harvestCount', 600),
+        manualData(ROBOT_ID, 90),
+        manualData(SENSOR_ID, 30),
+      ]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('MANUAL');
+      expect(house.lastManualInputAt).toBe(minutesAgo(30));
+      expect(house.lastReceivedAt).toBeNull();
+      expect(house.staleEquipment).toEqual([]);
+    });
+
+    it('手動入力がまだなければ、最終の手動入力は、なし（null）。論理削除した手動入力は、数えない。警告はしない', async () => {
+      const context = await setup();
+      await disable(context, 'ROBOT', 'SENSOR');
+      await context.container.repositories.observations.saveMany([
+        manualData(ROBOT_ID, 10, { isDeleted: true }),
+      ]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('MANUAL');
+      expect(house.lastManualInputAt).toBeNull();
+    });
+
+    it('一部の種別だけ有効なら、有効な設備だけで、従来どおり判定する（無効な種別の設備は、判定しない）。無効な種別の設備を選べば、手動のみ', async () => {
+      const context = await setup();
+      await disable(context, 'ROBOT');
+      await context.container.repositories.observations.saveMany([
+        autoData(ROBOT_ID, 'harvestCount', 600),
+        autoData(SENSOR_ID, 'temperatureCelsius', 1),
+        manualData(ROBOT_ID, 5),
+      ]);
+
+      const house = await get(context);
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+      const sensor = await get(context, { equipmentId: SENSOR_ID });
+
+      // ハウス: センサーが対象。センサーは新しい。ロボット（対象外）の古い自動取り込みのデータは、判定しない
+      expect(house.dataFreshness).toBe('FRESH');
+      expect(house.staleEquipment).toEqual([]);
+      expect(house.lastManualInputAt).toBeNull();
+      expect(robot.dataFreshness).toBe('MANUAL');
+      expect(robot.lastManualInputAt).toBe(minutesAgo(5));
+      expect(sensor.dataFreshness).toBe('FRESH');
+    });
+
+    it('HTTP は、設備ごとのファイルパスがない設備は、取り込み元が有効でも、手動のみ（取得されないため）。パスがある設備は、従来どおり', async () => {
+      const context = await setup();
+      const sources = await context.container.ingestionSettings.listSources();
+      await context.container.ingestionSettings.saveSources(
+        sources.map((source) => ({
+          ...source,
+          connection: {
+            type: 'HTTP' as const,
+            protocol: 'HTTPS' as const,
+            host: 'files.example.invalid',
+            authMethod: 'NONE' as const,
+            apiKeyHeaderName: 'X-API-Key',
+          },
+        })),
+      );
+      const sensor = must(await context.container.repositories.equipment.get(SENSOR_ID));
+      await context.container.repositories.equipment.save({
+        ...sensor,
+        sourceFilePath: '/sensors/1.json',
+      });
+      await context.container.repositories.observations.saveMany([
+        autoData(SENSOR_ID, 'temperatureCelsius', 600),
+        manualData(ROBOT_ID, 7),
+      ]);
+
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+      const sensorView = await get(context, { equipmentId: SENSOR_ID });
+
+      expect(robot.dataFreshness).toBe('MANUAL');
+      expect(robot.lastManualInputAt).toBe(minutesAgo(7));
+      expect(sensorView.dataFreshness).toBe('STALE');
+    });
+
+    it('自動取り込みが有効な間は、従来どおり（手動入力は、判定に含めない。最終の手動入力は、なし）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([
+        autoData(SENSOR_ID, 'temperatureCelsius', 30),
+        manualData(SENSOR_ID, 1),
+      ]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('STALE');
+      expect(house.lastManualInputAt).toBeNull();
+    });
   });
 
   it('短期視点を指定すると、短期評価を持つ観点は短期の結果を、持たない観点は長期の結果を返す', async () => {
@@ -844,24 +1265,120 @@ describe('ダッシュボード（UC-01）', () => {
     });
   });
 
-  it('有効な取り込み元がなければ、既定の取得間隔で「古い」の基準を決める', async () => {
-    const context = await setup();
-    const sources = await context.container.ingestionSettings.listSources();
-    await context.container.ingestionSettings.saveSources(
-      sources.map((source) => ({ ...source, isEnabled: false })),
-    );
+  describe('設備ごとの「古い」の基準（Issue #198。ADR-0016 の D-12）', () => {
+    const minutesAgo = (minutes: number) =>
+      new Date(TEST_NOW.getTime() - minutes * 60_000).toISOString();
+    const robotData = (minutes: number) =>
+      observation({
+        equipmentId: ROBOT_ID,
+        itemKey: 'harvestCount',
+        value: 1,
+        observedAt: minutesAgo(minutes),
+      });
+    const sensorData = (minutes: number) => temperature(20, minutesAgo(minutes));
+    const nameOf = (equipmentId: string) =>
+      must(equipmentSet().find((item) => item.equipmentId === equipmentId)).name;
 
-    expect((await get(context)).staleThresholdMinutes).toBe(45);
-  });
+    it('設備ごとに、その設備の取得間隔 × 3（既定: ロボット 1 分 → 3 分、センサー 5 分 → 15 分）で判定する。ハウスは、配下のいずれかが古ければ、古い', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([robotData(10), sensorData(10)]);
 
-  it('取り込み間隔の最短を基準にする', async () => {
-    const context = await setup();
-    const sources = await context.container.ingestionSettings.listSources();
-    await context.container.ingestionSettings.saveSources(
-      sources.map((source, index) => ({ ...source, intervalMinutes: index === 0 ? 5 : 60 })),
-    );
+      const house = await get(context);
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+      const sensor = await get(context, { equipmentId: SENSOR_ID });
 
-    expect((await get(context)).staleThresholdMinutes).toBe(15);
+      expect(house.dataFreshness).toBe('STALE');
+      expect(house.staleEquipment).toEqual([
+        {
+          equipmentId: ROBOT_ID,
+          name: nameOf(ROBOT_ID),
+          lastReceivedAt: minutesAgo(10),
+          thresholdMinutes: 3,
+        },
+      ]);
+      expect(robot.dataFreshness).toBe('STALE');
+      expect(sensor.dataFreshness).toBe('FRESH');
+      expect(sensor.staleEquipment).toEqual([]);
+    });
+
+    it('設備の取得間隔を変えると、その設備の基準が変わる（ロボットを 1 時間にすると 180 分）', async () => {
+      const context = await setup();
+      const robotEquipment = must(await context.container.repositories.equipment.get(ROBOT_ID));
+      await context.container.repositories.equipment.save({
+        ...robotEquipment,
+        intervalMinutes: 60,
+      });
+      await context.container.repositories.observations.saveMany([robotData(179), sensorData(1)]);
+      const fresh = await get(context);
+      context.clock.advance(2 * 60_000);
+
+      const stale = await get(context);
+
+      expect(fresh.dataFreshness).toBe('FRESH');
+      expect(stale.dataFreshness).toBe('STALE');
+      expect(stale.staleEquipment).toMatchObject([
+        { equipmentId: ROBOT_ID, thresholdMinutes: 180 },
+      ]);
+    });
+
+    it('最低 3 分（1 分間隔のロボットで、3 分は新しい・3 分を超えると古い）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([robotData(3)]);
+      const boundary = await get(context, { equipmentId: ROBOT_ID });
+      context.clock.advance(60_000);
+
+      const over = await get(context, { equipmentId: ROBOT_ID });
+
+      expect(boundary.dataFreshness).toBe('FRESH');
+      expect(over.dataFreshness).toBe('STALE');
+    });
+
+    it('まだデータのない設備は、判定の対象にしない（ほかの設備にデータがあれば、その設備だけで判定する）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([sensorData(1)]);
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('FRESH');
+      expect(house.staleEquipment).toEqual([]);
+    });
+
+    it('どの設備にもデータがなければ、未取得（NONE）。古い設備は、ない', async () => {
+      const context = await setup();
+
+      const house = await get(context);
+
+      expect(house.dataFreshness).toBe('NONE');
+      expect(house.staleEquipment).toEqual([]);
+    });
+
+    it('手動入力は、判定に含めない（自動データの停止が隠れない）', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([
+        robotData(10),
+        observation({
+          equipmentId: ROBOT_ID,
+          itemKey: 'failureCount',
+          value: 0,
+          source: 'MANUAL',
+          observedAt: minutesAgo(0),
+        }),
+      ]);
+
+      const robot = await get(context, { equipmentId: ROBOT_ID });
+
+      expect(robot.dataFreshness).toBe('STALE');
+      expect(robot.lastReceivedAt).toBe(minutesAgo(10));
+    });
+
+    it('最終のデータ取得（lastReceivedAt）は、判定の対象の設備の、最も新しい受信日時', async () => {
+      const context = await setup();
+      await context.container.repositories.observations.saveMany([robotData(10), sensorData(2)]);
+
+      const house = await get(context);
+
+      expect(house.lastReceivedAt).toBe(minutesAgo(2));
+    });
   });
 });
 
@@ -991,6 +1508,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
       federation: {
         enqueue: vi.fn(),
         runPending: vi.fn().mockResolvedValue({ sent: 0, failed: 0, held: 0 }),
+        enqueueAllEquipment: vi.fn(),
       },
       notifications: {
         notifyStatusChange: vi.fn(),
@@ -1000,6 +1518,8 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
         unreadCount: vi.fn(),
         markRead: vi.fn(),
         markAllRead: vi.fn(),
+        addMemo: vi.fn(),
+        listMemos: vi.fn(),
         deliverPending: vi
           .fn()
           .mockResolvedValue({ notificationsProcessed: 0, delivered: 0, failed: 0 }),
@@ -1020,3 +1540,121 @@ function createSteppingClock(context: Context) {
     sleep: () => Promise.resolve(),
   };
 }
+
+describe('通知の経過・回復日時（Issue #238。ADR-0019 の D-42）', () => {
+  /** 観測の日時は固定（同じ日時の値を上書きして、状態を切り替える）。 */
+  const OBSERVED_AT = new Date(TEST_NOW.getTime() - HOUR_MS).toISOString();
+  const MINUTE_MS = 60_000;
+
+  /** 指定した分だけ時計を進め、センサーの温度を上書きして、評価する。 */
+  async function evaluateAfter(context: Context, minutes: number, celsius: number) {
+    context.clock.advance(minutes * MINUTE_MS);
+    await context.container.repositories.observations.saveMany([temperature(celsius, OBSERVED_AT)]);
+    return context.container.evaluationService.evaluateAll('DEV');
+  }
+
+  /** 通知の一覧（新しい順）を、1 件ずつのページで、最後まで読む。 */
+  async function listAll(context: Context, limit = 100) {
+    const items = [];
+    let cursor: string | undefined;
+    do {
+      const page = await context.container.notificationService.list(USER, {
+        limit,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      items.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    return items;
+  }
+
+  const sensorNotifications = async (context: Context, limit?: number) =>
+    (await listAll(context, limit)).filter(
+      (item) => item.equipmentId === SENSOR_ID && item.viewpointId === 'environmentalAdaptability',
+    );
+
+  const isoAfter = (minutes: number) =>
+    new Date(TEST_NOW.getTime() + minutes * MINUTE_MS).toISOString();
+
+  it('通知ごとに、次の通知までの経過と、最初に正常に戻った日時（通知の時点からの経過時間つき）を返す（10:00 異常 → 10:20 正常 → 10:40 異常）', async () => {
+    const context = await setup();
+    await evaluateAfter(context, 0, 45);
+    await evaluateAfter(context, 5, 15);
+    await evaluateAfter(context, 20, 45);
+
+    const [latest, oldest] = await sensorNotifications(context);
+
+    expect(oldest?.progress?.changes).toEqual([
+      { status: 'ERROR', changedAt: isoAfter(0) },
+      { status: 'NORMAL', changedAt: isoAfter(5) },
+      { status: 'ERROR', changedAt: isoAfter(25) },
+    ]);
+    expect(oldest?.progress?.recovery).toEqual({ recoveredAt: isoAfter(5), elapsedSeconds: 300 });
+    // 最新の通知は、現在までの経過。まだ、正常に戻っていない（未回復）
+    expect(latest?.progress?.changes).toEqual([{ status: 'ERROR', changedAt: isoAfter(25) }]);
+    expect(latest?.progress?.recovery).toBeNull();
+  });
+
+  it('1 件ずつのページで読んでも、同じ（次の通知が、別のページにあっても、経過を導出する）', async () => {
+    const context = await setup();
+    await evaluateAfter(context, 0, 45);
+    await evaluateAfter(context, 5, 15);
+    await evaluateAfter(context, 20, 45);
+
+    const paged = await sensorNotifications(context, 1);
+    const whole = await sensorNotifications(context);
+
+    expect(paged).toHaveLength(2);
+    expect(paged.map((item) => item.progress)).toEqual(whole.map((item) => item.progress));
+    expect(paged[1]?.progress?.recovery).toEqual({
+      recoveredAt: isoAfter(5),
+      elapsedSeconds: 300,
+    });
+  });
+
+  it('注意 → 異常 の通知: 注意の通知の経過に、異常への変化が入る。どちらも、未回復', async () => {
+    const context = await setup();
+    await evaluateAfter(context, 0, 30);
+    await evaluateAfter(context, 5, 45);
+
+    const [error, caution] = await sensorNotifications(context);
+
+    expect(caution?.status).toBe('CAUTION');
+    expect(caution?.progress?.changes.map((item) => item.status)).toEqual(['CAUTION', 'ERROR']);
+    expect(caution?.progress?.recovery).toBeNull();
+    expect(error?.progress?.changes.map((item) => item.status)).toEqual(['ERROR']);
+  });
+
+  it('取り込み失敗の通知には、経過を付けない。履歴がない状態変化の通知（設備を削除した、など）は、経過を示せない（null）', async () => {
+    const context = await setup();
+    const repository = context.container.repositories.notifications;
+    await repository.add({
+      notificationId: NotificationIdSchema.parse('n-ingestion'),
+      kind: 'INGESTION_FAILURE',
+      sourceId: 'robot',
+      message: '【データ取得失敗】ロボットデータ: 接続できません',
+      createdAt: TEST_NOW.toISOString(),
+      dedupKey: 'INGESTION_FAILURE#robot',
+      deliveries: [],
+    });
+    await repository.add({
+      notificationId: NotificationIdSchema.parse('n-no-history'),
+      kind: 'STATUS_CHANGE',
+      viewpointId: 'safety',
+      equipmentId: ROBOT_ID,
+      status: 'ERROR',
+      message: '【異常】安全性（テストロボット）: 異常',
+      createdAt: TEST_NOW.toISOString(),
+      dedupKey: 'STATUS_CHANGE#safety#ROBOT#ERROR',
+      deliveries: [],
+    });
+
+    const items = await listAll(context);
+
+    const ingestion = items.find((item) => item.kind === 'INGESTION_FAILURE');
+    const noHistory = items.find((item) => item.kind === 'STATUS_CHANGE');
+    expect(ingestion).toBeDefined();
+    expect('progress' in (ingestion ?? {})).toBe(false);
+    expect(noHistory?.progress).toBeNull();
+  });
+});

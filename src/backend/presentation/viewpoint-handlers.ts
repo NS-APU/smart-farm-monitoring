@@ -21,7 +21,7 @@ import {
 } from '@smart-farm/shared/schemas/common';
 import type { ApiDeps, AppEnv } from './api-deps.ts';
 import { HorizonQuerySchema, SortDirectionSchema, toOptionalDate } from './query-schemas.ts';
-import { resolveEquipmentId } from './request-helpers.ts';
+import { resolveEquipmentId, scopeOfRequest } from './request-helpers.ts';
 import { parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 
@@ -71,7 +71,7 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
   async function viewpointParams(c: Context<AppEnv>) {
     const query = parseQuery(c, HorizonQuerySchema);
     return {
-      equipmentId: await resolveEquipmentId(deps, query.equipmentId),
+      equipmentId: await resolveEquipmentId(deps, query.equipmentId, await scopeOfRequest(c, deps)),
       viewpointId: c.req.param('viewpointId') ?? '',
       horizon: query.horizon,
       periodDays: query.periodDays,
@@ -92,6 +92,7 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
       return c.json(
         await deps.observationQuery.list({
           equipmentId: query.equipmentId,
+          scope: await scopeOfRequest(c, deps),
           viewpointId: query.viewpointId,
           category: query.category,
           itemKey: query.itemKey,

@@ -16,7 +16,13 @@ import type { Notification } from '@smart-farm/shared/schemas/notification';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import type { Repositories } from '../../src/backend/application/ports/repositories.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
-import { equipmentSet, observation, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
+import {
+  equipmentSet,
+  FACILITY_ID,
+  observation,
+  ROBOT_ID,
+  SENSOR_ID,
+} from '../support/builders.ts';
 import {
   createDynamoRepositoriesForTest,
   dropDynamoTestTables,
@@ -125,6 +131,20 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.equipment.get(toEquipmentId('NONE'))).toBeUndefined();
     expect(await repositories.equipment.list()).toEqual([facility]);
     expect(await repositories.equipment.list({ includeDeleted: true })).toHaveLength(2);
+  });
+
+  it('設備: ファイルパス（sourceFilePath）も、保存・取得できる（Issue #119）', async () => {
+    const { repositories } = create();
+    const robot = equipmentSet()[1];
+    if (robot === undefined) {
+      throw new Error('テストの前提');
+    }
+    const withPath = { ...robot, sourceFilePath: '/data/robot-01.json' };
+
+    await repositories.equipment.save(withPath);
+
+    expect(await repositories.equipment.get(withPath.equipmentId)).toEqual(withPath);
+    expect(await repositories.equipment.list()).toEqual([withPath]);
   });
 
   it('ステータスコード: 保存・取得でき、論理削除は一覧から除く', async () => {
@@ -363,6 +383,57 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       );
       expect(await empty.observations.latestReceivedAt()).toBeNull();
     });
+
+    it('設備ごとの最終の手動入力の日時（Issue #202）: 手動入力（論理削除を除く）だけの、受信日時の最大。自動取り込みは含めない。なければ、含めない', async () => {
+      const repositories = await seeded();
+      await repositories.observations.saveMany([
+        observation({
+          itemKey: 'failureCount',
+          value: 2,
+          source: 'MANUAL',
+          observedAt: '2026-10-09T02:35:00.000Z',
+          receivedAt: '2026-10-09T02:36:00.000Z',
+        }),
+        observation({
+          itemKey: 'failureCount',
+          value: 3,
+          source: 'MANUAL',
+          observedAt: '2026-10-09T05:00:00.000Z',
+          receivedAt: '2026-10-09T05:00:00.000Z',
+          isDeleted: true,
+        }),
+      ]);
+
+      const manual = await repositories.observations.receivedAtByEquipment([ROBOT_ID, SENSOR_ID], {
+        manualOnly: true,
+      });
+
+      expect(Object.fromEntries(manual)).toEqual({
+        [ROBOT_ID]: new Date('2026-10-09T02:36:00.000Z'),
+      });
+    });
+
+    it('設備ごとの最終のデータ取得日時（Issue #198）: データのある設備だけを返す。自動取り込みのみ（手動入力・論理削除を除く）と、全体を、選べる', async () => {
+      const repositories = await seeded();
+
+      const auto = await repositories.observations.receivedAtByEquipment(
+        [ROBOT_ID, SENSOR_ID, FACILITY_ID],
+        { autoImportOnly: true },
+      );
+      const all = await repositories.observations.receivedAtByEquipment([ROBOT_ID]);
+
+      expect(Object.fromEntries(auto)).toEqual({
+        [ROBOT_ID]: new Date('2026-10-09T02:40:00.000Z'),
+        [SENSOR_ID]: new Date('2026-10-09T02:50:00.000Z'),
+      });
+      expect(Object.fromEntries(all)).toEqual({
+        [ROBOT_ID]: new Date('2026-10-09T03:00:00.000Z'),
+      });
+      expect((await repositories.observations.receivedAtByEquipment([])).size).toBe(0);
+      expect(
+        (await create().repositories.observations.receivedAtByEquipment([ROBOT_ID])).size,
+      ).toBe(0);
+    });
   });
 
   it('評価結果: 観点・視点・期間ごとの最新を上書き保存し、状態の変化を記録できる', async () => {
@@ -507,6 +578,154 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(await repositories.notifications.unreadCount(USER)).toBe(0);
     });
 
+    it('一括既読は、until 以前（ちょうどを含む）に作成された通知だけを既読にする。範囲の未読の件数と一致する（Issue #240）', async () => {
+      const repositories = await seeded();
+      const until = new Date('2026-10-09T02:00:00.000Z');
+
+      const counted = await repositories.notifications.countUnread(USER, { until });
+      const countedStatusChanges = await repositories.notifications.countUnread(USER, {
+        kind: 'STATUS_CHANGE',
+        until,
+      });
+      const marked = await repositories.notifications.markAllRead(USER, { until }, new Date());
+
+      expect([counted, countedStatusChanges, marked]).toEqual([2, 1, 2]);
+      // until より後の通知（n-3）は、未読のまま。ほかの利用者は、変わらない
+      const unread = await repositories.notifications.list(
+        USER,
+        { readState: 'UNREAD' },
+        { limit: 10 },
+      );
+      expect(unread.items.map((entry) => entry.notification.notificationId)).toEqual(['n-3']);
+      expect(await repositories.notifications.unreadCount(USER)).toBe(1);
+      expect(await repositories.notifications.unreadCount(OTHER_USER)).toBe(3);
+      expect(await repositories.notifications.countUnread(USER, { until })).toBe(0);
+    });
+
+    it('範囲の未読の件数: 絞り込みなしは、すべての未読。既読だけの範囲（READ）は、0。通知一覧も until で絞れる（Issue #240）', async () => {
+      const repositories = await seeded();
+      await repositories.notifications.markRead(
+        NotificationIdSchema.parse('n-1'),
+        USER,
+        new Date(),
+      );
+
+      expect(await repositories.notifications.countUnread(USER, {})).toBe(2);
+      expect(await repositories.notifications.countUnread(USER, { readState: 'READ' })).toBe(0);
+      expect(
+        await repositories.notifications.markAllRead(USER, { readState: 'READ' }, new Date()),
+      ).toBe(0);
+      const upToSecond = await repositories.notifications.list(
+        USER,
+        { until: new Date('2026-10-09T02:00:00.000Z') },
+        { limit: 10 },
+      );
+      expect(upToSecond.items.map((entry) => entry.notification.notificationId)).toEqual([
+        'n-2',
+        'n-1',
+      ]);
+    });
+
+    describe('閲覧範囲（ハウス。Issue #331）', () => {
+      const HOUSE_1 = toEquipmentId('HOUSE-1');
+      const HOUSE_2 = toEquipmentId('HOUSE-2');
+      const ids = (page: { items: { notification: Notification }[] }) =>
+        page.items.map((entry) => entry.notification.notificationId);
+
+      /** n-1・n-3 はハウス 1、n-2 はハウス 2、n-4 はハウスなし（取り込みの失敗）。 */
+      async function scoped() {
+        const { repositories } = create();
+        await repositories.notifications.add(notification('n-1', { facilityId: HOUSE_1 }));
+        await repositories.notifications.add(notification('n-2', { facilityId: HOUSE_2 }));
+        await repositories.notifications.add(notification('n-3', { facilityId: HOUSE_1 }));
+        await repositories.notifications.add(
+          notification('n-4', { kind: 'INGESTION_FAILURE', equipmentId: undefined, dedupKey: 'f' }),
+        );
+        return repositories.notifications;
+      }
+
+      it('一覧: 指定したハウスの通知だけ（ハウスなしの通知は含めない）。空の指定は何も返さない。指定なしは全部', async () => {
+        const notifications = await scoped();
+        const list = (facilityIds?: readonly (typeof HOUSE_1)[]) =>
+          notifications.list(USER, facilityIds === undefined ? {} : { facilityIds }, { limit: 10 });
+
+        expect(ids(await list([HOUSE_1]))).toEqual(['n-3', 'n-1']);
+        expect(ids(await list([HOUSE_2]))).toEqual(['n-2']);
+        expect(ids(await list([HOUSE_1, HOUSE_2]))).toEqual(['n-3', 'n-2', 'n-1']);
+        expect(ids(await list([]))).toEqual([]);
+        expect(ids(await list())).toEqual(['n-4', 'n-3', 'n-2', 'n-1']);
+      });
+
+      it('一覧: ページ分割（1 件ずつ）でも、範囲外の通知を飛ばして、範囲内の通知を、漏れなく返す', async () => {
+        const notifications = await scoped();
+
+        const first = await notifications.list(USER, { facilityIds: [HOUSE_1] }, { limit: 1 });
+        const second = await notifications.list(
+          USER,
+          { facilityIds: [HOUSE_1] },
+          { limit: 1, cursor: first.nextCursor ?? undefined },
+        );
+
+        expect([ids(first), ids(second), second.nextCursor]).toEqual([['n-3'], ['n-1'], null]);
+      });
+
+      it('未読の件数: ハウスごとのカウンターの合計。指定なしは、全体。既読にすると、そのハウスの分が減る。ほかの利用者は、変わらない', async () => {
+        const notifications = await scoped();
+        const unread = (user: typeof USER, facilityIds?: readonly (typeof HOUSE_1)[]) =>
+          notifications.unreadCount(user, facilityIds);
+
+        expect([
+          await unread(USER, [HOUSE_1]),
+          await unread(USER, [HOUSE_2]),
+          await unread(USER, [HOUSE_1, HOUSE_2]),
+          await unread(USER, []),
+          await unread(USER),
+        ]).toEqual([2, 1, 3, 0, 4]);
+
+        await notifications.markRead(NotificationIdSchema.parse('n-1'), USER, new Date());
+        // 同じ通知を、もう一度既読にしても、数え直さない
+        await notifications.markRead(NotificationIdSchema.parse('n-1'), USER, new Date());
+
+        expect([
+          await unread(USER, [HOUSE_1]),
+          await unread(USER, [HOUSE_2]),
+          await unread(USER),
+          await unread(OTHER_USER, [HOUSE_1]),
+          await unread(OTHER_USER),
+        ]).toEqual([1, 1, 3, 2, 4]);
+      });
+
+      it('範囲の未読の件数・一括既読: 指定したハウスの通知だけ（件数と、既読にした件数が一致する）。ほかのハウス・ハウスなしは、未読のまま', async () => {
+        const notifications = await scoped();
+
+        const counted = await notifications.countUnread(USER, { facilityIds: [HOUSE_2] });
+        const marked = await notifications.markAllRead(
+          USER,
+          { facilityIds: [HOUSE_2] },
+          new Date(),
+        );
+
+        expect([counted, marked]).toEqual([1, 1]);
+        expect(await notifications.countUnread(USER, { facilityIds: [HOUSE_2] })).toBe(0);
+        expect(await notifications.unreadCount(USER, [HOUSE_2])).toBe(0);
+        expect(await notifications.unreadCount(USER, [HOUSE_1])).toBe(2);
+        expect(await notifications.unreadCount(USER)).toBe(3);
+      });
+
+      it('一括既読（範囲の指定なし）でも、ハウスごとのカウンターが合う', async () => {
+        const notifications = await scoped();
+
+        await notifications.markAllRead(USER, {}, new Date());
+
+        expect([
+          await notifications.unreadCount(USER, [HOUSE_1]),
+          await notifications.unreadCount(USER, [HOUSE_2]),
+          await notifications.unreadCount(USER),
+          await notifications.unreadCount(OTHER_USER, [HOUSE_1]),
+        ]).toEqual([0, 0, 0, 2]);
+      });
+    });
+
     it('同じ重複抑制のキーの、最新の通知を取得できる', async () => {
       const repositories = await seeded();
 
@@ -522,10 +741,103 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       ).toBeUndefined();
     });
 
-    it('配信が未完了の通知: 未配信、または試行回数が上限未満の失敗のみ返す', async () => {
+    it('通知のメモ: 追記でき、通知ごとに、入力の古い順に取得できる。件数は、通知ごとに数える（Issue #239）', async () => {
+      const { repositories } = create();
+      await repositories.notifications.add(notification('n-1'));
+      await repositories.notifications.add(notification('n-2'));
+      const memo = (id: string, notificationId: string, minute: number, body = `メモ ${id}`) => ({
+        memoId: id,
+        notificationId: NotificationIdSchema.parse(notificationId),
+        enteredBy: USER,
+        body,
+        createdAt: `2026-10-09T10:0${String(minute)}:00.000Z`,
+      });
+
+      const MULTILINE_BODY = '清掃して復旧した' + String.fromCharCode(10) + '（2 行目）';
+      // 追記の順と、日時の順を、一致させない（入力の古い順は、日時の順）
+      await repositories.notifications.addMemo(memo('m-2', 'n-1', 5));
+      await repositories.notifications.addMemo(memo('m-1', 'n-1', 0, MULTILINE_BODY));
+      await repositories.notifications.addMemo(memo('m-3', 'n-2', 1));
+      await repositories.notifications.addMemo({ ...memo('m-4', 'n-1', 5), enteredBy: OTHER_USER });
+
+      const first = await repositories.notifications.listMemos(NotificationIdSchema.parse('n-1'));
+      const counts = await repositories.notifications.memoCounts(
+        ['n-1', 'n-2', 'n-3'].map((id) => NotificationIdSchema.parse(id)),
+      );
+
+      // 同じ日時は、メモの識別子の順。本文は、そのまま保存される（改行を含む）
+      expect(first.map((item) => item.memoId)).toEqual(['m-1', 'm-2', 'm-4']);
+      expect(first[0]).toEqual(memo('m-1', 'n-1', 0, MULTILINE_BODY));
+      expect(first[2]?.enteredBy).toBe(OTHER_USER);
+      expect(
+        await repositories.notifications.listMemos(NotificationIdSchema.parse('n-none')),
+      ).toEqual([]);
+      expect([...counts]).toEqual([
+        ['n-1', 3],
+        ['n-2', 1],
+        ['n-3', 0],
+      ]);
+      expect(await repositories.notifications.memoCounts([])).toEqual(new Map());
+    });
+
+    it('状態変化の通知の日時: 指定した日時より新しい状態変化の通知の、設備・観点・作成日時を、古い順に返す（Issue #238）', async () => {
+      const { repositories } = create();
+      await repositories.notifications.add(notification('n-1'));
+      await repositories.notifications.add(
+        notification('n-2', { viewpointId: 'durability', equipmentId: SENSOR_ID }),
+      );
+      await repositories.notifications.add(
+        notification('n-3', {
+          kind: 'INGESTION_FAILURE',
+          sourceId: 'robot',
+          dedupKey: 'INGESTION_FAILURE#robot',
+          viewpointId: undefined,
+          equipmentId: undefined,
+          status: undefined,
+        }),
+      );
+      await repositories.notifications.add(notification('n-4'));
+
+      const all = await repositories.notifications.listStatusChangeTimes(
+        new Date('2026-10-09T00:00:00.000Z'),
+      );
+      const afterSecond = await repositories.notifications.listStatusChangeTimes(
+        new Date('2026-10-09T02:00:00.000Z'),
+      );
+
+      // 取り込み失敗の通知（n-3）は含めない。古い順
+      expect(all).toEqual([
+        { equipmentId: ROBOT_ID, viewpointId: 'safety', createdAt: '2026-10-09T01:00:00.000Z' },
+        {
+          equipmentId: SENSOR_ID,
+          viewpointId: 'durability',
+          createdAt: '2026-10-09T02:00:00.000Z',
+        },
+        { equipmentId: ROBOT_ID, viewpointId: 'safety', createdAt: '2026-10-09T04:00:00.000Z' },
+      ]);
+      // 指定した日時ちょうどの通知は、含めない（より新しいもの）
+      expect(afterSecond).toEqual([
+        { equipmentId: ROBOT_ID, viewpointId: 'safety', createdAt: '2026-10-09T04:00:00.000Z' },
+      ]);
+      expect(
+        await repositories.notifications.listStatusChangeTimes(
+          new Date('2026-10-10T00:00:00.000Z'),
+        ),
+      ).toEqual([]);
+    });
+
+    it('配信が未完了の通知: Web Push のまとめの状態が未完了（PENDING）の通知と、購読ごとの状態を持たない以前の形式の失敗だけを返す（Issue #237）', async () => {
       const { repositories } = create();
       const delivery = (result: 'PENDING' | 'SUCCESS' | 'FAILURE', attempts: number) => [
         { channel: 'WEB_PUSH' as const, result, attempts, updatedAt: '2026-10-09T00:00:00.000Z' },
+      ];
+      const perSubscription = (result: 'FAILURE' | 'ABANDONED') => [
+        {
+          subscriptionId: 's-1',
+          result,
+          attempts: 3,
+          updatedAt: '2026-10-09T00:00:00.000Z',
+        },
       ];
       await repositories.notifications.add(
         notification('n-1', { deliveries: delivery('PENDING', 0) }),
@@ -533,26 +845,42 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       await repositories.notifications.add(
         notification('n-2', { deliveries: delivery('SUCCESS', 1) }),
       );
+      // 以前の形式の失敗（購読ごとの状態がない）は、購読ごとの形式で終了させるため、返す
       await repositories.notifications.add(
         notification('n-3', { deliveries: delivery('FAILURE', 2) }),
       );
+      // 断念して終了した失敗（購読ごとの状態がある）は、返さない
       await repositories.notifications.add(
-        notification('n-4', { deliveries: delivery('FAILURE', 3) }),
+        notification('n-4', {
+          deliveries: delivery('FAILURE', 7),
+          webPushDeliveries: perSubscription('ABANDONED'),
+        }),
       );
       await repositories.notifications.add(notification('n-5', { deliveries: [] }));
+      // 再送待ちの購読があり、まとめの状態が未完了の通知は、返す
+      await repositories.notifications.add(
+        notification('n-6', {
+          deliveries: delivery('PENDING', 3),
+          webPushDeliveries: perSubscription('FAILURE'),
+        }),
+      );
 
-      const undelivered = await repositories.notifications.listUndelivered(3);
+      const undelivered = await repositories.notifications.listUndelivered();
       await repositories.notifications.update(
         notification('n-1', { deliveries: delivery('SUCCESS', 1) }),
       );
-      const afterUpdate = await repositories.notifications.listUndelivered(3);
+      const afterUpdate = await repositories.notifications.listUndelivered();
 
-      expect(undelivered.map((item) => item.notificationId).sort()).toEqual(['n-1', 'n-3']);
-      expect(afterUpdate.map((item) => item.notificationId)).toEqual(['n-3']);
+      expect(undelivered.map((item) => item.notificationId).sort()).toEqual(['n-1', 'n-3', 'n-6']);
+      expect(afterUpdate.map((item) => item.notificationId).sort()).toEqual(['n-3', 'n-6']);
+      // 購読ごとの状態は、保存・取得できる
+      expect(undelivered.find((item) => item.notificationId === 'n-6')?.webPushDeliveries).toEqual(
+        perSubscription('FAILURE'),
+      );
     });
   });
 
-  it('取り込み: 同じファイル（識別子とハッシュ、または内容のハッシュ）を、取り込み済みとして判定できる', async () => {
+  it('取り込み: ファイルごとに、最新の版の記録だけを持つ。同じ識別子・同じハッシュを、取り込み済みとして判定できる（Issue #201）', async () => {
     const { repositories } = create();
     const base = { sourceId: 'robot', fetchedAt: '2026-10-09T01:00:00.000Z', recordCount: 1 };
     await repositories.ingestion.recordFile({
@@ -569,13 +897,15 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     });
 
     expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeDefined();
-    // 名前が違っても、内容が同じで取り込みに成功していれば、取り込み済み
-    expect(await repositories.ingestion.findIngestedFile('robot', 'copy.json', 'h1')).toBeDefined();
+    // 名前が違えば、内容が同じでも、別のファイル（取り込む。観測値は、同じ値なら保存しない〔D-08〕）
+    expect(
+      await repositories.ingestion.findIngestedFile('robot', 'copy.json', 'h1'),
+    ).toBeUndefined();
     // 名前が同じでも、内容が変わっていれば、新しい版として取り込む
     expect(
       await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h-new'),
     ).toBeUndefined();
-    // 失敗したファイルは、同じ名前・同じ内容のときだけ、取り込み済み（失敗）として判定する
+    // 失敗したファイルも、同じ名前・同じ内容のときだけ、取り込み済み（失敗）として判定する
     expect(await repositories.ingestion.findIngestedFile('robot', 'bad.json', 'h2')).toBeDefined();
     expect(
       await repositories.ingestion.findIngestedFile('robot', 'other.json', 'h2'),
@@ -583,13 +913,29 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(
       await repositories.ingestion.findIngestedFile('environment-sensor', 'a.json', 'h1'),
     ).toBeUndefined();
+
+    // 新しい版を記録すると、前の版は上書きされる（ファイルごとに、最新の 1 件）
+    await repositories.ingestion.recordFile({
+      ...base,
+      fileId: 'a.json',
+      contentHash: 'h-new',
+      result: 'SUCCESS',
+    });
+    expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h-new')).toBeDefined();
+    expect(await repositories.ingestion.findIngestedFile('robot', 'a.json', 'h1')).toBeUndefined();
   });
 
-  it('取り込みログ: 新しい順に一覧でき、取り込み元で絞り込め、直近の開始日時を返す', async () => {
+  it('取り込みログ: 新しい順に一覧でき、取り込み元で絞り込める。設備ごとのログ（Issue #201）は、その取り込み元の絞り込みに含まれる', async () => {
     const { repositories } = create();
-    const log = (logId: string, sourceId: string, startedAt: string) => ({
+    const log = (
+      logId: string,
+      sourceId: string,
+      startedAt: string,
+      equipmentId?: typeof ROBOT_ID,
+    ) => ({
       logId,
       sourceId,
+      ...(equipmentId === undefined ? {} : { equipmentId }),
       startedAt,
       finishedAt: startedAt,
       result: 'SUCCESS' as const,
@@ -598,72 +944,377 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       rejectedCount: 0,
       attempts: 1,
     });
+    // 設備ごとのログは、設備の一覧（設備ごとの最終の実行）から探す実装がある（DynamoDB）ため、先に最終の実行を記録する
+    const started = new Date('2026-10-09T00:00:00.000Z');
+    await repositories.ingestion.recordEquipmentRuns(
+      [ROBOT_ID, SENSOR_ID].map((equipmentId) => ({
+        equipmentId,
+        startedAt: started,
+        finishedAt: started,
+        result: 'SUCCESS' as const,
+        dataIngested: false,
+      })),
+    );
     await repositories.ingestion.addLog(log('l-1', 'robot', '2026-10-09T01:00:00.000Z'));
-    await repositories.ingestion.addLog(log('l-2', 'robot', '2026-10-09T02:00:00.000Z'));
+    await repositories.ingestion.addLog(log('l-2', 'robot', '2026-10-09T02:00:00.000Z', ROBOT_ID));
     await repositories.ingestion.addLog(
-      log('l-3', 'environment-sensor', '2026-10-09T03:00:00.000Z'),
+      log('l-3', 'environment-sensor', '2026-10-09T03:00:00.000Z', SENSOR_ID),
+    );
+    await repositories.ingestion.addLog(
+      log('l-4', 'environment-sensor', '2026-10-09T04:00:00.000Z'),
     );
 
     const all = await repositories.ingestion.listLogs({}, { limit: 10 });
     const robot = await repositories.ingestion.listLogs({ sourceId: 'robot' }, { limit: 10 });
 
-    expect(all.items.map((item) => item.logId)).toEqual(['l-3', 'l-2', 'l-1']);
-    expect(robot.items).toHaveLength(2);
-    expect(await repositories.ingestion.lastStartedAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
-    );
-    expect(await repositories.ingestion.lastStartedAt('none')).toBeNull();
+    expect(all.items.map((item) => item.logId)).toEqual(['l-4', 'l-3', 'l-2', 'l-1']);
+    expect(all.items.map((item) => item.equipmentId)).toEqual([
+      undefined,
+      SENSOR_ID,
+      ROBOT_ID,
+      undefined,
+    ]);
+    expect(robot.items.map((item) => item.logId)).toEqual(['l-2', 'l-1']);
   });
 
-  it('取り込みログ: 直近の成功（結果が SUCCESS）の終了日時を返す。成功がなければ null', async () => {
+  it('取り込みログ: 設備・結果・期間で絞り込める。設備を指定すると、その設備のログと、指定した取り込み元の（設備に結びつかない）ログを返す。条件つきでも、ページを送れる（Issue #201）', async () => {
     const { repositories } = create();
-    const log = (logId: string, result: 'SUCCESS' | 'PARTIAL' | 'FAILURE', finishedAt: string) => ({
+    const started = new Date('2026-10-09T00:00:00.000Z');
+    await repositories.ingestion.recordEquipmentRuns(
+      [ROBOT_ID, SENSOR_ID].map((equipmentId) => ({
+        equipmentId,
+        startedAt: started,
+        finishedAt: started,
+        result: 'SUCCESS' as const,
+        dataIngested: false,
+      })),
+    );
+    const log = (
+      logId: string,
+      startedAt: string,
+      result: 'SUCCESS' | 'PARTIAL' | 'FAILURE',
+      sourceId: string,
+      equipmentId?: typeof ROBOT_ID,
+    ) => ({
       logId,
-      sourceId: 'robot',
-      startedAt: finishedAt,
-      finishedAt,
+      sourceId,
+      ...(equipmentId === undefined ? {} : { equipmentId }),
+      startedAt,
+      finishedAt: startedAt,
       result,
       filesProcessed: 1,
       recordCount: 1,
       rejectedCount: 0,
       attempts: 1,
     });
-    await repositories.ingestion.addLog(log('l-1', 'FAILURE', '2026-10-09T01:00:00.000Z'));
-    expect(await repositories.ingestion.lastSucceededAt('robot')).toBeNull();
-    await repositories.ingestion.addLog(log('l-2', 'SUCCESS', '2026-10-09T02:00:00.000Z'));
-    await repositories.ingestion.addLog(log('l-3', 'PARTIAL', '2026-10-09T03:00:00.000Z'));
-
-    expect(await repositories.ingestion.lastSucceededAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
+    await repositories.ingestion.addLog(
+      log('l-1', '2026-10-09T01:00:00.000Z', 'SUCCESS', 'robot', ROBOT_ID),
     );
-    expect(await repositories.ingestion.lastSucceededAt('none')).toBeNull();
+    await repositories.ingestion.addLog(
+      log('l-2', '2026-10-09T02:00:00.000Z', 'PARTIAL', 'robot', ROBOT_ID),
+    );
+    await repositories.ingestion.addLog(log('l-3', '2026-10-09T03:00:00.000Z', 'FAILURE', 'robot'));
+    await repositories.ingestion.addLog(
+      log('l-4', '2026-10-09T04:00:00.000Z', 'SUCCESS', 'environment-sensor', SENSOR_ID),
+    );
+    await repositories.ingestion.addLog(
+      log('l-5', '2026-10-09T05:00:00.000Z', 'FAILURE', 'environment-sensor'),
+    );
+    await repositories.ingestion.addLog(
+      log('l-6', '2026-10-09T06:00:00.000Z', 'FAILURE', 'robot', ROBOT_ID),
+    );
+    const ids = async (filter: Parameters<typeof repositories.ingestion.listLogs>[0]) =>
+      (await repositories.ingestion.listLogs(filter, { limit: 20 })).items.map(
+        (item) => item.logId,
+      );
+
+    // 設備: その設備のログ + 指定した取り込み元の、設備に結びつかないログ
+    expect(await ids({ equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' } })).toEqual([
+      'l-6',
+      'l-3',
+      'l-2',
+      'l-1',
+    ]);
+    // 取り込み元の指定がなければ（設備が削除済みなど）、その設備のログだけ
+    expect(await ids({ equipment: { equipmentId: ROBOT_ID, sourceId: undefined } })).toEqual([
+      'l-6',
+      'l-2',
+      'l-1',
+    ]);
+    expect(
+      await ids({ equipment: { equipmentId: SENSOR_ID, sourceId: 'environment-sensor' } }),
+    ).toEqual(['l-5', 'l-4']);
+    // 結果: 成功は SUCCESS。失敗は、FAILURE と、一部成功（PARTIAL。取り込めなかったものがある）
+    expect(await ids({ result: 'SUCCESS' })).toEqual(['l-4', 'l-1']);
+    expect(await ids({ result: 'FAILURE' })).toEqual(['l-6', 'l-5', 'l-3', 'l-2']);
+    // 期間（両端を含む）
+    expect(
+      await ids({
+        from: new Date('2026-10-09T02:00:00.000Z'),
+        to: new Date('2026-10-09T04:00:00.000Z'),
+      }),
+    ).toEqual(['l-4', 'l-3', 'l-2']);
+    expect(await ids({ from: new Date('2026-10-09T05:00:00.000Z') })).toEqual(['l-6', 'l-5']);
+    expect(await ids({ to: new Date('2026-10-09T01:00:00.000Z') })).toEqual(['l-1']);
+    // 組み合わせ
+    expect(
+      await ids({
+        equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' },
+        result: 'FAILURE',
+        from: new Date('2026-10-09T02:00:00.000Z'),
+      }),
+    ).toEqual(['l-6', 'l-3', 'l-2']);
+    // 取り込み元と設備の併用はしない（設備を指定すれば、取り込み元は、設備から決まる）が、取り込み元だけの指定も、条件と併用できる
+    expect(await ids({ sourceId: 'robot', result: 'SUCCESS' })).toEqual(['l-1']);
+    // 条件つきでも、ページを送れる
+    const first = await repositories.ingestion.listLogs(
+      { equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' }, result: 'FAILURE' },
+      { limit: 2 },
+    );
+    const second = await repositories.ingestion.listLogs(
+      { equipment: { equipmentId: ROBOT_ID, sourceId: 'robot' }, result: 'FAILURE' },
+      { limit: 2, cursor: first.nextCursor ?? undefined },
+    );
+    expect(first.items.map((item) => item.logId)).toEqual(['l-6', 'l-3']);
+    expect(second.items.map((item) => item.logId)).toEqual(['l-2']);
+    expect(second.nextCursor).toBeNull();
   });
 
-  it('取り込みログ: 新しいデータ（記録が1件以上）を取り込んだ直近の終了日時を返す。一度もなければ null（V-018）', async () => {
+  it('取り込み: 取り込み元の最終の開始日時を、記録・取得できる。古い日時で戻さない。ログの追加では、変わらない（Issue #201）', async () => {
     const { repositories } = create();
-    const log = (logId: string, recordCount: number, finishedAt: string, sourceId = 'robot') => ({
-      logId,
-      sourceId,
-      startedAt: finishedAt,
-      finishedAt,
-      result: 'SUCCESS' as const,
-      filesProcessed: recordCount > 0 ? 1 : 0,
-      recordCount,
+    const t1 = new Date('2026-10-09T01:00:00.000Z');
+    const t2 = new Date('2026-10-09T02:00:00.000Z');
+
+    await repositories.ingestion.recordSourceStarted('robot', t2);
+    await repositories.ingestion.recordSourceStarted('robot', t1);
+    await repositories.ingestion.addLog({
+      logId: 'l-1',
+      sourceId: 'environment-sensor',
+      startedAt: t2.toISOString(),
+      finishedAt: t2.toISOString(),
+      result: 'SUCCESS',
+      filesProcessed: 1,
+      recordCount: 1,
       rejectedCount: 0,
       attempts: 1,
     });
-    await repositories.ingestion.addLog(log('l-1', 0, '2026-10-09T01:00:00.000Z'));
-    expect(await repositories.ingestion.lastDataIngestedAt('robot')).toBeNull();
-    await repositories.ingestion.addLog(log('l-2', 5, '2026-10-09T02:00:00.000Z'));
-    await repositories.ingestion.addLog(log('l-3', 0, '2026-10-09T03:00:00.000Z'));
-    await repositories.ingestion.addLog(
-      log('l-4', 9, '2026-10-09T04:00:00.000Z', 'environment-sensor'),
-    );
 
-    expect(await repositories.ingestion.lastDataIngestedAt('robot')).toEqual(
-      new Date('2026-10-09T02:00:00.000Z'),
-    );
-    expect(await repositories.ingestion.lastDataIngestedAt('none')).toBeNull();
+    expect(await repositories.ingestion.lastStartedAt('robot')).toEqual(t2);
+    expect(await repositories.ingestion.lastStartedAt('environment-sensor')).toBeNull();
+    expect(await repositories.ingestion.lastStartedAt('none')).toBeNull();
+  });
+
+  it('取り込み: 設備ごとの最終の実行（開始・終了・結果・最後の成功・最後にデータが取れた日時）を、上書きで 1 件ずつ記録・取得できる。新しい実行だけで更新し、空の指定は何もしない（Issue #197・#201）', async () => {
+    const { repositories } = create();
+    expect((await repositories.ingestion.listEquipmentRuns()).size).toBe(0);
+    const at = (minute: number) => new Date(`2026-10-09T01:0${String(minute)}:00.000Z`);
+    const run = (
+      equipmentId: string,
+      minute: number,
+      result: 'SUCCESS' | 'PARTIAL' | 'FAILURE',
+      dataIngested: boolean,
+    ) => ({
+      equipmentId,
+      startedAt: at(minute),
+      finishedAt: at(minute + 1),
+      result,
+      dataIngested,
+    });
+
+    await repositories.ingestion.recordEquipmentRuns([
+      run('ROBOT-1', 1, 'SUCCESS', true),
+      run('SENSOR-1', 1, 'FAILURE', false),
+    ]);
+    // 空振り（成功・データなし）: 開始・終了・結果は更新し、最後にデータが取れた日時は、そのまま
+    await repositories.ingestion.recordEquipmentRuns([run('ROBOT-1', 3, 'SUCCESS', false)]);
+    // 失敗: 結果は更新するが、最後の成功・最後にデータが取れた日時は、そのまま
+    await repositories.ingestion.recordEquipmentRuns([run('ROBOT-1', 5, 'FAILURE', false)]);
+    // 古い実行は、戻さない
+    await repositories.ingestion.recordEquipmentRuns([run('ROBOT-1', 2, 'SUCCESS', true)]);
+    await repositories.ingestion.recordEquipmentRuns([]);
+
+    const states = await repositories.ingestion.listEquipmentRuns();
+    expect(states.size).toBe(2);
+    expect(states.get('ROBOT-1')).toEqual({
+      startedAt: at(5),
+      finishedAt: at(6),
+      result: 'FAILURE',
+      lastSucceededAt: at(4),
+      lastDataAt: at(2),
+    });
+    expect(states.get('SENSOR-1')).toEqual({
+      startedAt: at(1),
+      finishedAt: at(2),
+      result: 'FAILURE',
+      lastSucceededAt: null,
+      lastDataAt: null,
+    });
+  });
+
+  describe('ハウス別のログ（#332。一般ユーザーが、閲覧できるハウスの分だけを見る）', () => {
+    const ingestionLog = (
+      logId: string,
+      startedAt: string,
+      facilities?: { facilityId: string; result: 'SUCCESS' | 'FAILURE'; recordCount: number }[],
+    ) => ({
+      logId,
+      sourceId: 'robot',
+      startedAt,
+      finishedAt: startedAt,
+      result: 'SUCCESS' as const,
+      filesProcessed: 1,
+      recordCount: 3,
+      rejectedCount: 0,
+      attempts: 1,
+      ...(facilities === undefined ? {} : { facilities }),
+    });
+
+    it('取り込みログ: ハウスごとの記録を、指定したハウスの分だけ、新しい順に返す。ハウスの記録がないログは、含めない', async () => {
+      const { repositories } = create();
+      await repositories.ingestion.addLog(
+        ingestionLog('l-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 2 },
+          { facilityId: 'house-b', result: 'FAILURE', recordCount: 0 },
+        ]),
+      );
+      await repositories.ingestion.addLog(ingestionLog('l-2', '2026-10-09T02:00:00.000Z'));
+      await repositories.ingestion.addLog(
+        ingestionLog('l-3', '2026-10-09T03:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 1 },
+        ]),
+      );
+
+      const onlyA = await repositories.ingestion.listFacilityLogs(['house-a'], { limit: 10 });
+      const both = await repositories.ingestion.listFacilityLogs(['house-a', 'house-b'], {
+        limit: 10,
+      });
+      const none = await repositories.ingestion.listFacilityLogs([], { limit: 10 });
+
+      expect(onlyA.items).toEqual([
+        {
+          logId: 'l-3',
+          facilityId: 'house-a',
+          sourceId: 'robot',
+          occurredAt: '2026-10-09T03:00:00.000Z',
+          result: 'SUCCESS',
+          recordCount: 1,
+        },
+        {
+          logId: 'l-1',
+          facilityId: 'house-a',
+          sourceId: 'robot',
+          occurredAt: '2026-10-09T01:00:00.000Z',
+          result: 'SUCCESS',
+          recordCount: 2,
+        },
+      ]);
+      expect(both.items.map((item) => `${item.logId}/${item.facilityId}`)).toEqual([
+        'l-3/house-a',
+        'l-1/house-b',
+        'l-1/house-a',
+      ]);
+      expect(none.items).toEqual([]);
+      expect(none.nextCursor).toBeNull();
+    });
+
+    it('取り込みログ: ハウス別の一覧は、ページで続きを取れ、同じログの複数のハウスを、取りこぼさない', async () => {
+      const { repositories } = create();
+      await repositories.ingestion.addLog(
+        ingestionLog('l-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 1 },
+          { facilityId: 'house-b', result: 'SUCCESS', recordCount: 1 },
+        ]),
+      );
+      await repositories.ingestion.addLog(
+        ingestionLog('l-2', '2026-10-09T02:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 1 },
+          { facilityId: 'house-b', result: 'SUCCESS', recordCount: 1 },
+        ]),
+      );
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let index = 0; index < 10; index += 1) {
+        const page = await repositories.ingestion.listFacilityLogs(['house-a', 'house-b'], {
+          limit: 1,
+          cursor,
+        });
+        seen.push(...page.items.map((item) => `${item.logId}/${item.facilityId}`));
+        if (page.nextCursor === null) {
+          break;
+        }
+        cursor = page.nextCursor;
+      }
+
+      expect(seen.sort()).toEqual(['l-1/house-a', 'l-1/house-b', 'l-2/house-a', 'l-2/house-b']);
+    });
+
+    it('取り込みログ: 全体のログ（管理者向け）は、ハウスごとの内訳を含めて、そのまま返す', async () => {
+      const { repositories } = create();
+      await repositories.ingestion.addLog(
+        ingestionLog('l-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', result: 'SUCCESS', recordCount: 2 },
+        ]),
+      );
+
+      const all = await repositories.ingestion.listLogs({}, { limit: 10 });
+
+      expect(all.items[0]?.facilities).toEqual([
+        { facilityId: 'house-a', result: 'SUCCESS', recordCount: 2 },
+      ]);
+    });
+
+    const federationLog = (
+      logId: string,
+      occurredAt: string,
+      facilities?: { facilityId: string; itemCount: number }[],
+    ) => ({
+      logId,
+      occurredAt,
+      result: 'SENT' as const,
+      itemCount: 5,
+      ...(facilities === undefined ? {} : { facilities }),
+    });
+
+    it('連携ログ: ハウスごとの記録を、指定したハウスの分だけ、新しい順に返す。ハウスの記録がないログは、含めない', async () => {
+      const { repositories } = create();
+      await repositories.federation.addLog(
+        federationLog('f-1', '2026-10-09T01:00:00.000Z', [
+          { facilityId: 'house-a', itemCount: 2 },
+          { facilityId: 'house-b', itemCount: 3 },
+        ]),
+      );
+      await repositories.federation.addLog(federationLog('f-2', '2026-10-09T02:00:00.000Z'));
+      await repositories.federation.addLog({
+        ...federationLog('f-3', '2026-10-09T03:00:00.000Z', [
+          { facilityId: 'house-a', itemCount: 1 },
+        ]),
+        result: 'HELD',
+      });
+
+      const onlyA = await repositories.federation.listFacilityLogs(['house-a'], { limit: 10 });
+      const onlyB = await repositories.federation.listFacilityLogs(['house-b'], { limit: 10 });
+      const none = await repositories.federation.listFacilityLogs([], { limit: 10 });
+
+      expect(onlyA.items).toEqual([
+        {
+          logId: 'f-3',
+          facilityId: 'house-a',
+          occurredAt: '2026-10-09T03:00:00.000Z',
+          result: 'HELD',
+          itemCount: 1,
+        },
+        {
+          logId: 'f-1',
+          facilityId: 'house-a',
+          occurredAt: '2026-10-09T01:00:00.000Z',
+          result: 'SENT',
+          itemCount: 2,
+        },
+      ]);
+      expect(onlyB.items.map((item) => item.itemCount)).toEqual([3]);
+      expect(none.items).toEqual([]);
+    });
   });
 
   it('連携キュー: 次の試行の日時が来た、送信済みでない項目を、積んだ順に返す', async () => {
@@ -894,6 +1545,31 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect((await repositories.users.get(toUserId('flagged')))?.mustChangePassword).toBe(true);
     expect((await repositories.users.get(toUserId('cleared')))?.mustChangePassword).toBe(false);
     expect((await repositories.users.get(toUserId('legacy')))?.mustChangePassword).toBeUndefined();
+  });
+
+  it('閲覧の割り当て（ハウスごと。Issue #330）: 保存・取得・一覧・削除ができ、同じハウスは上書きする。ハウスの識別子の順に返す', async () => {
+    const { repositories } = create();
+    const record = (facilityId: string, userIds: string[]) => ({
+      facilityId: toEquipmentId(facilityId),
+      userIds: userIds.map((userId) => toUserId(userId)),
+    });
+    await repositories.facilityAccess.save(record('HOUSE-B', ['user-1']));
+    await repositories.facilityAccess.save(record('HOUSE-A', ['user-1', 'user-2']));
+    await repositories.facilityAccess.save(record('HOUSE-B', ['user-2']));
+
+    expect(await repositories.facilityAccess.list()).toEqual([
+      record('HOUSE-A', ['user-1', 'user-2']),
+      record('HOUSE-B', ['user-2']),
+    ]);
+    expect(await repositories.facilityAccess.get(toEquipmentId('HOUSE-A'))).toEqual(
+      record('HOUSE-A', ['user-1', 'user-2']),
+    );
+    expect(await repositories.facilityAccess.get(toEquipmentId('HOUSE-C'))).toBeUndefined();
+    await repositories.facilityAccess.delete(toEquipmentId('HOUSE-A'));
+    expect(await repositories.facilityAccess.get(toEquipmentId('HOUSE-A'))).toBeUndefined();
+    expect((await repositories.facilityAccess.list()).map((item) => item.facilityId)).toEqual([
+      'HOUSE-B',
+    ]);
   });
 
   it('Web Push の購読: 有効なものだけ返し、無効化・利用者ごとの削除ができる', async () => {

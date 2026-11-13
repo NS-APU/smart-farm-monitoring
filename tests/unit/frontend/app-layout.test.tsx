@@ -5,6 +5,7 @@
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
 import { App } from '../../../src/frontend/app.tsx';
 import {
   WORKER_LOGIN,
@@ -26,15 +27,16 @@ function stubViewport(narrow: boolean): void {
   }));
 }
 
-function renderApp(unread = 0) {
+function renderApp(unread = 0, login: LoginResponse = WORKER_LOGIN) {
   const routes = withBaseRoutes({
     'GET /equipment': () => jsonResponse(equipmentTree()),
     'GET /dashboard': () => jsonResponse(dashboard()),
     'GET /notifications/unread-count': () => jsonResponse({ unreadCount: unread }),
-    'GET /notifications': () => jsonResponse({ items: [], nextCursor: null }),
+    'GET /notifications': () =>
+      jsonResponse({ items: [], nextCursor: null, asOf: '2026-10-09T01:00:00.000Z' }),
   });
   const { fetchFn } = createFakeFetch(routes);
-  return render(<App session={createMemorySession(WORKER_LOGIN)} fetchFn={fetchFn} />);
+  return render(<App session={createMemorySession(login)} fetchFn={fetchFn} />);
 }
 
 /** 要素が存在することを確かめて、その要素を返す（存在しなければ、テストを失敗させる）。 */
@@ -94,6 +96,22 @@ describe('共通のレイアウト', () => {
       '取り込み',
       'ステータスコード',
       'ユーザー',
+      '通知の設定',
+    ]);
+  });
+
+  it('一般（手動入力の権限だけ）には、権限のない「ユーザー」を表示しない。「取り込み」は、閲覧できるハウスの記録として表示する（#332）', async () => {
+    renderApp(0, {
+      ...WORKER_LOGIN,
+      user: { ...WORKER_LOGIN.user, permissions: ['manual-entry:write'] },
+    });
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    const group = menu.querySelector('details');
+    expect(Array.from(group?.querySelectorAll('a') ?? []).map((link) => link.textContent)).toEqual([
+      '設備',
+      '取り込み',
+      'ステータスコード',
       '通知の設定',
     ]);
   });

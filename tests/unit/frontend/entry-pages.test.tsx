@@ -124,6 +124,33 @@ describe('データ入力（UC-06。SC-06）', () => {
     ).toBe('');
   });
 
+  it('自動取り込みの項目も、手動入力のカテゴリ（稼働情報・収穫情報）で選べる。1 果実あたりの収穫時間は、手動入力の範囲（0〜300）を示す（#192）', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    expect(
+      within(field('カテゴリ'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toContain('稼働情報');
+
+    fireEvent.change(field('カテゴリ'), { target: { value: 'OPERATION' } });
+    const operation = screen.getByTestId('entry-items');
+    for (const label of [
+      '稼働時間（時間）',
+      '待機時間（時間）',
+      '収穫稼働時間（時間）',
+      '走行停止時間（時間）',
+    ]) {
+      expect(within(operation).getByLabelText(label)).toBeDefined();
+    }
+
+    fireEvent.change(field('カテゴリ'), { target: { value: 'HARVEST' } });
+    const harvest = screen.getByTestId('entry-items');
+    expect(within(harvest).getByLabelText('収穫数（個）')).toBeDefined();
+    expect(within(harvest).getByLabelText('1果実あたりの収穫時間（秒/果実）')).toBeDefined();
+    expect(within(harvest).getByText('0以上300以下の数値')).toBeDefined();
+  });
+
   describe('満足度は、スターで選び、9観点が揃わないと保存できない（D-18）', () => {
     async function openSatisfactionForm(routes: Routes = {}) {
       const rendered = renderApp('/data-entry', routes);
@@ -287,6 +314,76 @@ describe('データ入力（UC-06。SC-06）', () => {
     ).toEqual({
       equipmentId: 'ROBOT-01',
       category: 'FAILURE',
+    });
+  });
+
+  describe('ステータスコード（文字列の項目）は、登録済みのコードから選ぶ（#192 の PR 2）', () => {
+    it('ステータスのカテゴリで、登録済みのコードを、名称（コード）の選択肢で示す（削除済みは、出ない）。選んだコードを、文字列で送る', async () => {
+      const { calls } = renderApp('/data-entry', {
+        'GET /status-codes': () =>
+          jsonResponse({
+            items: [
+              { code: 'HARVESTING', name: '収穫中', category: 'NORMAL', isDeleted: false },
+              { code: 'FALLEN', name: '転倒（姿勢異常）', category: 'ERROR', isDeleted: false },
+            ],
+          }),
+        'POST /manual-entries': () => jsonResponse(SAVED, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'STATUS' } });
+      fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+
+      const select = await within(screen.getByTestId('entry-items')).findByLabelText(
+        'ステータスコード',
+      );
+      await waitFor(() => {
+        expect(
+          within(select)
+            .getAllByRole('option')
+            .map((option) => option.textContent),
+        ).toEqual(['選択してください', '収穫中（HARVESTING）', '転倒（姿勢異常）（FALLEN）']);
+      });
+      fireEvent.change(select, { target: { value: 'FALLEN' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      await screen.findByTestId('entry-result');
+      expect(callsOf(calls, 'POST', '/manual-entries')[0]?.body).toEqual({
+        equipmentId: 'ROBOT-01',
+        category: 'STATUS',
+        observedAt: '2026-10-09T02:00:00.000Z',
+        items: { statusCode: 'FALLEN' },
+      });
+    });
+
+    it('コードを選ばずに保存すると、選択を求めるエラーを示し、送らない', async () => {
+      const { calls } = renderApp('/data-entry', {
+        'POST /manual-entries': () => jsonResponse(SAVED, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'STATUS' } });
+      fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      expect(await screen.findByText('1つ以上の項目を入力してください')).toBeDefined();
+      expect(callsOf(calls, 'POST', '/manual-entries')).toHaveLength(0);
+    });
+
+    it('入力済みデータの一覧に、コードの文字列を示す', async () => {
+      renderApp('/data-entry/list', {
+        'GET /manual-entries': () =>
+          jsonResponse({
+            items: [manualEntry({ category: 'STATUS', items: { statusCode: 'FALLEN' } })],
+            nextCursor: null,
+          }),
+      });
+
+      const row = await screen.findByTestId('entry-row');
+
+      expect(row.textContent).toContain('ステータスコード');
+      expect(row.textContent).toContain('FALLEN');
     });
   });
 
@@ -505,7 +602,7 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
 
   it('不正なクエリの値（カテゴリ・並べ替え・日付）は、無視する', async () => {
     const { calls } = renderApp(
-      '/data-entry/list?category=OPERATION&sort=bad&from=xxxx&direction=up',
+      '/data-entry/list?category=UNKNOWN&sort=bad&from=xxxx&direction=up',
       listRoutes(),
     );
     await screen.findAllByTestId('entry-row');

@@ -24,6 +24,7 @@
 | [10_design/data](../10_design/data/) | [data-flow.md](../10_design/data/data-flow.md) | データの流れ |
 | | [data-model.md](../10_design/data/data-model.md) | データモデル（論理モデルと DynamoDB の物理設計の案） |
 | | [data-dictionary.md](../10_design/data/data-dictionary.md) | データ項目定義（データ辞書） |
+| | [ngsi-ld-context.jsonld](../10_design/data/ngsi-ld-context.jsonld) | 農業情報基盤の連携の context（JSON-LD。独自の型・属性の定義。ADR-0024） |
 | [10_design/functions](../10_design/functions/) | [functional-specification.md](../10_design/functions/functional-specification.md) | 機能仕様書（画面・API・非同期処理の振る舞い） |
 | | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) | UI デザイン方針（方向性・デザイントークン・状態の表し方と色覚への配慮・アイコン・共通のレイアウト・守ること） |
 | | [dev_spec.md](../10_design/functions/dev_spec.md) | 開発仕様書（ディレクトリ・パッケージ構成、ポート／アダプタ、ローカル実行構成、暫定仕様、UC と画面・API・ジョブの対応、テスト構成） |
@@ -53,6 +54,9 @@
 | | [0019-notification-rules.md](../10_design/adr/0019-notification-rules.md) | ADR-0019 通知の規則を、恒久の仕様にする（#146 の決定。承認） |
 | | [0020-authentication-rules.md](../10_design/adr/0020-authentication-rules.md) | ADR-0020 認証の規則（ログインの制限・パスワード）を、恒久の仕様にする（#147 の決定。承認） |
 | | [0021-nonfunctional-ops-doc-rules.md](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) | ADR-0021 非機能・運用・文書の規則を、恒久の仕様にする（#148 の決定。承認） |
+| | [0022-file-server-http-connection-provisional.md](../10_design/adr/0022-file-server-http-connection-provisional.md) | ADR-0022 ファイルサーバーの接続（HTTP）の暫定設計（#172。設定の項目・接続テスト・内部のアドレスの拒否・Lambda からのアクセス手段の比較。承認） |
+| | [0023-http-file-source-per-equipment-file.md](../10_design/adr/0023-http-file-source-per-equipment-file.md) | ADR-0023 HTTP のファイルサーバーの取得を、設備ごとのファイルパスで行う（#119。設備のファイルパス・HTTP の一覧・取得・接続テストの動作。承認） |
+| | [0024-agri-platform-federation-ngsi-ld.md](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) | ADR-0024 農業情報基盤との連携を、NGSI-LD（Orion-LD）の upsert で行う（#176。データモデル・設定・認証なし・停止中の運用） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |
@@ -63,6 +67,8 @@
 | | [smoketest.result.log](../../test-result/smoketest.result.log)（`test-result/` に置く） | サーバーレス環境（AWS の評価環境）のスモークテスト・性能の実測の結果ログ（`pnpm test:smoke`。2026-10-21 の、30 日分のデータ・`EVALUATION_ON_WRITE=deferred` での実行。Issue #79・#123。環境の URL・ユーザーは載せない） |
 | [40_operations](../40_operations/) | [git-workflow.md](../40_operations/git-workflow.md) | Git・ブランチ・PR運用 |
 | | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。評価環境（AWS）のデプロイ・ロールバック・初期ユーザー・データの初期化・障害時の確認） |
+| | [federation-platform-setup.md](../40_operations/federation-platform-setup.md) | 農業情報基盤との連携の準備・確認の手順（基盤側の確認 4 点。ADR-0024。ユーザーが実行） |
+| | [ai-agent-workflow.md](../40_operations/ai-agent-workflow.md) | AI エージェントの作業手順（このプロジェクト固有。Projects の操作・動作確認のポート・PR の定型・公開リポジトリで書かないもの） |
 | | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行・評価環境の DynamoDB（PITR・オンデマンド・復元）） |
 | [50_references](../50_references/) | （今後追加） | 外部資料・参考情報 |
 | [.license-check](../../.license-check/)（リポジトリ直下） | [license-report.md](../../.license-check/license-report.md) | 依存パッケージのライセンス確認（コピーレフトの検出と対応、全依存のライセンス別の件数と一覧、配布物に含まれるものの区別）。`docs/` の外に置く |

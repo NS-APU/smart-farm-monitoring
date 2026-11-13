@@ -31,11 +31,31 @@ describe('認可の方針（ロール → 権限）', () => {
     expect(policy.can('unknown', 'user:manage')).toBe(false);
   });
 
-  it('既定は、1ロール（農作業者）が全権限を持つ', () => {
+  it('既定は、管理者（全権限）と一般（手動入力のみ）の 2 ロール', () => {
     const defaults = createAccessPolicy(DEFAULT_ROLE_CONFIG);
 
-    expect(defaults.roleIds()).toEqual(['worker']);
-    expect(defaults.permissionsOf('worker')).toEqual(PERMISSIONS);
+    expect(defaults.roleIds()).toEqual(['admin', 'general']);
+    expect(defaults.roleOptions()).toEqual([
+      { roleId: 'admin', name: '管理者' },
+      { roleId: 'general', name: '一般' },
+    ]);
+    expect(defaults.permissionsOf('admin')).toEqual(PERMISSIONS);
+    expect(defaults.permissionsOf('general')).toEqual(['manual-entry:write']);
+  });
+
+  it('既定のロールに、農作業者（worker）はない。以前のロールの値は、未知のロールとして、権限を持たない', () => {
+    const defaults = createAccessPolicy(DEFAULT_ROLE_CONFIG);
+
+    expect(defaults.isKnownRole('worker')).toBe(false);
+    expect(defaults.permissionsOf('worker')).toEqual([]);
+  });
+
+  it('取り込みの状況・ログの閲覧の権限（ingestion:read）は、管理者だけが持つ', () => {
+    const defaults = createAccessPolicy(DEFAULT_ROLE_CONFIG);
+
+    expect(PERMISSIONS).toContain('ingestion:read');
+    expect(defaults.can('admin', 'ingestion:read')).toBe(true);
+    expect(defaults.can('general', 'ingestion:read')).toBe(false);
   });
 });
 

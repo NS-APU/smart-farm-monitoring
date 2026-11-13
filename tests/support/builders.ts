@@ -43,6 +43,41 @@ export function equipmentSet(createdAt = '2026-10-01T00:00:00.000Z'): Equipment[
   ];
 }
 
+/** 2 つ目のハウス（ハウス・ロボット・センサー）。閲覧の割り当て（ハウスごと）のテストで、範囲外の設備に使う。 */
+export const FACILITY_2_ID = toEquipmentId('HOUSE-T2');
+export const ROBOT_2_ID = toEquipmentId('ROBOT-T2');
+export const SENSOR_2_ID = toEquipmentId('SENSOR-T2');
+
+export function secondHouseSet(createdAt = '2026-10-02T00:00:00.000Z'): Equipment[] {
+  return [
+    {
+      equipmentId: FACILITY_2_ID,
+      equipmentType: 'FACILITY',
+      name: 'テストハウス2',
+      isDeleted: false,
+      createdAt,
+    },
+    {
+      equipmentId: ROBOT_2_ID,
+      equipmentType: 'ROBOT',
+      name: 'テストロボット2',
+      facilityId: FACILITY_2_ID,
+      externalId: 'ROBOT-SAMPLE-02',
+      isDeleted: false,
+      createdAt,
+    },
+    {
+      equipmentId: SENSOR_2_ID,
+      equipmentType: 'SENSOR',
+      name: 'テストセンサー2',
+      facilityId: FACILITY_2_ID,
+      externalId: 'SENSOR-SAMPLE-02',
+      isDeleted: false,
+      createdAt,
+    },
+  ];
+}
+
 /**
  * ステータスコードの定義（合成データ）。ドメインの単体テストが、アプリケーション層の初期データ
  * （application/seed/initial-data.ts）に依存しないよう、テスト側で持つ。値は、初期データと同じ内容にしている。

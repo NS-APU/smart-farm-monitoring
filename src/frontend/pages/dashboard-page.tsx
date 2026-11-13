@@ -23,6 +23,7 @@ import { HorizonControls, horizonQueryString } from '../components/horizon-contr
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
+import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useHorizonSelection } from '../hooks/use-horizon-selection.ts';
 import { MESSAGES } from '../i18n/messages.ts';
@@ -140,6 +141,8 @@ export function DashboardPage(): ReactNode {
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentTree, equipmentNames, equipmentError, setDataStatus } =
     useAppState();
+  // 全設備を閲覧できない利用者（一般）には、設備の登録ではなく、割り当ての案内を示す（Issue #330）
+  const canViewAll = usePermission('equipment:view-all');
   const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
     useHorizonSelection();
 
@@ -161,7 +164,11 @@ export function DashboardPage(): ReactNode {
     setDataStatus(
       data === undefined
         ? undefined
-        : { lastReceivedAt: data.lastReceivedAt, freshness: data.dataFreshness },
+        : {
+            lastReceivedAt: data.lastReceivedAt,
+            freshness: data.dataFreshness,
+            lastManualInputAt: data.lastManualInputAt,
+          },
     );
     return () => {
       setDataStatus(undefined);
@@ -180,10 +187,16 @@ export function DashboardPage(): ReactNode {
         <h1>{MESSAGES.dashboard.title}</h1>
         <div role="status" className="notice notice-info">
           <Icon name="info" size={18} />
-          <p>{MESSAGES.dashboard.noEquipment}</p>
-          <p className="notice-links">
-            <Link to={PATHS.settingsEquipment}>{MESSAGES.nav.equipment}</Link>
-          </p>
+          {canViewAll ? (
+            <>
+              <p>{MESSAGES.dashboard.noEquipment}</p>
+              <p className="notice-links">
+                <Link to={PATHS.settingsEquipment}>{MESSAGES.nav.equipment}</Link>
+              </p>
+            </>
+          ) : (
+            <p>{MESSAGES.dashboard.noViewableFacility}</p>
+          )}
         </div>
       </section>
     );
@@ -244,6 +257,9 @@ export function DashboardPage(): ReactNode {
   );
 }
 
+/** 警告に示す、古い設備の名前の数（それを超えた分は、「ほか N 件」）。 */
+const STALE_NAMES_SHOWN = 3;
+
 function DashboardContent(props: {
   readonly data: DashboardResponse;
   readonly horizon: Horizon;
@@ -257,7 +273,24 @@ function DashboardContent(props: {
         <p role="alert" className="notice notice-warning">
           <Icon name="status-caution" size={18} />
           {MESSAGES.dashboard.freshnessStale}
+          {data.staleEquipment.length > 0 ? (
+            <span data-testid="stale-equipment">
+              {MESSAGES.dashboard.staleEquipment(
+                data.staleEquipment.slice(0, STALE_NAMES_SHOWN).map((item) => item.name),
+                Math.max(0, data.staleEquipment.length - STALE_NAMES_SHOWN),
+              )}
+            </span>
+          ) : null}
         </p>
+      ) : null}
+      {data.dataFreshness === 'MANUAL' ? (
+        <div role="status" className="notice notice-info" data-testid="freshness-manual">
+          <Icon name="info" size={18} />
+          <p>{MESSAGES.dashboard.freshnessManual}</p>
+          <p className="notice-links">
+            <Link to={PATHS.dataEntry}>{MESSAGES.dashboard.goDataEntry}</Link>
+          </p>
+        </div>
       ) : null}
       {data.dataFreshness === 'NONE' ? (
         <div role="status" className="notice notice-info">

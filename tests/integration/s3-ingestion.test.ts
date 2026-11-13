@@ -16,6 +16,7 @@ import { equipmentSet, FACILITY_ID, ROBOT_ID, SENSOR_ID } from '../support/build
 import { createFakeS3 } from '../support/fake-s3.ts';
 import { FIXTURES_DIRECTORY } from '../support/fixtures-path.ts';
 import { TEST_NOW } from '../support/test-context.ts';
+import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 const BUCKET = 'dummy-file-server';
 
@@ -44,7 +45,7 @@ async function setup(env: Record<string, string> = {}) {
     s3.putObject(
       `${sourceId}/${name}`,
       readFileSync(join(FIXTURES_DIRECTORY, 'file-server', fixture), 'utf8'),
-      TEST_NOW,
+      STUB_MODIFIED_AT,
     );
   };
   return { s3, container, putFixture };
@@ -54,7 +55,7 @@ describe('S3 のファイルサーバーのモックからの取り込み（JB-0
   it('ジョブ（JB-01）が、S3 のロボット・環境センサーのファイルを読み、観測値を保存して、評価を更新する', async () => {
     const { container, putFixture } = await setup();
     putFixture('robot', 'robot/robot-sample-001.json');
-    putFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    putFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
 
     const result = await container.jobRunner.run('JB-01');
 

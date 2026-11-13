@@ -5,24 +5,34 @@
  * - ポインタ: `NID#{通知ID}`（通知のソートキー）、`DEDUP#{重複抑制のキー}`（最新の通知のソートキー）。強い整合で引く
  * - 既読: `READ#{利用者}` / `{通知ID}`。通知の総数（`NOTIF_TOTAL`）と、利用者ごとの既読数（`READ#{利用者}`）は、
  *   カウンターで持つ。未読の件数は、その差（全件を数えない）。利用者が作られる前の通知も、未読に数える
+ * - ハウスごとのカウンター（Issue #331）: ハウスの通知の総数（`NFTOTAL#{ハウス}`）と、利用者ごとの、そのハウスの通知の既読数
+ *   （`NFREAD#{ハウス}#{利用者}`）。閲覧範囲が限られる利用者の未読の件数は、割り当てたハウスの、その差の合計（全件を数えない）。
+ *   全設備を閲覧できる利用者は、全体のカウンターの差（従来どおり）。通知の `facilityId`（作成時に固定）がない通知は、数えない
  * - 通知の作成日時は、変えない（ソートキーに入っているため、更新では、作成時のソートキーを使う）
  */
 
-import { NotificationSchema, type Notification } from '@smart-farm/shared/schemas/notification';
+import {
+  NotificationMemoSchema,
+  NotificationSchema,
+  type Notification,
+} from '@smart-farm/shared/schemas/notification';
+import { needsWebPushDelivery } from '../../domain/notification-delivery.ts';
 import type {
   NotificationListFilter,
   NotificationRepository,
   NotificationWithReadState,
   Page,
+  StatusChangeNotificationTime,
 } from '../../application/ports/repositories.ts';
 import { decodeKeyCursor, encodeKeyCursor } from './key-cursor.ts';
-import { timedSortKey } from './keys.ts';
-import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
+import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
+import { counterAdd, counterSet, mainAggregate, readCounters } from './main-table.ts';
 import {
   batchGetItems,
   getItem,
   isTransactionConditionFailed,
   mapConcurrent,
+  queryAll,
   queryItems,
   queryPages,
   transactWrite,
@@ -43,6 +53,13 @@ const idPartition = (notificationId: string): string => `NID#${notificationId}`;
 const dedupPartition = (dedupKey: string): string => `DEDUP#${dedupKey}`;
 const readPartition = (userId: string): string => `READ#${userId}`;
 const readCounter = (userId: string): string => `READ#${userId}`;
+/** ハウスごとのカウンター（Issue #331）。 */
+const facilityTotalCounter = (facilityId: string): string => `NFTOTAL#${facilityId}`;
+const facilityReadCounter = (facilityId: string, userId: string): string =>
+  `NFREAD#${facilityId}#${userId}`;
+/** 通知のメモ（#239）: `NMEMO#{通知ID}` / `{作成日時}#{メモID}`（入力の古い順に Query）。件数は、カウンター `NMEMO#{通知ID}`。 */
+const memoPartition = (notificationId: string): string => `NMEMO#${notificationId}`;
+const memoCounter = (notificationId: string): string => `NMEMO#${notificationId}`;
 
 function matchesFilter(
   notification: Notification,
@@ -52,25 +69,26 @@ function matchesFilter(
   if (filter.kind !== undefined && notification.kind !== filter.kind) {
     return false;
   }
+  if (
+    filter.facilityIds !== undefined &&
+    (notification.facilityId === undefined || !filter.facilityIds.includes(notification.facilityId))
+  ) {
+    return false;
+  }
   if (filter.readState === 'READ' && !isRead) {
     return false;
   }
   return !(filter.readState === 'UNREAD' && isRead);
 }
 
-/** Web Push の配信が、未完了（未配信、または失敗）か。再送の上限は、読み取り側で見る。 */
-function isUndelivered(notification: Notification): boolean {
-  const webPush = notification.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
-  return webPush !== undefined && (webPush.result === 'PENDING' || webPush.result === 'FAILURE');
-}
-
 export function createNotificationRepository(db: Database): NotificationRepository {
   const table = db.tables.main;
   const notifications = mainAggregate(db, NotificationSchema);
+  const memos = mainAggregate(db, NotificationMemoSchema);
 
   /** 配信が未完了の通知だけが持つ、GSI1 のキー。 */
   const indexKeys = (notification: Notification, sortKey: string): Item =>
-    isUndelivered(notification) ? { gsi1pk: UNDELIVERED, gsi1sk: sortKey } : {};
+    needsWebPushDelivery(notification) ? { gsi1pk: UNDELIVERED, gsi1sk: sortKey } : {};
 
   async function pointedSortKey(partition: string): Promise<string | undefined> {
     const pointer = await getItem(db, table, { pk: partition, sk: 'P' });
@@ -87,6 +105,7 @@ export function createNotificationRepository(db: Database): NotificationReposito
     notificationId: string,
     userId: string,
     readAt: Date,
+    facilityId: string | undefined,
   ): Promise<boolean> {
     try {
       await transactWrite(db, [
@@ -98,6 +117,9 @@ export function createNotificationRepository(db: Database): NotificationReposito
           },
         },
         counterAdd(db, readCounter(userId), 1),
+        ...(facilityId === undefined
+          ? []
+          : [counterAdd(db, facilityReadCounter(facilityId, userId), 1)]),
       ]);
       return true;
     } catch (error) {
@@ -108,16 +130,18 @@ export function createNotificationRepository(db: Database): NotificationReposito
     }
   }
 
-  /** 通知のページを、新しい順に読み、利用者ごとの既読を付ける。 */
+  /** 通知のページを、新しい順に読み、利用者ごとの既読を付ける。`until` があれば、その日時以前（ちょうどを含む）だけを読む。 */
   async function* newestFirst(
     userId: string,
     startAfter: Item | undefined,
+    until?: Date,
   ): AsyncGenerator<{ readonly sortKey: string; readonly entry: NotificationWithReadState }> {
     for await (const items of queryPages(db, {
       table,
       hashName: 'pk',
       hashValue: NOTIFICATION,
       sortName: 'sk',
+      upper: until === undefined ? undefined : upperBoundOf(instantKey(until.toISOString())),
       forward: false,
       pageSize: LIST_PAGE_SIZE,
       consistent: true,
@@ -145,7 +169,95 @@ export function createNotificationRepository(db: Database): NotificationReposito
     }
   }
 
+  /** 絞り込みの範囲（`until` 以前を含む）の、未読の通知（識別子と、ハウス）。既読だけの範囲（`readState=READ`）は、なし。 */
+  async function unreadIn(
+    userId: string,
+    filter: NotificationListFilter,
+  ): Promise<{ notificationId: string; facilityId: string | undefined }[]> {
+    const unread: { notificationId: string; facilityId: string | undefined }[] = [];
+    if (filter.readState === 'READ') {
+      return unread;
+    }
+    for await (const found of newestFirst(userId, undefined, filter.until)) {
+      if (!found.entry.isRead && matchesFilter(found.entry.notification, false, filter)) {
+        unread.push({
+          notificationId: found.entry.notification.notificationId,
+          facilityId: found.entry.notification.facilityId,
+        });
+      }
+    }
+    return unread;
+  }
+
   const repository: NotificationRepository = {
+    async rebuildFacilityIndex({ facilityOf, userIds, dryRun }) {
+      // 1. 通知を全件読み、ハウスのない通知に、ハウスを補う。ハウスごとの通知の総数を数える
+      const facilityByNotification = new Map<string, string>();
+      const totals = new Map<string, number>();
+      let scanned = 0;
+      let assigned = 0;
+      for await (const item of queryItems(db, {
+        table,
+        hashName: 'pk',
+        hashValue: NOTIFICATION,
+        sortName: 'sk',
+        forward: true,
+        pageSize: LIST_PAGE_SIZE,
+        consistent: true,
+      })) {
+        const notification = notifications.parse(item);
+        scanned += 1;
+        const facilityId = notification.facilityId ?? facilityOf(notification);
+        if (facilityId === undefined) {
+          continue;
+        }
+        facilityByNotification.set(notification.notificationId, facilityId);
+        totals.set(facilityId, (totals.get(facilityId) ?? 0) + 1);
+        if (notification.facilityId === undefined) {
+          assigned += 1;
+          if (!dryRun) {
+            await repository.update({ ...notification, facilityId });
+          }
+        }
+      }
+      // 2. 利用者ごとの、ハウスごとの既読数（既読の記録から）
+      const reads = new Map<string, { facilityId: string; userId: string; count: number }>();
+      for (const userId of userIds) {
+        for (const read of await queryAll(db, table, readPartition(userId), { consistent: true })) {
+          const facilityId = facilityByNotification.get(String(read.sk));
+          if (facilityId === undefined) {
+            continue;
+          }
+          const key = facilityReadCounter(facilityId, userId);
+          reads.set(key, {
+            facilityId,
+            userId,
+            count: (reads.get(key)?.count ?? 0) + 1,
+          });
+        }
+      }
+      // 3. カウンターを、絶対値で書く（通知がない・既読がない組は、0 にする）
+      const counters: { name: string; value: number }[] = [];
+      for (const [facilityId, total] of totals) {
+        counters.push({ name: facilityTotalCounter(facilityId), value: total });
+        for (const userId of userIds) {
+          const name = facilityReadCounter(facilityId, userId);
+          counters.push({ name, value: reads.get(name)?.count ?? 0 });
+        }
+      }
+      if (!dryRun) {
+        for (const { name, value } of counters) {
+          await counterSet(db, name, value);
+        }
+      }
+      return {
+        notifications: scanned,
+        assigned,
+        counters: counters.length,
+        facilities: totals.size,
+        users: userIds.length,
+      };
+    },
     async add(notification) {
       if ((await pointedSortKey(idPartition(notification.notificationId))) !== undefined) {
         // 同じ識別子の通知は、上書きする（件数は増やさない）
@@ -170,6 +282,9 @@ export function createNotificationRepository(db: Database): NotificationReposito
           },
         },
         counterAdd(db, TOTAL_COUNTER, 1),
+        ...(notification.facilityId === undefined
+          ? []
+          : [counterAdd(db, facilityTotalCounter(notification.facilityId), 1)]),
         ...(latestDedup === undefined || latestDedup <= sortKey
           ? [
               {
@@ -191,6 +306,7 @@ export function createNotificationRepository(db: Database): NotificationReposito
       for await (const found of newestFirst(
         userId,
         after === undefined ? undefined : { pk: NOTIFICATION, sk: after },
+        filter.until,
       )) {
         if (matchesFilter(found.entry.notification, found.entry.isRead, filter)) {
           collected.push(found);
@@ -209,29 +325,49 @@ export function createNotificationRepository(db: Database): NotificationReposito
             : null,
       };
     },
-    async unreadCount(userId) {
-      const counts = await readCounters(db, [TOTAL_COUNTER, readCounter(userId)]);
-      return Math.max(0, (counts.get(TOTAL_COUNTER) ?? 0) - (counts.get(readCounter(userId)) ?? 0));
-    },
-    async markRead(notificationId, userId, readAt) {
-      if ((await pointedSortKey(idPartition(notificationId))) === undefined) {
-        return false;
+    async unreadCount(userId, facilityIds) {
+      if (facilityIds === undefined) {
+        const counts = await readCounters(db, [TOTAL_COUNTER, readCounter(userId)]);
+        return Math.max(
+          0,
+          (counts.get(TOTAL_COUNTER) ?? 0) - (counts.get(readCounter(userId)) ?? 0),
+        );
       }
-      await markReadOnce(notificationId, userId, readAt);
-      return true;
-    },
-    async markAllRead(userId, filter, readAt) {
-      if (filter.readState === 'READ') {
+      if (facilityIds.length === 0) {
         return 0;
       }
-      const unread: string[] = [];
-      for await (const found of newestFirst(userId, undefined)) {
-        if (!found.entry.isRead && matchesFilter(found.entry.notification, false, filter)) {
-          unread.push(found.entry.notification.notificationId);
-        }
+      // 閲覧できるハウスごとの、総数と既読数の差の合計（全件を数えない）
+      const counts = await readCounters(
+        db,
+        facilityIds.flatMap((facilityId) => [
+          facilityTotalCounter(facilityId),
+          facilityReadCounter(facilityId, userId),
+        ]),
+      );
+      return facilityIds.reduce(
+        (sum, facilityId) =>
+          sum +
+          Math.max(
+            0,
+            (counts.get(facilityTotalCounter(facilityId)) ?? 0) -
+              (counts.get(facilityReadCounter(facilityId, userId)) ?? 0),
+          ),
+        0,
+      );
+    },
+    async markRead(notificationId, userId, readAt) {
+      const notification = await getByPartition(idPartition(notificationId));
+      if (notification === undefined) {
+        return false;
       }
-      const results = await mapConcurrent(unread, CONCURRENCY, (notificationId) =>
-        markReadOnce(notificationId, userId, readAt),
+      await markReadOnce(notificationId, userId, readAt, notification.facilityId);
+      return true;
+    },
+    countUnread: async (userId, filter) => (await unreadIn(userId, filter)).length,
+    async markAllRead(userId, filter, readAt) {
+      const unread = await unreadIn(userId, filter);
+      const results = await mapConcurrent(unread, CONCURRENCY, ({ notificationId, facilityId }) =>
+        markReadOnce(notificationId, userId, readAt, facilityId),
       );
       return results.filter(Boolean).length;
     },
@@ -248,7 +384,58 @@ export function createNotificationRepository(db: Database): NotificationReposito
         indexKeys(notification, sortKey),
       );
     },
-    async listUndelivered(maxAttempts) {
+    async listStatusChangeTimes(since) {
+      // 通知は、1 つのパーティションに、作成日時順（`{日時}#{通知ID}`）で入っている。指定した日時より後（ちょうどは含めない）を、古い順に読む
+      const times: StatusChangeNotificationTime[] = [];
+      for await (const item of queryItems(db, {
+        table,
+        hashName: 'pk',
+        hashValue: NOTIFICATION,
+        sortName: 'sk',
+        lower: upperBoundOf(instantKey(since.toISOString())),
+        forward: true,
+        pageSize: LIST_PAGE_SIZE,
+        consistent: true,
+      })) {
+        const notification = notifications.parse(item);
+        if (
+          notification.kind === 'STATUS_CHANGE' &&
+          notification.equipmentId !== undefined &&
+          notification.viewpointId !== undefined
+        ) {
+          times.push({
+            equipmentId: notification.equipmentId,
+            viewpointId: notification.viewpointId,
+            createdAt: notification.createdAt,
+          });
+        }
+      }
+      return times;
+    },
+    async addMemo(memo) {
+      // メモの項目と件数のカウンターを、同時に書く（同時の追記でも、失われない。通知の項目は、書き換えない）
+      await transactWrite(db, [
+        memos.putOperation(
+          memoPartition(memo.notificationId),
+          timedSortKey(memo.createdAt, memo.memoId),
+          memo,
+        ),
+        counterAdd(db, memoCounter(memo.notificationId), 1),
+      ]);
+    },
+    async listMemos(notificationId) {
+      return (await queryAll(db, table, memoPartition(notificationId), { consistent: true })).map(
+        memos.parse,
+      );
+    },
+    async memoCounts(notificationIds) {
+      if (notificationIds.length === 0) {
+        return new Map();
+      }
+      const counts = await readCounters(db, notificationIds.map(memoCounter));
+      return new Map(notificationIds.map((id) => [id, counts.get(memoCounter(id)) ?? 0]));
+    },
+    async listUndelivered() {
       const found: Notification[] = [];
       for await (const item of queryItems(db, {
         table,
@@ -260,11 +447,8 @@ export function createNotificationRepository(db: Database): NotificationReposito
         pageSize: 1000,
       })) {
         const notification = notifications.parse(item);
-        const webPush = notification.deliveries.find((delivery) => delivery.channel === 'WEB_PUSH');
-        if (
-          webPush?.result === 'PENDING' ||
-          (webPush?.result === 'FAILURE' && webPush.attempts < maxAttempts)
-        ) {
+        // 索引は、更新のたびに付け替える。念のため、条件を、読み取り側でも確かめる
+        if (needsWebPushDelivery(notification)) {
           found.push(notification);
         }
       }

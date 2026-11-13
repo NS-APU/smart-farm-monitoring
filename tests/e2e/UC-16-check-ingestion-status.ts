@@ -15,11 +15,13 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  GENERAL,
   VIEWER,
   addUser,
   advanceMinutes,
   alignBrowserClock,
   api,
+  apiOk,
   goToMenu,
   openAs,
   placeFile,
@@ -27,6 +29,7 @@ import {
   prepareApp,
   robotJson,
   runJob,
+  sensorJson,
   setMock,
 } from './support/app.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
@@ -46,6 +49,28 @@ async function runIngestionApi(
   expect(response.status()).toBe(202);
 }
 
+/**
+ * 新しいデータになるファイルを置く（取り込みのログは、新しいデータがあった実行・失敗だけ残す。空振りは残さない。Issue #201）。
+ * 値を変えると、変わった観測値になり、ログが 1 件増える。
+ */
+function placeNewData(sourceId: 'robot' | 'environment-sensor', value: number): void {
+  if (sourceId === 'robot') {
+    placeFile(
+      'robot',
+      `new-${String(value)}.json`,
+      robotJson([{ hoursAgo: 1, fields: { harvestCount: value } }]),
+    );
+    return;
+  }
+  placeFile(
+    'environment-sensor',
+    `new-${String(value)}.json`,
+    sensorJson([
+      { hoursAgo: 1, temperature: 20 + value, humidity: 60, illuminance: 30000, co2: 900 },
+    ]),
+  );
+}
+
 const queueCount = (page: Page, status: string) =>
   page.getByTestId(`queue-${status}`).locator('strong');
 
@@ -56,7 +81,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
   }, testInfo) => {
     await prepareApp(request);
     placeFixture('robot', 'robot/robot-sample-001.json');
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.csv');
+    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await runIngestionApi(request, 'robot');
     await advanceMinutes(request, 15);
     await runIngestionApi(request, 'environment-sensor');
@@ -67,10 +92,12 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(logs.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '日時',
       '取り込み元',
+      '設備',
       '結果',
       'ファイル数',
       '取得件数',
       '読み取れなかった数',
+      '削除済みの設備',
       'エラー内容',
     ]);
     await expect(logRows(page)).toHaveCount(2);
@@ -78,13 +105,13 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(logRows(page).nth(0)).toContainText('2026/10/09 12:15:00');
     await expect(logRows(page).nth(0)).toContainText('環境センサーデータ');
     await expect(logRows(page).nth(0)).toContainText('一部成功');
-    await expect(logRows(page).nth(0).locator('td').nth(4)).toHaveText('11');
-    await expect(logRows(page).nth(0).locator('td').nth(5)).toHaveText('1');
+    await expect(logRows(page).nth(0).locator('td').nth(5)).toHaveText('11');
+    await expect(logRows(page).nth(0).locator('td').nth(6)).toHaveText('1');
     await expect(logRows(page).nth(1)).toContainText('ロボットデータ');
     await expect(logRows(page).nth(1)).toContainText('成功');
-    await expect(logRows(page).nth(1).locator('td').nth(3)).toHaveText('1');
-    await expect(logRows(page).nth(1).locator('td').nth(4)).toHaveText('14');
-    await expect(logRows(page).nth(1).locator('td').nth(6)).toHaveText('—');
+    await expect(logRows(page).nth(1).locator('td').nth(4)).toHaveText('1');
+    await expect(logRows(page).nth(1).locator('td').nth(5)).toHaveText('14');
+    await expect(logRows(page).nth(1).locator('td').nth(8)).toHaveText('—');
     // 取り込み元ごとの、最終の成功日時
     await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).toHaveText(
       '2026/10/09 12:00:00',
@@ -134,6 +161,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await openStatus(page);
     await expect(logRows(page)).toHaveCount(0);
 
+    placeFixture('robot', 'robot/robot-sample-001.json');
     await runIngestionApi(request, 'robot');
 
     await expect(logRows(page)).toHaveCount(1, { timeout: 20_000 });
@@ -208,9 +236,9 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       error: '1件のファイルを取り込めませんでした',
     },
     {
-      name: '失敗（形式違い: 見出しの違う CSV）',
+      name: '失敗（形式違い: 構造の違う JSON）',
       sourceId: 'environment-sensor',
-      fixture: 'environment-sensor/sensor-sample-003-bad-header.csv',
+      fixture: 'environment-sensor/sensor-sample-003-bad-structure.json',
       result: '失敗',
       files: '1',
       records: '0',
@@ -218,13 +246,13 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       error: '1件のファイルを取り込めませんでした',
     },
     {
-      name: '一部成功（不正な値・登録のない識別子を含む CSV）',
+      name: '一部成功（不正な値・計測日時のない記録を含む JSON）',
       sourceId: 'environment-sensor',
-      fixture: 'environment-sensor/sensor-sample-002-invalid.csv',
+      fixture: 'environment-sensor/sensor-sample-002-invalid.json',
       result: '一部成功',
       files: '1',
-      records: '2',
-      rejected: '4',
+      records: '3',
+      rejected: '3',
       error: '—',
     },
   ];
@@ -239,10 +267,10 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
 
       const row = logRows(page).first();
       await expect(row.locator('.log-result')).toHaveText(item.result);
-      await expect(row.locator('td').nth(3)).toHaveText(item.files);
-      await expect(row.locator('td').nth(4)).toHaveText(item.records);
-      await expect(row.locator('td').nth(5)).toHaveText(item.rejected);
-      await expect(row.locator('td').nth(6)).toHaveText(item.error);
+      await expect(row.locator('td').nth(4)).toHaveText(item.files);
+      await expect(row.locator('td').nth(5)).toHaveText(item.records);
+      await expect(row.locator('td').nth(6)).toHaveText(item.rejected);
+      await expect(row.locator('td').nth(8)).toHaveText(item.error);
     });
   }
 
@@ -258,7 +286,7 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
 
     const row = logRows(page).first();
     await expect(row.locator('.log-result')).toHaveText('失敗');
-    await expect(row.locator('td').nth(6)).toHaveText('ファイルサーバーに接続できませんでした');
+    await expect(row.locator('td').nth(8)).toHaveText('ファイルサーバーに接続できませんでした');
     await expect(row).not.toContainText('test-result');
     await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).toHaveText(
       'まだ実行していません',
@@ -266,42 +294,71 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
   });
 });
 
-test.describe('取り込み元の絞り込みと、ページ分割（10件ごと）', () => {
-  test('取り込み元で絞り込める（すべて・ロボットデータ・環境センサーデータ）。条件は URL に反映され、再読み込みで保持される', async ({
+test.describe('ログの絞り込み（設備・結果・期間）と、ページ分割（20件ごと）', () => {
+  test('設備・結果・期間（日本時間の日付）で絞り込める。条件は URL に反映され、再読み込みで保持される。設備を選ぶと、その設備の取り込み元の、設備に結びつかない失敗（接続できない）も示す', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    placeNewData('robot', 1);
     await runIngestionApi(request, 'robot');
+    placeNewData('environment-sensor', 1);
     await runIngestionApi(request, 'environment-sensor');
+    placeNewData('environment-sensor', 2);
     await runIngestionApi(request, 'environment-sensor');
+    // ファイルサーバーに接続できない失敗は、設備に結びつかない（ロボットの取り込み元単位のログ）
+    await setMock(request, 'file-server', 'DOWN');
+    await runIngestionApi(request, 'robot');
     await openStatus(page);
-    await expect(logRows(page)).toHaveCount(3);
-    const filter = page.getByTestId('ingestion-logs').getByLabel('取り込み元');
+    await expect(logRows(page)).toHaveCount(4);
+    const logs = page.getByTestId('ingestion-logs');
+    const equipment = logs.getByLabel('設備', { exact: true });
 
-    await filter.selectOption('robot');
+    // 設備: センサーのログ 2 件。ロボットのログ 1 件 + ロボットの取り込み元の失敗 1 件
+    await equipment.selectOption({ label: '環境センサー1' });
+    await expect(logRows(page)).toHaveCount(2);
+    await expect(page).toHaveURL(/equipment=SENSOR-01/);
+    await equipment.selectOption({ label: '収穫ロボット1' });
+    await expect(logRows(page)).toHaveCount(2);
+    // 結果: 失敗（接続できない 1 件）。成功（設備のログ 1 件）
+    await logs.getByLabel('結果', { exact: true }).selectOption('FAILURE');
     await expect(logRows(page)).toHaveCount(1);
-    await expect(page).toHaveURL(/source=robot/);
-    await filter.selectOption('environment-sensor');
-    await expect(logRows(page)).toHaveCount(2);
+    await expect(logRows(page).first()).toContainText('ファイルサーバーに接続できませんでした');
+    await expect(page).toHaveURL(/result=FAILURE/);
+    await logs.getByLabel('結果', { exact: true }).selectOption('SUCCESS');
+    await expect(logRows(page)).toHaveCount(1);
+    await expect(logRows(page).first().locator('td').nth(2)).toHaveText('収穫ロボット1');
     await page.reload();
-    await expect(filter).toHaveValue('environment-sensor');
-    await expect(logRows(page)).toHaveCount(2);
-    await filter.selectOption('');
-    await expect(logRows(page)).toHaveCount(3);
+    await expect(equipment).toHaveValue('ROBOT-01');
+    await expect(logs.getByLabel('結果', { exact: true })).toHaveValue('SUCCESS');
+    await expect(logRows(page)).toHaveCount(1);
+
+    // 期間（日本時間の日付。ログは、すべて 2026/10/09）
+    await logs.getByLabel('結果', { exact: true }).selectOption('');
+    await equipment.selectOption('');
+    await logs.getByLabel('期間（開始日）').fill('2026-10-09');
+    await logs.getByLabel('期間（終了日）').fill('2026-10-09');
+    await expect(logRows(page)).toHaveCount(4);
+    await logs.getByLabel('期間（開始日）').fill('2026-10-10');
+    await expect(page.getByTestId('ingestion-logs-empty')).toBeVisible();
+    await logs.getByLabel('期間（開始日）').fill('');
+    await logs.getByLabel('期間（終了日）').fill('2026-10-08');
+    await expect(page.getByTestId('ingestion-logs-empty')).toBeVisible();
+    await expect(page).toHaveURL(/to=2026-10-08/);
   });
 
-  test('11件のログは、1ページ目に10件、2ページ目に1件を表示し、前後のページへ移動できる', async ({
+  test('21件のログは、1ページ目に20件、2ページ目に1件を表示し、前後のページへ移動できる', async ({
     page,
     request,
   }, testInfo) => {
     await prepareApp(request);
-    for (let index = 0; index < 11; index += 1) {
+    for (let index = 0; index < 21; index += 1) {
+      placeNewData('robot', index + 1);
       await runIngestionApi(request, 'robot');
     }
     await openStatus(page);
     const logs = page.getByTestId('ingestion-logs');
-    await expect(logRows(page)).toHaveCount(10);
+    await expect(logRows(page)).toHaveCount(20);
     await expect(logs.getByRole('button', { name: '前へ' })).toBeDisabled();
     await shot(page, testInfo, 'uc16-page-1');
 
@@ -311,17 +368,19 @@ test.describe('取り込み元の絞り込みと、ページ分割（10件ごと
     await expect(logs.getByTestId('pager-page')).toHaveText('2');
     await expect(logs.getByRole('button', { name: '次へ' })).toBeDisabled();
     await logs.getByRole('button', { name: '前へ' }).click();
-    await expect(logRows(page)).toHaveCount(10);
+    await expect(logRows(page)).toHaveCount(20);
   });
 
-  test('取り込み元の絞り込みを変えると、1ページ目に戻る（2ページ目で絞り込んでも、2ページ目の位置を引き継がない）', async ({
+  test('絞り込みの条件を変えると、1ページ目に戻る（2ページ目で絞り込んでも、2ページ目の位置を引き継がない）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    for (let index = 0; index < 11; index += 1) {
+    for (let index = 0; index < 21; index += 1) {
+      placeNewData('robot', index + 1);
       await runIngestionApi(request, 'robot');
     }
+    placeNewData('environment-sensor', 1);
     await runIngestionApi(request, 'environment-sensor');
     await openStatus(page);
     const logs = page.getByTestId('ingestion-logs');
@@ -329,11 +388,37 @@ test.describe('取り込み元の絞り込みと、ページ分割（10件ごと
     await expect(logs.getByTestId('pager-page')).toHaveText('2');
     await expect(logRows(page)).toHaveCount(2);
 
-    await logs.getByLabel('取り込み元').selectOption('environment-sensor');
+    await logs.getByLabel('設備', { exact: true }).selectOption({ label: '環境センサー1' });
 
     await expect(logRows(page)).toHaveCount(1);
     await expect(logs.getByTestId('pager-page')).toHaveText('1');
     await expect(logRows(page).first()).toContainText('環境センサーデータ');
+  });
+});
+
+test.describe('設備ごとの最終の実行（空振りは、ログに残さない。Issue #201）', () => {
+  test('新しいデータがない実行は、ログを増やさず、設備ごとの最終の実行（日時・結果）だけを更新する。最後にデータが取れた日時は、そのまま', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    placeNewData('robot', 1);
+    await runIngestionApi(request, 'robot');
+    await advanceMinutes(request, 5);
+    // 新しいファイルがない（空振り）
+    await runIngestionApi(request, 'robot');
+
+    await openStatus(page);
+
+    await expect(logRows(page)).toHaveCount(1);
+    const robot = page.getByTestId('equipment-run-ROBOT-01');
+    await expect(robot).toContainText('収穫ロボット1');
+    await expect(robot.locator('td').nth(1)).toHaveText('2026/10/09 12:05:00');
+    await expect(robot.locator('td').nth(2)).toHaveText('成功');
+    await expect(robot.locator('td').nth(3)).toHaveText('2026/10/09 12:00:00');
+    await expect(page.getByTestId('equipment-run-SENSOR-01').locator('td').nth(1)).toHaveText(
+      'まだ実行していません',
+    );
   });
 });
 
@@ -427,13 +512,13 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await expect(queueCount(page, 'SENT')).not.toHaveText('0');
   });
 
-  test('連携の記録が11件あると、1ページ目に10件、2ページ目に1件を表示する', async ({
+  test('連携の記録が21件あると、1ページ目に20件、2ページ目に1件を表示する（1ページ 20 件。Issue #201）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
     await setMock(request, 'federation', 'DOWN');
-    for (let index = 0; index < 11; index += 1) {
+    for (let index = 0; index < 21; index += 1) {
       // 連携の記録は、送る項目があるときだけ作られる。項目を積み、再試行の間隔（最大12時間）を過ぎてから、送る
       await enqueueNewData(request, `f-${String(index)}.json`);
       await advanceMinutes(request, 721);
@@ -443,7 +528,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await openStatus(page);
 
     const section = page.getByTestId('federation-section');
-    await expect(federationRows(page)).toHaveCount(10);
+    await expect(federationRows(page)).toHaveCount(20);
     await section.getByRole('button', { name: '次へ' }).click();
     await expect(federationRows(page)).toHaveCount(1);
     await expect(section.getByTestId('pager-page')).toHaveText('2');
@@ -451,7 +536,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
 });
 
 test.describe('代替フロー: 失敗や保留が続く場合は、設定の見直し（UC-15）へ進める', () => {
-  test('取り込み・連携の状況の画面から、同じ画面で、取り込みの設定（接続先・取得間隔）を見直せる', async ({
+  test('取り込み・連携の状況の画面から、同じ画面で、取り込みの設定（接続先・有効／無効）を見直せる', async ({
     page,
     request,
   }) => {
@@ -462,12 +547,17 @@ test.describe('代替フロー: 失敗や保留が続く場合は、設定の見
     await expect(logRows(page).first().locator('.log-result')).toHaveText('失敗');
 
     await sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）').fill('FILE_SERVER_2');
-    await sourceCard(page, 'robot').getByLabel('取得間隔').selectOption('60');
+    await sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする').uncheck();
     await sourceCard(page, 'robot').getByRole('button', { name: '設定を保存' }).click();
 
     await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
     await page.reload();
-    await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveValue('60');
+    await expect(sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）')).toHaveValue(
+      'FILE_SERVER_2',
+    );
+    await expect(
+      sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする'),
+    ).not.toBeChecked();
   });
 
   test('メニューの「取り込み」から、取り込み・連携の状況の画面を開ける', async ({
@@ -483,5 +573,55 @@ test.describe('代替フロー: 失敗や保留が続く場合は、設定の見
     await expect(page).toHaveURL(/\/settings\/ingestion$/);
     await expect(page.getByTestId('ingestion-logs')).toBeVisible();
     await expect(page.getByTestId('federation-section')).toBeVisible();
+  });
+});
+
+test.describe('ハウス別の記録（一般ユーザー向け。Issue #332。ADR-0013。FR-9.8）', () => {
+  test('一般ユーザーには、割り当てたハウスの取り込み・連携の記録だけを示す。設定・接続先・失敗の理由・連携キューの件数は、示さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    placeFixture('robot', 'robot/robot-sample-001.json');
+    await runIngestionApi(request, 'robot');
+    await runJob(request, 'JB-03');
+    await addUser(request, GENERAL);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-01', { userIds: [GENERAL.userId] });
+    await alignBrowserClock(page);
+    await openAs(page, '/', GENERAL);
+
+    await goToMenu(page, '取り込み');
+
+    await expect(page).toHaveURL(/\/settings\/ingestion$/);
+    await expect(
+      page.getByRole('heading', { name: '取り込み・連携の記録', level: 1 }),
+    ).toBeVisible();
+    const ingestion = page.getByTestId('facility-ingestion-row');
+    await expect(ingestion.first()).toContainText('ハウス1');
+    await expect(ingestion.first()).toContainText('ロボットデータ');
+    await expect(ingestion.first()).toContainText('成功');
+    await expect(page.getByTestId('facility-federation-row').first()).toContainText('ハウス1');
+    // 管理者向けの内容（設定・接続先・認証情報・エラー内容・連携キューの件数）は、示さない
+    await expect(page.getByTestId('source-robot')).toHaveCount(0);
+    await expect(page.getByTestId('federation-queue')).toHaveCount(0);
+    await expect(page.getByTestId('ingestion-logs')).toHaveCount(0);
+    await expect(page.getByText('認証情報')).toHaveCount(0);
+    await shot(page, testInfo, 'uc16-facility-logs');
+
+    // 割り当てを別のハウスに変えると、記録は示さない（すぐに反映される）
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-01', { userIds: [] });
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-02', { userIds: [GENERAL.userId] });
+    await page.reload();
+    await expect(page.getByTestId('facility-ingestion-empty')).toHaveText(
+      '閲覧できるハウスの取り込みの記録はありません',
+    );
+    // 連携は、ハウス 2 の評価の分だけ（ハウス 1 の記録は、示さない）
+    await expect(page.getByTestId('facility-federation-row').first()).toContainText('ハウス2');
+    await expect(page.getByTestId('facility-federation').getByText('ハウス1')).toHaveCount(0);
   });
 });

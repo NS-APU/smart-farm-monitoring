@@ -10,7 +10,11 @@ import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { AuditService } from '../application/audit/audit-service.ts';
 import type { AuthService } from '../application/auth/auth-service.ts';
 import type { UserService } from '../application/auth/user-service.ts';
+import type { FacilityAccessService } from '../application/access/facility-access-service.ts';
+import type { FacilityScopeService } from '../application/access/facility-scope.ts';
 import type { CriteriaAdminService } from '../application/evaluation/criteria-admin-service.ts';
+import type { FacilityLogService } from '../application/ingestion/facility-log-service.ts';
+import type { FederationAdminService } from '../application/federation/federation-admin-service.ts';
 import type { IngestionAdminService } from '../application/ingestion/ingestion-admin-service.ts';
 import type { IngestionService } from '../application/ingestion/ingestion-service.ts';
 import type { ManualEntryService } from '../application/manual-entry/manual-entry-service.ts';
@@ -56,7 +60,11 @@ export interface ApiDeps {
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
   readonly userService: UserService;
+  readonly facilityAccessService: FacilityAccessService;
+  readonly facilityScope: FacilityScopeService;
   readonly ingestionAdminService: IngestionAdminService;
+  readonly federationAdminService: FederationAdminService;
+  readonly facilityLogService: FacilityLogService;
   readonly ingestionService: IngestionService;
   readonly pushSubscriptionService: PushSubscriptionService;
   readonly dashboardQuery: DashboardQuery;
@@ -71,6 +79,8 @@ export interface ApiDeps {
   readonly trustedProxyHops: number;
   /** 利用者の IP が入っているヘッダーの名前（接続元の識別。未指定なら使わない）。 */
   readonly clientIpHeader: string | undefined;
+  /** CloudFront が付ける秘密のヘッダーの値。指定があれば、一致しない呼び出し（直接の呼び出し）を 403 で拒否する（Issue #102）。 */
+  readonly originVerifySecret?: string | undefined;
 }
 
 /** Hono のコンテキストの変数。 */
