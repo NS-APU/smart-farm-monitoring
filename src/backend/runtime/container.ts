@@ -128,6 +128,13 @@ import {
 import type { NotifierPort } from '../application/ports/notifier-port.ts';
 import type { SecretPort } from '../application/ports/secret-port.ts';
 import { createMockFederation } from '../infrastructure/local/mock-federation.ts';
+import { createNgsiLdFederation } from '../infrastructure/http/ngsi-ld-federation.ts';
+import {
+  createHttpNgsiLdTransport,
+  type NgsiLdTransport,
+} from '../infrastructure/http/ngsi-ld-http-transport.ts';
+import { createFederationConnectionStore } from '../application/federation/federation-connection-store.ts';
+import type { FederationPort } from '../application/ports/federation-port.ts';
 import {
   DEMO_ROBOT_ID,
   DEMO_SENSOR_ID,
@@ -208,6 +215,8 @@ export interface ContainerOverrides {
   readonly ssmClient?: SsmCommandSender;
   /** Web Push の送信の関数（テストで、偽物に差し替える。WEB_PUSH_DELIVERY=vapid のとき使う）。 */
   readonly webPushSender?: WebPushSender;
+  /** 農業情報基盤への送信（テストで、偽物に差し替える。FEDERATION_MODE=ngsi-ld のとき使う）。 */
+  readonly federationTransport?: NgsiLdTransport;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -400,6 +409,23 @@ function buildAdapters(
       : buildCognitoIdentity(config.cognito, storage, clock, overrides);
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
+  // 農業情報基盤への連携: FEDERATION_MODE=ngsi-ld のとき、NGSI-LD のアダプタ（接続先・テナント・context は、設定から読む。ADR-0024）。
+  // 既定は、モック（ローカル・テスト）。アダプタでは、接続先が未設定のあいだ、連携は保留になる（モックのように、受け取ったことにしない）
+  const federationConnection = createFederationConnectionStore({
+    settings: repositories.settings,
+    secrets,
+  });
+  const federationPort: FederationPort =
+    config.federationMode === 'ngsi-ld'
+      ? createNgsiLdFederation({
+          connection: () => federationConnection.get(),
+          transport:
+            overrides.federationTransport ??
+            createHttpNgsiLdTransport({ allowPrivateAddresses: config.httpFileSourceAllowPrivate }),
+          equipment: repositories.equipment,
+          timeoutMs: DEFAULT_APP_SETTINGS.federation.ioTimeoutMs,
+        })
+      : mocks.federation;
   return {
     repositories,
     store,
@@ -407,6 +433,8 @@ function buildAdapters(
     jobLock: storage.jobLock,
     faults,
     mocks,
+    federationPort,
+    federationConnection,
     webPush,
     fileSource,
     secrets,
@@ -430,8 +458,7 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, mocks, webPush, fileSource, policy, auth, credentials, profiles } =
-    adapters;
+  const { repositories, webPush, fileSource, policy, auth, credentials, profiles } = adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
@@ -450,7 +477,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     federation: repositories.federation,
     equipment: repositories.equipment,
     notifications: notificationService,
-    port: mocks.federation,
+    port: adapters.federationPort,
     clock,
     ids,
     settings: settings.federation,

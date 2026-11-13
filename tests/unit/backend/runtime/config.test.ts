@@ -298,6 +298,17 @@ describe('実行設定（環境変数）', () => {
     });
   });
 
+  describe('農業情報基盤との連携の方式（FEDERATION_MODE。#177。ADR-0024）', () => {
+    it('既定は mock（モック。ローカル・テスト）。ngsi-ld を指定すると、NGSI-LD のアダプタを使う', () => {
+      expect(parseConfig({}).federationMode).toBe('mock');
+      expect(parseConfig({ FEDERATION_MODE: 'ngsi-ld' }).federationMode).toBe('ngsi-ld');
+    });
+
+    it('それ以外の値は、設定エラー', () => {
+      expect(() => parseConfig({ FEDERATION_MODE: 'orion' })).toThrow('FEDERATION_MODE');
+    });
+  });
+
   describe('Web Push の実配信（WEB_PUSH_DELIVERY・WEB_PUSH_SUBJECT。#241。ADR-0019 の D-36）', () => {
     const VAPID = {
       WEB_PUSH_DELIVERY: 'vapid',

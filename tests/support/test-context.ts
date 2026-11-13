@@ -15,6 +15,7 @@ import {
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { hashPassword } from '../../src/backend/infrastructure/local/password-hasher.ts';
 import type { WebPushSender } from '../../src/backend/infrastructure/web-push/web-push-notifier.ts';
+import type { NgsiLdTransport } from '../../src/backend/infrastructure/http/ngsi-ld-http-transport.ts';
 import { ErrorResponseSchema } from '../../src/shared/schemas/api.ts';
 import { LoginResponseSchema } from '../../src/shared/schemas/auth.ts';
 import { toUserId } from '../../src/shared/schemas/common.ts';
@@ -61,6 +62,8 @@ export interface TestContextOptions {
   readonly logger?: Logger;
   /** Web Push の送信の関数の偽物（WEB_PUSH_DELIVERY=vapid のとき、プッシュサービスへの送信の代わりに使う）。 */
   readonly webPushSender?: WebPushSender;
+  /** 農業情報基盤への送信の偽物（FEDERATION_MODE=ngsi-ld のとき、実際の接続の代わりに使う）。 */
+  readonly federationTransport?: NgsiLdTransport;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -83,6 +86,9 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     ids: createSequentialIdGenerator('test'),
     logger: options.logger ?? NULL_LOGGER,
     ...(options.webPushSender === undefined ? {} : { webPushSender: options.webPushSender }),
+    ...(options.federationTransport === undefined
+      ? {}
+      : { federationTransport: options.federationTransport }),
   });
   await container.initialize();
   const app = createApp(container);
