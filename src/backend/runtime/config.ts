@@ -37,6 +37,10 @@ import { namedErrorClass } from '../application/named-error.ts';
 import { ORIGIN_SECRET_PATTERN } from '../presentation/origin-guard.ts';
 
 export const APP_MODES = ['local', 'test', 'production'] as const;
+
+/** 農業情報基盤との連携の方式。 */
+export const FEDERATION_MODES = ['mock', 'ngsi-ld'] as const;
+export type FederationMode = (typeof FEDERATION_MODES)[number];
 export type AppMode = (typeof APP_MODES)[number];
 
 /** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: DynamoDB（ADR-0007）。 */
@@ -125,6 +129,8 @@ const EnvSchema = z.object({
     .min(MIN_FEDERATION_EXPIRY_DAYS)
     .max(MAX_FEDERATION_EXPIRY_DAYS)
     .default(DEFAULT_FEDERATION_EXPIRY_DAYS),
+  /** 農業情報基盤との連携の方式（mock: モック〔ローカル・テスト〕／ngsi-ld: NGSI-LD のアダプタ。ADR-0024。#177）。 */
+  FEDERATION_MODE: z.enum(FEDERATION_MODES).default('mock'),
   /** ファイル単位の失敗（読み取り不可・形式違い・大きすぎる）も、取り込み失敗として通知するか（V-017。既定は通知する。ADR-0019 の D-37）。 */
   INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: BooleanFromString.default(true),
   /** 取り込みの計測日時の未来の許容（分。既定 5 分。受信より、これを超えて先の計測日時は、不正。手動入力は、5 分固定。D-13）。 */
@@ -265,6 +271,7 @@ export interface AppConfig {
   readonly ingestionStopNotificationEnabled: boolean;
   readonly ingestionFileFailureNotificationEnabled: boolean;
   readonly ingestionFutureToleranceMinutes: number;
+  readonly federationMode: FederationMode;
   readonly webPushPublicKey: string | undefined;
   /** Web Push の配信の方式（dummy: 記録だけ／vapid: 実際に送る）。 */
   readonly webPushDelivery: 'dummy' | 'vapid';
@@ -488,6 +495,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     ingestionStopNotificationEnabled: parsed.INGESTION_STOP_NOTIFICATION_ENABLED,
     ingestionFileFailureNotificationEnabled: parsed.INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED,
     ingestionFutureToleranceMinutes: parsed.INGESTION_FUTURE_TOLERANCE_MINUTES,
+    federationMode: parsed.FEDERATION_MODE,
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     webPushDelivery: parsed.WEB_PUSH_DELIVERY,
     webPushSubject: parsed.WEB_PUSH_SUBJECT,

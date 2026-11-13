@@ -24,6 +24,7 @@
 | [10_design/data](../10_design/data/) | [data-flow.md](../10_design/data/data-flow.md) | データの流れ |
 | | [data-model.md](../10_design/data/data-model.md) | データモデル（論理モデルと DynamoDB の物理設計の案） |
 | | [data-dictionary.md](../10_design/data/data-dictionary.md) | データ項目定義（データ辞書） |
+| | [ngsi-ld-context.jsonld](../10_design/data/ngsi-ld-context.jsonld) | 農業情報基盤の連携の context（JSON-LD。独自の型・属性の定義。ADR-0024） |
 | [10_design/functions](../10_design/functions/) | [functional-specification.md](../10_design/functions/functional-specification.md) | 機能仕様書（画面・API・非同期処理の振る舞い） |
 | | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) | UI デザイン方針（方向性・デザイントークン・状態の表し方と色覚への配慮・アイコン・共通のレイアウト・守ること） |
 | | [dev_spec.md](../10_design/functions/dev_spec.md) | 開発仕様書（ディレクトリ・パッケージ構成、ポート／アダプタ、ローカル実行構成、暫定仕様、UC と画面・API・ジョブの対応、テスト構成） |

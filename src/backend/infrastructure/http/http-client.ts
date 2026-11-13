@@ -81,7 +81,7 @@ export function classifyNetworkError(error: unknown): FileSourceFailureReason {
 }
 
 /** 名前の解決の結果を、すべて検査する。1 つでも内部のアドレスがあれば、拒否する。 */
-function createGuardedLookup(resolver: HostResolver): LookupFunction {
+export function createGuardedLookup(resolver: HostResolver): LookupFunction {
   return (hostname, options, callback) => {
     resolver(
       hostname,

@@ -110,7 +110,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   federation: {
     batchSize: 100,
     retryBaseDelayMinutes: 5,
-    retryMaxDelayMinutes: 720,
+    // 農業情報基盤は、ふだん停止していて、起動が不定期のため、上限は 60 分（起動後、最大 60 分で再開する。ADR-0024）
+    retryMaxDelayMinutes: 60,
     ioTimeoutMs: DEFAULT_IO_TIMEOUT_MS,
     expiryDays: DEFAULT_FEDERATION_EXPIRY_DAYS,
   },
