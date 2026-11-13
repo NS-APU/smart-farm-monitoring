@@ -2708,7 +2708,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 300 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（160 ファイル・3482 件成功・2 件スキップ）。
+計測対象は 300 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（161 ファイル・3483 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
@@ -2738,7 +2738,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3482 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3483 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3483 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 
