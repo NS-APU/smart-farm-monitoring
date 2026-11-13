@@ -395,4 +395,4 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 
 ## 外部サービス
 
-開発・テストに、外部サービスは不要（ファイルサーバー・農業情報基盤・Web Push は、ローカルのモック。dev_spec.md 3.5）。本番の接続先は未確定（Q-002、Q-005）。
+開発・テストに、外部サービスは不要（ファイルサーバー・農業情報基盤・Web Push は、ローカルのモック。dev_spec.md 3.5）。本番の接続先: ファイルサーバーは未確定（Q-002）。農業情報基盤は、NGSI-LD（`FEDERATION_MODE=ngsi-ld`。接続先は画面で設定。ADR-0024。手順は federation-platform-setup.md）。
