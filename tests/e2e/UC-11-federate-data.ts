@@ -13,7 +13,7 @@
  *   事後条件    連携対象のデータが農業情報基盤に反映されている。または、連携の保留が記録されている
  *
  * 値の同値分割: 連携対象の種類（ロボット・環境センサー・人手入力の生データ、評価結果の派生データ）、農業情報基盤の状態
- * （稼働・停止（保留）・拒否（失敗）・遅延）、再送の間隔（5分から倍々。上限12時間。間隔の前後）、停止の長さ（短い・長い）。
+ * （稼働・停止（保留）・拒否（失敗）・遅延）、再送の間隔（5分から倍々。上限 60 分。間隔の前後）、停止の長さ（短い・長い）。
  * 連携の内容（取り込み元・人手入力ごとの生データ、観点別の評価結果）、人手入力の修正・削除、1回の送信の上限（100件）も確認する。
  * 関連するユースケース: UC-08・UC-09・UC-07（連携対象の元）、UC-10（評価・通知）、UC-16（連携の結果の確認）。
  */
@@ -35,6 +35,7 @@ import {
   setMock,
 } from './support/app.ts';
 import { federationRows } from './support/ingestion.ts';
+import { expectNoHorizontalScroll } from './support/pages.ts';
 import { hoursAgo, NOW, shot } from './support/viewpoint-scenarios.ts';
 
 interface ReceivedItem {
@@ -528,5 +529,82 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
     expect(items.some((item) => item.targetType === 'EVALUATION')).toBe(true);
     expect(items.some((item) => item.targetType === 'OBSERVATION')).toBe(true);
     await shot(page, testInfo, 'uc11-scenario');
+  });
+});
+
+test.describe('連携先の設定（SC-11。ADR-0024。接続先は書き込み専用）', () => {
+  const ENDPOINT = 'https://platform.example.test/api/orion/ngsi-ld/v1';
+
+  test('モックの環境では、設定が使われない旨を示す。接続先・テナント名・context の URL を保存でき、接続先の値は、画面に表示しない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion');
+    const panel = page.getByTestId('federation-settings');
+    await expect(panel.getByTestId('federation-mock-note')).toContainText('モック');
+    await expect(panel.getByTestId('federation-endpoint-status')).toContainText('未設定');
+    await expect(panel.getByLabel('テナント名')).toHaveValue('smart_farm_monitoring');
+
+    await panel.getByLabel('接続先の URL（書き込み専用）').fill(ENDPOINT);
+    await panel.getByLabel('テナント名').fill('my_tenant');
+    await panel.getByLabel('連携を有効にする').check();
+    await panel.getByRole('button', { name: '連携先の設定を保存' }).click();
+
+    await expect(panel.getByTestId('federation-settings-result')).toHaveText('保存しました');
+    await expect(panel.getByTestId('federation-endpoint-status')).toContainText('設定済み');
+    await expect(panel.getByLabel('接続先の URL（書き込み専用）')).toHaveValue('');
+    // 再読み込みしても、接続先の値は、画面のどこにも出ない（設定した内容は、保たれる）
+    await page.reload();
+    const reloaded = page.getByTestId('federation-settings');
+    await expect(reloaded.getByTestId('federation-endpoint-status')).toContainText('設定済み');
+    await expect(reloaded.getByLabel('テナント名')).toHaveValue('my_tenant');
+    await expect(reloaded.getByLabel('連携を有効にする')).toBeChecked();
+    await expect(page.locator('body')).not.toContainText('platform.example.test');
+    await shot(page, test.info(), 'uc11-federation-settings');
+  });
+
+  test('接続の確認: モックの環境では、確認できない旨を示す。不正な入力は、項目のエラーで保存しない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion');
+    const panel = page.getByTestId('federation-settings');
+
+    await panel.getByRole('button', { name: '接続を確認' }).click();
+    await expect(panel.getByTestId('federation-test-result')).toContainText('モック');
+
+    await panel.getByLabel('テナント名').fill('Bad Tenant');
+    await panel.getByRole('button', { name: '連携先の設定を保存' }).click();
+    await expect(panel.getByText('テナント名は、英小文字で始まる')).toBeVisible();
+    await expect(panel.getByTestId('federation-settings-result')).toHaveCount(0);
+  });
+
+  test('接続先が未設定のまま、連携を有効にして保存すると、エラーになる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion');
+    const panel = page.getByTestId('federation-settings');
+
+    await panel.getByLabel('連携を有効にする').check();
+    await panel.getByRole('button', { name: '連携先の設定を保存' }).click();
+
+    await expect(panel.getByText('接続先を設定してから、有効にしてください')).toBeVisible();
+  });
+
+  test('スマートフォン幅（375px）でも、設定の欄が、横にはみ出さない', async ({ page, request }) => {
+    await prepareApp(request);
+    await page.setViewportSize({ width: 375, height: 667 });
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion');
+    await expect(page.getByTestId('federation-settings')).toBeVisible();
+
+    await expectNoHorizontalScroll(page);
   });
 });
