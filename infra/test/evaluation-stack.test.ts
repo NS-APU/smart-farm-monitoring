@@ -631,6 +631,23 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     }
   });
 
+  it('環境変数: 農業情報基盤との連携は、NGSI-LD のアダプタ（FEDERATION_MODE=ngsi-ld）。API（設定・接続の確認）とジョブ（送信）の両方に持つ（#177。ADR-0024）', () => {
+    const { template } = plainStack();
+    const functions = Object.values(
+      template.findResources('AWS::Lambda::Function') as Record<
+        string,
+        { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+      >,
+    ).filter((resource) => resource.Properties.Environment?.Variables.APP_MODE !== undefined);
+
+    expect(functions).toHaveLength(2);
+    for (const resource of functions) {
+      expect(resource.Properties.Environment?.Variables).toMatchObject({
+        FEDERATION_MODE: 'ngsi-ld',
+      });
+    }
+  });
+
   it('IAM（API）: パラメータストアは、環境のパスの下だけ（読み取り・書き込み）。復号・暗号化は、SSM 経由の利用に限る。ワイルドカードの全リソースはない（#206）', () => {
     const { template } = plainStack();
     const statements = roleStatements(template);

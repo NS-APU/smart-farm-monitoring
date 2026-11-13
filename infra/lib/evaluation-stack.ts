@@ -254,6 +254,9 @@ export class EvaluationStack extends Stack {
       CREDENTIAL_STORE: 'ssm',
       CREDENTIAL_PATH_PREFIX: credentialPathPrefix,
       LOG_LEVEL: 'info',
+      // 農業情報基盤との連携は、NGSI-LD のアダプタ（Issue #177。ADR-0024）。接続先・テナント・context は、画面（SC-11）で設定する。
+      // 接続先が未設定のあいだは、連携は保留になる（モックのように、受け取ったことにしない）
+      FEDERATION_MODE: 'ngsi-ld',
       // Web Push の実配信（#241）。公開鍵と連絡先（公開の値）。秘密鍵は、環境変数に持たず、パラメータストアから読む
       ...(props.webPush === undefined
         ? {}
