@@ -37,6 +37,7 @@ import {
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import { FederationSettingsPanel } from '../components/federation-settings-panel.tsx';
 import { Field, FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { Icon } from '../components/icon.tsx';
@@ -1008,6 +1009,7 @@ function IngestionContent(): ReactNode {
           <h2 id="federation-heading">{TEXT.federation}</h2>
         </div>
         <p className="muted">{TEXT.federationLead}</p>
+        <FederationSettingsPanel />
         {federation.error !== undefined ? (
           <ErrorView error={federation.error} onRetry={federation.reload} />
         ) : federation.data === undefined ? (
