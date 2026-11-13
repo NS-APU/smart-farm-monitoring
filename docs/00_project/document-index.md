@@ -55,6 +55,7 @@
 | | [0021-nonfunctional-ops-doc-rules.md](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) | ADR-0021 非機能・運用・文書の規則を、恒久の仕様にする（#148 の決定。承認） |
 | | [0022-file-server-http-connection-provisional.md](../10_design/adr/0022-file-server-http-connection-provisional.md) | ADR-0022 ファイルサーバーの接続（HTTP）の暫定設計（#172。設定の項目・接続テスト・内部のアドレスの拒否・Lambda からのアクセス手段の比較。承認） |
 | | [0023-http-file-source-per-equipment-file.md](../10_design/adr/0023-http-file-source-per-equipment-file.md) | ADR-0023 HTTP のファイルサーバーの取得を、設備ごとのファイルパスで行う（#119。設備のファイルパス・HTTP の一覧・取得・接続テストの動作。承認） |
+| | [0024-agri-platform-federation-ngsi-ld.md](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) | ADR-0024 農業情報基盤との連携を、NGSI-LD（Orion-LD）の upsert で行う（#176。データモデル・設定・認証なし・停止中の運用） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |
