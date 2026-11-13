@@ -88,7 +88,11 @@ function build(options: { files: Record<string, string>; listFails?: boolean }) 
       listMemos: vi.fn(),
       deliverPending: vi.fn(),
     },
-    federation: { enqueue: vi.fn().mockResolvedValue(undefined), runPending: vi.fn() },
+    federation: {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      runPending: vi.fn(),
+      enqueueAllEquipment: vi.fn(),
+    },
     clock: createControllableClock(TEST_NOW),
     ids: createSequentialIdGenerator(),
     settings: { ...DEFAULT_APP_SETTINGS.ingestion, retryBaseDelayMs: 0 },

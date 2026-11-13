@@ -153,7 +153,11 @@ async function build(options: {
       listMemos: vi.fn(),
       deliverPending: vi.fn(),
     },
-    federation: { enqueue: vi.fn().mockResolvedValue(undefined), runPending: vi.fn() },
+    federation: {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+      runPending: vi.fn(),
+      enqueueAllEquipment: vi.fn(),
+    },
     clock,
     ids: createSequentialIdGenerator(),
     settings: {

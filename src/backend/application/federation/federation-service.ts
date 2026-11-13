@@ -14,7 +14,11 @@ import type { FederationItem, FederationLog } from '@smart-farm/shared/schemas/i
 import { MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { errorLogFields } from '../error-fields.ts';
-import { equipmentIdsOfPayload, splitObservationPayload } from '../../domain/federation-payload.ts';
+import {
+  equipmentFederationPayload,
+  equipmentIdsOfPayload,
+  splitObservationPayload,
+} from '../../domain/federation-payload.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { FederationUnavailableError, type FederationPort } from '../ports/federation-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
@@ -40,12 +44,17 @@ export interface FederationService {
   }): Promise<void>;
   /** 送信してよい項目を、まとめて送る（JB-03）。 */
   runPending(): Promise<FederationRunSummary>;
+  /**
+   * 設備（削除済みを除く）の名前・ID を、すべて連携キューに積む（連携を設定した初回。Issue #177。ADR-0024）。
+   * 設備の登録・修正のときは、設備のサービスが、その設備だけを積む。積んだ件数を返す。
+   */
+  enqueueAllEquipment(): Promise<number>;
 }
 
 export interface FederationServiceDeps {
   readonly federation: FederationRepository;
   /** 送るデータの設備から、ハウスを決める（#332）。 */
-  readonly equipment: Pick<EquipmentRepository, 'get'>;
+  readonly equipment: Pick<EquipmentRepository, 'get' | 'list'>;
   readonly notifications: Pick<NotificationService, 'notifyFederationExpired'>;
   readonly port: FederationPort;
   readonly clock: ClockPort;
@@ -171,6 +180,18 @@ export function createFederationService(deps: FederationServiceDeps): Federation
           ...(facilityIds.length > 0 ? { facilityIds } : {}),
         });
       }
+    },
+
+    async enqueueAllEquipment() {
+      const active = await equipment.list();
+      for (const item of active) {
+        await this.enqueue({
+          targetType: 'EQUIPMENT',
+          targetRef: `equipment#${item.equipmentId}`,
+          payload: equipmentFederationPayload(item, clock.now().toISOString()),
+        });
+      }
+      return active.length;
     },
 
     async runPending() {

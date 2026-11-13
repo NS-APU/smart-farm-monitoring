@@ -211,7 +211,7 @@ describe('評価（JB-02）', () => {
       repositories: context.container.repositories,
       criteria: { getEffective: vi.fn(), getAllEffective: () => Promise.resolve(new Map()) },
       notifications: context.container.notificationService,
-      federation: { enqueue: vi.fn(), runPending: vi.fn() },
+      federation: { enqueue: vi.fn(), runPending: vi.fn(), enqueueAllEquipment: vi.fn() },
       clock: context.clock,
       settings: {
         defaultIngestionIntervalMinutes: 15,
@@ -1508,6 +1508,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
       federation: {
         enqueue: vi.fn(),
         runPending: vi.fn().mockResolvedValue({ sent: 0, failed: 0, held: 0 }),
+        enqueueAllEquipment: vi.fn(),
       },
       notifications: {
         notifyStatusChange: vi.fn(),

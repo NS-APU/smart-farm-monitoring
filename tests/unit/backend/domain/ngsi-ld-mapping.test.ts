@@ -314,6 +314,102 @@ describe('評価 → ViewpointEvaluation', () => {
   });
 });
 
+describe('設備 → 設備のエンティティ（D-35: 名前・ID）', () => {
+  function equipmentItem(payload: Record<string, unknown>): FederationItem {
+    return {
+      ...observationItem([]),
+      targetType: 'EQUIPMENT',
+      targetRef: `equipment#${String(payload.equipmentId)}`,
+      payload,
+    };
+  }
+
+  it('ハウスは Greenhouse、ロボットは HarvestRobot、センサーは EnvironmentSensor にし、名前を持たせる。ロボット・センサーは、親のハウスへの関連（refGreenhouse）も持つ', () => {
+    const house = fragmentsOfItem(
+      equipmentItem({
+        equipmentId: FACILITY_ID,
+        equipmentType: 'FACILITY',
+        name: 'ハウス1',
+        changedAt: AT,
+      }),
+      typeOf,
+    );
+    const robot = fragmentsOfItem(
+      equipmentItem({
+        equipmentId: ROBOT_ID,
+        equipmentType: 'ROBOT',
+        name: '収穫ロボット1',
+        facilityId: FACILITY_ID,
+        changedAt: AT,
+      }),
+      typeOf,
+    );
+    const sensor = fragmentsOfItem(
+      equipmentItem({
+        equipmentId: SENSOR_ID,
+        equipmentType: 'SENSOR',
+        name: '環境センサー1',
+        facilityId: FACILITY_ID,
+        changedAt: AT,
+      }),
+      typeOf,
+    );
+
+    expect(house).toEqual([
+      {
+        at: AT,
+        entity: {
+          id: `urn:ngsi-ld:Greenhouse:${FACILITY_ID}`,
+          type: 'Greenhouse',
+          name: { type: 'Property', value: 'ハウス1' },
+        },
+      },
+    ]);
+    expect(robot[0]?.entity).toEqual({
+      id: `urn:ngsi-ld:HarvestRobot:${ROBOT_ID}`,
+      type: 'HarvestRobot',
+      name: { type: 'Property', value: '収穫ロボット1' },
+      refGreenhouse: { type: 'Relationship', object: `urn:ngsi-ld:Greenhouse:${FACILITY_ID}` },
+    });
+    expect(sensor[0]?.entity).toMatchObject({
+      id: `urn:ngsi-ld:EnvironmentSensor:${SENSOR_ID}`,
+      type: 'EnvironmentSensor',
+    });
+  });
+
+  it('データ上の識別子・取得間隔・ファイルパスなど、名前・ID・親以外は、送らない', () => {
+    const fragments = fragmentsOfItem(
+      equipmentItem({
+        equipmentId: ROBOT_ID,
+        equipmentType: 'ROBOT',
+        name: 'ロボット',
+        facilityId: FACILITY_ID,
+        externalId: 'ROBOT-EXTERNAL-SECRET',
+        sourceFilePath: '/internal/path.json',
+        intervalMinutes: 1,
+        changedAt: AT,
+      }),
+      typeOf,
+    );
+
+    const json = JSON.stringify(fragments);
+    expect(json).not.toContain('ROBOT-EXTERNAL-SECRET');
+    expect(json).not.toContain('/internal/path.json');
+  });
+
+  it.each([
+    [
+      '種別が正しくない',
+      { equipmentId: ROBOT_ID, equipmentType: 'OTHER', name: 'x', changedAt: AT },
+    ],
+    ['名前がない', { equipmentId: ROBOT_ID, equipmentType: 'ROBOT', changedAt: AT }],
+    ['日時がない', { equipmentId: ROBOT_ID, equipmentType: 'ROBOT', name: 'x' }],
+    ['識別子がない', { equipmentType: 'ROBOT', name: 'x', changedAt: AT }],
+  ])('内容が正しくない設備（%s）は、送らない', (_name, payload) => {
+    expect(fragmentsOfItem(equipmentItem(payload), typeOf)).toEqual([]);
+  });
+});
+
 describe('要求の分け方（requestsOf）', () => {
   const fragment = (id: string, at: string): NgsiLdFragment => ({
     at,

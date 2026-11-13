@@ -216,7 +216,8 @@ export type FacilityIngestionLogListResponse = z.infer<
 
 export const FederationItemSchema = z.object({
   federationItemId: z.string(),
-  targetType: z.enum(['OBSERVATION', 'EVALUATION']),
+  /** 観測値・評価結果・設備（名前・ID。Issue #177。ADR-0024）。以前の項目に、設備はない。 */
+  targetType: z.enum(['OBSERVATION', 'EVALUATION', 'EQUIPMENT']),
   targetRef: z.string(),
   /** 送るデータのスナップショット（連携キュー。ADR-0004）。 */
   payload: z.record(z.string(), z.unknown()),
