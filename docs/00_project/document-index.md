@@ -67,6 +67,7 @@
 | | [smoketest.result.log](../../test-result/smoketest.result.log)（`test-result/` に置く） | サーバーレス環境（AWS の評価環境）のスモークテスト・性能の実測の結果ログ（`pnpm test:smoke`。2026-10-21 の、30 日分のデータ・`EVALUATION_ON_WRITE=deferred` での実行。Issue #79・#123。環境の URL・ユーザーは載せない） |
 | [40_operations](../40_operations/) | [git-workflow.md](../40_operations/git-workflow.md) | Git・ブランチ・PR運用 |
 | | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。評価環境（AWS）のデプロイ・ロールバック・初期ユーザー・データの初期化・障害時の確認） |
+| | [federation-platform-setup.md](../40_operations/federation-platform-setup.md) | 農業情報基盤との連携の準備・確認の手順（基盤側の確認 4 点。ADR-0024。ユーザーが実行） |
 | | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行・評価環境の DynamoDB（PITR・オンデマンド・復元）） |
 | [50_references](../50_references/) | （今後追加） | 外部資料・参考情報 |
 | [.license-check](../../.license-check/)（リポジトリ直下） | [license-report.md](../../.license-check/license-report.md) | 依存パッケージのライセンス確認（コピーレフトの検出と対応、全依存のライセンス別の件数と一覧、配布物に含まれるものの区別）。`docs/` の外に置く |

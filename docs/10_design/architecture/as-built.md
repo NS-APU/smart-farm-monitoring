@@ -182,7 +182,7 @@
 | 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET /notifications/:notificationId/memos`・`POST /notifications/:notificationId/read` | LOGIN。メモの追記 `POST /notifications/:notificationId/memos`（#239）は `manual-entry:write`                                 |
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
-|                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`                                                            | `ingestion:read`                      |
+|                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings`                                                            | `ingestion:read`                      |
 |                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`                                                                   | `ingestion:configure`                 |
 |                                | `POST /ingestion/:sourceId/test`・`POST /ingestion/:sourceId/run`                                                                   | `ingestion:run`                       |
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
@@ -1142,7 +1142,7 @@ flowchart LR
 | `equipment:manage`    | `POST /equipment`・`PUT`・`DELETE /equipment/:id`                     | SC-10        |
 | `ingestion:configure` | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`     | SC-11        |
 | `ingestion:run`       | `POST /ingestion/:sourceId/test`・`/run`                              | SC-11        |
-| `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs` | SC-11     |
+| `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
 | `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
 | `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset` | SC-13        |
@@ -1648,6 +1648,7 @@ sequenceDiagram
 
 - 項目が積まれるのは、取り込み（`IngestionService`）・手動入力の登録・修正・削除（`ManualEntryService`）・観点ステータスの変化（`EvaluationService`）の保存時（`FederationService.enqueue`。`PENDING`・`attempts` 0・`nextAttemptAt` は積んだ時刻）。観測値の配列（`payload.observations`）が 1,000 件を超えるときは、1,000 件ごとの複数の項目に分けて積む（参照は `{元の参照}#part-{番号}-of-{総数}`、内容に `part: { index, total }`。`splitObservationPayload`。DynamoDB の 1 項目の上限（約 400 KB）に収めるため。#205）
 - 農業情報基盤が停止中（`HELD`）でも、他の処理は止まらない。復旧後は、最初に送信に成功したとき、溜まった保留・失敗の項目の次の試行が今に戻り（1 回の成功につき最大でバッチの件数）、次の実行（5 分以内）で送られる（再送の間隔の計算は、「特徴的アルゴリズム説明」の連携の再送）
+- **連携先の設定**（#177。ADR-0024）: `FederationAdminService`（`application/federation/federation-admin-service.ts`）。設定は `FederationConnectionStore`（接続先は `SecretPort` の `federation/endpoint`、テナント・context・有効は設定の保管 `federation.settings`）。更新は、接続先を先に保存し、設定を保存し、無効 → 有効のとき `enqueueAllEquipment` を呼び、変更履歴（`ingestion-settings`。接続先の値は残さない）を記録する。接続の確認は `probeNgsiLd`（読み取りだけ）。画面は `FederationSettingsPanel`（SC-11 の「農業情報基盤への連携」）。開発用リセットは、メモリの秘密情報（`MemorySecretPort.clear`）も戻す
 - 画面（SC-11）は、`GET /federation/logs` で、結果の記録（新しい順）と、連携キューの状態ごとの件数（`PENDING`・`SENT`・`FAILED`・`HELD`・`EXPIRED`）を表示する
 
 ## 4.10 通知の生成と配信（UC-05・UC-10・UC-22・UC-24。JB-04）
@@ -2707,14 +2708,14 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 298 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（157 ファイル・3419 件成功・2 件スキップ）。
+計測対象は 300 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（160 ファイル・3482 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.11% | 7,987／8,058 | 95% 以上 |
-| 文   | 99.13% | 8,260／8,332 | 95% 以上 |
-| 関数 | 99.29% | 2,399／2,416 | 95% 以上 |
-| 分岐 | 95.16% | 5,159／5,421 | 95% 以上 |
+| 行   | 99.13% | 8,096／8,167 | 95% 以上 |
+| 文   | 99.14% | 8,371／8,443 | 95% 以上 |
+| 関数 | 99.3% | 2,432／2,449 | 95% 以上 |
+| 分岐 | 95.18% | 5,244／5,509 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
@@ -2722,22 +2723,22 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 99.77% | 99.78% | 100.0% | 99.11% |
 | `src/backend/domain` | 98.9% | 98.95% | 99.27% | 95.1% |
-| `src/backend/application` | 99.44% | 99.4% | 99.31% | 95.52% |
-| `src/backend/infrastructure` | 98.95% | 98.99% | 99.86% | 94.36% |
-| `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.74% |
-| `src/backend/runtime` | 97.73% | 97.75% | 92.59% | 92.81% |
-| `src/frontend` | 99.14% | 99.18% | 99.3% | 95.38% |
+| `src/backend/application` | 99.45% | 99.4% | 99.31% | 95.61% |
+| `src/backend/infrastructure` | 98.96% | 98.99% | 99.86% | 94.3% |
+| `src/backend/presentation` | 99.44% | 99.45% | 100.0% | 94.74% |
+| `src/backend/runtime` | 97.75% | 97.77% | 92.68% | 93.15% |
+| `src/frontend` | 99.16% | 99.2% | 99.32% | 95.4% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`ngsi-ld-http-transport.ts`（78.94%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`federation-connection-store.ts`（85%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`container.ts`（87.83%）・`ssm-secret.ts`（88.23%）・`ingestion-admin-service.ts`（88.88%）・`clear-bucket.ts`（89.47%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`main-table.ts`（80%）・`ngsi-ld-http-transport.ts`（82.6%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`federation-connection-store.ts`（85%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`ssm-secret.ts`（88.23%）・`ingestion-admin-service.ts`（88.88%）・`ngsi-ld-federation.ts`（88.88%）・`container.ts`（89.18%）・`clear-bucket.ts`（89.47%）
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・830 件（UC ごと 25 ファイル・820 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、32 ファイル・834 件（UC ごと 25 ファイル・824 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3419 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3482 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 

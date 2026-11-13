@@ -27,20 +27,20 @@
 
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
-| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        820 |
+| E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        824 |
 | E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
-| 単体: shared                               |         16 |        327 |
+| 単体: shared                               |         16 |        331 |
 | 単体: backend/domain                       |         11 |        337 |
-| 単体: backend/application                  |          12 |        120 |
+| 単体: backend/application                  |          13 |        133 |
 | 単体: backend/presentation                 |          1 |          3 |
-| 単体: backend/infrastructure               |         21 |        452 |
+| 単体: backend/infrastructure               |         21 |        463 |
 | 単体: backend/runtime                      |          3 |        136 |
-| 単体: frontend                             |         32 |        568 |
-| 単体: infra（`infra/test/`。IaC）          |          6 |        108 |
-| 結合（`tests/integration/`）               |         55 |       1368 |
-| 合計                                       |        189 |       4249 |
+| 単体: frontend                             |         33 |        579 |
+| 単体: infra（`infra/test/`。IaC）          |          6 |        109 |
+| 結合（`tests/integration/`）               |         56 |       1391 |
+| 合計                                       |        192 |       4316 |
 
-内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1・2〕）: E2E 830 件（UC ごと 820 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3419 件・148 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、157 ファイル・3419 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜51 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕）: E2E 834 件（UC ごと 824 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3482 件・148 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、160 ファイル・3482 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜52 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜51 章（変更・追加したテストの記録）の索引
+### 1.4 14〜52 章（変更・追加したテストの記録）の索引
 
-14〜51 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜52 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -173,6 +173,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 49 | ステータスコード（文字列）を、手動でも入力できる（PR 2） | #192（#194 の子） |
 | 50 | 農業情報基盤への連携（NGSI-LD のアダプタ・変換・連携先の設定の保管。PR 1） | #177（#260 の子） |
 | 51 | 農業情報基盤への連携（設備の名前・ID。PR 2） | #177（#260 の子） |
+| 52 | 農業情報基盤への連携（連携先の設定の API・SC-11 の画面・接続の確認・AWS の切り替え。PR 3） | #177（#260 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -12211,7 +12212,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 - `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **147 ファイル・3202 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.14%・Branches 95.37%・Functions 99.3%・Lines 99.12%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
-- E2E（空きポート 18787・15173。全件）: **820 件が、すべて成功**
+- E2E（空きポート 18787・15173。全件）: **824 件が、すべて成功**
 - **AWS での実際の確認は、なし**（設備ごとの最終の受信日時の読み取りは、DynamoDB Local の契約テストで確認）
 
 
@@ -12352,7 +12353,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 手元（Windows。2026-11-12）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **157 ファイル・3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-12・UC-16・UC-24 の 77 件が、すべて成功。そのほかの E2E と負荷テストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認は、なし**
@@ -12384,7 +12385,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 手元（Windows。2026-11-12）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **157 ファイル・3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-06・UC-07・UC-08・UC-09・UC-18 の 183 件が、すべて成功。`pnpm test:stress`: 4 件成功。そのほかの E2E は、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認は、なし**
@@ -12417,7 +12418,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 手元（Windows。2026-11-12）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **157 ファイル・3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-06・UC-07・UC-18・UC-20 の 180 件が、すべて成功。`pnpm test:stress`: 4 件成功。そのほかの E2E は、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **AWS での実際の確認は、なし**
@@ -12449,7 +12450,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 手元（Windows。2026-11-12）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **157 ファイル・3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.32%・Lines 99.15%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.17%・Branches 95.4%・Functions 99.32%・Lines 99.15%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-06・UC-07・UC-17・UC-18・UC-20 の 212 件が、すべて成功
 - `pnpm test:stress`: 1 回目は、UC-17「登録したコードの削除」の応答時間が許容の 3 秒を超えて（3.7 秒）、1 件失敗した。同じ条件で、もう一度実行したところ、4 件すべて成功した（ほかの処理と重なった一時的な遅れとみている。CI の結果で、再発しないかを確認する）
@@ -12488,7 +12489,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 手元（Windows。2026-11-13）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **157 ファイル・3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.13%・Branches 95.15%・Functions 99.29%・Lines 99.11%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.13%・Branches 95.15%・Functions 99.29%・Lines 99.11%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E・負荷テストは、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **実際の農業情報基盤への接続は、していない。AWS での確認も、なし**
@@ -12516,7 +12517,46 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 手元（Windows。2026-11-13）:
 
-- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **157 ファイル・3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.13%・Branches 95.16%・Functions 99.29%・Lines 99.11%（基準は、すべて 95% 以上）
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.13%・Branches 95.16%・Functions 99.29%・Lines 99.11%（基準は、すべて 95% 以上）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-11・UC-12・UC-16 の 71 件が、すべて成功。`pnpm test:stress`: 4 件成功。そのほかの E2E は、CI（`ci:full`）で確認する（結果は、PR に記載）
+- **実際の農業情報基盤への接続は、していない。AWS での確認も、なし**
+
+## 52. 農業情報基盤への連携（連携先の設定の API・SC-11 の画面・接続の確認・AWS の切り替え。Issue #177 の PR 3。#260 の子）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-13 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様（ADR-0024）: SC-11 の「農業情報基盤への連携」に、連携先の設定（接続先〔書き込み専用〕・テナント名・context の URL・有効／無効）と、接続の確認を加える。API は `GET/PUT /federation/settings`（`ingestion:read`・`ingestion:configure`）と `POST /federation/test`（`ingestion:run`）。接続先は、応答・変更履歴・ログに出さない。接続先が未設定のままでは、有効にできない。無効 → 有効にしたとき、既存の設備を連携キューに積む。接続の確認は、読み取り（`GET /entities?type=Greenhouse&limit=1`）だけ。開発用のリセットで、連携先の設定（メモリの秘密情報）も戻す。AWS の `FEDERATION_MODE=ngsi-ld`。
+
+### 52.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/shared/federation-connection.test.ts`（4 件） | 更新の要求（接続先は省略できる）・不正な入力の拒否・応答（接続先の値を含めない）・接続の確認の応答のスキーマ |
+| 単体: `tests/unit/backend/application/federation-admin-service.test.ts`（13 件） | 設定の取得、更新（接続先の省略は保つ）、変更履歴（接続先の値を残さない）、接続先が未設定のままの有効化の拒否、無効 → 有効のとき既存の設備を積む（すでに有効・無効にするときは積まない）、不正な接続先の拒否、接続の確認（未設定・モック・成功・失敗） |
+| 単体: `tests/unit/backend/infrastructure/ngsi-ld-federation.test.ts`（10 件） | 接続の確認 `probeNgsiLd`: 読み取り（GET）だけを送る・テナント・context、成功以外の状態コード、送信の失敗の固定の文言（接続先・本文を含めない） |
+| 単体: `tests/unit/backend/infrastructure/ngsi-ld-http-transport.test.ts`（1 件） | GET（本文なし・パス・ヘッダー） |
+| 単体: `tests/unit/backend/infrastructure/local-secret.test.ts`（1 件） | メモリの秘密情報の `clear` |
+| 単体: `tests/unit/frontend/federation-settings.test.tsx`（11 件・新規） | 設定の表示（未設定・設定済み〔値は出さない〕・モックの案内）、保存（接続先の入力は書き込み専用・空なら送らない）、入力の検証（接続先・テナント・context）、サーバーの項目のエラー、接続の確認（成功・失敗）、参照だけの権限 |
+| 結合: `tests/integration/federation-settings-api.test.ts`（14 件・新規） | 取得・保存（応答に接続先を含めない）・未設定のままの有効化は 400・不正な入力・変更履歴（値を含めない）・有効にすると既存の設備を送る・開発用リセットで戻る・接続の確認（モック・未設定・成功・失敗） |
+| 結合: `tests/integration/role-access.test.ts`・`api.test.ts`（ルートごとの 9 件） | 新しい 3 つのルートに、認可・認証の既存の確認が、自動で適用される（ルート一覧から導く） |
+| IaC: `infra/test/evaluation-stack.test.ts`（1 件） | API・ジョブの Lambda に `FEDERATION_MODE=ngsi-ld` |
+| E2E: `tests/e2e/UC-11-federate-data.ts`（4 件） | 設定の保存（モックの案内・接続先を表示しない・再読み込み後も保たれる）、接続の確認（モックの旨）・不正な入力、未設定のまま有効にするとエラー、スマートフォン幅で、はみ出さない |
+
+### 52.2 変更した既存のテスト
+
+| ファイル | 変更 |
+| -------- | ---- |
+| 結合: `tests/integration/api.test.ts` | ルート一覧の確認で、ルートの数を 49 → 52 にし、連携先の設定の 3 つのルートを加えた（ルートを増やしたための、仕様の変更） |
+| `tests/support/management-frontend.ts` | 画面テストの共通のルートに、`GET /federation/settings`（モックの環境・未設定）を加えた（既存の画面テストが、新しい取得で失敗しないため。期待値の変更ではない） |
+| `tests/integration/federation-*.test.ts`・`tests/unit/backend/infrastructure/ngsi-ld-federation.test.ts` | 送信の本文が、省略できる（GET を加えたため）ことに合わせて、読み取りの型を整えた（期待値の変更ではない） |
+| E2E: `tests/e2e/UC-11-federate-data.ts` | 先頭のコメントの「再送の間隔の上限 12 時間」を、60 分に直した（PR 1 の仕様の変更に合わせた記載。期待値の変更ではない） |
+
+### 52.3 実測
+
+手元（Windows。2026-11-13）:
+
+- `pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり）: **160 ファイル・3482 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。カバレッジ: Statements 99.14%・Branches 95.18%・Functions 99.3%・Lines 99.13%（基準は、すべて 95% 以上）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
+- E2E（空きポート 18787・15173）: UC-11・UC-15（2 ファイル）・UC-16・UC-24 の 100 件が、すべて成功。`pnpm test:stress`: 4 件成功。そのほかの E2E は、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **実際の農業情報基盤への接続は、していない。AWS での確認も、なし**
