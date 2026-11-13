@@ -5,7 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FEDERATION_TENANT,
+  FederationSettingsResponseSchema,
   FederationSettingsSchema,
+  FederationSettingsUpdateRequestSchema,
+  FederationTestResponseSchema,
   parseFederationEndpoint,
 } from '../../../src/shared/schemas/federation-connection.ts';
 
@@ -66,5 +69,51 @@ describe('FederationSettingsSchema（テナント名・context の URL・有効�
     ['context に認証情報', { tenant: 'abc', contextUrl: 'https://u:p@example.test/c.jsonld' }],
   ])('不正な設定（%s）は、拒否する', (_name, override) => {
     expect(FederationSettingsSchema.safeParse({ enabled: true, ...override }).success).toBe(false);
+  });
+});
+
+describe('連携先の設定の更新・応答のスキーマ（SC-11。ADR-0024。Issue #177 の PR 3）', () => {
+  const settings = {
+    tenant: 'smart_farm_monitoring',
+    contextUrl: 'https://example.test/context.jsonld',
+    enabled: true,
+  };
+
+  it('更新の要求: 設定と、接続先（省略できる。省略は、保存済みの接続先を保つ）', () => {
+    expect(FederationSettingsUpdateRequestSchema.safeParse({ settings }).success).toBe(true);
+    expect(
+      FederationSettingsUpdateRequestSchema.safeParse({
+        settings,
+        endpoint: 'https://platform.example.test/v1',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('不正な接続先・設定の更新は、拒否する', () => {
+    expect(
+      FederationSettingsUpdateRequestSchema.safeParse({ settings, endpoint: 'not-a-url' }).success,
+    ).toBe(false);
+    expect(
+      FederationSettingsUpdateRequestSchema.safeParse({
+        settings: { ...settings, tenant: 'Bad' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('応答は、方式・設定・接続先の状態（値は、含めない）', () => {
+    const parsed = FederationSettingsResponseSchema.parse({
+      mode: 'ngsi-ld',
+      settings,
+      endpoint: { configured: true, updatedAt: '2026-11-13T00:00:00.000Z' },
+    });
+
+    expect(parsed.endpoint).toEqual({ configured: true, updatedAt: '2026-11-13T00:00:00.000Z' });
+    expect(Object.keys(parsed.endpoint)).not.toContain('url');
+  });
+
+  it('接続の確認の応答は、成否とメッセージ', () => {
+    expect(
+      FederationTestResponseSchema.safeParse({ ok: true, message: '接続できました' }).success,
+    ).toBe(true);
   });
 });

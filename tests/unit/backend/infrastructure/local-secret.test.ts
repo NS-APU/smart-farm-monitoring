@@ -24,6 +24,17 @@ describe('メモリの SecretPort', () => {
     });
   });
 
+  it('clear で、保存した値を、すべて消す（開発用のリセット。ローカル・テストのメモリだけ）', async () => {
+    const secrets = createMemorySecretPort();
+    await secrets.set('file-server/robot', DUMMY_VALUE);
+    await secrets.set('federation/endpoint', DUMMY_VALUE);
+
+    secrets.clear();
+
+    expect(await secrets.get('file-server/robot')).toBeUndefined();
+    expect(await secrets.status('federation/endpoint')).toEqual({ configured: false });
+  });
+
   it('上書きでき、更新日時が変わる。refresh を指定しても、同じ値', async () => {
     const clock = { now: Date.parse('2026-11-09T02:00:00.000Z') };
     const secrets = createMemorySecretPort({ 'file-server/robot': 'old' }, () => clock.now);

@@ -8,6 +8,11 @@ import type { ManualEntrySortKey, SortDirection } from '@smart-farm/shared/const
 import type { NotificationKind, ReadState } from '@smart-farm/shared/constants/status';
 import { AuditLogListResponseSchema, type AuditOperation } from '@smart-farm/shared/schemas/audit';
 import {
+  FederationSettingsResponseSchema,
+  FederationTestResponseSchema,
+  type FederationSettingsUpdateRequest,
+} from '@smart-farm/shared/schemas/federation-connection';
+import {
   PublicUserSchema,
   UserListResponseSchema,
   type UserCreateRequest,
@@ -272,6 +277,26 @@ export function updateUser(api: ApiClient, userId: string, input: UserUpdateRequ
 
 export function deleteUser(api: ApiClient, userId: string) {
   return api.command(API_PATHS.user(userId), { method: 'DELETE' });
+}
+
+// 連携先の設定（SC-11。ADR-0024。接続先は書き込み専用）
+export function getFederationSettings(api: ApiClient) {
+  return api.request('/federation/settings', { schema: FederationSettingsResponseSchema });
+}
+
+export function updateFederationSettings(api: ApiClient, input: FederationSettingsUpdateRequest) {
+  return api.request('/federation/settings', {
+    method: 'PUT',
+    body: input,
+    schema: FederationSettingsResponseSchema,
+  });
+}
+
+export function testFederation(api: ApiClient) {
+  return api.request('/federation/test', {
+    method: 'POST',
+    schema: FederationTestResponseSchema,
+  });
 }
 
 // 取り込み設定・状況（SC-11）

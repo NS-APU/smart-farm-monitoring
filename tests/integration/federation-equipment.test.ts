@@ -46,7 +46,7 @@ async function setup() {
     context.clock.advance(DAY_MS);
     await context.container.jobRunner.run('JB-03');
     return requests
-      .flatMap((request) => JSON.parse(request.body) as Record<string, unknown>[])
+      .flatMap((request) => JSON.parse(request.body ?? '[]') as Record<string, unknown>[])
       .filter((entity) =>
         ['Greenhouse', 'HarvestRobot', 'EnvironmentSensor'].includes(String(entity.type)),
       );

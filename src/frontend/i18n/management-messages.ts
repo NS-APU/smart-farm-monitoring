@@ -403,6 +403,32 @@ export const MANAGEMENT_MESSAGES = {
     federation: '農業情報基盤への連携',
     federationLead:
       '連携の結果（成功・失敗・保留・期限切れ）です。農業情報基盤が停止しているときは、保留になります。復旧後は、送信に成功したら、溜まった項目を、すぐ送ります。期限（既定 30 日）を過ぎても送れなかった項目は、破棄して、期限切れとして記録します',
+    federationSettings: {
+      heading: '連携先の設定',
+      lead: '農業情報基盤の接続先・テナント・context を設定します。接続先は書き込み専用で、設定後は、画面に表示しません',
+      mockNote:
+        'この環境は、モックの連携先で動いています。ここで設定しても、実際の農業情報基盤には送りません',
+      endpoint: '接続先の URL（書き込み専用）',
+      endpointHint:
+        '新しい値を入力して保存すると、上書きします。空のままなら、保存済みの接続先を保ちます（http または https の URL）',
+      endpointStatus: '接続先の状態',
+      endpointConfigured: '設定済み',
+      endpointUpdatedAt: (at: string) => `設定済み（更新: ${at}）`,
+      endpointNotConfigured: '未設定',
+      tenant: 'テナント名',
+      tenantHint: '英小文字で始まる、英小文字・数字・_ の 64 文字以内（例: smart_farm_monitoring）',
+      contextUrl: 'context の URL',
+      contextUrlHint: '独自の型・属性を定義した JSON-LD の URL（http または https）',
+      enabled: '連携を有効にする',
+      enabledHint:
+        '無効 → 有効にして保存すると、既存の設備の名前・ID を、基盤へ送る準備をします。接続先が未設定のあいだは、有効にできません',
+      save: '連携先の設定を保存',
+      saving: '保存しています…',
+      saved: '保存しました',
+      test: '接続を確認',
+      testing: '確認しています…',
+      readOnly: '連携先の設定を変更する権限がありません',
+    },
     queue: '連携キューの件数',
     queueLabels: {
       PENDING: '待機',

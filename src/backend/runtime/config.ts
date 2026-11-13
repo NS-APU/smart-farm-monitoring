@@ -17,6 +17,10 @@ import {
 } from '../application/evaluation/evaluation-on-write.ts';
 import { SEED_MODES, type SeedMode } from '../application/seed/seed-modes.ts';
 import {
+  FEDERATION_MODES,
+  type FederationMode,
+} from '@smart-farm/shared/schemas/federation-connection';
+import {
   DEFAULT_FEDERATION_EXPIRY_DAYS,
   MAX_FEDERATION_EXPIRY_DAYS,
   MAX_FUTURE_TOLERANCE_MINUTES,
@@ -38,9 +42,7 @@ import { ORIGIN_SECRET_PATTERN } from '../presentation/origin-guard.ts';
 
 export const APP_MODES = ['local', 'test', 'production'] as const;
 
-/** 農業情報基盤との連携の方式。 */
-export const FEDERATION_MODES = ['mock', 'ngsi-ld'] as const;
-export type FederationMode = (typeof FEDERATION_MODES)[number];
+export { FEDERATION_MODES, type FederationMode };
 export type AppMode = (typeof APP_MODES)[number];
 
 /** 永続化の方式。memory: メモリのみ／file: JSON ファイル／dynamodb: DynamoDB（ADR-0007）。 */

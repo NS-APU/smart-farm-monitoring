@@ -15,11 +15,16 @@ interface StoredSecret {
   readonly updatedAt: string;
 }
 
+/** メモリに持つ SecretPort。`clear` は、保存した値を、すべて消す（開発用のリセット。ローカル・テストだけ）。 */
+export interface MemorySecretPort extends SecretPort {
+  clear(): void;
+}
+
 /** メモリに持つ SecretPort。初期値の更新日時は、作成時の時刻。 */
 export function createMemorySecretPort(
   initial: Readonly<Record<string, string>> = {},
   now: () => number = Date.now,
-): SecretPort {
+): MemorySecretPort {
   const store = new Map<string, StoredSecret>();
   for (const [reference, value] of Object.entries(initial)) {
     store.set(parseSecretReference(reference), {
@@ -28,6 +33,9 @@ export function createMemorySecretPort(
     });
   }
   return {
+    clear() {
+      store.clear();
+    },
     // 不正な参照名・値は、同期の例外ではなく、拒否された Promise にする（パラメータストアの実装と同じ）
     // eslint-disable-next-line @typescript-eslint/require-await
     async get(reference) {

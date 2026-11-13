@@ -100,3 +100,32 @@ export const FederationSettingsSchema = z.object({
   enabled: z.boolean(),
 });
 export type FederationSettings = z.infer<typeof FederationSettingsSchema>;
+
+/** 連携の方式（モック／NGSI-LD。環境変数 FEDERATION_MODE）。 */
+export const FEDERATION_MODES = ['mock', 'ngsi-ld'] as const;
+export type FederationMode = (typeof FEDERATION_MODES)[number];
+
+/** PUT /federation/settings の入力。接続先は、省略できる（省略は、保存済みの接続先を保つ。書き込み専用）。 */
+export const FederationSettingsUpdateRequestSchema = z.object({
+  settings: FederationSettingsSchema,
+  endpoint: FederationEndpointInputSchema.optional(),
+});
+export type FederationSettingsUpdateRequest = z.infer<typeof FederationSettingsUpdateRequestSchema>;
+
+/** GET・PUT /federation/settings の応答。接続先の値は、含めない（設定済みかと、更新日時だけ）。 */
+export const FederationSettingsResponseSchema = z.object({
+  mode: z.enum(FEDERATION_MODES),
+  settings: FederationSettingsSchema,
+  endpoint: z.object({
+    configured: z.boolean(),
+    updatedAt: z.string().optional(),
+  }),
+});
+export type FederationSettingsResponse = z.infer<typeof FederationSettingsResponseSchema>;
+
+/** POST /federation/test の応答（接続の確認。接続先・本文は、含めない）。 */
+export const FederationTestResponseSchema = z.object({
+  ok: z.boolean(),
+  message: z.string(),
+});
+export type FederationTestResponse = z.infer<typeof FederationTestResponseSchema>;

@@ -74,7 +74,8 @@ context は、本システムの用語を定義した JSON-LD（独自の型・�
 ### 実装の進み（#177）
 
 - **PR 1（実装済み。2026-11-13）**: 変換（`domain/ngsi-ld-mapping.ts`。観測値・評価 → エンティティ・要求の分け方）、HTTP の送信（`infrastructure/http/ngsi-ld-http-transport.ts`）、アダプタ（`ngsi-ld-federation.ts`）、連携先の設定の保管（`application/federation/federation-connection-store.ts`）、`FEDERATION_MODE`、context、再試行の上限 60 分、契約テスト。
-- **PR 2（実装済み。2026-11-13）**: 設備の連携。設備を登録・修正（名称・ハウスの変更）したとき、設備の名前・ID（親のハウス）を連携キューに積む（連携の種別 `EQUIPMENT`）。取得間隔・ファイルパス・データ上の識別子は、送らない。削除では、積まない。連携を設定した初回に、既存の設備（削除済みを除く）をまとめて積む `FederationService.enqueueAllEquipment`（呼び出しは、PR 3 の設定の保存）。PR 3: 設定の API・SC-11 の画面・接続の確認・基盤側の確認の手順。
+- **PR 2（実装済み。2026-11-13）**: 設備の連携。設備を登録・修正（名称・ハウスの変更）したとき、設備の名前・ID（親のハウス）を連携キューに積む（連携の種別 `EQUIPMENT`）。取得間隔・ファイルパス・データ上の識別子は、送らない。削除では、積まない。連携を設定した初回に、既存の設備（削除済みを除く）をまとめて積む `FederationService.enqueueAllEquipment`（呼び出しは、PR 3 の設定の保存）。
+- **PR 3（実装済み。2026-11-13）**: 設定の API（`GET/PUT /federation/settings`・`POST /federation/test`）、SC-11 の「連携先の設定」の画面（接続先は書き込み専用）、接続の確認（`GET /entities?type=Greenhouse&limit=1` の読み取りだけ）、連携を無効 → 有効にしたとき、既存の設備を積む、開発用リセットで連携先の設定も戻す、AWS の `FEDERATION_MODE=ngsi-ld`（IaC。デプロイは、ユーザー）、基盤側の確認の手順（[federation-platform-setup.md](../../40_operations/federation-platform-setup.md)）。
 
 ### 6. 基盤側の準備と確認（ユーザーの作業）
 

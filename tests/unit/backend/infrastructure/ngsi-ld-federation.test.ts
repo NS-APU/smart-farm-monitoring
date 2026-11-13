@@ -15,7 +15,10 @@ import {
   type NgsiLdResponse,
   type NgsiLdTransport,
 } from '../../../../src/backend/infrastructure/http/ngsi-ld-http-transport.ts';
-import { createNgsiLdFederation } from '../../../../src/backend/infrastructure/http/ngsi-ld-federation.ts';
+import {
+  createNgsiLdFederation,
+  probeNgsiLd,
+} from '../../../../src/backend/infrastructure/http/ngsi-ld-federation.ts';
 import type { FederationItem } from '../../../../src/shared/schemas/ingestion.ts';
 import type { Observation } from '../../../../src/shared/schemas/observation.ts';
 import { equipmentSet, observation, SENSOR_ID } from '../../../support/builders.ts';
@@ -132,7 +135,8 @@ describe('NGSI-LD のアダプタ（FederationPort）', () => {
     expect(requests).toHaveLength(2);
     const values = requests.map(
       (request) =>
-        (JSON.parse(request.body) as { temperature: { value: number } }[])[0]?.temperature.value,
+        (JSON.parse(request.body ?? '[]') as { temperature: { value: number } }[])[0]?.temperature
+          .value,
     );
     expect(values).toEqual([20, 21]);
   });
@@ -268,4 +272,64 @@ describe('NGSI-LD のアダプタ（FederationPort）', () => {
     );
     expect(requests).toHaveLength(2);
   });
+});
+
+describe('NGSI-LD の接続の確認（probeNgsiLd）', () => {
+  function probeWith(respond: (request: NgsiLdRequest) => NgsiLdResponse) {
+    const requests: NgsiLdRequest[] = [];
+    const transport: NgsiLdTransport = (request) => {
+      requests.push(request);
+      return Promise.resolve(respond(request));
+    };
+    return { requests, run: () => probeNgsiLd(CONNECTION, transport) };
+  }
+
+  it('テナント・context つきで、読み取り（GET /entities?type=Greenhouse&limit=1）だけを送る（書き込みは、しない）', async () => {
+    const { requests, run } = probeWith(() => ({ status: 200, body: '[]' }));
+
+    const result = await run();
+
+    expect(result.ok).toBe(true);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      method: 'GET',
+      protocol: 'HTTPS',
+      host: 'platform.example.test',
+      path: '/api/orion/ngsi-ld/v1/entities?type=Greenhouse&limit=1',
+    });
+    expect(requests[0]?.headers).toMatchObject({
+      'NGSILD-Tenant': 'smart_farm_monitoring',
+      Link: '<https://example.test/context.jsonld>; rel="http://www.w3.org/ns/json-ld#context"; type="application/ld+json"',
+    });
+    expect(requests[0]?.body).toBeUndefined();
+  });
+
+  it.each([
+    [404, false],
+    [400, false],
+    [503, false],
+  ])('状態コード %s は、成功ではない（理由だけを示し、本文・接続先を含めない）', async (status) => {
+    const { run } = probeWith(() => ({ status, body: '{"detail":"dummy-body-detail"}' }));
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    expect(result.message).not.toContain('dummy-body-detail');
+    expect(result.message).not.toContain('platform.example.test');
+    expect(result.message).toContain(String(status));
+  });
+
+  it.each(['UNREACHABLE', 'TIMEOUT', 'ADDRESS_BLOCKED', 'TLS', 'CERTIFICATE'] as const)(
+    '送信の失敗 %s は、固定の文言で示す（接続先を含めない）',
+    async (reason) => {
+      const transport: NgsiLdTransport = () => {
+        throw new NgsiLdTransportError(reason);
+      };
+
+      const result = await probeNgsiLd(CONNECTION, transport);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe(new NgsiLdTransportError(reason).message);
+    },
+  );
 });
