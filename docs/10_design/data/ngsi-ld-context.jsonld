@@ -1,0 +1,8 @@
+{
+  "@context": [
+    "https://raw.githubusercontent.com/smart-data-models/dataModel.Environment/master/context.jsonld",
+    {
+      "@vocab": "https://github.com/NS-APU/smart-farm-monitoring/blob/develop/docs/10_design/data/ngsi-ld-context.jsonld#"
+    }
+  ]
+}
