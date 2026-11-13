@@ -2707,28 +2707,28 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### カバレッジ（Vitest。`test-result/coverage/coverage-summary.json`。2026-11-12 の実測。Issue #231 の後）
 
-計測対象は 298 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（156 ファイル・3409 件成功・2 件スキップ）。
+計測対象は 298 ファイル。`pnpm test:unit`（`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）の実行で生成した（157 ファイル・3419 件成功・2 件スキップ）。
 
 | 指標 | 割合   | 内訳（カバー／全体） | しきい値 |
 | ---- | ------ | -------------------- | -------- |
-| 行   | 99.11% | 7,968／8,039 | 95% 以上 |
-| 文   | 99.13% | 8,241／8,313 | 95% 以上 |
-| 関数 | 99.29% | 2,395／2,412 | 95% 以上 |
-| 分岐 | 95.15% | 5,142／5,404 | 95% 以上 |
+| 行   | 99.11% | 7,987／8,058 | 95% 以上 |
+| 文   | 99.13% | 8,260／8,332 | 95% 以上 |
+| 関数 | 99.29% | 2,399／2,416 | 95% 以上 |
+| 分岐 | 95.16% | 5,159／5,421 | 95% 以上 |
 
 ディレクトリ別（同じファイルの `files` の値を、本書で集計した値。しきい値は全体にのみ課される）:
 
 | 対象                         | 行     | 文     | 関数   | 分岐   |
 | ---------------------------- | ------ | ------ | ------ | ------ |
 | `src/shared` | 99.77% | 99.78% | 100.0% | 99.11% |
-| `src/backend/domain` | 98.88% | 98.93% | 99.26% | 94.94% |
-| `src/backend/application` | 99.44% | 99.39% | 99.3% | 95.5% |
+| `src/backend/domain` | 98.9% | 98.95% | 99.27% | 95.1% |
+| `src/backend/application` | 99.44% | 99.4% | 99.31% | 95.52% |
 | `src/backend/infrastructure` | 98.95% | 98.99% | 99.86% | 94.36% |
 | `src/backend/presentation` | 99.43% | 99.44% | 100.0% | 94.74% |
 | `src/backend/runtime` | 97.73% | 97.75% | 92.59% | 92.81% |
 | `src/frontend` | 99.14% | 99.18% | 99.3% | 95.38% |
 
-分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`ngsi-ld-http-transport.ts`（78.94%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`federation-connection-store.ts`（85%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`container.ts`（87.83%）・`ssm-secret.ts`（88.23%）・`ingestion-admin-service.ts`（88.88%）・`ngsi-ld-mapping.ts`（89.28%）・`clear-bucket.ts`（89.47%）
+分岐が 90% を下回るファイル（分岐の数が 1 以上）: `table-admin.ts`（50%）・`user-handlers.ts`（50%）・`use-permission.ts`（50%）・`client.ts`（57.14%）・`auth-context.tsx`（60%）・`jst.ts`（65%）・`data-reset.ts`（66.66%）・`access-policy.ts`（71.42%）・`node-server.ts`（71.42%）・`request-parsing.ts`（75%）・`ngsi-ld-http-transport.ts`（78.94%）・`main-table.ts`（80%）・`notification-recipients.ts`（83.33%）・`origin-secret-reader.ts`（83.33%）・`app.tsx`（83.33%）・`use-submit.ts`（83.33%）・`facility-ingestion-view.tsx`（83.33%）・`lambda.ts`（84.61%）・`federation-connection-store.ts`（85%）・`ingestion-settings.ts`（85.71%）・`job-lambda.ts`（85.71%）・`address-guard.ts`（86.86%）・`app-state.tsx`（87.5%）・`horizon-controls.tsx`（87.5%）・`container.ts`（87.83%）・`ssm-secret.ts`（88.23%）・`ingestion-admin-service.ts`（88.88%）・`clear-bucket.ts`（89.47%）
 
 ### E2E（Playwright）
 
@@ -2737,7 +2737,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### Vitest の件数
 
-2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3409 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3409 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
+2026-11-12 の実測（Issue #231 の後）: 148 ファイル・**3419 件成功・2 件スキップ**（Windows では実行しないファイル権限のテスト）。`vitest list` の件数は 3419 件。内訳（test.spec.md 1.2）: 単体 shared 14・backend 44（domain 10・application 11・presentation 1・infrastructure 19・runtime 3）・frontend 32・infra（IaC）6 ファイルと、結合 52 ファイル。[commands.md](../../00_project/commands.md) の「実行結果」にも、実測を記載している。
 
 ## 方針との関係と、気づいた点
 
