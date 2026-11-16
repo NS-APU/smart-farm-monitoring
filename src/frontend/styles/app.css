@@ -1,6 +1,6 @@
 /*
  * 画面の基本スタイル。状態は色・形・塗り方・文字で示す（NFR-7.2）。PC・タブレット・スマートフォンの幅でも使える（NFR-7.3）。
- * 色の値は docs/10_design/functions/ui-design-guidelines.md 5 章に従う。ライト・ダークは、ブラウザの設定（prefers-color-scheme）に従う。
+ * 色の値は docs/10_design/functions/ui-design-guidelines.md 5 章に従う。ライト・ダークは、既定ではブラウザの設定（prefers-color-scheme）に従い、ヘッダーのテーマのメニューで選んだときは、html 要素の data-theme（light・dark）に従う（Issue #352）。
  * 状態の色（--status-*）は、状態の表示にだけ使う。観点の種類・装飾・リンクには使わない。
  */
 :root {
@@ -84,9 +84,12 @@
   background: var(--color-bg);
 }
 
-/* ダーク: 背景は、暗い緑にしない（状態の「正常」の緑・「不明」の灰と、背景が似て見えるため）。中立の暗いグレーにする */
+/* ダーク: 背景は、暗い緑にしない（状態の「正常」の緑・「不明」の灰と、背景が似て見えるため）。中立の暗いグレーにする。
+ * ダークの値は、次の 2 か所に、同じものを置く（CSS は、「または」の条件で、宣言を共有できないため）。
+ * tests/unit/frontend/design-tokens.test.ts が、2 か所が同じであることを確認する。
+ * 1. ブラウザの設定がダークで、「ライト」を選んでいない（システム）とき */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --color-bg: #12171c;
     --color-surface: #1b2229;
     --color-surface-muted: #26313a;
@@ -149,6 +152,77 @@
     --status-unknown-soft: #26313a;
     --status-unknown-soft-on: #c3ccd4;
   }
+}
+
+/* 2. 「ダーク」を選んだとき（color-scheme も、ダークにする。スクロールバー・入力部品の色） */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-bg: #12171c;
+  --color-surface: #1b2229;
+  --color-surface-muted: #26313a;
+  --color-surface-subtle: #202830;
+  --color-border: #2e3943;
+  --color-border-control: #71808c;
+  --color-text: #e8edf1;
+  --color-muted: #a3b0ba;
+  --color-nav-bg: #0e1318;
+  --color-nav-text: #b9c4cc;
+  --color-nav-current-bg: #1f3d33;
+  --color-nav-current-bar: #4fa985;
+  --color-primary: #2f6f55;
+  --color-primary-text: #ffffff;
+  --color-primary-ink: #e8edf1;
+  --color-link: #8ecbff;
+  --color-focus: #ffd24d;
+  --color-scrim: rgb(0 0 0 / 65%);
+  --shadow-dialog: 0 8px 24px rgb(0 0 0 / 50%);
+  --color-unread-bg: #1f2d36;
+  --color-chart-grid: #2e3943;
+  --color-chart-axis: #71808c;
+  --color-chart-average: #c3ccd4;
+  --color-chart-line: #8ecbff;
+  --color-chart-area: rgb(142 203 255 / 22%);
+  --color-rating: #ffb35c;
+  --color-viewpoint-icon: #c3ccd4;
+  --color-viewpoint-icon-bg: #26313a;
+  --status-normal-main: #6ee7b7;
+  --status-normal-text: #6ee7b7;
+  --status-normal-fill: #6ee7b7;
+  --status-normal-on: #052b1d;
+  --status-normal-tile: #1b2229;
+  --status-normal-tile-on: #6ee7b7;
+  --status-normal-soft: #2a4543;
+  --status-normal-soft-on: #6ee7b7;
+  --status-caution-main: #ffcc00;
+  --status-caution-text: #ffcc00;
+  --status-caution-fill: #ffcc00;
+  --status-caution-on: #2a2100;
+  --status-caution-tile: #1b2229;
+  --status-caution-tile-on: #ffcc00;
+  --status-caution-soft: #444122;
+  --status-caution-soft-on: #ffcc00;
+  --status-error-main: #ff5c5c;
+  --status-error-text: #ff5c5c;
+  --status-error-fill: #ff5c5c;
+  --status-error-on: #2b0606;
+  --status-error-tile: #ff5c5c;
+  --status-error-tile-on: #2b0606;
+  --status-error-soft: #442c32;
+  --status-error-soft-on: #ff8f8f;
+  --status-error-card: #2a1d20;
+  --status-unknown-main: #8a97a3;
+  --status-unknown-text: #c3ccd4;
+  --status-unknown-fill: transparent;
+  --status-unknown-on: #c3ccd4;
+  --status-unknown-tile: #1b2229;
+  --status-unknown-tile-on: #c3ccd4;
+  --status-unknown-soft: #26313a;
+  --status-unknown-soft-on: #c3ccd4;
+}
+
+/* 「ライト」を選んだとき（ブラウザの設定がダークでも、ライトにする） */
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
@@ -374,6 +448,73 @@ input:not([type='radio']) {
   min-width: 0;
   max-width: 28em;
   text-overflow: ellipsis;
+}
+
+/* テーマのメニュー（ヘッダー。通知のアイコンと同じ大きさの丸いボタン。押すと、右下に 3 項目を開く） */
+.theme-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.theme-trigger[aria-expanded='true'] {
+  background: var(--color-unread-bg);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
+}
+
+.theme-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 13em;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+}
+
+.theme-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.theme-item:hover {
+  background: var(--color-surface-muted);
+}
+
+.theme-item[aria-checked='true'] {
+  font-weight: 700;
+}
+
+.theme-item .theme-check {
+  display: inline-flex;
+  width: 16px;
+  margin-left: auto;
+  color: var(--color-primary-ink);
 }
 
 /* 通知のアイコン（丸い枠）。未読の件数のバッジを右上に重ねる。通知の画面にいる間は、現在の画面として強調する */
@@ -905,6 +1046,7 @@ input:not([type='radio']) {
   }
 
   /* 上部のバー: 1 行目に ☰・題名・通知・ユーザー。設備の選択と、最終のデータ取得は、次の行へ */
+  .theme-menu,
   .header-unread {
     order: 2;
   }

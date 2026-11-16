@@ -1,6 +1,6 @@
 /**
  * 共通のレイアウト（functional-specification.md 2.3。ui-design-guidelines.md 8 章）。
- * 左のサイドメニュー（アイコン + 文字）と、上部のバー（設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・ログイン中のユーザー）。
+ * 左のサイドメニュー（アイコン + 文字）と、上部のバー（設備の選択・テーマの切り替え・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・ログイン中のユーザー）。
  * 狭い幅（900px 以下）では、メニューを、☰ で開閉する引き出しにする。メニューの項目・名前・遷移先は、変えない。
  */
 
@@ -17,6 +17,7 @@ import { AppStateProvider, useAppState } from './app-state.tsx';
 import { equipmentOptionLabel } from './equipment-options.ts';
 import { formatDateTimeJst } from './format.ts';
 import { Icon, type IconName } from './icon.tsx';
+import { ThemeMenu } from './theme-menu.tsx';
 import { subscribeUnreadChanged } from './unread-events.ts';
 
 interface NavItem {
@@ -322,6 +323,7 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
                 {MESSAGES.appName}
               </span>
               <EquipmentSelect />
+              <ThemeMenu />
               <NotificationLink />
               <DataStatusText />
               <div className="header-user">

@@ -124,6 +124,18 @@ describe('共通のレイアウト', () => {
     expect(link.getAttribute('aria-current')).toBe('page');
   });
 
+  it('ヘッダーに、テーマのボタン（現在の設定を示す）があり、通知のアイコンの前に並ぶ（Issue #352）', async () => {
+    renderApp(1);
+    const header = await screen.findByRole('banner');
+
+    const theme = within(header).getByRole('button', { name: 'テーマ: システム' });
+    const notifications = await within(header).findByRole('link', { name: /^未読の通知/ });
+
+    expect(
+      theme.compareDocumentPosition(notifications) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('「設定」は、開閉できるまとまりで、既定では開いている。中は、設定の 5 項目', async () => {
     renderApp();
     const menu = await screen.findByRole('navigation', { name: 'メニュー' });

@@ -14,6 +14,9 @@ const css = readFileSync(
   'utf8',
 );
 const DARK_MARKER = '@media (prefers-color-scheme: dark)';
+/** 「ダーク」を選んだとき（Issue #352）。値は、ブラウザの設定がダークのときと、同じにする。 */
+const DARK_SELECTED_MARKER = ":root[data-theme='dark'] {";
+const LIGHT_SELECTED_MARKER = ":root[data-theme='light'] {";
 
 /** `--名前: 値;` の定義を集める（`#rrggbb` 以外の値は、色ではないものとして、そのまま記録する）。 */
 function parseTokens(source: string): Map<string, string> {
@@ -33,9 +36,12 @@ function isHex(value: string | undefined): value is string {
 }
 
 const darkStart = css.indexOf(DARK_MARKER);
+const darkSelectedStart = css.indexOf(DARK_SELECTED_MARKER);
+const lightSelectedStart = css.indexOf(LIGHT_SELECTED_MARKER);
 const lightTokens = parseTokens(css.slice(0, darkStart));
-// ダークは、上書きしていないトークンを、ライトの値のまま使う
-const darkTokens = new Map([...lightTokens, ...parseTokens(css.slice(darkStart))]);
+// ブラウザの設定がダークのとき（システム）。ダークは、上書きしていないトークンを、ライトの値のまま使う
+const darkMediaTokens = parseTokens(css.slice(darkStart, darkSelectedStart));
+const darkTokens = new Map([...lightTokens, ...darkMediaTokens]);
 const THEMES = [
   ['ライト', lightTokens],
   ['ダーク', darkTokens],
@@ -304,5 +310,32 @@ describe('ダークの背景', () => {
   it('ライトの値と区別できる（ダークの上書きが、実際に定義されている）', () => {
     expect(pick(darkTokens, 'color-bg')).not.toBe(pick(lightTokens, 'color-bg'));
     expect(pick(darkTokens, 'status-error-main')).not.toBe(pick(lightTokens, 'status-error-main'));
+  });
+});
+
+describe('テーマの手動の切り替え（Issue #352）: ダークの値は、2 か所で同じ', () => {
+  const darkSelectedTokens = parseTokens(css.slice(darkSelectedStart, lightSelectedStart));
+  const lightSelectedTokens = parseTokens(css.slice(lightSelectedStart));
+
+  it('3 つの指定（ブラウザの設定・「ダーク」・「ライト」）が、この順に、1 つずつある', () => {
+    expect(darkStart).toBeGreaterThan(0);
+    expect(darkSelectedStart).toBeGreaterThan(darkStart);
+    expect(lightSelectedStart).toBeGreaterThan(darkSelectedStart);
+    expect(css.indexOf(DARK_SELECTED_MARKER, darkSelectedStart + 1)).toBe(-1);
+    expect(css).toContain(":root:not([data-theme='light'])");
+  });
+
+  it('「ダーク」を選んだときの値は、ブラウザの設定がダークのときと、完全に同じ（名前も値も）', () => {
+    expect(darkMediaTokens.size).toBeGreaterThan(40);
+    expect([...darkSelectedTokens].sort()).toEqual([...darkMediaTokens].sort());
+  });
+
+  it('「ライト」を選んだときは、値を上書きしない（ライトの値を使い、color-scheme だけを light にする）', () => {
+    expect(lightSelectedTokens.size).toBe(0);
+    expect(css.slice(lightSelectedStart)).toMatch(/color-scheme: light;/);
+  });
+
+  it('「ダーク」を選んだときは、color-scheme を dark にする（スクロールバー・入力部品も、ダークにする）', () => {
+    expect(css.slice(darkSelectedStart, lightSelectedStart)).toMatch(/color-scheme: dark;/);
   });
 });
