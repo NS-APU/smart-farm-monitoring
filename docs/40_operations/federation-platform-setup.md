@@ -4,7 +4,7 @@
 
 - 接続先のホスト名・認証情報を、リポジトリ・Issue・PR に書かない（リポジトリは公開）。以下の `<接続先>` は、基盤の NGSI-LD のエンドポイント（例: `https://<ホスト>/api/orion/ngsi-ld/v1`）に置き換える。
 - 基盤は、ふだん停止している。**EC2 を起動してから**行う。
-- 確認の結果によって、データモデル（時刻の属性など）を見直す。見直しが要る場合は、Issue #177 に記録する。
+- 確認の結果によって、データモデル（時刻の属性など）を見直す。見直しが要る場合は、確認を行う Issue（初回の実機確認は #391）に記録する。初回の結果は、[ADR-0024](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) の 6 章。
 
 ## 1. 本システムの設定（画面）
 
@@ -37,7 +37,33 @@ curl -i -X POST '<接続先>/entityOperations/upsert?options=update' \
 
 ### 2.2 QuantumLeap が、`observedAt` を時刻にすること
 
-1. Orion-LD から QuantumLeap への購読を、型ごと（`IndoorEnvironmentObserved`・`EquipmentObserved`・`ViewpointEvaluation`）に、テナントを指定して作る（購読の作り方は、基盤の運用の手順に従う）。
+1. Orion-LD から QuantumLeap への購読を、型ごと（`IndoorEnvironmentObserved`・`EquipmentObserved`・`ViewpointEvaluation`）に、テナントを指定して作る。型ごとに、次の要求を送る（`entities` の型だけを変える。形は、初回の実機確認〔#391〕で通ったもの）。
+
+```bash
+curl -i -X POST '<接続先>/subscriptions/' \
+  -H 'Content-Type: application/ld+json' -H 'NGSILD-Tenant: smart_farm_monitoring' \
+  --data-raw '{
+    "description": "EquipmentObserved を QuantumLeap へ",
+    "type": "Subscription",
+    "entities": [{"type": "EquipmentObserved"}],
+    "notification": {
+      "format": "normalized",
+      "endpoint": {
+        "uri": "http://<QuantumLeap の内部ホスト>:8668/v2/notify",
+        "accept": "application/json",
+        "receiverInfo": [{"key": "fiware-service", "value": "smart_farm_monitoring"}]
+      }
+    },
+    "@context": "<context の URL>"
+  }'
+```
+
+   - 期待: `201`。
+   - `NGSILD-Tenant` と、`receiverInfo` の `fiware-service` は、**同じテナント名**にする（QuantumLeap は、`fiware-service` でテナントを知る。ずれると、別のスキーマに入る）。
+   - `uri`: Orion-LD から届く、QuantumLeap の内部のアドレス（公開のホスト名とは限らない）。リポジトリ・Issue・PR に書かない。
+   - `watchedAttributes`・`attributes` は、書かない（`EquipmentObserved` の属性は、項目ごとに変わるため、すべての属性を対象にする）。
+   - `@context` は、本体に書く（画面の context URL と同じ）。
+   - 確認: `GET <接続先>/subscriptions/`（`NGSILD-Tenant` と `Link` ヘッダー付き）で、3 件の `status` が `active`。通知が出たあとは、`notification` に `timesSent`・`lastNotification`・`lastSuccess` が付く（通知が出る前は付かない）。`lastFailure` が付いたら、QuantumLeap のアドレスと、context の展開を確認する。
 2. 次のように、`observedAt` の違う値を、2 回送る。
 
 ```bash
@@ -50,12 +76,14 @@ curl -i -X POST '<接続先>/entityOperations/upsert?options=update' \
 2 回目は、`value` を 2、`observedAt` を `2026-11-13T00:05:00Z` にする。
 
 - 期待: QuantumLeap に、2 行（時刻が `00:00` と `00:05`）が入る。時刻が、送った時刻ではなく、`observedAt` であること。
+- 読み方: QuantumLeap の API `GET <QuantumLeap の URL>/v2/entities/<ID>?type=<型>`（直近だけなら、`&lastN=5`）に、ヘッダー `Fiware-Service: <テナント名>`（書き込みと同じ値）を付ける。応答の `index` が時刻、`attributes[].values` が値。Grafana の Infinity データソースでも、同じ API を読める（初回の実機確認で確認した）。
 
-### 2.3 再送で、時系列に重複が残らないこと
+### 2.3 再送で、時系列に行が重なること（重複を受け入れる）
 
-2.2 の 2 回目と**同じ内容**（同じエンティティ・属性・`observedAt`）を、もう一度送る。
+2.2 の 2 回目と**同じ内容**（同じエンティティ・属性・`observedAt`）を、もう一度送る。前の確認の行が混ざらないよう、新しいエンティティの ID（`CHECK-02` など）で行い、再送の前後の `index` の点の数を比べる。
 
-- 期待: QuantumLeap の行が、増えない（同じ時刻の行が 1 行のまま）。
+- 結果（初回の実機確認。2026-11-16。#391）: QuantumLeap の行が、**増える**（同じ時刻の行が重なる）。Orion-LD は、値が変わらなくても通知を出す（購読の `timesSent` が増える）。
+- **重複は受け入れる**（本システム・基盤は変えない。[ADR-0024](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) の 5 章）。時系列の集計では、同じ時刻の行を除く。
 
 ### 2.4 テナントが、初回の書き込みで作られること
 
@@ -65,10 +93,10 @@ curl -i -X POST '<接続先>/entityOperations/upsert?options=update' \
 
 ## 3. 結果の記録
 
-- 4 点の結果（成功・失敗）と、基盤の版（Orion-LD・QuantumLeap）を、Issue #177 に記録する（ホスト名・認証情報は書かない）。
+- 4 点の結果（成功・失敗）と、基盤の版（Orion-LD・QuantumLeap）を、確認を行う Issue（初回は #391）に記録する（ホスト名・認証情報は書かない）。
 - 失敗した点は、データモデル・要求の形の見直しにつなげる（ADR-0024）。
-- 確認用のエンティティ（`CHECK-01` など）は、基盤の運用の手順で、削除する。
+- 確認用のエンティティ（`CHECK-01` など）は、削除する。Orion-LD は、`DELETE <接続先>/entities/<ID>`（`NGSILD-Tenant` 付き。`204`）。QuantumLeap の時系列の行は、Orion-LD のエンティティを消しても、残る可能性がある。消す場合は、基盤の運用の手順に従う。
 
 ## 4. 長い停止のあとの、送信の時間
 
-基盤を長く停止したあと（30 日分など）に起動すると、溜まった項目を、5 分ごとに最大 100 項目ずつ送る。**1 回の送信（30 秒の上限）の時間**を確かめる: 基盤の応答が遅いと（1 回 0.4 秒以上など）、1 回の送信に要求が数十回かかり、30 秒を超えて「保留」のままになりうる。連携の結果（SC-11）で、「保留」が続くときは、Issue #177 に記録する（バッチの件数・時間の上限の見直し）。
+基盤を長く停止したあと（30 日分など）に起動すると、溜まった項目を、5 分ごとに最大 100 項目ずつ送る。**1 回の送信（30 秒の上限）の時間**を確かめる: 基盤の応答が遅いと（1 回 0.4 秒以上など）、1 回の送信に要求が数十回かかり、30 秒を超えて「保留」のままになりうる。連携の結果（SC-11）で、「保留」が続くときは、確認を行う Issue に記録する（バッチの件数・時間の上限の見直し）。初回の実機確認（#391）では、この確認を行っていない。
