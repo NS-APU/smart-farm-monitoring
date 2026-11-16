@@ -11,7 +11,7 @@
 ### 1.1 目的と対象
 
 - 目的: 収穫ロボット・スマートハウス向け稼働モニタリング基盤の、すべてのテストの仕様（何を、どの前提・操作で、何を期待して検証しているか）を、ユースケース（[use-cases.md](../docs/10_design/requirements/use-cases.md)）との対応つきで示す。
-- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の25ファイル〔UC-15 が 2 ファイル〕と `scenario-*.ts` の7ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。4 ファイル・4 件。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。画面の CSP の確認（`tests/csp/`。1 ファイル・3 件。`pnpm test:csp`。手元で実行。`pnpm test` には含めない）は、37章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。4 ファイル・8 件と、認証の `tests/smoke/auth/`。1 ファイル・2 件。`pnpm test:smoke`・`pnpm test:smoke:auth`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
+- 対象: `tests/` 配下のすべて。E2E（Playwright。`tests/e2e/UC-01〜UC-24` の25ファイル〔UC-15 が 2 ファイル〕と `scenario-*.ts` の8ファイル）、単体（Vitest。`tests/unit/`）、結合（Vitest。`tests/integration/`）。補助（`tests/e2e/support/`、`tests/support/`、`tests/unit/frontend/setup.ts`）と合成データ（`tests/fixtures/`）は、5章に示す。 負荷テスト（`tests/stress/`。4 ファイル・4 件。`pnpm test:stress`。`pnpm test` には含めない）は、9章に示す（件数の表には含めない）。画面の CSP の確認（`tests/csp/`。1 ファイル・3 件。`pnpm test:csp`。手元で実行。`pnpm test` には含めない）は、37章に示す（件数の表には含めない）。サーバーレス環境（評価環境）のスモークテスト・性能の実測（`tests/smoke/`。4 ファイル・8 件と、認証の `tests/smoke/auth/`。1 ファイル・2 件。`pnpm test:smoke`・`pnpm test:smoke:auth`。手動実行。`pnpm test` には含めない）は、13章に示す（件数の表には含めない）。
 - 方針の出典: [test-policy.md](../docs/30_quality/test-policy.md)（種類と役割・配置・カバレッジ目標）、[dev_spec.md](../docs/10_design/functions/dev_spec.md) 5章（UC と画面・API・ジョブの対応）・6章（テスト構成）、[as-built.md](../docs/10_design/architecture/as-built.md) の「テストアーキテクチャ」。
 - テストの種類の役割（test-policy.md・dev_spec.md 6.1）:
 
@@ -28,19 +28,19 @@
 | 種類                                       | ファイル数 | テスト件数 |
 | ------------------------------------------ | ---------: | ---------: |
 | E2E: UC ごと（`tests/e2e/UC-01〜UC-24`）   |         25 |        824 |
-| E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          7 |         10 |
+| E2E: シナリオ（`tests/e2e/scenario-*.ts`） |          8 |         14 |
 | 単体: shared                               |         16 |        331 |
 | 単体: backend/domain                       |         11 |        337 |
 | 単体: backend/application                  |          13 |        133 |
 | 単体: backend/presentation                 |          1 |          3 |
 | 単体: backend/infrastructure               |         21 |        463 |
 | 単体: backend/runtime                      |          3 |        136 |
-| 単体: frontend                             |         33 |        579 |
+| 単体: frontend                             |         34 |        585 |
 | 単体: infra（`infra/test/`。IaC）          |          6 |        109 |
 | 結合（`tests/integration/`）               |         57 |       1392 |
-| 合計                                       |        193 |       4317 |
+| 合計                                       |        195 |       4327 |
 
-内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕）: E2E 834 件（UC ごと 824 件・25 ファイル、シナリオ 10 件・7 ファイル。`playwright test --list` の件数）、単体・結合 3483 件・148 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜52 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕・#326。#326 の分〔単体 6 件・E2E 4 件〕は 2026-11-16 に加算し、frontend の単体テストの全件〔34 ファイル・585 件成功〕と、E2E の `--list`〔838 件〕で確認した。単体・結合の全件〔DynamoDB Local が必要〕は、CI で確認する）: E2E 838 件（UC ごと 824 件・25 ファイル、シナリオ 14 件・8 ファイル。`playwright test --list` の件数）、単体・結合 3489 件・149 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜53 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -131,9 +131,9 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 - E2E の前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。テストは1ワーカーで順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）。出力は `./test-result/` 配下（5.4節）。
 - ドキュメント間の件数の違い: commands.md の「実行結果（2026-10-12。手順8のリファクタリング後）」の件数（単体・結合 1280 件、E2E 759 件）は、手順8の時点の件数。最新の件数は、commands.md の「実行結果（2026-10-12。最終テスト（手順11）の対応後）」と、この文書の1.2節で一致する。
 
-### 1.4 14〜52 章（変更・追加したテストの記録）の索引
+### 1.4 14〜53 章（変更・追加したテストの記録）の索引
 
-14〜52 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
+14〜53 章は、Sprint 3 以降の変更で、変更・追加したテストを、章ごとに記録したもの（追加したテストの ID は、仮の ID。本体の 2〜4 章の表は、これらの追加を、個別には含めない）。1.2 の件数は、これらを含む、2026-11-09 の実測。
 
 | 章 | 内容 | Issue |
 | -- | ---- | ----- |
@@ -174,6 +174,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 50 | 農業情報基盤への連携（NGSI-LD のアダプタ・変換・連携先の設定の保管。PR 1） | #177（#260 の子） |
 | 51 | 農業情報基盤への連携（設備の名前・ID。PR 2） | #177（#260 の子） |
 | 52 | 農業情報基盤への連携（連携先の設定の API・SC-11 の画面・接続の確認・AWS の切り替え。PR 3） | #177（#260 の子） |
+| 53 | アプリのアイコン（タブ・ホーム画面・通知） | #326（#261 の子） |
 
 ## 2. UC 別のテスト仕様
 
@@ -6174,7 +6175,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 - 検証内容: push のデータ（タイトル・メッセージ・通知の識別子）から、通知の表示（`showNotification`）の引数が作られること。
 - 前提: 上の共通の前提。
 - 操作: サービスワーカーへ、`push` イベント（データ `{ title: '異常を検知しました（環境適応性）', message: 'ハウス1の温度が基準を超えています', notificationId: 'dummy-notification-1' }`）を渡す。
-- 期待結果: `showNotification` の呼び出しが 1 件で、タイトルが「異常を検知しました（環境適応性）」、オプションが `{ body: 'ハウス1の温度が基準を超えています', tag: 'dummy-notification-1' }`。`openWindow` の呼び出しがない。
+- 期待結果: `showNotification` の呼び出しが 1 件で、タイトルが「異常を検知しました（環境適応性）」、オプションが `{ body: 'ハウス1の温度が基準を超えています', tag: 'dummy-notification-1', icon: '/icon-192.png', badge: '/badge-72.png' }`（icon・badge は #326 で追加）。`openWindow` の呼び出しがない。
 - 観点: 通常ケース（内容あり）。
 - データ: 上記の push のデータ。
 
@@ -6183,7 +6184,7 @@ E22-003〜E22-011 は、共通の前提・手順。
 - 検証内容: データのない push（`event.data` が `null`）に対して、既定のタイトル・本文の通知を表示すること。
 - 前提: 上の共通の前提。
 - 操作: サービスワーカーへ、データのない `push` イベントを渡す。
-- 期待結果: `showNotification` の呼び出しが 1 件で、タイトルが「稼働モニタリング」、オプションが `{ body: '新しい通知があります' }`（`tag` なし）。
+- 期待結果: `showNotification` の呼び出しが 1 件で、タイトルが「稼働モニタリング」、オプションが `{ body: '新しい通知があります', icon: '/icon-192.png', badge: '/badge-72.png' }`（`tag` なし。icon・badge は #326 で追加）。
 - 観点: 境界（内容なし・欠損）。
 - データ: なし。
 
@@ -6834,6 +6835,7 @@ Vitest（`vitest.config.ts`）の3つのプロジェクトで実行する。`nod
 | frontend               | `tests/unit/frontend/accessibility.test.tsx`                            |   11 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/input-assist.test.tsx`                             |   12 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/resilience.test.tsx`                               |   16 | （個別の節なし。8 章で説明）                                                                     |
+| frontend               | `tests/unit/frontend/app-icons.test.ts`                                 |    6 | （個別の節なし。53 章で説明）                                                                    |
 | frontend               | `tests/unit/frontend/service-worker.test.ts`                            |    7 | （個別の節なし。8 章で説明）                                                                     |
 | frontend               | `tests/unit/frontend/ui-refinements.test.tsx`                           |    4 | （個別の節なし。8 章で説明）                                                                     |
 | infra                  | `infra/test/apps.test.ts`                                               |    12 | （個別の節なし。12 章で説明）                                                                    |
@@ -12561,3 +12563,33 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功
 - E2E（空きポート 18787・15173）: UC-11・UC-15（2 ファイル）・UC-16・UC-24 の 100 件が、すべて成功。`pnpm test:stress`: 4 件成功。そのほかの E2E は、CI（`ci:full`）で確認する（結果は、PR に記載）
 - **実際の農業情報基盤への接続は、していない。AWS での確認も、なし**
+
+## 53. アプリのアイコン（タブ・ホーム画面・通知。Issue #326。#261 の子）で追加・変更したテスト
+
+この章は、1.2 節の件数に含めている（2026-11-16 の実測）。追加したテストの ID は、仮の ID（次回の抽出で振り直す）。
+
+仕様: アプリのアイコン（仮の絵柄）を、ブラウザのタブ（`icon.svg`・`favicon.ico`）、ホーム画面（`apple-touch-icon.png`・マニフェストの `icons` の `icon-192.png`・`icon-512.png`）、Web Push の通知（`sw.js` の `showNotification` の `icon`・`badge`。`icon-192.png`・`badge-72.png`）で用意する。`favicon.ico` を、ブラウザが自動で取得するときに 403 にならないようにする（`ui-design-guidelines.md` 7.5）。
+
+### 53.1 追加したテスト
+
+| 層・ファイル | 追加した内容（件数） |
+| ------------ | -------------------- |
+| 単体: `tests/unit/frontend/app-icons.test.ts`（6 件・新規） | `index.html` の `<link rel="icon">`（SVG・`favicon.ico`）と `apple-touch-icon` の指定と、参照先のファイルの存在、`apple-touch-icon.png` が 180×180 の PNG、`icon.svg` が `viewBox` のある SVG、`favicon.ico` が 32×32 の画像を 1 つ含む ICO（PNG 埋め込み）、マニフェストの `icons` に 192×192・512×512 の PNG があり、参照先が存在し、宣言の大きさと一致、通知で指定する `icon-192.png`・`badge-72.png`（72×72）の存在 |
+| E2E: `tests/e2e/scenario-app-icons.ts`（4 件・新規） | `favicon.ico` が画像として取得できる（403 にならない）、`index.html` の `<link>` の参照先（`icon.svg`・`favicon.ico`・`apple-touch-icon.png`）がすべて画像として取得できる、マニフェストの `icons` の参照先がすべて画像として取得できる（192×192・512×512 を含む）、通知のアイコン・バッジが取得できる |
+| スモーク: `tests/smoke/smoke-04-delivery-headers.ts`（既存の 1 件に、確認の対象を追加） | 配信（S3 + CloudFront）で、アイコンの 6 ファイルが 200 で、`Cache-Control` が `no-cache` であること（件数は変わらない。手元で実行していない） |
+
+### 53.2 変更した既存のテスト
+
+| ファイル | 変更 |
+| -------- | ---- |
+| 単体: `tests/unit/frontend/service-worker.test.ts`（2 件） | `showNotification` の第 2 引数の期待値に、`icon: '/icon-192.png'`・`badge: '/badge-72.png'` を加えた（通知にアイコンを付ける、承認済みの仕様の拡張〔範囲 C〕による変更。期待値を緩めたのではなく、項目を加えた） |
+| E2E: `tests/e2e/UC-23-configure-web-push.ts`（2 件） | 同じ期待値の変更（E23-028・E23-029）。記録用の型 `NotificationOptionsRecorded` に `icon`・`badge` を加えた |
+
+### 53.3 実測
+
+手元（Windows。2026-11-16）:
+
+- 単体（`vitest run --project frontend`）: **34 ファイル・585 件が、すべて成功**。`pnpm test:unit` の全件（DynamoDB Local が必要）は、手元で実行していない。CI で確認する
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
+- E2E（空きポート 18787・15173）: `scenario-app-icons.ts`（4 件）と UC-23（31 件）の 35 件が、すべて成功。そのほかの E2E は、CI（`ci:full`）で確認する
+- **未確認**: 配信（S3 + CloudFront）での取得と `Cache-Control`（スモークテスト `smoke-04`。AWS）、実機（iPhone・iPad のホーム画面、Android の通知）での表示
