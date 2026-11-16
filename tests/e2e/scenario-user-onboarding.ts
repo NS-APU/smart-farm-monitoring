@@ -18,6 +18,7 @@ import {
   newUserSession,
   openAs,
   prepareApp,
+  logout,
 } from './support/app.ts';
 import { changePasswordViaUi, loginViaUi } from './support/helpers.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -105,7 +106,7 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await expect(userRow(page, USER_B.userId)).toContainText('閲覧者');
 
     // UC-13: Bが、ログアウトして、ログインし直す → UC-12: 構成は参照のみ（権限は、ログインのたびに反映される）
-    await b.page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(b.page);
     await expect(b.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await loginViaUi(b.page, B_OWN_PASSWORD, USER_B.userId);
     await goToMenu(b.page, '設備');
@@ -143,7 +144,7 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     // UC-13: Aは、構成を登録した利用者がいなくなっても、構成を使い続けられ、ログアウトする
     await goToMenu(page, '設備');
     await expect(equipmentRows(page)).toHaveCount(2);
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
   });
 });

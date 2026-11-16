@@ -450,32 +450,13 @@ input:not([type='radio']) {
   text-overflow: ellipsis;
 }
 
-/* テーマのメニュー（ヘッダー。通知のアイコンと同じ大きさの丸いボタン。押すと、右下に 3 項目を開く） */
-.theme-menu {
+/* ヘッダーのポップアップのメニュー（ユーザーメニュー。テーマの切り替えも、この中）。ボタンの下に、右端をそろえて開く（hooks/use-popup-menu.ts が、画面の幅からはみ出す分を、ずらす） */
+.popup-menu {
   position: relative;
   display: inline-flex;
 }
 
-.theme-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.theme-trigger[aria-expanded='true'] {
-  background: var(--color-unread-bg);
-  border-color: var(--color-primary-ink);
-  color: var(--color-primary-ink);
-}
-
-.theme-list {
+.popup-list {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -490,31 +471,101 @@ input:not([type='radio']) {
   box-shadow: var(--shadow-dialog);
 }
 
-.theme-item {
+.popup-item {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-height: 40px;
   padding: 4px 10px;
-  border-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
   color: var(--color-text);
+  font-size: inherit;
   text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-.theme-item:hover {
+.popup-item:hover {
   background: var(--color-surface-muted);
 }
 
-.theme-item[aria-checked='true'] {
+.popup-item[aria-checked='true'],
+.popup-item[aria-current='page'] {
   font-weight: 700;
 }
 
-.theme-item .theme-check {
+.popup-item[aria-current='page'] {
+  background: var(--color-unread-bg);
+}
+
+.popup-item .popup-check {
   display: inline-flex;
   width: 16px;
   margin-left: auto;
   color: var(--color-primary-ink);
+}
+
+.popup-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border);
+}
+
+/* メニューの中の、項目のまとまり（テーマ）の見出し */
+.popup-heading {
+  padding: 4px 10px 2px;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* ユーザーのボタン（アイコン + ユーザー名 + ロール）。長い名前は、省略する（全文は、ボタンの名前・ツールチップ）。狭い幅は、アイコンだけ */
+.user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 20em;
+  min-height: 40px;
+  padding: 4px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.user-trigger > .icon {
+  color: var(--color-muted);
+}
+
+.user-trigger[aria-expanded='true'],
+.user-trigger[aria-current='page'] {
+  background: var(--color-unread-bg);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
+}
+
+.user-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.user-name {
+  min-width: 0;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role {
+  flex: none;
+  color: var(--color-muted);
+  white-space: nowrap;
 }
 
 /* 通知のアイコン（丸い枠）。未読の件数のバッジを右上に重ねる。通知の画面にいる間は、現在の画面として強調する */
@@ -569,16 +620,6 @@ input:not([type='radio']) {
 
 .data-stale {
   color: var(--status-caution-text);
-}
-
-.header-user {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-user > .icon {
-  color: var(--color-muted);
 }
 
 /* メニューの開閉の操作（狭い幅だけ表示する） */
@@ -1046,13 +1087,23 @@ input:not([type='radio']) {
   }
 
   /* 上部のバー: 1 行目に ☰・題名・通知・ユーザー。設備の選択と、最終のデータ取得は、次の行へ */
-  .theme-menu,
   .header-unread {
     order: 2;
   }
 
-  .header-user {
+  .user-menu {
     order: 3;
+  }
+
+  /* ユーザーのボタンは、アイコンだけにする（名前・ロールは、ボタンの名前で読み上げる） */
+  .user-label {
+    display: none;
+  }
+
+  .user-trigger {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
   }
 
   .header-field {
@@ -1074,13 +1125,6 @@ input:not([type='radio']) {
 
   body.menu-open {
     overflow: hidden;
-  }
-}
-
-@media (max-width: 600px) {
-  .header-user > span,
-  .header-user > .icon {
-    display: none;
   }
 }
 

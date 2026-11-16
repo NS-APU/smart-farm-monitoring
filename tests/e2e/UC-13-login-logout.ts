@@ -27,6 +27,8 @@ import {
   newUserSession,
   openAs,
   prepareApp,
+  logout,
+  goToUserMenu,
 } from './support/app.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { changePasswordViaUi, loginViaUi, resetBackend } from './support/helpers.ts';
@@ -76,7 +78,7 @@ test.describe('基本フロー: ログインし、利用し、ログアウトす
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
 
     // 5. ログアウトすると、ログイン画面へ戻り、保護された画面へ直接アクセスできない
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await page.goto('/notifications');
     await expect(page).toHaveURL(/\/login\?next=%2Fnotifications$/);
@@ -112,7 +114,7 @@ test.describe('基本フロー: ログインし、利用し、ログアウトす
     await page.goto('/');
     await loginViaUi(page);
 
-    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText(E2E_USER.userName);
+    await expect(page.getByTestId('user-name')).toHaveText(E2E_USER.userName);
   });
 
   test('スマートフォン幅（375px）でも、ログイン画面は、横にはみ出さず、入力欄とボタンが画面の幅に収まり、ログインできる', async ({
@@ -268,7 +270,7 @@ test.describe('代替フロー: 試行回数が制限（失敗5回 / 15分 / 接
     await failTimes(page, 4);
     await submitLogin(page, E2E_USER.userId, E2E_USER.password);
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await failTimes(page, 4);
 
     await submitLogin(page, E2E_USER.userId, E2E_USER.password);
@@ -411,7 +413,7 @@ test.describe('ログアウト: セッションを破棄する', () => {
     });
     expect(before.status()).toBe(200);
 
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
 
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     const after = await request.get('/api/v1/equipment', {
@@ -429,7 +431,7 @@ test.describe('ログアウト: セッションを破棄する', () => {
     await page.getByRole('link', { name: /^未読の通知/ }).click();
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
 
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await page.goBack();
 
@@ -464,14 +466,14 @@ test.describe('ログアウト: セッションを破棄する', () => {
     const b = await newUserSession(browser, testInfo, 'user-b');
     await b.page.goto('/');
     await loginViaUi(b.page, USER_B.password, USER_B.userId);
-    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText(E2E_USER.userName);
-    await expect(b.page.getByLabel('ログイン中のユーザー')).toHaveText(USER_B.userName);
+    await expect(page.getByTestId('user-name')).toHaveText(E2E_USER.userName);
+    await expect(b.page.getByTestId('user-name')).toHaveText(USER_B.userName);
 
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
 
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await b.page.reload();
-    await expect(b.page.getByLabel('ログイン中のユーザー')).toHaveText(USER_B.userName);
+    await expect(b.page.getByTestId('user-name')).toHaveText(USER_B.userName);
     await b.context.close();
   });
 });
@@ -511,7 +513,7 @@ test.describe('管理者が決めたパスワードは、一時のもの。本�
     await expect(page.getByRole('banner')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'データ入力', level: 1 })).toBeVisible();
     // ログアウトして、管理者が決めたパスワードでは、ログインできない。本人が決めたパスワードで、変更を求められずに、ログインできる
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await loginAsNewUser(page, TEMPORARY);
     await expect(page.getByRole('alert')).toHaveText(FAILED_MESSAGE);
     await loginAsNewUser(page, OWN);
@@ -625,7 +627,7 @@ test.describe('管理者が決めたパスワードは、一時のもの。本�
     const otherDevice = await newUserSession(browser, testInfo, 'other-device');
     await openAs(otherDevice.page, '/', USER_B);
 
-    await page.getByRole('link', { name: 'パスワードの変更' }).click();
+    await goToUserMenu(page, 'パスワードの変更');
     await expect(
       page.getByRole('main').getByRole('heading', { name: 'パスワードの変更', level: 1 }),
     ).toBeVisible();

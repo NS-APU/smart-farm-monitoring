@@ -64,8 +64,8 @@ describe('共通のレイアウト', () => {
     const menu = await screen.findByRole('navigation', { name: 'メニュー' });
     await screen.findByRole('heading', { name: '安全性' });
 
-    // メニューの中のリンクは、8 つの項目だけ（名前は、文字のみ）。「通知」はない
-    expect(within(menu).getAllByRole('link')).toHaveLength(8);
+    // メニューの中のリンクは、7 つの項目だけ（Issue #353 で「通知の設定」をユーザーメニューへ移した）（名前は、文字のみ）。「通知」はない
+    expect(within(menu).getAllByRole('link')).toHaveLength(7);
     expect(within(menu).queryByRole('link', { name: '通知' })).toBeNull();
     expect(menu.querySelector('.nav-badge')).toBeNull();
     const main = must(document.getElementById('main'));
@@ -124,19 +124,21 @@ describe('共通のレイアウト', () => {
     expect(link.getAttribute('aria-current')).toBe('page');
   });
 
-  it('ヘッダーに、テーマのボタン（現在の設定を示す）があり、通知のアイコンの前に並ぶ（Issue #352）', async () => {
+  it('ヘッダーの右端は、ユーザーメニュー（テーマの切り替えも、その中）。テーマだけのボタンは、置かない（Issue #353）', async () => {
     renderApp(1);
     const header = await screen.findByRole('banner');
 
-    const theme = within(header).getByRole('button', { name: 'テーマ: システム' });
-    const notifications = await within(header).findByRole('link', { name: /^未読の通知/ });
+    const user = await within(header).findByRole('button', { name: /^ログイン中のユーザー/ });
+    const notifications = within(header).getByRole('link', { name: /^未読の通知/ });
 
+    expect(within(header).queryByRole('button', { name: /^テーマ/ })).toBeNull();
+    // 通知のアイコンの後ろ（右端）にある
     expect(
-      theme.compareDocumentPosition(notifications) & Node.DOCUMENT_POSITION_FOLLOWING,
+      notifications.compareDocumentPosition(user) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
-  it('「設定」は、開閉できるまとまりで、既定では開いている。中は、設定の 5 項目', async () => {
+  it('「設定」は、開閉できるまとまりで、既定では開いている。中は、設定の 4 項目（「通知の設定」は、ヘッダーのユーザーメニューへ移した。Issue #353）', async () => {
     renderApp();
     const menu = await screen.findByRole('navigation', { name: 'メニュー' });
 
@@ -148,7 +150,6 @@ describe('共通のレイアウト', () => {
       '取り込み',
       'ステータスコード',
       'ユーザー',
-      '通知の設定',
     ]);
   });
 
@@ -164,7 +165,6 @@ describe('共通のレイアウト', () => {
       '設備',
       '取り込み',
       'ステータスコード',
-      '通知の設定',
     ]);
   });
 
