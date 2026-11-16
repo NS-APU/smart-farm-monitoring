@@ -23,6 +23,8 @@ self.addEventListener('push', (event) => {
       {
         body: typeof data.message === 'string' ? data.message : '新しい通知があります',
         tag: typeof data.notificationId === 'string' ? data.notificationId : undefined,
+        icon: '/icon-192.png',
+        badge: '/badge-72.png',
       },
     ),
   );

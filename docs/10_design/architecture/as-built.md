@@ -1087,7 +1087,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 | `push/`                 | `browser-push.ts`（`PushBrowser`。サービスワーカー・Push API・Notification API の窓口）、`push-context.tsx`                                                                                          |
 | `i18n/`                 | `messages.ts`・`management-messages.ts`（日本語の固定文言。多言語の仕組みはない）                                                                                                                    |
 | `styles/`               | `app.css`・`viewpoints.css`・`management.css`                                                                                                                                                        |
-| `public/`               | `sw.js`（Web Push の受信と、通知を選ぶと `/notifications` を開く）、`manifest.webmanifest`                                                                                                           |
+| `public/`               | `sw.js`（Web Push の受信と、通知を選ぶと `/notifications` を開く）、`manifest.webmanifest`、アプリのアイコン（`icon.svg`・`favicon.ico`・`apple-touch-icon.png`・`icon-192.png`・`icon-512.png`・通知のバッジ `badge-72.png`。仮の絵柄。`scripts/generate-app-icons.ts` で生成。#326）                                                                                                           |
 
 ### 状態管理
 
@@ -2733,7 +2733,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、32 ファイル・834 件（UC ごと 25 ファイル・824 件、シナリオ 7 ファイル・10 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、33 ファイル・838 件（UC ごと 25 ファイル・824 件、シナリオ 8 ファイル・14 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数

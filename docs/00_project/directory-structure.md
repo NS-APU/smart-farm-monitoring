@@ -15,10 +15,10 @@ smart-farm-monitoring/
 │   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・ssm/（パラメータストアの秘密情報。ADR-0016 の D-55。Issue #206）・http/（ファイルサーバー〔HTTP〕の接続先の検査と接続テスト。ADR-0022。Issue #172）・web-push/（Web Push の実配信。送信の関数とライブラリの型の宣言を含む。ADR-0019 の D-36。Issue #241）・format-profiles/・logging/）
 │   │   ├── presentation/    # 提示層（Hono アプリ・ルート・領域ごとのハンドラ・認証認可・共通エラー）
 │   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
-│   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）
+│   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト・アプリのアイコン）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts・observation-list-period.ts などの補助）
 ├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・test/ のテスト。API の Lambda は、バックエンド本体 `src/backend/runtime/lambda.ts` を、esbuild でまとめて配る。ADR-0006・ADR-0007・ADR-0009）
-├── scripts/       # 補助スクリプト
+├── scripts/       # 補助スクリプト（generate-app-icons.ts: アプリのアイコンの生成。Issue #326）
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
 ├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）
 ├── .vscode/       # エディタ（VS Code）の設定（settings.json。cSpell の用語）

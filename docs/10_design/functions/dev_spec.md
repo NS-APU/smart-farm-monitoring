@@ -39,7 +39,7 @@ smart-farm-monitoring/
 │   │   ├── infrastructure/       #   インフラ層（ポートのアダプタ。ローカル実装（local/repositories/ に集約ごとの Repository）、FormatProfile、ログ）
 │   │   ├── presentation/         #   提示層（Hono アプリ、ルート、領域ごとのハンドラ、認証・認可、共通エラー）
 │   │   └── runtime/              #   実行形態（設定、組み立て、Node サーバー、Lambda ハンドラ）
-│   └── frontend/                 # @smart-farm/frontend: React + Vite の SPA（pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/。public/ はサービスワーカー・マニフェスト）
+│   └── frontend/                 # @smart-farm/frontend: React + Vite の SPA（pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/。public/ はサービスワーカー・マニフェスト・アプリのアイコン）
 ├── tests/
 │   ├── unit/{shared,backend,frontend}/   # 単体テスト（src/ と同じ階層構成）
 │   ├── integration/                      # 結合テスト（Hono アプリ・サービス・Repository の契約）
@@ -48,7 +48,7 @@ smart-farm-monitoring/
 │   ├── smoke/                            # サーバーレス環境のスモークテスト・性能の実測（Playwright。smoke-NN-<英語の概略名>.ts。補助は support/。6.6）
 │   ├── fixtures/                         # 合成データ（ファイルサーバーのモック用のファイル）
 │   └── support/                          # テストの補助（組み立て・データ生成・API のスタブ・画面の単体テストの描画）
-├── scripts/                      # 補助スクリプト（いまはなし）
+├── scripts/                      # 補助スクリプト（generate-app-icons.ts: アプリのアイコン〔仮の絵柄〕の生成）
 └── test-result/                  # テストの出力（Git 管理外。カバレッジ、動画、スクリーンショット、レポート）
 ```
 
