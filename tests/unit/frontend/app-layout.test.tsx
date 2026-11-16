@@ -59,29 +59,69 @@ afterEach(() => {
 });
 
 describe('共通のレイアウト', () => {
-  it('メニューは、本文より前にあり、ブランドのリンクと件数の印は、メニュー（nav）の外に置く', async () => {
+  it('メニューは、本文より前にあり、「通知」の項目と件数の印は、メニュー（nav）にない（通知は、ヘッダーから開く。Issue #351）', async () => {
     renderApp(3);
     const menu = await screen.findByRole('navigation', { name: 'メニュー' });
     await screen.findByRole('heading', { name: '安全性' });
 
-    // メニューの中のリンクは、9 つの項目だけ（名前は、文字のみ）
-    expect(within(menu).getAllByRole('link')).toHaveLength(9);
+    // メニューの中のリンクは、8 つの項目だけ（名前は、文字のみ）。「通知」はない
+    expect(within(menu).getAllByRole('link')).toHaveLength(8);
+    expect(within(menu).queryByRole('link', { name: '通知' })).toBeNull();
+    expect(menu.querySelector('.nav-badge')).toBeNull();
     const main = must(document.getElementById('main'));
     expect(menu.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // 未読の件数の印は、「通知」の項目の隣（リンクの外）。読み上げは、上部のリンクが担う
-    await waitFor(() => {
-      expect(menu.querySelector('.nav-badge')?.textContent).toBe('3');
-    });
-    expect(menu.querySelector('.nav-badge')?.getAttribute('aria-hidden')).toBe('true');
-    expect(within(menu).getByRole('link', { name: '通知' }).textContent).toBe('通知');
   });
 
-  it('未読が 0 件のときは、件数の印を表示しない', async () => {
-    renderApp(0);
-    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+  it('ヘッダーの通知のアイコンに、未読の件数のバッジ（読み上げの対象外）を重ね、リンクの名前は、実際の件数を示す', async () => {
+    renderApp(3);
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(menu.querySelector('.nav-badge')).toBeNull();
+    const link = await screen.findByRole('link', { name: '未読の通知: 3件' });
+    expect(link.getAttribute('href')).toBe('/notifications');
+    const badge = within(link).getByTestId('unread-count');
+    await waitFor(() => {
+      expect(badge.textContent).toBe('3');
+    });
+    expect(badge.hasAttribute('hidden')).toBe(false);
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('未読が 0 件のときは、バッジを表示せず（ベルだけ）、リンクの名前は 0 件を示す', async () => {
+    renderApp(0);
+    await screen.findByRole('heading', { name: '安全性' });
+
+    const link = await screen.findByRole('link', { name: '未読の通知: 0件' });
+    const badge = within(link).getByTestId('unread-count');
+    expect(badge.hasAttribute('hidden')).toBe(true);
+    expect(badge.textContent).toBe('0');
+  });
+
+  it.each([
+    [99, '99'],
+    [100, '99+'],
+    [105, '99+'],
+  ])(
+    '未読が %i 件のとき、バッジの表示は「%s」（リンクの名前は、実際の件数）',
+    async (unread, shown) => {
+      renderApp(unread);
+      await screen.findByRole('heading', { name: '安全性' });
+
+      const link = await screen.findByRole('link', { name: `未読の通知: ${String(unread)}件` });
+      await waitFor(() => {
+        expect(within(link).getByTestId('unread-count').textContent).toBe(shown);
+      });
+    },
+  );
+
+  it('通知の画面にいる間は、ヘッダーの通知のリンクが、現在の画面を示す（メニューに「通知」がないため）', async () => {
+    renderApp(2);
+    const link = await screen.findByRole('link', { name: '未読の通知: 2件' });
+    expect(link.getAttribute('aria-current')).toBeNull();
+
+    fireEvent.click(link);
+
+    await screen.findByRole('heading', { name: '通知' });
+    expect(link.getAttribute('aria-current')).toBe('page');
   });
 
   it('「設定」は、開閉できるまとまりで、既定では開いている。中は、設定の 5 項目', async () => {
@@ -198,7 +238,7 @@ describe('狭い幅の、メニューの引き出し', () => {
 
     fireEvent.click(
       within(screen.getByRole('navigation', { name: 'メニュー' })).getByRole('link', {
-        name: '通知',
+        name: '取り込み済みデータ',
       }),
     );
 

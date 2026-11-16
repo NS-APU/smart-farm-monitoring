@@ -251,7 +251,6 @@ describe('共通のヘッダー・ナビゲーション', () => {
     ).toEqual([
       'ダッシュボード',
       'データ入力',
-      '通知',
       '取り込み済みデータ',
       '設備',
       '取り込み',
@@ -271,10 +270,11 @@ describe('共通のヘッダー・ナビゲーション', () => {
     await screen.findByText('閲覧者B');
 
     expect(screen.queryByRole('link', { name: 'ユーザー' })).toBeNull();
-    expect(screen.getByRole('link', { name: '通知' })).toBeDefined();
+    // 通知は、メニューでなく、ヘッダーのアイコンから開く（Issue #351）
+    expect(screen.getByRole('link', { name: /^未読の通知/ })).toBeDefined();
   });
 
-  it('メニューから、画面（通知）へ移動でき、現在の画面を示す', async () => {
+  it('ヘッダーの通知のアイコンから、画面（通知）へ移動でき、現在の画面を示す（メニューは、現在の項目なし）', async () => {
     const base = handlerOf();
     renderApp({
       handler: (request) =>
@@ -284,14 +284,15 @@ describe('共通のヘッダー・ナビゲーション', () => {
     });
     await screen.findByText('農作業者A');
 
-    fireEvent.click(screen.getByRole('link', { name: '通知' }));
+    const link = screen.getByRole('link', { name: /^未読の通知/ });
+    fireEvent.click(link);
 
     expect(await screen.findByRole('heading', { name: '通知' })).toBeDefined();
     expect(await screen.findByText('通知はありません')).toBeDefined();
+    expect(link.getAttribute('aria-current')).toBe('page');
     expect(
-      screen.getByRole('navigation', { name: 'メニュー' }).querySelector('[aria-current="page"]')
-        ?.textContent,
-    ).toBe('通知');
+      screen.getByRole('navigation', { name: 'メニュー' }).querySelector('[aria-current="page"]'),
+    ).toBeNull();
   });
 
   it('存在しないパスは、見つからない旨を表示し、ダッシュボードへ戻れる', async () => {

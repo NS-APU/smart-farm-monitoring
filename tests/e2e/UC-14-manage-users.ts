@@ -27,6 +27,7 @@ import {
   alignBrowserClock,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   prepareApp,
@@ -267,7 +268,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await expect(notice(page)).toHaveText('削除しました');
 
     // 削除されたユーザーの画面は、次の更新（約10秒）または操作で、ログイン画面へ戻る
-    await goToMenu(other.page, '通知');
+    await goToNotifications(other.page);
     await expect(other.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible({
       timeout: 20_000,
     });

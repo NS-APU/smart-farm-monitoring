@@ -541,7 +541,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     {
       act: async () => `JB-04 の実行 ${String(await runJob(request, USER, 'JB-04'))} ms`,
       respond: async () => {
-        await menu('通知').click();
+        await page.getByRole('link', { name: /^未読の通知/ }).click();
         await expectListShown(page, 'notification-row');
       },
     },
@@ -975,7 +975,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
   await setMock(request, USER, 'file-server', 'UP');
   await m('UC-24', '取り込み失敗の通知を、通知の一覧で確認する', '通知（SC-05）', 'screen', {
-    act: () => menu('通知').click(),
+    act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: async () => {
       await expect(rowsOf(page, 'notification-row').first()).toContainText('データ取得失敗');
       await expectListShown(page, 'notification-row');
@@ -1002,7 +1002,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await m('UC-22', '通知の一覧に戻る（メニュー）', '通知（SC-05）', 'screen', {
-    act: () => menu('通知').click(),
+    act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: () => expectListShown(page, 'notification-row'),
   });
   await m('UC-22', '種別「データ取得失敗」で絞り込む', '通知（SC-05）', 'screen', {
@@ -1023,7 +1023,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: ingestionShown,
     },
   );
-  await menu('通知').click();
+  await page.getByRole('link', { name: /^未読の通知/ }).click();
   await expectListShown(page, 'notification-row');
   await m('UC-22', '既読状態「未読」で絞り込む', '通知（SC-05）', 'screen', {
     act: () => page.getByLabel('既読状態').selectOption('UNREAD'),
@@ -1041,10 +1041,12 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       },
     });
   }
-  const unreadBefore = (await page.getByTestId('unread-count').textContent()) ?? '';
+  // 未読が 100 件以上のとき、バッジは「99+」のまま変わらないため、実際の件数を持つ、リンクの名前（「未読の通知: N件」）で確かめる（Issue #351）
+  const unreadLink = page.getByRole('link', { name: /^未読の通知/ });
+  const unreadBefore = (await unreadLink.getAttribute('aria-label')) ?? '';
   await m('UC-22', '先頭の通知の「既読にする」を押す', '通知（SC-05）', 'operation', {
     act: () => notificationRows.first().getByRole('button', { name: '既読にする' }).click(),
-    respond: () => expect(page.getByTestId('unread-count')).not.toHaveText(unreadBefore),
+    respond: () => expect(unreadLink).not.toHaveAttribute('aria-label', unreadBefore),
   });
   await m('UC-22', '絞り込みの範囲（未読）を、まとめて既読にする', '通知（SC-05）', 'operation', {
     act: async () => {

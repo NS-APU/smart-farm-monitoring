@@ -411,6 +411,14 @@ export async function goToMenu(page: Page, name: string): Promise<void> {
     .click();
 }
 
+/**
+ * 通知の一覧を開く。通知は、メニューでなく、ヘッダーの通知のアイコン（リンクの名前は「未読の通知: N件」）から開く（Issue #351）。
+ * ヘッダーは、狭い幅でも見えているため、メニューの引き出しを開く必要はない。
+ */
+export async function goToNotifications(page: Page): Promise<void> {
+  await page.getByRole('link', { name: /^未読の通知/ }).click();
+}
+
 /** ヘッダーの未読の件数。 */
 export function unreadBadge(page: Page): Locator {
   return page.getByTestId('unread-count');

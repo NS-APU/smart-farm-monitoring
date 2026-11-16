@@ -190,7 +190,7 @@ describe('画面のタイトル・見出し・通知の件数（V-154・V-163・
     await screen.findByRole('heading', { name: '安全性' });
     expect(document.title).toBe('ダッシュボード - 稼働モニタリング');
 
-    fireEvent.click(screen.getByRole('link', { name: '通知' }));
+    fireEvent.click(screen.getByRole('link', { name: /^未読の通知/ }));
 
     await waitFor(() => {
       expect(document.title).toBe('通知 - 稼働モニタリング');

@@ -79,7 +79,6 @@ export const MESSAGES = {
   nav: {
     dashboard: 'ダッシュボード',
     dataEntry: 'データ入力',
-    notifications: '通知',
     observations: '取り込み済みデータ',
     settings: '設定',
     equipment: '設備',

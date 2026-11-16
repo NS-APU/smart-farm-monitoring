@@ -28,7 +28,7 @@ import {
   advanceMinutes,
   alignBrowserClock,
   confirmDialog,
-  goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   placeFile,
@@ -98,7 +98,7 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
 
     // 6. 確認した通知は、既読になる（ヘッダーの件数が、減る）
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore - 1));
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(
       rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
     ).toHaveAttribute('data-read-state', 'READ');
@@ -174,7 +174,7 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     await shot(page, testInfo, 'uc05-detail-robot');
 
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore - 1));
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(
       rows(page).filter({ hasText: '収穫精度' }).filter({ hasText: '収穫ロボット1' }),
     ).toHaveAttribute('data-read-state', 'READ');
@@ -214,7 +214,7 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
     await expect(page.getByTestId('result-robot')).toContainText('取得しました（失敗）');
     await expect(unreadBadge(page)).toHaveText('1');
 
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await rows(page)
       .filter({ hasText: 'データ取得失敗' })
       .getByRole('link', { name: '取り込みの状況を確認' })

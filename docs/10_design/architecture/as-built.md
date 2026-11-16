@@ -159,7 +159,7 @@
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
-共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・未読の通知の件数・最終のデータ取得日時・メニュー・ログイン中のユーザー・ログアウトがある。
+共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・メニュー・ログイン中のユーザー・ログアウトがある。
 
 ### API（`/api/v1`。40 ルート＋ `/health`）
 

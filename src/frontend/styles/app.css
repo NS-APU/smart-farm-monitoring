@@ -314,22 +314,6 @@ input:not([type='radio']) {
   font-weight: 700;
 }
 
-/* 未読の件数の印（リンクの外に置く）。状態の色の「異常」の塗りと同じ（強い色を、気づいてほしいものに絞る） */
-.nav-badge {
-  position: absolute;
-  top: 50%;
-  right: 16px;
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--status-error-fill);
-  color: var(--status-error-on);
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-align: center;
-  transform: translateY(-50%);
-}
-
 .nav-group summary {
   cursor: pointer;
   list-style: none;
@@ -392,15 +376,48 @@ input:not([type='radio']) {
   text-overflow: ellipsis;
 }
 
+/* 通知のアイコン（丸い枠）。未読の件数のバッジを右上に重ねる。通知の画面にいる間は、現在の画面として強調する */
 .header-unread {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   text-decoration: none;
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  padding: 2px 12px;
+}
+
+.header-unread[aria-current='page'] {
+  background: var(--color-unread-bg);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
+}
+
+/* 件数のバッジ。状態の色の「異常」の塗りと同じ（強い色を、気づいてほしいものに絞る）。0 件のときは、隠す */
+.unread-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 2px solid var(--color-surface);
+  border-radius: 999px;
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.unread-badge[hidden] {
+  display: none;
 }
 
 .header-data-status {

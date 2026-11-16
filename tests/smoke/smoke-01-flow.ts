@@ -98,7 +98,7 @@ test('ログイン → ダッシュボード → 手動入力 → 通知 → ロ
 
     // 通知
     await m('UC-05', 'メニューから「通知」を開く', '通知（SC-05）', 'screen', {
-      act: () => menuLink(page, '通知').click(),
+      act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
       respond: async () => {
         await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
         await expect(loadingView(page)).toHaveCount(0);
