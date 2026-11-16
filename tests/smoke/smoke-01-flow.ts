@@ -111,8 +111,9 @@ test('ログイン → ダッシュボード → 手動入力 → 通知 → ロ
   }
 
   // ログアウト
-  await m('UC-13', 'ヘッダーの「ログアウト」を押す', 'ログイン（SC-01）', 'screen', {
-    act: () => banner.getByRole('button', { name: 'ログアウト' }).click(),
+  await banner.getByRole('button', { name: /^ログイン中のユーザー/ }).click();
+  await m('UC-13', 'ユーザーメニューの「ログアウト」を選ぶ', 'ログイン（SC-01）', 'screen', {
+    act: () => page.getByRole('menuitem', { name: 'ログアウト', exact: true }).click(),
     respond: () => expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(),
   });
   await page.goto('/notifications');

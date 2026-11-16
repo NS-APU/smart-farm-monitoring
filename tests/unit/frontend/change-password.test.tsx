@@ -219,10 +219,11 @@ describe('パスワードの変更の強制（UC-13・UC-14。SC-01。D-45）', 
 });
 
 describe('本人によるパスワードの変更（変更が必要でない利用者。FR-9.7）', () => {
-  it('ヘッダーの「パスワードの変更」から、変更の画面を開ける（共通のレイアウトの中）。変更すると、ダッシュボードへ戻る', async () => {
+  it('ヘッダーのユーザーメニューの「パスワードの変更」から、変更の画面を開ける（共通のレイアウトの中）。変更すると、ダッシュボードへ戻る', async () => {
     const { session } = renderApp({ session: WORKER_LOGIN, path: '/' });
 
-    fireEvent.click(await screen.findByRole('link', { name: 'パスワードの変更' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^ログイン中のユーザー/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'パスワードの変更' }));
 
     const main = await screen.findByRole('main');
     expect(within(main).getByRole('heading', { name: 'パスワードの変更', level: 1 })).toBeDefined();

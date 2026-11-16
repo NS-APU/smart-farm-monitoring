@@ -74,6 +74,8 @@ export const MESSAGES = {
     noManualInput: 'まだありません',
     stale: '古い',
     user: 'ログイン中のユーザー',
+    /** ユーザーメニュー（ポップアップ）の名前。 */
+    userMenu: 'ユーザー',
     logout: 'ログアウト',
   },
   /** ヘッダーのテーマのメニュー（Issue #352）。 */

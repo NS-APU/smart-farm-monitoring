@@ -22,13 +22,13 @@ import {
   addUser,
   advanceMinutes,
   alignBrowserClock,
-  goToMenu,
   goToNotifications,
   newUserSession,
   openAs,
   prepareApp,
   runJob,
   setMock,
+  goToUserMenu,
 } from './support/app.ts';
 import {
   failIngestion,
@@ -47,7 +47,7 @@ async function openPushSettings(page: Page, options: PushStubOptions = {}): Prom
   await stubPush(page, options);
   await alignBrowserClock(page);
   await openAs(page, '/');
-  await goToMenu(page, '通知の設定');
+  await goToUserMenu(page, '通知の設定');
   await expect(page.getByRole('heading', { name: '通知の設定', level: 1 })).toBeVisible();
 }
 
@@ -124,7 +124,7 @@ test.describe('基本フロー: Web Push 通知を有効にし、以降の通知
     await expect(page.getByTestId('notification-row')).toHaveCount(created.length);
 
     // 3. 解除する → 以降の通知は、配信されない
-    await goToMenu(page, '通知の設定');
+    await goToUserMenu(page, '通知の設定');
     await disable(page).click();
     await expect(page.getByTestId('push-done')).toHaveText('Web Push 通知を解除しました');
     await expect(state(page)).toContainText('無効');

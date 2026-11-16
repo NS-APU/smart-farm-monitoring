@@ -31,6 +31,7 @@ import {
   newUserSession,
   openAs,
   prepareApp,
+  goToUserMenu,
 } from './support/app.ts';
 import { changePasswordViaUi, loginViaUi } from './support/helpers.ts';
 import { E2E_USER } from './support/e2e-user.ts';
@@ -539,7 +540,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await alignBrowserClock(page);
     await openAs(page, '/', GENERAL);
 
-    await page.getByRole('link', { name: 'ユーザー名の変更' }).click();
+    await goToUserMenu(page, 'ユーザー名の変更');
     await expect(page.getByRole('heading', { name: 'ユーザー名の変更', level: 1 })).toBeVisible();
     await expect(page.getByTestId('profile-user-id')).toHaveText(GENERAL.userId);
     await expect(page.getByLabel('ユーザー名', { exact: true })).toHaveValue(GENERAL.userName);
@@ -548,11 +549,11 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await page.getByRole('button', { name: 'ユーザー名を変更する' }).click();
 
     await expect(page.getByTestId('profile-saved')).toHaveText('ユーザー名を変更しました');
-    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText('E2E一般ユーザー（改）');
+    await expect(page.getByTestId('user-name')).toHaveText('E2E一般ユーザー（改）');
     await shot(page, testInfo, 'uc14-profile-saved');
     // 画面を読み直しても、変更が残る（サーバーに保存されている）
     await page.reload();
-    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText('E2E一般ユーザー（改）');
+    await expect(page.getByTestId('user-name')).toHaveText('E2E一般ユーザー（改）');
     // 管理者のユーザー管理の一覧にも反映され、ロールは、一般のまま（管理者の API で確認する）
     const list = await apiOk<{ items: { userId: string; userName: string; role: string }[] }>(
       request,

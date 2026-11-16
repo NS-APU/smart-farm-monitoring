@@ -1,6 +1,6 @@
 /**
  * 共通のレイアウト（functional-specification.md 2.3。ui-design-guidelines.md 8 章）。
- * 左のサイドメニュー（アイコン + 文字）と、上部のバー（設備の選択・テーマの切り替え・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・ログイン中のユーザー）。
+ * 左のサイドメニュー（アイコン + 文字）と、上部のバー（設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・ユーザーメニュー）。
  * 狭い幅（900px 以下）では、メニューを、☰ で開閉する引き出しにする。メニューの項目・名前・遷移先は、変えない。
  */
 
@@ -17,8 +17,8 @@ import { AppStateProvider, useAppState } from './app-state.tsx';
 import { equipmentOptionLabel } from './equipment-options.ts';
 import { formatDateTimeJst } from './format.ts';
 import { Icon, type IconName } from './icon.tsx';
-import { ThemeMenu } from './theme-menu.tsx';
 import { subscribeUnreadChanged } from './unread-events.ts';
+import { UserMenu } from './user-menu.tsx';
 
 interface NavItem {
   readonly to: string;
@@ -46,7 +46,6 @@ const SETTINGS_ITEMS: readonly NavItem[] = [
     icon: 'nav-users',
     permission: 'user:manage',
   },
-  { to: PATHS.settingsPush, label: MESSAGES.nav.pushSettings, icon: 'nav-push' },
 ];
 
 function EquipmentSelect(): ReactNode {
@@ -221,7 +220,6 @@ function usePageTitle(): void {
 const FOCUSABLE = 'a[href], button:not([disabled]), summary, select:not([disabled])';
 
 function AppShell(props: { readonly children: ReactNode }): ReactNode {
-  const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const narrow = useNarrowViewport();
   // 引き出しを開いた状況（画面・幅）を覚える。画面を移動したとき・幅が変わったときは、状況が合わなくなり、閉じた扱いになる
@@ -323,23 +321,9 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
                 {MESSAGES.appName}
               </span>
               <EquipmentSelect />
-              <ThemeMenu />
               <NotificationLink />
               <DataStatusText />
-              <div className="header-user">
-                <Icon name="user" size={18} />
-                <span aria-label={MESSAGES.layout.user}>{user?.userName}</span>
-                <Link to={PATHS.profile}>{MESSAGES.profile.link}</Link>
-                <Link to={PATHS.changePassword}>{MESSAGES.changePassword.link}</Link>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void logout();
-                  }}
-                >
-                  {MESSAGES.layout.logout}
-                </button>
-              </div>
+              <UserMenu />
             </div>
           </header>
           <main id="main" className="app-main">

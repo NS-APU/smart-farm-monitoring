@@ -38,6 +38,7 @@ import {
   sensorJson,
   settlePassword,
   unreadBadge,
+  logout,
 } from './support/app.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { expectRelatedStatus, fillEntryForm, saveEntry } from './support/entry.ts';
@@ -1066,7 +1067,7 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await b.context.close();
 
     // UC-13: ログアウトする
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
   });
 });

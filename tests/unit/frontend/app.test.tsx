@@ -204,7 +204,9 @@ describe('ログイン（UC-13。SC-01）', () => {
     const { session, calls } = renderApp({ handler });
     await screen.findByText('農作業者A');
 
-    fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }));
+    // ログアウトは、ヘッダーのユーザーメニューの中（Issue #353）
+    fireEvent.click(screen.getByRole('button', { name: /^ログイン中のユーザー/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'ログアウト' }));
 
     expect(await screen.findByRole('heading', { name: 'ログイン', level: 2 })).toBeDefined();
     expect(session.current).toBeNull();
@@ -256,7 +258,6 @@ describe('共通のヘッダー・ナビゲーション', () => {
       '取り込み',
       'ステータスコード',
       'ユーザー',
-      '通知の設定',
     ]);
     expect(
       within(menu).getByRole('link', { name: 'ダッシュボード' }).getAttribute('aria-current'),

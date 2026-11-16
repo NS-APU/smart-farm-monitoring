@@ -1307,8 +1307,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   // UC-23 Web Push 通知の設定
   // ---------------------------------------------------------------------------------------------
-  await m('UC-23', 'メニューから「通知の設定」を開く', '通知の設定（SC-15）', 'screen', {
-    act: () => menu('通知の設定').click(),
+  // ユーザーメニューを開く操作は、計測しない（計測するのは、項目を選んでから、画面が応答するまで）
+  await banner.getByRole('button', { name: /^ログイン中のユーザー/ }).click();
+  await m('UC-23', 'ユーザーメニューから「通知の設定」を開く', '通知の設定（SC-15）', 'screen', {
+    act: () => page.getByRole('menuitem', { name: '通知の設定', exact: true }).click(),
     respond: async () => {
       await expect(page.getByRole('heading', { name: '通知の設定', level: 1 })).toBeVisible();
       await expect(page.getByTestId('push-state')).toBeVisible();
@@ -1338,8 +1340,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   // UC-13 ログアウト
   // ---------------------------------------------------------------------------------------------
-  await m('UC-13', 'ヘッダーの「ログアウト」を押す', 'ログイン（SC-01）', 'screen', {
-    act: () => banner.getByRole('button', { name: 'ログアウト' }).click(),
+  await banner.getByRole('button', { name: /^ログイン中のユーザー/ }).click();
+  await m('UC-13', 'ユーザーメニューの「ログアウト」を選ぶ', 'ログイン（SC-01）', 'screen', {
+    act: () => page.getByRole('menuitem', { name: 'ログアウト', exact: true }).click(),
     respond: () => expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(),
   });
 });

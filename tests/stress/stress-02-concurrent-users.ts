@@ -275,8 +275,13 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         },
       );
     }
+    // ユーザーメニューを開く操作は、計測しない（計測するのは、項目を選んでから、画面が応答するまで）
+    await page
+      .getByRole('banner')
+      .getByRole('button', { name: /^ログイン中のユーザー/ })
+      .click();
     await m('UC-13', 'ログアウトする（全員が同時）', 'ログイン（SC-01）', 'screen', {
-      act: () => page.getByRole('banner').getByRole('button', { name: 'ログアウト' }).click(),
+      act: () => page.getByRole('menuitem', { name: 'ログアウト', exact: true }).click(),
       respond: () =>
         expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(),
     });

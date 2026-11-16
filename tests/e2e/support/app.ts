@@ -412,6 +412,31 @@ export async function goToMenu(page: Page, name: string): Promise<void> {
 }
 
 /**
+ * ヘッダーのユーザーメニュー（ユーザーアイコン・ユーザー名・ロールのボタン）を開き、メニューを返す（Issue #353）。
+ * ユーザー名の変更・パスワードの変更・通知の設定・テーマ・ログアウトは、このメニューの中にある。
+ */
+export async function openUserMenu(page: Page): Promise<Locator> {
+  await page
+    .getByRole('banner')
+    .getByRole('button', { name: /^ログイン中のユーザー/ })
+    .click();
+  const menu = page.getByRole('menu', { name: 'ユーザー' });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** ユーザーメニューの項目（ユーザー名の変更・パスワードの変更・通知の設定・ログアウト）を選ぶ。 */
+export async function goToUserMenu(page: Page, name: string): Promise<void> {
+  const menu = await openUserMenu(page);
+  await menu.getByRole('menuitem', { name, exact: true }).click();
+}
+
+/** ログアウトする（ユーザーメニューの「ログアウト」）。 */
+export async function logout(page: Page): Promise<void> {
+  await goToUserMenu(page, 'ログアウト');
+}
+
+/**
  * 通知の一覧を開く。通知は、メニューでなく、ヘッダーの通知のアイコン（リンクの名前は「未読の通知: N件」）から開く（Issue #351）。
  * ヘッダーは、狭い幅でも見えているため、メニューの引き出しを開く必要はない。
  */
