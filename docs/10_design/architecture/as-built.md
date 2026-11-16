@@ -159,7 +159,7 @@
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
-共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・メニュー・ログイン中のユーザー・ログアウトがある。
+共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・テーマの切り替え（`components/theme-menu.tsx`・`lib/theme.ts`）・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・メニュー・ログイン中のユーザー・ログアウトがある。
 
 ### API（`/api/v1`。40 ルート＋ `/health`）
 
@@ -1087,7 +1087,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 | `push/`                 | `browser-push.ts`（`PushBrowser`。サービスワーカー・Push API・Notification API の窓口）、`push-context.tsx`                                                                                          |
 | `i18n/`                 | `messages.ts`・`management-messages.ts`（日本語の固定文言。多言語の仕組みはない）                                                                                                                    |
 | `styles/`               | `app.css`・`viewpoints.css`・`management.css`                                                                                                                                                        |
-| `public/`               | `sw.js`（Web Push の受信と、通知を選ぶと `/notifications` を開く）、`manifest.webmanifest`、アプリのアイコン（`icon.svg`・`favicon.ico`・`apple-touch-icon.png`・`icon-192.png`・`icon-512.png`・通知のバッジ `badge-72.png`。仮の絵柄。`scripts/generate-app-icons.ts` で生成。#326）                                                                                                           |
+| `public/`               | `sw.js`（Web Push の受信と、通知を選ぶと `/notifications` を開く）、`manifest.webmanifest`、`theme-init.js`（テーマの初期の適用。描画の前に、保存された設定を `html` 要素の `data-theme` に反映する。#352）、アプリのアイコン（`icon.svg`・`favicon.ico`・`apple-touch-icon.png`・`icon-192.png`・`icon-512.png`・通知のバッジ `badge-72.png`。仮の絵柄。`scripts/generate-app-icons.ts` で生成。#326）                                                                                                           |
 
 ### 状態管理
 
@@ -1097,7 +1097,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 | 画面をまたぐ状態   | `AppStateContext`（`AppLayout` の中）                                                                                                    | 設備の階層（60 秒ごとに読み直す）、選択中の設備（未選択・存在しない設備なら最初のハウス）、最終のデータ取得日時と新しさ（ダッシュボードが設定する） |
 | 画面ごとの状態     | `useState`・`usePolling`・`useSubmit`                                                                                                    | 取得結果・入力値・実行中・エラー                                                                                                                    |
 | URL                | `useQueryParams`・`useHorizonSelection`                                                                                                  | 絞り込み・並べ替え・視点（短期・長期）・期間。再読み込み・画面の移動でも保たれる                                                                    |
-| ブラウザの保存領域 | `sessionStorage`（`smart-farm.session`。セッション全体）、`localStorage`（`smart-farm:last-entry-target`。直前に入力した設備・カテゴリ） | どちらも、`try/catch` で囲み、使えなくても動く                                                                                                      |
+| ブラウザの保存領域 | `sessionStorage`（`smart-farm.session`。セッション全体）、`localStorage`（`smart-farm:last-entry-target`。直前に入力した設備・カテゴリ。`smart-farm.theme`。テーマの設定〔system・light・dark〕。#352） | どちらも、`try/catch` で囲み、使えなくても動く                                                                                                      |
 | 画面間の通知       | `window` のカスタムイベント（`unread-events.ts`）                                                                                        | 既読にした直後に、ヘッダーの未読件数を、10 秒の更新を待たずに読み直す                                                                               |
 
 ### API クライアントとポーリング
@@ -2733,7 +2733,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、33 ファイル・838 件（UC ごと 25 ファイル・824 件、シナリオ 8 ファイル・14 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、34 ファイル・853 件（UC ごと 25 ファイル・824 件、シナリオ 9 ファイル・29 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数

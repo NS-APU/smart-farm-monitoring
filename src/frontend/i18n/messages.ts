@@ -76,6 +76,14 @@ export const MESSAGES = {
     user: 'ログイン中のユーザー',
     logout: 'ログアウト',
   },
+  /** ヘッダーのテーマのメニュー（Issue #352）。 */
+  theme: {
+    label: 'テーマ',
+    system: 'システム',
+    systemDefault: 'システム（既定）',
+    light: 'ライト',
+    dark: 'ダーク',
+  },
   nav: {
     dashboard: 'ダッシュボード',
     dataEntry: 'データ入力',
