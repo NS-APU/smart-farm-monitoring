@@ -29,6 +29,7 @@ import {
   api,
   apiOk,
   goToMenu,
+  goToNotifications,
   openAs,
   placeFile,
   prepareApp,
@@ -408,7 +409,7 @@ test.describe('入口: 手動入力（SC-06）の画面で保存すると、評�
     await saveEntry(page);
 
     await expectRelatedStatus(page, 'environmentalAdaptability', '正常');
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     // 環境適応性は正常のため、通知しない（ロボットのデータがなく、データ活用度合いが異常になる通知だけが残る）
     await expect(environmentRows(page)).toHaveCount(0);
     const rows = page.getByTestId('notification-row');
@@ -641,7 +642,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
       '異常',
     );
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(page.getByTestId('notification-row').filter({ hasText: '収穫速度' })).toHaveCount(
       2,
     );

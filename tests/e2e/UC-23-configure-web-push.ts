@@ -23,6 +23,7 @@ import {
   advanceMinutes,
   alignBrowserClock,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   prepareApp,
@@ -119,7 +120,7 @@ test.describe('基本フロー: Web Push 通知を有効にし、以降の通知
       created.map((item) => item.notificationId).sort(),
     );
     // 画面内の通知も、そのまま作られる
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(page.getByTestId('notification-row')).toHaveCount(created.length);
 
     // 3. 解除する → 以降の通知は、配信されない
@@ -245,7 +246,7 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     await runJob(request, 'JB-04');
 
     expect(await deliveredPushes(request)).toHaveLength(created.length);
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(page.getByTestId('notification-row')).toHaveCount(created.length);
   });
 

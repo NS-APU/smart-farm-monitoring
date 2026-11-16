@@ -21,6 +21,7 @@ import {
   addEntry,
   alignBrowserClock,
   goToMenu,
+  goToNotifications,
   openAs,
   prepareApp,
   unreadBadge,
@@ -342,7 +343,7 @@ test.describe('保存後の通知（UC-10への連携）: 注意・異常があ�
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
     // 約10秒の更新を待たずに、通知の一覧で確認する（ヘッダーの件数は、通知の画面で更新される）
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     // 観点の評価は、ハウス・ロボットの単位で行うため、それぞれの通知が作られる
     const rows = page.getByTestId('notification-row').filter({ hasText: 'メンテナンス性' });
     await expect(rows).toHaveCount(2);
@@ -359,7 +360,7 @@ test.describe('保存後の通知（UC-10への連携）: 注意・異常があ�
     await recordRecovery(page, { failures: '1', minutes: '30' });
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(
       page.getByTestId('notification-row').filter({ hasText: 'メンテナンス性' }),
     ).toHaveCount(0);

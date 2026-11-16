@@ -25,6 +25,7 @@ import {
   alignBrowserClock,
   api,
   goToMenu,
+  goToNotifications,
   openAs,
   prepareApp,
 } from './support/app.ts';
@@ -294,7 +295,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('異常');
@@ -317,7 +318,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await fillEntryForm(page, { ...environment, items: { 温度: '20', ...allItems } });
     await saveEntry(page);
     await expectRelatedStatus(page, 'environmentalAdaptability', '正常');
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
     await expect(rows).toHaveCount(0);
 
@@ -330,7 +331,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     });
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('注意');
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('注意');

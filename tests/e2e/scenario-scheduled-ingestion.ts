@@ -20,6 +20,7 @@ import {
   alignBrowserClock,
   apiOk,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   placeFile,
@@ -138,7 +139,7 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(b.page.locator('.header-data-status')).not.toContainText('古い');
     await b.page.goto('/?horizon=SHORT');
     await expect(environmentBadge(b.page)).toContainText('異常');
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     await expect
       .poll(async () => Number(await unreadBadge(b.page).textContent()))
       .toBeGreaterThan(unreadBefore);

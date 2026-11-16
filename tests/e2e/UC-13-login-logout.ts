@@ -368,10 +368,7 @@ test.describe('代替フロー: セッションの有効期限が切れた場合
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
 
     await advanceMinutes(request, 31);
-    await page
-      .getByRole('navigation', { name: 'メニュー' })
-      .getByRole('link', { name: '通知', exact: true })
-      .click();
+    await page.getByRole('link', { name: /^未読の通知/ }).click();
 
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
     await expect(page.getByTestId('notifications-empty')).toBeVisible();
@@ -387,10 +384,7 @@ test.describe('代替フロー: セッションの有効期限が切れた場合
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
 
     await advanceMinutes(request, 7 * 24 * 60 + 1);
-    await page
-      .getByRole('navigation', { name: 'メニュー' })
-      .getByRole('link', { name: '通知', exact: true })
-      .click();
+    await page.getByRole('link', { name: /^未読の通知/ }).click();
 
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await expect(page).toHaveURL(/\/login\?next=%2Fnotifications$/);
@@ -432,10 +426,7 @@ test.describe('ログアウト: セッションを破棄する', () => {
   }) => {
     await page.goto('/');
     await loginViaUi(page);
-    await page
-      .getByRole('navigation', { name: 'メニュー' })
-      .getByRole('link', { name: '通知', exact: true })
-      .click();
+    await page.getByRole('link', { name: /^未読の通知/ }).click();
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
 
     await page.getByRole('button', { name: 'ログアウト' }).click();
@@ -645,7 +636,7 @@ test.describe('管理者が決めたパスワードは、一時のもの。本�
     // この端末は、新しいセッションで、ダッシュボードへ戻る
     await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
     // ほかの端末は、次の操作（または、約 10 秒の更新）で、ログイン画面へ戻る
-    await otherDevice.page.getByRole('link', { name: '通知' }).first().click();
+    await otherDevice.page.getByRole('link', { name: /^未読の通知/ }).click();
     await expect(otherDevice.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(
       {
         timeout: 20_000,

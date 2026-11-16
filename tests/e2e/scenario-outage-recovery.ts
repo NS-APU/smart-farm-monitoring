@@ -20,6 +20,7 @@ import {
   apiOk,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   placeFile,
@@ -91,7 +92,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
     await expect(unreadBadge(b.page)).toHaveText(String(created.length));
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     const failure = b.page
       .getByTestId('notification-row')
       .filter({ hasText: 'データ取得失敗' })

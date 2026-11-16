@@ -19,6 +19,7 @@ import {
   alignBrowserClock,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   prepareApp,
@@ -64,7 +65,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await openAs(b.page, '/', USER_B);
     await expect(unreadBadge(b.page)).not.toHaveText('0');
     const unreadForB = Number(await unreadBadge(b.page).textContent());
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     const alert = notificationRows(b.page)
       .filter({ hasText: '環境適応性' })
       .filter({ hasText: 'ハウス1' });
@@ -81,7 +82,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await shot(b.page, testInfo, 'scenario-entry-b-observations');
 
     // UC-02・UC-04: Bが、通知から、診断・根拠のデータ（手動入力）・推奨アクションを確認する。確認した通知は、Bの既読になる
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     await alert.getByRole('link', { name: '詳細を確認' }).click();
     await expect(b.page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
     await expect(b.page.getByTestId('source-data')).toContainText('手動入力');

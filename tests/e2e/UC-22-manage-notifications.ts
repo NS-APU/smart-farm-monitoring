@@ -482,37 +482,50 @@ async function expectNotificationTableNotCrushed(page: Page): Promise<void> {
   );
 }
 
-/** ヘッダーの未読件数（ベルと件数）が、1 行で、ページの幅の中に収まり、他の要素と重ならない。 */
+/**
+ * ヘッダーの通知のアイコンと、未読の件数のバッジ（Issue #351）が、ページの幅の中に収まり、他の要素と重ならない。
+ * expectedText は、バッジの表示（99 件までは件数、100 件以上は「99+」、0 件は、バッジを隠す。要素は残り、文字は「0」）。
+ */
 async function expectUnreadBadgeIntact(page: Page, expectedText: string): Promise<void> {
-  await expect(unreadBadge(page)).toHaveText(expectedText);
+  const badge = unreadBadge(page);
+  await expect(badge).toHaveText(expectedText);
   const link = page.locator('.header-unread');
-  const box = await link.boundingBox();
+  const linkBox = await link.boundingBox();
   const own = {
-    x: box?.x ?? -1,
-    y: box?.y ?? -1,
-    width: box?.width ?? 0,
-    height: box?.height ?? 0,
+    left: linkBox?.x ?? -1,
+    top: linkBox?.y ?? -1,
+    right: (linkBox?.x ?? 0) + (linkBox?.width ?? 0),
+    bottom: (linkBox?.y ?? 0) + (linkBox?.height ?? 0),
   };
-  expect(own.x).toBeGreaterThanOrEqual(0);
-  expect(own.x + own.width, '未読件数の右端').toBeLessThanOrEqual(page.viewportSize()?.width ?? 0);
-  expect(own.height, '未読件数の高さ（1行）').toBeLessThan(44);
-  const bell = await link.locator('span').first().boundingBox();
-  const count = await unreadBadge(page).boundingBox();
-  expect(Math.abs((bell?.y ?? 0) - (count?.y ?? 100)), 'ベルと件数が同じ行').toBeLessThan(12);
-  // 件数の文字が、枠からあふれない
-  expect(await unreadBadge(page).evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(
-    true,
-  );
-  // ヘッダー内の他の要素（タイトル・設備の選択・ユーザー）と重ならない
+  expect(own.left).toBeGreaterThanOrEqual(0);
+  expect(linkBox?.height ?? 0, '通知のアイコンの高さ').toBeLessThan(44);
+  if (expectedText === '0') {
+    await expect(badge, '0 件のときは、バッジを隠す').toBeHidden();
+  } else {
+    await expect(badge).toBeVisible();
+    // バッジは、アイコンの右上に重なり、1 行で、枠から文字があふれず、ページの幅の中に収まる
+    const badgeBox = await badge.boundingBox();
+    expect(badgeBox?.height ?? 0, 'バッジの高さ（1 行）').toBeLessThan(28);
+    expect((badgeBox?.x ?? 0) + (badgeBox?.width ?? 0), 'バッジの右端').toBeLessThanOrEqual(
+      page.viewportSize()?.width ?? 0,
+    );
+    expect(Math.abs((badgeBox?.y ?? 100) - own.top), 'バッジが、アイコンの上端にある').toBeLessThan(
+      14,
+    );
+    expect(await badge.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+    own.top = Math.min(own.top, badgeBox?.y ?? own.top);
+    own.right = Math.max(own.right, (badgeBox?.x ?? 0) + (badgeBox?.width ?? 0));
+  }
+  // ヘッダー内の他の要素（タイトル・設備の選択・ユーザー）と、アイコン・バッジが重ならない
   const siblings = await page
     .locator('.app-header-row > *')
     .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
   for (const other of siblings) {
-    if (Math.abs(other.x - own.x) < 1 && Math.abs(other.y - own.y) < 1) {
+    if (Math.abs(other.x - (linkBox?.x ?? 0)) < 1 && Math.abs(other.y - (linkBox?.y ?? 0)) < 1) {
       continue;
     }
-    const overlapWidth = Math.min(other.right, own.x + own.width) - Math.max(other.left, own.x);
-    const overlapHeight = Math.min(other.bottom, own.y + own.height) - Math.max(other.top, own.y);
+    const overlapWidth = Math.min(other.right, own.right) - Math.max(other.left, own.left);
+    const overlapHeight = Math.min(other.bottom, own.bottom) - Math.max(other.top, own.top);
     expect(overlapWidth > 1 && overlapHeight > 1, 'ヘッダーの要素が重なる').toBe(false);
   }
 }
@@ -595,7 +608,7 @@ for (const viewport of NOTIFICATION_VIEWPORTS) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await openNotifications(page);
       await expect(rows(page)).toHaveCount(20);
-      await expectUnreadBadgeIntact(page, '105');
+      await expectUnreadBadgeIntact(page, '99+');
       await expect(page.getByRole('link', { name: '未読の通知: 105件' })).toBeVisible();
 
       for (const expected of [20, 20, 20, 20, 20, 5]) {
@@ -615,7 +628,7 @@ for (const viewport of NOTIFICATION_VIEWPORTS) {
 
       // 最後のページで 1 件を既読にすると、件数が 104 になる。すべてを既読にすると 0 になる
       await rows(page).first().getByRole('button', { name: '既読にする' }).click();
-      await expectUnreadBadgeIntact(page, '104');
+      await expectUnreadBadgeIntact(page, '99+');
       await page.getByRole('button', { name: 'すべての通知を既読にする' }).scrollIntoViewIfNeeded();
       await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
       await confirmDialog(page, '既読にする');
