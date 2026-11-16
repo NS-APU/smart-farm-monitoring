@@ -39,7 +39,7 @@ smart-farm-monitoring/
 │   │   ├── infrastructure/       #   インフラ層（ポートのアダプタ。ローカル実装（local/repositories/ に集約ごとの Repository）、FormatProfile、ログ）
 │   │   ├── presentation/         #   提示層（Hono アプリ、ルート、領域ごとのハンドラ、認証・認可、共通エラー）
 │   │   └── runtime/              #   実行形態（設定、組み立て、Node サーバー、Lambda ハンドラ）
-│   └── frontend/                 # @smart-farm/frontend: React + Vite の SPA（pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/。public/ はサービスワーカー・マニフェスト・アプリのアイコン）
+│   └── frontend/                 # @smart-farm/frontend: React + Vite の SPA（pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/。public/ はサービスワーカー・マニフェスト・アプリのアイコン・テーマの初期適用スクリプト）
 ├── tests/
 │   ├── unit/{shared,backend,frontend}/   # 単体テスト（src/ と同じ階層構成）
 │   ├── integration/                      # 結合テスト（Hono アプリ・サービス・Repository の契約）
