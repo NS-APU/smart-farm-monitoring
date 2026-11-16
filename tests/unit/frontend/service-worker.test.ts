@@ -43,6 +43,8 @@ describe('サービスワーカー（push の受信。V-064・V-127）', () => {
     expect(showNotification).toHaveBeenCalledWith('異常を検知しました', {
       body: '【異常】収穫精度（ハウス1）',
       tag: 'n-1',
+      icon: '/icon-192.png',
+      badge: '/badge-72.png',
     });
   });
 
@@ -65,6 +67,8 @@ describe('サービスワーカー（push の受信。V-064・V-127）', () => {
     expect(showNotification).toHaveBeenCalledWith('稼働モニタリング', {
       body: '新しい通知があります',
       tag: undefined,
+      icon: '/icon-192.png',
+      badge: '/badge-72.png',
     });
     expect(waitUntil).toHaveBeenCalledTimes(1);
   });

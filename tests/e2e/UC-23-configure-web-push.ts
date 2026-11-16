@@ -540,15 +540,22 @@ test.describe('宛先が上限（2000文字）の購読への配信', () => {
  * 確認できないこと（E2E の限界）: Push サービスからの実際の配信、OS・ブラウザの通知の表示。テストのブラウザ（ヘッドレスの
  * Chromium）は、サービスワーカーからの通知の表示を許可しないため、showNotification・openWindow は、記録する関数に差し替えて確認する。
  */
+interface NotificationOptionsRecorded {
+  body?: string;
+  tag?: string;
+  icon?: string;
+  badge?: string;
+}
+
 interface RecordedCalls {
-  shown: { title: string; options: { body?: string; tag?: string } }[];
+  shown: { title: string; options: NotificationOptionsRecorded }[];
   opened: string[];
   closed: number;
 }
 
 interface WorkerScope {
   registration: {
-    showNotification(title: string, options: { body?: string; tag?: string }): Promise<void>;
+    showNotification(title: string, options: NotificationOptionsRecorded): Promise<void>;
   };
   clients: { openWindow(url: string): Promise<unknown> };
   dispatchEvent(event: Event): boolean;
@@ -625,7 +632,12 @@ test.describe('サービスワーカー（public/sw.js）: 受信した push を
     expect(calls.shown).toEqual([
       {
         title: '異常を検知しました（環境適応性）',
-        options: { body: 'ハウス1の温度が基準を超えています', tag: 'dummy-notification-1' },
+        options: {
+          body: 'ハウス1の温度が基準を超えています',
+          tag: 'dummy-notification-1',
+          icon: '/icon-192.png',
+          badge: '/badge-72.png',
+        },
       },
     ]);
     expect(calls.opened).toEqual([]);
@@ -635,7 +647,10 @@ test.describe('サービスワーカー（public/sw.js）: 受信した push を
     const calls = await dispatchToWorker(page, { type: 'push', json: undefined });
 
     expect(calls.shown).toEqual([
-      { title: '稼働モニタリング', options: { body: '新しい通知があります' } },
+      {
+        title: '稼働モニタリング',
+        options: { body: '新しい通知があります', icon: '/icon-192.png', badge: '/badge-72.png' },
+      },
     ]);
   });
 
