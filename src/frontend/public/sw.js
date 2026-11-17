@@ -19,7 +19,7 @@ self.addEventListener('push', (event) => {
   const data = readPayload(event);
   event.waitUntil(
     self.registration.showNotification(
-      typeof data.title === 'string' ? data.title : '稼働モニタリング',
+      typeof data.title === 'string' ? data.title : 'Greenhouse Monitor',
       {
         body: typeof data.message === 'string' ? data.message : '新しい通知があります',
         tag: typeof data.notificationId === 'string' ? data.notificationId : undefined,

@@ -72,7 +72,7 @@ describe('ログイン画面のブランド', () => {
     const heading = await screen.findByRole('heading', { level: 1 });
     const brand = heading.closest('.login-brand');
     expect(brand).not.toBeNull();
-    expect(heading.textContent).toBe('稼働モニタリング');
+    expect(heading.textContent).toBe('Greenhouse Monitor');
     expect(brand?.querySelector('svg.illustration')).not.toBeNull();
     expect(screen.getByRole('heading', { level: 2, name: 'ログイン' })).toBeDefined();
   });

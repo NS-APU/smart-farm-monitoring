@@ -398,11 +398,13 @@ export async function openAs(
 
 /**
  * 画面内のリンクのメニューを選ぶ（ナビゲーション）。
- * 狭い幅（900px 以下）では、メニューは「☰ で開く引き出し」のため、☰ が見えているときだけ、先に開く。
+ * 狭い幅（900px 以下）では、メニューは「☰ で開く引き出し」のため、メニューが見えていないときだけ、☰ で先に開く（広い幅は、既定で開いている）。
  */
 export async function goToMenu(page: Page, name: string): Promise<void> {
-  const toggle = page.getByRole('button', { name: 'メニューを開く' });
-  if (await toggle.isVisible()) {
+  // サイドメニューが閉じていれば（狭い幅の引き出し・広い幅で閉じているとき）、☰ で開く（Issue #354）。
+  // 見えているかではなく、☰ の状態（aria-expanded）で判断する（ログイン直後は、画面の描画前で、『見えない』と誤って判断し、開いているメニューを閉じてしまうため。☰ が現れるまで待つ）
+  const toggle = page.getByRole('button', { name: 'メニューの開閉' });
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
     await toggle.click();
   }
   await page

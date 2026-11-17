@@ -167,7 +167,7 @@ describe('フォーカスの表示（V-151）', () => {
 describe('画面のタイトル・見出し・通知の件数（V-154・V-163・V-173・V-182）', () => {
   beforeEach(() => {
     window.history.pushState(null, '', '/');
-    document.title = '稼働モニタリング';
+    document.title = 'Greenhouse Monitor';
   });
 
   function renderApp(options: { unread?: () => number; detailError?: boolean } = {}) {
@@ -188,12 +188,12 @@ describe('画面のタイトル・見出し・通知の件数（V-154・V-163・
   it('タブのタイトルを、本文の見出しに合わせる。画面を移動すると、移動先の見出しに変わる', async () => {
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    expect(document.title).toBe('ダッシュボード - 稼働モニタリング');
+    expect(document.title).toBe('ダッシュボード - Greenhouse Monitor');
 
     fireEvent.click(screen.getByRole('link', { name: /^未読の通知/ }));
 
     await waitFor(() => {
-      expect(document.title).toBe('通知 - 稼働モニタリング');
+      expect(document.title).toBe('通知 - Greenhouse Monitor');
     });
   });
 
@@ -202,7 +202,7 @@ describe('画面のタイトル・見出し・通知の件数（V-154・V-163・
     renderApp();
 
     await waitFor(() => {
-      expect(document.title).toBe('環境適応性 - 稼働モニタリング');
+      expect(document.title).toBe('環境適応性 - Greenhouse Monitor');
     });
   });
 
@@ -222,7 +222,7 @@ describe('画面のタイトル・見出し・通知の件数（V-154・V-163・
     await screen.findByTestId('not-applicable');
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('環境適応性');
-    expect(document.title).toBe('環境適応性 - 稼働モニタリング');
+    expect(document.title).toBe('環境適応性 - Greenhouse Monitor');
   });
 
   it('未読の通知が増えたときだけ、「新しい通知が N 件あります」を、読み上げ領域に出す', async () => {

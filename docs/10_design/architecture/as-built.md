@@ -159,7 +159,7 @@
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
-共通のヘッダー（`components/app-layout.tsx`）に、設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・メニュー・ユーザーメニュー（`components/user-menu.tsx`。ユーザー名の変更・パスワードの変更・通知の設定・テーマ〔`hooks/use-theme-preference.ts`・`lib/theme.ts`〕・ログアウト。開閉・キーボードは、`hooks/use-popup-menu.ts`）がある。
+共通のヘッダー（`components/app-layout.tsx`）に、☰（サイドメニューの開閉。広い幅も、閉じられる）・タイトル（ダッシュボードへのリンク）・設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・メニュー・ユーザーメニュー（`components/user-menu.tsx`。ユーザー名の変更・パスワードの変更・通知の設定・テーマ〔`hooks/use-theme-preference.ts`・`lib/theme.ts`〕・ログアウト。開閉・キーボードは、`hooks/use-popup-menu.ts`）がある。
 
 ### API（`/api/v1`。40 ルート＋ `/health`）
 
@@ -2733,7 +2733,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、35 ファイル・859 件（UC ごと 25 ファイル・824 件、シナリオ 10 ファイル・35 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、36 ファイル・870 件（UC ごと 25 ファイル・824 件、シナリオ 11 ファイル・46 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数

@@ -224,6 +224,9 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
   const narrow = useNarrowViewport();
   // 引き出しを開いた状況（画面・幅）を覚える。画面を移動したとき・幅が変わったときは、状況が合わなくなり、閉じた扱いになる
   const [opened, setOpened] = useState<{ pathname: string; narrow: boolean } | null>(null);
+  // 広い幅で、サイドメニューを閉じているか（既定は、開いている。保存しない。Issue #354）
+  const [collapsed, setCollapsed] = useState(false);
+  const sidebarCollapsed = !narrow && collapsed;
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   usePageTitle();
@@ -275,13 +278,11 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
       <a className="skip-link" href="#main">
         {MESSAGES.layout.skipToContent}
       </a>
-      <div className={`app-shell${drawerOpen ? ' menu-is-open' : ''}`}>
-        <aside id="app-sidebar" ref={sidebarRef} className="app-sidebar">
+      <div
+        className={`app-shell${drawerOpen ? ' menu-is-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+      >
+        <aside id="app-sidebar" ref={sidebarRef} className="app-sidebar" hidden={sidebarCollapsed}>
           <div className="sidebar-head">
-            <Link to={PATHS.dashboard} className="app-title">
-              <Icon name="brand" size={24} />
-              {MESSAGES.appName}
-            </Link>
             <button
               type="button"
               className="menu-close"
@@ -308,18 +309,26 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
                 type="button"
                 ref={toggleRef}
                 className="menu-toggle"
-                aria-label={MESSAGES.layout.openMenu}
-                aria-expanded={drawerOpen}
+                aria-label={MESSAGES.layout.toggleMenu}
+                aria-expanded={narrow ? drawerOpen : !collapsed}
                 aria-controls="app-sidebar"
                 onClick={() => {
-                  setOpened({ pathname, narrow });
+                  if (!narrow) {
+                    setCollapsed((value) => !value);
+                  } else if (drawerOpen) {
+                    closeMenu();
+                  } else {
+                    setOpened({ pathname, narrow });
+                  }
                 }}
               >
                 <Icon name="menu" size={22} />
               </button>
-              <span className="app-title-compact" aria-hidden="true">
-                {MESSAGES.appName}
-              </span>
+              {/* タイトル（ダッシュボードへのリンク）。☰ とタイトルを、画面の幅に関わらず、ヘッダーの左に置く */}
+              <Link to={PATHS.dashboard} className="app-title">
+                <Icon name="brand" size={22} />
+                <span>{MESSAGES.appName}</span>
+              </Link>
               <EquipmentSelect />
               <NotificationLink />
               <DataStatusText />
