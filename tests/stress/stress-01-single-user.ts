@@ -118,41 +118,35 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await screenshot(page, '01-dashboard-house1');
-  const switchEquipment = async (id: string, name: string, what: string): Promise<void> => {
+  // 対象のハウス（ダッシュボードはハウス単位。ロボット・センサーは、観点の詳細の「対象の設備」で選ぶ。Issue #355）
+  const switchHouse = async (id: string, name: string, what: string): Promise<void> => {
     await m(
       'UC-01',
-      `対象の設備を${what}に切り替える`,
+      `対象のハウスを${what}に切り替える`,
       'ダッシュボード（SC-02）',
       'dashboardInitial',
       {
-        act: () => banner.getByLabel('対象の設備').selectOption(id),
+        act: () => page.getByLabel('対象のハウス').selectOption(id),
         respond: () => expectDashboardShown(page, name),
       },
     );
   };
-  await switchEquipment('HOUSE-02', '負荷試験ハウス2', 'ハウス2（ロボット2台・センサー2台）');
+  await switchHouse('HOUSE-02', '負荷試験ハウス2', 'ハウス2（ロボット2台・センサー2台）');
   await screenshot(page, '02-dashboard-house2');
-  await switchEquipment('HOUSE-03', '負荷試験ハウス3', 'ハウス3');
-  await switchEquipment('ROBOT-01', ROBOT_NAME, 'ロボット（7観点）');
-  await screenshot(page, '03-dashboard-robot');
-  await switchEquipment('SENSOR-01', '負荷試験センサー1-1', 'センサー（1観点）');
-  await switchEquipment('HOUSE-01', HOUSE_1, 'ハウス1');
-  await m('UC-01', '視点を「短期」に切り替える', 'ダッシュボード（SC-02）', 'dashboardInitial', {
-    act: () => page.getByRole('radio', { name: '短期' }).check(),
-    respond: () => expectDashboardShown(page),
-  });
-  await m('UC-01', '視点を「長期」に戻す', 'ダッシュボード（SC-02）', 'dashboardInitial', {
-    act: () => page.getByRole('radio', { name: '長期' }).check(),
+  await switchHouse('HOUSE-03', '負荷試験ハウス3', 'ハウス3');
+  await switchHouse('HOUSE-01', HOUSE_1, 'ハウス1');
+  await m('UC-01', '「更新」を押す（手動の更新）', 'ダッシュボード（SC-02）', 'dashboardInitial', {
+    act: () => page.getByRole('button', { name: '更新' }).click(),
     respond: () => expectDashboardShown(page),
   });
   for (const label of ['当日', '直近30日', '直近60日', '直近90日', '直近7日']) {
     await m(
       'UC-01',
-      `長期の期間を「${label}」に切り替える`,
+      `期間を「${label}」に切り替える`,
       'ダッシュボード（SC-02）',
       'dashboardInitial',
       {
-        act: () => page.getByLabel('長期の期間').selectOption({ label }),
+        act: () => page.getByLabel('期間').selectOption({ label }),
         respond: () => expectDashboardShown(page),
       },
     );
@@ -267,15 +261,23 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   });
   await backToDashboard();
 
-  // 他の設備の観点の詳細（ロボット・センサー）
-  await switchEquipment('ROBOT-01', ROBOT_NAME, 'ロボット（7観点）');
-  await m('UC-02', 'ロボットの観点「耐久性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
+  // 他の設備の観点の詳細（ロボット・センサー）: 観点の詳細を開いてから、「対象の設備」に選ぶ（Issue #355）
+  await m('UC-02', '観点「耐久性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
     act: () => page.getByTestId('card-durability').getByRole('heading').getByRole('link').click(),
     respond: () => expectDetailShown(page),
   });
+  await m(
+    'UC-02',
+    '対象の設備を「ロボット」に切り替える（観点「耐久性」の詳細）',
+    '観点の詳細（SC-03）',
+    'screen',
+    {
+      act: () => page.getByLabel('対象の設備').selectOption('ROBOT-01'),
+      respond: () => expectDetailShown(page),
+    },
+  );
   await backToDashboard();
-  await switchEquipment('SENSOR-01', '負荷試験センサー1-1', 'センサー（1観点）');
-  await m('UC-02', 'センサーの観点「環境適応性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
+  await m('UC-02', '観点「環境適応性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
     act: () =>
       page
         .getByTestId('card-environmentalAdaptability')
@@ -284,8 +286,19 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         .click(),
     respond: () => expectDetailShown(page),
   });
+  await m(
+    'UC-02',
+    '対象の設備を「センサー」に切り替える（観点「環境適応性」の詳細）',
+    '観点の詳細（SC-03）',
+    'screen',
+    {
+      act: () => page.getByLabel('対象の設備').selectOption('SENSOR-01'),
+      respond: () => expectDetailShown(page),
+    },
+  );
   await backToDashboard();
-  await switchEquipment('HOUSE-01', HOUSE_1, 'ハウス1');
+  // ダッシュボードは、選択を、センサーのハウスにそろえる（ハウス1）
+  await expectDashboardShown(page, HOUSE_1);
 
   // ---------------------------------------------------------------------------------------------
   // UC-21 満足度（レーダーチャート）

@@ -51,11 +51,27 @@ export async function expectNoHorizontalScroll(page: Page): Promise<void> {
   );
 }
 
-/** ヘッダーの「対象の設備」（長い設備名の選択肢を持つ）が、ラベルを潰さず、ページの幅の中に収まる。 */
+/** ヘッダー（☰・タイトル・通知・ユーザー）の各要素が、ページの幅の中に収まる。 */
 export async function expectHeaderIntact(page: Page): Promise<void> {
-  const label = await page.locator('.header-field > span').boundingBox();
-  expect(label?.height ?? 0, '「対象の設備」のラベルの高さ').toBeLessThan(30);
-  const select = await page.locator('.header-field select').boundingBox();
+  const width = page.viewportSize()?.width ?? 0;
+  const rects = await page
+    .locator('.app-header-row > *')
+    .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
+  expect(rects.length).toBeGreaterThan(0);
+  for (const rect of rects) {
+    expect(rect.left).toBeGreaterThanOrEqual(0);
+    expect(rect.right).toBeLessThanOrEqual(width);
+  }
+}
+
+/**
+ * 画面の中の「対象のハウス」「対象の設備」の選択（長い設備名の選択肢を持つ）が、ラベルを潰さず、ページの幅の中に収まる
+ * （以前は、ヘッダーにあった。Issue #355）。
+ */
+export async function expectEquipmentFieldIntact(page: Page): Promise<void> {
+  const label = await page.locator('.equipment-field > span').first().boundingBox();
+  expect(label?.height ?? 0, '設備の選択のラベルの高さ').toBeLessThan(30);
+  const select = await page.locator('.equipment-field select').first().boundingBox();
   expect((select?.x ?? 0) + (select?.width ?? 0)).toBeLessThanOrEqual(
     page.viewportSize()?.width ?? 0,
   );

@@ -1,22 +1,14 @@
 /**
- * 画面をまたいで共有する状態: 設備の選択（FR-6.6）、最終のデータ取得日時（FR-6.3）。
+ * 画面をまたいで共有する状態: 設備の選択（FR-6.6）。選択の操作は、それが要る画面（ダッシュボード・観点の詳細・満足度の詳細）の中にある（Issue #355）。
  * 設備の階層はサーバーから読み、選択がなければ最初のハウスを対象にする。
  */
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
-import type { DataFreshness } from '@smart-farm/shared/schemas/evaluation';
 import type { Equipment, EquipmentTreeResponse } from '@smart-farm/shared/schemas/equipment';
 import { getEquipmentTree } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { usePolling } from '../hooks/use-polling.ts';
-
-export interface DataStatus {
-  readonly lastReceivedAt: string | null;
-  readonly freshness: DataFreshness;
-  /** 最終の手動入力の日時（手動のみの運用〔freshness が MANUAL〕のとき。なければ null）。 */
-  readonly lastManualInputAt: string | null;
-}
 
 export interface AppState {
   /** 設備の階層。読み込み中は undefined。 */
@@ -31,8 +23,11 @@ export interface AppState {
   /** 選択中の設備。階層が読み込めて、ハウスが1つ以上あれば、必ず値がある。 */
   readonly selectedEquipmentId: EquipmentId | undefined;
   readonly selectEquipment: (equipmentId: EquipmentId) => void;
-  readonly dataStatus: DataStatus | undefined;
-  readonly setDataStatus: (status: DataStatus | undefined) => void;
+  /**
+   * 選択中の設備が属するハウス（ハウスを選んでいれば、そのハウス。ロボット・センサーなら、その設備のハウス）。ダッシュボードの対象（ハウス単位）。
+   * 階層が読み込めて、ハウスが 1 つ以上あれば、必ず値がある。
+   */
+  readonly selectedFacilityId: EquipmentId | undefined;
 }
 
 const AppStateContext = createContext<AppState | undefined>(undefined);
@@ -44,26 +39,32 @@ export function AppStateProvider(props: { readonly children: ReactNode }): React
   const fetchTree = useCallback(() => getEquipmentTree(api), [api]);
   const tree = usePolling(fetchTree, EQUIPMENT_REFRESH_MS);
   const [chosenId, setChosenId] = useState<EquipmentId | undefined>(undefined);
-  const [dataStatus, setDataStatus] = useState<DataStatus | undefined>(undefined);
 
   const value = useMemo<AppState>(() => {
     const equipmentList =
       tree.data?.facilities.flatMap(({ facility, children }) => [facility, ...children]) ?? [];
     const knownIds = new Set(equipmentList.map((item) => item.equipmentId));
     const firstFacilityId = tree.data?.facilities[0]?.facility.equipmentId;
+    const selectedEquipmentId =
+      chosenId !== undefined && knownIds.has(chosenId) ? chosenId : firstFacilityId;
+    // 選択中の設備が属するハウス（配下の設備は、そのハウス）
+    const selectedFacilityId =
+      tree.data?.facilities.find(
+        ({ facility, children }) =>
+          facility.equipmentId === selectedEquipmentId ||
+          children.some((child) => child.equipmentId === selectedEquipmentId),
+      )?.facility.equipmentId ?? firstFacilityId;
     return {
       equipmentTree: tree.data,
       equipmentList,
       equipmentNames: new Map(equipmentList.map((item) => [item.equipmentId, item.name])),
       equipmentError: tree.error,
       reloadEquipment: tree.reload,
-      selectedEquipmentId:
-        chosenId !== undefined && knownIds.has(chosenId) ? chosenId : firstFacilityId,
+      selectedEquipmentId,
       selectEquipment: setChosenId,
-      dataStatus,
-      setDataStatus,
+      selectedFacilityId,
     };
-  }, [tree.data, tree.error, tree.reload, chosenId, dataStatus]);
+  }, [tree.data, tree.error, tree.reload, chosenId]);
 
   return <AppStateContext.Provider value={value}>{props.children}</AppStateContext.Provider>;
 }

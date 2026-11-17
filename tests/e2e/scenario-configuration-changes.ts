@@ -33,7 +33,8 @@ const speedCard = (page: Page) => page.getByTestId('card-harvestSpeed');
 const observationRows = (page: Page) => page.getByTestId('observation-row');
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
-const headerEquipment = (page: Page) => page.getByRole('banner').getByLabel('対象の設備');
+// 観点の詳細の「対象の設備」（ハウス・ロボット・センサーを選べる。以前は、ヘッダーにあった。Issue #355）
+const equipmentSelect = (page: Page) => page.getByRole('main').getByLabel('対象の設備');
 
 test.describe('シナリオ: ステータスコード・設備の構成の変更の反映（UC-17 → UC-15・08 → UC-01・04 → UC-20 → UC-17 → UC-10・22 → UC-12 → UC-20 → UC-12 → UC-18）', () => {
   test('Aがコードを登録して取り込み、Bが評価・一覧で確認する。Aがカテゴリ・ロボットの名称・削除を変更すると、Bの評価・通知・一覧・設備の選択に反映される。変更は履歴に残る', async ({
@@ -130,10 +131,11 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
 
     // UC-20・UC-22: Bの設備の選択・一覧・通知に、新しい名称が現れる
     await b.page.reload();
-    await expect(headerEquipment(b.page)).toContainText('改名ロボット');
     await expect(
       notificationRows(b.page).filter({ hasText: '改名ロボット' }).first(),
     ).toBeVisible();
+    await b.page.goto('/viewpoints/harvestSpeed');
+    await expect(equipmentSelect(b.page)).toContainText('改名ロボット');
     await b.page.goto('/observations');
     await expect(observationRows(b.page).filter({ hasText: '改名ロボット' }).first()).toBeVisible();
     await expect(observationRows(b.page).filter({ hasText: '収穫ロボット1' })).toHaveCount(0);
@@ -150,8 +152,9 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await expect(page.getByTestId('equipment-notice')).toHaveText('削除しました');
 
     // UC-01・UC-20: Bの設備の選択から外れ、ハウスの収穫速度は、評価の対象がなくなって不明になる。過去のデータは、一覧に残る
+    await b.page.goto('/viewpoints/harvestSpeed');
+    await expect(equipmentSelect(b.page)).not.toContainText('改名ロボット');
     await b.page.goto('/');
-    await expect(headerEquipment(b.page)).not.toContainText('改名ロボット');
     await expect(speedCard(b.page).locator('.status-badge')).toContainText('不明');
     await b.page.goto('/observations');
     await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' }).first()).toBeVisible();

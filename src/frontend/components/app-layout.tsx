@@ -1,6 +1,7 @@
 /**
  * 共通のレイアウト（functional-specification.md 2.3。ui-design-guidelines.md 8 章）。
- * 左のサイドメニュー（アイコン + 文字）と、上部のバー（設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・ユーザーメニュー）。
+ * 左のサイドメニュー（アイコン + 文字）と、上部のバー（☰・タイトル・通知のアイコンと未読の件数のバッジ・ユーザーメニュー）。
+ * 対象の設備の選択・最終のデータ取得日時は、ダッシュボードなどの画面の中へ移した（Issue #355）。
  * 狭い幅（900px 以下）では、メニューを、☰ で開閉する引き出しにする。メニューの項目・名前・遷移先は、変えない。
  */
 
@@ -13,9 +14,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link, useLocation } from '../router/router.tsx';
-import { AppStateProvider, useAppState } from './app-state.tsx';
-import { equipmentOptionLabel } from './equipment-options.ts';
-import { formatDateTimeJst } from './format.ts';
+import { AppStateProvider } from './app-state.tsx';
 import { Icon, type IconName } from './icon.tsx';
 import { subscribeUnreadChanged } from './unread-events.ts';
 import { UserMenu } from './user-menu.tsx';
@@ -47,32 +46,6 @@ const SETTINGS_ITEMS: readonly NavItem[] = [
     permission: 'user:manage',
   },
 ];
-
-function EquipmentSelect(): ReactNode {
-  const { equipmentList, selectedEquipmentId, selectEquipment } = useAppState();
-  return (
-    <label className="header-field">
-      <span>{MESSAGES.layout.equipment}</span>
-      <select
-        value={selectedEquipmentId ?? ''}
-        onChange={(event) => {
-          // 選択肢にある設備だけを選ぶ（選択肢の値は、設備の識別子）
-          const selected = equipmentList.find((item) => item.equipmentId === event.target.value);
-          if (selected !== undefined) {
-            selectEquipment(selected.equipmentId);
-          }
-        }}
-        disabled={equipmentList.length === 0}
-      >
-        {equipmentList.map((item) => (
-          <option key={item.equipmentId} value={item.equipmentId}>
-            {equipmentOptionLabel(item)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
 
 /** バッジに表示する件数の上限。これを超える件数は「99+」と表示する（バッジの幅を、一定にする）。 */
 const UNREAD_BADGE_MAX = 99;
@@ -116,29 +89,6 @@ function NotificationLink(): ReactNode {
         {announcement}
       </span>
     </>
-  );
-}
-
-function DataStatusText(): ReactNode {
-  const { dataStatus } = useAppState();
-  if (dataStatus === undefined) {
-    return null;
-  }
-  // 手動のみの運用（自動取り込みが有効でない）は、「最終のデータ取得」の代わりに、「最終の手動入力」を示す（Issue #202）
-  const isManual = dataStatus.freshness === 'MANUAL';
-  const text = isManual
-    ? dataStatus.lastManualInputAt === null
-      ? MESSAGES.layout.noManualInput
-      : formatDateTimeJst(dataStatus.lastManualInputAt)
-    : dataStatus.freshness === 'NONE'
-      ? MESSAGES.layout.notReceived
-      : formatDateTimeJst(dataStatus.lastReceivedAt);
-  return (
-    <p className={`header-data-status data-${dataStatus.freshness.toLowerCase()}`}>
-      <span>{isManual ? MESSAGES.layout.lastManualInput : MESSAGES.layout.lastReceived}: </span>
-      <span>{text}</span>
-      {dataStatus.freshness === 'STALE' ? <strong>（{MESSAGES.layout.stale}）</strong> : null}
-    </p>
   );
 }
 
@@ -329,9 +279,7 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
                 <Icon name="brand" size={22} />
                 <span>{MESSAGES.appName}</span>
               </Link>
-              <EquipmentSelect />
               <NotificationLink />
-              <DataStatusText />
               <UserMenu />
             </div>
           </header>

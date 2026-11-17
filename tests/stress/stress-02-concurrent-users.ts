@@ -117,25 +117,21 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         round % 2 === 0 ? ['HOUSE-02', '負荷試験ハウス2'] : ['HOUSE-03', '負荷試験ハウス3'];
       await m(
         'UC-01',
-        `対象の設備を${equipment[1] ?? ''}に切り替える（全員が同時）`,
+        `対象のハウスを${equipment[1] ?? ''}に切り替える（全員が同時）`,
         'ダッシュボード（SC-02）',
         'dashboardInitial',
         {
-          act: () =>
-            page
-              .getByRole('banner')
-              .getByLabel('対象の設備')
-              .selectOption(equipment[0] ?? ''),
+          act: () => page.getByLabel('対象のハウス').selectOption(equipment[0] ?? ''),
           respond: () => expectDashboardShown(page, equipment[1]),
         },
       );
       await m(
         'UC-01',
-        '対象の設備をハウス1に戻す（全員が同時）',
+        '対象のハウスをハウス1に戻す（全員が同時）',
         'ダッシュボード（SC-02）',
         'dashboardInitial',
         {
-          act: () => page.getByRole('banner').getByLabel('対象の設備').selectOption('HOUSE-01'),
+          act: () => page.getByLabel('対象のハウス').selectOption('HOUSE-01'),
           respond: () => expectDashboardShown(page, '負荷試験ハウス1'),
         },
       );

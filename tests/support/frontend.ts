@@ -124,12 +124,44 @@ export function equipmentTree(): EquipmentTreeResponse {
   };
 }
 
+/** ハウスが 2 つ（HOUSE-01・HOUSE-02。それぞれ、配下にロボットを持つ）。ダッシュボードの「対象のハウス」の確認用。 */
+export function twoFacilityTree(): EquipmentTreeResponse {
+  const createdAt = '2026-10-01T00:00:00.000Z';
+  const base = equipmentTree();
+  return {
+    facilities: [
+      ...base.facilities,
+      {
+        facility: {
+          equipmentId: toEquipmentId('HOUSE-02'),
+          equipmentType: 'FACILITY',
+          name: 'ハウス2',
+          isDeleted: false,
+          createdAt,
+        },
+        children: [
+          {
+            equipmentId: toEquipmentId('ROBOT-02'),
+            equipmentType: 'ROBOT',
+            name: '収穫ロボット2',
+            facilityId: toEquipmentId('HOUSE-02'),
+            isDeleted: false,
+            createdAt,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 export function card(overrides: Partial<ViewpointCard> = {}): ViewpointCard {
+  // 短期・長期のステータスは、指定がなければ、カードのステータスと同じにする（短期が悪い、という食い違いを、勝手に作らない）
+  const status = overrides.status ?? 'NORMAL';
   return {
     viewpointId: 'safety',
     name: '安全性',
     status: 'NORMAL',
-    statuses: { short: 'NORMAL', long: 'NORMAL' },
+    statuses: { short: status === 'UNKNOWN' ? null : status, long: status },
     metrics: { emergencyStopPerHour: 0, nearMissPerHour: null },
     metricStatuses: { emergencyStopPerHour: 'NORMAL' },
     statusDetail: null,

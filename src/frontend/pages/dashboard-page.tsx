@@ -1,11 +1,13 @@
 /**
- * SC-02 ダッシュボード（UC-01、UC-04。FR-6.1〜6.3、6.6、6.7）。
- * ステータスごとの件数、観点のカード（ステータス・主要メトリクスと判定・診断メッセージ・推奨アクション・判定の対象期間）、
- * 最終のデータ取得日時を表示し、約10秒間隔で最新の評価結果を読み直す（タブの表示中のみ）。
- * 視点（短期・長期）と期間は、URL のクエリで保持する。カードを選ぶと、観点の詳細（SC-03。満足度は SC-04）へ移る。
+ * SC-02 ダッシュボード（UC-01、UC-04。FR-6.1〜6.3、6.6、6.7）。ハウス単位。
+ * 操作: 対象のハウス・期間の選択・手動の更新。表示: 最終のデータ取得日時・最終の評価日時・判定の対象期間（全観点で同じなら、ここに 1 回）、
+ * ステータスごとの観点の数、観点別の状態の一覧（表）、観点のカード（ステータス・主要メトリクスと判定・診断メッセージ・推奨アクション）。
+ * 約10秒間隔で最新の評価結果を読み直す（タブの表示中のみ）。視点（短期・長期）の切り替えはない（長期の評価を、選んだ期間で示す。
+ * カードのステータスは、短期・長期のうち悪い方〔通知と同じ〕。短期の方が悪いときは、その旨を、カードに示す）。Issue #355・#356。
+ * 期間は、URL のクエリで保持する。カードを選ぶと、観点の詳細（SC-03。満足度は SC-04）へ移る。
  */
 
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { formatMetricValue, getMetricMeta } from '@smart-farm/shared/constants/metrics';
 import {
   EVALUATION_STATUSES,
@@ -18,17 +20,21 @@ import type { DashboardResponse, ViewpointCard } from '@smart-farm/shared/schema
 import { getDashboard } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
+import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { usePermission } from '../hooks/use-permission.ts';
+import { usePeriodSelection } from '../hooks/use-horizon-selection.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { useHorizonSelection } from '../hooks/use-horizon-selection.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+
+/** ダッシュボードの評価の視点。視点の切り替えはなく、長期（選んだ期間）で示す。 */
+const DASHBOARD_HORIZON: Horizon = 'LONG';
 
 /**
  * 観点の詳細へのパス。満足度は、専用の詳細（SC-04）へ。満足度は、期間を選んでいなければ、期間を付けない
@@ -48,6 +54,27 @@ export function viewpointPath(
     : `${PATHS.satisfaction}?${new URLSearchParams({ periodDays: String(selectedPeriodDays) }).toString()}`;
 }
 
+/**
+ * 全観点で、判定の対象期間が同じなら、その期間（ダッシュボードの上部に 1 回だけ示す）。評価前の観点（期間がない）は、除いて比べる。
+ * 期間が違う観点がある（例: 満足度の既定の期間は 30 日）、または、期間のある観点がなければ、null（カードごとに示す）。
+ */
+export function commonEvaluatedPeriod(
+  cards: readonly ViewpointCard[],
+): { readonly from: string; readonly to: string } | null {
+  const periods = cards.flatMap((card) =>
+    card.evaluatedFrom === null || card.evaluatedTo === null
+      ? []
+      : [{ from: card.evaluatedFrom, to: card.evaluatedTo }],
+  );
+  const first = periods[0];
+  if (first === undefined) {
+    return null;
+  }
+  return periods.every((period) => period.from === first.from && period.to === first.to)
+    ? first
+    : null;
+}
+
 function MetricMark(props: { readonly status: EvaluationStatus | undefined }): ReactNode {
   if (props.status === undefined) {
     return null;
@@ -62,18 +89,14 @@ function MetricMark(props: { readonly status: EvaluationStatus | undefined }): R
 
 function ViewpointCardView(props: {
   readonly card: ViewpointCard;
-  readonly horizon: Horizon;
-  readonly periodDays: PeriodDays;
-  readonly selectedPeriodDays: PeriodDays | undefined;
+  readonly path: string;
+  /** カードごとに、判定の対象期間を示すか（全観点で同じなら、ダッシュボードの上部に示すため、示さない）。 */
+  readonly showPeriod: boolean;
 }): ReactNode {
-  const { card } = props;
-  const path = viewpointPath(
-    card.viewpointId,
-    props.horizon,
-    props.periodDays,
-    props.selectedPeriodDays,
-  );
+  const { card, path } = props;
   const metrics = Object.entries(card.metrics);
+  // ステータスは、短期・長期のうち悪い方。短期の方が悪い（表示する長期の評価と違う）ときは、その旨を示す
+  const shortWorse = card.statuses.short !== null && card.status !== card.statuses.long;
   return (
     <li
       className={`viewpoint-card status-border-${card.status.toLowerCase()}`}
@@ -115,17 +138,20 @@ function ViewpointCardView(props: {
         <strong>{MESSAGES.dashboard.recommendedAction}: </strong>
         {card.recommendedAction}
       </p>
-      {card.evaluatedFrom === null ? null : (
-        <>
-          <p className="evaluated-period">
-            {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeJst(card.evaluatedFrom)} 〜{' '}
-            {formatDateTimeJst(card.evaluatedTo)}
-          </p>
-          {card.horizonUsed === props.horizon ? null : (
-            <p className="evaluated-period">{MESSAGES.dashboard.longNotice}</p>
+      {shortWorse && card.statuses.short !== null ? (
+        <p className="evaluated-period" data-testid={`short-worse-${card.viewpointId}`}>
+          {MESSAGES.dashboard.shortWorseNote(
+            STATUS_LABELS[card.statuses.short],
+            STATUS_LABELS[card.statuses.long],
           )}
-        </>
-      )}
+        </p>
+      ) : null}
+      {props.showPeriod && card.evaluatedFrom !== null ? (
+        <p className="evaluated-period">
+          {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeJst(card.evaluatedFrom)} 〜{' '}
+          {formatDateTimeJst(card.evaluatedTo)}
+        </p>
+      ) : null}
       {card.isCustomCriteria ? (
         <p className="custom-criteria">{MESSAGES.dashboard.customCriteria}</p>
       ) : null}
@@ -137,43 +163,73 @@ function ViewpointCardView(props: {
   );
 }
 
+/** 最終のデータ取得日時（ヘッダーから、ダッシュボードの中へ移した。Issue #355）。手動のみの運用は、最終の手動入力。 */
+function DataStatusText(props: { readonly data: DashboardResponse }): ReactNode {
+  const { data } = props;
+  // 手動のみの運用（自動取り込みが有効でない）は、「最終のデータ取得」の代わりに、「最終の手動入力」を示す（Issue #202）
+  const isManual = data.dataFreshness === 'MANUAL';
+  const text = isManual
+    ? data.lastManualInputAt === null
+      ? MESSAGES.layout.noManualInput
+      : formatDateTimeJst(data.lastManualInputAt)
+    : data.dataFreshness === 'NONE'
+      ? MESSAGES.layout.notReceived
+      : formatDateTimeJst(data.lastReceivedAt);
+  return (
+    <span
+      className={`data-status data-${data.dataFreshness.toLowerCase()}`}
+      data-testid="data-status"
+    >
+      <span>{isManual ? MESSAGES.layout.lastManualInput : MESSAGES.layout.lastReceived}: </span>
+      <span>{text}</span>
+      {data.dataFreshness === 'STALE' ? <strong>（{MESSAGES.layout.stale}）</strong> : null}
+    </span>
+  );
+}
+
 export function DashboardPage(): ReactNode {
   const { api } = useAuth();
-  const { selectedEquipmentId, equipmentTree, equipmentNames, equipmentError, setDataStatus } =
-    useAppState();
+  const {
+    selectedEquipmentId,
+    selectedFacilityId,
+    selectEquipment,
+    equipmentTree,
+    equipmentError,
+  } = useAppState();
   // 全設備を閲覧できない利用者（一般）には、設備の登録ではなく、割り当ての案内を示す（Issue #330）
   const canViewAll = usePermission('equipment:view-all');
-  const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
-    useHorizonSelection();
+  const { periodDays, selectedPeriodDays, setPeriodDays } = usePeriodSelection();
 
   const fetchDashboard = useCallback(async () => {
-    if (selectedEquipmentId === undefined) {
+    if (selectedFacilityId === undefined) {
       return undefined;
     }
     // 期間は、選んだときだけ送る（選んでいなければ、観点ごとの既定の期間。満足度は 30 日、ほかは 7 日）
     return getDashboard(api, {
-      equipmentId: selectedEquipmentId,
-      horizon,
+      equipmentId: selectedFacilityId,
+      horizon: DASHBOARD_HORIZON,
       periodDays: selectedPeriodDays,
     });
-  }, [api, selectedEquipmentId, horizon, selectedPeriodDays]);
-  const { data, error, refreshError, reload } = usePolling(fetchDashboard);
+  }, [api, selectedFacilityId, selectedPeriodDays]);
+  const { data, error, refreshError, reload, version } = usePolling(fetchDashboard);
 
-  // 最終のデータ取得日時を、共通のヘッダーに反映する
+  // ダッシュボードはハウス単位。観点の詳細で、ロボット・センサーを選んでから戻ったときは、選択を、そのハウスにそろえる
+  // （カードから開く観点の詳細が、ダッシュボードの示すハウスの詳細になる）
   useEffect(() => {
-    setDataStatus(
-      data === undefined
-        ? undefined
-        : {
-            lastReceivedAt: data.lastReceivedAt,
-            freshness: data.dataFreshness,
-            lastManualInputAt: data.lastManualInputAt,
-          },
-    );
-    return () => {
-      setDataStatus(undefined);
-    };
-  }, [data, setDataStatus]);
+    if (selectedFacilityId !== undefined && selectedEquipmentId !== selectedFacilityId) {
+      selectEquipment(selectedFacilityId);
+    }
+  }, [selectedEquipmentId, selectedFacilityId, selectEquipment]);
+
+  // 手動の更新: 押した時点の取得の回数を覚え、取得が完了する（回数が変わる）まで、更新中にする
+  const [refreshFrom, setRefreshFrom] = useState<number | null>(null);
+  const refreshing = refreshFrom !== null && refreshFrom === version;
+  const refresh = (): void => {
+    if (!refreshing) {
+      setRefreshFrom(version);
+      reload();
+    }
+  };
 
   if (equipmentError !== undefined) {
     return <ErrorView error={equipmentError} />;
@@ -181,7 +237,7 @@ export function DashboardPage(): ReactNode {
   if (equipmentTree === undefined) {
     return <LoadingView />;
   }
-  if (selectedEquipmentId === undefined) {
+  if (selectedFacilityId === undefined) {
     return (
       <section>
         <h1>{MESSAGES.dashboard.title}</h1>
@@ -202,8 +258,6 @@ export function DashboardPage(): ReactNode {
     );
   }
 
-  const equipmentName = equipmentNames.get(selectedEquipmentId);
-
   let content: ReactNode;
   if (error !== undefined) {
     content = <ErrorView error={error} onRetry={reload} />;
@@ -221,7 +275,6 @@ export function DashboardPage(): ReactNode {
         )}
         <DashboardContent
           data={data}
-          horizon={horizon}
           periodDays={periodDays}
           selectedPeriodDays={selectedPeriodDays}
         />
@@ -229,14 +282,36 @@ export function DashboardPage(): ReactNode {
     );
   }
 
-  // 視点・期間を切り替えて取得し直している間も、切り替えの操作は表示したままにする
+  const commonPeriod = data === undefined ? null : commonEvaluatedPeriod(data.viewpoints);
+  // 期間を切り替えて取得し直している間も、切り替えの操作は表示したままにする
   return (
     <section className="dashboard">
       <div className="page-head">
         <h1>{MESSAGES.dashboard.title}</h1>
-        <p className="page-meta">
-          {MESSAGES.dashboard.target}: <strong>{equipmentName}</strong>
-          {data?.evaluatedAt === null || data === undefined ? null : (
+      </div>
+      <div className="page-controls">
+        <EquipmentSelect label={MESSAGES.dashboard.targetFacility} facilitiesOnly />
+        <HorizonControls
+          horizon={DASHBOARD_HORIZON}
+          periodDays={periodDays}
+          periodLabel={MESSAGES.dashboard.periodShort}
+          onPeriodChange={setPeriodDays}
+        />
+        <button
+          type="button"
+          className="refresh-button"
+          aria-disabled={refreshing}
+          aria-busy={refreshing}
+          onClick={refresh}
+        >
+          <Icon name="refresh" size={16} />
+          {refreshing ? MESSAGES.dashboard.refreshing : MESSAGES.dashboard.refresh}
+        </button>
+      </div>
+      {data === undefined ? null : (
+        <p className="page-meta" data-testid="dashboard-meta">
+          <DataStatusText data={data} />
+          {data.evaluatedAt === null ? null : (
             <>
               <span className="meta-separator" aria-hidden="true">
                 ／
@@ -244,14 +319,19 @@ export function DashboardPage(): ReactNode {
               {MESSAGES.dashboard.evaluatedAt}: {formatDateTimeJst(data.evaluatedAt)}
             </>
           )}
+          {commonPeriod === null ? null : (
+            <>
+              <span className="meta-separator" aria-hidden="true">
+                ／
+              </span>
+              <span data-testid="evaluated-period-common">
+                {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeJst(commonPeriod.from)} 〜{' '}
+                {formatDateTimeJst(commonPeriod.to)}
+              </span>
+            </>
+          )}
         </p>
-      </div>
-      <HorizonControls
-        horizon={horizon}
-        periodDays={periodDays}
-        onHorizonChange={setHorizon}
-        onPeriodChange={setPeriodDays}
-      />
+      )}
       {content}
     </section>
   );
@@ -262,11 +342,20 @@ const STALE_NAMES_SHOWN = 3;
 
 function DashboardContent(props: {
   readonly data: DashboardResponse;
-  readonly horizon: Horizon;
   readonly periodDays: PeriodDays;
   readonly selectedPeriodDays: PeriodDays | undefined;
 }): ReactNode {
   const { data } = props;
+  const showCardPeriod = commonEvaluatedPeriod(data.viewpoints) === null;
+  const cards = data.viewpoints.map((card) => ({
+    card,
+    path: viewpointPath(
+      card.viewpointId,
+      DASHBOARD_HORIZON,
+      props.periodDays,
+      props.selectedPeriodDays,
+    ),
+  }));
   return (
     <>
       {data.dataFreshness === 'STALE' ? (
@@ -323,15 +412,37 @@ function DashboardContent(props: {
         ))}
       </ul>
 
+      <h2>{MESSAGES.dashboard.statusTable}</h2>
+      <table className="status-table" data-testid="viewpoint-status-table">
+        <thead>
+          <tr>
+            <th scope="col">{MESSAGES.dashboard.statusTableViewpoint}</th>
+            <th scope="col">{MESSAGES.dashboard.statusTableStatus}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cards.map(({ card, path }) => (
+            <tr key={card.viewpointId} data-testid={`status-row-${card.viewpointId}`}>
+              <th scope="row">
+                <ViewpointIcon viewpointId={card.viewpointId} size={18} />
+                <Link to={path}>{card.name}</Link>
+              </th>
+              <td>
+                <StatusBadge status={card.status} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
       <h2>{MESSAGES.dashboard.viewpointList}</h2>
       <ul className="viewpoint-cards">
-        {data.viewpoints.map((card) => (
+        {cards.map(({ card, path }) => (
           <ViewpointCardView
             key={card.viewpointId}
             card={card}
-            horizon={props.horizon}
-            periodDays={props.periodDays}
-            selectedPeriodDays={props.selectedPeriodDays}
+            path={path}
+            showPeriod={showCardPeriod}
           />
         ))}
       </ul>

@@ -211,7 +211,11 @@ describe('画面のタイトル・見出し・通知の件数（V-154・V-163・
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(screen.getByRole('heading', { level: 2, name: '観点ごとの状態' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 2, name: '状態ごとの観点の数' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 2, name: '観点別の状態' })).toBeDefined();
+    expect(
+      screen.getByRole('heading', { level: 2, name: '観点ごとの診断と推奨アクション' }),
+    ).toBeDefined();
     expect(screen.getByTestId('summary-NORMAL').textContent).toContain('正常の観点の数');
   });
 

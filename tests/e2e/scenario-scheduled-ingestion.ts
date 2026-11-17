@@ -84,8 +84,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
     await expect(environmentBadge(b.page)).toContainText('正常');
-    await expect(b.page.locator('.header-data-status')).toContainText('最終のデータ取得');
-    await expect(b.page.locator('.header-data-status')).not.toContainText('古い');
+    await expect(b.page.getByTestId('data-status')).toContainText('最終のデータ取得');
+    await expect(b.page.getByTestId('data-status')).not.toContainText('古い');
     await expect(staleWarning(b.page)).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-scheduled-b-fresh');
 
@@ -93,7 +93,7 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await advanceMinutes(request, 46);
     await b.page.reload();
     await expect(staleWarning(b.page)).toBeVisible();
-    await expect(b.page.locator('.header-data-status')).toContainText('（古い）');
+    await expect(b.page.getByTestId('data-status')).toContainText('（古い）');
     await expect(b.page.getByTestId('stale-equipment')).toContainText('古い設備');
     await shot(b.page, testInfo, 'scenario-scheduled-b-stale');
 
@@ -136,8 +136,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     // UC-01・UC-22: Bの画面から、「古い」旨が消え、センサーの異常の通知が届く
     await b.page.reload();
     await expect(staleWarning(b.page)).toHaveCount(0);
-    await expect(b.page.locator('.header-data-status')).not.toContainText('古い');
-    await b.page.goto('/?horizon=SHORT');
+    await expect(b.page.getByTestId('data-status')).not.toContainText('古い');
+    await b.page.goto('/');
     await expect(environmentBadge(b.page)).toContainText('異常');
     await goToNotifications(b.page);
     await expect

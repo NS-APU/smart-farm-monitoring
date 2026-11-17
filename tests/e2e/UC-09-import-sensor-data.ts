@@ -224,11 +224,11 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
 
     // 評価は、ハウスごとに行われる（ハウス1: 22℃ → 正常、ハウス2: 40℃ → 異常）
     await page.goto('/');
-    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス1' });
+    await page.getByLabel('対象のハウス').selectOption({ label: 'ハウス1' });
     await expect(
       page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
-    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス2' });
+    await page.getByLabel('対象のハウス').selectOption({ label: 'ハウス2' });
     await expect(
       page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');

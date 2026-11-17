@@ -79,7 +79,9 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
     // 2. その観点の診断結果と、根拠となるメトリクスを表示する
     await expect(heading(page)).toContainText('環境適応性');
     await expect(heading(page)).toContainText('異常');
-    await expect(page.locator('.page-meta')).toContainText('対象: ハウス1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('ハウス1');
     await expect(badge(page)).toContainText('異常');
     await expect(page.getByTestId('diagnostic-message')).toContainText(
       '環境適応性: 異常。温度 40.0℃（異常）',
@@ -397,7 +399,9 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
 
     await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
     await expect(page.getByTestId('diagnosis')).toBeVisible();
-    await expect(page.locator('.page-meta')).toContainText('対象: 収穫ロボット1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('収穫ロボット1');
   });
 
   test('センサーを選んだ環境適応性は、そのセンサーの観測値だけで診断する', async ({
@@ -410,7 +414,9 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await openDetail(page, 'environmentalAdaptability');
     await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
 
-    await expect(page.locator('.page-meta')).toContainText('対象: 環境センサー1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('環境センサー1');
     await expect(badge(page)).toContainText('注意');
     await expectMetric(page, 'temperatureCelsius', { value: '27.0℃', judgement: '注意' });
   });

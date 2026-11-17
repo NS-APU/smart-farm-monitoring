@@ -100,9 +100,22 @@ export const MESSAGES = {
   },
   dashboard: {
     title: 'ダッシュボード',
-    summary: '観点の状態',
-    viewpointList: '観点ごとの状態',
+    // 3 つの見出しは、見分けがつく名前にする（Issue #356）: 状態ごとの件数（タイル）／観点別の状態の一覧（表）／観点ごとの詳しい内容（カード）
+    summary: '状態ごとの観点の数',
+    statusTable: '観点別の状態',
+    statusTableViewpoint: '観点',
+    statusTableStatus: '状態',
+    viewpointList: '観点ごとの診断と推奨アクション',
     summaryCountLabel: (statusLabel: string) => `${statusLabel}の観点の数`,
+    /** ダッシュボードの対象（ハウス単位）。ヘッダーの「対象の設備」から移した（Issue #355）。 */
+    targetFacility: '対象のハウス',
+    /** ダッシュボードの期間の欄の名前（視点〔短期・長期〕は、ない）。 */
+    periodShort: '期間',
+    refresh: '更新',
+    refreshing: '更新中…',
+    /** カードのステータスが、短期の評価で決まっている（この期間の評価より悪い）ときの注記。 */
+    shortWorseNote: (shortLabel: string, longLabel: string) =>
+      `直近 24 時間の評価は「${shortLabel}」です（この期間の評価は「${longLabel}」）。ステータスは、悪い方を示しています`,
     horizon: '視点',
     horizonShort: '短期',
     horizonLong: '長期',
@@ -124,12 +137,10 @@ export const MESSAGES = {
     customCriteria: 'カスタムの判断基準',
     detail: '詳細を見る',
     notEvaluated: '評価がまだ行われていません',
-    target: '対象',
     evaluatedAt: '最終の評価',
     goDataEntry: 'データ入力へ',
     goIngestion: '取り込み設定・状況へ',
     shortWindow: '直近24時間',
-    longNotice: 'この観点は短期評価を持たないため、長期の結果を表示しています',
   },
   viewpoint: {
     breadcrumb: 'パンくず',
