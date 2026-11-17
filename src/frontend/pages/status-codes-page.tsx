@@ -35,7 +35,8 @@ interface StatusCodeFormProps {
   /** 編集する定義。なければ、新規の登録。 */
   readonly definition?: StatusCodeDefinition;
   readonly onDone: (message: string) => void;
-  readonly onCancel?: () => void;
+  /** ダイアログを閉じる（登録・修正とも、ダイアログの中にあるため、必ずある）。 */
+  readonly onCancel: () => void;
 }
 
 function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
@@ -150,11 +151,9 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {definition === undefined ? TEXT.addSubmit : MESSAGES.form.save}
         </button>
-        {props.onCancel === undefined ? null : (
-          <button type="button" className="button-secondary" onClick={props.onCancel}>
-            {MESSAGES.form.cancel}
-          </button>
-        )}
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );

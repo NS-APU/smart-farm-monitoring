@@ -4,7 +4,7 @@
  * （1 回の計測は、ページの境界で割れない）。キーワード・カテゴリで絞ったときも、その計測の全項目を返す。
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   MeasurementListResponseSchema,
   type Measurement,
@@ -321,5 +321,104 @@ describe('閲覧の範囲', () => {
     expect(own.status).toBe(200);
     expect(MeasurementListResponseSchema.parse(await own.json()).items).toEqual([]);
     expect(other.status).toBe(404);
+  });
+});
+
+describe('項目の並び・ページの続きと期間の組み合わせ・展開の取得', () => {
+  it('項目の定義にない項目は、定義の項目のあとに、項目名の順で並べる', async () => {
+    const context = await withEquipment();
+    const known = observation({
+      equipmentId: ROBOT_ID,
+      itemKey: 'harvestCount',
+      value: 1,
+      observedAt: at(10),
+    });
+    const unknown = (itemKey: string): Observation => ({ ...known, itemKey });
+    await save(context, [unknown('zeta'), unknown('alpha'), known]);
+
+    const { items } = await fetchMeasurements(context);
+
+    expect(items[0]?.items.map((item) => item.itemKey)).toEqual(['harvestCount', 'alpha', 'zeta']);
+  });
+
+  it.each([
+    ['desc', 'to'],
+    ['asc', 'from'],
+  ] as const)(
+    '次のページの続きと、利用者が指定した期間（%s の向きの %s）を、組み合わせても、範囲の外を返さない',
+    async (direction, edge) => {
+      const context = await withEquipment();
+      const all: Observation[] = [];
+      for (let minute = 1; minute <= 6; minute += 1) {
+        all.push(...robotMeasurement(minute));
+      }
+      await save(context, all);
+      // 続きの位置（前のページの最後の日時）より、期間の端の方が、手前にある場合も、先にある場合も
+      const query = (limit: number, bound: number, cursor?: string) =>
+        `?limit=${String(limit)}&direction=${direction}&${edge}=${encodeURIComponent(at(bound))}${
+          cursor === undefined ? '' : `&cursor=${encodeURIComponent(cursor)}`
+        }`;
+
+      const minutesOf = (items: Measurement[]) =>
+        items.map((item) => (Date.parse(item.observedAt) - BASE_MS) / 60_000);
+      // 期間の端が、続きの位置より、内側（新しい順: 終了 2 分・続き 5 分 / 古い順: 開始 5 分・続き 2 分）にあれば、期間の端が効く
+      const inner = await fetchMeasurements(
+        context,
+        query(1, direction === 'desc' ? 2 : 5, direction === 'desc' ? at(5) : at(2)),
+      );
+      // 期間の端が、続きの位置より、外側（新しい順: 終了 6 分・続き 3 分 / 古い順: 開始 1 分・続き 4 分）にあれば、続きの位置が効く
+      const outer = await fetchMeasurements(
+        context,
+        query(1, direction === 'desc' ? 6 : 1, direction === 'desc' ? at(3) : at(4)),
+      );
+
+      expect(minutesOf(inner.items)).toEqual(direction === 'desc' ? [2] : [5]);
+      expect(minutesOf(outer.items)).toEqual(direction === 'desc' ? [2] : [5]);
+    },
+  );
+
+  it('絞り込みで選んだ計測の全項目を取り直したとき、観測値が見つからなければ（取得の間に消えた）、一致した項目だけを返す', async () => {
+    const context = await withEquipment();
+    await save(context, robotMeasurement(10));
+    const { observations } = context.container.repositories;
+    const original = observations.query.bind(observations);
+    vi.spyOn(observations, 'query').mockImplementation((filter, page, sort) =>
+      filter.from !== undefined && filter.from.getTime() === filter.to?.getTime()
+        ? Promise.resolve({ items: [], nextCursor: null })
+        : original(filter, page, sort),
+    );
+
+    const { items } = await fetchMeasurements(context, '?category=OPERATION');
+
+    // 稼働情報の 2 項目（稼働時間・待機時間）だけ
+    expect(items[0]?.items.map((item) => item.itemKey)).toEqual(['operatingHours', 'standbyHours']);
+  });
+});
+
+describe('1 回の読み取りの大きさを超える量（サービスの直接の呼び出し）', () => {
+  it('閲覧範囲を指定しなければ全設備。1 回の読み取り（最大 500 行）で、ページの分が、そろわなければ、続きを読む', async () => {
+    const context = await withEquipment();
+    const all: Observation[] = [];
+    // 3 項目 × 600 回 = 1,800 行。1 回の読み取り（500 行 = 166 回の計測）では、190 回の計測にならない
+    for (let minute = 1; minute <= 600; minute += 1) {
+      all.push(...robotMeasurement(minute));
+    }
+    await save(context, all);
+
+    const first = await context.container.observationQuery.listMeasurements({
+      direction: 'desc',
+      limit: 190,
+    });
+    const second = await context.container.observationQuery.listMeasurements({
+      direction: 'desc',
+      limit: 190,
+      ...(first.nextCursor === null ? {} : { cursor: first.nextCursor }),
+    });
+
+    expect(first.items).toHaveLength(190);
+    expect(first.items.every((item) => item.items.length === 3)).toBe(true);
+    expect(first.nextCursor).toBe(first.items.at(-1)?.observedAt);
+    expect(second.items).toHaveLength(190);
+    expect(second.items[0]?.observedAt).not.toBe(first.items.at(-1)?.observedAt);
   });
 });

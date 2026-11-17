@@ -181,24 +181,30 @@ function measurementKey(observation: Observation): string {
   return `${observation.equipmentId}|${observation.source}|${observation.manualEntryId ?? ''}`;
 }
 
+/** 同じ日時の観測値の並び（日時の枠）。 */
+interface TimeSlot {
+  readonly observedAt: string;
+  readonly rows: Observation[];
+}
+
 /** 日時順に並んだ観測値を、同じ日時ごとの並び（日時の枠）にする。 */
-function toTimeSlots(rows: readonly Observation[]): Observation[][] {
-  const slots: Observation[][] = [];
+function toTimeSlots(rows: readonly Observation[]): TimeSlot[] {
+  const slots: TimeSlot[] = [];
   for (const row of rows) {
     const slot = slots.at(-1);
-    if (slot !== undefined && compareIsoInstants(slot[0]?.observedAt ?? '', row.observedAt) === 0) {
-      slot.push(row);
+    if (slot !== undefined && compareIsoInstants(slot.observedAt, row.observedAt) === 0) {
+      slot.rows.push(row);
     } else {
-      slots.push([row]);
+      slots.push({ observedAt: row.observedAt, rows: [row] });
     }
   }
   return slots;
 }
 
 /** 日時の枠を、1 回の計測ごとにまとめる。 */
-function toMeasurements(slot: readonly Observation[]): Measurement[] {
+function toMeasurements(slot: TimeSlot): Measurement[] {
   const groups = new Map<string, { readonly first: Observation; readonly rows: Observation[] }>();
-  for (const row of slot) {
+  for (const row of slot.rows) {
     const key = measurementKey(row);
     const group = groups.get(key);
     if (group === undefined) {
@@ -338,7 +344,7 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
       const rows: Observation[] = [];
       let repoCursor: string | undefined;
       let exhausted = false;
-      let selected: Observation[][] = [];
+      let selected: TimeSlot[] = [];
       let measurementCount = 0;
       for (;;) {
         const page = await repositories.observations.query(
@@ -363,17 +369,16 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
         }
         if (exhausted || measurementCount >= wanted) {
           // 選んだあとに、読んだ枠が残っている（または、まだ、データが続く）なら、次のページがある
-          const hasMore = !exhausted || selected.length < slots.length;
           const lastSlot = selected.at(-1);
+          if (lastSlot === undefined) {
+            return { items: [], nextCursor: null };
+          }
+          const hasMore = !exhausted || selected.length < slots.length;
           const measurements = await completeMeasurements(
             selected.flatMap(toMeasurements),
             keyword !== '' || params.category !== undefined,
           );
-          return {
-            items: measurements,
-            nextCursor:
-              hasMore && lastSlot !== undefined ? (lastSlot[0]?.observedAt ?? null) : null,
-          };
+          return { items: measurements, nextCursor: hasMore ? lastSlot.observedAt : null };
         }
       }
     },

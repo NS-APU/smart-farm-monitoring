@@ -147,6 +147,18 @@ describe('フォームを入れるダイアログ（Modal。Issue #364〜#366）
     expect(document.activeElement).toBe(close);
   });
 
+  it('Tab・Esc 以外のキーは、何もしない（フォーカスは、そのまま。ダイアログは、開いたまま）', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '開く' }));
+    const field = screen.getByRole('textbox', { name: '名称' });
+    expect(document.activeElement).toBe(field);
+
+    fireEvent.keyDown(document, { key: 'a' });
+
+    expect(document.activeElement).toBe(field);
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
+
   it('wide は、広い幅のクラスを付ける。testId を指定できる', () => {
     render(
       <Modal title="割り当て" size="wide" testId="wide-dialog" onClose={vi.fn()}>

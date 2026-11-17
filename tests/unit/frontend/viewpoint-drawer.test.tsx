@@ -274,6 +274,26 @@ describe('観点の詳細のドロワー: フォーカスと、ドロワーの�
     expect(document.activeElement).toBe(last);
   });
 
+  it('Tab 以外のキーは、何もしない。フォーカスが、ドロワーの外にあるときの Tab は、ドロワーの最初の要素へ移す', async () => {
+    renderPath('/');
+    await screen.findByRole('heading', { name: '安全性', level: 3 });
+    const dialog = await openDrawer();
+    const close = within(dialog).getByRole('button', { name: '観点の詳細を閉じる' });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(close);
+    });
+    await within(dialog).findByTestId('diagnosis');
+
+    fireEvent.keyDown(document, { key: 'a' });
+    expect(document.activeElement).toBe(close);
+
+    // 背面（ドロワーの外）に、フォーカスがあるとき
+    document.body.focus();
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
   it('ドロワーの中で、期間・視点を切り替えても、ドロワーは開いたまま（URL の観点を保つ）。期間は、ダッシュボードの期間でもある', async () => {
     const { calls } = renderPath('/');
     await screen.findByRole('heading', { name: '安全性', level: 3 });

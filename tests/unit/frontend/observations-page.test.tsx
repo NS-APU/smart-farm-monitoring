@@ -360,6 +360,23 @@ describe('取り込み済みデータ一覧: 1 回の計測ごとにまとめる
     expect(state.textContent).not.toContain('すべて有効');
   });
 
+  it('設備の一覧にない設備・定義にない項目は、識別子のまま示す（計測ごとの一覧）', async () => {
+    renderApp(
+      '/observations',
+      measurementsRoute([
+        measurement({
+          equipmentId: 'GONE-01' as Measurement['equipmentId'],
+          items: [observation({ itemKey: 'unlistedItem', value: 3 })],
+        }),
+      ]),
+    );
+
+    const row = at(await screen.findAllByTestId('measurement-row'), 0);
+
+    expect(row.textContent).toContain('GONE-01');
+    expect(row.textContent).toContain('unlistedItem');
+  });
+
   it('同じ日時でも、設備・取得元が違えば、別の行。手動入力・複数のカテゴリの計測は、カテゴリを「・」でつなぐ。ステータスコードの値は、名称で示す', async () => {
     renderApp(
       '/observations',

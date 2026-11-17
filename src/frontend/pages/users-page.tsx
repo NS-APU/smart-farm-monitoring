@@ -31,7 +31,8 @@ interface UserFormProps {
   /** 編集するユーザー。なければ、新規の登録。 */
   readonly user?: PublicUser;
   readonly onDone: (message: string) => void;
-  readonly onCancel?: () => void;
+  /** ダイアログを閉じる（登録・修正とも、ダイアログの中にあるため、必ずある）。 */
+  readonly onCancel: () => void;
 }
 
 function UserForm(props: UserFormProps): ReactNode {
@@ -159,11 +160,9 @@ function UserForm(props: UserFormProps): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {user === undefined ? TEXT.addSubmit : MESSAGES.form.save}
         </button>
-        {props.onCancel === undefined ? null : (
-          <button type="button" className="button-secondary" onClick={props.onCancel}>
-            {MESSAGES.form.cancel}
-          </button>
-        )}
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );

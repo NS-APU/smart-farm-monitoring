@@ -103,6 +103,18 @@ describe('閲覧の割り当て（設備管理のハウスの行）', () => {
     ).toBe(true);
   });
 
+  it('ハウスの割り当ての記録がなければ（まだ、割り当てたことがない）、どのユーザーも、選ばれていない状態で開く', async () => {
+    renderApp(
+      '/settings/equipment',
+      routes({ 'GET /facility-access': () => jsonResponse(table({ facilities: [] })) }),
+    );
+
+    await openPanel();
+
+    expect(checkbox('一般ユーザーA').checked).toBe(false);
+    expect(checkbox('一般ユーザーB').checked).toBe(false);
+  });
+
   it('ユーザーの一覧を、表（閲覧・ユーザーID・ユーザー名）で示し、行ごとに選ぶ', async () => {
     renderApp('/settings/equipment', routes());
 

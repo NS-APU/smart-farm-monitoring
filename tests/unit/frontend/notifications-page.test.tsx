@@ -131,6 +131,47 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     expect([cells(4)[3], cells(4)[4]]).toEqual(['—', 'ROBOT-99']);
   });
 
+  it('親のハウスの名称が分からない設備は、対象に、親のハウスの ID を示す（#362）', async () => {
+    renderApp('/notifications', {
+      'GET /equipment': () =>
+        jsonResponse({
+          facilities: [
+            {
+              facility: {
+                equipmentId: 'HOUSE-01',
+                equipmentType: 'FACILITY',
+                name: 'ハウス1',
+                isDeleted: false,
+                createdAt: '2026-10-01T00:00:00.000Z',
+              },
+              children: [
+                {
+                  equipmentId: 'ROBOT-X',
+                  equipmentType: 'ROBOT',
+                  name: '孤立ロボット',
+                  // 親のハウスが、設備の一覧にない（削除など）
+                  facilityId: 'HOUSE-GONE',
+                  isDeleted: false,
+                  createdAt: '2026-10-01T00:00:00.000Z',
+                },
+              ],
+            },
+          ],
+        }),
+      'GET /notifications': listOf([
+        notification({
+          notificationId: 'n-x' as never,
+          equipmentId: 'ROBOT-X' as never,
+        }),
+      ]),
+    });
+
+    const [row] = await screen.findAllByTestId('notification-row');
+
+    const cells = [...(row?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent);
+    expect([cells[3], cells[4]]).toEqual(['HOUSE-GONE', '孤立ロボット']);
+  });
+
   it('各セルに、項目名（data-label）を持つ。狭い画面（900px 以下）では、表を通知ごとのカードにして、項目名を表示するため', async () => {
     renderApp('/notifications', { 'GET /notifications': listOf([notification()]) });
 

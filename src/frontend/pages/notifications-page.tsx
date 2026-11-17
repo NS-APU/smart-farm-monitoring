@@ -66,9 +66,9 @@ function targetAndEquipment(
   if (found.equipmentType === 'FACILITY') {
     return { target: found.name, equipment: none };
   }
-  const facilityName =
-    found.facilityId === undefined ? undefined : equipmentNames.get(found.facilityId);
-  return { target: facilityName ?? found.facilityId ?? none, equipment: found.name };
+  // ロボット・環境センサーは、親のハウスを持つ（持たないデータは、対象を「—」にする）。ハウスの名称が分からなければ、ハウスの ID
+  const facilityId = found.facilityId ?? none;
+  return { target: equipmentNames.get(facilityId) ?? facilityId, equipment: found.name };
 }
 
 /** 確認待ちの一括既読: 確認で示した件数と、実行する範囲（読み込んだ時点まで）。 */
