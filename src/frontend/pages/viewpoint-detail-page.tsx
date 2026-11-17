@@ -2,6 +2,8 @@
  * SC-03 観点の詳細（UC-02・UC-03・UC-04。FR-5、FR-6.4、6.5、6.10）。
  * 診断結果（ステータス・診断メッセージ・推奨アクション・判定の対象期間）、根拠のメトリクス、判断基準、推移、元データを示す。
  * 視点（短期・長期）と期間は URL のクエリで保持する。満足度は、専用の詳細（SC-04）へ移る。
+ * 全画面のページ（`/viewpoints/:viewpointId`）と、ダッシュボードの右からのドロワー（Issue #357。`variant="drawer"`）の両方で使う。
+ * ドロワーでは、パンくずを出さず（閉じる操作は、ドロワーが持つ）、見出しは h2（ページの h1 は、ダッシュボード）。
  */
 
 import { useCallback, useEffect, type ReactNode } from 'react';
@@ -38,11 +40,16 @@ export function ViewpointDetailPage(props: { readonly viewpointId: string }): Re
   if (props.viewpointId === 'satisfaction') {
     return <RedirectToSatisfaction />;
   }
-  return <ViewpointDetailContent viewpointId={props.viewpointId} />;
+  return <ViewpointDetailView viewpointId={props.viewpointId} />;
 }
 
-function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactNode {
+export function ViewpointDetailView(props: {
+  readonly viewpointId: string;
+  readonly variant?: 'page' | 'drawer';
+}): ReactNode {
   const { viewpointId } = props;
+  const isDrawer = props.variant === 'drawer';
+  const Heading = isDrawer ? 'h2' : 'h1';
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentError } = useAppState();
   const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
@@ -137,22 +144,24 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
     MESSAGES.nav.dashboard;
   return (
     <div className="viewpoint-detail">
-      <nav aria-label={MESSAGES.viewpoint.breadcrumb} className="breadcrumb">
-        <ol>
-          <li>
-            <Link to={backPath}>{MESSAGES.viewpoint.backToDashboard}</Link>
-          </li>
-          <li aria-current="page">{heading}</li>
-        </ol>
-      </nav>
+      {isDrawer ? null : (
+        <nav aria-label={MESSAGES.viewpoint.breadcrumb} className="breadcrumb">
+          <ol>
+            <li>
+              <Link to={backPath}>{MESSAGES.viewpoint.backToDashboard}</Link>
+            </li>
+            <li aria-current="page">{heading}</li>
+          </ol>
+        </nav>
+      )}
       <div className="page-head">
-        <h1>
+        <Heading>
           {viewpointMeta === undefined || (detail.data === undefined && !isNotApplicable) ? null : (
             <ViewpointIcon viewpointId={viewpointMeta.id} size={22} />
           )}
           {heading}
           {detail.data === undefined ? null : <StatusBadge status={detail.data.status} />}
-        </h1>
+        </Heading>
       </div>
       {/* 対象の設備（ハウス・ロボット・センサー）の選択。以前は、ヘッダーにあった（Issue #355） */}
       <div className="page-controls">

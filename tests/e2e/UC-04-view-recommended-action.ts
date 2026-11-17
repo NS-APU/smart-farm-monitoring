@@ -317,10 +317,11 @@ test.describe('観点ごとの推奨アクション（異常のとき。観点�
         `${ERROR_PREFIX}${viewpoint.action}`,
       );
 
-      // カードから観点の詳細へ進み、同じ推奨アクションを確認する（満足度は専用の詳細（SC-04）へ進む）
+      // カードから観点の詳細（右からのドロワー。Issue #357）を開き、同じ推奨アクションを確認する（満足度は、満足度の詳細がドロワーに開く）
       await card(page, viewpoint.id).locator('h3').getByRole('link').click();
       if (viewpoint.id === 'satisfaction') {
-        await expect(page).toHaveURL(/\/satisfaction/);
+        await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
+        await expect(page.getByRole('dialog', { name: '満足度の詳細' })).toBeVisible();
       } else {
         await expect(page.getByTestId('recommended-action')).toContainText(
           `${ERROR_PREFIX}${viewpoint.action}`,

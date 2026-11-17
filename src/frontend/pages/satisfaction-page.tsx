@@ -132,6 +132,15 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
 }
 
 export function SatisfactionPage(): ReactNode {
+  return <SatisfactionView />;
+}
+
+/**
+ * 満足度の詳細の本体。全画面のページ（`/satisfaction`）と、ダッシュボードの右からのドロワー（`variant="drawer"`。Issue #357）の両方で使う。
+ * ドロワーでは、見出しは h2（ページの h1 は、ダッシュボード）。
+ */
+export function SatisfactionView(props: { readonly variant?: 'page' | 'drawer' }): ReactNode {
+  const Heading = props.variant === 'drawer' ? 'h2' : 'h1';
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentError } = useAppState();
   // 期間を選んでいなければ、満足度の既定の期間（30 日）。選べば、他の観点と同じ長期の期間
@@ -172,11 +181,11 @@ export function SatisfactionPage(): ReactNode {
   return (
     <div className="satisfaction">
       <div className="page-head">
-        <h1>
+        <Heading>
           <ViewpointIcon viewpointId="satisfaction" size={22} />
           {MESSAGES.satisfaction.title}
           {data === undefined ? null : <StatusBadge status={data.status} />}
-        </h1>
+        </Heading>
       </div>
       {/* 対象の設備（ハウス・ロボット・センサー）の選択。以前は、ヘッダーにあった（Issue #355） */}
       <div className="page-controls">

@@ -1211,3 +1211,89 @@ input:not([type='radio']) {
     transition: none;
   }
 }
+
+/*
+ * 観点の詳細の、右からのドロワー（ダッシュボードの上に重ねる。Issue #357。components/viewpoint-drawer.tsx）。
+ * 幅は min(880px, 100vw)。900px 以下は、全画面。高さは、画面いっぱい（dvh は、スマートフォンのブラウザのアドレスバーの出入りに追従する）。
+ */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--color-scrim);
+}
+
+.viewpoint-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100vw);
+  height: 100vh;
+  height: 100dvh;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-dialog);
+  animation: drawer-slide-in 0.2s ease;
+}
+
+.drawer-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space);
+  padding: 8px 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.drawer-page-link {
+  color: var(--color-link);
+}
+
+.drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space);
+  overflow-y: auto;
+}
+
+body.drawer-open {
+  overflow: hidden;
+}
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .viewpoint-drawer {
+    width: 100vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewpoint-drawer {
+    animation: none;
+  }
+}

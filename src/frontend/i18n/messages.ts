@@ -145,6 +145,12 @@ export const MESSAGES = {
   viewpoint: {
     breadcrumb: 'パンくず',
     backToDashboard: 'ダッシュボード',
+    /** ダッシュボードから開く、観点の詳細の右からのドロワー（Issue #357）。 */
+    drawer: {
+      label: (viewpointName: string) => `${viewpointName}の詳細`,
+      close: '観点の詳細を閉じる',
+      openAsPage: 'ページで開く',
+    },
     equipment: '対象の設備',
     diagnosis: '診断結果',
     diagnosticMessage: '診断メッセージ',

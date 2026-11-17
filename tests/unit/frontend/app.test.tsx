@@ -380,13 +380,10 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     );
     expect(within(safety).queryByText(/判定の対象期間/)).toBeNull();
     expect(within(safety).queryByText('カスタムの判断基準')).toBeNull();
-    // 詳細へは、長期と期間を引き継ぐ（カードの題名と、観点別の状態の表の、どちらからも）
+    // 詳細は、ドロワーで開く（カードの題名と、観点別の状態の表の、どちらからも。期間を選んでいないので、期間は付けない）
     expect(
       screen.getAllByRole('link', { name: '安全性' }).map((link) => link.getAttribute('href')),
-    ).toEqual([
-      '/viewpoints/safety?horizon=LONG&periodDays=7',
-      '/viewpoints/safety?horizon=LONG&periodDays=7',
-    ]);
+    ).toEqual(['/?viewpoint=safety', '/?viewpoint=safety']);
   });
 
   it('評価がまだの観点は、判定の対象期間を表示しない。ステータスは色・アイコン・文字で示す', async () => {

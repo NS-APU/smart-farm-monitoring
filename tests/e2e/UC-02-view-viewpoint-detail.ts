@@ -76,6 +76,11 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
       .getByRole('link')
       .click();
 
+    // ダッシュボードの上の右からのドロワーに開く（Issue #357）。ここでは、全画面のページで、内容を確認する
+    await expect(page.getByRole('dialog', { name: /環境適応性/ })).toBeVisible();
+    await page.getByRole('dialog').getByRole('link', { name: 'ページで開く' }).click();
+    await expect(page).toHaveURL(/\/viewpoints\/environmentalAdaptability/);
+
     // 2. その観点の診断結果と、根拠となるメトリクスを表示する
     await expect(heading(page)).toContainText('環境適応性');
     await expect(heading(page)).toContainText('異常');

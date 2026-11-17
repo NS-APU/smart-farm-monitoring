@@ -418,6 +418,7 @@ interface LayoutProblem {
  * - ページの下に、余計な空白（見える要素の下端より下の、スクロールできる範囲）がない
  */
 export async function expectCleanLayout(page: Page): Promise<void> {
+  await waitForDrawerSettled(page);
   const problems = await page.evaluate(
     ({ overlapSelectors, clipSelectors }) => {
       const found: { kind: string; detail: string }[] = [];
@@ -529,6 +530,19 @@ export async function expectCleanLayout(page: Page): Promise<void> {
     { overlapSelectors: [...NO_OVERLAP_SELECTORS], clipSelectors: [...NO_CLIP_SELECTORS] },
   );
   expect(problems as LayoutProblem[], 'レイアウトの問題').toEqual([]);
+}
+
+/**
+ * 右からのドロワー（Issue #357）のスライドインが終わるのを待つ。
+ * 途中は、パネルが画面の外にあり、位置・はみ出しの確認が不安定になる（遅い環境で起きる）。ドロワーがなければ、すぐ戻る。
+ */
+export async function waitForDrawerSettled(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const animations = Array.from(
+      document.querySelectorAll('[data-testid="viewpoint-drawer"]'),
+    ).flatMap((element) => element.getAnimations());
+    await Promise.all(animations.map((animation) => animation.finished.catch(() => undefined)));
+  });
 }
 
 /** 画面ごとのスクリーンショット（ページ全体）を保存し、レイアウトを検査する。 */

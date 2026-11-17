@@ -116,7 +116,7 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     await shot(page, testInfo, 'dashboard-metrics');
   });
 
-  test('観点のカード・観点別の状態の表を選ぶと、観点の詳細へ移る（長期と選んだ期間を引き継ぐ）。満足度は、満足度の詳細へ移る', async ({
+  test('観点のカード・観点別の状態の表を選ぶと、観点の詳細が、右からのドロワーに開く（選んだ期間を引き継ぐ）。満足度は、満足度の詳細が開く（詳しい確認は、scenario-viewpoint-drawer.ts）', async ({
     page,
     request,
   }) => {
@@ -125,25 +125,27 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     await openDashboard(page, '?periodDays=30');
 
     await card(page, 'environmentalAdaptability').locator('h3').getByRole('link').click();
-    await expect(page).toHaveURL(
-      /\/viewpoints\/environmentalAdaptability\?horizon=LONG&periodDays=30$/,
-    );
-    await expect(page.getByRole('heading', { name: /環境適応性/, level: 1 })).toBeVisible();
-
-    await page
-      .getByRole('navigation', { name: 'パンくず' })
-      .getByRole('link', { name: 'ダッシュボード' })
-      .click();
-    // 戻るときは、期間だけを引き継ぐ（視点は、ダッシュボードにない）
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability&periodDays=30$/);
+    const dialog = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(dialog.getByRole('heading', { name: /環境適応性/, level: 2 })).toBeVisible();
+    await dialog.getByRole('button', { name: '観点の詳細を閉じる' }).click();
+    // 閉じると、ダッシュボードの期間が残る
     await expect(page).toHaveURL(/\/\?periodDays=30$/);
-    await card(page, 'satisfaction').locator('h3').getByRole('link').click();
-    await expect(page).toHaveURL(/\/satisfaction\?periodDays=30$/);
-    await expect(page.getByRole('heading', { name: /満足度の詳細/, level: 1 })).toBeVisible();
 
-    // 観点別の状態の表の行からも、同じ詳細へ移れる
-    await openDashboard(page, '?periodDays=30');
+    await card(page, 'satisfaction').locator('h3').getByRole('link').click();
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction&periodDays=30$/);
+    await expect(
+      page.getByRole('dialog', { name: '満足度の詳細' }).getByRole('heading', {
+        name: /満足度の詳細/,
+        level: 2,
+      }),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // 観点別の状態の表の行からも、同じ詳細が開く
     await page.getByTestId('status-row-safety').getByRole('link').click();
-    await expect(page).toHaveURL(/\/viewpoints\/safety\?horizon=LONG&periodDays=30$/);
+    await expect(page).toHaveURL(/\/\?viewpoint=safety&periodDays=30$/);
+    await expect(page.getByRole('dialog', { name: '安全性の詳細' })).toBeVisible();
   });
 });
 
