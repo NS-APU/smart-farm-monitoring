@@ -1,6 +1,7 @@
 /**
  * 視点（短期・長期）と期間の選択を、URL のクエリで保持する（再読み込み・画面の移動でも保たれる。
  * functional-specification.md 1.2「一覧」と同じ方針）。
+ * 視点・期間以外のクエリ（ダッシュボードの、観点の詳細のドロワーを開く `viewpoint` など）は、切り替えても、消さずに引き継ぐ（Issue #357）。
  */
 
 import { useCallback } from 'react';
@@ -15,6 +16,20 @@ import {
   readPeriodQuery,
 } from '../components/horizon-controls.tsx';
 import { navigate, useLocation } from '../router/router.tsx';
+
+/**
+ * 自分が決めたクエリ（`own`）に、ほかのクエリを、そのまま足す（`owned` に挙げたキーは、自分が決めるため、引き継がない）。
+ * 自分のクエリを先頭に置く（例: `?horizon=SHORT&periodDays=30&viewpoint=safety`）。
+ */
+function queryWithOthers(own: string, search: URLSearchParams, owned: readonly string[]): string {
+  const next = new URLSearchParams(own);
+  search.forEach((value, key) => {
+    if (!owned.includes(key)) {
+      next.append(key, value);
+    }
+  });
+  return next.toString();
+}
 
 export interface HorizonSelection {
   readonly horizon: Horizon;
@@ -36,18 +51,29 @@ export function useHorizonSelection(
   const { pathname, search } = useLocation();
   const { horizon, periodDays: selectedPeriodDays } = readHorizonQuery(search);
   const periodDays = selectedPeriodDays ?? defaultPeriodDays;
+  const searchText = search.toString();
   const setHorizon = useCallback(
     (next: Horizon) => {
       // 期間を選んでいなければ、視点を切り替えても、選んだことにしない
-      navigate(`${pathname}?${horizonQueryString(next, selectedPeriodDays)}`, { replace: true });
+      const query = queryWithOthers(
+        horizonQueryString(next, selectedPeriodDays),
+        new URLSearchParams(searchText),
+        ['horizon', 'periodDays'],
+      );
+      navigate(`${pathname}?${query}`, { replace: true });
     },
-    [pathname, selectedPeriodDays],
+    [pathname, searchText, selectedPeriodDays],
   );
   const setPeriodDays = useCallback(
     (next: PeriodDays) => {
-      navigate(`${pathname}?${horizonQueryString(horizon, next)}`, { replace: true });
+      const query = queryWithOthers(
+        horizonQueryString(horizon, next),
+        new URLSearchParams(searchText),
+        ['horizon', 'periodDays'],
+      );
+      navigate(`${pathname}?${query}`, { replace: true });
     },
-    [pathname, horizon],
+    [pathname, searchText, horizon],
   );
   return { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays };
 }
@@ -62,7 +88,8 @@ export interface PeriodSelection {
 
 /**
  * 期間だけの選択を、URL のクエリ（`periodDays`）で保持する（ダッシュボード。視点〔短期・長期〕は、ない。Issue #355）。
- * 古い URL の `horizon` は、読まず、期間を選んだときに外れる。
+ * 古い URL の `horizon` は、読まず、期間を選んだときに外れる。ただし、観点の詳細のドロワーを開いている間（`viewpoint` がある間）は、
+ * `horizon` は、ドロワーの視点なので、引き継ぐ（Issue #357）。
  */
 export function usePeriodSelection(
   defaultPeriodDays: PeriodDays = DEFAULT_PERIOD_DAYS,
@@ -70,12 +97,19 @@ export function usePeriodSelection(
   const { pathname, search } = useLocation();
   const selectedPeriodDays = readPeriodQuery(search);
   const periodDays = selectedPeriodDays ?? defaultPeriodDays;
+  const searchText = search.toString();
   const setPeriodDays = useCallback(
     (next: PeriodDays) => {
-      const query = new URLSearchParams({ periodDays: String(next) }).toString();
+      const current = new URLSearchParams(searchText);
+      const owned = current.has('viewpoint') ? ['periodDays'] : ['periodDays', 'horizon'];
+      const query = queryWithOthers(
+        new URLSearchParams({ periodDays: String(next) }).toString(),
+        current,
+        owned,
+      );
       navigate(`${pathname}?${query}`, { replace: true });
     },
-    [pathname],
+    [pathname, searchText],
   );
   return { periodDays, selectedPeriodDays, setPeriodDays };
 }

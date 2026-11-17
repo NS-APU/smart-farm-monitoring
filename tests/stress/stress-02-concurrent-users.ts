@@ -174,6 +174,9 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
           respond: () => expectDetailShown(page),
         },
       );
+      // 観点の詳細のドロワーを閉じる（次は、メニューで移る。ドロワーを開いたままでは、メニューを押せない。Issue #357）
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
       await m(
         'UC-20',
         '取り込み済みデータの一覧を開く（全員が同時。約60万件）',

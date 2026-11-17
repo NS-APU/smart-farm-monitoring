@@ -4,11 +4,13 @@
  * ステータスごとの観点の数、観点別の状態の一覧（表）、観点のカード（ステータス・主要メトリクスと判定・診断メッセージ・推奨アクション）。
  * 約10秒間隔で最新の評価結果を読み直す（タブの表示中のみ）。視点（短期・長期）の切り替えはない（長期の評価を、選んだ期間で示す。
  * カードのステータスは、短期・長期のうち悪い方〔通知と同じ〕。短期の方が悪いときは、その旨を、カードに示す）。Issue #355・#356。
- * 期間は、URL のクエリで保持する。カードを選ぶと、観点の詳細（SC-03。満足度は SC-04）へ移る。
+ * 期間は、URL のクエリで保持する。カード・表の行を選ぶと、観点の詳細（SC-03。満足度は SC-04）を、右からのドロワーで開く
+ * （URL は `/?viewpoint=観点`。ダッシュボードは、描画したまま保つ。Issue #357）。
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { formatMetricValue, getMetricMeta } from '@smart-farm/shared/constants/metrics';
+import { defaultPeriodDays, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   EVALUATION_STATUSES,
   STATUS_LABELS,
@@ -22,16 +24,21 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
-import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
+import {
+  HorizonControls,
+  horizonQueryString,
+  readHorizonQuery,
+} from '../components/horizon-controls.tsx';
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
+import { ViewpointDrawer } from '../components/viewpoint-drawer.tsx';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePeriodSelection } from '../hooks/use-horizon-selection.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
-import { Link } from '../router/router.tsx';
+import { Link, navigate, useLocation } from '../router/router.tsx';
 
 /** ダッシュボードの評価の視点。視点の切り替えはなく、長期（選んだ期間）で示す。 */
 const DASHBOARD_HORIZON: Horizon = 'LONG';
@@ -52,6 +59,22 @@ export function viewpointPath(
   return selectedPeriodDays === undefined
     ? PATHS.satisfaction
     : `${PATHS.satisfaction}?${new URLSearchParams({ periodDays: String(selectedPeriodDays) }).toString()}`;
+}
+
+/**
+ * 観点の詳細を、ドロワーで開くパス（ダッシュボードの URL に、`viewpoint` を付ける。Issue #357）。
+ * 期間は、選んでいるときだけ付ける（選んでいなければ、観点ごとの既定の期間。ダッシュボードの期間を、勝手に選んだことにしない）。
+ * 視点は、付けない（ドロワーの既定は、長期）。
+ */
+export function viewpointDrawerPath(
+  viewpointId: string,
+  selectedPeriodDays: PeriodDays | undefined,
+): string {
+  const query = new URLSearchParams({ viewpoint: viewpointId });
+  if (selectedPeriodDays !== undefined) {
+    query.set('periodDays', String(selectedPeriodDays));
+  }
+  return `${PATHS.dashboard}?${query.toString()}`;
 }
 
 /**
@@ -199,6 +222,21 @@ export function DashboardPage(): ReactNode {
   // 全設備を閲覧できない利用者（一般）には、設備の登録ではなく、割り当ての案内を示す（Issue #330）
   const canViewAll = usePermission('equipment:view-all');
   const { periodDays, selectedPeriodDays, setPeriodDays } = usePeriodSelection();
+  // 観点の詳細のドロワー: URL の `viewpoint`（知らない観点は、無視する）
+  const { pathname, search } = useLocation();
+  const viewpointParam = search.get('viewpoint');
+  const drawerViewpointId =
+    viewpointParam !== null && findViewpointMeta(viewpointParam) !== undefined
+      ? viewpointParam
+      : undefined;
+  const closeDrawer = useCallback(() => {
+    // 期間（ドロワーの中で変えたものを含む）は、保ち、ドロワーのクエリ（観点・視点）だけを外す
+    const next = new URLSearchParams(window.location.search);
+    next.delete('viewpoint');
+    next.delete('horizon');
+    const query = next.toString();
+    navigate(query === '' ? pathname : `${pathname}?${query}`, { replace: true });
+  }, [pathname]);
 
   const fetchDashboard = useCallback(async () => {
     if (selectedFacilityId === undefined) {
@@ -215,11 +253,17 @@ export function DashboardPage(): ReactNode {
 
   // ダッシュボードはハウス単位。観点の詳細で、ロボット・センサーを選んでから戻ったときは、選択を、そのハウスにそろえる
   // （カードから開く観点の詳細が、ダッシュボードの示すハウスの詳細になる）
+  // ドロワーを開いている間は、そろえない（ドロワーの中で、ロボット・センサーを選べるように）。閉じたときに、そろえる
+  const drawerOpen = drawerViewpointId !== undefined;
   useEffect(() => {
-    if (selectedFacilityId !== undefined && selectedEquipmentId !== selectedFacilityId) {
+    if (
+      !drawerOpen &&
+      selectedFacilityId !== undefined &&
+      selectedEquipmentId !== selectedFacilityId
+    ) {
       selectEquipment(selectedFacilityId);
     }
-  }, [selectedEquipmentId, selectedFacilityId, selectEquipment]);
+  }, [drawerOpen, selectedEquipmentId, selectedFacilityId, selectEquipment]);
 
   // 手動の更新: 押した時点の取得の回数を覚え、取得が完了する（回数が変わる）まで、更新中にする
   const [refreshFrom, setRefreshFrom] = useState<number | null>(null);
@@ -273,11 +317,7 @@ export function DashboardPage(): ReactNode {
             {MESSAGES.common.staleData}
           </p>
         )}
-        <DashboardContent
-          data={data}
-          periodDays={periodDays}
-          selectedPeriodDays={selectedPeriodDays}
-        />
+        <DashboardContent data={data} selectedPeriodDays={selectedPeriodDays} />
       </>
     );
   }
@@ -333,6 +373,18 @@ export function DashboardPage(): ReactNode {
         </p>
       )}
       {content}
+      {drawerViewpointId === undefined ? null : (
+        <ViewpointDrawer
+          viewpointId={drawerViewpointId}
+          pagePath={viewpointPath(
+            drawerViewpointId,
+            readHorizonQuery(search).horizon,
+            readHorizonQuery(search).periodDays ?? defaultPeriodDays(drawerViewpointId),
+            readHorizonQuery(search).periodDays,
+          )}
+          onClose={closeDrawer}
+        />
+      )}
     </section>
   );
 }
@@ -342,19 +394,13 @@ const STALE_NAMES_SHOWN = 3;
 
 function DashboardContent(props: {
   readonly data: DashboardResponse;
-  readonly periodDays: PeriodDays;
   readonly selectedPeriodDays: PeriodDays | undefined;
 }): ReactNode {
   const { data } = props;
   const showCardPeriod = commonEvaluatedPeriod(data.viewpoints) === null;
   const cards = data.viewpoints.map((card) => ({
     card,
-    path: viewpointPath(
-      card.viewpointId,
-      DASHBOARD_HORIZON,
-      props.periodDays,
-      props.selectedPeriodDays,
-    ),
+    path: viewpointDrawerPath(card.viewpointId, props.selectedPeriodDays),
   }));
   return (
     <>

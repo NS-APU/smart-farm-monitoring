@@ -86,8 +86,12 @@ async function openSatisfaction(page: Page, query = ''): Promise<void> {
 }
 
 const overallScore = (page: Page) => page.getByTestId('overall-score');
+// 全画面のページは h1、ドロワー（Issue #357）は h2 の見出しに、ステータスがある
 const overallBadge = (page: Page) =>
-  page.getByRole('heading', { level: 1 }).locator('.status-badge');
+  page
+    .getByRole('heading', { level: 1 })
+    .or(page.getByRole('dialog').getByRole('heading', { level: 2 }))
+    .locator('.status-badge');
 
 test.describe('基本フロー: 満足度の詳細を開き、各観点の満足度を、レーダーチャートで確認する', () => {
   test('満足度を入力（UC-07）し、ダッシュボードの満足度のカードから詳細を開くと、総合満足度（小数第1位）・判断基準・レーダーチャート・観点別のスターを表示する', async ({
@@ -117,8 +121,9 @@ test.describe('基本フロー: 満足度の詳細を開き、各観点の満足
       .click();
     await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
 
-    // 2. 各観点の満足度を、レーダーチャートで表示する
-    await expect(page).toHaveURL(/\/satisfaction/);
+    // 2. 各観点の満足度を、レーダーチャートで表示する（満足度の詳細は、ダッシュボードの上の右からのドロワーに開く。Issue #357）
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
+    await expect(page.getByRole('dialog', { name: '満足度の詳細' })).toBeVisible();
     await expect(overallScore(page)).toHaveText('4.0');
     await expect(overallBadge(page)).toContainText('正常');
     await expect(page.getByLabel('判断基準')).toContainText('4.0以上');
@@ -420,7 +425,7 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
 
     await satisfaction.locator('h3').getByRole('link').click();
 
-    await expect(page).toHaveURL(/\/satisfaction$/);
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
     await expect(overallScore(page)).toHaveText('5.0');
     await expect(page.getByLabel('長期の期間')).toHaveValue('30');
   });
@@ -444,7 +449,7 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
       '不明',
     );
     await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
-    await expect(page).toHaveURL(/\/satisfaction\?periodDays=7$/);
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction&periodDays=7$/);
     await expect(overallBadge(page)).toContainText('不明');
   });
 

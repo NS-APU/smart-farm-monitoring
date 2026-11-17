@@ -121,6 +121,9 @@ test.describe('基本フロー: 観点と期間を選び、メトリクスの推
       .locator('h3')
       .getByRole('link')
       .click();
+    // ダッシュボードの上の右からのドロワーに開く（Issue #357）。選んだ期間を引き継ぐ。全画面のページへ移って確認する
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability&periodDays=30$/);
+    await page.getByRole('dialog').getByRole('link', { name: 'ページで開く' }).click();
     await expect(page).toHaveURL(
       /\/viewpoints\/environmentalAdaptability\?horizon=LONG&periodDays=30$/,
     );

@@ -143,8 +143,9 @@ describe('ダッシュボード: 操作（対象のハウス・期間・更新�
     await waitFor(() => {
       expect(dashboardCalls(calls).at(-1)?.query.get('periodDays')).toBe('60');
     });
+    // 観点の詳細は、ドロワーで開く（ダッシュボードの URL に、観点と、選んだ期間を付ける。Issue #357）
     expect(within(cardOf('満足度')).getAllByRole('link')[0]?.getAttribute('href')).toBe(
-      '/satisfaction?periodDays=60',
+      '/?viewpoint=satisfaction&periodDays=60',
     );
   });
 
@@ -338,10 +339,10 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
       within(cardOf('満足度'))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-    ).toEqual(['/satisfaction', '/satisfaction']);
+    ).toEqual(['/?viewpoint=satisfaction', '/?viewpoint=satisfaction']);
   });
 
-  it('カード・表の詳細へのリンクは、長期と期間を引き継ぐ（視点はない）。満足度は、満足度の詳細（期間のみ）へ', async () => {
+  it('カード・観点別の状態の表のリンクは、観点の詳細のドロワーを開く（ダッシュボードの URL に観点を付ける）。期間は、選んでいるときだけ引き継ぐ', async () => {
     renderPath('/?periodDays=60');
 
     await screen.findByRole('heading', { name: '安全性' });
@@ -350,19 +351,16 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
       within(cardOf('安全性'))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-    ).toEqual([
-      '/viewpoints/safety?horizon=LONG&periodDays=60',
-      '/viewpoints/safety?horizon=LONG&periodDays=60',
-    ]);
+    ).toEqual(['/?viewpoint=safety&periodDays=60', '/?viewpoint=safety&periodDays=60']);
     expect(
       within(screen.getByTestId('status-row-safety')).getByRole('link').getAttribute('href'),
-    ).toBe('/viewpoints/safety?horizon=LONG&periodDays=60');
+    ).toBe('/?viewpoint=safety&periodDays=60');
     expect(within(cardOf('満足度')).getAllByRole('link')[0]?.getAttribute('href')).toBe(
-      '/satisfaction?periodDays=60',
+      '/?viewpoint=satisfaction&periodDays=60',
     );
     expect(
       within(screen.getByTestId('status-row-satisfaction')).getByRole('link').getAttribute('href'),
-    ).toBe('/satisfaction?periodDays=60');
+    ).toBe('/?viewpoint=satisfaction&periodDays=60');
   });
 
   it('メトリクスごとの判定を、アイコンと文字で示す（色だけに頼らない）。ステータスコードの名称も同様', async () => {

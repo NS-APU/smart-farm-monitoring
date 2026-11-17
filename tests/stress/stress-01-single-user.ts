@@ -75,15 +75,23 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const banner = page.getByRole('banner');
   const menu = (name: string) =>
     page.getByRole('navigation', { name: 'メニュー' }).getByRole('link', { name, exact: true });
-  const breadcrumbBack = () =>
-    page
-      .getByRole('navigation', { name: 'パンくず' })
-      .getByRole('link', { name: 'ダッシュボード' });
+  // 観点の詳細は、ダッシュボードの上の右からのドロワーに開く（Issue #357）。ダッシュボードへ戻るのは、ドロワーを閉じる操作
+  const drawerClose = () =>
+    page.getByRole('dialog').getByRole('button', { name: '観点の詳細を閉じる' });
   const backToDashboard = (): Promise<unknown> =>
-    m('UC-01', 'ダッシュボードへ戻る（パンくず）', 'ダッシュボード（SC-02）', 'dashboardInitial', {
-      act: () => breadcrumbBack().click(),
-      respond: () => expectDashboardShown(page),
-    });
+    m(
+      'UC-01',
+      'ダッシュボードへ戻る（観点の詳細のドロワーを閉じる）',
+      'ダッシュボード（SC-02）',
+      'dashboardInitial',
+      {
+        act: () => drawerClose().click(),
+        respond: async () => {
+          await expect(page.getByRole('dialog')).toHaveCount(0);
+          await expectDashboardShown(page);
+        },
+      },
+    );
 
   // ---------------------------------------------------------------------------------------------
   // UC-13 ログイン
@@ -326,6 +334,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: satisfactionShown,
     });
   }
+  // 満足度の詳細のドロワーを閉じる（次は、メニューで移る。ドロワーを開いたままでは、メニューを押せない）
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await m(
     'UC-01',
     'メニューから「ダッシュボード」を開く',
