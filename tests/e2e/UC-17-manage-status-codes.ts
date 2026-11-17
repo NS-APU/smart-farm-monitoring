@@ -35,6 +35,15 @@ import { locatorOf, rowBy } from './support/pages.ts';
 const rows = locatorOf('status-code-row');
 const rowOf = rowBy('status-code-row', 'data-code');
 const addForm = (page: Page) => page.getByTestId('status-code-add');
+/** ステータスコードの登録は、ダイアログで行う（Issue #366）。表の上のボタンで開く。 */
+async function openAddStatusCode(page: Page): Promise<void> {
+  if (await addForm(page).isVisible()) {
+    return;
+  }
+  await page.getByRole('button', { name: 'ステータスコードの登録' }).click();
+  await expect(addForm(page)).toBeVisible();
+}
+
 const notice = locatorOf('status-codes-notice');
 
 async function openStatusCodes(page: Page, user?: Parameters<typeof openAs>[2]): Promise<void> {
@@ -48,6 +57,7 @@ async function register(
   page: Page,
   values: { code: string; name: string; category?: string; description?: string },
 ): Promise<void> {
+  await openAddStatusCode(page);
   const form = addForm(page);
   await form.getByLabel('コード値').fill(values.code);
   await form.getByLabel('名称').fill(values.name);
@@ -122,12 +132,13 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await expect(rows(page)).toHaveCount(9);
     await expect(rowOf(page, 'CHARGING')).toContainText('充電中');
     await expect(rowOf(page, 'CHARGING')).toContainText('充電ステーションで充電している');
-    // 登録の直後に、入力欄はクリアされる
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、入力欄は空（Issue #366）
+    await expect(addForm(page)).toHaveCount(0);
+    await openAddStatusCode(page);
     await expect(addForm(page).getByLabel('コード値')).toHaveValue('');
     await page.reload();
     await expect(rowOf(page, 'CHARGING')).toBeVisible();
-    // 入力欄は、クリアされる
-    await expect(addForm(page).getByLabel('コード値')).toHaveValue('');
+    await expect(addForm(page)).toHaveCount(0);
   });
 
   test('編集: 名称・説明・カテゴリを変更できる。コード値は、変更できない', async ({
@@ -237,6 +248,7 @@ test.describe('カテゴリ（正常・注意・異常）の同値分割', () =>
     }) => {
       await prepareApp(request);
       await openStatusCodes(page);
+      await openAddStatusCode(page);
       await expect(addForm(page).getByLabel('カテゴリ').locator('option')).toHaveText([
         '正常',
         '注意',
@@ -263,6 +275,7 @@ test.describe('代替フロー: 入力が不正な場合は、保存しない（
 
     await register(page, { code: 'STANDBY', name: '重複' });
 
+    await openAddStatusCode(page);
     await expect(addForm(page).locator('[data-field="code"] .field-error')).toHaveText(
       '同じコード値がすでに登録されています',
     );
@@ -306,6 +319,7 @@ test.describe('代替フロー: 入力が不正な場合は、保存しない（
 
       await register(page, { code: item.code, name: '名称' });
 
+      await openAddStatusCode(page);
       await expect(addForm(page).locator('[data-field="code"] .field-error')).toHaveText(
         item.message,
       );
@@ -622,6 +636,8 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
     await expect(rows(page)).toHaveCount(8);
     await expect(page.getByRole('button', { name: '修正' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '削除' })).toHaveCount(0);
+    // 登録のボタンも、フォームも、ない（Issue #366）
+    await expect(page.getByRole('button', { name: 'ステータスコードの登録' })).toHaveCount(0);
     await expect(addForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc17-readonly');
     const login = await request.post('/api/v1/auth/login', {

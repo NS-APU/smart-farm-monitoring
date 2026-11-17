@@ -96,7 +96,7 @@ test.describe('基本フロー: 判断基準に照らして判定し、注意・
     await enterTemperature(request, 40);
 
     await openNotifications(page);
-    const house = environmentRows(page).filter({ hasText: 'ハウス1' });
+    const house = environmentRows(page).filter({ hasText: '（ハウス1）' });
     await expect(house).toHaveCount(1);
     await expect(house).toContainText('異常検知');
     await expect(house.locator('.status-badge')).toContainText('異常');
@@ -570,7 +570,9 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     expect(await environmentNotifications(request)).toHaveLength(2);
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
-    await expect(environmentRows(page).filter({ hasText: 'ハウス1' })).toContainText('【異常】');
+    await expect(environmentRows(page).filter({ hasText: '（ハウス1）' })).toContainText(
+      '【異常】',
+    );
     await expect(unreadBadge(page)).not.toHaveText('0');
     await shot(page, testInfo, 'uc10-ingested-sensor');
     // 異常が続く間は、増えない

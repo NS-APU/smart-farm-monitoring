@@ -145,6 +145,14 @@ export function errorBody(
 }
 
 /** 配列の指定の位置の要素を返す。なければ、テストの前提が崩れているため、エラーにする。 */
+/** DOM の要素を取り出す。なければ、前提が崩れているため、テストを失敗させる。 */
+export function requireElement<Target extends Element>(element: Target | null): Target {
+  if (element === null) {
+    throw new Error('テストの前提: 要素がある');
+  }
+  return element;
+}
+
 export function at<Item>(items: readonly Item[], index: number): Item {
   const item = items[index];
   if (item === undefined) {

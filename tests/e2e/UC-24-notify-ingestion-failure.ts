@@ -247,7 +247,7 @@ test.describe('取り込みの失敗が、他の機能の動作を妨げない',
     await page.goto('/data-entry');
     await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
     await page.getByRole('main').getByLabel('カテゴリ').selectOption('SAFETY');
-    await page.getByTestId('entry-items').getByLabel('緊急停止回数').fill('0');
+    await page.getByTestId('entry-items').getByRole('textbox', { name: '緊急停止回数' }).fill('0');
     await page.getByRole('main').getByRole('button', { name: '保存する' }).click();
     await expect(page.getByTestId('entry-result')).toBeVisible();
     // 評価が更新され、関連する観点（安全性）のステータスが、保存結果に示される

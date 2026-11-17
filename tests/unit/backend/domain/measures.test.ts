@@ -105,6 +105,60 @@ describe('観測値の集計: 使う観測値', () => {
   });
 });
 
+describe('観測値の集計: 数値でない値（ステータスコードの文字列）が、数値の項目に入っているとき', () => {
+  it('数値の項目（収穫数）に、文字列の値だけがあれば、集計しない。数値の値があれば、数値だけを使う', () => {
+    const onlyText = aggregateMeasures(
+      input({
+        observations: [
+          observation({
+            itemKey: 'harvestCount',
+            value: 'RUNNING',
+            observedAt: '2026-10-09T01:00:00Z',
+          }),
+        ],
+      }),
+    );
+    const mixed = aggregateMeasures(
+      input({
+        observations: [
+          observation({
+            itemKey: 'harvestCount',
+            value: 'RUNNING',
+            observedAt: '2026-10-09T01:00:00Z',
+          }),
+          observation({ itemKey: 'harvestCount', value: 4, observedAt: '2026-10-09T02:00:00Z' }),
+        ],
+      }),
+    );
+
+    expect(onlyText.values).not.toHaveProperty('harvestCount');
+    expect(mixed.values.harvestCount).toBe(4);
+  });
+
+  it('満足度の項目に、文字列の値だけがあれば、集計しない。数値の値があれば、数値だけを使う', () => {
+    const rating = (value: number | string, observedAt: string) =>
+      observation({
+        equipmentId: FACILITY_ID,
+        itemKey: 'satisfaction.safety',
+        value,
+        observedAt,
+        source: 'MANUAL',
+      });
+
+    const onlyText = aggregateMeasures(
+      input({ observations: [rating('abc', '2026-10-09T01:00:00Z')] }),
+    );
+    const mixed = aggregateMeasures(
+      input({
+        observations: [rating('abc', '2026-10-09T01:00:00Z'), rating(4, '2026-10-09T02:00:00Z')],
+      }),
+    );
+
+    expect(onlyText.values).not.toHaveProperty('satisfaction.safety');
+    expect(mixed.values['satisfaction.safety']).toBe(4);
+  });
+});
+
 describe('観測値の集計: 集計の種類', () => {
   it('合計の項目は、期間内の合計にする（短期・長期とも）', () => {
     const observations = [

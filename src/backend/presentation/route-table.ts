@@ -76,6 +76,7 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   },
   // 観測値（SC-09）
   { method: 'GET', path: '/observations', access: 'LOGIN', useCases: ['UC-02', 'UC-20'] },
+  { method: 'GET', path: '/observations/measurements', access: 'LOGIN', useCases: ['UC-20'] },
   // 手動入力（SC-06, SC-07, SC-08）
   {
     method: 'POST',

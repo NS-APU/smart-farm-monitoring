@@ -159,7 +159,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
       act: () => menu('取り込み済みデータ').click(),
       respond: async () => {
         await expect(loadingView(page)).toHaveCount(0);
-        await expect(page.getByTestId('observation-row').first()).toBeVisible();
+        await expect(page.getByTestId('measurement-row').first()).toBeVisible();
       },
     },
   );
@@ -177,8 +177,11 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await form.getByLabel('対象の設備').selectOption('ROBOT-01');
   await form.getByLabel('カテゴリ').selectOption('FAILURE');
   await form.getByLabel('計測日時（日本時間）').fill(jstInput(new Date(Date.now() - 200 * 60_000)));
-  await form.getByTestId('entry-items').getByLabel('故障回数').fill('1');
-  await form.getByTestId('entry-items').getByLabel('復旧に要した時間').fill('45');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }).fill('1');
+  await form
+    .getByTestId('entry-items')
+    .getByRole('textbox', { name: '復旧に要した時間' })
+    .fill('45');
   await m(
     'UC-06',
     '大量の取り込みのあとに、復旧対応の結果を入力して保存する',

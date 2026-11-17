@@ -1,8 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { Observation } from '../../../src/shared/schemas/observation.ts';
+import type { Measurement, Observation } from '../../../src/shared/schemas/observation.ts';
 import { jsonResponse } from '../../support/frontend.ts';
-import { callsOf, errorBody, renderApp } from '../../support/management-frontend.ts';
+import {
+  callsOf,
+  errorBody,
+  renderApp,
+  at,
+  requireElement,
+} from '../../support/management-frontend.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
 
 function observation(overrides: Partial<Observation> = {}): Observation {
@@ -20,13 +26,36 @@ function observation(overrides: Partial<Observation> = {}): Observation {
   };
 }
 
+/** 1 回の計測（既定は、ロボットの環境情報の 2 項目）。 */
+function measurement(overrides: Partial<Measurement> = {}): Measurement {
+  return {
+    equipmentId: 'ROBOT-01' as Measurement['equipmentId'],
+    observedAt: '2026-10-09T02:00:00.000Z',
+    source: 'AUTO_IMPORT',
+    receivedAt: '2026-10-09T02:01:00.000Z',
+    items: [
+      observation({ itemKey: 'temperatureCelsius', value: 25.5 }),
+      observation({ itemKey: 'humidityPercent', value: 60 }),
+    ],
+    ...overrides,
+  };
+}
+
+/** 日時順（既定）の一覧の API（計測単位）。 */
+const measurementsRoute = (
+  items: Measurement[] = [measurement()],
+  nextCursor: string | null = null,
+) => ({
+  'GET /observations/measurements': () => jsonResponse({ items, nextCursor }),
+});
+
 beforeEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
+describe('取り込み済みデータ一覧: 項目ごと（日時以外の並べ替え。UC-20。SC-09）', () => {
   it('データを、日時・設備・カテゴリ・項目・値・取得元・状態で表示する。値は、単位つきの数値・ステータスコードの名称・欠損は「—」', async () => {
-    renderApp('/observations', {
+    renderApp('/observations?sort=category&from=2026-10-01&to=2026-10-09', {
       'GET /observations': () =>
         jsonResponse({
           items: [
@@ -75,9 +104,7 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
   });
 
   it('データがなければ、取り込みの状況・データ入力への案内を示す。絞り込み中は、該当なしだけ', async () => {
-    renderApp('/observations', {
-      'GET /observations': () => jsonResponse({ items: [], nextCursor: null }),
-    });
+    renderApp('/observations', measurementsRoute([]));
     const empty = await screen.findByTestId('observations-empty');
     expect(within(empty).getByRole('link', { name: '取り込みの状況へ' }).getAttribute('href')).toBe(
       '/settings/ingestion',
@@ -88,9 +115,7 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
   });
 
   it('絞り込み中でデータがなければ、該当なしを示す', async () => {
-    renderApp('/observations?source=MANUAL', {
-      'GET /observations': () => jsonResponse({ items: [], nextCursor: null }),
-    });
+    renderApp('/observations?source=MANUAL', measurementsRoute([]));
     expect((await screen.findByTestId('observations-empty')).textContent).toBe(
       '該当するデータはありません',
     );
@@ -98,9 +123,10 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
 
   it('条件（キーワード・カテゴリ・設備・取得元・期間・並べ替え）は、URL と、API のクエリに反映する', async () => {
     const { calls } = renderApp('/observations', {
+      ...measurementsRoute(),
       'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
     });
-    await screen.findAllByTestId('observation-row');
+    await screen.findAllByTestId('measurement-row');
     const panel = screen.getByRole('region', { name: '検索' });
 
     fireEvent.change(within(panel).getByLabelText('キーワード'), { target: { value: '温度' } });
@@ -134,15 +160,14 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
   it('不正なクエリの値は、無視する', async () => {
     const { calls } = renderApp(
       '/observations?category=BAD&source=BAD&sort=BAD&from=1&direction=x',
-      {
-        'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
-      },
+      measurementsRoute(),
     );
-    await screen.findAllByTestId('observation-row');
-    const query = callsOf(calls, 'GET', '/observations')[0]?.query;
+    await screen.findAllByTestId('measurement-row');
+    const query = callsOf(calls, 'GET', '/observations/measurements')[0]?.query;
     expect(query?.get('category')).toBeNull();
     expect(query?.get('source')).toBeNull();
-    expect(query?.get('sort')).toBe('observedAt');
+    // 日時順（既定）は、計測ごとの一覧。並べ替えの指定は、送らない
+    expect(query?.get('sort')).toBeNull();
     expect(query?.get('from')).toBeNull();
     expect(query?.get('direction')).toBe('desc');
   });
@@ -150,20 +175,22 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
   it('ページ分割と、取得失敗の表示（再読み込み）', async () => {
     let failing = false;
     const { calls } = renderApp('/observations?from=2026-10-01&to=2026-10-09', {
-      'GET /observations': (request) =>
+      'GET /observations/measurements': (request) =>
         failing
           ? errorBody(500, 'INTERNAL_ERROR', '取得できません')
           : jsonResponse({
-              items: [observation()],
-              nextCursor: request.query.get('cursor') === null ? 'c-2' : null,
+              items: [measurement()],
+              nextCursor: request.query.get('cursor') === null ? '2026-10-09T02:00:00.000Z' : null,
             }),
     });
-    await screen.findAllByTestId('observation-row');
+    await screen.findAllByTestId('measurement-row');
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
     await waitFor(() => {
       expect(screen.getByTestId('pager-page').textContent).toBe('2');
     });
-    expect(callsOf(calls, 'GET', '/observations').at(-1)?.query.get('cursor')).toBe('c-2');
+    expect(callsOf(calls, 'GET', '/observations/measurements').at(-1)?.query.get('cursor')).toBe(
+      '2026-10-09T02:00:00.000Z',
+    );
     fireEvent.click(screen.getByRole('button', { name: '前へ' }));
     await waitFor(() => {
       expect(screen.getByTestId('pager-page').textContent).toBe('1');
@@ -174,7 +201,7 @@ describe('取り込み済みデータ一覧（UC-20。SC-09）', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('取得できません');
     failing = false;
     fireEvent.click(screen.getByRole('button', { name: '再読み込み' }));
-    expect(await screen.findAllByTestId('observation-row')).toHaveLength(1);
+    expect(await screen.findAllByTestId('measurement-row')).toHaveLength(1);
   });
 });
 
@@ -223,17 +250,18 @@ describe('並べ替え（値・カテゴリ）・キーワード検索は、期�
   });
 
   it('計測日時の順で、キーワードがなければ、期間がなくても、一覧を表示する。空白だけのキーワードも同じ', async () => {
-    const { calls } = renderApp('/observations?q=%20', listRoute);
+    const { calls } = renderApp('/observations?q=%20', { ...listRoute, ...measurementsRoute() });
 
-    await screen.findAllByTestId('observation-row');
+    await screen.findAllByTestId('measurement-row');
 
     expect(screen.queryByTestId('observations-period-guidance')).toBeNull();
-    expect(callsOf(calls, 'GET', '/observations')).toHaveLength(1);
+    expect(callsOf(calls, 'GET', '/observations/measurements')).toHaveLength(1);
+    expect(callsOf(calls, 'GET', '/observations')).toHaveLength(0);
   });
 
   it('画面の操作: 並べ替えを「値」にすると案内が出て、期間（開始日・終了日）を入れると、一覧に戻る', async () => {
-    renderApp('/observations', listRoute);
-    await screen.findAllByTestId('observation-row');
+    renderApp('/observations', { ...listRoute, ...measurementsRoute() });
+    await screen.findAllByTestId('measurement-row');
     const panel = screen.getByRole('region', { name: '検索' });
 
     fireEvent.change(within(panel).getByLabelText('並べ替え'), { target: { value: 'value' } });
@@ -251,12 +279,165 @@ describe('並べ替え（値・カテゴリ）・キーワード検索は、期�
 });
 
 describe('取り込み済みデータの表の、狭い幅のカード（#151。SC-09）', () => {
-  it('各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
-    renderApp('/observations', {
+  it('項目ごとの表: 各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
+    renderApp('/observations?sort=category&from=2026-10-01&to=2026-10-09', {
       'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
     });
     await screen.findAllByTestId('observation-row');
 
     expectCardLabels();
+  });
+
+  it('計測ごとの表（日時順）: 各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
+    renderApp('/observations', measurementsRoute());
+    await screen.findAllByTestId('measurement-row');
+
+    expectCardLabels();
+  });
+});
+
+describe('取り込み済みデータ一覧: 1 回の計測ごとにまとめる（日時順。Issue #363）', () => {
+  it('1 回の計測を 1 行にし、項目と値（単位つき）を、行の中に並べる。計測の日時・設備・カテゴリ・取得元・状態を示す', async () => {
+    renderApp('/observations', measurementsRoute());
+
+    const rows = await screen.findAllByTestId('measurement-row');
+
+    expect(rows).toHaveLength(1);
+    const row = at(rows, 0);
+    expect(within(row).getAllByTestId('measurement-item')).toHaveLength(2);
+    expect(row.textContent).toContain('収穫ロボット1');
+    expect(row.textContent).toContain('環境情報');
+    expect(row.textContent).toContain('自動取り込み');
+    expect(row.textContent).toContain('温度');
+    expect(row.textContent).toContain('25.5℃');
+    expect(row.textContent).toContain('湿度');
+    expect(row.textContent).toContain('60%');
+    expect(row.textContent).toContain('すべて有効');
+    // 項目の一覧の名前に、項目の数がある
+    expect(within(row).getByRole('list', { name: '2 項目' })).toBeDefined();
+    // 項目ごとの行（observation-row）は、出さない
+    expect(screen.queryAllByTestId('observation-row')).toHaveLength(0);
+  });
+
+  it('日時順では、計測ごとの一覧であることを案内する。日時以外の並べ替えでは、項目ごとの一覧であることを案内する', async () => {
+    renderApp('/observations?from=2026-10-01&to=2026-10-09', {
+      ...measurementsRoute(),
+      'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
+    });
+    await screen.findAllByTestId('measurement-row');
+    expect(screen.getByTestId('observations-mode-note').textContent).toContain('1 行にまとめて');
+
+    fireEvent.change(screen.getByLabelText('並べ替え'), { target: { value: 'category' } });
+
+    await screen.findAllByTestId('observation-row');
+    expect(screen.getByTestId('observations-mode-note').textContent).toContain('項目ごとに 1 行');
+    expect(screen.queryAllByTestId('measurement-row')).toHaveLength(0);
+  });
+
+  it('有効でない項目は、項目の横に、状態を示す。計測の状態は、有効でない項目の状態ごとの件数', async () => {
+    renderApp(
+      '/observations',
+      measurementsRoute([
+        measurement({
+          items: [
+            observation({ itemKey: 'temperatureCelsius', value: 25.5 }),
+            observation({ itemKey: 'humidityPercent', value: null, quality: 'MISSING' }),
+            observation({ itemKey: 'co2Ppm', value: 900, quality: 'LATE' }),
+            observation({ itemKey: 'illuminanceLux', value: 1, quality: 'LATE' }),
+          ],
+        }),
+      ]),
+    );
+
+    const row = at(await screen.findAllByTestId('measurement-row'), 0);
+
+    const items = within(row).getAllByTestId('measurement-item');
+    expect(items[0]?.textContent).not.toContain('欠損');
+    expect(items[1]?.textContent).toContain('欠損');
+    expect(items[1]?.textContent).toContain('—');
+    const state = requireElement(row.querySelector('td:last-child'));
+    expect(state.textContent).toBe('欠損 1遅延 2');
+    expect(state.textContent).not.toContain('すべて有効');
+  });
+
+  it('設備の一覧にない設備・定義にない項目は、識別子のまま示す（計測ごとの一覧）', async () => {
+    renderApp(
+      '/observations',
+      measurementsRoute([
+        measurement({
+          equipmentId: 'GONE-01' as Measurement['equipmentId'],
+          items: [observation({ itemKey: 'unlistedItem', value: 3 })],
+        }),
+      ]),
+    );
+
+    const row = at(await screen.findAllByTestId('measurement-row'), 0);
+
+    expect(row.textContent).toContain('GONE-01');
+    expect(row.textContent).toContain('unlistedItem');
+  });
+
+  it('同じ日時でも、設備・取得元が違えば、別の行。手動入力・複数のカテゴリの計測は、カテゴリを「・」でつなぐ。ステータスコードの値は、名称で示す', async () => {
+    renderApp(
+      '/observations',
+      measurementsRoute([
+        measurement({
+          source: 'MANUAL',
+          manualEntryId: 'e-1',
+          items: [
+            observation({
+              itemKey: 'failureCount',
+              category: 'FAILURE',
+              value: 2,
+              source: 'MANUAL',
+            }),
+            observation({
+              itemKey: 'statusCode',
+              category: 'STATUS',
+              value: 'HARVESTING',
+              source: 'MANUAL',
+            }),
+          ],
+        }),
+        measurement({ equipmentId: 'SENSOR-01' as Measurement['equipmentId'] }),
+      ]),
+    );
+
+    const rows = await screen.findAllByTestId('measurement-row');
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain('故障情報・ステータス');
+    expect(rows[0]?.textContent).toContain('手動入力');
+    expect(rows[0]?.textContent).toContain('収穫中');
+    expect(rows[1]?.textContent).toContain('環境センサー1');
+  });
+
+  it('条件を変えると、計測ごとの API のクエリに反映する。次のページは、前のページの最後の計測の日時で続ける', async () => {
+    const { calls } = renderApp('/observations', {
+      'GET /observations/measurements': (request) =>
+        jsonResponse({
+          items: [measurement()],
+          nextCursor: request.query.get('cursor') === null ? '2026-10-09T02:00:00.000Z' : null,
+        }),
+    });
+    await screen.findAllByTestId('measurement-row');
+    const panel = screen.getByRole('region', { name: '検索' });
+
+    fireEvent.change(within(panel).getByLabelText('設備'), { target: { value: 'SENSOR-01' } });
+    fireEvent.change(within(panel).getByLabelText('並べ替えの向き'), { target: { value: 'asc' } });
+
+    await waitFor(() => {
+      const last = callsOf(calls, 'GET', '/observations/measurements').at(-1)?.query;
+      expect(last?.get('equipmentId')).toBe('SENSOR-01');
+      expect(last?.get('direction')).toBe('asc');
+      expect(last?.get('limit')).toBe('20');
+    });
+    await screen.findAllByTestId('measurement-row');
+    fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+    await waitFor(() => {
+      expect(callsOf(calls, 'GET', '/observations/measurements').at(-1)?.query.get('cursor')).toBe(
+        '2026-10-09T02:00:00.000Z',
+      );
+    });
   });
 });

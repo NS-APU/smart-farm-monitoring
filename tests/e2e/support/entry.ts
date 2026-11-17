@@ -73,7 +73,8 @@ export async function fillEntryForm(
     await form.getByLabel('計測日時（日本時間）').fill(values.observedAt);
   }
   for (const [label, text] of Object.entries(values.items ?? {})) {
-    await form.getByTestId('entry-items').getByLabel(label).fill(text);
+    // 数値の項目は、数値の欄（textbox）とスライダーを並べる。数値の欄を取る（スライダーの名前にも、項目名が含まれるため）
+    await form.getByTestId('entry-items').getByRole('textbox', { name: label }).fill(text);
   }
   for (const [label, stars] of Object.entries(values.stars ?? {})) {
     // 利用者の操作と同じく、スター（ラベル）を押す

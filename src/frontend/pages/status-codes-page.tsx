@@ -27,6 +27,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Icon } from '../components/icon.tsx';
+import { Modal } from '../components/modal.tsx';
 
 const TEXT = MESSAGES.statusCodes;
 
@@ -34,7 +35,8 @@ interface StatusCodeFormProps {
   /** 編集する定義。なければ、新規の登録。 */
   readonly definition?: StatusCodeDefinition;
   readonly onDone: (message: string) => void;
-  readonly onCancel?: () => void;
+  /** ダイアログを閉じる（登録・修正とも、ダイアログの中にあるため、必ずある）。 */
+  readonly onCancel: () => void;
 }
 
 function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
@@ -90,7 +92,6 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{title}</h3>
       <div className="form-grid">
         {definition === undefined ? (
           <Field label={TEXT.code} name="code" error={errors.code} hint={TEXT.codeHint} required>
@@ -150,11 +151,9 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {definition === undefined ? TEXT.addSubmit : MESSAGES.form.save}
         </button>
-        {props.onCancel === undefined ? null : (
-          <button type="button" className="button-secondary" onClick={props.onCancel}>
-            {MESSAGES.form.cancel}
-          </button>
-        )}
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );
@@ -167,11 +166,14 @@ export function StatusCodesPage(): ReactNode {
   const fetchList = useCallback(() => getStatusCodes(api), [api]);
   const { data, error, reload } = usePolling(fetchList);
   const [editing, setEditing] = useState<StatusCodeDefinition | undefined>(undefined);
+  // 登録のダイアログ（Issue #366）
+  const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<StatusCodeDefinition | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
   function done(message: string): void {
     setEditing(undefined);
+    setAdding(false);
     setNotice(message);
     reload();
   }
@@ -269,10 +271,29 @@ export function StatusCodesPage(): ReactNode {
       )}
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
+        {canManage ? (
+          <div className="table-toolbar">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setAdding(true);
+              }}
+            >
+              {TEXT.openAdd}
+            </button>
+          </div>
+        ) : null}
         {body}
       </section>
       {canManage && editing !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={`${editing.name}を${MESSAGES.form.edit}`}
+          testId="status-code-edit-dialog"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <StatusCodeForm
             key={editing.code}
             definition={editing}
@@ -281,12 +302,23 @@ export function StatusCodesPage(): ReactNode {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
-      {canManage ? (
-        <section className="panel">
-          <StatusCodeForm onDone={done} />
-        </section>
+      {canManage && adding ? (
+        <Modal
+          title={TEXT.add}
+          testId="status-code-add-dialog"
+          onClose={() => {
+            setAdding(false);
+          }}
+        >
+          <StatusCodeForm
+            onDone={done}
+            onCancel={() => {
+              setAdding(false);
+            }}
+          />
+        </Modal>
       ) : null}
       {deleting === undefined ? null : (
         <ConfirmDialog

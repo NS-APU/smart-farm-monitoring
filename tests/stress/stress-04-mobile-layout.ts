@@ -15,7 +15,7 @@ const SCREENS = [
   { name: 'observations', path: '/observations', heading: '取り込み済みデータ' },
   { name: 'notifications', path: '/notifications', heading: '通知' },
   { name: 'entry-list', path: '/data-entry/list', heading: '入力済みデータ' },
-  { name: 'equipment', path: '/settings/equipment', heading: '設備' },
+  { name: 'equipment', path: '/settings/equipment', heading: 'ハウス・設備' },
   { name: 'status-codes', path: '/settings/status-codes', heading: 'ステータスコード' },
   { name: 'users', path: '/settings/users', heading: 'ユーザー' },
 ] as const;

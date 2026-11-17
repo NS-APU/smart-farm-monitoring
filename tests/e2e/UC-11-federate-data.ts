@@ -35,7 +35,7 @@ import {
   setMock,
 } from './support/app.ts';
 import { federationRows } from './support/ingestion.ts';
-import { expectNoHorizontalScroll } from './support/pages.ts';
+import { expectNoHorizontalScroll, itemListQuery } from './support/pages.ts';
 import { hoursAgo, NOW, shot } from './support/viewpoint-scenarios.ts';
 
 interface ReceivedItem {
@@ -321,7 +321,7 @@ test.describe('代替フロー: 農業情報基盤が停止している場合は
     await expect(page.getByTestId('notification-row').first()).toBeVisible();
     await page.goto('/data-entry/list');
     await expect(page.getByTestId('entry-row')).toHaveCount(1);
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').first()).toBeVisible();
   });
 

@@ -30,6 +30,12 @@ beforeEach(() => {
   window.history.pushState(null, '', '/');
 });
 
+/** 登録のフォーム。登録は、ダイアログで行う（#366）。表の上のボタンで開いて、フォームを返す。 */
+function openAddForm(): HTMLElement {
+  fireEvent.click(screen.getByRole('button', { name: 'ステータスコードの登録' }));
+  return screen.getByTestId('status-code-add');
+}
+
 describe('ステータスコード管理（UC-17。SC-12）', () => {
   it('定義を、コード値・名称・カテゴリ・説明で表示する。説明がなければ「—」', async () => {
     renderApp('/settings/status-codes', { 'GET /status-codes': () => jsonResponse(CODES) });
@@ -57,6 +63,7 @@ describe('ステータスコード管理（UC-17。SC-12）', () => {
     expect(screen.getByTestId('permission-notice').textContent).toContain('権限がありません');
     expect(screen.queryByRole('button', { name: '修正' })).toBeNull();
     expect(screen.queryByTestId('status-code-add')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ステータスコードの登録' })).toBeNull();
   });
 
   it('取得に失敗した場合は、エラーを表示し、再読み込みできる', async () => {
@@ -76,7 +83,7 @@ describe('ステータスコード管理（UC-17。SC-12）', () => {
       'POST /status-codes': () => jsonResponse(SAVED, 201),
     });
     await screen.findAllByTestId('status-code-row');
-    const form = screen.getByTestId('status-code-add');
+    const form = openAddForm();
 
     fireEvent.click(within(form).getByRole('button', { name: '登録する' }));
     expect(within(form).getByText('コード値は必須です')).toBeDefined();
@@ -112,10 +119,10 @@ describe('ステータスコード管理（UC-17。SC-12）', () => {
       category: 'CAUTION',
       description: '充電器に接続している',
     });
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、入力は空
+    expect(screen.queryByTestId('status-code-add')).toBeNull();
     expect(
-      within(screen.getByTestId('status-code-add')).getByLabelText<HTMLInputElement>('コード値', {
-        exact: false,
-      }).value,
+      within(openAddForm()).getByLabelText<HTMLInputElement>('コード値', { exact: false }).value,
     ).toBe('');
   });
 
@@ -132,7 +139,7 @@ describe('ステータスコード管理（UC-17。SC-12）', () => {
       },
     });
     await screen.findAllByTestId('status-code-row');
-    const form = screen.getByTestId('status-code-add');
+    const form = openAddForm();
     fireEvent.change(within(form).getByLabelText('コード値', { exact: false }), {
       target: { value: 'HARVESTING' },
     });
@@ -254,5 +261,46 @@ describe('ステータスコードの表の、狭い幅のカード（#151。SC-
     await screen.findAllByTestId('status-code-row');
 
     expectCardLabels();
+  });
+});
+
+describe('ステータスコード管理: 登録・修正は、ダイアログで行う（Issue #366）', () => {
+  it('表の上に、「ステータスコードの登録」のボタンがあり、押すまで、登録のフォームは出ない。キャンセル・Esc で閉じる', async () => {
+    renderApp('/settings/status-codes');
+    await screen.findAllByTestId('status-code-row');
+
+    expect(screen.queryByTestId('status-code-add')).toBeNull();
+    const button = screen.getByRole('button', { name: 'ステータスコードの登録' });
+    const table = document.querySelector('table') as HTMLElement;
+    expect(button.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(button);
+    expect(screen.getByRole('dialog', { name: 'ステータスコードを登録' })).toBeDefined();
+    fireEvent.click(
+      within(screen.getByTestId('status-code-add')).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(button);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('一覧が空でも、登録のボタンは表示する（最初の 1 件を登録できる）', async () => {
+    renderApp('/settings/status-codes', {
+      'GET /status-codes': () => jsonResponse({ items: [] }),
+    });
+    await screen.findByTestId('status-codes-empty');
+
+    expect(screen.getByRole('button', { name: 'ステータスコードの登録' })).toBeDefined();
+  });
+
+  it('修正のボタンで、ダイアログが開く（名前は、「〇〇を修正」）', async () => {
+    renderApp('/settings/status-codes');
+    const rows = await screen.findAllByTestId('status-code-row');
+
+    fireEvent.click(within(at(rows, 0)).getByRole('button', { name: '修正' }));
+
+    expect(screen.getByRole('dialog', { name: /を修正/ })).toBeDefined();
   });
 });

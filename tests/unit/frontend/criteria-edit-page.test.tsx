@@ -469,3 +469,37 @@ describe('判断基準の編集: スライダー・帯・現在値と変更後�
     expect(sliders.map((control) => control.disabled)).toEqual([true, true]);
   });
 });
+
+describe('判断基準の編集: 単位のない指標（総合満足度）の閾値のラベル', () => {
+  it('単位がなければ、ラベルに、単位の括弧を付けない（Issue #359）', async () => {
+    renderApp('/viewpoints/satisfaction/criteria', {
+      'GET /viewpoints/satisfaction/criteria': () =>
+        jsonResponse({
+          viewpointId: 'satisfaction',
+          version: 'DEFAULT',
+          isDefault: true,
+          usesStatusIndicator: false,
+          criteria: [
+            {
+              indicator: 'overallSatisfaction',
+              kind: 'LOWER',
+              label: '総合満足度',
+              thresholds: { errorBelow: 3, cautionBelow: 4 },
+            },
+          ],
+        }),
+    });
+    await screen.findByTestId('criteria-state');
+
+    const card = screen.getByTestId('criterion-edit-overallSatisfaction');
+
+    expect(
+      within(card).getByLabelText<HTMLInputElement>('注意下限（未満で注意）', { exact: false })
+        .value,
+    ).toBe('4');
+    expect(
+      within(card).getByLabelText<HTMLInputElement>('異常下限（未満で異常）', { exact: false })
+        .value,
+    ).toBe('3');
+  });
+});

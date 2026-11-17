@@ -106,6 +106,72 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     expect(options).toContain('連携の期限切れ');
   });
 
+  it('対象は、ハウスの名称にする。設備の列に、ロボット・環境センサーの名称を示す（ハウスの通知・設備のない通知は「—」）（Issue #362）', async () => {
+    renderApp('/notifications', {
+      'GET /notifications': listOf([
+        notification({ notificationId: 'n-h' as never, equipmentId: 'HOUSE-01' as never }),
+        notification({ notificationId: 'n-r' as never, equipmentId: 'ROBOT-01' as never }),
+        notification({ notificationId: 'n-s' as never, equipmentId: 'SENSOR-01' as never }),
+        FAILURE,
+        notification({ notificationId: 'n-x' as never, equipmentId: 'ROBOT-99' as never }),
+      ]),
+    });
+
+    const rows = await screen.findAllByTestId('notification-row');
+    const cells = (index: number) =>
+      [...(rows[index]?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent);
+
+    // 8 列目までのうち、対象（4 列目）と設備（5 列目）
+    expect([cells(0)[3], cells(0)[4]]).toEqual(['ハウス1', '—']);
+    expect([cells(1)[3], cells(1)[4]]).toEqual(['ハウス1', '収穫ロボット1']);
+    expect([cells(2)[3], cells(2)[4]]).toEqual(['ハウス1', '環境センサー1']);
+    // 取り込み失敗: 対象は、取り込み元の名称。設備はなし
+    expect([cells(3)[3], cells(3)[4]]).toEqual(['ロボットデータ', '—']);
+    // 設備の一覧にない設備（削除など）: 対象は「—」、設備は設備 ID
+    expect([cells(4)[3], cells(4)[4]]).toEqual(['—', 'ROBOT-99']);
+  });
+
+  it('親のハウスの名称が分からない設備は、対象に、親のハウスの ID を示す（#362）', async () => {
+    renderApp('/notifications', {
+      'GET /equipment': () =>
+        jsonResponse({
+          facilities: [
+            {
+              facility: {
+                equipmentId: 'HOUSE-01',
+                equipmentType: 'FACILITY',
+                name: 'ハウス1',
+                isDeleted: false,
+                createdAt: '2026-10-01T00:00:00.000Z',
+              },
+              children: [
+                {
+                  equipmentId: 'ROBOT-X',
+                  equipmentType: 'ROBOT',
+                  name: '孤立ロボット',
+                  // 親のハウスが、設備の一覧にない（削除など）
+                  facilityId: 'HOUSE-GONE',
+                  isDeleted: false,
+                  createdAt: '2026-10-01T00:00:00.000Z',
+                },
+              ],
+            },
+          ],
+        }),
+      'GET /notifications': listOf([
+        notification({
+          notificationId: 'n-x' as never,
+          equipmentId: 'ROBOT-X' as never,
+        }),
+      ]),
+    });
+
+    const [row] = await screen.findAllByTestId('notification-row');
+
+    const cells = [...(row?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent);
+    expect([cells[3], cells[4]]).toEqual(['HOUSE-GONE', '孤立ロボット']);
+  });
+
   it('各セルに、項目名（data-label）を持つ。狭い画面（900px 以下）では、表を通知ごとのカードにして、項目名を表示するため', async () => {
     renderApp('/notifications', { 'GET /notifications': listOf([notification()]) });
 
@@ -114,7 +180,16 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     const labels = [...(row?.querySelectorAll('td') ?? [])].map((cell) =>
       cell.getAttribute('data-label'),
     );
-    expect(labels).toEqual(['日時', '種別', '観点', '対象', 'ステータス', 'メッセージ', '状態']);
+    expect(labels).toEqual([
+      '日時',
+      '種別',
+      '観点',
+      '対象',
+      '設備',
+      'ステータス',
+      'メッセージ',
+      '状態',
+    ]);
   });
 
   it('通知がなければ、その旨を表示する。絞り込み中は、条件に合う通知がない旨を表示する', async () => {

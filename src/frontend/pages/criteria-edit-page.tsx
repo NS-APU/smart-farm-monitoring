@@ -47,6 +47,8 @@ const THRESHOLD_KEYS: Readonly<Record<Criterion['kind'], readonly ThresholdKey[]
 };
 
 interface Row {
+  /** 保存されている判断基準（現在値。帯・「現在値」の表示に使う）。 */
+  readonly saved: Criterion;
   readonly indicator: string;
   readonly kind: Criterion['kind'];
   readonly label: string;
@@ -55,6 +57,7 @@ interface Row {
 
 function rowsOf(criteria: CriteriaView): Row[] {
   return criteria.criteria.map((criterion) => ({
+    saved: criterion,
     indicator: criterion.indicator,
     kind: criterion.kind,
     label: criterion.label,
@@ -83,9 +86,14 @@ function draftCriterion(row: Row): Criterion | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-/** 保存されている閾値（現在値）。 */
-function savedThresholdOf(saved: Criterion | undefined, key: ThresholdKey): number {
-  const thresholds: Readonly<Record<string, number>> = saved?.thresholds ?? {};
+/** 入力欄の文字（型に合う閾値の名前だけを呼ぶため、値は、必ずある）。 */
+function thresholdText(row: Row, key: ThresholdKey): string {
+  return row.values[key] ?? '';
+}
+
+/** 保存されている閾値（現在値）。型に合う閾値の名前だけを呼ぶため、値は、必ずある。 */
+function savedThresholdOf(saved: Criterion, key: ThresholdKey): number {
+  const thresholds: Readonly<Record<string, number>> = saved.thresholds;
   return thresholds[key] ?? Number.NaN;
 }
 
@@ -151,14 +159,15 @@ function CriteriaEditor(props: EditorProps): ReactNode {
     >
       {rows.map((row, index) => {
         const unit = getMetricMeta(row.indicator).unit;
-        const saved = criteria.criteria[index];
+        const { saved } = row;
         const draft = draftCriterion(row);
         const numbers = Object.values(row.values).map(toNumber);
-        const savedNumbers = saved === undefined ? [] : Object.values(saved.thresholds);
-        const range = thresholdSliderRange(row.indicator, [...numbers, ...savedNumbers]);
+        const range = thresholdSliderRange(row.indicator, [
+          ...numbers,
+          ...Object.values(saved.thresholds),
+        ]);
         const changedFromSaved =
           draft !== undefined &&
-          saved !== undefined &&
           JSON.stringify(draft.thresholds) !== JSON.stringify(saved.thresholds);
         return (
           <fieldset
@@ -171,14 +180,12 @@ function CriteriaEditor(props: EditorProps): ReactNode {
               <span className="tag">{TEXT.kindLabels[row.kind]}</span>
             </legend>
             <div className="zone-bars">
-              {saved === undefined ? null : (
-                <CriterionZoneBar
-                  title={TEXT.zoneCurrent}
-                  criterion={saved}
-                  range={range}
-                  testId={`zone-current-${row.indicator}`}
-                />
-              )}
+              <CriterionZoneBar
+                title={TEXT.zoneCurrent}
+                criterion={saved}
+                range={range}
+                testId={`zone-current-${row.indicator}`}
+              />
               {draft !== undefined && changedFromSaved ? (
                 <CriterionZoneBar
                   title={TEXT.zoneAfter}
@@ -229,8 +236,8 @@ function CriteriaEditor(props: EditorProps): ReactNode {
                       shortLabel={TEXT.thresholdShortLabels[key]}
                       unit={unit}
                       range={range}
-                      text={row.values[key] ?? ''}
-                      value={toNumber(row.values[key] ?? '')}
+                      text={thresholdText(row, key)}
+                      value={toNumber(thresholdText(row, key))}
                       savedValue={savedThresholdOf(saved, key)}
                       editable={props.canEdit}
                       onChange={(text) => {

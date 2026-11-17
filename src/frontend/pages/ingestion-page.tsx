@@ -22,6 +22,7 @@ import {
   type FileServerAuthMethod,
   type FileServerConnection,
   type FileServerProtocol,
+  type IngestionLog,
   type IngestionLogListResponse,
   type IngestionSourceStatus,
 } from '@smart-farm/shared/schemas/ingestion';
@@ -41,7 +42,7 @@ import { FederationSettingsPanel } from '../components/federation-settings-panel
 import { Field, FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { Icon } from '../components/icon.tsx';
-import { jstDateToIso } from '../components/jst.ts';
+import { isoToJstDateTimeInput, jstDateToIso } from '../components/jst.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
@@ -51,6 +52,8 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { PATHS } from '../router/paths.ts';
+import { Link } from '../router/router.tsx';
 import { FacilityIngestionView } from './facility-ingestion-view.tsx';
 
 const TEXT = MESSAGES.ingestion;
@@ -710,6 +713,7 @@ function LogTable(props: {
                 {TEXT.logDeleted}
               </th>
               <th scope="col">{TEXT.logError}</th>
+              <th scope="col">{TEXT.logData}</th>
             </tr>
           </thead>
           <tbody>
@@ -743,6 +747,13 @@ function LogTable(props: {
                 </td>
                 <td data-label={TEXT.logError}>
                   {log.errorMessage ?? MESSAGES.common.missingValue}
+                </td>
+                <td data-label={TEXT.logData}>
+                  {log.recordCount === 0 ? (
+                    MESSAGES.common.missingValue
+                  ) : (
+                    <Link to={loggedDataPath(log)}>{TEXT.logDataLink}</Link>
+                  )}
                 </td>
               </tr>
             ))}
@@ -840,6 +851,21 @@ function FederationTable(props: {
  * 取り込みの設定・状況・ログ。閲覧の権限（ingestion:read）がない利用者（一般）には、閲覧できるハウスの、取り込み・連携の記録だけを示す
  * （設定・接続先・失敗の理由・全体の件数は、取得も表示もしない。ADR-0013。Issue #332）。
  */
+/**
+ * 取り込みのログから、取得したデータ（取り込み済みデータの一覧）へのリンク（Issue #363）。設備（あれば）・自動取り込み・
+ * 実行の期間（日本時間の日付）で絞る。一覧は日付単位の絞り込みのため、同じ日の、ほかの取り込みのデータも含む。
+ */
+function loggedDataPath(log: IngestionLog): string {
+  const jstDate = (iso: string): string => isoToJstDateTimeInput(iso).slice(0, 10);
+  const params = new URLSearchParams({ source: 'AUTO_IMPORT' });
+  if (log.equipmentId !== undefined) {
+    params.set('equipmentId', log.equipmentId);
+  }
+  params.set('from', jstDate(log.startedAt));
+  params.set('to', jstDate(log.finishedAt));
+  return `${PATHS.observations}?${params.toString()}`;
+}
+
 export function IngestionPage(): ReactNode {
   return usePermission('ingestion:read') ? <IngestionContent /> : <FacilityIngestionView />;
 }

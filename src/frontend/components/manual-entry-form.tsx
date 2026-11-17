@@ -41,6 +41,7 @@ import { isoToJstDateTimeInput, jstDateTimeToIso } from './jst.ts';
 import { normalizeNumberText } from './number-text.ts';
 import { notifyUnreadChanged } from './unread-events.ts';
 import { Icon } from './icon.tsx';
+import { EntryValueInput } from './entry-value-input.tsx';
 import { StarRating } from './star-rating.tsx';
 
 const TEXT = MESSAGES.entry;
@@ -366,53 +367,57 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
               </p>
             </div>
           )}
-          <div className="form-grid">
-            {items.map((item) =>
-              selectedCategory === 'SATISFACTION' ? (
-                // 満足度は、数値の文字入力ではなく、スターで選ぶ（D-18。9観点すべてが必須）
-                <StarRating
-                  key={item.itemKey}
-                  label={item.label}
-                  name={`items.${item.itemKey}`}
-                  max={SATISFACTION_MAX_STARS}
-                  value={starValue(values[item.itemKey])}
-                  error={errors[`items.${item.itemKey}`]}
-                  onChange={(stars) => {
-                    setValues({ ...values, [item.itemKey]: String(stars) });
-                  }}
-                />
-              ) : item.valueType === 'string' ? (
-                <StatusCodeField
-                  key={item.itemKey}
-                  item={item}
-                  value={values[item.itemKey] ?? ''}
-                  error={errors[`items.${item.itemKey}`]}
-                  onChange={(value) => {
-                    setValues({ ...values, [item.itemKey]: value });
-                  }}
-                />
-              ) : (
-                <Field
-                  key={item.itemKey}
-                  label={item.unit === '' ? item.label : `${item.label}（${item.unit}）`}
-                  name={`items.${item.itemKey}`}
-                  error={errors[`items.${item.itemKey}`]}
-                  hint={describeRange(item)}
-                >
-                  {(control) => (
-                    <input
-                      {...control}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={values[item.itemKey] ?? ''}
-                      onChange={(event) => {
-                        setValues({ ...values, [item.itemKey]: event.target.value });
-                      }}
-                    />
-                  )}
-                </Field>
-              ),
-            )}
+          {/* 満足度の 9 観点は、広い幅では、3 つずつ（3 列）、狭い幅では、1 列に並べる（#361） */}
+          <div
+            className={selectedCategory === 'SATISFACTION' ? 'satisfaction-grid-frame' : undefined}
+          >
+            <div className="form-grid">
+              {items.map((item) =>
+                selectedCategory === 'SATISFACTION' ? (
+                  // 満足度は、数値の文字入力ではなく、スターで選ぶ（D-18。9観点すべてが必須）
+                  <StarRating
+                    key={item.itemKey}
+                    label={item.label}
+                    name={`items.${item.itemKey}`}
+                    max={SATISFACTION_MAX_STARS}
+                    value={starValue(values[item.itemKey])}
+                    error={errors[`items.${item.itemKey}`]}
+                    onChange={(stars) => {
+                      setValues({ ...values, [item.itemKey]: String(stars) });
+                    }}
+                  />
+                ) : item.valueType === 'string' ? (
+                  <StatusCodeField
+                    key={item.itemKey}
+                    item={item}
+                    value={values[item.itemKey] ?? ''}
+                    error={errors[`items.${item.itemKey}`]}
+                    onChange={(value) => {
+                      setValues({ ...values, [item.itemKey]: value });
+                    }}
+                  />
+                ) : (
+                  <Field
+                    key={item.itemKey}
+                    label={item.unit === '' ? item.label : `${item.label}（${item.unit}）`}
+                    name={`items.${item.itemKey}`}
+                    error={errors[`items.${item.itemKey}`]}
+                    hint={describeRange(item)}
+                  >
+                    {(control) => (
+                      <EntryValueInput
+                        control={control}
+                        item={item}
+                        text={values[item.itemKey] ?? ''}
+                        onChange={(text) => {
+                          setValues({ ...values, [item.itemKey]: text });
+                        }}
+                      />
+                    )}
+                  </Field>
+                ),
+              )}
+            </div>
           </div>
         </fieldset>
       )}

@@ -84,13 +84,22 @@ test.describe('基本フロー: ヘッダーの未読件数から、通知の一
       '種別',
       '観点',
       '対象',
+      '設備',
       'ステータス',
       'メッセージ',
       '状態',
     ]);
+    // 対象は、ハウスの名称。設備の列は、ロボット・環境センサーの名称（ハウスの通知は「—」。Issue #362）
+    const cell = (row: ReturnType<typeof rows>, column: number) => row.locator('td').nth(column);
+    const houseRow = rows(page).filter({ hasText: '（ハウス1）' });
+    await expect(cell(houseRow, 3)).toHaveText('ハウス1');
+    await expect(cell(houseRow, 4)).toHaveText('—');
+    const sensorRow = rows(page).filter({ hasText: '（環境センサー1）' });
+    await expect(cell(sensorRow, 3)).toHaveText('ハウス1');
+    await expect(cell(sensorRow, 4)).toHaveText('環境センサー1');
     const environmentOfHouse = rows(page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: 'ハウス1' });
+      .filter({ hasText: '（ハウス1）' });
     await expect(environmentOfHouse).toContainText('異常検知');
     await expect(environmentOfHouse).toContainText('異常');
     await expect(environmentOfHouse).toContainText('未読');

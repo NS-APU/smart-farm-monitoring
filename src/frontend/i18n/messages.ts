@@ -92,7 +92,7 @@ export const MESSAGES = {
     dataEntry: 'データ入力',
     observations: '取り込み済みデータ',
     settings: '設定',
-    equipment: '設備',
+    equipment: 'ハウス・設備',
     ingestion: '取り込み',
     statusCodes: 'ステータスコード',
     users: 'ユーザー',

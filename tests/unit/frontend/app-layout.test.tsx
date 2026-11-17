@@ -146,7 +146,7 @@ describe('共通のレイアウト', () => {
     expect(group?.open).toBe(true);
     expect(group?.querySelector('summary')?.textContent).toBe('設定');
     expect(Array.from(group?.querySelectorAll('a') ?? []).map((link) => link.textContent)).toEqual([
-      '設備',
+      'ハウス・設備',
       '取り込み',
       'ステータスコード',
       'ユーザー',
@@ -162,7 +162,7 @@ describe('共通のレイアウト', () => {
 
     const group = menu.querySelector('details');
     expect(Array.from(group?.querySelectorAll('a') ?? []).map((link) => link.textContent)).toEqual([
-      '設備',
+      'ハウス・設備',
       '取り込み',
       'ステータスコード',
     ]);

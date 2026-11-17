@@ -24,7 +24,7 @@ const SCREENS: readonly { name: string; path: string; heading: string }[] = [
   { name: 'data-entry', path: '/data-entry', heading: 'データ入力' },
   { name: 'notifications', path: '/notifications', heading: '通知' },
   { name: 'observations', path: '/observations', heading: '取り込み済みデータ' },
-  { name: 'equipment', path: '/settings/equipment', heading: '設備' },
+  { name: 'equipment', path: '/settings/equipment', heading: 'ハウス・設備' },
   { name: 'ingestion', path: '/settings/ingestion', heading: '取り込み設定' },
   { name: 'entry-list', path: '/data-entry/list', heading: '入力済みデータ' },
   { name: 'entry-history', path: '/data-entry/history', heading: '変更履歴' },

@@ -22,6 +22,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Icon } from '../components/icon.tsx';
+import { Modal } from '../components/modal.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -30,7 +31,8 @@ interface UserFormProps {
   /** 編集するユーザー。なければ、新規の登録。 */
   readonly user?: PublicUser;
   readonly onDone: (message: string) => void;
-  readonly onCancel?: () => void;
+  /** ダイアログを閉じる（登録・修正とも、ダイアログの中にあるため、必ずある）。 */
+  readonly onCancel: () => void;
 }
 
 function UserForm(props: UserFormProps): ReactNode {
@@ -89,7 +91,6 @@ function UserForm(props: UserFormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{title}</h3>
       <div className="form-grid">
         {user === undefined ? (
           <Field label={TEXT.userId} name="userId" error={errors.userId} required>
@@ -159,11 +160,9 @@ function UserForm(props: UserFormProps): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {user === undefined ? TEXT.addSubmit : MESSAGES.form.save}
         </button>
-        {props.onCancel === undefined ? null : (
-          <button type="button" className="button-secondary" onClick={props.onCancel}>
-            {MESSAGES.form.cancel}
-          </button>
-        )}
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );
@@ -179,11 +178,14 @@ export function UsersPage(): ReactNode {
   );
   const { data, error, reload } = usePolling(fetchList);
   const [editing, setEditing] = useState<PublicUser | undefined>(undefined);
+  // 登録のダイアログ（Issue #366）
+  const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<PublicUser | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
   function done(message: string): void {
     setEditing(undefined);
+    setAdding(false);
     setNotice(message);
     reload();
   }
@@ -281,10 +283,29 @@ export function UsersPage(): ReactNode {
       )}
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
+        {canManage && data !== undefined ? (
+          <div className="table-toolbar">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setAdding(true);
+              }}
+            >
+              {TEXT.openAdd}
+            </button>
+          </div>
+        ) : null}
         {body}
       </section>
       {canManage && data !== undefined && editing !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={`${editing.userName}を${MESSAGES.form.edit}`}
+          testId="user-edit-dialog"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <UserForm
             key={editing.userId}
             user={editing}
@@ -294,12 +315,24 @@ export function UsersPage(): ReactNode {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
-      {canManage && data !== undefined ? (
-        <section className="panel">
-          <UserForm roles={data.roles} onDone={done} />
-        </section>
+      {canManage && data !== undefined && adding ? (
+        <Modal
+          title={TEXT.add}
+          testId="user-add-dialog"
+          onClose={() => {
+            setAdding(false);
+          }}
+        >
+          <UserForm
+            roles={data.roles}
+            onDone={done}
+            onCancel={() => {
+              setAdding(false);
+            }}
+          />
+        </Modal>
       ) : null}
       {deleting === undefined ? null : (
         <ConfirmDialog

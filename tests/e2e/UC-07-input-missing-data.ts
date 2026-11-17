@@ -41,7 +41,7 @@ import {
   starGroup,
   type EntryFormValues,
 } from './support/entry.ts';
-import { expectNoHorizontalScroll } from './support/pages.ts';
+import { expectNoHorizontalScroll, itemListQuery } from './support/pages.ts';
 import { environmentData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 
 async function openEntry(page: Page): Promise<void> {
@@ -80,14 +80,16 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await shot(page, testInfo, 'uc07-saved');
 
     // 4. 手動入力であることを区別できる形で保持する（取り込み済みデータの一覧の取得元）
+    // 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
     await goToMenu(page, '取り込み済みデータ');
-    const rows = page.getByTestId('observation-row');
-    await expect(rows).toHaveCount(4);
-    for (const row of await rows.all()) {
-      await expect(row).toContainText('手動入力');
-      await expect(row).toContainText('環境センサー1');
-    }
-    await expect(rows.filter({ hasText: '温度' })).toContainText('27℃');
+    const rows = page.getByTestId('measurement-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toContainText('手動入力');
+    await expect(rows).toContainText('環境センサー1');
+    await expect(rows.getByTestId('measurement-item')).toHaveCount(4);
+    await expect(rows.getByTestId('measurement-item').filter({ hasText: '温度' })).toContainText(
+      '27℃',
+    );
     await shot(page, testInfo, 'uc07-observations');
   });
 
@@ -203,7 +205,7 @@ test.describe('基本フロー: センサーから取得できない環境の値
       await saveEntry(page);
 
       await expect(page.getByTestId('entry-result')).toContainText('保存しました');
-      await page.goto('/observations?source=MANUAL');
+      await page.goto(`/observations${itemListQuery('?source=MANUAL')}`);
       await expect(page.getByTestId('observation-row')).toHaveCount(item.count);
     });
   }
@@ -221,17 +223,17 @@ test.describe('基本フロー: センサーから取得できない環境の値
       items: { 故障回数: '3' },
     });
     const items = mainArea(page).getByTestId('entry-items');
-    await expect(items.getByLabel('故障回数')).toHaveValue('3');
+    await expect(items.getByRole('textbox', { name: '故障回数' })).toHaveValue('3');
 
     await fillEntryForm(page, { category: 'SAFETY' });
 
-    await expect(items.getByLabel('故障回数')).toHaveCount(0);
-    await expect(items.getByLabel('緊急停止回数')).toHaveValue('');
+    await expect(items.getByRole('textbox', { name: '故障回数' })).toHaveCount(0);
+    await expect(items.getByRole('textbox', { name: '緊急停止回数' })).toHaveValue('');
     await expect(items.getByRole('textbox')).toHaveCount(2);
 
     // カテゴリを戻しても、以前に入力した値は残っていない
     await fillEntryForm(page, { category: 'FAILURE' });
-    await expect(items.getByLabel('故障回数')).toHaveValue('');
+    await expect(items.getByRole('textbox', { name: '故障回数' })).toHaveValue('');
   });
 
   test('項目の一部だけを入力して保存できる（入力した項目だけを保持する）', async ({
@@ -250,7 +252,7 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toBeVisible();
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row')).toHaveCount(1);
     await expect(page.getByTestId('observation-row')).toContainText('CO2濃度');
   });
@@ -303,7 +305,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await goToNotifications(page);
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
     await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('異常');
+    await expect(rows.filter({ hasText: '（ハウス1）' })).toContainText('異常');
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('異常');
     for (const row of await rows.all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
@@ -338,7 +340,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await expect(page.getByTestId('entry-result')).toBeVisible();
     await goToNotifications(page);
     await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('注意');
+    await expect(rows.filter({ hasText: '（ハウス1）' })).toContainText('注意');
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('注意');
     for (const row of await rows.all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
@@ -368,7 +370,9 @@ test.describe('代替フロー: 自動取り込みと手動入力で同じ項目
     // 手動入力が評価に使われる（異常）
     await expectRelatedStatus(page, 'environmentalAdaptability', '異常');
     // 両方を保持する（取得元で区別できる）
-    await page.goto('/observations?q=%E6%B8%A9%E5%BA%A6&from=2026-10-08&to=2026-10-09');
+    await page.goto(
+      `/observations${itemListQuery('?q=%E6%B8%A9%E5%BA%A6&from=2026-10-08&to=2026-10-09')}`,
+    );
     const rows = page.getByTestId('observation-row');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: '自動取り込み' })).toContainText('20℃');
@@ -538,7 +542,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
 
   // 自動取り込みの項目は、すべて、手動でも入力できる（予備の入口。#192。ADR-0016 の D-10）
   const itemInput = (page: Page, key: string) =>
-    mainArea(page).locator(`[data-field="items.${key}"] input`);
+    mainArea(page).locator(`[data-field="items.${key}"] input:not([type="range"])`);
 
   test('稼働情報（稼働時間・待機時間・収穫稼働時間・走行停止時間）を、ロボットに、手動で入力して保存できる。手動入力として保持する', async ({
     page,
@@ -556,13 +560,13 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
+    // 1 回の入力（稼働情報の 4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
     await goToMenu(page, '取り込み済みデータ');
-    const rows = page.getByTestId('observation-row');
-    await expect(rows).toHaveCount(4);
-    for (const row of await rows.all()) {
-      await expect(row).toContainText('手動入力');
-      await expect(row).toContainText('収穫ロボット1');
-    }
+    const rows = page.getByTestId('measurement-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toContainText('手動入力');
+    await expect(rows).toContainText('収穫ロボット1');
+    await expect(rows.getByTestId('measurement-item')).toHaveCount(4);
     await expect(rows.filter({ hasText: '待機時間' })).toContainText('1');
   });
 
@@ -585,7 +589,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
     await goToMenu(page, '取り込み済みデータ');
-    const rows = page.getByTestId('observation-row');
+    const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText('手動入力');
     await expect(rows.first()).toContainText('ステータスコード');

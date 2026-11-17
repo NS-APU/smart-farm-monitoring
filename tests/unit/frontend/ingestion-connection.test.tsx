@@ -359,6 +359,37 @@ describe('認証情報の登録（Issue #207。D-47。書き込み専用）', ()
     expect(screen.queryByTestId('credentials-status-custom-2')).toBeNull();
   });
 
+  it('認証情報の欄で Enter を押すと、設定のフォームは送らず、認証情報を保存する。入力が足りないときは、保存せず、設定のフォームも送らない。Enter 以外のキーは、何もしない', async () => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      routes([source({ connection: BASIC, credentials: { state: 'NOT_CONFIGURED' } })], {
+        'PUT /ingestion/robot/credentials': () =>
+          jsonResponse({ state: 'CONFIGURED', updatedAt: UPDATED_AT }),
+      }),
+    );
+    const robot = await robotCard();
+    const user = within(robot).getByLabelText('ユーザー名', { exact: false });
+    const password = within(robot).getByLabelText('パスワード', { exact: false });
+
+    // 入力が足りない（ユーザー名だけ）: Enter でも、保存しない
+    fireEvent.change(user, { target: { value: 'dummy-user' } });
+    fireEvent.keyDown(user, { key: 'Enter' });
+    expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')).toHaveLength(0);
+    expect(callsOf(calls, 'PUT', '/ingestion/settings')).toHaveLength(0);
+
+    // Enter 以外のキーは、何もしない
+    fireEvent.change(password, { target: { value: DUMMY_PASSWORD } });
+    fireEvent.keyDown(password, { key: 'a' });
+    expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')).toHaveLength(0);
+
+    // 入力がそろって Enter: 認証情報を保存する（設定のフォームは、送らない）
+    fireEvent.keyDown(password, { key: 'Enter' });
+    await waitFor(() => {
+      expect(callsOf(calls, 'PUT', '/ingestion/robot/credentials')).toHaveLength(1);
+    });
+    expect(callsOf(calls, 'PUT', '/ingestion/settings')).toHaveLength(0);
+  });
+
   it('Basic: ユーザー名とパスワード（伏せ字）を入力して保存する。値を送り、入力欄を空に戻し、画面に値を残さない', async () => {
     let saved = false;
     const { calls } = renderApp(

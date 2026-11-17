@@ -131,6 +131,21 @@ textarea {
   border-radius: 8px;
 }
 
+/* 満足度の入力（9 観点のスター）: 枠の幅が、3 列分（約 760px）あれば、3 つずつ。狭いときは、1 列（スターの 1 組は、約 220px） */
+.satisfaction-grid-frame {
+  container-type: inline-size;
+}
+
+.satisfaction-grid-frame > .form-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container (min-width: 760px) {
+  .satisfaction-grid-frame > .form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .entry-items legend {
   padding: 0 8px;
   font-weight: 700;
@@ -248,6 +263,76 @@ textarea {
   gap: 12px;
 }
 
+/* フォームを入れるダイアログ（登録・修正・割り当て。#364〜#366。components/modal.tsx）。確認のダイアログ（.dialog-backdrop。z-index 20）より、前面 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space);
+  background: var(--color-scrim);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: 100%;
+  background: var(--color-surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-dialog);
+}
+
+.modal-wide {
+  width: min(880px, 100%);
+}
+
+.modal-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space);
+  padding: 12px var(--space);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.modal-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space);
+  overflow-y: auto;
+}
+
+/* 登録のボタンを並べる行（表の上） */
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: var(--space);
+}
+
 /* 通知 */
 .row-unread td {
   background: var(--color-unread-bg);
@@ -262,22 +347,25 @@ textarea {
   vertical-align: top;
 }
 
-/* 通知の表（SC-05）: 長い値（設備名 200 文字を含む対象・メッセージ）や狭い幅でも、列が 1 文字幅へ潰れない。
-   日時・種別・観点・ステータス・状態は折り返さず（最小の幅を保つ）、長くなりうる対象・メッセージだけを、枠の中で折り返す。
+/* 通知の表（SC-05）: 長い値（名称 200 文字を含む対象・設備・メッセージ）や狭い幅でも、列が 1 文字幅へ潰れない。
+   列は、日時・種別・観点・対象（ハウス）・設備・ステータス・メッセージ・状態の 8 つ（#362）。
+   日時・種別・観点・ステータス・状態は折り返さず（最小の幅を保つ）、長くなりうる対象・設備・メッセージだけを、枠の中で折り返す。
    表が枠より広い場合は、表の枠の中で横にスクロールする */
 .notification-table {
-  min-width: 960px;
+  min-width: 1100px;
 }
 
 .notification-table th {
   white-space: nowrap;
 }
 
-.notification-table td:nth-child(-n + 5) {
+.notification-table td:nth-child(-n + 3),
+.notification-table td:nth-child(6) {
   white-space: nowrap;
 }
 
-.notification-table td:nth-child(4) {
+.notification-table td:nth-child(4),
+.notification-table td:nth-child(5) {
   min-width: 9em;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -330,8 +418,10 @@ textarea {
   }
 
   .notification-table td,
-  .notification-table td:nth-child(-n + 5),
+  .notification-table td:nth-child(-n + 3),
+  .notification-table td:nth-child(6),
   .notification-table td:nth-child(4),
+  .notification-table td:nth-child(5),
   .notification-table td.notification-message {
     display: grid;
     grid-template-columns: 6em minmax(0, 1fr);

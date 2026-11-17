@@ -36,14 +36,14 @@ function fallbackRange(values: readonly number[]): ThresholdSliderRange {
 }
 
 /**
- * 閾値のスライダーの範囲。入力の値（数値として読めるもの）が範囲の外にあるときは、その値を含むように、目盛りの単位で広げる。
+ * スライダーの範囲を、入力の値（数値として読めるもの）を含むように、目盛りの単位で広げる（範囲の中なら、そのまま）。
+ * データ入力のスライダー（Issue #361）も使う。
  */
-export function thresholdSliderRange(
-  indicator: string,
+export function extendSliderRange(
+  base: ThresholdSliderRange,
   values: readonly number[],
 ): ThresholdSliderRange {
   const finite = values.filter((value) => Number.isFinite(value));
-  const base = findThresholdSliderRange(indicator) ?? fallbackRange(finite);
   if (finite.length === 0) {
     return base;
   }
@@ -56,4 +56,15 @@ export function thresholdSliderRange(
       high > base.max ? roundToStep(Math.ceil(high / base.step) * base.step, base.step) : base.max,
     step: base.step,
   };
+}
+
+/**
+ * 閾値のスライダーの範囲。指標の目安の範囲（なければ、入力の値から決める）を、入力の値を含むように広げる。
+ */
+export function thresholdSliderRange(
+  indicator: string,
+  values: readonly number[],
+): ThresholdSliderRange {
+  const finite = values.filter((value) => Number.isFinite(value));
+  return extendSliderRange(findThresholdSliderRange(indicator) ?? fallbackRange(finite), values);
 }

@@ -27,10 +27,12 @@ import {
 } from './support/app.ts';
 import { fillEntryForm, saveEntry } from './support/entry.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
-import { userIdText } from './support/pages.ts';
+import { userIdText, itemListQuery } from './support/pages.ts';
 
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
+/** 項目ごとの行（並べ替え「カテゴリ」の一覧）と、1 回の計測ごとの行（日時順。既定。Issue #363）。 */
 const observationRows = (page: Page) => page.getByTestId('observation-row');
+const measurementRows = (page: Page) => page.getByTestId('measurement-row');
 const entryRows = (page: Page) => page.getByTestId('entry-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
 const environmentBadge = (page: Page) =>
@@ -68,17 +70,21 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await goToNotifications(b.page);
     const alert = notificationRows(b.page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: 'ハウス1' });
+      .filter({ hasText: '（ハウス1）' });
     await expect(alert).toContainText('異常');
     await expect(alert).toHaveAttribute('data-read-state', 'UNREAD');
 
     // UC-20: Bが、取り込み済みデータの一覧で、Aの入力を、手動入力として閲覧する
+    // Aの 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す
     await goToMenu(b.page, '取り込み済みデータ');
-    await expect(observationRows(b.page)).toHaveCount(4);
-    const temperature = observationRows(b.page).filter({ hasText: '温度' });
-    await expect(temperature).toContainText('40℃');
-    await expect(temperature).toContainText('手動入力');
-    await expect(temperature).toContainText('環境センサー1');
+    await expect(measurementRows(b.page)).toHaveCount(1);
+    const measurement = measurementRows(b.page);
+    await expect(measurement.getByTestId('measurement-item')).toHaveCount(4);
+    await expect(measurement).toContainText('手動入力');
+    await expect(measurement).toContainText('環境センサー1');
+    await expect(
+      measurement.getByTestId('measurement-item').filter({ hasText: '温度' }),
+    ).toContainText('40℃');
     await shot(b.page, testInfo, 'scenario-entry-b-observations');
 
     // UC-02・UC-04: Bが、通知から、診断・根拠のデータ（手動入力）・推奨アクションを確認する。確認した通知は、Bの既読になる
@@ -117,9 +123,13 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
 
     // UC-20: Aが、一覧で、修正後の値を確認する（値は1件のまま。元の値は残らない）
     await goToMenu(page, '取り込み済みデータ');
-    await expect(observationRows(page)).toHaveCount(4);
-    await expect(observationRows(page).filter({ hasText: '温度' })).toContainText('22℃');
-    await expect(observationRows(page).filter({ hasText: '温度' })).not.toContainText('40℃');
+    await expect(measurementRows(page)).toHaveCount(1);
+    await expect(measurementRows(page).getByTestId('measurement-item')).toHaveCount(4);
+    const temperatureItem = measurementRows(page)
+      .getByTestId('measurement-item')
+      .filter({ hasText: '温度' });
+    await expect(temperatureItem).toContainText('22℃');
+    await expect(temperatureItem).not.toContainText('40℃');
 
     // UC-18: Aが、入力済みデータの一覧・変更履歴で、Bによる修正を確認する
     await page.goto('/data-entry/list');
@@ -142,7 +152,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await expect(entryRows(page)).toHaveCount(0);
 
     // UC-20・UC-01: Bの一覧・ダッシュボードからも消え、観点は、データなしの「不明」になる
-    await b.page.goto('/observations');
+    await b.page.goto(`/observations${itemListQuery()}`);
     await expect(observationRows(b.page)).toHaveCount(0);
     await expect(b.page.getByTestId('observations-empty')).toBeVisible();
     await b.page.goto('/');
@@ -160,7 +170,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     // UC-22: Aの通知の既読は、Bの既読とは独立（Bが確認した通知も、Aには未読のまま）
     await page.goto('/notifications');
     await expect(
-      notificationRows(page).filter({ hasText: '環境適応性' }).filter({ hasText: 'ハウス1' }),
+      notificationRows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '（ハウス1）' }),
     ).toHaveAttribute('data-read-state', 'UNREAD');
     await b.context.close();
   });

@@ -293,6 +293,47 @@
   }
 }
 
+/* 取り込み済みデータ一覧（SC-09）の、1 回の計測ごとの表（#363）: 項目と値の列は、項目ごとに 1 行で並べ、枠の中で折り返す。
+   日時・取得元・状態は折り返さない。表が枠より広い場合は、表の枠の中で横にスクロールする */
+.measurement-table {
+  min-width: 860px;
+}
+
+.measurement-table td:nth-child(2),
+.measurement-table td:nth-child(3),
+.measurement-table td:nth-child(4) {
+  min-width: 9em;
+  overflow-wrap: anywhere;
+}
+
+.measurement-table td:nth-child(4) {
+  min-width: 16em;
+}
+
+.measurement-items {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.measurement-items li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+}
+
+.measurement-item-label {
+  color: var(--color-muted);
+}
+
+.measurement-item-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 /* 判断基準の表: 条件名（最大 200 文字。区切りのない英数字でも）で、他の列が 1 文字幅へ潰れず、ページが横にはみ出さない。
    各列に最小の幅を持たせ、条件名は枠の中で折り返す。表が枠より広い場合は、表の枠の中で横にスクロールする */
 .criteria-table th,
