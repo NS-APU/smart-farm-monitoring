@@ -63,13 +63,21 @@ function upperBound(base: readonly TimeEntry[], entry: TimeEntry): number {
   return low;
 }
 
-/** 索引の中で、計測日時が、指定の日時以後の、最初の位置（なければ、索引の長さ）。 */
+/** 日時（`YYYY-MM-DDTHH:mm:ss` まで）。ミリ秒の有無（`...:00Z` と `...:00.000Z`）に左右されない、秒の単位の比較に使う。 */
+const SECOND_LENGTH = 'YYYY-MM-DDTHH:mm:ss'.length;
+const secondOf = (iso: string): string => iso.slice(0, SECOND_LENGTH);
+
+/**
+ * 索引の中で、計測日時の秒が、指定の日時の秒以後の、最初の位置（なければ、索引の長さ）。
+ * 索引は、ミリ秒の有無が混ざると、同じ秒の中の順序が、日時の順と一致しないため、秒の単位で探す（範囲は、少し広く取れる。厳密な判定は、条件の判定で行う）。
+ */
 function firstNotBefore(entries: readonly TimeEntry[], observedAt: string): number {
+  const second = secondOf(observedAt);
   let low = 0;
   let high = entries.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if (compareIso(entryAt(entries, middle).observedAt, observedAt) < 0) {
+    if (secondOf(entryAt(entries, middle).observedAt) < second) {
       low = middle + 1;
     } else {
       high = middle;
@@ -78,13 +86,14 @@ function firstNotBefore(entries: readonly TimeEntry[], observedAt: string): numb
   return low;
 }
 
-/** 索引の中で、計測日時が、指定の日時より後の、最初の位置（なければ、索引の長さ）。 */
+/** 索引の中で、計測日時の秒が、指定の日時の秒より後の、最初の位置（なければ、索引の長さ）。秒の単位で探す理由は、上と同じ。 */
 function firstAfter(entries: readonly TimeEntry[], observedAt: string): number {
+  const second = secondOf(observedAt);
   let low = 0;
   let high = entries.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if (compareIso(entryAt(entries, middle).observedAt, observedAt) <= 0) {
+    if (secondOf(entryAt(entries, middle).observedAt) <= second) {
       low = middle + 1;
     } else {
       high = middle;
