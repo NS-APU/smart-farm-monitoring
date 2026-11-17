@@ -219,6 +219,17 @@ export async function addUserWithTemporaryPassword(
   });
 }
 
+/**
+ * 対象の設備を指定しないときの、手動入力の設備: 環境情報はセンサー、満足度情報はハウス、そのほかはロボット
+ * （手動入力のカテゴリは、対象の設備の種別に合うものだけ受ける。Issue #360）。
+ */
+export function defaultEntryEquipmentId(category: string): string {
+  if (category === 'ENVIRONMENT') {
+    return SENSOR_ID;
+  }
+  return category === 'SATISFACTION' ? HOUSE_ID : ROBOT_ID;
+}
+
 /** 手動入力を API で登録する（前提のデータの用意）。 */
 export async function addEntry(
   request: APIRequestContext,
@@ -230,7 +241,10 @@ export async function addEntry(
     note?: string;
   },
 ): Promise<{ entry: { entryId: string } }> {
-  return apiOk(request, 'POST', '/manual-entries', { equipmentId: ROBOT_ID, ...input });
+  return apiOk(request, 'POST', '/manual-entries', {
+    equipmentId: defaultEntryEquipmentId(input.category),
+    ...input,
+  });
 }
 
 /** 手動入力を、指定した利用者として API で登録する（入力者が複数の前提のデータの用意）。 */
@@ -246,7 +260,7 @@ export async function addEntryAs(
 ): Promise<void> {
   const response = await request.fetch('/api/v1/manual-entries', {
     method: 'POST',
-    data: { equipmentId: ROBOT_ID, ...input },
+    data: { equipmentId: defaultEntryEquipmentId(input.category), ...input },
     headers: { authorization: `Bearer ${await accessToken(request, user)}` },
   });
   expect(

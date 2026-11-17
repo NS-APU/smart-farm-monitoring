@@ -6,7 +6,7 @@
  * 件数・金額・時間・分は、単位・集計期間が決まってから、範囲を足す。
  */
 
-import type { ObservationSource } from './status.ts';
+import type { EquipmentType, ObservationSource } from './status.ts';
 import { VIEWPOINTS } from './viewpoints.ts';
 
 export const CATEGORIES = [
@@ -49,6 +49,26 @@ export const MANUAL_INPUT_CATEGORIES: readonly Category[] = [
   'ENVIRONMENT',
   'SATISFACTION',
 ];
+
+/**
+ * 対象の設備の種別ごとに、手動入力で選べるカテゴリ（Issue #360）。
+ * - ハウス: 満足度情報だけ（満足度は、ハウスの評価）
+ * - ロボット: 環境情報以外
+ * - 環境センサー: 環境情報だけ
+ * 既存の入力（この対応に合わない組み合わせ）は、一覧・履歴・修正で、そのまま扱う（新しい入力・変更だけを絞る）。
+ */
+const MANUAL_INPUT_CATEGORIES_OF_TYPE: Readonly<Record<EquipmentType, readonly Category[]>> = {
+  FACILITY: ['SATISFACTION'],
+  ROBOT: MANUAL_INPUT_CATEGORIES.filter(
+    (category) => category !== 'ENVIRONMENT' && category !== 'SATISFACTION',
+  ),
+  SENSOR: ['ENVIRONMENT'],
+};
+
+/** 対象の設備の種別で、手動入力できるカテゴリ（表示順は、手動入力のカテゴリの順）。 */
+export function manualCategoriesOfEquipmentType(equipmentType: EquipmentType): readonly Category[] {
+  return MANUAL_INPUT_CATEGORIES_OF_TYPE[equipmentType];
+}
 
 export type ItemValueType = 'integer' | 'number' | 'string';
 

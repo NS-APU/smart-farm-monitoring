@@ -4,7 +4,11 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
+import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
+import {
+  SATISFACTION_TARGET_VIEWPOINT_IDS,
+  VIEWPOINT_IDS,
+} from '@smart-farm/shared/constants/viewpoints';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import { equipmentSet, FACILITY_ID, ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
 import { createTestContext, TEST_NOW, untilEvaluationStarted } from '../support/test-context.ts';
@@ -115,9 +119,17 @@ describe('保存後の評価の対象', () => {
     const context = await setup();
     const { entry } = await context.container.manualEntryService.create(input(ROBOT_ID), ACTOR);
 
+    // ハウスに入力できるカテゴリは、満足度情報だけ（Issue #360）。対象とカテゴリを変える修正
     await context.container.manualEntryService.update(
       entry.entryId,
-      { ...input(ROBOT_ID), equipmentId: FACILITY_ID },
+      {
+        equipmentId: FACILITY_ID,
+        category: 'SATISFACTION',
+        observedAt: input(ROBOT_ID).observedAt,
+        items: Object.fromEntries(
+          SATISFACTION_TARGET_VIEWPOINT_IDS.map((id) => [satisfactionItemKey(id), 4]),
+        ),
+      },
       ACTOR,
     );
     await context.container.manualEntryService.delete(entry.entryId, ACTOR);

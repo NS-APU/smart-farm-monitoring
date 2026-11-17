@@ -165,8 +165,8 @@ test.describe('基本フロー: センサーから取得できない環境の値
       count: 2,
     },
     {
-      name: '環境情報（ハウスへの入力）',
-      equipment: HOUSE_ID,
+      name: '環境情報（環境センサーへの入力）',
+      equipment: SENSOR_ID,
       category: 'ENVIRONMENT',
       items: { 温度: '22', 湿度: '60' },
       count: 2,
@@ -214,7 +214,12 @@ test.describe('基本フロー: センサーから取得できない環境の値
   }) => {
     await prepareApp(request);
     await openEntry(page);
-    await fillEntryForm(page, { category: 'FAILURE', items: { 故障回数: '3' } });
+    // カテゴリは、対象の設備の種別に合うものだけ選べるため、先に、ロボットを選ぶ（Issue #360）
+    await fillEntryForm(page, {
+      equipment: ROBOT_ID,
+      category: 'FAILURE',
+      items: { 故障回数: '3' },
+    });
     const items = mainArea(page).getByTestId('entry-items');
     await expect(items.getByLabel('故障回数')).toHaveValue('3');
 

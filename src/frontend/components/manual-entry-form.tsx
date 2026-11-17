@@ -16,6 +16,7 @@ import {
   CATEGORY_LABELS,
   MANUAL_INPUT_CATEGORIES,
   SATISFACTION_MAX_STARS,
+  manualCategoriesOfEquipmentType,
   type Category,
   type ItemDefinition,
 } from '@smart-farm/shared/constants/items';
@@ -153,7 +154,11 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
   const [equipmentId, setEquipmentId] = useState(
     entry?.equipmentId ?? remembered?.equipmentId ?? selectedEquipmentId ?? '',
   );
-  const [category, setCategory] = useState<string>(entry?.category ?? remembered?.category ?? '');
+  const [chosenCategory, setCategory] = useState<string>(
+    entry?.category ?? remembered?.category ?? '',
+  );
+  // 対象の設備を変えて、カテゴリを空にしたときの案内（カテゴリを選ぶと消える）
+  const [categoryCleared, setCategoryCleared] = useState(false);
   const [observedAt, setObservedAt] = useState(() =>
     isoToJstDateTimeInput(entry?.observedAt ?? new Date().toISOString()),
   );
@@ -172,6 +177,24 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
       formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
     }
   }, [focusRequest]);
+
+  // 選べるカテゴリは、対象の設備の種別で決まる（Issue #360）。修正では、その入力のカテゴリも残す（対象を変えない間）
+  function selectableCategoriesOf(targetId: string): readonly Category[] | undefined {
+    const type = equipmentList.find((item) => item.equipmentId === targetId)?.equipmentType;
+    if (type === undefined) {
+      return undefined;
+    }
+    const allowed = manualCategoriesOfEquipmentType(type);
+    const legacy =
+      entry?.equipmentId === targetId && !allowed.includes(entry.category) ? [entry.category] : [];
+    return [...allowed, ...legacy];
+  }
+  const selectableCategories = selectableCategoriesOf(equipmentId);
+  // 記憶したカテゴリが、設備の一覧を読み込んだあとに、選べないと分かったときは、空として扱う
+  const category =
+    selectableCategories?.some((candidate) => candidate === chosenCategory) === false
+      ? ''
+      : chosenCategory;
 
   const selectedCategory = categoryOf(category);
   const items = selectedCategory === undefined ? [] : manualItemsOfCategory(selectedCategory);
@@ -261,7 +284,14 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
               {...control}
               value={equipmentId}
               onChange={(event) => {
-                setEquipmentId(event.target.value);
+                const next = event.target.value;
+                setEquipmentId(next);
+                // 対象を変えて、選べないカテゴリになるときは、カテゴリと入力値を空にして、案内する
+                if (selectableCategoriesOf(next)?.some((value) => value === category) === false) {
+                  setCategory('');
+                  setValues({});
+                  setCategoryCleared(true);
+                }
               }}
             >
               <option value="">{TEXT.selectPlaceholder}</option>
@@ -273,18 +303,32 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
             </select>
           )}
         </Field>
-        <Field label={TEXT.category} name="category" error={errors.category} required>
+        <Field
+          label={TEXT.category}
+          name="category"
+          error={errors.category}
+          hint={
+            selectableCategories === undefined
+              ? TEXT.categoryHintNoEquipment
+              : categoryCleared
+                ? TEXT.categoryCleared
+                : undefined
+          }
+          required
+        >
           {(control) => (
             <select
               {...control}
               value={category}
+              disabled={selectableCategories === undefined}
               onChange={(event) => {
                 setCategory(event.target.value);
                 setValues({});
+                setCategoryCleared(false);
               }}
             >
               <option value="">{TEXT.selectPlaceholder}</option>
-              {MANUAL_INPUT_CATEGORIES.map((value) => (
+              {(selectableCategories ?? []).map((value) => (
                 <option key={value} value={value}>
                   {CATEGORY_LABELS[value]}
                 </option>

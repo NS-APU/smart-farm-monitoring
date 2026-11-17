@@ -660,6 +660,14 @@
   line-height: 1;
 }
 
+.criteria-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 12px 0 0;
+}
+
 .criteria-inline {
   display: flex;
   flex-wrap: wrap;

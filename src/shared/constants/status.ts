@@ -40,6 +40,12 @@ export const DEFAULT_PERIOD_DAYS: PeriodDays = 7;
 
 export const EQUIPMENT_TYPES = ['FACILITY', 'ROBOT', 'SENSOR'] as const;
 export type EquipmentType = (typeof EQUIPMENT_TYPES)[number];
+/** 設備の種別の日本語名（メッセージ用）。 */
+export const EQUIPMENT_TYPE_LABELS: Readonly<Record<EquipmentType, string>> = {
+  FACILITY: 'ハウス',
+  ROBOT: 'ロボット',
+  SENSOR: '環境センサー',
+};
 
 export const OBSERVATION_SOURCES = ['AUTO_IMPORT', 'MANUAL'] as const;
 export type ObservationSource = (typeof OBSERVATION_SOURCES)[number];

@@ -10,6 +10,7 @@ import { getMetricMeta } from '@smart-farm/shared/constants/metrics';
 import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   CriteriaUpdateRequestSchema,
+  CriterionSchema,
   type Criterion,
   type CriteriaView,
 } from '@smart-farm/shared/schemas/criteria';
@@ -28,6 +29,9 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
+import { CriterionZoneBar } from '../components/criterion-zone-bar.tsx';
+import { ThresholdInput } from '../components/threshold-input.tsx';
+import { thresholdSliderRange } from '../components/threshold-slider.ts';
 
 const TEXT = MESSAGES.criteria;
 /** 1時間ごとの再取得は不要（編集中の入力を、更新で壊さないため、読み込みは保存・リセットのときだけ行う）。 */
@@ -64,6 +68,25 @@ function rowsOf(criteria: CriteriaView): Row[] {
 function toNumber(text: string): number {
   const normalized = normalizeNumberText(text);
   return normalized === '' ? Number.NaN : Number(normalized);
+}
+
+/** 入力の途中の値から、判断基準を組み立てる。すべて数値として読め、保存の検証（大小関係・率の範囲）に通るときだけ（帯を描ける）。 */
+function draftCriterion(row: Row): Criterion | undefined {
+  const thresholds = Object.fromEntries(
+    Object.entries(row.values).map(([key, text]) => [key, toNumber(text)]),
+  );
+  if (!Object.values(thresholds).every((value) => Number.isFinite(value))) {
+    return undefined;
+  }
+  const candidate = { indicator: row.indicator, kind: row.kind, label: row.label, thresholds };
+  const parsed = CriterionSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** 保存されている閾値（現在値）。 */
+function savedThresholdOf(saved: Criterion | undefined, key: ThresholdKey): number {
+  const thresholds: Readonly<Record<string, number>> = saved?.thresholds ?? {};
+  return thresholds[key] ?? Number.NaN;
 }
 
 interface EditorProps {
@@ -128,6 +151,15 @@ function CriteriaEditor(props: EditorProps): ReactNode {
     >
       {rows.map((row, index) => {
         const unit = getMetricMeta(row.indicator).unit;
+        const saved = criteria.criteria[index];
+        const draft = draftCriterion(row);
+        const numbers = Object.values(row.values).map(toNumber);
+        const savedNumbers = saved === undefined ? [] : Object.values(saved.thresholds);
+        const range = thresholdSliderRange(row.indicator, [...numbers, ...savedNumbers]);
+        const changedFromSaved =
+          draft !== undefined &&
+          saved !== undefined &&
+          JSON.stringify(draft.thresholds) !== JSON.stringify(saved.thresholds);
         return (
           <fieldset
             key={row.indicator}
@@ -138,6 +170,29 @@ function CriteriaEditor(props: EditorProps): ReactNode {
               {getMetricMeta(row.indicator).label}
               <span className="tag">{TEXT.kindLabels[row.kind]}</span>
             </legend>
+            <div className="zone-bars">
+              {saved === undefined ? null : (
+                <CriterionZoneBar
+                  title={TEXT.zoneCurrent}
+                  criterion={saved}
+                  range={range}
+                  testId={`zone-current-${row.indicator}`}
+                />
+              )}
+              {draft !== undefined && changedFromSaved ? (
+                <CriterionZoneBar
+                  title={TEXT.zoneAfter}
+                  criterion={draft}
+                  range={range}
+                  testId={`zone-after-${row.indicator}`}
+                />
+              ) : null}
+              {draft === undefined ? (
+                <p className="muted zone-invalid" data-testid={`zone-invalid-${row.indicator}`}>
+                  {TEXT.zoneInvalid}
+                </p>
+              ) : null}
+            </div>
             <div className="form-grid">
               <Field
                 label={TEXT.label}
@@ -169,16 +224,19 @@ function CriteriaEditor(props: EditorProps): ReactNode {
                   required
                 >
                   {(control) => (
-                    <input
-                      {...control}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={row.values[key] ?? ''}
-                      readOnly={!props.canEdit}
-                      onChange={(event) => {
+                    <ThresholdInput
+                      control={control}
+                      shortLabel={TEXT.thresholdShortLabels[key]}
+                      unit={unit}
+                      range={range}
+                      text={row.values[key] ?? ''}
+                      value={toNumber(row.values[key] ?? '')}
+                      savedValue={savedThresholdOf(saved, key)}
+                      editable={props.canEdit}
+                      onChange={(text) => {
                         change(index, (current) => ({
                           ...current,
-                          values: { ...current.values, [key]: event.target.value },
+                          values: { ...current.values, [key]: text },
                         }));
                       }}
                     />

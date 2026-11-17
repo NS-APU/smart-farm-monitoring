@@ -30,6 +30,7 @@ import {
   series,
   speedDetail,
 } from '../../support/viewpoint-fixtures.ts';
+import { getDefaultCriteria } from '../../../src/backend/domain/evaluation/default-criteria.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
 
 interface Scenario {
@@ -1350,6 +1351,44 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
         ?.getAttribute('aria-label'),
     ).toBe('5 / 5');
     expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('満足度の詳細');
+  });
+
+  it('総合満足度の判断基準の状態（既定値）と、判断基準の編集への入口を示す（Issue #359）。入口は、満足度の判断基準の編集（他の観点と同じ画面）へ', async () => {
+    renderPath('/satisfaction', { detail: () => jsonResponse(satisfactionDetail(FULL)) });
+
+    const overall = await screen.findByTestId('overall');
+
+    expect(within(overall).getByTestId('criteria-state').textContent).toBe('既定値');
+    expect(within(overall).getByRole('link', { name: '判断基準を編集' }).getAttribute('href')).toBe(
+      '/viewpoints/satisfaction/criteria',
+    );
+  });
+
+  it('総合満足度の判断基準を変更しているときは、変更済み（版）と示し、変更後の閾値を、判断基準の一覧に示す（Issue #359）', async () => {
+    const changed = {
+      ...getDefaultCriteria('satisfaction'),
+      version: 'V3',
+      isDefault: false,
+      criteria: [
+        {
+          indicator: 'overallSatisfaction',
+          kind: 'LOWER' as const,
+          label: '総合満足度',
+          thresholds: { errorBelow: 2.5, cautionBelow: 3.5 },
+        },
+      ],
+    };
+    renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail(FULL, { criteria: changed })),
+    });
+
+    const overall = await screen.findByTestId('overall');
+
+    expect(within(overall).getByTestId('criteria-state').textContent).toBe('変更済み（版: V3）');
+    const criteria = within(overall).getByRole('list', { name: '判断基準' });
+    expect(criteria.textContent).toContain('3.5以上');
+    expect(criteria.textContent).toContain('2.5以上3.5未満');
+    expect(criteria.textContent).toContain('2.5未満');
   });
 
   it('9観点のいずれかが未入力なら、不明とし、未入力の観点を挙げて、データ入力へ促す', async () => {
