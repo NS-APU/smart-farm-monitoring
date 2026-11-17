@@ -12,6 +12,7 @@ import {
   type ReadState,
 } from '@smart-farm/shared/constants/status';
 import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
+import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { NotificationItem, ReadAllRequest } from '@smart-farm/shared/schemas/notification';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import {
@@ -40,17 +41,34 @@ import { Link } from '../router/router.tsx';
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.notifications;
 
-/** 通知の対象の表示（設備の名称。取り込み失敗は、取り込み元の名称）。 */
-function targetLabel(item: NotificationItem, equipmentNames: ReadonlyMap<string, string>): string {
-  if (item.equipmentId !== undefined) {
-    return equipmentNames.get(item.equipmentId) ?? item.equipmentId;
+/**
+ * 通知の「対象」と「設備」の表示（Issue #362）。
+ * - 対象: ハウスの名称（設備の通知は、親のハウス。ハウスの通知は、そのハウス）。取り込み失敗などは、取り込み元の名称
+ * - 設備: ロボット・環境センサーの名称。ハウスの通知・設備のない通知は「—」
+ * 削除などで、設備の一覧にない設備は、対象を「—」、設備を設備 ID で示す。
+ */
+function targetAndEquipment(
+  item: NotificationItem,
+  equipmentList: readonly Equipment[],
+  equipmentNames: ReadonlyMap<string, string>,
+): { readonly target: string; readonly equipment: string } {
+  const none = MESSAGES.common.missingValue;
+  if (item.equipmentId === undefined) {
+    const sourceNames: Readonly<Record<string, string>> = MESSAGES.ingestion.sourceNames;
+    const source =
+      (item.sourceId === undefined ? undefined : sourceNames[item.sourceId]) ?? item.sourceId;
+    return { target: source ?? none, equipment: none };
   }
-  const sourceNames: Readonly<Record<string, string>> = MESSAGES.ingestion.sourceNames;
-  return (
-    (item.sourceId === undefined ? undefined : sourceNames[item.sourceId]) ??
-    item.sourceId ??
-    MESSAGES.common.missingValue
-  );
+  const found = equipmentList.find((candidate) => candidate.equipmentId === item.equipmentId);
+  if (found === undefined) {
+    return { target: none, equipment: item.equipmentId };
+  }
+  if (found.equipmentType === 'FACILITY') {
+    return { target: found.name, equipment: none };
+  }
+  const facilityName =
+    found.facilityId === undefined ? undefined : equipmentNames.get(found.facilityId);
+  return { target: facilityName ?? found.facilityId ?? none, equipment: found.name };
 }
 
 /** 確認待ちの一括既読: 確認で示した件数と、実行する範囲（読み込んだ時点まで）。 */
@@ -61,7 +79,7 @@ interface PendingMark {
 
 export function NotificationsPage(): ReactNode {
   const { api } = useAuth();
-  const { equipmentNames, selectEquipment } = useAppState();
+  const { equipmentList, equipmentNames, selectEquipment } = useAppState();
   const query = useQueryParams();
   const kind = NOTIFICATION_KINDS.find((candidate) => candidate === query.get('kind')) ?? '';
   const readState = READ_STATES.find((candidate) => candidate === query.get('readState')) ?? '';
@@ -173,6 +191,7 @@ export function NotificationsPage(): ReactNode {
                 <th scope="col">{TEXT.kind}</th>
                 <th scope="col">{TEXT.viewpoint}</th>
                 <th scope="col">{TEXT.target}</th>
+                <th scope="col">{TEXT.equipment}</th>
                 <th scope="col">{TEXT.status}</th>
                 <th scope="col">{TEXT.message}</th>
                 <th scope="col">{TEXT.state}</th>
@@ -195,7 +214,12 @@ export function NotificationsPage(): ReactNode {
                       ? MESSAGES.common.missingValue
                       : (findViewpointMeta(item.viewpointId)?.name ?? item.viewpointId)}
                   </td>
-                  <td data-label={TEXT.target}>{targetLabel(item, equipmentNames)}</td>
+                  <td data-label={TEXT.target}>
+                    {targetAndEquipment(item, equipmentList, equipmentNames).target}
+                  </td>
+                  <td data-label={TEXT.equipment}>
+                    {targetAndEquipment(item, equipmentList, equipmentNames).equipment}
+                  </td>
                   <td data-label={TEXT.status}>
                     {item.status === undefined ? (
                       MESSAGES.common.missingValue

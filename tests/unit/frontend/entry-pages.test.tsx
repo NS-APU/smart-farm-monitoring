@@ -1084,3 +1084,113 @@ describe('データ入力: カテゴリは、対象の設備の種別に合う�
     expect(categoryOptions(edit)).toEqual(['環境情報']);
   });
 });
+
+describe('データ入力: 数値の項目の、スライダー（Issue #361）', () => {
+  async function openFailure(): Promise<void> {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+  }
+
+  function slider(name: string): HTMLInputElement {
+    return within(screen.getByTestId('entry-items')).getByRole<HTMLInputElement>('slider', {
+      name,
+    });
+  }
+
+  it('数値の項目ごとに、スライダーと数値の欄を並べ、範囲の目安（単位つき）を示す。入力できる値の説明（ヒント）は、そのまま', async () => {
+    await openFailure();
+
+    const count = slider('故障回数のスライダー');
+    expect([count.min, count.max, count.step]).toEqual(['0', '20', '1']);
+    const minutes = slider('復旧に要した時間のスライダー');
+    expect([minutes.min, minutes.max, minutes.step]).toEqual(['0', '480', '5']);
+    const metas = within(screen.getByTestId('entry-items')).getAllByTestId('entry-slider-meta');
+    expect(metas.map((meta) => meta.textContent)).toEqual([
+      '目安の範囲: 0〜20回',
+      '目安の範囲: 0〜480分',
+    ]);
+    expect(screen.getByText('0以上の整数')).toBeDefined();
+    // 数値の欄は、これまでどおり、ラベル（単位つき）で 1 つだけ見つかる
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('');
+  });
+
+  it('スライダーを動かすと、数値の欄が連動し、保存では、その値を数値で送る', async () => {
+    const { calls } = renderApp('/data-entry', {
+      'POST /manual-entries': () => jsonResponse(SAVED, 201),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+
+    fireEvent.change(slider('故障回数のスライダー'), { target: { value: '7' } });
+    fireEvent.change(slider('復旧に要した時間のスライダー'), { target: { value: '90' } });
+
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('7');
+    expect(screen.getByLabelText<HTMLInputElement>('復旧に要した時間（分）').value).toBe('90');
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await screen.findByTestId('entry-result');
+    expect(
+      (callsOf(calls, 'POST', '/manual-entries')[0]?.body as { items: unknown }).items,
+    ).toEqual({ failureCount: 7, recoveryMinutes: 90 });
+  });
+
+  it('数値の欄に入力すると、スライダーが連動する（全角の数字も読む）。読めない間は、最小の位置で、「未入力」と読み上げる', async () => {
+    await openFailure();
+    const input = screen.getByLabelText<HTMLInputElement>('故障回数（回）');
+
+    fireEvent.change(input, { target: { value: '12' } });
+    expect(slider('故障回数のスライダー').value).toBe('12');
+    expect(slider('故障回数のスライダー').getAttribute('aria-valuetext')).toBe('12回');
+
+    fireEvent.change(input, { target: { value: '１５' } });
+    expect(slider('故障回数のスライダー').value).toBe('15');
+
+    fireEvent.change(input, { target: { value: 'abc' } });
+    expect(slider('故障回数のスライダー').value).toBe('0');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(slider('故障回数のスライダー').getAttribute('aria-valuetext')).toBe('未入力');
+  });
+
+  it('目安の範囲を超える値は、欄に入力でき、スライダーの範囲が広がる。ただし、保存できる上限（湿度 100）は、超えない', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'SENSOR-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'ENVIRONMENT' } });
+
+    fireEvent.change(screen.getByLabelText('温度（℃）'), { target: { value: '70' } });
+    fireEvent.change(screen.getByLabelText('湿度（%）'), { target: { value: '150' } });
+
+    expect(slider('温度のスライダー').max).toBe('70');
+    expect(slider('湿度のスライダー').max).toBe('100');
+    expect(slider('湿度のスライダー').value).toBe('100');
+  });
+
+  it('ステータスコード（選択）と、満足度（スター）には、スライダーを出さない', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'STATUS' } });
+    expect(within(screen.getByTestId('entry-items')).queryAllByRole('slider')).toHaveLength(0);
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'HOUSE-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'SATISFACTION' } });
+    expect(within(screen.getByTestId('entry-items')).queryAllByRole('slider')).toHaveLength(0);
+  });
+
+  it('満足度の 9 観点は、広い幅で 3 つずつ並べるための枠（satisfaction-grid-frame）に入れる。数値の項目には、この枠を使わない', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'HOUSE-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'SATISFACTION' } });
+
+    const frame = document.querySelector('.satisfaction-grid-frame');
+    expect(frame?.querySelectorAll('[role="radiogroup"]')).toHaveLength(9);
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    expect(document.querySelector('.satisfaction-grid-frame')).toBeNull();
+  });
+});

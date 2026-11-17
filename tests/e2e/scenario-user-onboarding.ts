@@ -46,6 +46,8 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
 
     // UC-14: Aが、利用者B（管理者）を登録する。まだログインしていないので「未ログイン」
     await goToMenu(page, 'ユーザー');
+    // ユーザーの登録は、ダイアログで行う（Issue #366）
+    await page.getByRole('button', { name: 'ユーザーの登録' }).click();
     const addForm = page.getByTestId('user-add');
     await addForm.getByLabel('ユーザーID').fill(USER_B.userId);
     await addForm.getByLabel('ユーザー名').fill(USER_B.userName);
@@ -71,11 +73,14 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     ).toBeVisible();
 
     // UC-12: Bが、ハウスとロボットを登録する
-    await goToMenu(b.page, '設備');
+    await goToMenu(b.page, 'ハウス・設備');
+    // ハウス・ロボットの登録は、ダイアログで行う（Issue #364）
+    await b.page.getByRole('button', { name: 'ハウスの登録' }).click();
     await facilityForm(b.page).getByLabel('設備ID').fill('HOUSE-N');
     await facilityForm(b.page).getByLabel('名称').fill('B新設ハウス');
     await facilityForm(b.page).getByRole('button', { name: '登録する' }).click();
     await expect(b.page.getByTestId('equipment-notice')).toHaveText('登録しました');
+    await b.page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
     await childForm(b.page).getByLabel('種別').selectOption('ROBOT');
     await childForm(b.page).getByLabel('親のハウス').selectOption('HOUSE-N');
     await childForm(b.page).getByLabel('設備ID').fill('ROBOT-N');
@@ -113,7 +118,7 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await logout(b.page);
     await expect(b.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await loginViaUi(b.page, B_OWN_PASSWORD, USER_B.userId);
-    await goToMenu(b.page, '設備');
+    await goToMenu(b.page, 'ハウス・設備');
     await expect(b.page.getByTestId('permission-notice')).toHaveText(
       '設備を変更する権限がありません。参照のみできます',
     );
@@ -146,7 +151,7 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await b.context.close();
 
     // UC-13: Aは、構成を登録した利用者がいなくなっても、構成を使い続けられ、ログアウトする
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await expect(equipmentRows(page)).toHaveCount(2);
     await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();

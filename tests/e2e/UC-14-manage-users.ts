@@ -41,6 +41,15 @@ import { locatorOf, rowBy } from './support/pages.ts';
 const rows = locatorOf('user-row');
 const rowOf = rowBy('user-row', 'data-user-id');
 const addForm = (page: Page) => page.getByTestId('user-add');
+/** ユーザーの登録は、ダイアログで行う（Issue #366）。表の上のボタンで開く。 */
+async function openAddUser(page: Page): Promise<void> {
+  if (await addForm(page).isVisible()) {
+    return;
+  }
+  await page.getByRole('button', { name: 'ユーザーの登録' }).click();
+  await expect(addForm(page)).toBeVisible();
+}
+
 const editForm = (page: Page) => page.getByTestId('user-edit');
 const notice = locatorOf('users-notice');
 
@@ -55,6 +64,7 @@ async function register(
   page: Page,
   values: { userId: string; userName: string; password: string; role?: string },
 ): Promise<void> {
+  await openAddUser(page);
   const form = addForm(page);
   await form.getByLabel('ユーザーID').fill(values.userId);
   await form.getByLabel('ユーザー名').fill(values.userName);
@@ -121,6 +131,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await expect(rowOf(page, 'worker-new')).toContainText('一般');
     await expect(rowOf(page, 'worker-new')).toContainText('未ログイン');
     // 入力欄はクリアされる（パスワードを画面に残さない）
+    await openAddUser(page);
     await expect(addForm(page).getByLabel('パスワード')).toHaveValue('');
     // 登録したユーザーが、別のブラウザで、そのパスワードでログインできる（UC-13）。管理者が決めたパスワードは、一時のもの
     // （最初のログインでは、パスワードの変更の画面だけが表示される。変更すると、使える。Issue #245。D-45）
@@ -289,6 +300,7 @@ test.describe('代替フロー: 同じユーザーIDを重複して登録しよ�
       role: 'general',
     });
 
+    await openAddUser(page);
     await expect(addForm(page).locator('[data-field="userId"] .field-error')).toHaveText(
       '同じユーザーIDがすでに登録されています',
     );
@@ -323,6 +335,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
 
       await register(page, { userId: item.value, userName: '名前', password: 'Abcdef12' });
 
+      await openAddUser(page);
       await expect(addForm(page).locator('[data-field="userId"] .field-error')).toHaveText(
         item.message,
       );
@@ -347,6 +360,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
 
       await register(page, { userId: 'user-x', userName: item.value, password: 'Abcdef12' });
 
+      await openAddUser(page);
       await expect(addForm(page).locator('[data-field="userName"] .field-error')).toHaveText(
         item.message,
       );
@@ -396,6 +410,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
       if (item.ok) {
         await expect(notice(page)).toHaveText('登録しました');
       } else {
+        await openAddUser(page);
         await expect(addForm(page).locator('[data-field="password"] .field-error')).toHaveText(
           item.message ?? '',
         );
@@ -410,6 +425,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
   }) => {
     await prepareApp(request);
     await openUsers(page);
+    await openAddUser(page);
     await expect(addForm(page).getByLabel('ロール').locator('option')).toHaveText([
       'ロールを選択してください',
       '管理者',
@@ -451,6 +467,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
     await prepareApp(request);
     await openUsers(page);
     await register(page, { userId: 'user-ok', userName: '名前', password: 'short' });
+    await openAddUser(page);
     await expect(addForm(page).locator('[data-field="password"] .field-error')).toBeVisible();
 
     await addForm(page).getByLabel('パスワード').fill('Abcdef12');
@@ -480,6 +497,8 @@ test.describe('権限: ユーザーを管理する権限のない利用者（閲
       'ユーザーを管理する権限がありません',
     );
     await expect(rows(page)).toHaveCount(0);
+    // 登録のボタンも、フォームも、ない（Issue #366）
+    await expect(page.getByRole('button', { name: 'ユーザーの登録' })).toHaveCount(0);
     await expect(addForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc14-forbidden');
     const login = await request.post('/api/v1/auth/login', {
@@ -506,7 +525,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     const menu = page.getByRole('navigation', { name: 'メニュー' });
     await expect(menu.getByRole('link', { name: 'ユーザー', exact: true })).toHaveCount(0);
     await expect(menu.getByRole('link', { name: '取り込み', exact: true })).toBeVisible();
-    await expect(menu.getByRole('link', { name: '設備', exact: true })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'ハウス・設備', exact: true })).toBeVisible();
 
     await page.goto('/settings/ingestion');
     await expect(
@@ -616,6 +635,7 @@ test.describe('事後条件: ユーザーの情報が保存されている（画
 
     // 登録（入力の誤りを直して登録する。エラー表示の画面を撮影する）
     await register(page, { userId: 'saved-user', userName: '保存の確認', password: 'short' });
+    await openAddUser(page);
     await expect(addForm(page).locator('[data-field="password"] .field-error')).toBeVisible();
     await shot(page, testInfo, 'uc14-validation-error');
     await addForm(page).getByLabel('パスワード').fill('Abcdef12');

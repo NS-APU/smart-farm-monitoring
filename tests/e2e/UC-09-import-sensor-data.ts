@@ -36,7 +36,11 @@ import {
 } from './support/app.ts';
 import { logRows, runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
-import { openIngestion, openObservationsPage as openObservations } from './support/pages.ts';
+import {
+  openIngestion,
+  openObservationsPage as openObservations,
+  itemListQuery,
+} from './support/pages.ts';
 
 const observationRows = (page: Page) => page.getByTestId('observation-row');
 
@@ -150,7 +154,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await advanceMinutes(request, 5);
     await runJob(request, 'JB-01');
     await alignBrowserClock(page);
-    await openAs(page, '/observations');
+    await openAs(page, `/observations${itemListQuery()}`);
     await expect(observationRows(page).filter({ hasText: '温度' })).toHaveCount(2);
 
     await advanceMinutes(request, 11);
@@ -475,7 +479,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await alignBrowserClock(page);
-    await openAs(page, '/observations');
+    await openAs(page, `/observations${itemListQuery()}`);
 
     await expect(observationRows(page)).toHaveCount(4);
     for (const row of await observationRows(page).all()) {

@@ -9,7 +9,10 @@ import {
   SeriesResponseSchema,
   ViewpointDetailResponseSchema,
 } from '@smart-farm/shared/schemas/evaluation';
-import { ObservationListResponseSchema } from '@smart-farm/shared/schemas/observation';
+import {
+  MeasurementListResponseSchema,
+  ObservationListResponseSchema,
+} from '@smart-farm/shared/schemas/observation';
 import { StatusCodeListResponseSchema } from '@smart-farm/shared/schemas/status-code';
 import { EquipmentTreeResponseSchema } from '@smart-farm/shared/schemas/equipment';
 import { UnreadCountResponseSchema } from '@smart-farm/shared/schemas/notification';
@@ -101,6 +104,26 @@ export function listObservations(api: ApiClient, params: ObservationListParams) 
   return api.request('/observations', {
     query: { ...params },
     schema: ObservationListResponseSchema,
+  });
+}
+
+/** 計測単位の一覧の条件（日時順だけ。Issue #363）。 */
+export interface MeasurementListParams {
+  readonly equipmentId?: string;
+  readonly category?: string;
+  readonly source?: string;
+  readonly from?: string;
+  readonly to?: string;
+  readonly q?: string;
+  readonly direction?: SortDirection;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export function listMeasurements(api: ApiClient, params: MeasurementListParams) {
+  return api.request('/observations/measurements', {
+    query: { ...params },
+    schema: MeasurementListResponseSchema,
   });
 }
 

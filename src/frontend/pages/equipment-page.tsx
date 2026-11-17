@@ -33,6 +33,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Icon } from '../components/icon.tsx';
+import { Modal } from '../components/modal.tsx';
 import { FacilityAccessPanel } from './facility-access-panel.tsx';
 
 const TEXT = MESSAGES.equipment;
@@ -87,8 +88,10 @@ interface FormProps {
   readonly onDone: (message: string) => void;
 }
 
-/** ハウスの登録。 */
-function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
+/** ハウスの登録（ダイアログの中に置く）。 */
+function FacilityForm(
+  props: Pick<FormProps, 'onDone'> & { readonly onCancel: () => void },
+): ReactNode {
   const { api } = useAuth();
   const { reloadEquipment } = useAppState();
   const submit = useSubmit();
@@ -127,7 +130,6 @@ function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{TEXT.addFacility}</h3>
       <div className="form-grid">
         <Field label={TEXT.id} name="equipmentId" error={errors.equipmentId} required>
           {(control) => (
@@ -157,13 +159,16 @@ function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {TEXT.addSubmit}
         </button>
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );
 }
 
-/** ロボット・環境センサーの登録（ハウスに紐づける）。 */
-function ChildForm(props: FormProps): ReactNode {
+/** ロボット・環境センサーの登録（ハウスに紐づける。ダイアログの中に置く）。 */
+function ChildForm(props: FormProps & { readonly onCancel: () => void }): ReactNode {
   const { api } = useAuth();
   const { reloadEquipment } = useAppState();
   const submit = useSubmit();
@@ -214,7 +219,6 @@ function ChildForm(props: FormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{TEXT.addChild}</h3>
       <div className="form-grid">
         <Field label={TEXT.type} name="equipmentType" error={errors.equipmentType} required>
           {(control) => (
@@ -312,6 +316,9 @@ function ChildForm(props: FormProps): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {TEXT.addSubmit}
         </button>
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );
@@ -369,9 +376,6 @@ function EditForm(
         void handleSubmit(event);
       }}
     >
-      <h3>
-        {TEXT.typeLabels[equipment.equipmentType]}（{equipment.equipmentId}）を{TEXT.edit}
-      </h3>
       <div className="form-grid">
         <Field label={TEXT.name} name="name" error={errors.name} required>
           {(control) => (
@@ -468,6 +472,8 @@ export function EquipmentPage(): ReactNode {
   const submit = useSubmit();
   const [assigning, setAssigning] = useState<Equipment | undefined>(undefined);
   const [editing, setEditing] = useState<Equipment | undefined>(undefined);
+  // 登録のダイアログ（ハウス／ロボット・環境センサー）
+  const [adding, setAdding] = useState<'facility' | 'child' | undefined>(undefined);
   const [deleting, setDeleting] = useState<Equipment | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
@@ -493,6 +499,7 @@ export function EquipmentPage(): ReactNode {
 
   function done(message: string): void {
     setEditing(undefined);
+    setAdding(undefined);
     setNotice(message);
   }
 
@@ -625,10 +632,39 @@ export function EquipmentPage(): ReactNode {
       )}
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
+        {canManage ? (
+          <div className="table-toolbar">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setAdding('facility');
+              }}
+            >
+              {TEXT.openAddFacility}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setAdding('child');
+              }}
+            >
+              {TEXT.openAddChild}
+            </button>
+          </div>
+        ) : null}
         {body}
       </section>
       {canAssign && assigning !== undefined && access.data !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={TEXT.facilityAccess.panelTitle(assigning.name)}
+          size="wide"
+          testId="facility-access-dialog"
+          onClose={() => {
+            setAssigning(undefined);
+          }}
+        >
           <FacilityAccessPanel
             key={assigning.equipmentId}
             facility={assigning}
@@ -643,10 +679,16 @@ export function EquipmentPage(): ReactNode {
               setAssigning(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
       {canManage && editing !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={`${TEXT.typeLabels[editing.equipmentType]}（${editing.equipmentId}）を${TEXT.edit}`}
+          testId="equipment-edit-dialog"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <EditForm
             key={editing.equipmentId}
             equipment={editing}
@@ -656,15 +698,33 @@ export function EquipmentPage(): ReactNode {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
-      {canManage ? (
-        <section className="panel">
-          <div className="forms-row">
-            <FacilityForm onDone={done} />
-            <ChildForm facilities={facilities} onDone={done} />
-          </div>
-        </section>
+      {canManage && adding !== undefined ? (
+        <Modal
+          title={adding === 'facility' ? TEXT.addFacility : TEXT.addChild}
+          testId="equipment-add-dialog"
+          onClose={() => {
+            setAdding(undefined);
+          }}
+        >
+          {adding === 'facility' ? (
+            <FacilityForm
+              onDone={done}
+              onCancel={() => {
+                setAdding(undefined);
+              }}
+            />
+          ) : (
+            <ChildForm
+              facilities={facilities}
+              onDone={done}
+              onCancel={() => {
+                setAdding(undefined);
+              }}
+            />
+          )}
+        </Modal>
       ) : null}
       {deleting === undefined ? null : (
         <ConfirmDialog

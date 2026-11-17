@@ -42,7 +42,11 @@ import {
 } from './support/app.ts';
 import { logRows, runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
-import { openIngestion, openObservationsPage as openObservations } from './support/pages.ts';
+import {
+  openIngestion,
+  openObservationsPage as openObservations,
+  itemListQuery,
+} from './support/pages.ts';
 
 const observationRows = (page: Page) => page.getByTestId('observation-row');
 
@@ -98,6 +102,15 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await expect(log.locator('td').nth(5)).toHaveText('14');
     await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc08-ingestion');
+
+    // ログから、取得したデータ（取り込み済みデータの一覧）へ移れる（Issue #363）。自動取り込み・実行の日付で絞られ、1 回の計測ごとに示す
+    await log.getByRole('link', { name: '一覧で見る' }).click();
+    await expect(page).toHaveURL(
+      /\/observations\?source=AUTO_IMPORT&equipmentId=[A-Za-z0-9-]+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/,
+    );
+    await expect(page.getByLabel('取得元')).toHaveValue('AUTO_IMPORT');
+    await expect(page.getByTestId('measurement-row').first()).toBeVisible();
+    await openIngestion(page);
 
     // 3. ロボットに対応づけて保存されている（SC-09）
     await openObservations(page);
@@ -581,7 +594,7 @@ test.describe('遅延したデータ（計測から受信まで60分を超える
     );
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await alignBrowserClock(page);
-    await openAs(page, '/observations');
+    await openAs(page, `/observations${itemListQuery()}`);
 
     await expect(observationRows(page).first().locator('.quality')).toHaveText('遅延');
     expect(await dashboardStatus(page, 'harvestSpeed')).toBe('正常');

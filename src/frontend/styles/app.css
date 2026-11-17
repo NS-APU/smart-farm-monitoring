@@ -1272,7 +1272,8 @@ input:not([type='radio']) {
   overflow-y: auto;
 }
 
-body.drawer-open {
+body.drawer-open,
+body.modal-open {
   overflow: hidden;
 }
 

@@ -67,6 +67,45 @@ const ObservationListQuerySchema = PageQuerySchema.extend({
   }
 });
 
+/** GET /observations/measurements の条件（計測単位の一覧。日時順だけ。観点・項目の絞り込みはない。Issue #363）。 */
+const MeasurementListQuerySchema = PageQuerySchema.extend({
+  equipmentId: EquipmentIdSchema.optional(),
+  category: CategorySchema.optional(),
+  source: ObservationSourceSchema.optional(),
+  from: IsoDateTimeSchema.optional(),
+  to: IsoDateTimeSchema.optional(),
+  q: z.string().max(100).optional(),
+  direction: SortDirectionSchema,
+}).superRefine((query, context) => {
+  // キーワード検索は、期間（31 日以内）が必須（ADR-0007 の判断。#91）。観測値の一覧と同じ
+  if (!requiresListPeriod({ sort: 'observedAt', keyword: query.q })) {
+    return;
+  }
+  const problem = checkListPeriod(query);
+  if (problem === 'TOO_LONG') {
+    for (const field of ['from', 'to'] as const) {
+      context.addIssue({
+        code: 'custom',
+        path: [field],
+        message: `期間は ${String(MAX_LIST_PERIOD_DAYS)} 日以内にしてください`,
+      });
+    }
+  } else if (problem === 'MISSING') {
+    for (const [field, label] of [
+      ['from', '開始'],
+      ['to', '終了'],
+    ] as const) {
+      if (query[field] === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: [field],
+          message: `期間の${label}を指定してください。${LIST_PERIOD_GUIDANCE}`,
+        });
+      }
+    }
+  }
+});
+
 export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
   async function viewpointParams(c: Context<AppEnv>) {
     const query = parseQuery(c, HorizonQuerySchema);
@@ -85,6 +124,24 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
 
     async 'GET /viewpoints/:viewpointId/series'(c) {
       return c.json(await deps.viewpointQuery.series(await viewpointParams(c)));
+    },
+
+    async 'GET /observations/measurements'(c) {
+      const query = parseQuery(c, MeasurementListQuerySchema);
+      return c.json(
+        await deps.observationQuery.listMeasurements({
+          equipmentId: query.equipmentId,
+          scope: await scopeOfRequest(c, deps),
+          category: query.category,
+          source: query.source,
+          from: toOptionalDate(query.from),
+          to: toOptionalDate(query.to),
+          keyword: query.q,
+          direction: query.direction,
+          limit: query.limit,
+          cursor: query.cursor,
+        }),
+      );
     },
 
     async 'GET /observations'(c) {

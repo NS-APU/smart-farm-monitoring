@@ -8,6 +8,7 @@ import {
   loginWith,
   renderApp,
   type Routes,
+  at,
 } from '../../support/management-frontend.ts';
 
 function source(overrides: Record<string, unknown> = {}) {
@@ -253,9 +254,43 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       '読み取れなかった数',
       '削除済みの設備',
       'エラー内容',
+      '取得したデータ',
     ]);
     expect(labelsOf(federationRow)).toHaveLength(4);
     expect(labelsOf(federationRow).every((label) => label !== null && label !== '')).toBe(true);
+  });
+
+  it('取り込みのログから、取得したデータ（取り込み済みデータの一覧）へ移れる。設備・自動取り込み・実行の日付（日本時間）で絞る。取得件数が 0 の実行は、リンクを出さない（Issue #363）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'GET /ingestion/logs': () =>
+          jsonResponse({
+            items: [
+              // 日本時間では、翌日にまたがる実行（UTC 15:00 = 日本時間 0:00）
+              ingestionLog({
+                startedAt: '2026-10-09T14:59:58.000Z',
+                finishedAt: '2026-10-09T15:00:03.000Z',
+              }),
+              ingestionLog({ logId: 'l-2', recordCount: 0 }),
+              ingestionLog({ logId: 'l-3', equipmentId: undefined }),
+            ],
+            nextCursor: null,
+          }),
+      }),
+    );
+
+    const rows = await screen.findAllByTestId('ingestion-log-row');
+
+    const link = within(at(rows, 0)).getByRole('link', { name: '一覧で見る' });
+    expect(link.getAttribute('href')).toBe(
+      '/observations?source=AUTO_IMPORT&equipmentId=ROBOT-1&from=2026-10-09&to=2026-10-10',
+    );
+    expect(within(at(rows, 1)).queryByRole('link', { name: '一覧で見る' })).toBeNull();
+    // 設備に結びつかないログは、設備を指定しない
+    expect(within(at(rows, 2)).getByRole('link', { name: '一覧で見る' }).getAttribute('href')).toBe(
+      '/observations?source=AUTO_IMPORT&from=2026-10-09&to=2026-10-09',
+    );
   });
 
   it('ログ・連携の記録がなければ、その旨を表示する', async () => {

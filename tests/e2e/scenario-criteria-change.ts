@@ -136,7 +136,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     const alert = b.page
       .getByTestId('notification-row')
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: 'ハウス1' })
+      .filter({ hasText: '（ハウス1）' })
       .filter({ hasText: '【異常】' });
     await expect(alert).toHaveAttribute('data-read-state', 'UNREAD');
     await expect(alert).toContainText('カスタムの判断基準による判定です');

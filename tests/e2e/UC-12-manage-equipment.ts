@@ -44,22 +44,51 @@ import { E2E_USER } from './support/e2e-user.ts';
 import { expectRelatedStatus, fillEntryForm, saveEntry } from './support/entry.ts';
 import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
 import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { locatorOf, rowBy } from './support/pages.ts';
+import { locatorOf, rowBy, itemListQuery } from './support/pages.ts';
 
 const rows = locatorOf('equipment-row');
 const rowOf = rowBy('equipment-row', 'data-equipment-id');
 const facilityForm = (page: Page) => page.getByRole('form', { name: 'ハウスを登録' });
+/** 開いているダイアログがあれば、Esc で閉じる（ダイアログが開いている間は、背面の操作ができない）。 */
+async function closeDialog(page: Page): Promise<void> {
+  if (await page.getByRole('dialog').isVisible()) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+}
+
+/** ハウスの登録は、ダイアログで行う（Issue #364）。表の上のボタンで開く。 */
+async function openFacilityForm(page: Page): Promise<void> {
+  if (await facilityForm(page).isVisible()) {
+    return;
+  }
+  await closeDialog(page);
+  await page.getByRole('button', { name: 'ハウスの登録' }).click();
+  await expect(facilityForm(page)).toBeVisible();
+}
+
 const childForm = (page: Page) => page.getByRole('form', { name: 'ロボット・環境センサーを登録' });
+/** ロボット・環境センサーの登録は、ダイアログで行う（Issue #364）。表の上のボタンで開く。 */
+async function openChildForm(page: Page): Promise<void> {
+  if (await childForm(page).isVisible()) {
+    return;
+  }
+  await closeDialog(page);
+  await page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
+  await expect(childForm(page)).toBeVisible();
+}
+
 const notice = locatorOf('equipment-notice');
 
 async function openEquipment(page: Page, user?: Parameters<typeof openAs>[2]): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, '/', user);
-  await goToMenu(page, '設備');
+  await goToMenu(page, 'ハウス・設備');
   await expect(page.getByRole('heading', { name: '設備', level: 1 })).toBeVisible();
 }
 
 async function addFacility(page: Page, equipmentId: string, name: string): Promise<void> {
+  await openFacilityForm(page);
   await facilityForm(page).getByLabel('設備ID').fill(equipmentId);
   await facilityForm(page).getByLabel('名称').fill(name);
   await facilityForm(page).getByRole('button', { name: '登録する' }).click();
@@ -77,6 +106,7 @@ async function addChild(
     intervalMinutes?: number;
   },
 ): Promise<void> {
+  await openChildForm(page);
   const form = childForm(page);
   await form.getByLabel('種別').selectOption(values.type);
   await form.getByLabel('親のハウス').selectOption(values.facility);
@@ -210,7 +240,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
 
     await runJob(request, 'JB-01');
 
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(
       page.getByTestId('observation-row').filter({ hasText: 'A収穫ロボット' }),
     ).toHaveCount(1);
@@ -274,6 +304,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await openEquipment(page);
 
     await addFacility(page, 'HOUSE-01', '重複ハウス');
+    await openFacilityForm(page);
     await expect(facilityForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
       '同じ設備IDがすでに登録されています',
     );
@@ -284,6 +315,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       name: '重複ロボット',
     });
 
+    await openChildForm(page);
     await expect(childForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
       '同じ設備IDがすでに登録されています',
     );
@@ -321,6 +353,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
 
     await addChild(page, { type: 'SENSOR', facility: 'HOUSE-01', id: 'SENSOR-01', name: '再登録' });
 
+    await openChildForm(page);
     await expect(childForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
       '同じ設備IDがすでに登録されています',
     );
@@ -340,6 +373,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       name: '2台目',
       externalId: 'ROBOT-SAMPLE-01',
     });
+    await openChildForm(page);
     await expect(childForm(page).locator('[data-field="externalId"] .field-error')).toHaveText(
       '同じデータ上の識別子がすでに登録されています',
     );
@@ -419,7 +453,10 @@ test.describe('設備ごとの取得間隔（Issue #197。ADR-0016 の D-11）',
     });
     await expect(notice(page)).toHaveText('登録しました');
     await expect(intervalOf(page, 'SENSOR-02')).toHaveText('15 分');
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、取得間隔は、既定に戻っている
+    await openChildForm(page);
     await expect(childForm(page).getByLabel('取得間隔')).toHaveValue('');
+    await closeDialog(page);
 
     // 修正で、変更し、既定に戻す
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
@@ -528,6 +565,7 @@ test.describe('入力の検証（設備ID・名称・親のハウス）', () => 
 
       await addFacility(page, 'HOUSE-A', item.value);
 
+      await openFacilityForm(page);
       await expect(facilityForm(page).locator('[data-field="name"] .field-error')).toBeVisible();
       await expect(rows(page)).toHaveCount(0);
     });
@@ -548,6 +586,7 @@ test.describe('入力の検証（設備ID・名称・親のハウス）', () => 
   }) => {
     await prepareApp(request);
     await openEquipment(page);
+    await openChildForm(page);
     const form = childForm(page);
     await form.getByLabel('設備ID').fill('ROBOT-02');
     await form.getByLabel('名称').fill('2台目');
@@ -584,7 +623,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
 
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
     const edit = page.getByTestId('equipment-edit');
-    await expect(edit).toContainText('ロボット（ROBOT-01）を修正');
+    await expect(page.getByRole('dialog')).toHaveAccessibleName(/ロボット（ROBOT-01）を修正/);
     await expect(edit.getByLabel('設備ID')).toHaveCount(0);
     await expect(edit.getByLabel('種別')).toHaveCount(0);
     await shot(page, testInfo, 'uc12-edit');
@@ -667,7 +706,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
       '収穫ロボット1',
     );
     // 過去のデータは、残る（取り込み済みデータの一覧に、設備IDで表示される）
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       1,
     );
@@ -760,7 +799,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     );
     // 削除済みの設備のレコードだけの実行は、ログに残さない
     await expect(logRows(page)).toHaveCount(0);
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       0,
     );
@@ -804,7 +843,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(unlinked.locator('td').nth(4)).toHaveText('1');
     await expect(unlinked.locator('td').nth(5)).toHaveText('0');
     await expect(unlinked.locator('td').nth(6)).toHaveText('1');
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
     ).toHaveCount(1);
@@ -848,7 +887,16 @@ test.describe('閲覧の割り当て（ハウスごと）。Issue #330。ADR-001
 
     // ハウス2 の「閲覧の割り当て」で、一般ユーザーを選んで、保存する
     await rowOf(page, 'HOUSE-02').getByRole('button', { name: '閲覧の割り当て' }).click();
-    await expect(panel(page).getByRole('heading')).toContainText('ハウス2');
+    // ダイアログ（名前は、ハウス名を含む）に、ユーザーの一覧の表（閲覧・ユーザーID・ユーザー名）がある（Issue #365）
+    await expect(page.getByRole('dialog', { name: /ハウス2/ })).toBeVisible();
+    await expect(panel(page).getByRole('columnheader')).toHaveText([
+      '閲覧',
+      'ユーザーID',
+      'ユーザー名',
+    ]);
+    await expect(
+      panel(page).getByTestId('facility-access-row').filter({ hasText: GENERAL.userId }),
+    ).toContainText(GENERAL.userName);
     const save = panel(page).getByRole('button', { name: '割り当てを保存' });
     await expect(save).toBeDisabled();
     await panel(page)
@@ -914,6 +962,9 @@ test.describe('権限: 設備を変更する権限のない利用者（閲覧者
     // 閲覧の割り当て（ユーザーを管理する権限が要る）の列・操作も、表示しない
     await expect(page.getByRole('button', { name: '閲覧の割り当て' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: '閲覧できるユーザー' })).toHaveCount(0);
+    // 登録のボタンも、フォームも、ない（Issue #364）
+    await expect(page.getByRole('button', { name: 'ハウスの登録' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'ロボット・環境センサーの登録' })).toHaveCount(0);
     await expect(facilityForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc12-readonly');
     const login = await request.post('/api/v1/auth/login', {
@@ -944,6 +995,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
 
     // UC-14: 別の利用者（農作業者B）を登録する
     await goToMenu(page, 'ユーザー');
+    // ユーザーの登録は、ダイアログで行う（Issue #366）
+    await page.getByRole('button', { name: 'ユーザーの登録' }).click();
     const userForm = page.getByTestId('user-add');
     await userForm.getByLabel('ユーザーID').fill(USER_B.userId);
     await userForm.getByLabel('ユーザー名').fill(USER_B.userName);
@@ -956,7 +1009,7 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await settlePassword(request, USER_B);
 
     // UC-12: ハウス・ロボット・環境センサーを登録する（データ上の識別子で、ファイルの内容と対応づける）
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await addFacility(page, 'HOUSE-01', 'ハウス1');
     await expect(notice(page)).toHaveText('登録しました');
     await addChild(page, {

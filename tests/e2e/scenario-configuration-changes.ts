@@ -26,11 +26,14 @@ import {
   robotJson,
   unreadBadge,
 } from './support/app.ts';
+import { itemListQuery } from './support/pages.ts';
 import { runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
 const speedCard = (page: Page) => page.getByTestId('card-harvestSpeed');
+/** 項目ごとの行（並べ替え「カテゴリ」の一覧）と、1 回の計測ごとの行（日時順。既定。Issue #363）。 */
 const observationRows = (page: Page) => page.getByTestId('observation-row');
+const measurementRows = (page: Page) => page.getByTestId('measurement-row');
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
 // 観点の詳細の「対象の設備」（ハウス・ロボット・センサーを選べる。以前は、ヘッダーにあった。Issue #355）
@@ -49,6 +52,8 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     // UC-17: 利用者Aが、ステータスコード「充電待ち」（注意）を登録する
     await openAs(page, '/');
     await goToMenu(page, 'ステータスコード');
+    // ステータスコードの登録は、ダイアログで行う（Issue #366）
+    await page.getByRole('button', { name: 'ステータスコードの登録' }).click();
     const addForm = page.getByTestId('status-code-add');
     await addForm.getByLabel('コード値').fill('CHARGING_WAIT');
     await addForm.getByLabel('名称').fill('充電待ち');
@@ -87,7 +92,7 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
 
     // UC-20: Bが、取り込み済みデータの一覧で、ステータスコードを名称で確認する
     await goToMenu(b.page, '取り込み済みデータ');
-    const statusRows = observationRows(b.page).filter({ hasText: 'ステータスコード' });
+    const statusRows = measurementRows(b.page).filter({ hasText: 'ステータスコード' });
     await expect(statusRows).toHaveCount(2);
     await expect(statusRows.first()).toContainText('充電待ち');
     await expect(statusRows.first()).toContainText('自動取り込み');
@@ -120,7 +125,7 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
 
     // UC-12: Aが、ロボットの名称を変更する（履歴は日時の順に並ぶため、操作の間は、時計を進める）
     await advanceMinutes(request, 1);
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await page
       .locator('[data-testid="equipment-row"][data-equipment-id="ROBOT-01"]')
       .getByRole('button', { name: '修正' })
@@ -136,13 +141,13 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     ).toBeVisible();
     await b.page.goto('/viewpoints/harvestSpeed');
     await expect(equipmentSelect(b.page)).toContainText('改名ロボット');
-    await b.page.goto('/observations');
+    await b.page.goto(`/observations${itemListQuery()}`);
     await expect(observationRows(b.page).filter({ hasText: '改名ロボット' }).first()).toBeVisible();
     await expect(observationRows(b.page).filter({ hasText: '収穫ロボット1' })).toHaveCount(0);
 
     // UC-12: Aが、ロボットを削除する（確認を求める。論理削除）
     await advanceMinutes(request, 1);
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await page
       .locator('[data-testid="equipment-row"][data-equipment-id="ROBOT-01"]')
       .getByRole('button', { name: '削除' })
@@ -156,7 +161,7 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await expect(equipmentSelect(b.page)).not.toContainText('改名ロボット');
     await b.page.goto('/');
     await expect(speedCard(b.page).locator('.status-badge')).toContainText('不明');
-    await b.page.goto('/observations');
+    await b.page.goto(`/observations${itemListQuery()}`);
     await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' }).first()).toBeVisible();
     await shot(b.page, testInfo, 'scenario-config-b-deleted');
 

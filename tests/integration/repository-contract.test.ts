@@ -289,6 +289,25 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(page.items).toHaveLength(expectedCount);
     });
 
+    it('一覧: 期間の開始と終了が同じ日時なら、その日時の観測値だけを返す（両端を含む。計測単位の一覧が使う。Issue #363）', async () => {
+      const repositories = await seeded();
+      const instant = new Date('2026-10-09T02:00:00.000Z');
+
+      const page = await repositories.observations.query(
+        { from: instant, to: instant },
+        { limit: 50 },
+        { key: 'observedAt', direction: 'asc' },
+      );
+
+      // 2026-10-09T02:00 の観測値は、ロボットの 2 項目とセンサーの 1 項目。ほかの日時（01:00・02:30・02:40）は含まない
+      expect(page.items.map((item) => item.itemKey).sort()).toEqual([
+        'harvestCount',
+        'operatingHours',
+        'temperatureCelsius',
+      ]);
+      expect(page.items.every((item) => item.observedAt === '2026-10-09T02:00:00.000Z')).toBe(true);
+    });
+
     it('一覧: 複数の項目（itemKeys）と、アプリ側の追加の条件（matches）で絞り込める', async () => {
       const repositories = await seeded();
 

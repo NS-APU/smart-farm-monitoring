@@ -22,6 +22,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Icon } from '../components/icon.tsx';
+import { Modal } from '../components/modal.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -89,7 +90,6 @@ function UserForm(props: UserFormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{title}</h3>
       <div className="form-grid">
         {user === undefined ? (
           <Field label={TEXT.userId} name="userId" error={errors.userId} required>
@@ -179,11 +179,14 @@ export function UsersPage(): ReactNode {
   );
   const { data, error, reload } = usePolling(fetchList);
   const [editing, setEditing] = useState<PublicUser | undefined>(undefined);
+  // 登録のダイアログ（Issue #366）
+  const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<PublicUser | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
   function done(message: string): void {
     setEditing(undefined);
+    setAdding(false);
     setNotice(message);
     reload();
   }
@@ -281,10 +284,29 @@ export function UsersPage(): ReactNode {
       )}
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
+        {canManage && data !== undefined ? (
+          <div className="table-toolbar">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setAdding(true);
+              }}
+            >
+              {TEXT.openAdd}
+            </button>
+          </div>
+        ) : null}
         {body}
       </section>
       {canManage && data !== undefined && editing !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={`${editing.userName}を${MESSAGES.form.edit}`}
+          testId="user-edit-dialog"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <UserForm
             key={editing.userId}
             user={editing}
@@ -294,12 +316,24 @@ export function UsersPage(): ReactNode {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
-      {canManage && data !== undefined ? (
-        <section className="panel">
-          <UserForm roles={data.roles} onDone={done} />
-        </section>
+      {canManage && data !== undefined && adding ? (
+        <Modal
+          title={TEXT.add}
+          testId="user-add-dialog"
+          onClose={() => {
+            setAdding(false);
+          }}
+        >
+          <UserForm
+            roles={data.roles}
+            onDone={done}
+            onCancel={() => {
+              setAdding(false);
+            }}
+          />
+        </Modal>
       ) : null}
       {deleting === undefined ? null : (
         <ConfirmDialog

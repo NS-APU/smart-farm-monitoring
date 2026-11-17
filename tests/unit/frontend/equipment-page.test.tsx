@@ -23,12 +23,20 @@ beforeEach(() => {
   window.history.pushState(null, '', '/');
 });
 
+/** 登録のフォーム。登録は、ダイアログで行う（#364）。開いていなければ、表の上のボタンで開く。 */
+function registrationForm(formName: string, buttonName: string): HTMLElement {
+  if (screen.queryByRole('form', { name: formName }) === null) {
+    fireEvent.click(screen.getByRole('button', { name: buttonName }));
+  }
+  return screen.getByRole('form', { name: formName });
+}
+
 function facilityForm(): HTMLElement {
-  return screen.getByRole('form', { name: 'ハウスを登録' });
+  return registrationForm('ハウスを登録', 'ハウスの登録');
 }
 
 function childForm(): HTMLElement {
-  return screen.getByRole('form', { name: 'ロボット・環境センサーを登録' });
+  return registrationForm('ロボット・環境センサーを登録', 'ロボット・環境センサーの登録');
 }
 
 describe('設備管理（UC-12。SC-10）', () => {
@@ -375,6 +383,14 @@ describe('設備管理（UC-12。SC-10）', () => {
     await screen.findByTestId('equipment-notice');
     expect(callsOf(calls, 'POST', '/equipment')[0]?.body).not.toHaveProperty('intervalMinutes');
 
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、取得間隔は、既定に戻っている
+    expect(screen.queryByRole('form', { name: 'ロボット・環境センサーを登録' })).toBeNull();
+    expect(
+      within(childForm()).getByLabelText<HTMLSelectElement>('取得間隔', { exact: false }).value,
+    ).toBe('');
+    fireEvent.change(within(childForm()).getByLabelText('親のハウス', { exact: false }), {
+      target: { value: 'HOUSE-01' },
+    });
     fireEvent.change(within(childForm()).getByLabelText('設備ID', { exact: false }), {
       target: { value: 'ROBOT-03' },
     });
@@ -557,5 +573,67 @@ describe('設備管理（UC-12。SC-10）', () => {
       ).toBe(true);
     });
     expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+  });
+});
+
+describe('設備管理: 登録・修正は、ダイアログで行う（Issue #364）', () => {
+  it('題名は「ハウス・設備」。表の上に、2 つの登録のボタンがあり、ボタンを押すまで、登録のフォームは出ない', async () => {
+    renderApp('/settings/equipment');
+    await screen.findAllByTestId('equipment-row');
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('ハウス・設備');
+    expect(screen.getByRole('button', { name: 'ハウスの登録' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ロボット・環境センサーの登録' })).toBeDefined();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('form', { name: 'ハウスを登録' })).toBeNull();
+    // 登録のボタンは、表の上（表より前）にある
+    const button = screen.getByRole('button', { name: 'ハウスの登録' });
+    const table = document.querySelector('table') as HTMLElement;
+    expect(button.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('登録のボタンで、ダイアログが開く（名前は、フォームの名前と同じ）。キャンセル・Esc で閉じる', async () => {
+    renderApp('/settings/equipment');
+    await screen.findAllByTestId('equipment-row');
+
+    fireEvent.click(screen.getByRole('button', { name: 'ハウスの登録' }));
+    expect(screen.getByRole('dialog', { name: 'ハウスを登録' })).toBeDefined();
+    fireEvent.click(within(facilityForm()).getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ロボット・環境センサーの登録' }));
+    expect(screen.getByRole('dialog', { name: 'ロボット・環境センサーを登録' })).toBeDefined();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('修正のボタンで、ダイアログが開く（名前は、種別と設備 ID を含む）。キャンセルで閉じる。保存すると、閉じて、「修正しました」を示す', async () => {
+    renderApp('/settings/equipment', {
+      'PUT /equipment/ROBOT-01': () => jsonResponse(SAVED_EQUIPMENT),
+    });
+    const rows = await screen.findAllByTestId('equipment-row');
+
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    expect(screen.getByRole('dialog', { name: /ロボット（ROBOT-01）を修正/ })).toBeDefined();
+    fireEvent.click(
+      within(screen.getByTestId('equipment-edit')).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    fireEvent.click(
+      within(screen.getByTestId('equipment-edit')).getByRole('button', { name: '保存' }),
+    );
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('参照のみの利用者には、登録のボタンを表示しない', async () => {
+    renderApp('/settings/equipment', {}, { login: READ_ONLY_LOGIN });
+    await screen.findAllByTestId('equipment-row');
+
+    expect(screen.queryByRole('button', { name: 'ハウスの登録' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ロボット・環境センサーの登録' })).toBeNull();
   });
 });

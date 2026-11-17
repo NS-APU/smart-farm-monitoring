@@ -15,6 +15,7 @@ import {
   OBSERVATION_SOURCE_LABELS,
 } from '@smart-farm/shared/constants/observation-labels';
 import { OBSERVATION_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
+import type { Measurement, Observation } from '@smart-farm/shared/schemas/observation';
 import { OBSERVATION_SOURCES } from '@smart-farm/shared/constants/status';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import {
@@ -22,7 +23,7 @@ import {
   LIST_PERIOD_GUIDANCE,
   requiresListPeriod,
 } from '@smart-farm/shared/observation-list-period';
-import { listObservations } from '../api/endpoints.ts';
+import { listMeasurements, listObservations } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { Pager } from '../components/form-controls.tsx';
@@ -47,6 +48,44 @@ const SORT_LABELS = {
   value: TEXT.sortValue,
 } as const;
 
+/** 一覧の取得結果。日時順は、1 回の計測ごと、それ以外（カテゴリ・値の順）は、項目ごと。 */
+type ListResult =
+  | {
+      readonly mode: 'measurements';
+      readonly items: Measurement[];
+      readonly nextCursor: string | null;
+    }
+  | { readonly mode: 'items'; readonly items: Observation[]; readonly nextCursor: string | null };
+
+const EMPTY_RESULT: ListResult = { mode: 'items', items: [], nextCursor: null };
+
+/** 1 回の計測のカテゴリ（項目のカテゴリを、重複なしで、並べる）。 */
+function categoriesOf(measurement: Measurement): string {
+  return [...new Set(measurement.items.map((item) => CATEGORY_LABELS[item.category]))].join('・');
+}
+
+/** 1 回の計測の状態: すべて有効、または、有効でない項目の状態ごとの件数。 */
+function QualitySummary(props: { readonly measurement: Measurement }): ReactNode {
+  const counts = new Map<Observation['quality'], number>();
+  for (const item of props.measurement.items) {
+    if (item.quality !== 'VALID') {
+      counts.set(item.quality, (counts.get(item.quality) ?? 0) + 1);
+    }
+  }
+  if (counts.size === 0) {
+    return <span className="quality quality-valid">{TEXT.qualityAllValid}</span>;
+  }
+  return (
+    <>
+      {[...counts].map(([quality, count]) => (
+        <span key={quality} className={`quality quality-${quality.toLowerCase()}`}>
+          {OBSERVATION_QUALITY_LABELS[quality]} {count}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function ObservationsPage(): ReactNode {
   const { api } = useAuth();
   const { equipmentList, equipmentNames } = useAppState();
@@ -70,36 +109,41 @@ export function ObservationsPage(): ReactNode {
   const periodMissing =
     requiresListPeriod({ sort, keyword }) &&
     checkListPeriod({ from: fromIso ?? undefined, to: toIso ?? undefined }) !== null;
-  const fetchPage = useCallback(
-    () =>
-      periodMissing
-        ? Promise.resolve({ items: [], nextCursor: null })
-        : listObservations(api, {
-            ...(keyword === '' ? {} : { q: keyword }),
-            ...(category === '' ? {} : { category }),
-            ...(source === '' ? {} : { source }),
-            ...(equipmentId === '' ? {} : { equipmentId }),
-            ...(fromIso === null ? {} : { from: fromIso }),
-            ...(toIso === null ? {} : { to: toIso }),
-            sort,
-            direction,
-            limit: PAGE_SIZE,
-            ...omitUndefined({ cursor }),
-          }),
-    [
-      api,
-      periodMissing,
-      keyword,
-      category,
-      source,
-      equipmentId,
-      fromIso,
-      toIso,
-      sort,
+  // 日時順は、1 回の計測ごとの一覧（Issue #363）。カテゴリ・値の順は、項目ごとの一覧
+  const measurementMode = sort === 'observedAt';
+  const fetchPage = useCallback(async (): Promise<ListResult> => {
+    if (periodMissing) {
+      return EMPTY_RESULT;
+    }
+    const conditions = {
+      ...(keyword === '' ? {} : { q: keyword }),
+      ...(category === '' ? {} : { category }),
+      ...(source === '' ? {} : { source }),
+      ...(equipmentId === '' ? {} : { equipmentId }),
+      ...(fromIso === null ? {} : { from: fromIso }),
+      ...(toIso === null ? {} : { to: toIso }),
       direction,
-      cursor,
-    ],
-  );
+      limit: PAGE_SIZE,
+      ...omitUndefined({ cursor }),
+    };
+    if (measurementMode) {
+      return { mode: 'measurements', ...(await listMeasurements(api, conditions)) };
+    }
+    return { mode: 'items', ...(await listObservations(api, { ...conditions, sort })) };
+  }, [
+    api,
+    periodMissing,
+    measurementMode,
+    keyword,
+    category,
+    source,
+    equipmentId,
+    fromIso,
+    toIso,
+    sort,
+    direction,
+    cursor,
+  ]);
   const { data, error, reload } = usePolling(fetchPage);
   const statusNames = useStatusNames();
 
@@ -132,53 +176,116 @@ export function ObservationsPage(): ReactNode {
   } else {
     body = (
       <>
-        <div className="table-scroll">
-          <table className="data-table card-table source-table observation-table">
-            <thead>
-              <tr>
-                <th scope="col">{MESSAGES.viewpoint.observedAt}</th>
-                <th scope="col">{TEXT.equipment}</th>
-                <th scope="col">{TEXT.category}</th>
-                <th scope="col">{MESSAGES.viewpoint.item}</th>
-                <th scope="col" className="numeric">
-                  {MESSAGES.viewpoint.value}
-                </th>
-                <th scope="col">{TEXT.source}</th>
-                <th scope="col">{MESSAGES.viewpoint.quality}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((item) => (
-                <tr
-                  key={`${item.equipmentId}#${item.itemKey}#${item.observedAt}#${item.source}`}
-                  data-testid="observation-row"
-                >
-                  <td className="nowrap-cell" data-label={MESSAGES.viewpoint.observedAt}>
-                    <time dateTime={item.observedAt}>{formatDateTimeJst(item.observedAt)}</time>
-                  </td>
-                  <td data-label={TEXT.equipment}>
-                    {equipmentNames.get(item.equipmentId) ?? item.equipmentId}
-                  </td>
-                  <td data-label={TEXT.category}>{CATEGORY_LABELS[item.category]}</td>
-                  <td data-label={MESSAGES.viewpoint.item}>
-                    {findItemDefinition(item.itemKey)?.label ?? item.itemKey}
-                  </td>
-                  <td className="numeric" data-label={MESSAGES.viewpoint.value}>
-                    {formatObservationValue(item, statusNames)}
-                  </td>
-                  <td className="nowrap-cell" data-label={TEXT.source}>
-                    {OBSERVATION_SOURCE_LABELS[item.source]}
-                  </td>
-                  <td className="nowrap-cell" data-label={MESSAGES.viewpoint.quality}>
-                    <span className={`quality quality-${item.quality.toLowerCase()}`}>
-                      {OBSERVATION_QUALITY_LABELS[item.quality]}
-                    </span>
-                  </td>
+        {data.mode === 'measurements' ? (
+          <div className="table-scroll">
+            <table className="data-table card-table measurement-table">
+              <thead>
+                <tr>
+                  <th scope="col">{MESSAGES.viewpoint.observedAt}</th>
+                  <th scope="col">{TEXT.equipment}</th>
+                  <th scope="col">{TEXT.category}</th>
+                  <th scope="col">{TEXT.itemsAndValues}</th>
+                  <th scope="col">{TEXT.source}</th>
+                  <th scope="col">{MESSAGES.viewpoint.quality}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {data.items.map((measurement) => (
+                  <tr
+                    key={`${measurement.equipmentId}#${measurement.observedAt}#${measurement.source}#${measurement.manualEntryId ?? ''}`}
+                    data-testid="measurement-row"
+                  >
+                    <td className="nowrap-cell" data-label={MESSAGES.viewpoint.observedAt}>
+                      <time dateTime={measurement.observedAt}>
+                        {formatDateTimeJst(measurement.observedAt)}
+                      </time>
+                    </td>
+                    <td data-label={TEXT.equipment}>
+                      {equipmentNames.get(measurement.equipmentId) ?? measurement.equipmentId}
+                    </td>
+                    <td data-label={TEXT.category}>{categoriesOf(measurement)}</td>
+                    <td data-label={TEXT.itemsAndValues}>
+                      <ul
+                        className="measurement-items"
+                        aria-label={TEXT.itemCount(measurement.items.length)}
+                      >
+                        {measurement.items.map((item) => (
+                          <li key={item.itemKey} data-testid="measurement-item">
+                            <span className="measurement-item-label">
+                              {findItemDefinition(item.itemKey)?.label ?? item.itemKey}
+                            </span>
+                            <span className="measurement-item-value">
+                              {formatObservationValue(item, statusNames)}
+                            </span>
+                            {item.quality === 'VALID' ? null : (
+                              <span className={`quality quality-${item.quality.toLowerCase()}`}>
+                                {OBSERVATION_QUALITY_LABELS[item.quality]}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td className="nowrap-cell" data-label={TEXT.source}>
+                      {OBSERVATION_SOURCE_LABELS[measurement.source]}
+                    </td>
+                    <td className="nowrap-cell" data-label={MESSAGES.viewpoint.quality}>
+                      <QualitySummary measurement={measurement} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table card-table source-table observation-table">
+              <thead>
+                <tr>
+                  <th scope="col">{MESSAGES.viewpoint.observedAt}</th>
+                  <th scope="col">{TEXT.equipment}</th>
+                  <th scope="col">{TEXT.category}</th>
+                  <th scope="col">{MESSAGES.viewpoint.item}</th>
+                  <th scope="col" className="numeric">
+                    {MESSAGES.viewpoint.value}
+                  </th>
+                  <th scope="col">{TEXT.source}</th>
+                  <th scope="col">{MESSAGES.viewpoint.quality}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((item) => (
+                  <tr
+                    key={`${item.equipmentId}#${item.itemKey}#${item.observedAt}#${item.source}`}
+                    data-testid="observation-row"
+                  >
+                    <td className="nowrap-cell" data-label={MESSAGES.viewpoint.observedAt}>
+                      <time dateTime={item.observedAt}>{formatDateTimeJst(item.observedAt)}</time>
+                    </td>
+                    <td data-label={TEXT.equipment}>
+                      {equipmentNames.get(item.equipmentId) ?? item.equipmentId}
+                    </td>
+                    <td data-label={TEXT.category}>{CATEGORY_LABELS[item.category]}</td>
+                    <td data-label={MESSAGES.viewpoint.item}>
+                      {findItemDefinition(item.itemKey)?.label ?? item.itemKey}
+                    </td>
+                    <td className="numeric" data-label={MESSAGES.viewpoint.value}>
+                      {formatObservationValue(item, statusNames)}
+                    </td>
+                    <td className="nowrap-cell" data-label={TEXT.source}>
+                      {OBSERVATION_SOURCE_LABELS[item.source]}
+                    </td>
+                    <td className="nowrap-cell" data-label={MESSAGES.viewpoint.quality}>
+                      <span className={`quality quality-${item.quality.toLowerCase()}`}>
+                        {OBSERVATION_QUALITY_LABELS[item.quality]}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <Pager
           pageNumber={paging.pageNumber}
           hasPrevious={paging.hasPrevious}
@@ -200,6 +307,9 @@ export function ObservationsPage(): ReactNode {
         <h1>{TEXT.title}</h1>
       </div>
       <p className="muted">{TEXT.lead}</p>
+      <p className="muted" data-testid="observations-mode-note">
+        {measurementMode ? TEXT.measurementNote : TEXT.itemsNote}
+      </p>
       <section className="panel" aria-label={MESSAGES.form.search}>
         <div className="filter-bar">
           <InputFilter

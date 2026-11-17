@@ -178,7 +178,9 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
     const form = mainArea(page);
-    await expect(form.getByTestId('entry-items').getByLabel('故障回数')).toHaveValue('');
+    await expect(
+      form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }),
+    ).toHaveValue('');
     await expect(form.getByLabel('備考（所感・補足情報）')).toHaveValue('');
     await expect(form.getByLabel('対象の設備')).toHaveValue(ROBOT_ID);
     await expect(form.getByLabel('カテゴリ')).toHaveValue('FAILURE');
@@ -200,7 +202,9 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
 
     await mainArea(page).getByRole('button', { name: '入力のクリア' }).click();
 
-    await expect(mainArea(page).getByTestId('entry-items').getByLabel('故障回数')).toHaveValue('');
+    await expect(
+      mainArea(page).getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }),
+    ).toHaveValue('');
     await expect(mainArea(page).getByLabel('備考（所感・補足情報）')).toHaveValue('');
     await expect(mainArea(page).getByLabel('計測日時（日本時間）')).toHaveValue(RECOVERY_AT);
     await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(ROBOT_ID);
@@ -347,7 +351,7 @@ test.describe('保存後の通知（UC-10への連携）: 注意・異常があ�
     // 観点の評価は、ハウス・ロボットの単位で行うため、それぞれの通知が作られる
     const rows = page.getByTestId('notification-row').filter({ hasText: 'メンテナンス性' });
     await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('異常');
+    await expect(rows.filter({ hasText: '（ハウス1）' })).toContainText('異常');
     await expect(rows.filter({ hasText: '収穫ロボット1' })).toContainText('異常');
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore + 2));
   });
@@ -520,7 +524,10 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await recordRecovery(page, { failures: '1.5', minutes: '30' });
     await expect(fieldError(page, 'items.failureCount')).toBeVisible();
 
-    await mainArea(page).getByTestId('entry-items').getByLabel('故障回数').fill('1');
+    await mainArea(page)
+      .getByTestId('entry-items')
+      .getByRole('textbox', { name: '故障回数' })
+      .fill('1');
     await saveEntry(page);
 
     await expect(fieldError(page, 'items.failureCount')).toHaveCount(0);

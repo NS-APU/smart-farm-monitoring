@@ -254,7 +254,7 @@ describe('共通のヘッダー・ナビゲーション', () => {
       'ダッシュボード',
       'データ入力',
       '取り込み済みデータ',
-      '設備',
+      'ハウス・設備',
       '取り込み',
       'ステータスコード',
       'ユーザー',
@@ -531,7 +531,7 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(
       await screen.findByText('設備が登録されていません。設備を登録してください'),
     ).toBeDefined();
-    expect(screen.getAllByRole('link', { name: '設備' }).at(-1)?.getAttribute('href')).toBe(
+    expect(screen.getAllByRole('link', { name: 'ハウス・設備' }).at(-1)?.getAttribute('href')).toBe(
       '/settings/equipment',
     );
   });

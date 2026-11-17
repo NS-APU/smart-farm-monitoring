@@ -225,8 +225,11 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
       await form.getByLabel('対象の設備').selectOption('ROBOT-01');
       await form.getByLabel('カテゴリ').selectOption('FAILURE');
       await form.getByLabel('計測日時（日本時間）').fill(nextObservedAt());
-      await form.getByTestId('entry-items').getByLabel('故障回数').fill('1');
-      await form.getByTestId('entry-items').getByLabel('復旧に要した時間').fill('60');
+      await form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }).fill('1');
+      await form
+        .getByTestId('entry-items')
+        .getByRole('textbox', { name: '復旧に要した時間' })
+        .fill('60');
       await m(
         'UC-06',
         '復旧対応の結果を入力して「保存する」を押す（全員が同時）',

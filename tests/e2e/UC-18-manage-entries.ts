@@ -397,7 +397,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await expect(editor(page).getByLabel('カテゴリ')).toHaveValue('FAILURE');
     await expect(editor(page).getByLabel('計測日時（日本時間）')).toHaveValue('2026-10-09T11:00');
     await expect(
-      editor(page).getByTestId('entry-items').getByLabel('復旧に要した時間'),
+      editor(page).getByTestId('entry-items').getByRole('textbox', { name: '復旧に要した時間' }),
     ).toHaveValue('600');
     await expect(editor(page).getByLabel('備考（所感・補足情報）')).toHaveValue('最初の記録');
     await shot(page, testInfo, 'uc18-edit');
