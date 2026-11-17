@@ -226,20 +226,20 @@ describe('ログイン（UC-13。SC-01）', () => {
 });
 
 describe('共通のヘッダー・ナビゲーション', () => {
-  it('設備の選択・未読の件数・最終のデータ取得日時・メニュー・ユーザー名を表示する', async () => {
+  it('ヘッダーは、未読の件数・メニュー・ユーザー名を表示する。対象のハウス・最終のデータ取得日時は、ダッシュボードの中に表示する（Issue #355）', async () => {
     renderApp();
 
     expect(await screen.findByText('農作業者A')).toBeDefined();
-    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
+    // 対象は、ダッシュボードの中の「対象のハウス」（ハウスだけ。ロボット・センサーは、選択肢にない）
+    const select = await screen.findByLabelText<HTMLSelectElement>('対象のハウス');
     await waitFor(() => {
-      expect(select.options).toHaveLength(3);
+      expect(select.options).toHaveLength(1);
     });
-    expect([...select.options].map((option) => option.textContent)).toEqual([
-      'ハウス1',
-      '　収穫ロボット1',
-      '　環境センサー1',
-    ]);
+    expect([...select.options].map((option) => option.textContent)).toEqual(['ハウス1']);
     expect(select.value).toBe('HOUSE-01');
+    expect(within(screen.getByRole('banner')).queryByLabelText('対象の設備')).toBeNull();
+    expect(within(screen.getByRole('banner')).queryByText(/最終のデータ取得/)).toBeNull();
+    expect(screen.getByText(/最終のデータ取得:/)).toBeDefined();
     expect((await screen.findByTestId('unread-count')).textContent).toBe('2');
     expect(screen.getByRole('link', { name: /未読の通知: 2件/ }).getAttribute('href')).toBe(
       '/notifications',
@@ -337,30 +337,14 @@ describe('共通のヘッダー・ナビゲーション', () => {
       ),
     ).toBe(true);
   });
-
-  it('設備を選ぶと、その設備のダッシュボードを取得し直す', async () => {
-    const { calls } = renderApp();
-    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
-    await waitFor(() => {
-      expect(select.options).toHaveLength(3);
-    });
-
-    fireEvent.change(select, { target: { value: 'ROBOT-01' } });
-
-    await waitFor(() => {
-      expect(dashboardCalls(calls).at(-1)?.query.get('equipmentId')).toBe('ROBOT-01');
-    });
-    expect(select.value).toBe('ROBOT-01');
-  });
-
-  it('設備が1つもなければ、選択を無効にする', async () => {
+  it('設備が1つもなければ、ダッシュボードは、対象のハウスの選択でなく、設備の登録の案内を示す', async () => {
     renderApp({ scenario: { equipment: () => jsonResponse({ facilities: [] }) } });
 
-    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
-
-    await waitFor(() => {
-      expect(select.disabled).toBe(true);
-    });
+    expect(
+      await screen.findByText('設備が登録されていません。設備を登録してください'),
+    ).toBeDefined();
+    expect(screen.queryByLabelText('対象のハウス')).toBeNull();
+    expect(screen.queryByLabelText('対象の設備')).toBeNull();
   });
 });
 
@@ -390,14 +374,19 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     }
     // 欠損は「—」で表示する（0 にしない）
     expect(within(safety).getByText('—')).toBeDefined();
-    expect(
-      within(safety).getByText(/2026\/10\/02 12:00:00 〜 2026\/10\/09 12:00:00/),
-    ).toBeDefined();
-    expect(within(safety).queryByText('カスタムの判断基準')).toBeNull();
-    // 詳細へは、選んだ視点・期間を引き継ぐ
-    expect(screen.getByRole('link', { name: '安全性' }).getAttribute('href')).toBe(
-      '/viewpoints/safety?horizon=LONG&periodDays=7',
+    // 判定の対象期間は、全観点で同じなので、上部に 1 回だけ示し、カードには示さない（Issue #355）
+    expect(screen.getByTestId('evaluated-period-common').textContent).toContain(
+      '2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
     );
+    expect(within(safety).queryByText(/判定の対象期間/)).toBeNull();
+    expect(within(safety).queryByText('カスタムの判断基準')).toBeNull();
+    // 詳細へは、長期と期間を引き継ぐ（カードの題名と、観点別の状態の表の、どちらからも）
+    expect(
+      screen.getAllByRole('link', { name: '安全性' }).map((link) => link.getAttribute('href')),
+    ).toEqual([
+      '/viewpoints/safety?horizon=LONG&periodDays=7',
+      '/viewpoints/safety?horizon=LONG&periodDays=7',
+    ]);
   });
 
   it('評価がまだの観点は、判定の対象期間を表示しない。ステータスは色・アイコン・文字で示す', async () => {
@@ -413,32 +402,28 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(badge?.querySelector('[data-icon="status-unknown"]')).not.toBeNull();
   });
 
-  it('視点（短期・長期）と長期の期間を切り替えると、その条件で取得し直す', async () => {
+  it('期間を切り替えると、その期間で取得し直す（視点の切り替えはない。常に長期）', async () => {
     const { calls } = renderApp();
     await screen.findByRole('heading', { name: '安全性' });
     expect(dashboardCalls(calls)[0]?.query.get('horizon')).toBe('LONG');
     // 期間を選ぶまでは、期間を送らない（観点ごとの既定の期間で評価した結果を返す。満足度は 30 日。D-18）
     expect(dashboardCalls(calls)[0]?.query.has('periodDays')).toBe(false);
+    expect(screen.queryByRole('radio', { name: '短期' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('radio', { name: '短期' }));
-    await waitFor(() => {
-      expect(dashboardCalls(calls).at(-1)?.query.get('horizon')).toBe('SHORT');
-    });
-    fireEvent.click(screen.getByRole('radio', { name: '長期' }));
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '30' } });
 
     await waitFor(() => {
       expect(dashboardCalls(calls).at(-1)?.query.get('periodDays')).toBe('30');
     });
     expect(dashboardCalls(calls).at(-1)?.query.get('horizon')).toBe('LONG');
     expect(
-      [...screen.getByLabelText<HTMLSelectElement>('長期の期間').options].map(
+      [...screen.getByLabelText<HTMLSelectElement>('期間').options].map(
         (option) => option.textContent,
       ),
     ).toEqual(['当日', '直近7日', '直近30日', '直近60日', '直近90日']);
   });
 
-  it('データが古い場合は、警告を表示し、ヘッダーにも「古い」と示す', async () => {
+  it('データが古い場合は、警告を表示し、取得日時の欄にも「古い」と示す', async () => {
     renderApp({
       scenario: { dashboard: () => jsonResponse(dashboard({ dataFreshness: 'STALE' })) },
     });
@@ -485,7 +470,7 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(many.textContent).toContain('ほか 2 件');
   });
 
-  it('データが未取得の場合は、その旨と次の操作を示し、ヘッダーは「未取得」と示す', async () => {
+  it('データが未取得の場合は、その旨と次の操作を示し、取得日時の欄は「未取得」と示す', async () => {
     renderApp({
       scenario: {
         dashboard: () =>
@@ -503,7 +488,7 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(await screen.findByText('未取得')).toBeDefined();
   });
 
-  it('手動のみの運用（自動取り込みが有効でない）は、「古い」「未取得」の警告を出さず、ヘッダーに「最終の手動入力」の日時を示し、案内とデータ入力への導線を表示する（Issue #202）', async () => {
+  it('手動のみの運用（自動取り込みが有効でない）は、「古い」「未取得」の警告を出さず、取得日時の欄に「最終の手動入力」の日時を示し、案内とデータ入力への導線を表示する（Issue #202）', async () => {
     renderApp({
       scenario: {
         dashboard: () =>
@@ -523,13 +508,13 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(screen.queryByText('（古い）')).toBeNull();
     expect(screen.queryByText('未取得')).toBeNull();
     const header = await screen.findByText(/^最終の手動入力:/);
-    expect(header.closest('.header-data-status')?.textContent).toContain('2026/10/09 11:30:00');
+    expect(header.closest('.data-status')?.textContent).toContain('2026/10/09 11:30:00');
     expect(screen.queryByText(/^最終のデータ取得:/)).toBeNull();
     const links = screen.getAllByRole('link', { name: 'データ入力へ' });
     expect(links.at(-1)?.getAttribute('href')).toBe('/data-entry');
   });
 
-  it('手動のみの運用で、手動入力がまだなければ、ヘッダーは「最終の手動入力: まだありません」', async () => {
+  it('手動のみの運用で、手動入力がまだなければ、取得日時の欄は「最終の手動入力: まだありません」', async () => {
     renderApp({
       scenario: {
         dashboard: () =>
@@ -540,7 +525,7 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     });
 
     const header = await screen.findByText(/^最終の手動入力:/);
-    expect(header.closest('.header-data-status')?.textContent).toContain('まだありません');
+    expect(header.closest('.data-status')?.textContent).toContain('まだありません');
   });
 
   it('設備が登録されていなければ、その旨と設備管理への導線を表示する', async () => {

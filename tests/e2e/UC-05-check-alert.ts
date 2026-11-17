@@ -81,7 +81,9 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
 
     // 3. 異常の対象・内容・根拠のメトリクス（UC-02）
     await expect(page.getByRole('heading', { level: 1 })).toContainText('環境適応性');
-    await expect(page.locator('.page-meta')).toContainText('対象: 環境センサー1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('環境センサー1');
     await expect(
       page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
     ).toContainText('異常');
@@ -163,7 +165,9 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
 
     // 異常の対象（ロボット）・内容・根拠のメトリクス・推奨アクション
     await expect(page.getByRole('heading', { level: 1 })).toContainText('収穫精度');
-    await expect(page.locator('.page-meta')).toContainText('対象: 収穫ロボット1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('収穫ロボット1');
     await expect(
       page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
     ).toContainText('異常');

@@ -437,7 +437,8 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
       '正常',
     );
 
-    await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+    // ダッシュボードの期間の欄の名前は、「期間」（視点の切り替えがないため。満足度の詳細は、「長期の期間」）
+    await page.getByLabel('期間').selectOption({ label: '直近7日' });
 
     await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
       '不明',
@@ -473,7 +474,7 @@ test.describe('対象の設備', () => {
     await enterSatisfaction(request, [4, 4, 4, 4, 4, 4, 4, 4, 4]);
     await openSatisfaction(page);
 
-    await page.getByRole('banner').getByLabel('対象の設備').selectOption('ROBOT-01');
+    await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
 
     await expect(page.getByTestId('not-applicable')).toContainText(
       'ハウスまたは対象の設備を選び直してください',
@@ -481,7 +482,7 @@ test.describe('対象の設備', () => {
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
     );
-    await page.getByRole('banner').getByLabel('対象の設備').selectOption(HOUSE_ID);
+    await page.getByRole('main').getByLabel('対象の設備').selectOption(HOUSE_ID);
     await expect(overallScore(page)).toHaveText('4.0');
   });
 });
@@ -641,13 +642,11 @@ async function expectRadarIntact(page: Page): Promise<void> {
 
 /** 長い設備名でも、ヘッダー・ページの幅の中に収まり、観点別の表が潰れない。 */
 async function expectPageFits(page: Page): Promise<void> {
-  const label = await page.locator('.header-field > span').boundingBox();
+  const label = await page.locator('.equipment-field > span').first().boundingBox();
   expect(label?.height ?? 0, '「対象の設備」のラベルの高さ').toBeLessThan(30);
-  const select = await page.locator('.header-field select').boundingBox();
+  const select = await page.locator('.equipment-field select').first().boundingBox();
   const width = page.viewportSize()?.width ?? 0;
   expect((select?.x ?? 0) + (select?.width ?? 0)).toBeLessThanOrEqual(width);
-  const meta = await page.locator('.page-meta').boundingBox();
-  expect((meta?.x ?? 0) + (meta?.width ?? 0), '対象の設備名の右端').toBeLessThanOrEqual(width);
   // 観点別の表（観点名・スター）が、1 文字幅へ潰れず、パネルの枠の中に収まる
   const rowHeights = await page
     .locator('.score-table tbody tr')

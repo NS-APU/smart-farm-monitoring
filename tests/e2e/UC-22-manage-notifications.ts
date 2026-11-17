@@ -326,8 +326,10 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
 
     await expect(page).toHaveURL(/\/viewpoints\/environmentalAdaptability/);
     await expect(page.getByRole('heading', { level: 1 })).toContainText('環境適応性');
-    await expect(page.locator('.page-meta')).toContainText('対象: 環境センサー1');
-    await expect(page.getByRole('banner').getByLabel('対象の設備')).toHaveValue('SENSOR-01');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('環境センサー1');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).toHaveValue('SENSOR-01');
     await expect(unreadBadge(page)).toHaveText('4');
   });
 

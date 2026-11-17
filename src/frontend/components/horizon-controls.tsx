@@ -14,6 +14,8 @@ export interface HorizonControlsProps {
   /** 視点の切り替え。指定しなければ、切り替えを出さない（満足度は、短期評価を持たない）。 */
   readonly onHorizonChange?: (horizon: Horizon) => void;
   readonly onPeriodChange: (periodDays: PeriodDays) => void;
+  /** 期間の欄の名前。指定しなければ「長期の期間」（視点を切り替える画面）。ダッシュボードは、視点がないため「期間」（Issue #355）。 */
+  readonly periodLabel?: string;
 }
 
 export function HorizonControls(props: HorizonControlsProps): ReactNode {
@@ -48,7 +50,7 @@ export function HorizonControls(props: HorizonControlsProps): ReactNode {
         </fieldset>
       )}
       <label className="period-field">
-        <span>{MESSAGES.dashboard.period}</span>
+        <span>{props.periodLabel ?? MESSAGES.dashboard.period}</span>
         <select
           value={props.periodDays}
           onChange={(event) => {
@@ -92,4 +94,9 @@ export function horizonQueryString(horizon: Horizon, periodDays: PeriodDays | un
     horizon,
     ...(periodDays === undefined ? {} : { periodDays: String(periodDays) }),
   }).toString();
+}
+
+/** URL のクエリから、選んだ期間だけを読む（不正な値・指定なしは undefined）。ダッシュボード用（視点は、ない）。 */
+export function readPeriodQuery(search: URLSearchParams): PeriodDays | undefined {
+  return PERIOD_DAYS_OPTIONS.find((days) => days === Number(search.get('periodDays')));
 }

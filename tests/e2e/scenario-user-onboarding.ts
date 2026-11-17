@@ -85,13 +85,17 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await expect(equipmentRows(b.page)).toHaveCount(2);
     await shot(b.page, testInfo, 'scenario-onboarding-b-equipment');
 
-    // UC-01: Aが、Bの登録した構成を、ダッシュボードで確認する（ハウスは10観点、ロボットは7観点）
+    // UC-01: Aが、Bの登録した構成を、ダッシュボード（ハウスは10観点）と、観点の詳細（ロボットを、対象の設備に選ぶ）で確認する
     await page.goto('/');
-    await expect(page.locator('.page-meta')).toContainText('対象: B新設ハウス');
+    await expect(page.getByLabel('対象のハウス')).toContainText('B新設ハウス');
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
-    await page.getByRole('banner').getByLabel('対象の設備').selectOption('ROBOT-N');
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
-    await expect(page.locator('.page-meta')).toContainText('対象: B新設ロボット');
+    await page.goto('/viewpoints/harvestSpeed');
+    await page.getByLabel('対象の設備').selectOption('ROBOT-N');
+    await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
+    await expect(page.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      'B新設ロボット',
+    );
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
 
     // UC-14: Aが、Bの最終ログイン日時を確認する
     await goToMenu(page, 'ユーザー');

@@ -22,6 +22,8 @@ export interface PollingState<Data> {
   readonly isLoading: boolean;
   /** すぐに取得し直す。 */
   readonly reload: () => void;
+  /** 取得（成功・失敗）が完了した回数。手動の更新の完了を知るために使う（Issue #355）。 */
+  readonly version: number;
 }
 
 interface Result<Data> {
@@ -60,6 +62,7 @@ export function usePolling<Data>(
 ): PollingState<Data> {
   const [result, setResult] = useState<Result<Data> | undefined>(undefined);
   const [reloadCount, setReloadCount] = useState(0);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,11 +71,13 @@ export function usePolling<Data>(
         (data) => {
           if (!cancelled) {
             setResult({ fetcher, data, failures: 0 });
+            setVersion((count) => count + 1);
           }
         },
         (error: unknown) => {
           if (!cancelled) {
             setResult((previous) => afterFailure(previous, fetcher, toError(error)));
+            setVersion((count) => count + 1);
           }
         },
       );
@@ -108,5 +113,6 @@ export function usePolling<Data>(
     refreshError: current?.refreshError,
     isLoading: current === undefined,
     reload,
+    version,
   };
 }

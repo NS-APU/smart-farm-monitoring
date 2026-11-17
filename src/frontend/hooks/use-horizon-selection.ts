@@ -9,7 +9,11 @@ import {
   type Horizon,
   type PeriodDays,
 } from '@smart-farm/shared/constants/status';
-import { horizonQueryString, readHorizonQuery } from '../components/horizon-controls.tsx';
+import {
+  horizonQueryString,
+  readHorizonQuery,
+  readPeriodQuery,
+} from '../components/horizon-controls.tsx';
 import { navigate, useLocation } from '../router/router.tsx';
 
 export interface HorizonSelection {
@@ -46,4 +50,32 @@ export function useHorizonSelection(
     [pathname, horizon],
   );
   return { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays };
+}
+
+export interface PeriodSelection {
+  /** 表示に使う期間。選んでいなければ、既定の期間。 */
+  readonly periodDays: PeriodDays;
+  /** 利用者が選んだ期間（選んでいなければ undefined。観点ごとの既定の期間で評価する）。 */
+  readonly selectedPeriodDays: PeriodDays | undefined;
+  readonly setPeriodDays: (periodDays: PeriodDays) => void;
+}
+
+/**
+ * 期間だけの選択を、URL のクエリ（`periodDays`）で保持する（ダッシュボード。視点〔短期・長期〕は、ない。Issue #355）。
+ * 古い URL の `horizon` は、読まず、期間を選んだときに外れる。
+ */
+export function usePeriodSelection(
+  defaultPeriodDays: PeriodDays = DEFAULT_PERIOD_DAYS,
+): PeriodSelection {
+  const { pathname, search } = useLocation();
+  const selectedPeriodDays = readPeriodQuery(search);
+  const periodDays = selectedPeriodDays ?? defaultPeriodDays;
+  const setPeriodDays = useCallback(
+    (next: PeriodDays) => {
+      const query = new URLSearchParams({ periodDays: String(next) }).toString();
+      navigate(`${pathname}?${query}`, { replace: true });
+    },
+    [pathname],
+  );
+  return { periodDays, selectedPeriodDays, setPeriodDays };
 }

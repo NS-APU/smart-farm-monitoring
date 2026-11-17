@@ -12,7 +12,8 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { CriteriaTable } from '../components/criteria-table.tsx';
 import { DiagnosisSection } from '../components/diagnosis-section.tsx';
-import { HorizonControls, horizonQueryString } from '../components/horizon-controls.tsx';
+import { EquipmentSelect } from '../components/equipment-select.tsx';
+import { HorizonControls } from '../components/horizon-controls.tsx';
 import { Icon, ViewpointIcon } from '../components/icon.tsx';
 import { MetricsTable } from '../components/metrics-table.tsx';
 import { SourceDataSection } from '../components/source-data-section.tsx';
@@ -43,7 +44,7 @@ export function ViewpointDetailPage(props: { readonly viewpointId: string }): Re
 function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactNode {
   const { viewpointId } = props;
   const { api } = useAuth();
-  const { selectedEquipmentId, equipmentNames, equipmentError } = useAppState();
+  const { selectedEquipmentId, equipmentError } = useAppState();
   const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
     useHorizonSelection(defaultPeriodDays(viewpointId));
 
@@ -73,10 +74,11 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
   }, [api, viewpointId, selectedEquipmentId, horizon, periodDays]);
   const series = usePolling(fetchSeries);
 
-  // ダッシュボードへ戻るときは、期間を選んでいなければ、選んだことにしない
-  const backPath = `/?${horizonQueryString(horizon, selectedPeriodDays)}`;
-  const equipmentName =
-    selectedEquipmentId === undefined ? undefined : equipmentNames.get(selectedEquipmentId);
+  // ダッシュボードへ戻るときは、期間だけを引き継ぐ（視点は、ダッシュボードにない）。期間を選んでいなければ、選んだことにしない
+  const backPath =
+    selectedPeriodDays === undefined
+      ? PATHS.dashboard
+      : `${PATHS.dashboard}?${new URLSearchParams({ periodDays: String(selectedPeriodDays) }).toString()}`;
 
   let content: ReactNode;
   if (equipmentError !== undefined) {
@@ -151,16 +153,17 @@ function ViewpointDetailContent(props: { readonly viewpointId: string }): ReactN
           {heading}
           {detail.data === undefined ? null : <StatusBadge status={detail.data.status} />}
         </h1>
-        <p className="page-meta">
-          {MESSAGES.dashboard.target}: <strong>{equipmentName}</strong>
-        </p>
       </div>
-      <HorizonControls
-        horizon={horizon}
-        periodDays={periodDays}
-        onHorizonChange={setHorizon}
-        onPeriodChange={setPeriodDays}
-      />
+      {/* 対象の設備（ハウス・ロボット・センサー）の選択。以前は、ヘッダーにあった（Issue #355） */}
+      <div className="page-controls">
+        <EquipmentSelect label={MESSAGES.layout.equipment} />
+        <HorizonControls
+          horizon={horizon}
+          periodDays={periodDays}
+          onHorizonChange={setHorizon}
+          onPeriodChange={setPeriodDays}
+        />
+      </div>
       {content}
     </div>
   );

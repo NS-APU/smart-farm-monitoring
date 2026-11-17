@@ -1,5 +1,5 @@
 /**
- * ダッシュボードの視点・期間・カード（UC-01・UC-04）、観点の詳細（UC-02・UC-03・UC-04。SC-03）、
+ * ダッシュボードの操作（対象のハウス・期間・更新）・表示（取得日時・対象期間・状態の表・カード。UC-01・UC-04。Issue #355・#356）、観点の詳細（UC-02・UC-03・UC-04。SC-03）、
  * 満足度の詳細（UC-21。SC-04）の画面の単体テスト。API はスタブ（tests/support）。
  */
 
@@ -15,6 +15,7 @@ import {
   createMemorySession,
   dashboard,
   equipmentTree,
+  twoFacilityTree,
   errorResponse,
   jsonResponse,
   type FakeHandler,
@@ -32,7 +33,7 @@ import {
 import { expectCardLabels } from '../../support/card-table.ts';
 
 interface Scenario {
-  readonly dashboard?: (request: FakeRequest) => Response;
+  readonly dashboard?: (request: FakeRequest) => Response | Promise<Response>;
   readonly detail?: (request: FakeRequest) => Response;
   readonly series?: (request: FakeRequest) => Response | Promise<Response>;
   readonly observations?: (request: FakeRequest) => Response;
@@ -72,33 +73,41 @@ beforeEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('ダッシュボード（UC-01・UC-04）', () => {
-  it('視点・期間は URL のクエリで保持し、切り替えると、そのクエリで取得し直す', async () => {
-    const { calls } = renderPath('/?horizon=SHORT&periodDays=30');
+const dashboardCalls = (calls: readonly FakeRequest[]) =>
+  calls.filter((call) => call.path === '/dashboard');
+
+function cardOf(name: string): HTMLElement {
+  const element = screen.getByRole('heading', { name }).closest('li');
+  if (element === null) {
+    throw new Error('テストの前提: カードがある');
+  }
+  return element;
+}
+
+describe('ダッシュボード: 操作（対象のハウス・期間・更新。Issue #355）', () => {
+  it('視点（短期・長期）の切り替えはなく、長期の評価を、選んだ期間で示す。期間は URL のクエリで保持し、切り替えると、そのクエリで取得し直す', async () => {
+    const { calls } = renderPath('/?periodDays=30');
 
     expect(await screen.findByRole('heading', { name: '安全性' })).toBeDefined();
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: '短期' }).checked).toBe(true);
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('30');
-    const first = calls.find((call) => call.path === '/dashboard');
-    expect(first?.query.get('horizon')).toBe('SHORT');
+    expect(screen.queryByRole('radio', { name: '短期' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: '長期' })).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('30');
+    const first = dashboardCalls(calls)[0];
+    expect(first?.query.get('horizon')).toBe('LONG');
     expect(first?.query.get('periodDays')).toBe('30');
 
-    fireEvent.click(screen.getByRole('radio', { name: '長期' }));
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '90' } });
     await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=LONG&periodDays=30');
-    });
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '90' } });
-    await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=LONG&periodDays=90');
+      expect(window.location.search).toBe('?periodDays=90');
     });
     await waitFor(() => {
-      expect(
-        calls
-          .filter((call) => call.path === '/dashboard')
-          .at(-1)
-          ?.query.get('periodDays'),
-      ).toBe('90');
+      expect(dashboardCalls(calls).at(-1)?.query.get('periodDays')).toBe('90');
     });
+    expect(
+      [...screen.getByLabelText<HTMLSelectElement>('期間').options].map(
+        (option) => option.textContent,
+      ),
+    ).toEqual(['当日', '直近7日', '直近30日', '直近60日', '直近90日']);
   });
 
   it('期間を選んでいないときは、期間を送らず（観点ごとの既定。満足度は 30 日）、期間の選択は、直近7日を示す', async () => {
@@ -106,65 +115,155 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(calls.find((call) => call.path === '/dashboard')?.query.has('periodDays')).toBe(false);
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+    expect(dashboardCalls(calls)[0]?.query.has('periodDays')).toBe(false);
+    expect(dashboardCalls(calls)[0]?.query.get('horizon')).toBe('LONG');
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('7');
   });
 
-  it('期間を選んでいないときに、視点を切り替えても、期間は選んだことにならない（URL・取得とも）', async () => {
+  it('古い URL の視点（horizon=SHORT）は、使わず、長期で取得する。期間を選ぶと、URL から視点が外れる', async () => {
+    const { calls } = renderPath('/?horizon=SHORT&periodDays=30');
+
+    await screen.findByRole('heading', { name: '安全性' });
+    expect(dashboardCalls(calls)[0]?.query.get('horizon')).toBe('LONG');
+    expect(dashboardCalls(calls)[0]?.query.get('periodDays')).toBe('30');
+
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '60' } });
+
+    await waitFor(() => {
+      expect(window.location.search).toBe('?periodDays=60');
+    });
+  });
+
+  it('期間を選ぶと、その期間で取得する（満足度も、選んだ期間）', async () => {
     const { calls } = renderPath('/');
     await screen.findByRole('heading', { name: '安全性' });
 
-    fireEvent.click(screen.getByRole('radio', { name: '短期' }));
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '60' } });
 
     await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=SHORT');
+      expect(dashboardCalls(calls).at(-1)?.query.get('periodDays')).toBe('60');
     });
-    await waitFor(() => {
-      const last = calls.filter((call) => call.path === '/dashboard').at(-1);
-      expect(last?.query.get('horizon')).toBe('SHORT');
-      expect(last?.query.has('periodDays')).toBe(false);
-    });
-  });
-
-  it('期間を選ぶと、その期間で取得する（満足度も、選んだ期間）。選んだあとは、視点を切り替えても、期間を保つ', async () => {
-    const { calls } = renderPath('/');
-    await screen.findByRole('heading', { name: '安全性' });
-
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '60' } });
-
-    await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=LONG&periodDays=60');
-    });
-    await waitFor(() => {
-      expect(
-        calls
-          .filter((call) => call.path === '/dashboard')
-          .at(-1)
-          ?.query.get('periodDays'),
-      ).toBe('60');
-    });
-    const satisfaction = screen.getByRole('heading', { name: '満足度' }).closest('li');
-    expect(satisfaction && within(satisfaction).getAllByRole('link')[0]?.getAttribute('href')).toBe(
+    expect(within(cardOf('満足度')).getAllByRole('link')[0]?.getAttribute('href')).toBe(
       '/satisfaction?periodDays=60',
     );
   });
 
-  it('不正なクエリは、既定値（長期・直近7日）として扱う', async () => {
+  it('不正なクエリは、既定値（直近7日）として扱う', async () => {
     renderPath('/?horizon=MIDDLE&periodDays=5');
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(screen.getByRole<HTMLInputElement>('radio', { name: '長期' }).checked).toBe(true);
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('7');
   });
 
-  it('対象の設備名と最終の評価日時を示す', async () => {
+  it('「対象のハウス」は、ハウスだけを選べる（ロボット・センサーは、選択肢にない）。選ぶと、そのハウスで取得し直す', async () => {
+    const { calls } = renderPath('/', { equipment: () => jsonResponse(twoFacilityTree()) });
+    await screen.findByRole('heading', { name: '安全性' });
+    const select = screen.getByLabelText<HTMLSelectElement>('対象のハウス');
+    await waitFor(() => {
+      expect(select.options).toHaveLength(2);
+    });
+
+    expect([...select.options].map((option) => option.textContent)).toEqual(['ハウス1', 'ハウス2']);
+    expect(select.value).toBe('HOUSE-01');
+    expect(dashboardCalls(calls)[0]?.query.get('equipmentId')).toBe('HOUSE-01');
+
+    fireEvent.change(select, { target: { value: 'HOUSE-02' } });
+
+    await waitFor(() => {
+      expect(dashboardCalls(calls).at(-1)?.query.get('equipmentId')).toBe('HOUSE-02');
+    });
+    expect(select.value).toBe('HOUSE-02');
+    // ヘッダーに、対象の設備の選択はない（ダッシュボードの中にある）
+    expect(within(screen.getByRole('banner')).queryByLabelText('対象の設備')).toBeNull();
+  });
+
+  it('観点の詳細で、ロボットを選んだあとに、ダッシュボードへ戻ると、そのロボットのハウスを対象にする（ダッシュボードはハウス単位）', async () => {
+    const { calls } = renderPath('/viewpoints/environmentalAdaptability', {
+      equipment: () => jsonResponse(twoFacilityTree()),
+    });
+    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
+    await waitFor(() => {
+      expect(select.options.length).toBeGreaterThan(3);
+    });
+
+    fireEvent.change(select, { target: { value: 'ROBOT-02' } });
+    fireEvent.click(
+      within(await screen.findByRole('navigation', { name: 'パンくず' })).getByRole('link', {
+        name: 'ダッシュボード',
+      }),
+    );
+
+    expect(await screen.findByLabelText<HTMLSelectElement>('対象のハウス')).toBeDefined();
+    await waitFor(() => {
+      expect(dashboardCalls(calls).at(-1)?.query.get('equipmentId')).toBe('HOUSE-02');
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>('対象のハウス').value).toBe('HOUSE-02');
+
+    // 選択は、そのハウスにそろう: カードから開く観点の詳細は、ロボットでなく、ダッシュボードの示すハウスの詳細
+    const [cardLink] = within(cardOf('安全性')).getAllByRole('link');
+    if (cardLink === undefined) {
+      throw new Error('テストの前提: カードのリンクがある');
+    }
+    fireEvent.click(cardLink);
+    const detailSelect = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
+    expect(detailSelect.value).toBe('HOUSE-02');
+  });
+
+  it('「更新」を押すと、約 10 秒の更新を待たずに、すぐ取得し直す。取得の間は、更新中で、押しても重ねて取得しない', async () => {
+    let release: (() => void) | undefined;
+    let calls: readonly FakeRequest[] = [];
+    let hold = false;
+    const view = renderPath('/', {
+      dashboard: () => {
+        if (!hold) {
+          return jsonResponse(dashboard());
+        }
+        return new Promise<Response>((resolve) => {
+          release = () => {
+            resolve(jsonResponse(dashboard()));
+          };
+        });
+      },
+    });
+    calls = view.calls;
+    await screen.findByRole('heading', { name: '安全性' });
+    const before = dashboardCalls(calls).length;
+    const button = screen.getByRole('button', { name: '更新' });
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    hold = true;
+
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(dashboardCalls(calls)).toHaveLength(before + 1);
+    });
+    expect(screen.getByRole('button', { name: '更新中…' }).getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    fireEvent.click(screen.getByRole('button', { name: '更新中…' }));
+    expect(dashboardCalls(calls)).toHaveLength(before + 1);
+
+    hold = false;
+    release?.();
+
+    expect(await screen.findByRole('button', { name: '更新' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '更新' }).getAttribute('aria-disabled')).toBe(
+      'false',
+    );
+  });
+});
+
+describe('ダッシュボード: 表示（Issue #355・#356）', () => {
+  it('最終のデータ取得日時と最終の評価日時を、ダッシュボードの中に示す（ヘッダーには、示さない）', async () => {
     renderPath('/');
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(screen.getByText('ハウス1', { selector: 'strong' })).toBeDefined();
-    expect(screen.getByText(/最終の評価: 2026\/10\/09 12:00:00/)).toBeDefined();
+    const meta = screen.getByTestId('dashboard-meta');
+    expect(meta.textContent).toContain('最終のデータ取得: 2026/10/09 11:55:00');
+    expect(meta.textContent).toContain('最終の評価: 2026/10/09 12:00:00');
+    expect(within(screen.getByRole('banner')).queryByText(/最終のデータ取得/)).toBeNull();
   });
 
   it('評価がまだなら、最終の評価日時を示さない', async () => {
@@ -178,41 +277,92 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     expect(screen.queryByText(/最終の評価/)).toBeNull();
   });
 
+  it('判定の対象期間が、全観点で同じなら、上部に 1 回だけ示し、カードごとには示さない（評価前の観点は、除いて比べる）', async () => {
+    renderPath('/');
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(screen.getByTestId('evaluated-period-common').textContent).toContain(
+      '判定の対象期間: 2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
+    );
+    expect(document.querySelectorAll('.viewpoint-card .evaluated-period')).toHaveLength(0);
+  });
+
+  it('判定の対象期間が、観点で違うとき（例: 満足度の既定は 30 日）は、上部にまとめず、カードごとに示す', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card(),
+              card({
+                viewpointId: 'satisfaction',
+                name: '満足度',
+                evaluatedFrom: '2026-09-09T03:00:00.000Z',
+                evaluatedTo: '2026-10-09T03:00:00.000Z',
+              }),
+            ],
+          }),
+        ),
+    });
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(screen.queryByTestId('evaluated-period-common')).toBeNull();
+    expect(within(cardOf('安全性')).getByText(/判定の対象期間: 2026\/10\/02/)).toBeDefined();
+    expect(within(cardOf('満足度')).getByText(/判定の対象期間: 2026\/09\/09/)).toBeDefined();
+  });
+
+  it('期間のある観点がなければ（すべて評価前）、判定の対象期間は、示さない', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [card({ status: 'UNKNOWN', evaluatedFrom: null, evaluatedTo: null })],
+          }),
+        ),
+    });
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(screen.queryByTestId('evaluated-period-common')).toBeNull();
+    expect(screen.queryByText(/判定の対象期間/)).toBeNull();
+  });
+
   it('期間を選んでいないとき、満足度のカードの詳細へのリンクは、期間を付けない（満足度の既定の 30 日で開く）', async () => {
     renderPath('/');
 
-    const satisfaction = (await screen.findByRole('heading', { name: '満足度' })).closest('li');
-    if (satisfaction === null) {
-      throw new Error('テストの前提: カードがある');
-    }
+    await screen.findByRole('heading', { name: '満足度' });
 
     expect(
-      within(satisfaction)
+      within(cardOf('満足度'))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
     ).toEqual(['/satisfaction', '/satisfaction']);
   });
 
-  it('カードの詳細へのリンクは、視点・期間を引き継ぐ。満足度は、満足度の詳細（期間のみ）へ', async () => {
-    renderPath('/?horizon=SHORT&periodDays=60');
+  it('カード・表の詳細へのリンクは、長期と期間を引き継ぐ（視点はない）。満足度は、満足度の詳細（期間のみ）へ', async () => {
+    renderPath('/?periodDays=60');
 
-    const safety = (await screen.findByRole('heading', { name: '安全性' })).closest('li');
-    const satisfaction = screen.getByRole('heading', { name: '満足度' }).closest('li');
-    if (safety === null || satisfaction === null) {
-      throw new Error('テストの前提: カードがある');
-    }
+    await screen.findByRole('heading', { name: '安全性' });
 
     expect(
-      within(safety)
+      within(cardOf('安全性'))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
     ).toEqual([
-      '/viewpoints/safety?horizon=SHORT&periodDays=60',
-      '/viewpoints/safety?horizon=SHORT&periodDays=60',
+      '/viewpoints/safety?horizon=LONG&periodDays=60',
+      '/viewpoints/safety?horizon=LONG&periodDays=60',
     ]);
-    expect(within(satisfaction).getAllByRole('link')[0]?.getAttribute('href')).toBe(
+    expect(
+      within(screen.getByTestId('status-row-safety')).getByRole('link').getAttribute('href'),
+    ).toBe('/viewpoints/safety?horizon=LONG&periodDays=60');
+    expect(within(cardOf('満足度')).getAllByRole('link')[0]?.getAttribute('href')).toBe(
       '/satisfaction?periodDays=60',
     );
+    expect(
+      within(screen.getByTestId('status-row-satisfaction')).getByRole('link').getAttribute('href'),
+    ).toBe('/satisfaction?periodDays=60');
   });
 
   it('メトリクスごとの判定を、アイコンと文字で示す（色だけに頼らない）。ステータスコードの名称も同様', async () => {
@@ -231,10 +381,8 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
         ),
     });
 
-    const element = (await screen.findByRole('heading', { name: '安全性' })).closest('li');
-    if (element === null) {
-      throw new Error('テストの前提: カードがある');
-    }
+    await screen.findByRole('heading', { name: '安全性' });
+    const element = cardOf('安全性');
 
     const emergency = within(element).getByText('0.030回/時間').closest('dd');
     expect(emergency?.className).toContain('metric-caution');
@@ -246,35 +394,7 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     expect(status?.textContent).toContain('異常');
   });
 
-  it('短期評価を持たない観点を短期で表示している場合は、長期の結果を表示している旨を示す。評価前のカードには示さない', async () => {
-    renderPath('/?horizon=SHORT', {
-      dashboard: () =>
-        jsonResponse(
-          dashboard({
-            viewpoints: [
-              card({ viewpointId: 'durability', name: '耐久性', horizonUsed: 'LONG' }),
-              card({
-                viewpointId: 'satisfaction',
-                name: '満足度',
-                status: 'UNKNOWN',
-                evaluatedFrom: null,
-                evaluatedTo: null,
-                horizonUsed: 'LONG',
-              }),
-              card({ viewpointId: 'safety', name: '安全性', horizonUsed: 'SHORT' }),
-            ],
-          }),
-        ),
-    });
-
-    await screen.findByRole('heading', { name: '耐久性' });
-
-    expect(
-      screen.getAllByText('この観点は短期評価を持たないため、長期の結果を表示しています'),
-    ).toHaveLength(1);
-  });
-
-  it('データが未取得なら、その旨と、データ入力・取り込み設定への導線を示す。古い場合は警告', async () => {
+  it('データが未取得なら、その旨と、データ入力・取り込み設定への導線を示す。古い場合は警告。いずれも、取得日時の欄（ダッシュボードの中）に示す', async () => {
     const none = renderPath('/', {
       dashboard: () =>
         jsonResponse(dashboard({ dataFreshness: 'NONE', lastReceivedAt: null, evaluatedAt: null })),
@@ -291,14 +411,110 @@ describe('ダッシュボード（UC-01・UC-04）', () => {
     expect(
       within(notice).getByRole('link', { name: '取り込み設定・状況へ' }).getAttribute('href'),
     ).toBe('/settings/ingestion');
-    // ヘッダーの表示は、ダッシュボードの描画後の効果で更新されるため、現れるまで待つ
-    expect(await screen.findByText('未取得')).toBeDefined();
+    expect(within(screen.getByTestId('dashboard-meta')).getByText('未取得')).toBeDefined();
     none.unmount();
 
     renderPath('/', { dashboard: () => jsonResponse(dashboard({ dataFreshness: 'STALE' })) });
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('データが古くなっています');
-    expect(await screen.findByText('（古い）')).toBeDefined();
+    expect(within(screen.getByTestId('dashboard-meta')).getByText('（古い）')).toBeDefined();
+  });
+});
+
+describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
+  it('見出しは、状態ごとの観点の数（タイル）・観点別の状態（表）・観点ごとの診断と推奨アクション（カード）で、見分けがつく', async () => {
+    renderPath('/');
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual(['状態ごとの観点の数', '観点別の状態', '観点ごとの診断と推奨アクション']);
+  });
+
+  it('正常・注意・異常・不明の件数の下に、観点別の状態を、1 行に 1 観点の表（観点名・状態）で示す', async () => {
+    renderPath('/');
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    const table = screen.getByTestId('viewpoint-status-table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['観点', '状態']);
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('安全性'),
+      expect.stringContaining('収穫速度'),
+      expect.stringContaining('満足度'),
+    ]);
+    expect(rows.map((row) => within(row).getByText(/^(正常|注意|異常|不明)$/).textContent)).toEqual(
+      ['正常', '注意', '不明'],
+    );
+    // 件数のタイルの後ろ、カードの前に並ぶ
+    const tiles = screen.getByTestId('summary-NORMAL');
+    const firstCard = screen.getByTestId('card-safety');
+    expect(tiles.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      table.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('カードのステータスが、短期（直近 24 時間）の評価で決まっている（この期間の評価より悪い）ときは、その旨を示す', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card({
+                status: 'ERROR',
+                statuses: { short: 'ERROR', long: 'NORMAL' },
+              }),
+              card({
+                viewpointId: 'harvestSpeed',
+                name: '収穫速度',
+                status: 'CAUTION',
+                statuses: { short: 'NORMAL', long: 'CAUTION' },
+              }),
+              card({
+                viewpointId: 'durability',
+                name: '耐久性',
+                status: 'NORMAL',
+                statuses: { short: null, long: 'NORMAL' },
+              }),
+            ],
+          }),
+        ),
+    });
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(screen.getByTestId('short-worse-safety').textContent).toBe(
+      '直近 24 時間の評価は「異常」です（この期間の評価は「正常」）。ステータスは、悪い方を示しています',
+    );
+    // 長期の評価と同じ（長期が悪い・短期の評価がない）カードには、示さない
+    expect(screen.queryByTestId('short-worse-harvestSpeed')).toBeNull();
+    expect(screen.queryByTestId('short-worse-durability')).toBeNull();
+  });
+
+  it('この期間の評価が不明で、短期の評価だけがあるときも、その旨を示す', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card({ status: 'CAUTION', statuses: { short: 'CAUTION', long: 'UNKNOWN' } }),
+            ],
+          }),
+        ),
+    });
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(screen.getByTestId('short-worse-safety').textContent).toContain(
+      '直近 24 時間の評価は「注意」です（この期間の評価は「不明」）',
+    );
   });
 });
 
@@ -329,7 +545,42 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(shortCard.textContent).toContain('正常');
     expect(within(diagnosisPanel).getByTestId('horizon-long').textContent).toContain('注意');
     expect(within(diagnosisPanel).queryByTestId('unknown-guide')).toBeNull();
-    expect(screen.getByText('ハウス1', { selector: 'strong' })).toBeDefined();
+    // 対象の設備は、ページの中の選択（以前は、ヘッダー）。選んでいる設備を示す
+    expect(screen.getByLabelText<HTMLSelectElement>('対象の設備').value).toBe('HOUSE-01');
+  });
+
+  it('「対象の設備」は、ハウス・ロボット・センサーを選べる（ページの中にある。以前は、ヘッダー）。選ぶと、その設備で取得し直す', async () => {
+    const { calls } = renderPath('/viewpoints/environmentalAdaptability');
+    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
+    await waitFor(() => {
+      expect(select.options).toHaveLength(3);
+    });
+
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'ハウス1',
+      '　収穫ロボット1',
+      '　環境センサー1',
+    ]);
+    expect(within(screen.getByRole('banner')).queryByLabelText('対象の設備')).toBeNull();
+
+    fireEvent.change(select, { target: { value: 'SENSOR-01' } });
+
+    await waitFor(() => {
+      expect(detailCalls(calls).at(-1)?.query.get('equipmentId')).toBe('SENSOR-01');
+    });
+    expect(select.value).toBe('SENSOR-01');
+  });
+
+  it('設備が 1 つもなければ、「対象の設備」の選択を無効にする', async () => {
+    renderPath('/viewpoints/environmentalAdaptability', {
+      equipment: () => jsonResponse({ facilities: [] }),
+    });
+
+    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
+
+    await waitFor(() => {
+      expect(select.disabled).toBe(true);
+    });
   });
 
   it('根拠のメトリクス: 全メトリクスの値（欠損は「—」）と、指標ごとの判定（判定なしを含む）、主要の印を表示する', async () => {
@@ -556,13 +807,21 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     ).toBe('30');
   });
 
-  it('ダッシュボードへ戻るリンクは、視点・期間を引き継ぐ', async () => {
-    renderPath('/viewpoints/environmentalAdaptability?horizon=SHORT&periodDays=30');
+  it('ダッシュボードへ戻るリンクは、期間だけを引き継ぐ（視点は、ダッシュボードにない）。期間を選んでいなければ、付けない', async () => {
+    const view = renderPath('/viewpoints/environmentalAdaptability?horizon=SHORT&periodDays=30');
 
     const breadcrumb = await screen.findByRole('navigation', { name: 'パンくず' });
     const link = within(breadcrumb).getByRole('link', { name: 'ダッシュボード' });
 
-    expect(link.getAttribute('href')).toBe('/?horizon=SHORT&periodDays=30');
+    expect(link.getAttribute('href')).toBe('/?periodDays=30');
+    view.unmount();
+
+    renderPath('/viewpoints/environmentalAdaptability?horizon=SHORT');
+    const second = within(await screen.findByRole('navigation', { name: 'パンくず' })).getByRole(
+      'link',
+      { name: 'ダッシュボード' },
+    );
+    expect(second.getAttribute('href')).toBe('/');
   });
 
   it('選んだ設備では評価しない観点は、その旨と、設備の選び直しを示す', async () => {
@@ -1195,6 +1454,17 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
       expect(last?.query.get('periodDays')).toBe('90');
       expect(last?.query.get('horizon')).toBe('LONG');
     });
+  });
+
+  it('「対象の設備」を、満足度の詳細の中で選べる（ページの中にある）', async () => {
+    renderPath('/satisfaction');
+    const select = await screen.findByLabelText<HTMLSelectElement>('対象の設備');
+    await waitFor(() => {
+      expect(select.options).toHaveLength(3);
+    });
+
+    expect(select.value).toBe('HOUSE-01');
+    expect(within(screen.getByRole('banner')).queryByLabelText('対象の設備')).toBeNull();
   });
 
   it('満足度を評価しない設備（ロボット）を選んだ場合は、その旨と、設備の選び直しを示す', async () => {

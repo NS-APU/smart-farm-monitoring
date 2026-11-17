@@ -25,7 +25,10 @@ export const loadingView = (page: Page): Locator => page.locator('main [role="st
 /** ダッシュボードの表示が完了している（読み込み中の表示がなく、観点の状態の集計と、観点のカードが表示されている）。 */
 export async function expectDashboardShown(page: Page, equipmentName?: string): Promise<void> {
   if (equipmentName !== undefined) {
-    await expect(page.locator('.page-meta strong').first()).toHaveText(equipmentName);
+    // 対象のハウス（ダッシュボードの中の選択。以前は、ヘッダーの「対象の設備」）
+    await expect(page.getByLabel('対象のハウス').locator('option:checked')).toHaveText(
+      equipmentName,
+    );
   }
   await expect(loadingView(page)).toHaveCount(0);
   await expect(page.getByTestId('summary-NORMAL')).toBeVisible();

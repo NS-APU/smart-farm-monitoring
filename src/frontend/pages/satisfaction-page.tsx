@@ -16,6 +16,7 @@ import { ApiError } from '../api/client.ts';
 import { getViewpointDetail } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
+import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { HorizonControls } from '../components/horizon-controls.tsx';
 import { Icon, ViewpointIcon } from '../components/icon.tsx';
 import { RadarChart } from '../components/radar-chart.tsx';
@@ -132,7 +133,7 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
 
 export function SatisfactionPage(): ReactNode {
   const { api } = useAuth();
-  const { selectedEquipmentId, equipmentNames, equipmentError } = useAppState();
+  const { selectedEquipmentId, equipmentError } = useAppState();
   // 期間を選んでいなければ、満足度の既定の期間（30 日）。選べば、他の観点と同じ長期の期間
   const { periodDays, setPeriodDays } = useHorizonSelection(SATISFACTION_DEFAULT_PERIOD_DAYS);
 
@@ -148,9 +149,6 @@ export function SatisfactionPage(): ReactNode {
     });
   }, [api, selectedEquipmentId, periodDays]);
   const { data, error, reload } = usePolling(fetchDetail);
-
-  const equipmentName =
-    selectedEquipmentId === undefined ? undefined : equipmentNames.get(selectedEquipmentId);
 
   let content: ReactNode;
   if (equipmentError !== undefined) {
@@ -179,11 +177,12 @@ export function SatisfactionPage(): ReactNode {
           {MESSAGES.satisfaction.title}
           {data === undefined ? null : <StatusBadge status={data.status} />}
         </h1>
-        <p className="page-meta">
-          {MESSAGES.dashboard.target}: <strong>{equipmentName}</strong>
-        </p>
       </div>
-      <HorizonControls horizon="LONG" periodDays={periodDays} onPeriodChange={setPeriodDays} />
+      {/* 対象の設備（ハウス・ロボット・センサー）の選択。以前は、ヘッダーにあった（Issue #355） */}
+      <div className="page-controls">
+        <EquipmentSelect label={MESSAGES.layout.equipment} />
+        <HorizonControls horizon="LONG" periodDays={periodDays} onPeriodChange={setPeriodDays} />
+      </div>
       {content}
     </div>
   );

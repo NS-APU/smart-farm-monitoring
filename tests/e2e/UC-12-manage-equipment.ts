@@ -152,13 +152,17 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       name: 'A収穫ロボット',
     });
 
-    const header = page.getByRole('banner').getByLabel('対象の設備');
-    await expect(header.locator('option')).toHaveText(['Aハウス', '　A収穫ロボット']);
+    // ダッシュボードは、ハウス単位（対象のハウスは、ハウスだけ）。ロボットは、観点の詳細の「対象の設備」で選ぶ
     await goToMenu(page, 'ダッシュボード');
-    await expect(page.locator('.page-meta')).toContainText('対象: Aハウス');
+    await expect(page.getByLabel('対象のハウス').locator('option')).toHaveText(['Aハウス']);
+    await expect(page.getByLabel('対象のハウス')).toHaveValue('HOUSE-A');
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
-    await header.selectOption('ROBOT-A');
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
+    await page.goto('/viewpoints/harvestSpeed');
+    const equipmentSelect = page.getByRole('main').getByLabel('対象の設備');
+    await expect(equipmentSelect.locator('option')).toHaveText(['Aハウス', '　A収穫ロボット']);
+    await equipmentSelect.selectOption('ROBOT-A');
+    await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
     await goToMenu(page, 'データ入力');
     await expect(page.getByRole('main').getByLabel('対象の設備').locator('option')).toHaveText([
       '選択してください',
@@ -594,10 +598,9 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(rowOf(page, 'ROBOT-01')).toContainText('ROBOT-FILE-9');
     await expect(rowOf(page, 'ROBOT-01')).toContainText('/data/robot-01.json');
     await expect(page.getByTestId('equipment-edit')).toHaveCount(0);
-    // ヘッダーの設備の選択にも反映される
-    await expect(page.getByRole('banner').getByLabel('対象の設備')).toContainText(
-      '改名したロボット',
-    );
+    // 観点の詳細の「対象の設備」にも反映される
+    await page.goto('/viewpoints/harvestSpeed');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).toContainText('改名したロボット');
   });
 
   test('ロボットを別のハウスへ移せる（親のハウスの変更）', async ({ page, request }) => {
@@ -659,7 +662,8 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
 
     await expect(notice(page)).toHaveText('削除しました');
     await expect(rowOf(page, 'ROBOT-01')).toHaveCount(0);
-    await expect(page.getByRole('banner').getByLabel('対象の設備')).not.toContainText(
+    await page.goto('/viewpoints/harvestSpeed');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).not.toContainText(
       '収穫ロボット1',
     );
     // 過去のデータは、残る（取り込み済みデータの一覧に、設備IDで表示される）
@@ -861,7 +865,11 @@ test.describe('閲覧の割り当て（ハウスごと）。Issue #330。ADR-001
     // 一般ユーザー（別のブラウザ）: 設備の選択は、ハウス2（と配下）だけ。ハウス1 は、存在しないものとして扱う（404）
     const general = await newUserSession(browser, testInfo, 'general');
     await openAs(general.page, '/', GENERAL);
-    const select = general.page.getByLabel('対象の設備');
+    const houses = general.page.getByLabel('対象のハウス');
+    await expect(houses).toContainText('ハウス2');
+    await expect(houses).not.toContainText('ハウス1');
+    await general.page.goto('/viewpoints/harvestSpeed');
+    const select = general.page.getByRole('main').getByLabel('対象の設備');
     await expect(select).toContainText('ハウス2');
     await expect(select).toContainText('収穫ロボット2');
     await expect(select).not.toContainText('ハウス1');
