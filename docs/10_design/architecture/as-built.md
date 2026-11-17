@@ -159,7 +159,7 @@
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
-共通のヘッダー（`components/app-layout.tsx`）に、☰（サイドメニューの開閉。広い幅も、閉じられる）・タイトル（ダッシュボードへのリンク）・設備の選択・通知のアイコンと未読の件数のバッジ・最終のデータ取得日時・メニュー・ユーザーメニュー（`components/user-menu.tsx`。ユーザー名の変更・パスワードの変更・通知の設定・テーマ〔`hooks/use-theme-preference.ts`・`lib/theme.ts`〕・ログアウト。開閉・キーボードは、`hooks/use-popup-menu.ts`）がある。
+共通のヘッダー（`components/app-layout.tsx`）に、☰（サイドメニューの開閉。広い幅も、閉じられる）・タイトル（ダッシュボードへのリンク）・設備の選択・通知のアイコンと未読の件数のバッジ・ユーザーメニュー（`components/user-menu.tsx`。ユーザー名の変更・パスワードの変更・通知の設定・テーマ〔`hooks/use-theme-preference.ts`・`lib/theme.ts`〕・ログアウト。開閉・キーボードは、`hooks/use-popup-menu.ts`）がある。
 
 ### API（`/api/v1`。40 ルート＋ `/health`）
 
@@ -1094,7 +1094,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 | 種類               | 手段                                                                                                                                     | 内容                                                                                                                                                |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 認証               | `AuthContext`                                                                                                                            | 利用者（`AuthenticatedUser`）。`api` は、`fetchFn`・`session`・`user` が変わると作り直す（ETag のキャッシュも新しくなる）                           |
-| 画面をまたぐ状態   | `AppStateContext`（`AppLayout` の中）                                                                                                    | 設備の階層（60 秒ごとに読み直す）、選択中の設備（未選択・存在しない設備なら最初のハウス）、最終のデータ取得日時と新しさ（ダッシュボードが設定する） |
+| 画面をまたぐ状態   | `AppStateContext`（`AppLayout` の中）                                                                                                    | 設備の階層（60 秒ごとに読み直す）、選択中の設備（未選択・存在しない設備なら最初のハウス）（ハウスを選ぶ・ロボット等を選ぶ操作は、ダッシュボード・観点の詳細・満足度の詳細の中。`selectedFacilityId` は、選択中の設備が属するハウス。最終のデータ取得日時は、ダッシュボードの中で、API の応答から表示する） |
 | 画面ごとの状態     | `useState`・`usePolling`・`useSubmit`                                                                                                    | 取得結果・入力値・実行中・エラー                                                                                                                    |
 | URL                | `useQueryParams`・`useHorizonSelection`                                                                                                  | 絞り込み・並べ替え・視点（短期・長期）・期間。再読み込み・画面の移動でも保たれる                                                                    |
 | ブラウザの保存領域 | `sessionStorage`（`smart-farm.session`。セッション全体）、`localStorage`（`smart-farm:last-entry-target`。直前に入力した設備・カテゴリ。`smart-farm.theme`。テーマの設定〔system・light・dark〕。#352） | どちらも、`try/catch` で囲み、使えなくても動く                                                                                                      |
@@ -2733,7 +2733,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、36 ファイル・870 件（UC ごと 25 ファイル・824 件、シナリオ 11 ファイル・46 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、36 ファイル・879 件（UC ごと 25 ファイル・833 件、シナリオ 11 ファイル・46 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
