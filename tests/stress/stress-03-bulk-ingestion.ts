@@ -159,7 +159,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
       act: () => menu('取り込み済みデータ').click(),
       respond: async () => {
         await expect(loadingView(page)).toHaveCount(0);
-        await expect(page.getByTestId('observation-row').first()).toBeVisible();
+        await expect(page.getByTestId('measurement-row').first()).toBeVisible();
       },
     },
   );

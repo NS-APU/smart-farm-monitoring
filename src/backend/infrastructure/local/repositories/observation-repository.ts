@@ -63,6 +63,36 @@ function upperBound(base: readonly TimeEntry[], entry: TimeEntry): number {
   return low;
 }
 
+/** 索引の中で、計測日時が、指定の日時以後の、最初の位置（なければ、索引の長さ）。 */
+function firstNotBefore(entries: readonly TimeEntry[], observedAt: string): number {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (compareIso(entryAt(entries, middle).observedAt, observedAt) < 0) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+/** 索引の中で、計測日時が、指定の日時より後の、最初の位置（なければ、索引の長さ）。 */
+function firstAfter(entries: readonly TimeEntry[], observedAt: string): number {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (compareIso(entryAt(entries, middle).observedAt, observedAt) <= 0) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
 /**
  * 整列済みの配列に、整列済みの少数の項目を加える。挿入の位置を二分探索で求め、区間ごとにコピーして、新しい配列にする
  * （全項目を比較して併合しない。1回の保存が数百〜数千件でも、索引の件数に比例した比較をしない）。
@@ -209,6 +239,9 @@ export function createObservationRepository(
       const offset = decodeCursor(page.cursor);
       const end = offset + page.limit;
       const entries = timeIndexOf();
+      // 期間の指定があれば、索引を二分探索して、範囲の中だけをたどる（範囲の外の全件を、走査しない）
+      const start = bounds.fromIso === undefined ? 0 : firstNotBefore(entries, bounds.fromIso);
+      const stop = bounds.toIso === undefined ? entries.length : firstAfter(entries, bounds.toIso);
       const matched: Observation[] = [];
       const collect = (entry: TimeEntry): void => {
         const observation = observations.get(entry.key);
@@ -217,15 +250,15 @@ export function createObservationRepository(
         }
       };
       if (direction === 'asc') {
-        for (let position = 0; position < entries.length && matched.length <= end; position += 1) {
+        for (let position = start; position < stop && matched.length <= end; position += 1) {
           collect(entryAt(entries, position));
         }
       } else {
-        let last = entries.length - 1;
-        while (last >= 0 && matched.length <= end) {
+        let last = stop - 1;
+        while (last >= start && matched.length <= end) {
           let first = last;
           const observedAt = entryAt(entries, last).observedAt;
-          while (first > 0 && entryAt(entries, first - 1).observedAt === observedAt) {
+          while (first > start && entryAt(entries, first - 1).observedAt === observedAt) {
             first -= 1;
           }
           for (let position = first; position <= last; position += 1) {

@@ -351,7 +351,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   // UC-20 取り込み済みデータ（約60万件）の一覧
   // ---------------------------------------------------------------------------------------------
-  const observationRows = rowsOf(page, 'observation-row');
+  // 日時順（既定）は、1 回の計測ごとの行（measurement-row）。値・カテゴリの順は、項目ごとの行（observation-row。#363）
+  const measurementRows = rowsOf(page, 'measurement-row');
   await m(
     'UC-20',
     'メニューから「取り込み済みデータ」を開く',
@@ -363,18 +364,18 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         await expect(
           page.getByRole('heading', { name: '取り込み済みデータ', level: 1 }),
         ).toBeVisible();
-        await expectListShown(page, 'observation-row');
+        await expectListShown(page, 'measurement-row');
       },
     },
   );
   await screenshot(page, '07-observations');
   await m('UC-20', 'カテゴリ「環境情報」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('カテゴリ').selectOption('ENVIRONMENT'),
-    respond: () => expectEveryRowContains(observationRows, CATEGORY_LABELS.ENVIRONMENT),
+    respond: () => expectEveryRowContains(measurementRows, CATEGORY_LABELS.ENVIRONMENT),
   });
   await m('UC-20', '取得元「手動入力」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('取得元').selectOption('MANUAL'),
-    respond: () => expectEveryRowContains(observationRows, '手動入力'),
+    respond: () => expectEveryRowContains(measurementRows, '手動入力'),
   });
   await m(
     'UC-20',
@@ -386,31 +387,31 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         await page.getByLabel('取得元').selectOption('');
         await page.getByLabel('カテゴリ').selectOption('');
       },
-      respond: () => expectListShown(page, 'observation-row'),
+      respond: () => expectListShown(page, 'measurement-row'),
     },
   );
   await m('UC-20', '設備「ハウス2」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('設備', { exact: true }).selectOption('ROBOT-02-1'),
-    respond: () => expectEveryRowContains(observationRows, '負荷試験ロボット2-1'),
+    respond: () => expectEveryRowContains(measurementRows, '負荷試験ロボット2-1'),
   });
   await m('UC-20', '設備の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('設備', { exact: true }).selectOption(''),
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   await m('UC-20', '期間（直近30日）で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('期間（開始日）').fill(dateInput(30));
       await page.getByLabel('期間（終了日）').fill(dateInput(0));
     },
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   await m('UC-20', 'キーワード「温度」で検索する', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill('温度'),
-    respond: () => expectEveryRowContains(observationRows, '温度'),
+    respond: () => expectEveryRowContains(measurementRows, '温度'),
   });
   await m('UC-20', 'キーワードを消して、検索を解除する', '取り込み済みデータ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill(''),
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   await m('UC-20', '値の昇順で並べ替える', '取り込み済みデータ（SC-09）', 'screen', {
     act: async () => {
@@ -428,7 +429,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       await page.getByLabel('並べ替え', { exact: true }).selectOption('observedAt');
       await page.getByLabel('並べ替えの向き').selectOption('desc');
     },
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（#91）のため、ここまで、直近 30 日の期間を指定したまま計測した
   await m('UC-20', '期間の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
@@ -436,7 +437,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       await page.getByLabel('期間（開始日）').fill('');
       await page.getByLabel('期間（終了日）').fill('');
     },
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   for (const [action, button, expected] of [
     ['次のページを開く（2ページ目）', '次へ', '2'],
@@ -447,7 +448,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       act: () => page.getByRole('button', { name: button }).click(),
       respond: async () => {
         await expect(page.getByTestId('pager-page')).toHaveText(expected);
-        await expectListShown(page, 'observation-row');
+        await expectListShown(page, 'measurement-row');
       },
     });
   }
@@ -870,7 +871,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     'screen',
     {
       act: () => menu('取り込み済みデータ').click(),
-      respond: () => expectListShown(page, 'observation-row'),
+      respond: () => expectListShown(page, 'measurement-row'),
     },
   );
   await m(
@@ -1118,6 +1119,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   });
   await screenshot(page, '14-equipment');
+  // 登録は、表の上のボタンで開くダイアログで行う（#364。成功すると閉じる）。ボタンを押す操作は、計測しない
+  await page.getByRole('button', { name: 'ハウスの登録' }).click();
   await facilityForm.getByLabel('設備ID').fill('HOUSE-ADDED');
   await facilityForm.getByLabel('名称').fill('負荷試験の追加ハウス');
   await m(
@@ -1134,6 +1137,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['ROBOT', 'ROBOT-ADDED', '負荷試験の追加ロボット', 'ROBOT-ADDED-FILE'],
     ['SENSOR', 'SENSOR-ADDED', '負荷試験の追加センサー', 'SENSOR-ADDED-FILE'],
   ] as const) {
+    await page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
     await childForm.getByLabel('種別').selectOption(type);
     await childForm.getByLabel('親のハウス').selectOption('HOUSE-ADDED');
     await childForm.getByLabel('設備ID').fill(id);
@@ -1211,6 +1215,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await screenshot(page, '15-status-codes');
+  await page.getByRole('button', { name: 'ステータスコードの登録' }).click();
   await codeAdd.getByLabel('コード値').fill('STRESS_NEW_CODE');
   await codeAdd.getByLabel('名称').fill('負荷試験の追加コード');
   await codeAdd.getByLabel('カテゴリ').selectOption('CAUTION');
@@ -1288,6 +1293,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await screenshot(page, '16-users');
+  await page.getByRole('button', { name: 'ユーザーの登録' }).click();
   await userAdd.getByLabel('ユーザーID').fill('stress-added-user');
   await userAdd.getByLabel('ユーザー名').fill('負荷試験の追加ユーザー');
   await userAdd.getByLabel('パスワード').fill('Dummy-Passw0rd-added1');

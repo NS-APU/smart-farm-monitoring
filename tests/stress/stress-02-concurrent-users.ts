@@ -186,7 +186,7 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
           act: () => menu('取り込み済みデータ').click(),
           respond: async () => {
             await expect(loadingView(page)).toHaveCount(0);
-            await expect(page.getByTestId('observation-row').first()).toBeVisible();
+            await expect(page.getByTestId('measurement-row').first()).toBeVisible();
           },
         },
       );
