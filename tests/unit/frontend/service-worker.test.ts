@@ -64,7 +64,7 @@ describe('サービスワーカー（push の受信。V-064・V-127）', () => {
 
     expect(() => listeners.get('push')?.(event)).not.toThrow();
 
-    expect(showNotification).toHaveBeenCalledWith('稼働モニタリング', {
+    expect(showNotification).toHaveBeenCalledWith('Greenhouse Monitor', {
       body: '新しい通知があります',
       tag: undefined,
       icon: '/icon-192.png',

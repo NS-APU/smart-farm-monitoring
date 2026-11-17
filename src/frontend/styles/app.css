@@ -312,7 +312,8 @@ input:not([type='radio']) {
 
 /*
  * 共通のレイアウト: 左のサイドメニュー + 上部のバー + 本文（ui-design-guidelines.md 8 章）。
- * 狭い幅（900px 以下。use-narrow-viewport.ts と同じ値）では、メニューを、☰ で開閉する引き出しにする。
+ * ☰（ヘッダーの左。画面の幅に関わらず表示）で、サイドメニューを開閉する。狭い幅（900px 以下。use-narrow-viewport.ts と同じ値）では、メニューは引き出し、
+ * 広い幅では、閉じると本文が全幅になる（閉じている間は、hidden で、見えず、キーボードの移動の対象にもならない。Issue #354）。
  */
 .app-shell {
   display: flex;
@@ -333,23 +334,41 @@ input:not([type='radio']) {
   color: var(--color-nav-text);
 }
 
+.app-sidebar[hidden] {
+  display: none;
+}
+
+/* サイドメニューの先頭: 引き出しの閉じるボタンだけ（狭い幅だけ表示する。題名は、ヘッダーの左へ移した） */
 .sidebar-head {
-  display: flex;
+  display: none;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--color-nav-current-bg);
 }
 
+/* ヘッダーの左の題名（ダッシュボードへのリンク） */
 .app-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-weight: 700;
   font-size: 1.05rem;
   text-decoration: none;
-  color: var(--color-primary-text);
+  color: var(--color-text);
+}
+
+.app-title > .icon {
+  color: var(--color-primary-ink);
+}
+
+.app-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-nav {
@@ -622,11 +641,21 @@ input:not([type='radio']) {
   color: var(--status-caution-text);
 }
 
-/* メニューの開閉の操作（狭い幅だけ表示する） */
-.menu-toggle,
+/* サイドメニューの開閉（☰。画面の幅に関わらず表示する）。引き出しの閉じるボタンと、本文を覆う面は、狭い幅だけ表示する */
+.menu-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  border-color: var(--color-border-control);
+}
+
 .menu-close,
-.menu-scrim,
-.app-title-compact {
+.menu-scrim {
   display: none;
 }
 
@@ -1028,7 +1057,9 @@ input:not([type='radio']) {
     left: 0;
     z-index: 30;
     width: min(280px, 85vw);
-    height: auto;
+    /* 画面の高さまで届かせる（基本の align-self・height の影響を、受けない）。dvh は、スマートフォンのブラウザのアドレスバーの出入りに追従する */
+    height: 100vh;
+    height: 100dvh;
     visibility: hidden;
     transform: translateX(-100%);
     transition:
@@ -1042,19 +1073,16 @@ input:not([type='radio']) {
     transition: transform 0.2s ease;
   }
 
-  .menu-toggle,
+  .sidebar-head {
+    display: flex;
+  }
+
   .menu-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
     padding: 4px 8px;
-  }
-
-  .menu-toggle {
-    background: var(--color-surface);
-    color: var(--color-primary-ink);
-    border-color: var(--color-border-control);
   }
 
   .menu-close {
@@ -1076,14 +1104,8 @@ input:not([type='radio']) {
   }
 
   /* 題名は、残りの幅に合わせて縮める（末尾を省略する）。縮められないと、ユーザーの欄が、次の行へ折り返す */
-  .app-title-compact {
-    display: inline;
+  .app-title {
     flex: 1 1 0;
-    min-width: 0;
-    overflow: hidden;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   /* 上部のバー: 1 行目に ☰・題名・通知・ユーザー。設備の選択と、最終のデータ取得は、次の行へ */

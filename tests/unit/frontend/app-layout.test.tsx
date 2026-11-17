@@ -181,7 +181,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(toggle.getAttribute('aria-controls')).toBe('app-sidebar');
 
@@ -200,7 +200,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
@@ -219,7 +219,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
 
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'メニューを閉じる' }));
@@ -242,7 +242,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
@@ -263,7 +263,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    fireEvent.click(screen.getByRole('button', { name: 'メニューを開く' }));
+    fireEvent.click(screen.getByRole('button', { name: 'メニューの開閉' }));
     const sidebar = must(document.getElementById('app-sidebar'));
     await waitFor(() => {
       expect(sidebar.contains(document.activeElement)).toBe(true);
@@ -281,18 +281,128 @@ describe('狭い幅の、メニューの引き出し', () => {
     expect(document.activeElement).toBe(last);
   });
 
-  it('広い幅では、引き出しの操作（フォーカスの移動・Esc の処理）を行わない', async () => {
+  it('広い幅では、引き出しの操作（フォーカスの移動・Esc の処理・本文を覆う面）を行わない', async () => {
     stubViewport(false);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
 
     fireEvent.click(toggle);
     fireEvent.keyDown(document, { key: 'Escape' });
 
-    // 広い幅は、メニューが常に見える。引き出しの状態は、出さない
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // 広い幅は、引き出しの状態（menu-is-open・本文のスクロールの固定）を出さない。Esc では、閉じも開きもしない
     expect(document.querySelector('.app-shell')?.classList.contains('menu-is-open')).toBe(false);
     expect(document.body.classList.contains('menu-open')).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('広い幅の、サイドメニューの開閉（Issue #354）', () => {
+  it('既定では開いている。☰ を押すと閉じ（本文が全幅になる）、もう一度押すと開く', async () => {
+    stubViewport(false);
+    renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
+    const sidebar = must(document.getElementById('app-sidebar'));
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-controls')).toBe('app-sidebar');
+    expect(sidebar.hidden).toBe(false);
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // 閉じている間は、見えず、キーボードの移動・読み上げの対象にもならない（hidden）
+    expect(sidebar.hidden).toBe(true);
+    expect(document.querySelector('.app-shell')?.classList.contains('sidebar-collapsed')).toBe(
+      true,
+    );
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(sidebar.hidden).toBe(false);
+    expect(document.querySelector('.app-shell')?.classList.contains('sidebar-collapsed')).toBe(
+      false,
+    );
+  });
+
+  it('閉じた状態は、保存しない（画面を作り直す〔再読み込みを模す〕と、開いた状態に戻る）', async () => {
+    stubViewport(false);
+    const first = renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+    fireEvent.click(screen.getByRole('button', { name: 'メニューの開閉' }));
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(true);
+    first.unmount();
+
+    renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(false);
+    expect(
+      screen.getByRole('button', { name: 'メニューの開閉' }).getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
+  it('閉じていても、画面を移動すると開いたまま・閉じたままを保つ（移動で、勝手に開閉しない）', async () => {
+    stubViewport(false);
+    renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+    fireEvent.click(screen.getByRole('button', { name: 'メニューの開閉' }));
+
+    fireEvent.click(await screen.findByRole('link', { name: /^未読の通知/ }));
+    await screen.findByRole('heading', { name: '通知' });
+
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(true);
+  });
+});
+
+describe('ヘッダーの ☰ とタイトル（Issue #354）', () => {
+  it.each([
+    ['広い幅', false],
+    ['狭い幅', true],
+  ])(
+    '%s: 画面の幅に関わらず、ヘッダーの左に、☰（メニューの開閉）と、タイトル（ダッシュボードへのリンク）を、この順に置く。サイドメニューの中に、タイトルはない',
+    async (_name, narrow) => {
+      stubViewport(narrow);
+      renderApp();
+      const header = await screen.findByRole('banner');
+      await screen.findByRole('heading', { name: '安全性' });
+
+      const toggle = within(header).getByRole('button', { name: 'メニューの開閉' });
+      const title = within(header).getByRole('link', { name: 'Greenhouse Monitor' });
+
+      expect(title.getAttribute('href')).toBe('/');
+      expect(toggle.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const sidebar = must(document.getElementById('app-sidebar'));
+      expect(within(sidebar).queryByRole('link', { name: 'Greenhouse Monitor' })).toBeNull();
+      expect(sidebar.textContent).not.toContain('Greenhouse Monitor');
+    },
+  );
+
+  it('タイトルを押すと、ダッシュボードへ移る（サイドメニューは、開閉しない）', async () => {
+    stubViewport(false);
+    window.history.pushState(null, '', '/observations');
+    renderApp();
+    const title = await screen.findByRole('link', { name: 'Greenhouse Monitor' });
+
+    fireEvent.click(title);
+
+    expect(await screen.findByRole('heading', { name: '安全性' })).toBeDefined();
+    expect(window.location.pathname).toBe('/');
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(false);
+  });
+});
+
+describe('サイドメニューの「設定」のアイコン（Issue #354）', () => {
+  it('歯車にする（以前の、太陽に似た絵柄ではない。テーマの「ライト」の太陽と区別できる）', async () => {
+    renderApp();
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    const icon = must(menu.querySelector('summary svg'));
+
+    expect(icon.innerHTML).not.toContain('M12 3v3M12 18v3');
+    // 歯車の外形（歯のある多角形）と、中心の円
+    expect(icon.querySelectorAll('circle')).toHaveLength(1);
+    expect(icon.querySelector('path')?.getAttribute('d')?.split('L').length).toBeGreaterThan(24);
   });
 });

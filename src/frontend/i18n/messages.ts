@@ -8,7 +8,7 @@ import { MANAGEMENT_MESSAGES } from './management-messages.ts';
 
 export const MESSAGES = {
   ...MANAGEMENT_MESSAGES,
-  appName: '稼働モニタリング',
+  appName: 'Greenhouse Monitor',
   common: {
     loading: '読み込み中…',
     retry: '再読み込み',
@@ -63,7 +63,8 @@ export const MESSAGES = {
   layout: {
     skipToContent: '本文へ移動',
     menu: 'メニュー',
-    openMenu: 'メニューを開く',
+    /** ヘッダーの ☰（サイドメニューの開閉。状態は、aria-expanded で示す）。 */
+    toggleMenu: 'メニューの開閉',
     closeMenu: 'メニューを閉じる',
     equipment: '対象の設備',
     unreadNotifications: '未読の通知',

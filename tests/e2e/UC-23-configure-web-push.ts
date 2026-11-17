@@ -649,7 +649,7 @@ test.describe('サービスワーカー（public/sw.js）: 受信した push を
 
     expect(calls.shown).toEqual([
       {
-        title: '稼働モニタリング',
+        title: 'Greenhouse Monitor',
         options: { body: '新しい通知があります', icon: '/icon-192.png', badge: '/badge-72.png' },
       },
     ]);
