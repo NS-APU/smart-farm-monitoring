@@ -854,3 +854,200 @@ for (const viewport of LAYOUT_VIEWPORTS) {
     });
   });
 }
+
+test.describe('閾値のスライダー・帯・現在値と変更後の値（Issue #358。全観点で共通の部品）', () => {
+  const slider = (page: Page, indicator: string, name: string) =>
+    card(page, indicator).getByRole('slider', { name });
+  const meta = (page: Page, indicator: string, index: number) =>
+    card(page, indicator).getByTestId('threshold-meta').nth(index);
+
+  test('閾値ごとに、スライダーと数値の欄が連動し、範囲の目安・単位・現在値と変更後の値を示す。スライダーで調整して保存すると、評価に反映される', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 15 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    const temperature = card(page, 'temperatureCelsius');
+
+    // 範囲型（温度）: 4 つのスライダー。目安の範囲・単位・現在値・変更なし
+    await expect(temperature.getByRole('slider')).toHaveCount(4);
+    await expect(slider(page, 'temperatureCelsius', '正常下限のスライダー')).toHaveValue('10');
+    await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
+      '目安の範囲: -10℃〜50℃現在値: 10℃変更後: 10℃（変更なし）',
+    );
+    // 変更前は、現在の帯だけ（範囲型は 5 区分）
+    await expect(page.getByTestId('zone-current-temperatureCelsius')).toBeVisible();
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
+    await expect(
+      page.getByTestId('zone-current-temperatureCelsius').locator('.zone-seg-label'),
+    ).toHaveText(['異常', '注意', '正常', '注意', '異常']);
+
+    // スライダーを動かす → 数値の欄・変更後の値・変更後の帯が連動する
+    await slider(page, 'temperatureCelsius', '正常下限のスライダー').fill('20');
+    await expect(temperature.getByLabel('正常下限（以上で正常）')).toHaveValue('20');
+    await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
+      '目安の範囲: -10℃〜50℃現在値: 10℃変更後: 20℃',
+    );
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toBeVisible();
+    await shot(page, testInfo, 'uc19-slider-changed');
+
+    // 数値の欄に入力 → スライダーが連動する
+    await temperature.getByLabel('正常下限（以上で正常）').fill('18');
+    await expect(slider(page, 'temperatureCelsius', '正常下限のスライダー')).toHaveValue('18');
+
+    // 保存すると、評価に反映される（温度 15℃ は、正常下限 18 未満で、注意）
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
+    await expect(meta(page, 'temperatureCelsius', 1)).toContainText('現在値: 18℃');
+    await page.goto('/');
+    await expect(
+      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('注意');
+  });
+
+  test('キーボード（矢印キー・Home・End）でも、スライダーを操作できる。目盛り（0.5）ごとに動く', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+    const upper = slider(page, 'temperatureCelsius', '異常上限のスライダー');
+
+    await upper.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(card(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）')).toHaveValue(
+      '36',
+    );
+    await page.keyboard.press('End');
+    await expect(card(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）')).toHaveValue(
+      '50',
+    );
+    await page.keyboard.press('Home');
+    await expect(card(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）')).toHaveValue(
+      '-10',
+    );
+    // 大小関係が成り立たない間は、変更後の帯を出さず、その旨を示す（保存の検証のエラーとは別）
+    await expect(page.getByTestId('zone-invalid-temperatureCelsius')).toBeVisible();
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
+    await expect(page.getByTestId('criterion-error-temperatureCelsius')).toHaveCount(0);
+  });
+
+  test('すべての観点（9 観点）の判断基準の編集に、同じ部品（スライダー・帯・現在値と変更後の値）がある', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    const viewpoints = [
+      ['harvestAccuracy', 'marketableFruitRatePercent'],
+      ['harvestSpeed', 'travelStoppedRatePercent'],
+      ['environmentalAdaptability', 'co2Ppm'],
+      ['operability', 'operationMinutes'],
+      ['maintainability', 'mttrHours'],
+      ['costEfficiency', 'economicProductivity'],
+      ['safety', 'emergencyStopPerHour'],
+      ['dataUtilization', 'dataCoveragePercent'],
+      ['durability', 'mtbfHours'],
+    ] as const;
+    await alignBrowserClock(page);
+    for (const [viewpointId, indicator] of viewpoints) {
+      await openAs(page, `/viewpoints/${viewpointId}/criteria`);
+      await expect(card(page, indicator).getByRole('slider').first()).toBeVisible();
+      await expect(page.getByTestId(`zone-current-${indicator}`)).toBeVisible();
+      await expect(meta(page, indicator, 0)).toContainText('変更なし');
+    }
+  });
+
+  test('下限型の満足度（総合満足度）も、同じ部品で編集できる。満足度の詳細から入り、スライダーで注意下限を 3.5 にすると、総合満足度 3.9 は正常になる（Issue #359）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, satisfactionData([4, 4, 4, 4, 4, 4, 4, 4, 3]));
+    await alignBrowserClock(page);
+    await openAs(page, '/satisfaction');
+    await expect(page.getByTestId('overall-score')).toHaveText('3.9');
+    await expect(page.locator('.overall .status-badge')).toContainText('注意');
+    await expect(page.getByTestId('criteria-state')).toHaveText('既定値');
+
+    // 満足度の詳細の「判断基準を編集」から、判断基準の編集へ
+    await page.getByRole('link', { name: '判断基準を編集' }).click();
+    await expect(page.getByRole('heading', { name: /判断基準の編集/, level: 1 })).toBeVisible();
+    const overall = card(page, 'overallSatisfaction');
+    await expect(overall.getByRole('slider', { name: '注意下限のスライダー' })).toHaveValue('4');
+    await expect(meta(page, 'overallSatisfaction', 0)).toHaveText(
+      '目安の範囲: 1〜5現在値: 4変更後: 4（変更なし）',
+    );
+    await overall.getByRole('slider', { name: '注意下限のスライダー' }).fill('3.5');
+    await expect(overall.getByLabel('注意下限（未満で注意）')).toHaveValue('3.5');
+    await expect(page.getByTestId('zone-after-overallSatisfaction')).toBeVisible();
+    await shot(page, testInfo, 'uc19-satisfaction-slider');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+
+    // 満足度の詳細へ戻ると、変更済みで、総合満足度は、変更後の基準で、正常
+    await page.getByRole('link', { name: '観点の詳細へ戻る' }).click();
+    await expect(page).toHaveURL(/\/satisfaction$/);
+    await expect(page.locator('.overall .status-badge')).toContainText('正常');
+    await expect(page.getByTestId('criteria-state')).toContainText('変更済み');
+    await expect(page.getByRole('list', { name: '判断基準' })).toContainText('3.5以上');
+  });
+
+  test('編集の権限がなければ、スライダーは操作できない（無効）。現在値・帯は見える', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await addUser(request, VIEWER);
+    await openCriteria(page, 'harvestAccuracy', VIEWER);
+
+    const sliders = card(page, 'marketableFruitRatePercent').getByRole('slider');
+    await expect(sliders).toHaveCount(2);
+    for (const index of [0, 1]) {
+      await expect(sliders.nth(index)).toBeDisabled();
+    }
+    await expect(page.getByTestId('zone-current-marketableFruitRatePercent')).toBeVisible();
+  });
+
+  for (const viewport of [
+    { name: 'デスクトップ幅（1280px）', width: 1280, height: 900 },
+    { name: 'タブレット幅（768px）', width: 768, height: 1024 },
+    { name: 'スマートフォン幅（375px）', width: 375, height: 800 },
+  ]) {
+    test(`${viewport.name}: スライダー・数値の欄・目安・帯が、はみ出さず、押せる大きさで、並ぶ`, async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      await seed(request, environmentData({ temperature: 15 }));
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await openCriteria(page, 'environmentalAdaptability');
+      await slider(page, 'temperatureCelsius', '正常下限のスライダー').fill('20');
+
+      await expectNoPageOverflow(page);
+      // スライダー・数値の欄は、潰れない（幅・高さ）
+      await expectNotCrushed(page, '.criterion-card .threshold-slider', {
+        minWidth: 90,
+        maxHeight: 60,
+      });
+      await expectNotCrushed(
+        page,
+        '.criterion-card .threshold-controls input:not([type="range"])',
+        {
+          minWidth: 70,
+          maxHeight: 60,
+        },
+      );
+      await expectNotCrushed(page, '.criterion-card .zone-bar', { minWidth: 200, maxHeight: 40 });
+      // スライダーは、指で押せる大きさ（高さ 44px 以上）
+      const box = await slider(page, 'temperatureCelsius', '異常上限のスライダー').boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await shot(page, testInfo, `uc19-slider-layout-${String(viewport.width)}`);
+    });
+  }
+});

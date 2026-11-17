@@ -462,9 +462,9 @@ textarea {
 }
 
 .criterion-card .form-grid {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  /* 入力欄の高さをそろえる（ラベルの行数が違っても、入力欄の位置がずれない） */
-  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  /* 入力の部品（ラベル・スライダー・数値の欄・目安）は、上端をそろえる（ラベルの行数が違っても、並びが乱れない） */
+  align-items: start;
 }
 
 .criterion-card legend {
@@ -474,6 +474,113 @@ textarea {
 
 .criteria-state {
   margin: 0 0 var(--space);
+}
+
+/* 判断基準の帯（正常・注意・異常の区分。#358）。区分は、色と文字で示す */
+.zone-bars {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.zone-bar-title {
+  margin: 0 0 2px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.zone-bar {
+  display: flex;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-control);
+  border-radius: 6px;
+}
+
+.zone-seg {
+  display: flex;
+  flex-basis: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  container-type: inline-size;
+}
+
+.zone-seg + .zone-seg {
+  border-left: 2px solid var(--color-surface);
+}
+
+.zone-normal {
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
+}
+
+.zone-caution {
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
+}
+
+.zone-error {
+  background: var(--status-error-soft);
+  color: var(--status-error-soft-on);
+}
+
+/* 幅の狭い区分は、文字を出さない（見切れた文字を出さない）。区分は、帯全体の説明（条件の文章）でも示す */
+@container (max-width: 2.5rem) {
+  .zone-seg-label {
+    display: none;
+  }
+}
+
+.zone-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+.zone-invalid {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* 閾値の入力（スライダーと数値の欄。#358） */
+.threshold-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.threshold-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(5rem, 8rem);
+  gap: 12px;
+  align-items: center;
+}
+
+/* 入力欄の共通の高さ（40px）より優先する（指で押せる大きさ 44px。詳細度を合わせ、あとに書く） */
+.threshold-controls input.threshold-slider[type='range'] {
+  width: 100%;
+  min-height: 44px;
+  accent-color: var(--color-primary);
+}
+
+.threshold-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.threshold-changed {
+  color: var(--color-text);
+  font-weight: 700;
 }
 
 /* 取り込み設定・状況 */

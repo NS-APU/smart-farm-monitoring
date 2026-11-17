@@ -80,6 +80,20 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
             ))}
           </ul>
         )}
+        {/* 総合満足度の判断基準（注意下限・異常下限）は、判断基準の編集（SC-13）で、他の観点と同じ部品で編集する（Issue #359） */}
+        <p className="criteria-edit-row">
+          <span
+            className={`tag ${detail.criteria.isDefault ? '' : 'tag-changed'}`}
+            data-testid="criteria-state"
+          >
+            {detail.criteria.isDefault
+              ? MESSAGES.viewpoint.criteriaDefault
+              : `${MESSAGES.viewpoint.criteriaChanged}（${MESSAGES.viewpoint.criteriaVersion}: ${detail.criteria.version}）`}
+          </span>
+          <Link className="panel-link" to={PATHS.criteria(detail.viewpointId)}>
+            {MESSAGES.viewpoint.editCriteria}
+          </Link>
+        </p>
         {detail.selected === null ? (
           <p className="state-view" role="status">
             {MESSAGES.viewpoint.notEvaluated}

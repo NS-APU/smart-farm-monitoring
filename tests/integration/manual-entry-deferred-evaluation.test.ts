@@ -31,6 +31,16 @@ function input(equipmentId: EquipmentId = ROBOT_ID) {
   };
 }
 
+/** 環境センサーへの入力（センサーに入力できるカテゴリは、環境情報だけ。Issue #360）。 */
+function sensorInput() {
+  return {
+    equipmentId: SENSOR_ID,
+    category: 'ENVIRONMENT' as const,
+    observedAt: new Date(TEST_NOW.getTime() - 3_600_000).toISOString(),
+    items: { temperatureCelsius: 25 },
+  };
+}
+
 async function savedCount(context: Awaited<ReturnType<typeof setup>>['context']) {
   return (await context.container.repositories.evaluations.listLatest(ROBOT_ID)).length;
 }
@@ -41,11 +51,7 @@ describe('評価を、保存の応答の前に行う（EVALUATION_ON_WRITE=sync�
     const service = context.container.manualEntryService;
 
     const created = await service.create(input(), ACTOR);
-    const updated = await service.update(
-      created.entry.entryId,
-      { ...input(), equipmentId: SENSOR_ID },
-      ACTOR,
-    );
+    const updated = await service.update(created.entry.entryId, sensorInput(), ACTOR);
     await service.delete(created.entry.entryId, ACTOR);
 
     expect(context.config.evaluationOnWrite).toBe('sync');
@@ -67,11 +73,7 @@ describe('評価を、保存の応答の前に行わない（EVALUATION_ON_WRITE
     const service = context.container.manualEntryService;
 
     const created = await service.create(input(), ACTOR);
-    const updated = await service.update(
-      created.entry.entryId,
-      { ...input(), equipmentId: SENSOR_ID },
-      ACTOR,
-    );
+    const updated = await service.update(created.entry.entryId, sensorInput(), ACTOR);
     await service.delete(created.entry.entryId, ACTOR);
 
     expect(context.config.evaluationOnWrite).toBe('deferred');

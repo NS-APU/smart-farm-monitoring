@@ -9,8 +9,10 @@ import {
   CATEGORY_LABELS,
   STATUS_CODE_ITEM_KEY,
   findItemDefinition,
+  manualCategoriesOfEquipmentType,
   type Category,
 } from '@smart-farm/shared/constants/items';
+import { EQUIPMENT_TYPE_LABELS } from '@smart-farm/shared/constants/status';
 import type { ManualEntrySortKey, SortDirection } from '@smart-farm/shared/constants/sorting';
 import {
   VIEWPOINT_IDS,
@@ -148,6 +150,18 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);
 
+  /** 対象の設備の種別に合わないカテゴリは、受けない（Issue #360。新しい入力・対象かカテゴリを変える修正だけ）。 */
+  function assertCategoryFitsEquipment(equipment: Equipment, category: Category): void {
+    if (!manualCategoriesOfEquipmentType(equipment.equipmentType).includes(category)) {
+      throw validationError([
+        {
+          name: 'category',
+          message: `このカテゴリ（${CATEGORY_LABELS[category]}）は、${EQUIPMENT_TYPE_LABELS[equipment.equipmentType]}には入力できません`,
+        },
+      ]);
+    }
+  }
+
   async function assertValid(input: ManualEntryInput): Promise<void> {
     const fields = validateManualEntry({ ...input, note: input.note ?? '' }, clock.now());
     // ステータスコードは、登録済み（削除していない）のコードだけ（#192）。値の形の誤りは、上で検出済み
@@ -283,7 +297,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     async create(input, actor, scope = ALL_EQUIPMENT) {
       await assertValid(input);
       assertInScope(scope, input.equipmentId);
-      await findActiveEquipment(input.equipmentId);
+      assertCategoryFitsEquipment(await findActiveEquipment(input.equipmentId), input.category);
       const entryId = ids.next();
       await assertNoConflict(input, entryId);
 
@@ -319,7 +333,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       const before = await findEntry(entryId, scope);
       await assertValid(input);
       assertInScope(scope, input.equipmentId);
-      await findActiveEquipment(input.equipmentId);
+      const equipment = await findActiveEquipment(input.equipmentId);
+      // 対象・カテゴリを変えないなら、既存の組み合わせは、そのまま修正できる
+      if (before.equipmentId !== input.equipmentId || before.category !== input.category) {
+        assertCategoryFitsEquipment(equipment, input.category);
+      }
       await assertNoConflict(input, entryId);
 
       const entry: ManualEntry = {

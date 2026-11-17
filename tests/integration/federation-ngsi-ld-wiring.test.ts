@@ -11,7 +11,7 @@ import type {
   NgsiLdTransport,
 } from '../../src/backend/infrastructure/http/ngsi-ld-http-transport.ts';
 import { toUserId } from '../../src/shared/schemas/common.ts';
-import { FACILITY_ID, ROBOT_ID } from '../support/builders.ts';
+import { ROBOT_ID } from '../support/builders.ts';
 import { TEST_USER, withEquipment } from '../support/test-context.ts';
 
 async function setup() {
@@ -87,7 +87,7 @@ describe('FEDERATION_MODE=ngsi-ld の組み立て', () => {
     const { context, store, requests } = await setup();
     await context.container.manualEntryService.create(
       {
-        equipmentId: FACILITY_ID,
+        equipmentId: ROBOT_ID,
         category: 'FAILURE',
         observedAt: '2026-10-09T02:05:00.000Z',
         items: { failureCount: 1 },

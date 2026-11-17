@@ -108,6 +108,8 @@ describe('データ入力（UC-06。SC-06）', () => {
     await screen.findByRole('button', { name: '保存する' });
     expect(screen.queryByTestId('entry-items')).toBeNull();
 
+    // カテゴリは、対象の設備の種別に合うものだけ選べる（Issue #360）。ロボットを選んでから、カテゴリを選ぶ
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
     fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
 
     const items = screen.getByTestId('entry-items');
@@ -127,6 +129,7 @@ describe('データ入力（UC-06。SC-06）', () => {
   it('自動取り込みの項目も、手動入力のカテゴリ（稼働情報・収穫情報）で選べる。1 果実あたりの収穫時間は、手動入力の範囲（0〜300）を示す（#192）', async () => {
     renderApp('/data-entry');
     await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
     expect(
       within(field('カテゴリ'))
         .getAllByRole('option')
@@ -968,5 +971,116 @@ describe('入力済みデータ・変更履歴の表の、狭い幅のカード�
     await screen.findAllByTestId('audit-row');
 
     expectCardLabels();
+  });
+});
+
+describe('データ入力: カテゴリは、対象の設備の種別に合うものだけ選べる（Issue #360）', () => {
+  function categoryOptions(container: HTMLElement = entryForm()): string[] {
+    return within(within(container).getByLabelText('カテゴリ', { exact: false }))
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+      .filter((text) => text !== '選択してください');
+  }
+
+  it('対象の設備を選ぶまでは、カテゴリを選べない（選択欄は無効）。先に設備を選ぶ旨を案内する', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: '' } });
+
+    expect((field('カテゴリ') as HTMLSelectElement).disabled).toBe(true);
+    expect(categoryOptions()).toEqual([]);
+    expect(
+      within(entryForm()).getByText(
+        '先に、対象の設備を選んでください（設備に合うカテゴリだけ選べます）',
+      ),
+    ).toBeDefined();
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    expect((field('カテゴリ') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it.each([
+    ['ハウス', 'HOUSE-01', ['満足度情報']],
+    [
+      'ロボット',
+      'ROBOT-01',
+      ['操作情報', '収穫情報', '稼働情報', 'ステータス', '安全情報', 'コスト情報', '故障情報'],
+    ],
+    ['環境センサー', 'SENSOR-01', ['環境情報']],
+  ])('%s を選ぶと、選べるカテゴリは、その種別のものだけ', async (_name, equipmentId, expected) => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+
+    fireEvent.change(field('対象の設備'), { target: { value: equipmentId } });
+
+    expect(categoryOptions()).toEqual(expected);
+  });
+
+  it('対象の設備を変えて、選んでいたカテゴリが選べなくなるときは、カテゴリと入力した値を空にして、その旨を案内する', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'SENSOR-01' } });
+
+    expect((field('カテゴリ') as HTMLSelectElement).value).toBe('');
+    expect(screen.queryByTestId('entry-items')).toBeNull();
+    expect(within(entryForm()).getByText(/カテゴリと入力値を空にしました/)).toBeDefined();
+    // 案内は、カテゴリを選ぶと消え、入力した値は、戻らない
+    fireEvent.change(field('カテゴリ'), { target: { value: 'ENVIRONMENT' } });
+    expect(within(entryForm()).queryByText(/カテゴリと入力値を空にしました/)).toBeNull();
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('');
+  });
+
+  it('設備を選び直さずに、同じ種別のままなら、カテゴリと入力した値を、そのまま残す', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+
+    expect((field('カテゴリ') as HTMLSelectElement).value).toBe('FAILURE');
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('3');
+    expect(within(entryForm()).queryByText(/カテゴリと入力値を空にしました/)).toBeNull();
+  });
+
+  it('直前に入力したカテゴリが、記憶した設備に合わないとき（以前の入力）は、カテゴリを空にする', async () => {
+    window.localStorage.setItem(
+      'smart-farm:last-entry-target',
+      JSON.stringify({ equipmentId: 'HOUSE-01', category: 'FAILURE' }),
+    );
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+
+    expect((field('対象の設備') as HTMLSelectElement).value).toBe('HOUSE-01');
+    expect((field('カテゴリ') as HTMLSelectElement).value).toBe('');
+    expect(categoryOptions()).toEqual(['満足度情報']);
+  });
+
+  it('修正: 以前の入力（ハウスの故障情報）は、そのカテゴリのまま修正できる。対象を、合わない種別へ変えると、カテゴリを空にする', async () => {
+    renderApp(
+      '/data-entry/list',
+      listRoutes([manualEntry({ equipmentId: toEquipmentId('HOUSE-01') })]),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('entry-edit');
+    const category = within(edit).getByLabelText<HTMLSelectElement>('カテゴリ', { exact: false });
+    const equipment = within(edit).getByLabelText<HTMLSelectElement>('対象の設備', {
+      exact: false,
+    });
+
+    expect(category.value).toBe('FAILURE');
+    expect(categoryOptions(edit)).toEqual(['満足度情報', '故障情報']);
+
+    fireEvent.change(equipment, { target: { value: 'SENSOR-01' } });
+
+    expect(category.value).toBe('');
+    expect(categoryOptions(edit)).toEqual(['環境情報']);
   });
 });
