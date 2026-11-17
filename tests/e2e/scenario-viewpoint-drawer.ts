@@ -12,7 +12,13 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { dashboardCard as card, openDashboard } from './support/pages.ts';
-import { mixedScenario, prepare, seed, shot } from './support/viewpoint-scenarios.ts';
+import {
+  mixedScenario,
+  prepare,
+  seed,
+  shot,
+  waitForDrawerSettled,
+} from './support/viewpoint-scenarios.ts';
 
 function drawer(page: Page, name: string) {
   return page.getByRole('dialog', { name });
@@ -42,7 +48,7 @@ test.describe('開く', () => {
     await expect(dialog.getByTestId('diagnosis')).toBeVisible();
     await expect(dialog.getByRole('heading', { name: /環境適応性/, level: 2 })).toBeVisible();
     await expect(dialog.getByRole('heading', { level: 1 })).toHaveCount(0);
-    await page.waitForTimeout(400); // 開く動き（0.2 秒）の終わりを待つ
+    await waitForDrawerSettled(page);
     const box = await dialog.boundingBox();
     expect(box?.width ?? 0).toBeCloseTo(880, 0);
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeCloseTo(1280, 0);
@@ -176,7 +182,7 @@ test.describe('閉じる（ダッシュボードの位置・状態が保たれ�
       await link.focus();
       await link.click();
       await expect(drawer(page, '安全性の詳細')).toBeVisible();
-      await page.waitForTimeout(400);
+      await waitForDrawerSettled(page);
 
       await close(page);
 
@@ -283,7 +289,7 @@ for (const viewport of [
 
       const dialog = drawer(page, '環境適応性の詳細');
       await expect(dialog.getByTestId('diagnosis')).toBeVisible();
-      await page.waitForTimeout(400);
+      await waitForDrawerSettled(page);
       const box = await dialog.boundingBox();
       expect(box?.x ?? -1).toBeCloseTo(0, 0);
       expect(box?.y ?? -1).toBeCloseTo(0, 0);

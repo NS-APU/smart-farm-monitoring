@@ -12826,4 +12826,5 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - 画面の CSP の確認（`pnpm test:csp`）: 3 件が成功
 - 負荷テスト（`pnpm test:stress`。空きポート）: 4 件が成功
 - 件数: E2E の `--list` は 894 件（879 件から +15）
+- **CI（Linux）での失敗と対応**: 初回の CI（`ci:full`）の E2E で、3 件が失敗した（`scenario-viewpoint-drawer.ts` のダーク、UC-04 の 2 件。いずれも、`shot` のレイアウト検査が、ドロワーのパネルを画面の外〔`out-of-viewport`〕と検出した）。原因は、ドロワーのスライドイン（0.2 秒）の途中で検査が走ったこと（手元では、速くて起きなかった）。期待値は緩めず、補助 `waitForDrawerSettled`（ドロワーのアニメーションの完了を待つ。`support/viewpoint-scenarios.ts`）を、`expectCleanLayout` と、ドロワーの位置を読む 3 か所〔`waitForTimeout(400)` の固定待ちを置き換え〕に入れた。手元で、アニメーションを 1.5 秒に遅くして、修正前は失敗し（`out-of-viewport`）、修正後は、ドロワー・UC-02・03・04・21 の 169 件が成功することを確認した（遅くした設定は戻した）
 - **未確認**: 開発サイトでの表示、実機（スマートフォン・タブレット）での見た目と操作（スクロールの固定・フォーカス）、スモークテスト（手元で実行していない）
