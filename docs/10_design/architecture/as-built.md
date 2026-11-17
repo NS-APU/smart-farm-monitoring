@@ -1082,7 +1082,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 | `auth/auth-context.tsx` | `AuthProvider`・`useAuth`。ログイン中の利用者（`user`）と、`ApiClient` を提供する                                                                                                                    |
 | `api/`                  | `client.ts`（`createApiClient`・`ApiError`）、`endpoints.ts`・`management-endpoints.ts`（エンドポイントごとの型つき呼び出し）、`paths.ts`（値を含むパスの組み立て）、`etag-cache.ts`（ETag のキャッシュ）、`session-storage.ts`                                                  |
 | `hooks/`                | `use-polling`（約 10 秒）・`use-query-params`・`use-horizon-selection`・`use-cursor-paging`・`use-submit`・`use-permission`・`use-media-query`                                                       |
-| `components/`           | 共通レイアウト・状態・表示部品（22 ファイル）。`app-layout`・`app-state`・`line-chart`・`radar-chart`・`chart-geometry`・`trend-section`・`manual-entry-form`・`criteria-table`・`status-badge` など |
+| `components/`           | 共通レイアウト・状態・表示部品（35 ファイル）。`app-layout`・`app-state`・`line-chart`・`radar-chart`・`chart-geometry`・`trend-section`・`manual-entry-form`・`criteria-table`・`status-badge`・`viewpoint-drawer`・`threshold-input`・`criterion-zone-bar` など |
 | `pages/`                | 画面（17 ファイル。うち `placeholder-page.tsx` は未使用）                                                                                                                                            |
 | `push/`                 | `browser-push.ts`（`PushBrowser`。サービスワーカー・Push API・Notification API の窓口）、`push-context.tsx`                                                                                          |
 | `i18n/`                 | `messages.ts`・`management-messages.ts`（日本語の固定文言。多言語の仕組みはない）                                                                                                                    |
@@ -2733,7 +2733,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 
 ### E2E（Playwright）
 
-- 全 E2E は、37 ファイル・894 件（UC ごと 25 ファイル・833 件、シナリオ 12 ファイル・61 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
+- 全 E2E は、38 ファイル・909 件（UC ごと 25 ファイル・841 件、シナリオ 13 ファイル・68 件。`playwright test --list`。test.spec.md 1.2）。結果は、CI（GitHub Actions。Linux）で、4 つのシャードに分けて実行し、**全件成功**（2026-11-09。PR #327 の CI。`ci:full`）。実行ごとの件数は、CI のログ・成果物（失敗時のみ）で確認する（`test-result/` には、全件の出力を残さない。`outputDir` は、実行のたびに上書きされる）
 - 負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件、同じ CI で成功（同日）
 
 ### Vitest の件数
