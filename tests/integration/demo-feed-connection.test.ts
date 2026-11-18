@@ -60,7 +60,7 @@ describe('接続先の URL の解析（parseDemoFeedUrl）', () => {
     ['https://demo-feed.example.com/robot/latest.json', 'パスがある'],
     ['https://demo-feed.example.com/?key=value', 'クエリがある'],
     ['https://demo-feed.example.com/#top', 'フラグメントがある'],
-    ['https://user:secret@demo-feed.example.com/', '認証情報がある'],
+    ['https://user:dummy-password@demo-feed.example.com/', '認証情報がある'],
     ['https://user@demo-feed.example.com/', 'ユーザー名がある'],
     ['https://demo feed.example.com/', 'ホストに空白がある'],
   ])('正しくない URL（%s。%s）は、設定エラーにする', (text) => {
