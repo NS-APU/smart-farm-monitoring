@@ -14,6 +14,7 @@ import { ROUTE_TABLE, routeKey } from '../../src/backend/presentation/route-tabl
 import { LOGIN_FAILURE_LIMIT } from '../../src/backend/infrastructure/local/local-auth.ts';
 import { createJsonLogger } from '../../src/backend/infrastructure/logging/json-logger.ts';
 import { FACILITY_ID, observation, SENSOR_ID } from '../support/builders.ts';
+import { HTTP_FILES_ENV, useHttpFileServer } from '../support/http-test-files.ts';
 import {
   addUserAndLogin,
   createTestContext,
@@ -34,9 +35,9 @@ function json(body: unknown): RequestInit {
 
 describe('共通事項', () => {
   it('ヘルスチェックは認証なしで応答し、外部の状態に依存しない', async () => {
-    const context = await createTestContext();
+    const context = await useHttpFileServer(await createTestContext({ env: HTTP_FILES_ENV }));
     context.container.dev?.faults.federation.set({ mode: 'DOWN' });
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
 
     const response = await context.app.request('/health');
 
@@ -822,6 +823,7 @@ describe('開発用 API（ローカル・テストのみ）', () => {
     expect(missing.status).toBe(404);
   });
 
+  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）。開発用 API（/dev/mocks/file-server）による、モックのファイルサーバーの停止の切り替え
   it('モック（ファイルサーバー・農業情報基盤・Web Push）の停止・遅延を再現できる', async () => {
     const context = await withEquipment();
     const token = await context.login();
