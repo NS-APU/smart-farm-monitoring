@@ -1,6 +1,6 @@
 # ADR-0025 デモの取り込みを、HTTP のファイル配信（Lambda の Function URL）に置き換える（#344）
 
-- ステータス: 承認（2026-11-18。Issue #344）。実装は 3 つの PR に分ける（下の「決定」の 4）。PR 1 は、追加のみ（このADRの 1〜3）。**PR 3 のマージで、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md) の「ファイルサーバーのモックの S3 版」「合成データの定期生成」は、このADRに置換する**（デモデータの投入・リセットは、ADR-0012 のまま）
+- ステータス: 承認（2026-11-18。Issue #344）。実装は 3 つの PR に分ける（下の「決定」の 4）。PR 1 は、追加のみ（このADRの 1〜3）。PR 3b（MOCK の接続方式の廃止）まで、実装した。**PR 3 により、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md) の「ファイルサーバーのモックの S3 版」「合成データの定期生成」は、このADRに置換する**（デモデータの投入・リセットは、ADR-0012 のまま）
 - 日付: 2026-11-18
 - 関連: [ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)（置換の対象）、[ADR-0013](./0013-environments-and-access-control.md)（本番サイトにデモを作らない）、[ADR-0022](./0022-file-server-http-connection-provisional.md)・[ADR-0023](./0023-http-file-source-per-equipment-file.md)（HTTP の接続・設備ごとのファイルパス）、[security.md](../../20_development/security.md)、Issue #344・#367
 
@@ -42,7 +42,7 @@
 | PR 2a | 結合テストを、HTTP のテスト用ファイルサーバーに置き換える（共通の補助を作る）。MOCK は、まだ残す。MOCK 専用の観点（ディレクトリがない・60 秒の遅延など）のテストは、MOCK のまま残し、PR 3 で削除する |
 | PR 2b | E2E・負荷テストを、HTTP のテスト用ファイルサーバーに置き換える。負荷テストの大量実行は、専用のハウスに、設備（ロボット 20・センサー 10）を追加して、設備ごとに 1 ファイル（1 ファイルの記録数を増やして、処理する記録の総数を保つ。設備の追加は、1 台ごとに評価の更新が走り、台数が多いと時間がかかるため）。MOCK は、まだ残す |
 | PR 3a | S3 のバケット・S3 に置くデモ用 Lambda・EventBridge のルール・それらの出力と権限、S3 のファイルソース・バケットを空にする処理、`FILE_SERVER_S3_BUCKET`、依存 `@aws-sdk/client-s3` を削除する（アプリの動作は変わらない。ADR-0012 の「S3 版」「定期生成」を置換する） |
-| PR 3b | MOCK の接続方式（ディレクトリのモック・型・既定・画面）・開発用 API の `/dev/mocks/file-server`・MOCK 用の分岐・`FILE_SERVER_DIR` を削除する。接続が未設定の取り込み元を扱えるようにし、保存済みの `MOCK` の設定は、読み出すときに未設定に読み替える。ローカルでデモ用の配信を起動するコマンド（`pnpm dev:demo-feed`）を足す |
+| PR 3b（実装済み） | MOCK の接続方式（ディレクトリのモック `local/mock-file-server.ts`・型・既定・画面の「接続方式」の選択）・開発用 API の `/dev/mocks/file-server`（残るのは federation・web-push）・MOCK 用の分岐・`FILE_SERVER_DIR` を削除する。接続方式は HTTP の 1 つだけ。取り込み元の `connection` は省略可（未設定が既定）で、保存済みの `MOCK` の設定は、読み込むときに未設定に読み替える（移行しない）。接続が未設定の取り込み元は、接続テストが失敗し、一覧は、取得の対象の設備がなければ 0 件・あれば失敗、取得は NOT_FOUND。自動取り込み・即時取得の対象は、ファイルのパスを持つ設備だけ。ローカルでデモ用の配信を 127.0.0.1 で起動するコマンド（`pnpm dev:demo-feed`。既定ポート 8790。`--port`・環境変数 `DEMO_FEED_PORT`）を足す。テストは、HTTP のテスト用ファイルサーバーに一本化し、MOCK 専用のテストは削除する |
 
 ## 検討した選択肢
 
