@@ -665,7 +665,7 @@ D-08（変わった分だけ取り込む。#174・#199）と、認証情報の�
 | IaC・CI/CD | **AWS CDK（TypeScript）**（[ADR-0006](../adr/0006-iac-cdk-and-same-origin-delivery.md)。`infra/`）。デプロイは GitHub Actions + OIDC（手動実行から）。画面は S3 + CloudFront、API は Lambda の関数の URL を、CloudFront の同じオリジンで配信する | Amplify Gen 2、Terraform、CloudFormation、手順書 | aws-cdk-lib 2.273系・aws-cdk（CLI）2.1145系（実装で確認した版） |
 | 認証 | Amazon Cognito（AuthPort のアダプタ。[ADR-0008](../adr/0008-cognito-authentication.md)。実装済み。実際の Cognito で、手元のバックエンドから確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | アプリ内の認証（代替の1台の構成） | - |
 | AWS SDK | AWS SDK for JavaScript v3（バックエンドの本番のアダプタ。DynamoDB: `@aws-sdk/client-dynamodb`・`lib-dynamodb`、Cognito: `client-cognito-identity-provider`、S3（ファイルサーバーのモック）: `client-s3`） | - | 3.1147〜3.1148 系（ロックファイルで固定） |
-| Lambda のコードのまとめ | esbuild の JS API で、API・ジョブ・合成データ生成の Lambda を、それぞれ 1 ファイルにまとめる（`infra/lib/bundle-lambda.ts`。ADR-0006） | CDK の `NodejsFunction`（Windows で失敗するため） | esbuild 0.28 系 |
+| Lambda のコードのまとめ | esbuild の JS API で、API・ジョブ・合成データ生成・デモ用の HTTP 配信の Lambda を、それぞれ 1 ファイルにまとめる（`infra/lib/bundle-lambda.ts`。ADR-0006） | CDK の `NodejsFunction`（Windows で失敗するため） | esbuild 0.28 系 |
 | コンテナ | Docker（ローカルの開発・テスト用のエミュレータの実行。代替の1台の構成では、本番にも使う） | - | 最新の安定版 |
 | リバースプロキシ | 代替の1台の構成でのみ（Caddy または nginx）。基本構成では不要 | - | - |
 | パッケージ管理 | pnpm | npm、pip/uv | 最新の安定版（実装の開始時に確認。メジャーバージョンの更新では、互換性を確認する） |

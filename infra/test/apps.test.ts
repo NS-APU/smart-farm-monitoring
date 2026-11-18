@@ -290,8 +290,10 @@ describe('CDK アプリの組み立て', () => {
 
     expect(development.demoIds.length).toBeGreaterThan(0);
     expect(development.outputs).toContain('DemoFeedFunctionName');
+    expect(development.outputs).toContain('DemoFeedUrl');
     expect(production.demoIds).toEqual([]);
     expect(production.outputs).not.toContain('DemoFeedFunctionName');
+    expect(production.outputs).not.toContain('DemoFeedUrl');
     // ファイルサーバーのモックのバケット（空のまま）は、どちらにもある（Lambda の取り込みの失敗を避ける）
     expect(production.outputs).toContain('FileServerBucketName');
     expect(production.buckets).toBe(development.buckets);

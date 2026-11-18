@@ -7,6 +7,7 @@ import { Capture, Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { describe, expect, it } from 'vitest';
 import {
+  DEMO_FEED_HTTP_TIMEOUT_SECONDS,
   DEMO_FEED_INTERVAL_MINUTES,
   DEMO_FEED_SOURCE_IDS,
   DEMO_FEED_TIMEOUT_SECONDS,
@@ -366,8 +367,8 @@ describe('評価環境のスタック: API（Lambda の関数の URL）', () => 
       Properties: { RetentionInDays?: number };
     }[];
 
-    // API・ジョブ（Issue #76）・合成データの生成（Issue #77）・画面の配置（BucketDeployment）の補助の 4 つ。増えたときは、保持期間を絞り忘れていないか確認する
-    expect(logGroups).toHaveLength(4);
+    // API・ジョブ（Issue #76）・合成データの生成（Issue #77）・デモ用の HTTP 配信（Issue #344）・画面の配置（BucketDeployment）の補助の 5 つ。増えたときは、保持期間を絞り忘れていないか確認する
+    expect(logGroups).toHaveLength(5);
     for (const logGroup of logGroups) {
       expect(logGroup.Properties.RetentionInDays).toBe(30);
       expect(logGroup.DeletionPolicy).toBe('Delete');
@@ -1033,6 +1034,81 @@ describe('評価環境のスタック: 合成データを定期的に生成す�
   it('関数名を出力する（動作の確認で、ログを探すため）', () => {
     const { template } = plainStack();
     template.hasOutput('DemoFeedFunctionName', {});
+  });
+});
+
+describe('評価環境のスタック: デモ用の HTTP ファイル配信（Issue #344。ADR-0025）', () => {
+  interface HttpFunctionJson {
+    Properties: {
+      Environment?: { Variables: Record<string, unknown> };
+      Handler: string;
+      Timeout: number;
+    };
+  }
+
+  function demoFeedHttpFunction(template: Template): { logicalId: string; json: HttpFunctionJson } {
+    const resources = template.findResources('AWS::Lambda::Function') as Record<
+      string,
+      HttpFunctionJson
+    >;
+    const entry = Object.entries(resources).find(([logicalId]) =>
+      logicalId.startsWith('DemoFeedHttpFunction'),
+    );
+    if (entry === undefined) {
+      throw new Error('デモ用の HTTP 配信の Lambda がありません');
+    }
+    return { logicalId: entry[0], json: entry[1] };
+  }
+
+  it('関数は、Node.js 24・ARM・小さいメモリで、タイムアウトは短い。環境変数を持たない（S3・DynamoDB・秘密情報を、使わない）', () => {
+    const { template } = plainStack();
+
+    const { json } = demoFeedHttpFunction(template);
+
+    expect(json.Properties.Handler).toBe('index.handler');
+    expect(json.Properties.Timeout).toBe(DEMO_FEED_HTTP_TIMEOUT_SECONDS);
+    expect(json.Properties.Environment).toBeUndefined();
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'nodejs24.x',
+      Architectures: ['arm64'],
+      MemorySize: 256,
+      Timeout: DEMO_FEED_HTTP_TIMEOUT_SECONDS,
+    });
+  });
+
+  it('IAM は、基本の実行ロールだけ: 追加の権限（S3・DynamoDB・Secrets Manager・パラメータストアなど）を、付けない', () => {
+    const { template } = plainStack();
+
+    expect(roleStatements(template, 'DemoFeedHttpFunction')).toEqual([]);
+  });
+
+  it('Function URL は、認証なし（公開の URL）で、この関数だけに向く。呼び出しの許可も、この関数だけ', () => {
+    const { template } = plainStack();
+    const { logicalId } = demoFeedHttpFunction(template);
+
+    const urls = Object.values(
+      template.findResources('AWS::Lambda::Url', { Properties: { AuthType: 'NONE' } }) as Record<
+        string,
+        { Properties: { TargetFunctionArn: unknown } }
+      >,
+    ).filter((url) => JSON.stringify(url.Properties.TargetFunctionArn).includes(logicalId));
+    expect(urls).toHaveLength(1);
+    const permissions = Object.values(
+      template.findResources('AWS::Lambda::Permission', {
+        Properties: { Action: 'lambda:InvokeFunctionUrl', FunctionUrlAuthType: 'NONE' },
+      }) as Record<string, { Properties: { FunctionName: unknown } }>,
+    ).filter((permission) =>
+      JSON.stringify(permission.Properties.FunctionName).includes(logicalId),
+    );
+    expect(permissions).toHaveLength(1);
+  });
+
+  it('URL を出力する（pnpm demo-data use-http-feed に指定するため）。URL の値は、テンプレートに書かない（デプロイ時に決まる）', () => {
+    const { template } = plainStack();
+
+    template.hasOutput('DemoFeedUrl', {});
+    const outputs = (template.toJSON() as { Outputs: Record<string, { Value: unknown }> }).Outputs;
+    expect(JSON.stringify(outputs.DemoFeedUrl?.Value)).toContain('FunctionUrl');
   });
 });
 
