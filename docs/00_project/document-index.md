@@ -57,6 +57,7 @@
 | | [0022-file-server-http-connection-provisional.md](../10_design/adr/0022-file-server-http-connection-provisional.md) | ADR-0022 ファイルサーバーの接続（HTTP）の暫定設計（#172。設定の項目・接続テスト・内部のアドレスの拒否・Lambda からのアクセス手段の比較。承認） |
 | | [0023-http-file-source-per-equipment-file.md](../10_design/adr/0023-http-file-source-per-equipment-file.md) | ADR-0023 HTTP のファイルサーバーの取得を、設備ごとのファイルパスで行う（#119。設備のファイルパス・HTTP の一覧・取得・接続テストの動作。承認） |
 | | [0024-agri-platform-federation-ngsi-ld.md](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) | ADR-0024 農業情報基盤との連携を、NGSI-LD（Orion-LD）の upsert で行う（#176。データモデル・設定・認証なし・停止中の運用） |
+| | [0025-demo-http-file-feed.md](../10_design/adr/0025-demo-http-file-feed.md) | ADR-0025 デモの取り込みを、HTTP のファイル配信（Lambda の Function URL）に置き換える（#344。認証なし・合成データだけ・3 つの PR に分ける） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |

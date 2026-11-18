@@ -191,6 +191,7 @@ $env:FILE_SERVER_S3_BUCKET = ($evaluation | Where-Object { $_.OutputKey -eq 'Fil
 
 pnpm demo-data seed          # 投入する（設備がすでにあれば、何もしない）。合成データは直近 3 日分
 pnpm demo-data seed --days 30   # 合成データを 30 日分にする（1 か月分の推移の実測用。1〜31。既定は 3）
+pnpm demo-data use-http-feed --url "<DemoFeedUrl の値>"   # 取り込みを、デモ用の HTTP 配信に向ける（#344。ADR-0025）。環境変数 DEMO_FEED_URL でも指定できる。seed にも --url を付けられる。値は、チャット・Issue・PR に貼らない
 pnpm demo-data reset         # 何も消さず、消す対象の件数を示す
 pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す。S3 のファイルも消す）
 

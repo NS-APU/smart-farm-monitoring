@@ -213,6 +213,8 @@
 
 **デモのための合成データの生成（Issue #77。ADR-0012）**: ジョブ（JB-01〜JB-04）とは別に、擬似のロボット・環境センサーの Lambda（`runtime/demo-feed-lambda.ts`）を、EventBridge の 1 つのルールが 15 分ごとに起動し、ファイルサーバーのモックの S3（`robot/`・`environment-sensor/`）に、合成データのファイル（直近 4 区間の分。同じ区間は同じ内容）を置く。取り込み（JB-01）が、それを読む。S3 への書き込みだけの権限（DynamoDB・Cognito は使わない）。ファイルは、バケットの設定で、3 日で消える。
 
+**デモ用の HTTP ファイル配信（Issue #344。ADR-0025）**: 上とは別に、専用の Lambda（`runtime/demo-feed-http-lambda.ts`）に、認証なしの Function URL を付け（開発サイトだけ）、`GET`・`HEAD` で、取り込み元ごとのファイル（`/robot/latest.json`・`/environment-sensor/latest.json`）を、**リクエストごとに**、現在の時刻から作って返す（`Last-Modified` は、現在の区間の開始。保管しない）。権限・環境変数は持たない（S3・DynamoDB・Cognito・秘密情報を使わない）。デモの設備には `sourceFilePath` を持たせ、`pnpm demo-data use-http-feed` で、取り込み元の接続を HTTP にする。MOCK・S3 の定期生成は、#344 の PR 3 まで残す（ADR-0025 の 4）。出力 `DemoFeedUrl`。
+
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
 
 ## 技術スタックの実際の版

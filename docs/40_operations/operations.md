@@ -118,7 +118,7 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
 | スタック | 中身 | 備考 |
 |----------|------|------|
 | `SfmData` | DynamoDB のテーブル 2 つ・Cognito のユーザープール | 状態を持つ。削除の保護あり。評価環境の更新・削除では、消えない |
-| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName`・`JobFunctionName`・`DemoFeedFunctionName`・`FileServerBucketName` |
+| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName`・`JobFunctionName`・`DemoFeedFunctionName`・`DemoFeedUrl`（開発サイトだけ。デモ用の HTTP 配信の URL。ADR-0025）・`FileServerBucketName` |
 | `SfmGithubOidc` | GitHub Actions 用のロール | 初回に 1 回だけ作る |
 
 `deploy` は、`SfmData` → `SfmEvaluation` の順に更新する（Lambda が、`SfmData` の出力を使うため）。
@@ -163,10 +163,11 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
   5. Cognito のユーザープールを削除する（コンソールで、削除の保護を無効にして削除）
   6. 再作成する（GitHub Actions の「Deploy development」。**`SiteUrl` は、新しくなる**）。新しいテーブル名・ユーザープールの ID・`SiteUrl` を、控える
   7. 最初のユーザーを作る（7.4）
-  8. デモデータを投入する（`pnpm demo-data seed`）。生成の Lambda（15 分ごと）・取り込みは、そのまま動く
+  8. デモデータを投入する（`pnpm demo-data seed`）。生成の Lambda（15 分ごと）・取り込みは、そのまま動く。デモの取り込みを HTTP の配信に向けるときは、続けて `pnpm demo-data use-http-feed`（下の「デモ用の HTTP 配信」。ADR-0025）
 - **デモデータの投入・リセット**（ユーザーを残して、データだけを作り直す）: 手元で、`pnpm demo-data` を実行する（[commands.md](../00_project/commands.md) の「デモデータの投入とリセット」。ADR-0012）。本番の組み立て（`APP_MODE=production`）は、`SEED_MODE`・開発用 API を使えないため、別の入口とした。
   - `pnpm demo-data seed`: デモの設備・直近 3 日分の合成データ・評価を投入する。設備がすでにあれば、何もしない
   - `pnpm demo-data reset`: **何も消さず**、消す対象の件数を示す。`pnpm demo-data reset --yes` で、ユーザー・ログインの試行回数の記録・ジョブのロック以外の全データと、S3 のファイルを消す（**元に戻せない**。必要なら、先に、オンデマンドバックアップを取る。[backup-restore.md](./backup-restore.md)）
+  - `pnpm demo-data use-http-feed --url <DemoFeedUrl の値>`（または環境変数 `DEMO_FEED_URL`。`seed` にも `--url` を付けられる）: **取り込みを、デモ用の HTTP 配信に向ける**（ADR-0025。#344）。取り込み元（ロボット・環境センサー）の接続を HTTP（認証なし）にし、デモの設備（`ROBOT-01`・`SENSOR-01`）にファイルのパスを設定する。何度実行しても同じ。デモの設備がなければ、先に `seed`。URL（スタックの出力 `DemoFeedUrl`）は、チャット・Issue・PR に貼らない。実行後、SC-11 の「接続テスト」と「即時取得」で、確認する（Function URL が `HEAD` に `Last-Modified` つきで応答することは、実際の環境で、未確認）。取り込み元を MOCK に戻すときは、SC-11 の接続設定で「ファイルサーバーのモック」を選ぶ（#344 の PR 3 まで）
   - 消したあとは、`seed` で投入し直す。評価の直前に、`reset --yes` → `seed` で、最新の状態にできる
   - 投入したデータの鮮度は、**合成データを定期的に生成する Lambda**（擬似のロボット・環境センサー。15 分ごとに、S3 に新しいファイルを置き、取り込み（JB-01）が読む）が保つ。`reset` のあとも、この Lambda は動き続ける（消した S3 のファイルは、次の実行で、直近 4 区間の分が、再び置かれる）。**`reset` と `seed` は、続けて実行する**（設備がない間に取り込みが走ると、その区間のファイルは、設備が見つからないとして棄却され、取り込み済みの扱いになる）
   - 生成を止めたいとき（デモを使わない期間）: EventBridge のルール（ロジカル ID が `ScheduleDemoFeed` で始まるもの）を、AWS のコンソールで無効にする（CloudFormation は、手で変えた状態を、自動では戻さない。再び動かすときは、同じ場所で有効にする）
