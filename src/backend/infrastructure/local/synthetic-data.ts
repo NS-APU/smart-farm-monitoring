@@ -10,6 +10,7 @@ import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
+import { DEMO_FEED_FILE_PATHS } from '../../application/demo/demo-feed-schedule.ts';
 
 const DEMO_FACILITY_ID = toEquipmentId('HOUSE-01');
 export const DEMO_ROBOT_ID = toEquipmentId('ROBOT-01');
@@ -34,6 +35,7 @@ export function buildDemoEquipment(createdAt: Date): Equipment[] {
       name: '収穫ロボット1',
       facilityId: DEMO_FACILITY_ID,
       externalId: DEMO_ROBOT_EXTERNAL_ID,
+      sourceFilePath: DEMO_FEED_FILE_PATHS.robot,
       isDeleted: false,
       createdAt: timestamp,
     },
@@ -43,6 +45,7 @@ export function buildDemoEquipment(createdAt: Date): Equipment[] {
       name: '環境センサー1',
       facilityId: DEMO_FACILITY_ID,
       externalId: DEMO_SENSOR_EXTERNAL_ID,
+      sourceFilePath: DEMO_FEED_FILE_PATHS['environment-sensor'],
       isDeleted: false,
       createdAt: timestamp,
     },

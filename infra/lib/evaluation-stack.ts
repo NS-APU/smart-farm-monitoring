@@ -46,6 +46,7 @@ import {
   Architecture,
   Function as LambdaFunction,
   FunctionUrlAuthType,
+  type FunctionUrl,
   Runtime,
 } from 'aws-cdk-lib/aws-lambda';
 import { RetentionDays, LogGroup } from 'aws-cdk-lib/aws-logs';
@@ -56,6 +57,7 @@ import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
 import {
+  DEMO_FEED_HTTP_TIMEOUT_SECONDS,
   DEMO_FEED_INTERVAL_MINUTES,
   DEMO_FEED_SOURCE_IDS,
   DEMO_FEED_TIMEOUT_SECONDS,
@@ -413,6 +415,8 @@ export class EvaluationStack extends Stack {
     // 合成データの生成（デモ）の Lambda とルール。開発サイトだけ（includeDemoFeed）。本番サイトは、作らない（Issue #117）
     const demoFeedFunction =
       props.includeDemoFeed === false ? undefined : this.createDemoFeed(fileServerBucket);
+    // デモ用の HTTP ファイル配信（Function URL）。開発サイトだけ（Issue #344。ADR-0025）
+    const demoFeedUrl = props.includeDemoFeed === false ? undefined : this.createDemoFeedHttp();
 
     const spaRewrite = new CloudFrontFunction(this, 'SpaRewrite', {
       code: FunctionCode.fromInline(SPA_REWRITE_CODE),
@@ -533,10 +537,42 @@ export class EvaluationStack extends Stack {
     if (demoFeedFunction !== undefined) {
       new CfnOutput(this, 'DemoFeedFunctionName', { value: demoFeedFunction.functionName });
     }
+    if (demoFeedUrl !== undefined) {
+      new CfnOutput(this, 'DemoFeedUrl', {
+        value: demoFeedUrl.url,
+        description:
+          'デモ用の HTTP ファイル配信の URL（合成データだけ。認証なし。pnpm demo-data use-http-feed --url に指定する。ADR-0025）',
+      });
+    }
     new CfnOutput(this, 'FileServerBucketName', {
       value: fileServerBucket.bucketName,
       description: 'ファイルサーバーのモック（合成データ）のバケット',
     });
+  }
+
+  /**
+   * デモ用の HTTP ファイル配信の Lambda と、Function URL（Issue #344。ADR-0025）。取り込み（JB-01）の HTTP アダプタが、設備ごとの
+   * `sourceFilePath` に `HEAD`・`GET` する先。リクエストごとに、現在の時刻から、合成データのファイルを作って返す。
+   * **権限は付けない**: S3・DynamoDB・Cognito・秘密情報を、使わない（実行ロールの基本の権限〔ログの出力〕だけ）。返すのは、合成データだけ。
+   * Function URL は、認証なし（公開の URL）。取り込みの接続先は、公開の FQDN が必要なため（HTTP_FILE_SOURCE_ALLOW_PRIVATE は、
+   * 本番の組み立てでは、無効）。呼び出しの量は、取り込みの周期（15 分ごと・設備ごとに HEAD・GET）だけ。
+   */
+  private createDemoFeedHttp(): FunctionUrl {
+    const demoFeedHttpFunction = new LambdaFunction(this, 'DemoFeedHttpFunction', {
+      code: bundledLambdaCode(
+        join(import.meta.dirname, '../../src/backend/runtime/demo-feed-http-lambda.ts'),
+      ),
+      handler: 'index.handler',
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(DEMO_FEED_HTTP_TIMEOUT_SECONDS),
+      logGroup: new LogGroup(this, 'DemoFeedHttpLogGroup', {
+        retention: RetentionDays.ONE_MONTH,
+        removalPolicy: RemovalPolicy.DESTROY,
+      }),
+    });
+    return demoFeedHttpFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
   }
 
   /** 合成データを定期的に生成する Lambda と、EventBridge のルール（デモ。開発サイトだけ）。 */

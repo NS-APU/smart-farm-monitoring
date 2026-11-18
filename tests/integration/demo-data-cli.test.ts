@@ -5,6 +5,7 @@
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
+import { EquipmentSchema, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { KEPT_PARTITIONS } from '../../src/backend/infrastructure/dynamodb/data-reset.ts';
 import { createJobLock } from '../../src/backend/infrastructure/dynamodb/job-lock.ts';
@@ -23,6 +24,13 @@ import {
 afterAll(dropDynamoTestTables);
 
 const BUCKET = 'dummy-file-server';
+
+/** ファイルのパスを持たない設備（開発サイトの、以前に投入したデモの設備）にする。 */
+function withoutSourceFilePath(equipment: Equipment): Equipment {
+  return EquipmentSchema.parse(
+    Object.fromEntries(Object.entries(equipment).filter(([key]) => key !== 'sourceFilePath')),
+  );
+}
 
 function output() {
   const lines: string[] = [];
@@ -46,12 +54,18 @@ async function setup(withBucket = true) {
   };
   // 結果の確認用の、コマンドとは別のコンテナ
   const container = createContainer(parseConfig({ ...env, AWS_REGION: 'ap-northeast-1' }));
-  const run = (args: string[], overrides: Parameters<typeof runDemoDataCli>[3] = {}) => {
+  const run = (
+    args: string[],
+    overrides: Parameters<typeof runDemoDataCli>[3] = {},
+    extraEnv: Record<string, string> = {},
+  ) => {
     const out = output();
-    return runDemoDataCli(args, env, out, { s3Client: s3, ...overrides }).then((exitCode) => ({
-      exitCode,
-      lines: out.lines,
-    }));
+    return runDemoDataCli(args, { ...env, ...extraEnv }, out, { s3Client: s3, ...overrides }).then(
+      (exitCode) => ({
+        exitCode,
+        lines: out.lines,
+      }),
+    );
   };
   const counts = async () => ({
     equipment: (await container.repositories.equipment.list({ includeDeleted: true })).length,
@@ -162,6 +176,129 @@ describe('pnpm demo-data seed', () => {
     expect(out.lines[0]).toContain('PERSISTENCE=dynamodb');
     expect(out.lines[1]).toContain('使い方: pnpm demo-data seed');
     expect(out.lines[2]).toContain('使い方: pnpm demo-data seed');
+  });
+});
+
+describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344。ADR-0025）', () => {
+  const FEED_URL = 'https://demo-feed.example.com/';
+  const APPLIED = '取り込みを、デモ用の HTTP 配信に向けました';
+
+  async function robotSourceConnection(container: Awaited<ReturnType<typeof setup>>['container']) {
+    const sources = await container.ingestionSettings.listSources();
+    return sources.map((source) => [source.sourceId, source.connection] as const);
+  }
+
+  it('seed のあとに、取り込み元の接続を HTTP にする（--url）。接続先は、出力しない。何度実行しても、同じ', async () => {
+    const { run, container } = await setup();
+    await run(['seed']);
+
+    const first = await run(['use-http-feed', '--url', FEED_URL]);
+    const second = await run(['use-http-feed', '--url', FEED_URL]);
+
+    expect(first).toEqual({
+      exitCode: 0,
+      lines: [`info: ${APPLIED}（取り込み元 2 件・ファイルのパスを設定した設備 0 件）`],
+    });
+    expect(second.exitCode).toBe(0);
+    expect(first.lines.join('')).not.toContain('demo-feed.example.com');
+    expect(await robotSourceConnection(container)).toEqual([
+      [
+        'robot',
+        expect.objectContaining({ type: 'HTTP', protocol: 'HTTPS', host: 'demo-feed.example.com' }),
+      ],
+      [
+        'environment-sensor',
+        expect.objectContaining({ type: 'HTTP', host: 'demo-feed.example.com' }),
+      ],
+    ]);
+  });
+
+  it('ファイルのパスを持たない既存のデモの設備（以前に投入したもの）に、ファイルのパスを設定する。環境変数 DEMO_FEED_URL でも指定できる', async () => {
+    const { run, container } = await setup();
+    await run(['seed']);
+    for (const id of ['ROBOT-01', 'SENSOR-01']) {
+      const equipment = await container.repositories.equipment.get(toEquipmentId(id));
+      if (equipment === undefined) {
+        throw new Error('デモの設備がありません');
+      }
+      await container.repositories.equipment.save(withoutSourceFilePath(equipment));
+    }
+
+    const result = await run(['use-http-feed'], {}, { DEMO_FEED_URL: FEED_URL });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines[0]).toContain('ファイルのパスを設定した設備 2 件');
+    expect(
+      (await container.repositories.equipment.get(toEquipmentId('ROBOT-01')))?.sourceFilePath,
+    ).toBe('/robot/latest.json');
+    expect(
+      (await container.repositories.equipment.get(toEquipmentId('SENSOR-01')))?.sourceFilePath,
+    ).toBe('/environment-sensor/latest.json');
+  });
+
+  it('seed に --url を付けると、投入のあとに、同じ設定をする', async () => {
+    const { run, container } = await setup();
+
+    const result = await run(['seed', '--url', FEED_URL]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0]).toContain('デモデータを投入しました');
+    expect(result.lines[1]).toContain(APPLIED);
+    expect(await robotSourceConnection(container)).toEqual([
+      ['robot', expect.objectContaining({ type: 'HTTP' })],
+      ['environment-sensor', expect.objectContaining({ type: 'HTTP' })],
+    ]);
+  });
+
+  it.each([
+    [['use-http-feed'], '配信の URL が必要です'],
+    [['use-http-feed', '--url'], '--url には、配信の URL を指定してください'],
+    [['use-http-feed', '--url', '--yes'], '--url には、配信の URL を指定してください'],
+    [
+      ['use-http-feed', '--url', 'https://demo-feed.example.com/a'],
+      '接続先の URL が正しくありません',
+    ],
+  ])(
+    'URL がない・正しくなければ、何も変えず、エラー（終了コード 1）: %j',
+    async (args, message) => {
+      const { run, container } = await setup();
+      await run(['seed']);
+
+      const result = await run(args);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines[0]).toContain(message);
+      expect(
+        (await robotSourceConnection(container)).map(([, connection]) => connection.type),
+      ).toEqual(['MOCK', 'MOCK']);
+    },
+  );
+
+  it('デモの設備がなければ、先に seed を実行するよう、エラー（終了コード 1）。seed の URL が正しくなければ、投入しない', async () => {
+    const { run, counts } = await setup();
+
+    const noEquipment = await run(['use-http-feed', '--url', FEED_URL]);
+    const badUrl = await run(['seed', '--url', 'ftp://demo-feed.example.com/']);
+
+    expect(noEquipment.exitCode).toBe(1);
+    expect(noEquipment.lines[0]).toContain('pnpm demo-data seed');
+    expect(badUrl.exitCode).toBe(1);
+    expect(badUrl.lines[0]).toContain('接続先の URL が正しくありません');
+    expect((await counts()).equipment).toBe(0);
+  });
+
+  it('本番サイト（SFM_ENVIRONMENT=production）では、実行しない', async () => {
+    const { run } = await setup();
+
+    const result = await run(
+      ['use-http-feed', '--url', FEED_URL],
+      {},
+      { SFM_ENVIRONMENT: 'production' },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]).toContain('開発サイト専用');
   });
 });
 
