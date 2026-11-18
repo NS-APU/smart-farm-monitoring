@@ -187,6 +187,26 @@ describe('デモ用の HTTP 配信を、取り込み（JB-01）が読む', () =>
     expect(await query(DEMO_SENSOR_ID)).toHaveLength(DEMO_FEED_BUCKETS * 4);
   });
 
+  it('次の区間になると、配信のファイルに新しい区間が加わり、新しい区間の観測値だけを取り込む（古い区間は、そのまま。同じ値は保存しない）', async () => {
+    const { container, clock } = await setup();
+    await container.ingestionService.runSource('robot');
+    const count = async () =>
+      (
+        await container.repositories.observations.query(
+          { equipmentIds: [DEMO_ROBOT_ID], includeDeleted: true },
+          { limit: 200 },
+        )
+      ).items.length;
+    const before = await count();
+    clock.freeze(new Date('2026-10-20T04:31:00.000Z'));
+
+    const summary = await container.ingestionService.runSource('robot');
+
+    // 新しい区間（04:30）の記録だけ（ロボットは 1 区間 6 項目）
+    expect(summary).toMatchObject({ filesProcessed: 1, recordCount: 6 });
+    expect(await count()).toBe(before + 6);
+  });
+
   it('同じ区間のうちに、もう一度取り込んでも、観測値は増えない（内容が同じ）。接続テストも成功する', async () => {
     const { container } = await setup();
     await container.ingestionService.runSource('robot');

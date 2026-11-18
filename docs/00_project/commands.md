@@ -187,7 +187,7 @@ $data = aws cloudformation describe-stacks --stack-name SfmData --region ap-nort
 $evaluation = aws cloudformation describe-stacks --stack-name SfmEvaluation --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
 $env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'ObservationsTableName' }).OutputValue
 $env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
-$env:FILE_SERVER_S3_BUCKET = ($evaluation | Where-Object { $_.OutputKey -eq 'FileServerBucketName' }).OutputValue
+$env:DEMO_FEED_URL = ($evaluation | Where-Object { $_.OutputKey -eq 'DemoFeedUrl' }).OutputValue   # use-http-feed・seed が使う。値は、チャット・Issue・PR に貼らない
 
 pnpm demo-data seed          # 投入する（設備がすでにあれば、何もしない）。合成データは直近 3 日分
 pnpm demo-data seed --days 30   # 合成データを 30 日分にする（1 か月分の推移の実測用。1〜31。既定は 3）
@@ -196,10 +196,10 @@ pnpm demo-data reset         # 何も消さず、消す対象の件数を示す
 pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す。S3 のファイルも消す）
 
 # 終わったら、必ず消す（同じターミナルで、手元のバックエンドを起動したとき、AWS に向いてしまうため）
-Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:FILE_SERVER_S3_BUCKET -ErrorAction SilentlyContinue
+Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:DEMO_FEED_URL -ErrorAction SilentlyContinue
 ```
 
-- 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`FILE_SERVER_S3_BUCKET` は、`reset` で S3 のファイルも消すときに指定する（指定しなければ、DynamoDB だけ）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
+- 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`DEMO_FEED_URL`（SfmEvaluation の出力 `DemoFeedUrl`）は、`use-http-feed`・`seed` が、デモ用の HTTP 配信に向けるときに使う（`--url` でも指定できる）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
 - `seed` は、設備がすでにあれば、何もしない。投入し直すときは、`reset --yes` のあとに、`seed`
 - `seed --days N`（1〜31。既定 3。範囲外・数値でない値は、何も投入せずエラー）は、合成データの日数を指定する（Issue #79）。1 か月分のデータが要る実測（推移の表示。NFR-3.5）のときに使う。30 日分は、観測値で約 3 万件を、DynamoDB に書く。測ったあとは、`reset --yes` → `seed`（既定の 3 日分）で、元に戻せる
 - `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目、S3 のファイル。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す

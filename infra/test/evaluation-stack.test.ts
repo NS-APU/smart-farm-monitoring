@@ -6,12 +6,7 @@ import { App, Stack } from 'aws-cdk-lib';
 import { Capture, Match, Template } from 'aws-cdk-lib/assertions';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { describe, expect, it } from 'vitest';
-import {
-  DEMO_FEED_HTTP_TIMEOUT_SECONDS,
-  DEMO_FEED_INTERVAL_MINUTES,
-  DEMO_FEED_SOURCE_IDS,
-  DEMO_FEED_TIMEOUT_SECONDS,
-} from '../../src/backend/application/demo/demo-feed-schedule.ts';
+import { DEMO_FEED_HTTP_TIMEOUT_SECONDS } from '../../src/backend/application/demo/demo-feed-schedule.ts';
 import {
   DEFAULT_SCHEDULE,
   JOB_LAMBDA_TIMEOUT_SECONDS,
@@ -28,10 +23,7 @@ import {
   SSM_API_ACTIONS,
   SSM_JOB_ACTIONS,
   CLIENT_IP_HEADER,
-  FILE_SERVER_RETENTION_DAYS,
   ORIGIN_SECRET_READ_ACTION,
-  S3_READ_ACTIONS,
-  S3_WRITE_ACTION,
   EvaluationStack,
   SPA_REWRITE_CODE,
   VIEWER_IP_CODE,
@@ -101,8 +93,8 @@ describe('評価環境のスタック: 画面の配信（S3 + CloudFront）', ()
       },
     });
     template.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Delete' });
-    // 画面のバケットと、ファイルサーバーのモックのバケット（Issue #77）の 2 つが、中身ごと削除される
-    template.resourceCountIs('Custom::S3AutoDeleteObjects', 2);
+    // 画面のバケットだけが、中身ごと削除される（ファイルサーバーのモックのバケットは、#344 の PR 3a で廃止した。ADR-0025）
+    template.resourceCountIs('Custom::S3AutoDeleteObjects', 1);
     template.hasResourceProperties('AWS::S3::BucketPolicy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
@@ -367,8 +359,8 @@ describe('評価環境のスタック: API（Lambda の関数の URL）', () => 
       Properties: { RetentionInDays?: number };
     }[];
 
-    // API・ジョブ（Issue #76）・合成データの生成（Issue #77）・デモ用の HTTP 配信（Issue #344）・画面の配置（BucketDeployment）の補助の 5 つ。増えたときは、保持期間を絞り忘れていないか確認する
-    expect(logGroups).toHaveLength(5);
+    // API・ジョブ（Issue #76）・デモ用の HTTP 配信（Issue #344）・画面の配置（BucketDeployment）の補助の 4 つ（S3 に置くデモ用 Lambda のロググループは、#344 の PR 3a で廃止した）。増えたときは、保持期間を絞り忘れていないか確認する
+    expect(logGroups).toHaveLength(4);
     for (const logGroup of logGroups) {
       expect(logGroup.Properties.RetentionInDays).toBe(30);
       expect(logGroup.DeletionPolicy).toBe('Delete');
@@ -850,7 +842,7 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
     ).toHaveLength(DEFAULT_SCHEDULE.length);
   });
 
-  it('IAM は最小権限: DynamoDB の 2 テーブル（インデックスを含む）への、必要な操作と、ファイルサーバーのモックの読み取りだけ。Cognito の権限・ワイルドカードのリソースはない', () => {
+  it('IAM は最小権限: DynamoDB の 2 テーブル（インデックスを含む）への、必要な操作と、秘密情報（パラメータストア）の読み取り・復号だけ。Cognito の権限・ワイルドカードのリソースはない', () => {
     const { template } = plainStack();
     const statements = roleStatements(template, 'JobFunction');
     const actions = statements.flatMap((statement) => [statement.Action].flat());
@@ -858,14 +850,14 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
       [statement.Action].flat().some((action) => action.startsWith('dynamodb:')),
     );
 
-    // 許可する操作は、DynamoDB の必要な操作と、ファイルサーバーのモックの読み取りと、秘密情報（パラメータストア）の読み取り・復号だけ
+    // 許可する操作は、DynamoDB の必要な操作と、秘密情報（パラメータストア）の読み取り・復号だけ（ファイルサーバーは HTTP のため、S3 の権限はない。ADR-0025）
     // （Cognito・書き込み・削除はない。パラメータストアの書き込みは、API だけ。#206）
     expect(actions.sort()).toEqual(
-      [...DYNAMODB_ACTIONS, ...S3_READ_ACTIONS, ...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS].sort(),
+      [...DYNAMODB_ACTIONS, ...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS].sort(),
     );
     expect(actions).not.toContain('dynamodb:Scan');
     expect(actions).not.toContain('ssm:PutParameter');
-    expect(statements).toHaveLength(5);
+    expect(statements).toHaveLength(3);
     expect(dynamodb).toHaveLength(1);
     expect(dynamodb[0]?.Resource).toHaveLength(4);
     for (const statement of statements) {
@@ -876,164 +868,6 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
   it('ジョブの Lambda の関数名を出力する（動作の確認で、ログを探すため）', () => {
     const { template } = plainStack();
     template.hasOutput('JobFunctionName', {});
-  });
-});
-
-describe('評価環境のスタック: ファイルサーバーのモックの S3（Issue #77。ADR-0012）', () => {
-  interface BucketJson {
-    Properties: {
-      PublicAccessBlockConfiguration?: Record<string, boolean>;
-      BucketEncryption?: unknown;
-      LifecycleConfiguration?: { Rules: { ExpirationInDays?: number; Status: string }[] };
-    };
-    DeletionPolicy?: string;
-  }
-
-  function fileServerBucket(template: Template): BucketJson {
-    const buckets = template.findResources('AWS::S3::Bucket') as Record<string, BucketJson>;
-    const entry = Object.entries(buckets).find(([logicalId]) =>
-      logicalId.startsWith('FileServerBucket'),
-    );
-    if (entry === undefined) {
-      throw new Error('ファイルサーバーのモックのバケットがありません');
-    }
-    return entry[1];
-  }
-
-  it('バケットは、非公開・暗号化・SSL 強制で、ファイルを一定の日数で自動で消し、評価環境と一緒に消える', () => {
-    const { template } = plainStack();
-    const bucket = fileServerBucket(template);
-
-    expect(bucket.Properties.PublicAccessBlockConfiguration).toEqual({
-      BlockPublicAcls: true,
-      BlockPublicPolicy: true,
-      IgnorePublicAcls: true,
-      RestrictPublicBuckets: true,
-    });
-    expect(bucket.Properties.BucketEncryption).toBeDefined();
-    expect(bucket.Properties.LifecycleConfiguration?.Rules).toEqual([
-      { ExpirationInDays: FILE_SERVER_RETENTION_DAYS, Status: 'Enabled' },
-    ]);
-    expect(bucket.DeletionPolicy).toBe('Delete');
-    // SSL を強制するバケットポリシー（FileServerBucket 用）がある
-    const policies = JSON.stringify(template.findResources('AWS::S3::BucketPolicy'));
-    expect(policies).toContain('aws:SecureTransport');
-  });
-
-  it('API・ジョブの Lambda は、このバケットだけを、読み取りだけできる（書き込み・削除・ワイルドカードの権限はない）。バケット名は、環境変数で渡す', () => {
-    const { template } = plainStack();
-
-    for (const functionId of ['ApiFunction', 'JobFunction']) {
-      const statements = roleStatements(template, functionId).filter((statement) =>
-        [statement.Action].flat().some((action) => action.startsWith('s3:')),
-      );
-      expect(statements.map((statement) => [statement.Action].flat())).toEqual([
-        ['s3:ListBucket'],
-        ['s3:GetObject'],
-      ]);
-      for (const statement of statements) {
-        expect(JSON.stringify(statement.Resource)).toContain('FileServerBucket');
-        expect(statement.Resource).not.toBe('*');
-      }
-    }
-    const resources = template.toJSON().Resources as Record<
-      string,
-      { Type: string; Properties: { Environment?: { Variables: Record<string, unknown> } } }
-    >;
-    const withBucket = Object.values(resources).filter(
-      (resource) =>
-        resource.Type === 'AWS::Lambda::Function' &&
-        JSON.stringify(
-          resource.Properties.Environment?.Variables.FILE_SERVER_S3_BUCKET ?? '',
-        ).includes('FileServerBucket'),
-    );
-    // API・ジョブ・合成データを生成する 3 つの関数
-    expect(withBucket).toHaveLength(3);
-  });
-
-  it('API・ジョブの Lambda の、S3 の権限は、読み取りだけ（合成データを生成する Lambda の書き込みと、混ざらない）', () => {
-    const { template } = plainStack();
-
-    for (const functionId of ['ApiFunction', 'JobFunction']) {
-      const actions = roleStatements(template, functionId).flatMap((statement) =>
-        [statement.Action].flat(),
-      );
-      expect(actions).not.toContain(S3_WRITE_ACTION);
-    }
-  });
-
-  it('バケット名を出力する（デモデータの確認・手順で、探すため）', () => {
-    const { template } = plainStack();
-    template.hasOutput('FileServerBucketName', {});
-  });
-});
-
-describe('評価環境のスタック: 合成データを定期的に生成する（擬似のロボット・環境センサー。Issue #77。ADR-0012）', () => {
-  interface FunctionJson {
-    Properties: { Environment?: { Variables: Record<string, unknown> } };
-  }
-
-  function demoFeedFunction(template: Template): FunctionJson {
-    const resources = template.findResources('AWS::Lambda::Function') as Record<
-      string,
-      FunctionJson
-    >;
-    const entry = Object.entries(resources).find(([logicalId]) =>
-      logicalId.startsWith('DemoFeedFunction'),
-    );
-    if (entry === undefined) {
-      throw new Error('合成データを生成する Lambda がありません');
-    }
-    return entry[1];
-  }
-
-  it('関数は、Node.js 24・ARM・小さいメモリで、タイムアウトは短い。Lambda の自動の再試行はしない。環境変数は、バケット名だけ', () => {
-    const { template } = plainStack();
-
-    template.hasResourceProperties('AWS::Lambda::Function', {
-      Runtime: 'nodejs24.x',
-      Architectures: ['arm64'],
-      MemorySize: 256,
-      Timeout: DEMO_FEED_TIMEOUT_SECONDS,
-      Environment: { Variables: { FILE_SERVER_S3_BUCKET: Match.anyValue() } },
-    });
-    const variables = demoFeedFunction(template).Properties.Environment?.Variables ?? {};
-    // DynamoDB・Cognito・本番の組み立てに使う設定は、持たない（S3 への書き込みだけ）
-    expect(Object.keys(variables)).toEqual(['FILE_SERVER_S3_BUCKET']);
-    expect(JSON.stringify(variables.FILE_SERVER_S3_BUCKET)).toContain('FileServerBucket');
-  });
-
-  it('IAM は最小権限: ファイルサーバーのモックの取り込み元の下（robot・environment-sensor）への、書き込みだけ。読み取り・削除・DynamoDB・ワイルドカードはない', () => {
-    const { template } = plainStack();
-    const statements = roleStatements(template, 'DemoFeedFunction');
-
-    expect(statements).toHaveLength(1);
-    expect([statements[0]?.Action].flat()).toEqual([S3_WRITE_ACTION]);
-    expect(statements[0]?.Resource).toHaveLength(DEMO_FEED_SOURCE_IDS.length);
-    for (const sourceId of DEMO_FEED_SOURCE_IDS) {
-      expect(JSON.stringify(statements[0]?.Resource)).toContain(`/${sourceId}/*`);
-    }
-    expect(statements[0]?.Resource).not.toBe('*');
-  });
-
-  it('EventBridge のルールは、15 分ごと。入力なし。再試行はせず、古いイベントは捨てる。呼び出しの権限がある', () => {
-    const { template } = plainStack();
-
-    template.hasResourceProperties('AWS::Events::Rule', {
-      ScheduleExpression: `rate(${String(DEMO_FEED_INTERVAL_MINUTES)} minutes)`,
-      State: 'ENABLED',
-      Targets: [
-        Match.objectLike({
-          Input: Match.absent(),
-          RetryPolicy: { MaximumRetryAttempts: 0, MaximumEventAgeInSeconds: 60 },
-        }),
-      ],
-    });
-  });
-
-  it('関数名を出力する（動作の確認で、ログを探すため）', () => {
-    const { template } = plainStack();
-    template.hasOutput('DemoFeedFunctionName', {});
   });
 });
 
@@ -1101,6 +935,28 @@ describe('評価環境のスタック: デモ用の HTTP ファイル配信（Is
       JSON.stringify(permission.Properties.FunctionName).includes(logicalId),
     );
     expect(permissions).toHaveLength(1);
+  });
+
+  it('ファイルサーバーのモックの S3 のバケット・S3 に置く Lambda・EventBridge のデモ用のルール・それらの出力は、ない（ADR-0025）。S3 のバケットは、画面の配信用だけ。API・ジョブの Lambda に、S3 の権限・環境変数はない', () => {
+    const { template } = plainStack();
+    const json = template.toJSON() as {
+      Resources: Record<string, { Type: string; Properties?: { Environment?: unknown } }>;
+      Outputs?: Record<string, unknown>;
+    };
+    const ids = Object.keys(json.Resources);
+
+    expect(ids.filter((id) => id.startsWith('FileServerBucket'))).toEqual([]);
+    expect(ids.filter((id) => id.startsWith('DemoFeedFunction'))).toEqual([]);
+    expect(ids.filter((id) => id.startsWith('ScheduleDemoFeed'))).toEqual([]);
+    expect(Object.keys(json.Outputs ?? {})).not.toContain('FileServerBucketName');
+    expect(Object.keys(json.Outputs ?? {})).not.toContain('DemoFeedFunctionName');
+    expect(JSON.stringify(json)).not.toContain('FILE_SERVER_S3_BUCKET');
+    for (const functionId of ['ApiFunction', 'JobFunction']) {
+      const actions = roleStatements(template, functionId).flatMap((statement) =>
+        [statement.Action].flat(),
+      );
+      expect(actions.filter((action) => action.startsWith('s3:'))).toEqual([]);
+    }
   });
 
   it('URL を出力する（pnpm demo-data use-http-feed に指定するため）。URL の値は、テンプレートに書かない（デプロイ時に決まる）', () => {

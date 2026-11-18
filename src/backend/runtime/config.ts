@@ -87,11 +87,6 @@ const EnvSchema = z.object({
   /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
   FILE_SERVER_DIR: z.string().min(1).default('.local-data/file-server'),
   /**
-   * ファイルサーバーのモックの S3 のバケット名（Issue #77。ADR-0012）。指定すると、ローカルのディレクトリ（FILE_SERVER_DIR）ではなく、
-   * S3 の `<バケット>/<取り込み元>/` を使う。Lambda には、ローカルのディレクトリがないため、評価環境は、これを指定する。
-   */
-  FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
-  /**
    * 秘密情報（接続先の認証情報・Web Push の秘密鍵）の保管先（Issue #206。D-55）。memory = メモリ（ローカル・テスト）、
    * ssm = パラメータストア（SecureString。本番・開発サイト）。名前に SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
    */
@@ -249,8 +244,6 @@ export interface AppConfig {
   /** AUTH_PROVIDER=cognito のときだけ。 */
   readonly cognito: CognitoConfig | undefined;
   readonly fileServerDirectory: string;
-  /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
-  readonly fileServerBucket: string | undefined;
   /** 秘密情報の保管先。ssm のときは、パスの接頭辞が要る。 */
   readonly secrets: {
     readonly provider: 'memory' | 'ssm';
@@ -480,7 +473,6 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     dynamodb,
     cognito,
     fileServerDirectory: parsed.FILE_SERVER_DIR,
-    fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
     secrets: parseSecrets(parsed),
     seedMode: parsed.SEED_MODE,
     evaluationOnWrite: parsed.EVALUATION_ON_WRITE,

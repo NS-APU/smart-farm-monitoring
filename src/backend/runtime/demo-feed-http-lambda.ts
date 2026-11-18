@@ -7,7 +7,7 @@
  * - 内容は、`buildDemoFeedFiles`（区間の時刻から決まる。同じ区間は同じ内容）。`Last-Modified` は、現在の区間の開始（その区間に、内容が最後に変わった時刻）
  * - 返すのは、**合成データだけ**（実データ・個人情報・秘密情報は、持たない）。認証は、しない（ADR-0025）
  * - `GET`・`HEAD` 以外は 405、定めたパス以外は 404。クエリ・パスの正規化はしない（完全一致だけ）
- * DynamoDB・Cognito・S3 は使わない。ジョブの Lambda（job-lambda.ts）・S3 へ置く Lambda（demo-feed-lambda.ts）とは、別の関数・別の権限にする。
+ * DynamoDB・Cognito・S3 は使わない。ジョブの Lambda（job-lambda.ts）とは、別の関数・別の権限にする。
  */
 
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';

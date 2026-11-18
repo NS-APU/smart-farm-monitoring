@@ -199,7 +199,6 @@ flowchart LR
 |------|------|------|
 | Node サーバー | `runtime/main.ts`（`pnpm dev:backend`）。`startNodeServer()`（`runtime/node-server.ts`） | ローカル開発、E2E、負荷テスト |
 | Lambda ハンドラ | `runtime/lambda.ts`（`handler`）。`@hono/aws-lambda` の `handle` | 本番（関数の URL）。組み立ては最初の呼び出しで1回。`APP_MODE`・`PERSISTENCE` の明示が必須（未設定は `ConfigError`。`PERSISTENCE=file` は拒否。開発用 API・スケジューラは、指定にかかわらず無効。`SEED_MODE` は `ConfigError`）。初期化に失敗しても、失敗を保持せず、次の呼び出しで再試行する。`APP_MODE=production` は、DynamoDB・Cognito が必須（ADR-0009） |
-| 合成データを生成する Lambda ハンドラ（#174: 取り込み元ごとの `latest.json` を、毎回、上書きする） | `runtime/demo-feed-lambda.ts`（`handler`）。ファイルの内容は `infrastructure/local/demo-feed-files.ts`（`buildDemoFeedFiles`）、定数は `application/demo/demo-feed-schedule.ts` | EventBridge が 15 分ごとに起動し、ファイルサーバーのモックの S3 に、直近 4 区間の合成データのファイル（ロボットの JSON・環境センサーの CSV。区間の時刻から決まる）を置く（Issue #77。ADR-0012）。環境変数は `FILE_SERVER_S3_BUCKET` のみ。S3 への書き込みだけ（DynamoDB・Cognito は使わない） |
 | デモ用の HTTP ファイル配信の Lambda ハンドラ（#344） | `runtime/demo-feed-http-lambda.ts`（`handler`。Function URL のペイロード形式 2.0）。ファイルの内容は `buildDemoFeedFiles`、パスは `application/demo/demo-feed-schedule.ts` の `DEMO_FEED_FILE_PATHS` | Function URL（認証なし。開発サイトだけ）から、`GET`・`HEAD` で、取り込み元ごとの `latest.json` を、リクエストごとに、現在の時刻から作って返す。`Last-Modified` は現在の区間の開始。`GET`・`HEAD` 以外は 405、定めたパス以外は 404。権限・環境変数なし（ADR-0025） |
 | デモの取り込みを HTTP 配信に向ける処理（#344） | `runtime/demo-feed-connection.ts`（`parseDemoFeedUrl`・`applyDemoFeed`） | 配信の URL（スキーム・ホスト・ポートだけ）を、取り込み元（ロボット・環境センサー）の接続（HTTP・認証なし）にし、デモの設備に `sourceFilePath` を設定する（すでにあれば、そのまま。デモの設備がなければエラー）。何度実行しても同じ（ADR-0025） |
 | デモデータのコマンド | `runtime/demo-data-main.ts`（`pnpm demo-data seed [--days N] [--url URL]` / `use-http-feed [--url URL]` / `reset [--yes]`）。ロジックは `runtime/demo-data-cli.ts` | 評価環境のデモデータを、手元で、投入（`SEED_MODE=DEMO` と同じ内容。設備があれば何もしない）・リセット（ユーザー・`LOGINFAIL`・`JOBLOCK` 以外の全データと、S3 のファイルを消す。`--yes` がなければ、件数だけ示す。S3 を先に消し、失敗したら DynamoDB は消さない）する（Issue #77。ADR-0012）。AWS のエラーは、名前だけを出力する |
@@ -217,7 +216,6 @@ flowchart LR
 | `AUTH_PROVIDER` | `local` | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用不可 |
 | `PERSISTENCE` | `memory` | `memory`（メモリのみ）／`file`（`DATA_FILE` の JSON ファイル）／`dynamodb`（DynamoDB。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` が必須。ローカルの確認用に、`DYNAMODB_ENDPOINT`（DynamoDB Local）。`DEV_API_ENABLED` とは併用不可） |
 | `DATA_FILE` | `.local-data/store.json` | ファイル永続化の保存先（Git 管理外） |
-| `FILE_SERVER_S3_BUCKET` | なし | ファイルサーバーのモックの S3 のバケット名。指定すると、`FILE_SERVER_DIR` ではなく、S3 の `<バケット>/<取り込み元>/` を使う（評価環境の Lambda。Issue #77。ADR-0012）。S3 版には、停止・遅延の再現がない |
 | `FILE_SERVER_DIR` | `.local-data/file-server` | ファイルサーバーのモックのルート。`<ルート>/robot/`・`<ルート>/environment-sensor/` に合成データのファイルを置く |
 | `SEED_MODE` | `NONE` | `DEMO`: デモの設備・合成データ（3日分）・手動入力・評価・通知を投入（設備が1件もないときのみ） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし | 最初のユーザー（4章 No.2）。3つそろえて指定する。パスワードは、パスワードの条件（FR-9.2）を満たす |

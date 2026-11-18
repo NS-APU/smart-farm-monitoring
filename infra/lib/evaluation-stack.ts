@@ -56,12 +56,7 @@ import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3'
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
-import {
-  DEMO_FEED_HTTP_TIMEOUT_SECONDS,
-  DEMO_FEED_INTERVAL_MINUTES,
-  DEMO_FEED_SOURCE_IDS,
-  DEMO_FEED_TIMEOUT_SECONDS,
-} from '../../src/backend/application/demo/demo-feed-schedule.ts';
+import { DEMO_FEED_HTTP_TIMEOUT_SECONDS } from '../../src/backend/application/demo/demo-feed-schedule.ts';
 import {
   DEFAULT_SCHEDULE,
   JOB_LAMBDA_TIMEOUT_SECONDS,
@@ -131,17 +126,8 @@ export const SSM_JOB_ACTIONS = ['ssm:GetParameter'] as const;
 export const KMS_SSM_API_ACTIONS = ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey'] as const;
 export const KMS_SSM_JOB_ACTIONS = ['kms:Decrypt'] as const;
 
-/** ファイルサーバーのモックのバケットの、ファイルの保持日数（合成データのファイル。古いファイルは、取り込みの対象に、残さない）。 */
-export const FILE_SERVER_RETENTION_DAYS = 3;
-
-/** API・ジョブの Lambda が、ファイルサーバーのモックの S3 に使う操作（読み取りのみ。書き込み・削除は、しない）。 */
-export const S3_READ_ACTIONS = ['s3:ListBucket', 's3:GetObject'] as const;
-
 /** API の Lambda が、オリジンの秘密（Secrets Manager）に使う操作（読み取りのみ。この秘密だけ。Issue #102）。 */
 export const ORIGIN_SECRET_READ_ACTION = 'secretsmanager:GetSecretValue';
-
-/** 合成データを生成する Lambda が、ファイルサーバーのモックの S3 に使う操作（書き込みのみ。取り込み元の下だけ。読み取り・削除は、しない）。 */
-export const S3_WRITE_ACTION = 's3:PutObject';
 
 /**
  * 利用者の IP を入れるヘッダーの名前（小文字。API の Lambda の `CLIENT_IP_HEADER`）。関数の URL は、`X-Forwarded-For` を、
@@ -224,18 +210,6 @@ export class EvaluationStack extends Stack {
       autoDeleteObjects: true,
     });
 
-    // ファイルサーバーのモック（Issue #77。ADR-0012）のバケット。Lambda には、ローカルのディレクトリがないため、S3 に置く。
-    // 構成は、ローカルのモックと同じ `<取り込み元の識別子>/<ファイル>`。置くのは、合成データだけ（実データ・個人情報は置かない）。
-    // 評価環境と一緒に消す（状態を持たない）。ファイルは、一定の日数で自動で消す
-    const fileServerBucket = new Bucket(this, 'FileServerBucket', {
-      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
-      encryption: BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-      lifecycleRules: [{ expiration: Duration.days(FILE_SERVER_RETENTION_DAYS) }],
-    });
-
     // API（バックエンド本体。Issue #75）。ログの保持期間を絞る（費用。NFR-1.5・NFR-6.3）。
     // メモリ・タイムアウトは、初期値（Issue #79 の実測で調整する）: CPU はメモリに比例するため 1024 MB、
     // タイムアウトは、CloudFront のオリジンの応答の上限（30 秒）の内側
@@ -251,7 +225,6 @@ export class EvaluationStack extends Stack {
       COGNITO_CLIENT_ID: data.userPoolClient.userPoolClientId,
       DYNAMODB_OBSERVATIONS_TABLE: data.observationsTable.tableName,
       DYNAMODB_MAIN_TABLE: data.mainTable.tableName,
-      FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName,
       // 秘密情報の保管先（パラメータストア）と、環境ごとのパスの接頭辞。値は、パスの名前で、秘密情報ではない（Issue #206）
       CREDENTIAL_STORE: 'ssm',
       CREDENTIAL_PATH_PREFIX: credentialPathPrefix,
@@ -277,17 +250,6 @@ export class EvaluationStack extends Stack {
           `${table.tableArn}/index/*`,
         ]),
       });
-    // ファイルサーバーのモックの読み取り（取り込み元の一覧・ファイルの内容）。最小権限: このバケットだけ・読み取りだけ
-    const fileServerReadPolicies = (): PolicyStatement[] => [
-      new PolicyStatement({
-        actions: [S3_READ_ACTIONS[0]],
-        resources: [fileServerBucket.bucketArn],
-      }),
-      new PolicyStatement({
-        actions: [S3_READ_ACTIONS[1]],
-        resources: [fileServerBucket.arnForObjects('*')],
-      }),
-    ];
     // 秘密情報（パラメータストア）: 環境のパスの下だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由の利用に限る
     const credentialParametersArn = this.formatArn({
       service: 'ssm',
@@ -359,9 +321,6 @@ export class EvaluationStack extends Stack {
     );
     // Cognito は、ユーザープールに限る
     apiFunction.addToRolePolicy(dataTablesPolicy());
-    for (const statement of fileServerReadPolicies()) {
-      apiFunction.addToRolePolicy(statement);
-    }
     for (const statement of credentialPolicies(SSM_API_ACTIONS, KMS_SSM_API_ACTIONS)) {
       apiFunction.addToRolePolicy(statement);
     }
@@ -391,9 +350,6 @@ export class EvaluationStack extends Stack {
       retryAttempts: 0,
     });
     jobFunction.addToRolePolicy(dataTablesPolicy());
-    for (const statement of fileServerReadPolicies()) {
-      jobFunction.addToRolePolicy(statement);
-    }
     for (const statement of credentialPolicies(SSM_JOB_ACTIONS, KMS_SSM_JOB_ACTIONS)) {
       jobFunction.addToRolePolicy(statement);
     }
@@ -412,10 +368,7 @@ export class EvaluationStack extends Stack {
       });
     }
 
-    // 合成データの生成（デモ）の Lambda とルール。開発サイトだけ（includeDemoFeed）。本番サイトは、作らない（Issue #117）
-    const demoFeedFunction =
-      props.includeDemoFeed === false ? undefined : this.createDemoFeed(fileServerBucket);
-    // デモ用の HTTP ファイル配信（Function URL）。開発サイトだけ（Issue #344。ADR-0025）
+    // デモ用の HTTP ファイル配信（Function URL）。開発サイトだけ。本番サイトは、作らない（Issue #117・#344。ADR-0013・ADR-0025）
     const demoFeedUrl = props.includeDemoFeed === false ? undefined : this.createDemoFeedHttp();
 
     const spaRewrite = new CloudFrontFunction(this, 'SpaRewrite', {
@@ -534,9 +487,6 @@ export class EvaluationStack extends Stack {
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId });
     new CfnOutput(this, 'ApiFunctionName', { value: apiFunction.functionName });
     new CfnOutput(this, 'JobFunctionName', { value: jobFunction.functionName });
-    if (demoFeedFunction !== undefined) {
-      new CfnOutput(this, 'DemoFeedFunctionName', { value: demoFeedFunction.functionName });
-    }
     if (demoFeedUrl !== undefined) {
       new CfnOutput(this, 'DemoFeedUrl', {
         value: demoFeedUrl.url,
@@ -544,10 +494,6 @@ export class EvaluationStack extends Stack {
           'デモ用の HTTP ファイル配信の URL（合成データだけ。認証なし。pnpm demo-data use-http-feed --url に指定する。ADR-0025）',
       });
     }
-    new CfnOutput(this, 'FileServerBucketName', {
-      value: fileServerBucket.bucketName,
-      description: 'ファイルサーバーのモック（合成データ）のバケット',
-    });
   }
 
   /**
@@ -573,48 +519,5 @@ export class EvaluationStack extends Stack {
       }),
     });
     return demoFeedHttpFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
-  }
-
-  /** 合成データを定期的に生成する Lambda と、EventBridge のルール（デモ。開発サイトだけ）。 */
-  private createDemoFeed(fileServerBucket: Bucket): LambdaFunction {
-    // 合成データを定期的に生成する Lambda（擬似のロボット・環境センサー。Issue #77。ADR-0012）。EventBridge が 15 分ごとに起動し、
-    // ファイルサーバーのモックの S3 に、新しい合成データのファイルを置く。取り込み（JB-01）が、それを読む。
-    // ジョブ（JB-01〜JB-04）とは別の関数・別の権限: **S3 への書き込みだけ**（取り込み元の下だけ）。DynamoDB・Cognito は使わない。
-    // 失敗は、次の周期で、再び置く（再試行しない）
-    const demoFeedFunction = new LambdaFunction(this, 'DemoFeedFunction', {
-      code: bundledLambdaCode(
-        join(import.meta.dirname, '../../src/backend/runtime/demo-feed-lambda.ts'),
-      ),
-      handler: 'index.handler',
-      runtime: Runtime.NODEJS_24_X,
-      architecture: Architecture.ARM_64,
-      memorySize: 256,
-      timeout: Duration.seconds(DEMO_FEED_TIMEOUT_SECONDS),
-      environment: { FILE_SERVER_S3_BUCKET: fileServerBucket.bucketName },
-      logGroup: new LogGroup(this, 'DemoFeedLogGroup', {
-        retention: RetentionDays.ONE_MONTH,
-        removalPolicy: RemovalPolicy.DESTROY,
-      }),
-      retryAttempts: 0,
-    });
-    demoFeedFunction.addToRolePolicy(
-      new PolicyStatement({
-        actions: [S3_WRITE_ACTION],
-        resources: DEMO_FEED_SOURCE_IDS.map((sourceId) =>
-          fileServerBucket.arnForObjects(`${sourceId}/*`),
-        ),
-      }),
-    );
-    new Rule(this, 'ScheduleDemoFeed', {
-      description: `合成データのファイルを ${String(DEMO_FEED_INTERVAL_MINUTES)} 分ごとに置く（デモ）`,
-      schedule: Schedule.rate(Duration.minutes(DEMO_FEED_INTERVAL_MINUTES)),
-      targets: [
-        new LambdaFunctionTarget(demoFeedFunction, {
-          retryAttempts: 0,
-          maxEventAge: Duration.minutes(1),
-        }),
-      ],
-    });
-    return demoFeedFunction;
   }
 }

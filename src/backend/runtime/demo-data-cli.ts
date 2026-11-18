@@ -10,21 +10,19 @@
  *   デモの設備に、取得するファイルのパスを設定する（何度実行しても、同じ。デモの設備がなければ、先に seed）。URL は、SfmEvaluation の出力 `DemoFeedUrl`
  *   （`--url` または環境変数 `DEMO_FEED_URL`）。`seed` も、`--url`・`DEMO_FEED_URL` があれば、投入のあとに、同じことをする
  * - `reset`: ユーザー・ログインの試行回数の記録・ジョブのロック以外の、すべてのデータ（DynamoDB の観測値・設備・評価・通知・設定など）と、
- *   ファイルサーバーのモックの S3 のファイルを、消す。**元に戻せない**ため、`--yes` を付けないと、何も消さずに、対象の件数を示す
+ *   **元に戻せない**ため、`--yes` を付けないと、何も消さずに、対象の件数を示す
  * - AWS のエラーは、名前だけを出力する（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
  *
  * **開発サイト専用**。本番サイト（Issue #117。ADR-0013）には、使わない（合成データを入れない。`reset` は、実データを消す）。
  *   本番サイトの操作のために、環境変数 `SFM_ENVIRONMENT=production` を設定したままのシェルで、誤って実行しても、実行しない（安全装置）
  *
  * 環境変数: `PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`（値は、SfmData のスタックの出力）。
- * `reset` で S3 のファイルも消すときは、`FILE_SERVER_S3_BUCKET`（SfmEvaluation の出力 `FileServerBucketName`）。AWS_REGION の既定は ap-northeast-1。
+ * AWS_REGION の既定は ap-northeast-1。
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
 import { AppError } from '@smart-farm/shared/errors';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { KEPT_PARTITIONS, resetData } from '../infrastructure/dynamodb/data-reset.ts';
-import { clearBucket } from '../infrastructure/s3/clear-bucket.ts';
 import { ConfigError, MAX_DEMO_SEED_DAYS, parseConfig, type AppConfig } from './config.ts';
 import { createContainer, dynamoClientOptions, type ContainerOverrides } from './container.ts';
 import { applyDemoFeed, parseDemoFeedUrl } from './demo-feed-connection.ts';
@@ -186,19 +184,9 @@ async function reset(
       main: config.dynamodb.mainTable,
     },
   };
-  const s3 =
-    config.fileServerBucket === undefined
-      ? undefined
-      : {
-          client: overrides.s3Client ?? new S3Client({ region: DEFAULT_REGION }),
-          bucket: config.fileServerBucket,
-        };
   try {
-    // S3 のファイルを先に消す（DynamoDB を先に消すと、その間に、取り込みのジョブが、古いファイルから、観測値を作り直すため）
-    const files =
-      s3 === undefined ? 0 : await clearBucket(s3.client, s3.bucket, { dryRun: !confirmed });
     const result = await resetData(db, { dryRun: !confirmed });
-    const summary = `観測値 ${String(result.observations)} 件・そのほかのデータ ${String(result.main)} 件（${KEPT_PARTITIONS.join('・')} を除く）${s3 === undefined ? '' : `・S3 のファイル ${String(files)} 件`}`;
+    const summary = `観測値 ${String(result.observations)} 件・そのほかのデータ ${String(result.main)} 件（${KEPT_PARTITIONS.join('・')} を除く）`;
     if (!confirmed) {
       output.info(
         `reset は、${summary}を削除します。元に戻せません（必要なら、先に、バックアップを取ります）。実行するには、--yes を付けます`,
