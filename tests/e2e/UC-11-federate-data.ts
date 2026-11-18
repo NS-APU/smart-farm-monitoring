@@ -27,13 +27,13 @@ import {
   apiOk,
   ROBOT_ID,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
   sensorJson,
   setMock,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { federationRows } from './support/ingestion.ts';
 import { expectNoHorizontalScroll, itemListQuery } from './support/pages.ts';
 import { hoursAgo, NOW, shot } from './support/viewpoint-scenarios.ts';
@@ -65,8 +65,14 @@ async function queue(request: Parameters<typeof prepareApp>[0]) {
 
 /** 連携対象を用意する: ロボットデータ・環境センサーデータの取り込み、人手入力。評価の結果（派生データ）も積まれる。 */
 async function produceData(request: Parameters<typeof prepareApp>[0]): Promise<void> {
-  placeFile('robot', 'robot.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
-  placeFile(
+  await placeFile(
+    request,
+    'robot',
+    'robot.json',
+    robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
+  );
+  await placeFile(
+    request,
     'environment-sensor',
     'sensor.json',
     sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
@@ -492,7 +498,8 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
   }, testInfo) => {
     await prepareApp(request);
     await setMock(request, 'federation', 'DOWN');
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor.json',
       sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),

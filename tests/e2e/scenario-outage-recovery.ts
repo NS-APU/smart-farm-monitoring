@@ -23,7 +23,6 @@ import {
   goToNotifications,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
@@ -31,6 +30,7 @@ import {
   setMock,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile, setFileServerMode } from './support/http-files.ts';
 import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
 import { listNotifications } from './support/notifications.ts';
 import { deliveredPushes, stubPush } from './support/push.ts';
@@ -58,7 +58,8 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await expect(page.getByTestId('push-state')).toContainText('有効');
 
     // UC-09・UC-10: Aが、異常な温度のセンサーデータを取り込む（異常を検知し、通知を作る）
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor.json',
       sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
@@ -74,7 +75,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await expect(queueCount(page, 'HELD')).not.toHaveText('0');
 
     // UC-24: ファイルサーバーも停止し、ロボットの取り込みが失敗する（失敗の通知を作る）
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await expect(await runNow(page, 'robot')).toContainText('取得しました（失敗）');
     await shot(page, testInfo, 'scenario-outage-a-failed');
 
@@ -118,8 +119,13 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     ).toContainText('異常');
 
     // 復旧（システム外）→ UC-15・UC-08: Bが、接続テストで復旧を確認し、即時取得で、ロボットのデータを取り込む
-    await setMock(request, 'file-server', 'UP');
-    placeFile('robot', 'robot.json', robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]));
+    await setFileServerMode(request, 'UP');
+    await placeFile(
+      request,
+      'robot',
+      'robot.json',
+      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
+    );
     await goToMenu(b.page, '取り込み');
     await expect(await testConnection(b.page, 'robot')).toHaveText('接続できました');
     await expect(await runNow(b.page, 'robot')).toContainText('取得しました（成功）');

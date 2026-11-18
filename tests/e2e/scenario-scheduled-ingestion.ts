@@ -23,7 +23,6 @@ import {
   goToNotifications,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
@@ -31,6 +30,7 @@ import {
   setEquipmentInterval,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
@@ -70,8 +70,14 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveCount(0);
 
     // UC-08・UC-09: ファイルサーバーにファイルが置かれ、定期の取り込み（JB-01）で、取り込まれる
-    placeFile('robot', 'robot-1.json', robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]));
-    placeFile(
+    await placeFile(
+      request,
+      'robot',
+      'robot-1.json',
+      robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]),
+    );
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor-1.json',
       sensorJson([{ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
@@ -105,9 +111,10 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     // UC-09・UC-10: 新しいセンサーのデータ（異常な温度）が置かれ、センサーの取得間隔（5分）が来ると、取り込まれる
     const unreadBefore = Number(await unreadBadge(b.page).textContent());
     const robotLogsBefore = await logCount(request, 'robot');
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
-      'sensor-2.json',
+      'sensor-1.json',
       sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await advanceMinutes(request, 6);
@@ -123,9 +130,10 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(b.page.getByTestId('stale-equipment')).toContainText('古い設備');
 
     // UC-08: ロボットの新しいファイルが置かれ、ロボットの取得間隔（15分）が来ると、取り込まれて、「古い」旨が消える
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      'robot-1b.json',
+      'robot-1.json',
       robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
     );
     await advanceMinutes(request, 10);
@@ -160,14 +168,16 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
 
     // ロボットの取得間隔を十分に過ぎても、無効なロボットは取り込まず、センサーは取り込まれる
     const sensorLogsBefore = await logCount(request, 'environment-sensor');
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      'robot-2.json',
+      'robot-1.json',
       robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 5 } }]),
     );
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
-      'sensor-3.json',
+      'sensor-1.json',
       sensorJson([{ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await advanceMinutes(request, 20);

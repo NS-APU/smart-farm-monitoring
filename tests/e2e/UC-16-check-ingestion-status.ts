@@ -13,7 +13,7 @@
  * 関連するユースケース: UC-08・UC-09（取り込みの記録）、UC-11（連携の記録）、UC-15（設定の見直し）。
  */
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import {
   GENERAL,
   VIEWER,
@@ -24,14 +24,13 @@ import {
   apiOk,
   goToMenu,
   openAs,
-  placeFile,
-  placeFixture,
   prepareApp,
   robotJson,
   runJob,
   sensorJson,
   setMock,
 } from './support/app.ts';
+import { placeFile, placeFixture, setFileServerMode } from './support/http-files.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
@@ -52,19 +51,26 @@ async function runIngestionApi(
 /**
  * 新しいデータになるファイルを置く（取り込みのログは、新しいデータがあった実行・失敗だけ残す。空振りは残さない。Issue #201）。
  * 値を変えると、変わった観測値になり、ログが 1 件増える。
+ * 同じ名前のファイルを、内容だけ変えて、置き直す（HTTP は、1 設備 = 1 ファイル。同じパスの上書き）。
  */
-function placeNewData(sourceId: 'robot' | 'environment-sensor', value: number): void {
+async function placeNewData(
+  request: APIRequestContext,
+  sourceId: 'robot' | 'environment-sensor',
+  value: number,
+): Promise<void> {
   if (sourceId === 'robot') {
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      `new-${String(value)}.json`,
+      'new.json',
       robotJson([{ hoursAgo: 1, fields: { harvestCount: value } }]),
     );
     return;
   }
-  placeFile(
+  await placeFile(
+    request,
     'environment-sensor',
-    `new-${String(value)}.json`,
+    'new.json',
     sensorJson([
       { hoursAgo: 1, temperature: 20 + value, humidity: 60, illuminance: 30000, co2: 900 },
     ]),
@@ -80,8 +86,8 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     request,
   }, testInfo) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await runIngestionApi(request, 'robot');
     await advanceMinutes(request, 15);
     await runIngestionApi(request, 'environment-sensor');
@@ -141,7 +147,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await openStatus(page);
     await expect(logRows(page)).toHaveCount(0);
     await expect(federationRows(page)).toHaveCount(0);
@@ -162,7 +168,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await openStatus(page);
     await expect(logRows(page)).toHaveCount(0);
 
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await runIngestionApi(request, 'robot');
 
     await expect(logRows(page)).toHaveCount(1, { timeout: 20_000 });
@@ -175,7 +181,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
   }, testInfo) => {
     await prepareApp(request);
     await addUser(request, VIEWER);
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await runIngestionApi(request, 'robot');
     await runJob(request, 'JB-03');
     await alignBrowserClock(page);
@@ -261,7 +267,7 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
   for (const item of partitions) {
     test(`${item.name}: ログに、結果・件数・エラー内容を記録する`, async ({ page, request }) => {
       await prepareApp(request);
-      placeFixture(item.sourceId, item.fixture);
+      await placeFixture(request, item.sourceId, item.fixture);
       await runIngestionApi(request, item.sourceId);
 
       await openStatus(page);
@@ -280,7 +286,7 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await runIngestionApi(request, 'robot');
 
     await openStatus(page);
@@ -301,14 +307,14 @@ test.describe('ログの絞り込み（設備・結果・期間）と、ペー�
     request,
   }) => {
     await prepareApp(request);
-    placeNewData('robot', 1);
+    await placeNewData(request, 'robot', 1);
     await runIngestionApi(request, 'robot');
-    placeNewData('environment-sensor', 1);
+    await placeNewData(request, 'environment-sensor', 1);
     await runIngestionApi(request, 'environment-sensor');
-    placeNewData('environment-sensor', 2);
+    await placeNewData(request, 'environment-sensor', 2);
     await runIngestionApi(request, 'environment-sensor');
     // ファイルサーバーに接続できない失敗は、設備に結びつかない（ロボットの取り込み元単位のログ）
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await runIngestionApi(request, 'robot');
     await openStatus(page);
     await expect(logRows(page)).toHaveCount(4);
@@ -354,7 +360,7 @@ test.describe('ログの絞り込み（設備・結果・期間）と、ペー�
   }, testInfo) => {
     await prepareApp(request);
     for (let index = 0; index < 21; index += 1) {
-      placeNewData('robot', index + 1);
+      await placeNewData(request, 'robot', index + 1);
       await runIngestionApi(request, 'robot');
     }
     await openStatus(page);
@@ -378,10 +384,10 @@ test.describe('ログの絞り込み（設備・結果・期間）と、ペー�
   }) => {
     await prepareApp(request);
     for (let index = 0; index < 21; index += 1) {
-      placeNewData('robot', index + 1);
+      await placeNewData(request, 'robot', index + 1);
       await runIngestionApi(request, 'robot');
     }
-    placeNewData('environment-sensor', 1);
+    await placeNewData(request, 'environment-sensor', 1);
     await runIngestionApi(request, 'environment-sensor');
     await openStatus(page);
     const logs = page.getByTestId('ingestion-logs');
@@ -403,7 +409,7 @@ test.describe('設備ごとの最終の実行（空振りは、ログに残さ�
     request,
   }) => {
     await prepareApp(request);
-    placeNewData('robot', 1);
+    await placeNewData(request, 'robot', 1);
     await runIngestionApi(request, 'robot');
     await advanceMinutes(request, 5);
     // 新しいファイルがない（空振り）
@@ -424,12 +430,17 @@ test.describe('設備ごとの最終の実行（空振りは、ログに残さ�
 });
 
 test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）を確認する', () => {
-  /** 新しいファイルを取り込んで、連携キューに積む。 */
+  /** 新しいデータのファイルを取り込んで、連携キューに積む（同じパスのファイルを、`value` の違う内容で、置き直す。HTTP は、1 設備 = 1 ファイル）。 */
   async function enqueueNewData(
     request: Parameters<typeof prepareApp>[0],
-    name: string,
+    value: number,
   ): Promise<void> {
-    placeFile('robot', name, robotJson([{ hoursAgo: 1, fields: { harvestCount: 5 } }]));
+    await placeFile(
+      request,
+      'robot',
+      'new.json',
+      robotJson([{ hoursAgo: 1, fields: { harvestCount: value } }]),
+    );
     await runIngestionApi(request, 'robot');
   }
 
@@ -438,7 +449,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     request,
   }, testInfo) => {
     await prepareApp(request);
-    await enqueueNewData(request, 'a.json');
+    await enqueueNewData(request, 5);
     await runJob(request, 'JB-03');
 
     await openStatus(page);
@@ -457,7 +468,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
   }, testInfo) => {
     await prepareApp(request);
     await setMock(request, 'federation', 'DOWN');
-    await enqueueNewData(request, 'a.json');
+    await enqueueNewData(request, 5);
     await runJob(request, 'JB-03');
 
     await openStatus(page);
@@ -478,7 +489,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
   }, testInfo) => {
     await prepareApp(request);
     await setMock(request, 'federation', 'REJECT');
-    await enqueueNewData(request, 'a.json');
+    await enqueueNewData(request, 5);
     await runJob(request, 'JB-03');
 
     await openStatus(page);
@@ -495,7 +506,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
   }) => {
     await prepareApp(request);
     await setMock(request, 'federation', 'DOWN');
-    await enqueueNewData(request, 'a.json');
+    await enqueueNewData(request, 5);
     await runJob(request, 'JB-03');
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-03');
@@ -521,7 +532,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await setMock(request, 'federation', 'DOWN');
     for (let index = 0; index < 21; index += 1) {
       // 連携の記録は、送る項目があるときだけ作られる。項目を積み、再試行の間隔（最大12時間）を過ぎてから、送る
-      await enqueueNewData(request, `f-${String(index)}.json`);
+      await enqueueNewData(request, 10 + index);
       await advanceMinutes(request, 721);
       await runJob(request, 'JB-03');
     }
@@ -542,7 +553,7 @@ test.describe('代替フロー: 失敗や保留が続く場合は、設定の見
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await runIngestionApi(request, 'robot');
     await openStatus(page);
     await expect(logRows(page).first().locator('.log-result')).toHaveText('失敗');
@@ -588,7 +599,7 @@ test.describe('ハウス別の記録（一般ユーザー向け。Issue #332。A
       equipmentType: 'FACILITY',
       name: 'ハウス2',
     });
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await runIngestionApi(request, 'robot');
     await runJob(request, 'JB-03');
     await addUser(request, GENERAL);

@@ -24,10 +24,10 @@ import {
   confirmDialog,
   goToMenu,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { durabilityData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 import { locatorOf, rowBy } from './support/pages.ts';
@@ -601,7 +601,8 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
       travelStoppedHours: 0.002,
       statusCode: 'CHARGING_WAIT',
     };
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'a.json',
       robotJson([

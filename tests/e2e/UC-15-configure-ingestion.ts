@@ -26,13 +26,12 @@ import {
   apiOk,
   goToMenu,
   openAs,
-  placeFixture,
   prepareApp,
   runJob,
   setEquipmentInterval,
-  setMock,
   removeSourceDirectory,
 } from './support/app.ts';
+import { placeFixture, setFileServerMode } from './support/http-files.ts';
 import {
   SOURCE_NAMES,
   logRows,
@@ -117,7 +116,7 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     request,
   }, testInfo) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await openIngestion(page);
 
     // 3. 接続テストを実行し、結果を確認する
@@ -227,21 +226,23 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
     request,
   }, testInfo) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
-    await setMock(request, 'file-server', 'DOWN');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
+    await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
 
     const tested = await testConnection(page, 'robot');
 
+    // HTTP の停止は、理由がわかる失敗として、理由が括弧書きで付く（MOCK は、理由なし）
     await expect(tested).toHaveText(
-      '接続できませんでした。接続先と認証情報の設定を確認してください',
+      '接続できませんでした（ファイルサーバーに接続できません）。接続先と認証情報の設定を確認してください',
     );
     await expect(tested).toHaveClass(/form-error/);
-    await expect(tested).not.toContainText('test-result');
-    await expect(tested).not.toContainText('e2e-file-server');
+    await expect(tested).not.toContainText('127.0.0.1');
+    await expect(tested).not.toContainText('/robot/');
     await shot(page, testInfo, 'uc15-test-failed');
   });
 
+  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
   test('取り込み元の場所（ディレクトリ）がなくても、内部情報を含めずに、接続できない旨を表示する', async ({
     page,
     request,
@@ -261,12 +262,12 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
 
   test('停止が復旧すると、接続テストに成功する', async ({ page, request }) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
-    await setMock(request, 'file-server', 'DOWN');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
+    await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
     await expect(await testConnection(page, 'robot')).toHaveClass(/form-error/);
 
-    await setMock(request, 'file-server', 'UP');
+    await setFileServerMode(request, 'UP');
     const tested = await testConnection(page, 'robot');
 
     await expect(tested).toHaveText('接続できました');
@@ -279,7 +280,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await openIngestion(page);
 
     const first = await runNow(page, 'robot');
@@ -295,7 +296,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-002-partial.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-002-partial.json');
     await openIngestion(page);
 
     const ran = await runNow(page, 'robot');
@@ -309,7 +310,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-003-broken.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-003-broken.json');
     await openIngestion(page);
 
     const ran = await runNow(page, 'robot');
@@ -322,7 +323,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
 
   test('環境センサー（JSON）も、即時取得できる', async ({ page, request }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
+    await placeFixture(request, 'environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await openIngestion(page);
 
     const ran = await runNow(page, 'environment-sensor');
@@ -350,7 +351,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
 
     const ran = await runNow(page, 'robot');
@@ -364,10 +365,10 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     // 遅延を再現するため、時計を実時間で進め、ファイルサーバーの応答を遅らせる
     await apiOk(request, 'PUT', '/dev/clock', { mode: 'RUNNING' });
-    await apiOk(request, 'PUT', '/dev/mocks/file-server', { mode: 'SLOW', delayMs: 1500 });
+    await setFileServerMode(request, 'SLOW', 1500);
     await openIngestion(page);
     await sourceCard(page, 'robot').getByRole('button', { name: '即時取得' }).click();
     // 実行中は、画面のボタンが使えない。「取得中」の表示は、即時取得のボタンだけに出す
@@ -444,7 +445,7 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
       '2026/10/09 12:00:00',
     );
     await expect(logRows(page)).toHaveCount(0);
-    placeFixture('robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await runNow(page, 'robot');
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(1);
   });

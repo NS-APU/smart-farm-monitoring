@@ -96,10 +96,15 @@ export interface PrepareOptions {
 }
 
 /** データを初期化し、時計を固定する（テストごとに最初に呼ぶ）。 */
+/** `prepare`（データの初期化）を呼んだ回数。初期化で、取り込み元の接続が、MOCK に戻る（HTTP のファイルサーバーの準備の要否の判断。http-files.ts）。 */
+let prepareCount = 0;
+export const preparedEpoch = (): number => prepareCount;
+
 export async function prepare(
   request: APIRequestContext,
   options: PrepareOptions = {},
 ): Promise<void> {
+  prepareCount += 1;
   await call(request, 'POST', '/dev/reset', {
     seed: options.equipment === false ? 'NONE' : 'EQUIPMENT',
   });
