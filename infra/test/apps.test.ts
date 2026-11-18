@@ -269,7 +269,7 @@ describe('CDK アプリの組み立て', () => {
     ]);
   });
 
-  it('本番サイトは、合成データを生成する Lambda・ルールを作らない。開発サイトは、作る（実データを扱う環境に、合成データを入れない。ADR-0013）', () => {
+  it('本番サイトは、デモ用の HTTP 配信の Lambda を作らない。開発サイトは、作る（実データを扱う環境に、合成データを入れない。ADR-0013）', () => {
     const resourcesOf = (environment: 'development' | 'production') => {
       const app = createEvaluationApp({ SFM_ENVIRONMENT: environment }, assets());
       const stack = app.synth().stacks.find((item) => item.stackName.endsWith('Evaluation'));
@@ -289,13 +289,14 @@ describe('CDK アプリの組み立て', () => {
     const production = resourcesOf('production');
 
     expect(development.demoIds.length).toBeGreaterThan(0);
-    expect(development.outputs).toContain('DemoFeedFunctionName');
     expect(development.outputs).toContain('DemoFeedUrl');
     expect(production.demoIds).toEqual([]);
-    expect(production.outputs).not.toContain('DemoFeedFunctionName');
     expect(production.outputs).not.toContain('DemoFeedUrl');
-    // ファイルサーバーのモックのバケット（空のまま）は、どちらにもある（Lambda の取り込みの失敗を避ける）
-    expect(production.outputs).toContain('FileServerBucketName');
+    // ファイルサーバーのモックの S3（バケット・デモ用の S3 に置く Lambda）は、どちらにもない（ADR-0025）
+    for (const result of [development, production]) {
+      expect(result.outputs).not.toContain('FileServerBucketName');
+      expect(result.outputs).not.toContain('DemoFeedFunctionName');
+    }
     expect(production.buckets).toBe(development.buckets);
   });
 

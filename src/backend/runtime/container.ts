@@ -1,7 +1,7 @@
 /**
  * 組み立て（コンポジションルート）。設定に応じて、ポートの実装（アダプタ）を選び、サービスを組み立てる。
  * 本番（production）は、DynamoDB の Repository・Cognito の認証を使う（設定で必須。ADR-0009）。ファイルサーバー・農業情報基盤・
- * Web Push は、評価環境では、モックのまま（実ファイルサーバーなどは未実装。ファイルサーバーのモックの S3 版は Issue #77）。
+ * Web Push は、評価環境では、モックのまま（農業情報基盤は NGSI-LD のアダプタ。ファイルサーバーは HTTP。ADR-0025）。
  * ローカル（local）・テスト（test）では、メモリ／ファイルの Repository、ファイルサーバーと農業情報基盤の
  * モック、Web Push のダミー、アプリ内の認証、操作できる時計を使う（AWS なしで E2E・負荷テストを動かす）。
  */
@@ -89,7 +89,6 @@ import { seedInitialStatusCodes } from '../application/seed/initial-data.ts';
 import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
-import { S3Client } from '@aws-sdk/client-s3';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
@@ -116,7 +115,6 @@ import { createLocalRepositories } from '../infrastructure/local/local-repositor
 import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
-import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
 import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
 import { readHttpFile, statHttpFile } from '../infrastructure/http/http-file-reader.ts';
 import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
@@ -220,8 +218,6 @@ export interface ContainerOverrides {
   readonly settings?: Partial<AppSettings>;
   /** Cognito のクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
-  /** S3 のクライアント（テストで、偽のクライアントに差し替える）。 */
-  readonly s3Client?: Pick<S3Client, 'send'>;
   /** パラメータストアのクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly ssmClient?: SsmCommandSender;
   /** Web Push の送信の関数（テストで、偽物に差し替える。WEB_PUSH_DELIVERY=vapid のとき使う）。 */
@@ -371,19 +367,12 @@ function buildAdapters(
     federation: createMockFederation({ faults: faults.federation, clock }),
     webPush: createDummyWebPush({ faults: faults.webPush }),
   };
-  // ファイルサーバーのモック: S3 のバケットを指定したとき（Lambda）は S3、そうでなければ、ローカルのディレクトリ。
-  // S3 版には、停止・遅延の再現（faults）は、ない（開発用 API は、本番で無効）
-  const fileSource =
-    config.fileServerBucket === undefined
-      ? createDirectoryFileSource({
-          rootDirectory: config.fileServerDirectory,
-          faults: faults.fileServer,
-          clock,
-        })
-      : createS3FileSource({
-          client: overrides.s3Client ?? new S3Client({}),
-          bucket: config.fileServerBucket,
-        });
+  // ファイルサーバーのモック: ローカルのディレクトリ（接続方式 MOCK。#344 の PR 3b で削除する）。S3 版は、削除した（ADR-0025）
+  const fileSource = createDirectoryFileSource({
+    rootDirectory: config.fileServerDirectory,
+    faults: faults.fileServer,
+    clock,
+  });
   // 秘密情報の保管先: パラメータストア（本番・開発サイト）、または、メモリ（ローカル・テスト）。使う場所は、#119・#207・#241 など
   // メモリの保管先は、開発用のリセットで消すため、変数に持つ（パラメータストアのときは、使わない）
   const memorySecrets = createMemorySecretPort();
@@ -509,7 +498,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     logger,
   });
   const ingestionSettings = createIngestionSettings(repositories.settings);
-  // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
+  // 取り込み元の接続方式で振り分ける（MOCK は、モック。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
   const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
   const routedFileSource = createRoutingFileSource({
     base: fileSource,
