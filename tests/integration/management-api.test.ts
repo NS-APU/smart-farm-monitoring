@@ -33,6 +33,7 @@ import {
   withEquipment,
   type TestContext,
 } from '../support/test-context.ts';
+import { withHttpFiles, type HttpTestContext } from '../support/http-test-files.ts';
 
 function send(context: TestContext, method: string, path: string, body?: unknown, token?: string) {
   return context.request(path, {
@@ -1649,8 +1650,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   }
 
   it('取り込み元の設定と状況（解釈に使う仕様の版・状態、最終の取得）を返す。認証情報の値は含めない', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
 
     const body = await settings(context);
@@ -1669,15 +1670,15 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('最終の実行・最終の成功は、設備ごとの最終の実行から求める。ログに残らない空振りでも更新し、失敗では、最終の成功を更新しない（Issue #201）', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
     // 新しいデータのない実行（ログには残らない）
     await send(context, 'POST', '/ingestion/robot/run');
     const empty = (await settings(context)).sources[0];
     context.clock.advance(60_000);
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
     await send(context, 'POST', '/ingestion/robot/run');
     const failed = (await settings(context)).sources[0];
 
@@ -1775,36 +1776,38 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('接続テスト: 接続できれば成功、ファイルサーバーが停止していれば、内部情報を含まない失敗を返す', async () => {
-    const context = await withEquipment();
-    context.placeFile('robot', 'placeholder.txt', 'x');
+    const context = await withHttpFiles();
+    await context.files.placeFile('robot', 'placeholder.txt', 'x');
 
     const ok = await send(context, 'POST', '/ingestion/robot/test');
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
     const failed = await send(context, 'POST', '/ingestion/robot/test');
     const unknown = await send(context, 'POST', '/ingestion/unknown/test');
 
     expect(await ok.json()).toEqual({ ok: true, message: '接続できました' });
     const failure = (await failed.json()) as { ok: boolean; message: string };
     expect(failure.ok).toBe(false);
-    expect(failure.message).not.toContain(context.fileServerDirectory);
+    expect(failure.message).not.toContain('127.0.0.1');
+    expect(failure.message).not.toContain(String(context.files.server.port));
+    expect(failure.message).not.toContain('/robot/placeholder.txt');
     expect(unknown.status).toBe(404);
   });
 
-  /** 新しいデータになるファイルを置く（取り込みログは、新しいデータがあった実行だけ残す。Issue #201）。値を変えると、変わった観測値になる。 */
-  function placeNewRobotData(context: TestContext, name: string, harvestCount: number): void {
-    context.placeFile(
+  /** 新しいデータになるファイルを置く（取り込みログは、新しいデータがあった実行だけ残す。Issue #201）。同じパスの上書きで、値を変えると、変わった観測値になる（HTTP は 1 設備 = 1 ファイル）。 */
+  async function placeNewRobotData(context: HttpTestContext, harvestCount: number): Promise<void> {
+    await context.files.placeFile(
       'robot',
-      name,
+      'robot.json',
       JSON.stringify({
         robotId: 'ROBOT-SAMPLE-01',
         records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount }],
       }),
     );
   }
-  function placeNewSensorData(context: TestContext, name: string, temperature: number): void {
-    context.placeFile(
+  async function placeNewSensorData(context: HttpTestContext, temperature: number): Promise<void> {
+    await context.files.placeFile(
       'environment-sensor',
-      name,
+      'sensor.json',
       JSON.stringify({
         sensorId: 'SENSOR-SAMPLE-01',
         records: [{ timestamp: '2026-10-09T01:00:00Z', temperatureCelsius: temperature }],
@@ -1813,8 +1816,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   }
 
   it('即時取得: 取り込んだ件数を返し、ログに記録する。同じファイルは、2回目は取り込まない（新しいデータがなければ、ログに残さない）', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     const first = await send(context, 'POST', '/ingestion/robot/run');
     const second = await send(context, 'POST', '/ingestion/robot/run');
@@ -1839,14 +1842,14 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('取り込みログは、取り込み元で絞り込め、新しい順に、ページ分割して返す', async () => {
-    const context = await withEquipment();
-    placeNewRobotData(context, 'robot-1.json', 1);
+    const context = await withHttpFiles();
+    await placeNewRobotData(context, 1);
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
-    placeNewSensorData(context, 'sensor-1.json', 20);
+    await placeNewSensorData(context, 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
     context.clock.advance(60_000);
-    placeNewRobotData(context, 'robot-2.json', 2);
+    await placeNewRobotData(context, 2);
     await send(context, 'POST', '/ingestion/robot/run');
 
     const all = IngestionLogListResponseSchema.parse(
@@ -1866,8 +1869,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('連携の状況: 結果の記録（新しい順）と、連携キューの状態ごとの件数を返す', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.container.dev?.faults.federation.set({ mode: 'DOWN' });
     await context.container.jobRunner.run('JB-03');
@@ -1886,8 +1889,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('連携の状況: 農業情報基盤が受け付けない場合は「失敗」、停止中は「保留」を、キューの件数とともに返す', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.container.dev?.faults.federation.set({ mode: 'REJECT' });
     await context.container.jobRunner.run('JB-03');
@@ -1903,8 +1906,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('連携の状況: 結果の記録は、limit ごとにページ分割して、新しい順に返す', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.container.dev?.faults.federation.set({ mode: 'DOWN' });
     for (let count = 0; count < 3; count += 1) {
@@ -1931,13 +1934,13 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('取り込みログ: 該当する取り込み元がなければ、空の一覧を返す。ページ分割は、取り込み元の絞り込みと併用できる', async () => {
-    const context = await withEquipment();
+    const context = await withHttpFiles();
     for (let count = 0; count < 3; count += 1) {
-      placeNewRobotData(context, `robot-${String(count)}.json`, count + 1);
+      await placeNewRobotData(context, count + 1);
       await send(context, 'POST', '/ingestion/robot/run');
       context.clock.advance(60_000);
     }
-    placeNewSensorData(context, 'sensor-1.json', 20);
+    await placeNewSensorData(context, 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
 
     const none = IngestionLogListResponseSchema.parse(
@@ -1973,16 +1976,16 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
 
     /** ロボット（成功 → 接続の失敗〔設備に結びつかない〕）と、環境センサー（成功）のログを作る。 */
     async function seedLogs() {
-      const context = await withEquipment();
-      placeNewRobotData(context, 'robot-1.json', 1);
+      const context = await withHttpFiles();
+      await placeNewRobotData(context, 1);
       await send(context, 'POST', '/ingestion/robot/run');
       context.clock.advance(60_000);
-      placeNewSensorData(context, 'sensor-1.json', 20);
+      await placeNewSensorData(context, 20);
       await send(context, 'POST', '/ingestion/environment-sensor/run');
       context.clock.advance(60_000);
-      context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+      context.files.faults.set({ mode: 'DOWN' });
       await send(context, 'POST', '/ingestion/robot/run');
-      context.container.dev?.faults.fileServer.set({ mode: 'UP' });
+      context.files.faults.set({ mode: 'UP' });
       return context;
     }
 
@@ -2050,11 +2053,11 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('取り込みログ: 失敗した取り込みは、失敗の内容（内部情報なし）を記録して返す。成功は、失敗の内容を持たない', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
     await send(context, 'POST', '/ingestion/robot/run');
 
     const logs = IngestionLogListResponseSchema.parse(
@@ -2063,7 +2066,9 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
 
     expect(logs.items.map((item) => item.result)).toEqual(['FAILURE', 'SUCCESS']);
     expect(logs.items[0]?.errorMessage).toBe('ファイルサーバーに接続できませんでした');
-    expect(logs.items[0]?.errorMessage).not.toContain(context.fileServerDirectory);
+    expect(logs.items[0]?.errorMessage).not.toContain('127.0.0.1');
+    expect(logs.items[0]?.errorMessage).not.toContain(String(context.files.server.port));
+    expect(logs.items[0]?.errorMessage).not.toContain('/robot/robot-sample-001.json');
     expect(logs.items[1]?.errorMessage).toBeUndefined();
     expect(logs.items[1]?.recordCount).toBe(14);
   });

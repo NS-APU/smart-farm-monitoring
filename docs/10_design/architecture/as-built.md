@@ -2598,7 +2598,7 @@ flowchart LR
 | 画面の単体テストの補助  | `createFakeFetch(handler)`（呼び出しの記録つきの `fetch` のスタブ。`METHOD /path` → 応答）、`createMemorySession`、`management-frontend.ts` の `App` の描画（全権限・権限なしのログイン）                                                                                         | `tests/support/frontend.ts`・`management-frontend.ts`                                         |
 | Repository の契約テスト | `describe.each` で、メモリ・ファイル永続化・DynamoDB（DynamoDB Local）の 3 実装に、同じテスト（実装ごとに 39 件）を適用する。DynamoDB 固有の振る舞い（時刻の正規化・併合順・カウンター・読み取りの上限・再送）は、`tests/integration/dynamodb-adapter.test.ts`                                                                                                                                            | `tests/integration/repository-contract.test.ts`                                               |
 
-結合テストの組み立て（`createTestContext`）は、一時ディレクトリをファイルサーバーのモックのルートとし、`parseConfig`（`APP_MODE=test`・`PERSISTENCE=memory`）→ `createContainer`（固定した時計・連番の ID）→ `createApp` を作り、`login()`・`request()`・`placeFixture()`・`placeFile()` を提供する。
+結合テストの組み立て（`createTestContext`）は、一時ディレクトリをファイルサーバーのモックのルートとし、`parseConfig`（`APP_MODE=test`・`PERSISTENCE=memory`）→ `createContainer`（固定した時計・連番の ID）→ `createApp` を作り、`login()`・`request()`・`placeFixture()`・`placeFile()` を提供する（モックのファイルサーバー。#344 の PR 3 で削除する）。取り込みのテストは、`withHttpFiles()`（`tests/support/http-test-files.ts`）で、HTTP のテスト用ファイルサーバー（`tests/support/http-file-server.ts`。テストのプロセスの中。127.0.0.1。`HEAD`・`GET`・`Last-Modified`・停止〔接続を切る〕・遅延・拒否・リクエストの記録）に、取り込み元の接続を向ける。`files.placeFile()`・`files.placeFixture()` は、ファイルを置き、その種別の設備の `sourceFilePath` を設定する（**1 設備 = 1 ファイル**。同じ設備に別の名前のファイルを置くとエラー）。停止・遅延は `files.faults`（ADR-0025）。
 
 ## E2E（Playwright）の構成
 

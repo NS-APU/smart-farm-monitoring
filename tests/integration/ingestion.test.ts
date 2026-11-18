@@ -1,11 +1,13 @@
 /**
  * 取り込み（UC-08, UC-09, UC-15, UC-24。JB-01）の結合テスト。
- * モックのファイルサーバー（一時ディレクトリ + 合成データのフィクスチャ）、メモリ上のデータ、固定した時計を使う。
+ * HTTP のテスト用ファイルサーバー（tests/support/http-file-server.ts。設備ごとのファイルパス〔1 設備 = 1 ファイル〕+ 合成データのフィクスチャ。
+ * Issue #344。ADR-0025）、メモリ上のデータ、固定した時計を使う。
+ * 削除済みの設備のデータの扱いは、モックのファイルサーバーを使う（「MOCK 専用」のテスト。#344 の PR 3 で、MOCK とともに削除する）。
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@smart-farm/shared/errors';
-import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
+import { toEquipmentId, toUserId, type EquipmentId } from '@smart-farm/shared/schemas/common';
 import { DELETED_EXTERNAL_IDS_KEY } from '../../src/backend/application/equipment/deleted-external-ids.ts';
 import { createIngestionService } from '../../src/backend/application/ingestion/ingestion-service.ts';
 import { createIngestionSettings } from '../../src/backend/application/ingestion/ingestion-settings.ts';
@@ -16,8 +18,23 @@ import { createSequentialIdGenerator } from '../../src/backend/infrastructure/lo
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { createDefaultFormatProfileRegistry } from '../../src/backend/infrastructure/format-profiles/declarative-profile.ts';
 import { FileSourceUnavailableError } from '../../src/backend/application/ports/file-source-port.ts';
-import { equipmentSet, must, ROBOT_ID, SENSOR_ID, FACILITY_ID } from '../support/builders.ts';
-import { createTestContext, TEST_NOW, TEST_USER } from '../support/test-context.ts';
+import {
+  equipmentSet,
+  must,
+  ROBOT_2_ID,
+  ROBOT_ID,
+  SENSOR_2_ID,
+  SENSOR_ID,
+  FACILITY_ID,
+} from '../support/builders.ts';
+import { HTTP_FILES_ENV, useHttpFileServer, withHttpFiles } from '../support/http-test-files.ts';
+import {
+  createTestContext,
+  TEST_NOW,
+  TEST_USER,
+  withEquipment,
+  type TestContext,
+} from '../support/test-context.ts';
 import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
@@ -72,15 +89,45 @@ function build(fileSource: FileSource, profiles = createDefaultFormatProfileRegi
   return { service, repositories, notifyIngestionFailure };
 }
 
-async function setup() {
-  const context = await createTestContext();
-  for (const equipment of equipmentSet()) {
-    await context.container.repositories.equipment.save(equipment);
+// 削除済みの設備の識別子のテストで使う、3 つ目のロボット
+const ROBOT_3_ID = toEquipmentId('ROBOT-T3');
+const closers: (() => Promise<void>)[] = [];
+afterEach(async () => {
+  for (const close of closers.splice(0)) {
+    await close();
   }
+});
+
+/** 設備の一式を登録し、取り込み元の接続を、HTTP のテスト用ファイルサーバーにする（テストの終了で、サーバーを閉じる）。 */
+async function setup(options: Parameters<typeof withHttpFiles>[0] = {}) {
+  const context = await withHttpFiles(options);
+  closers.push(() => context.files.server.close());
   return context;
 }
 
-async function observationsOf(context: Awaited<ReturnType<typeof setup>>, equipmentId = ROBOT_ID) {
+/**
+ * ファイルを持つ設備（同じ種別・同じハウス）を、1 つ増やす（HTTP は、1 設備 = 1 ファイル。複数のファイルは、別の設備のファイルとして置く）。
+ * 外部の識別子（データ上の ID）は、設備ごとに一意にする。ファイルの中の ID は、その設備の外部の識別子に合わせる。
+ */
+async function addEquipment(
+  context: TestContext,
+  type: 'ROBOT' | 'SENSOR',
+  equipmentId: EquipmentId,
+  externalId: string,
+) {
+  const { repositories } = context.container;
+  const base = must(
+    (await repositories.equipment.list()).find((item) => item.equipmentType === type),
+  );
+  await repositories.equipment.save({
+    ...base,
+    equipmentId,
+    externalId,
+    sourceFilePath: undefined,
+  });
+}
+
+async function observationsOf(context: TestContext, equipmentId = ROBOT_ID) {
   return (
     await context.container.repositories.observations.query(
       { equipmentIds: [equipmentId], includeDeleted: true },
@@ -92,7 +139,7 @@ async function observationsOf(context: Awaited<ReturnType<typeof setup>>, equipm
 describe('UC-08 ロボットデータの自動取り込み', () => {
   it('ファイルサーバーの新しいファイルを読み、ロボットに紐づけて保存し、評価を更新する', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     const summary = await context.container.ingestionService.runSource('robot');
 
@@ -107,7 +154,8 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(observations).toHaveLength(14);
     expect(
       observations.every(
-        (item) => item.source === 'AUTO_IMPORT' && item.sourceFileId === 'robot-sample-001.json',
+        (item) =>
+          item.source === 'AUTO_IMPORT' && item.sourceFileId === '/robot/robot-sample-001.json',
       ),
     ).toBe(true);
     // 解釈に使った版（仮決め）を、観測値に残す
@@ -118,7 +166,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
   it('取り込みログに、成功・件数・解釈の版を記録する', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     await context.container.ingestionService.runSource('robot');
 
@@ -134,7 +182,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
   it('同じファイルを、重複して取り込まない', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await context.container.ingestionService.runSource('robot');
 
     const again = await context.container.ingestionService.runSource('robot');
@@ -143,16 +191,17 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(await observationsOf(context)).toHaveLength(14);
   });
 
-  it('名前が違えば、内容が同じファイルも、読む（別のファイル）が、同じ値の観測値は保存しない。内容が変わったファイルは新しい版として取り込む（ファイルごとに最新の版の記録。Issue #201）', async () => {
+  it('同じパスのファイルは、内容が同じなら、再び取り込まない（同じ値の観測値は保存しない）。内容が変わったファイルは新しい版として取り込む（ファイルごとに最新の版の記録。Issue #201）', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await context.container.ingestionService.runSource('robot');
     const before = (await observationsOf(context)).length;
-    context.placeFixture('robot', 'robot/robot-sample-001.json', 'copy-of-001.json');
+    // 同じパスに、同じ内容を置き直す
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     const copied = await context.container.ingestionService.runSource('robot');
     const afterCopy = (await observationsOf(context)).length;
-    context.placeFile(
+    await context.files.placeFile(
       'robot',
       'robot-sample-001.json',
       JSON.stringify({
@@ -162,8 +211,8 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     );
     const updated = await context.container.ingestionService.runSource('robot');
 
-    // 別のファイル（名前が違う）なので読むが、同じ値（同じ計測日時・同じ値）は、触らない（D-08）。観測値は増えない
-    expect(copied).toMatchObject({ filesProcessed: 1, recordCount: 0 });
+    // 内容が同じ（同じパス・同じハッシュ）なので、取り込まず、観測値も増えない
+    expect(copied).toMatchObject({ filesProcessed: 0, recordCount: 0 });
     expect(afterCopy).toBe(before);
     expect(updated).toMatchObject({ filesProcessed: 1, recordCount: 1 });
     // 観測値の一意キーが同じ（設備・項目・計測日時・取得元）ため、上書きされ、二重に数えない
@@ -173,9 +222,27 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(harvest.map((item) => item.value)).toEqual([20]);
   });
 
+  it('設備のファイルのパスを修正すると、新しいパスのファイルは、別のファイルとして読むが、同じ値の観測値は保存しない（D-08。取り込み済みの判定は、パスと内容のハッシュ）', async () => {
+    const context = await setup();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.container.ingestionService.runSource('robot');
+    const before = (await observationsOf(context)).length;
+    // 設備のファイルのパスを、別のパスに修正し、同じ内容のファイルを置く
+    await context.files.assignPath(ROBOT_ID, '/robot/moved.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json', {
+      asName: 'moved.json',
+    });
+
+    const moved = await context.container.ingestionService.runSource('robot');
+
+    // 別のパス（別のファイル）なので読むが、同じ値（同じ計測日時・同じ値）は、触らない。観測値は増えない
+    expect(moved).toMatchObject({ filesProcessed: 1, recordCount: 0 });
+    expect(await observationsOf(context)).toHaveLength(before);
+  });
+
   it('欠損・不正な値を区別して記録し、評価に使う値は有効な値だけにする', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-002-partial.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-002-partial.json');
     // 計測の直後（遅延にならない時刻）に取り込む
     context.clock.set(new Date('2026-10-09T02:05:00Z'));
 
@@ -202,10 +269,13 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(byQuality('INVALID').find((item) => item.itemKey === 'harvestCount')?.value).toBe(-3);
   });
 
-  it('形式違いのファイルは、失敗として記録し、他のファイルの取り込みを継続する', async () => {
+  it('形式違いのファイルは、失敗として記録し、他のファイル（別の設備のファイル）の取り込みを継続する', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await addEquipment(context, 'ROBOT', ROBOT_2_ID, 'ROBOT-SAMPLE-02');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-003-broken.json', {
+      equipmentId: ROBOT_2_ID,
+    });
 
     const summary = await context.container.ingestionService.runSource('robot');
 
@@ -218,7 +288,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
   it('形式違いのファイルだけのとき、取り込み結果は失敗にする', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-003-broken.json');
 
     const summary = await context.container.ingestionService.runSource('robot');
 
@@ -227,7 +297,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
   it('登録されていない設備（外部の識別子が未登録）のデータは、読み取れなかったものとして数える', async () => {
     const context = await setup();
-    context.placeFile(
+    await context.files.placeFile(
       'robot',
       'unknown.json',
       JSON.stringify({
@@ -242,8 +312,9 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(await observationsOf(context)).toHaveLength(0);
   });
 
+  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
   it('削除した設備のデータ上の識別子のデータは、取り込みの対象から外れ、「削除済みの設備」として別に数える（棄却数に含めない。UC-12。Issue #231。ADR-0018 の D-28）', async () => {
-    const context = await setup();
+    const context = await withEquipment();
     await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
     context.placeFixture('robot', 'robot/robot-sample-001.json');
 
@@ -258,8 +329,9 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     ).toEqual([]);
   });
 
+  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
   it('登録のない識別子のレコードは、これまでどおり、棄却として数える（削除済みの設備と区別する）。削除済みの設備のレコードは、取り込み元単位のログに、別の項目で示す', async () => {
-    const context = await setup();
+    const context = await withEquipment();
     await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
     context.placeFile(
       'robot',
@@ -284,6 +356,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(logs[0]?.equipmentId).toBeUndefined();
   });
 
+  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
   it('削除済みの設備の識別子は、設備の記録が残っていなくても、別に残した一覧で判定する（設備の記録が消えても〔#229〕、判定が変わらない）', async () => {
     const context = await createTestContext();
     // ロボットの設備の記録は、ない（ハウスとセンサーだけ）。データ上の識別子は、削除済みの一覧にだけある
@@ -306,6 +379,88 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
     expect(summary).toMatchObject({ rejectedCount: 0, deletedEquipmentCount: 2 });
   });
 
+  it('削除した設備のデータ上の識別子のデータは、取り込みの対象から外れ、「削除済みの設備」として別に数える（棄却数に含めない。D-28。HTTP: 別の設備のファイルに、削除済みの設備の識別子のレコードがある）', async () => {
+    const context = await setup();
+    await addEquipment(context, 'ROBOT', ROBOT_2_ID, 'ROBOT-SAMPLE-02');
+    await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json', {
+      equipmentId: ROBOT_2_ID,
+    });
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    // ファイルの 2 件のレコードは、どちらも削除済みの設備（ROBOT-SAMPLE-01）のもの。保存せず、棄却数にも数えない
+    expect(summary).toMatchObject({ recordCount: 0, rejectedCount: 0, deletedEquipmentCount: 2 });
+    expect(await observationsOf(context, ROBOT_2_ID)).toHaveLength(0);
+    // 削除済みの設備のレコードだけの実行は、取り込みログを増やさない（D-48）
+    expect(
+      (await context.container.repositories.ingestion.listLogs({}, { limit: 10 })).items,
+    ).toEqual([]);
+  });
+
+  it('登録のない識別子のレコードは、これまでどおり、棄却として数える（削除済みの設備と区別する）。削除済みの設備のレコードと同じ実行でも、それぞれ別に数える。ログは、設備ごと（HTTP）: 棄却のある設備の 1 件だけで、削除済みの設備のレコードだけのファイルは、ログを増やさない（D-48）', async () => {
+    const context = await setup();
+    await addEquipment(context, 'ROBOT', ROBOT_2_ID, 'ROBOT-SAMPLE-02');
+    await addEquipment(context, 'ROBOT', ROBOT_3_ID, 'ROBOT-SAMPLE-03');
+    await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
+    await context.files.placeFile(
+      'robot',
+      'mixed.json',
+      JSON.stringify({
+        robotId: 'ROBOT-NEVER-REGISTERED',
+        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount: 1 }],
+      }),
+      { equipmentId: ROBOT_2_ID },
+    );
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json', {
+      equipmentId: ROBOT_3_ID,
+    });
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ rejectedCount: 1, deletedEquipmentCount: 2 });
+    const logs = (await context.container.repositories.ingestion.listLogs({}, { limit: 10 })).items;
+    expect(logs).toHaveLength(1);
+    // ログは、設備ごと。棄却のある設備（ROBOT-T2）のログだけで、削除済みの設備のレコードだけのファイル（ROBOT-T3）は、ログを作らない
+    expect(logs[0]).toMatchObject({
+      sourceId: 'robot',
+      equipmentId: ROBOT_2_ID,
+      rejectedCount: 1,
+    });
+    expect(logs[0]?.deletedEquipmentCount ?? 0).toBe(0);
+  });
+
+  it('削除済みの設備の識別子は、設備の記録が残っていなくても、別に残した一覧で判定する（設備の記録が消えても〔#229〕、判定は変わらない。HTTP）', async () => {
+    const context = await useHttpFileServer(await createTestContext({ env: HTTP_FILES_ENV }));
+    closers.push(() => context.files.server.close());
+    // ロボット（ROBOT-T1）の設備の記録は、ない（ハウスとセンサーだけ）。データ上の識別子は、削除済みの一覧にだけある
+    for (const equipment of equipmentSet()) {
+      if (equipment.equipmentId !== ROBOT_ID) {
+        await context.container.repositories.equipment.save(equipment);
+      }
+    }
+    await context.container.repositories.settings.set(DELETED_EXTERNAL_IDS_KEY, [
+      {
+        externalId: 'ROBOT-SAMPLE-01',
+        equipmentType: 'ROBOT',
+        deletedAt: '2026-10-08T00:00:00.000Z',
+      },
+    ]);
+    // 取得の対象は、ファイルのパスを持つ設備だけ。ロボットは、有効な別の設備（ROBOT-T2）のファイルに、削除済みの識別子のレコードがある
+    await context.container.repositories.equipment.save({
+      ...must(equipmentSet().find((item) => item.equipmentId === ROBOT_ID)),
+      equipmentId: ROBOT_2_ID,
+      externalId: 'ROBOT-SAMPLE-02',
+    });
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json', {
+      equipmentId: ROBOT_2_ID,
+    });
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ rejectedCount: 0, deletedEquipmentCount: 2 });
+  });
+
   it('同じ識別子で、設備を登録し直せば、登録中の設備として取り込む（削除済みの一覧より優先する。D-28: 再登録を許す）', async () => {
     const context = await setup();
     await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
@@ -313,7 +468,9 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
       ...must(equipmentSet().find((item) => item.equipmentId === ROBOT_ID)),
       equipmentId: toEquipmentId('ROBOT-T9'),
     });
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json', {
+      equipmentId: toEquipmentId('ROBOT-T9'),
+    });
 
     const summary = await context.container.ingestionService.runSource('robot');
 
@@ -371,7 +528,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
   it('計測から60分を超えて届いたデータは、遅延として区別して記録し、評価には使う', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     // 計測（01:00・01:15）から、1時間以上あとの 03:00 に届く
 
     await context.container.ingestionService.runSource('robot');
@@ -389,7 +546,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
   it('保存した観測値を、連携キューに積む（生データ）', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     await context.container.ingestionService.runSource('robot');
 
@@ -404,7 +561,10 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 describe('UC-09 環境センサーデータの自動取り込み', () => {
   it('JSON を読み、センサーに紐づけて保存する。null の値は欠損として記録する', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');
 
@@ -424,7 +584,10 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 
   it('範囲外・数値でない値・計測日時のない記録を区別して扱う。項目の一部だけの記録は、読める', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-002-invalid.json');
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-002-invalid.json',
+    );
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');
 
@@ -442,7 +605,7 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
     const context = await setup();
     const timestamp = '2026-10-09T02:00:00Z';
     context.clock.set(new Date('2026-10-09T02:05:00Z'));
-    context.placeFile(
+    await context.files.placeFile(
       'environment-sensor',
       'range.json',
       JSON.stringify({
@@ -472,9 +635,9 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
   });
 
   describe('取り込みの計測日時の未来の許容（D-13。既定 5 分。設定 INGESTION_FUTURE_TOLERANCE_MINUTES）', () => {
-    const futureFile = (minutesAhead: number) =>
+    const futureFile = (minutesAhead: number, sensorId = 'SENSOR-SAMPLE-01') =>
       JSON.stringify({
-        sensorId: 'SENSOR-SAMPLE-01',
+        sensorId,
         records: [
           {
             timestamp: new Date(TEST_NOW.getTime() + minutesAhead * 60_000).toISOString(),
@@ -485,26 +648,31 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 
     it('既定: 受信の 5 分先までは有効。それを超える未来は、不正にして、棄却数に数える', async () => {
       const context = await setup();
-      context.placeFile('environment-sensor', 'future-5.json', futureFile(5));
-      context.placeFile('environment-sensor', 'future-6.json', futureFile(6));
+      // HTTP は 1 設備 = 1 ファイル。2 つのファイルは、別のセンサーのファイルとして置く
+      await addEquipment(context, 'SENSOR', SENSOR_2_ID, 'SENSOR-SAMPLE-02');
+      await context.files.placeFile('environment-sensor', 'future-5.json', futureFile(5));
+      await context.files.placeFile(
+        'environment-sensor',
+        'future-6.json',
+        futureFile(6, 'SENSOR-SAMPLE-02'),
+        { equipmentId: SENSOR_2_ID },
+      );
 
       const summary = await context.container.ingestionService.runSource('environment-sensor');
 
       expect(summary).toMatchObject({ recordCount: 1, rejectedCount: 1 });
-      const observations = await observationsOf(context, SENSOR_ID);
+      const observations = [
+        ...(await observationsOf(context, SENSOR_ID)),
+        ...(await observationsOf(context, SENSOR_2_ID)),
+      ];
       expect(observations.map((item) => item.quality).sort()).toEqual(['INVALID', 'VALID']);
     });
 
     it('設定値を変えると、許容も変わる（10 分に広げれば、6 分先は有効。0 分にすれば、5 分先も不正）', async () => {
-      const wide = await createTestContext({ env: { INGESTION_FUTURE_TOLERANCE_MINUTES: '10' } });
-      const strict = await createTestContext({ env: { INGESTION_FUTURE_TOLERANCE_MINUTES: '0' } });
-      for (const context of [wide, strict]) {
-        for (const equipment of equipmentSet()) {
-          await context.container.repositories.equipment.save(equipment);
-        }
-      }
-      wide.placeFile('environment-sensor', 'future-6.json', futureFile(6));
-      strict.placeFile('environment-sensor', 'future-5.json', futureFile(5));
+      const wide = await setup({ env: { INGESTION_FUTURE_TOLERANCE_MINUTES: '10' } });
+      const strict = await setup({ env: { INGESTION_FUTURE_TOLERANCE_MINUTES: '0' } });
+      await wide.files.placeFile('environment-sensor', 'future-6.json', futureFile(6));
+      await strict.files.placeFile('environment-sensor', 'future-5.json', futureFile(5));
 
       const wideSummary = await wide.container.ingestionService.runSource('environment-sensor');
       const strictSummary = await strict.container.ingestionService.runSource('environment-sensor');
@@ -516,7 +684,7 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 
   it('未登録のセンサーのデータは、読み取れなかったものとして数える', async () => {
     const context = await setup();
-    context.placeFile(
+    await context.files.placeFile(
       'environment-sensor',
       'unknown.json',
       JSON.stringify({
@@ -532,7 +700,7 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 
   it('構造が仕様と異なる JSON は、形式違いとして扱う', async () => {
     const context = await setup();
-    context.placeFixture(
+    await context.files.placeFixture(
       'environment-sensor',
       'environment-sensor/sensor-sample-003-bad-structure.json',
     );
@@ -544,7 +712,10 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 
   it('取り込んだ環境の値から、環境適応性が評価される', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
     context.clock.set(new Date('2026-10-09T01:45:00Z'));
 
     await context.container.ingestionService.runSource('environment-sensor');
@@ -563,7 +734,8 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
 describe('UC-24 取り込み失敗の通知（再試行・単独稼働）', () => {
   it('ファイルサーバーが停止していたら、間隔を広げて再試行し、失敗を記録して通知する', async () => {
     const context = await setup();
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    context.files.faults.set({ mode: 'DOWN' });
     const before = context.clock.now().getTime();
 
     const summary = await context.container.ingestionService.runSource('robot');
@@ -591,7 +763,8 @@ describe('UC-24 取り込み失敗の通知（再試行・単独稼働）', () =
 
   it('同じ取り込み元の失敗は、抑制の期間内は繰り返し通知しない', async () => {
     const context = await setup();
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    context.files.faults.set({ mode: 'DOWN' });
 
     await context.container.ingestionService.runSource('robot');
     await context.container.ingestionService.runSource('robot');
@@ -608,10 +781,14 @@ describe('UC-24 取り込み失敗の通知（再試行・単独稼働）', () =
 
   it('接続できない取り込み元があっても、他の取り込み元の取り込みは継続できる（取り込み元ごとに独立）', async () => {
     const context = await setup();
-    context.placeFixture('environment-sensor', 'environment-sensor/sensor-sample-001.json');
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
+    context.files.faults.set({ mode: 'DOWN' });
     const failed = await context.container.ingestionService.runSource('robot');
-    context.container.dev?.faults.fileServer.set({ mode: 'UP' });
+    context.files.faults.set({ mode: 'UP' });
 
     const succeeded = await context.container.ingestionService.runSource('environment-sensor');
 
@@ -634,7 +811,8 @@ describe('取り込みの実行の制御・設定', () => {
 
   it('実行中の取り込み元を重ねて実行すると、競合（二重実行の防止）にする', async () => {
     const context = await setup();
-    context.container.dev?.faults.fileServer.set({ mode: 'SLOW', delayMs: 10 });
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    context.files.faults.set({ mode: 'SLOW', delayMs: 10 });
 
     const results = await Promise.allSettled([
       context.container.ingestionService.runSource('robot'),
@@ -652,21 +830,31 @@ describe('取り込みの実行の制御・設定', () => {
 
   it('接続テスト: 成功と失敗を、内部情報を含まないメッセージで返す', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     const ok = await context.container.ingestionService.testConnection('robot');
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
     const ng = await context.container.ingestionService.testConnection('robot');
 
     expect(ok).toEqual({ ok: true, message: '接続できました' });
     expect(ng.ok).toBe(false);
-    expect(ng.message).not.toContain('ファイルサーバーに接続できません');
-    expect(ng.message).toContain('接続先と認証情報の設定を確認');
+    // HTTP の停止（接続できない）は、理由が分かる失敗として、固定の理由を示す。接続先（ホスト・ポート）・ファイルのパスは含めない
+    expect(ng.message).toBe(
+      '接続できませんでした（ファイルサーバーに接続できません）。接続先と認証情報の設定を確認してください',
+    );
+    expect(ng.message).not.toContain('127.0.0.1');
+    expect(ng.message).not.toContain(String(context.files.server.port));
+    expect(ng.message).not.toContain('/robot/');
   });
 
   it('スケジューラからの実行: 取得間隔が来た取り込み元だけ実行する', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    // HTTP は、ファイルを持つ設備がある取り込み元だけが、実行の対象になる。センサーにも、ファイルを置く
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
     // 取得間隔は、設備ごとの設定（#197）。ロボット・センサーとも、15 分にする（設備ごとの判定は、ingestion-per-equipment.test.ts）
     for (const item of await context.container.repositories.equipment.list()) {
       if (item.equipmentType !== 'FACILITY') {
@@ -710,6 +898,12 @@ describe('取り込みの実行の制御・設定', () => {
 
   it('無効にした取り込み元は、スケジューラから実行しない', async () => {
     const context = await setup();
+    // HTTP は、ファイルを持つ設備がある取り込み元だけが、実行の対象になる
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
     const sources = await context.container.ingestionSettings.listSources();
     await context.container.ingestionSettings.saveSources(
       sources.map((source) => ({ ...source, isEnabled: source.sourceId === 'robot' })),
@@ -734,7 +928,7 @@ describe('取り込みの実行の制御・設定', () => {
 
   it('取り込み後の評価が失敗しても、取り込みの結果は成功のままにする', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     const spy = vi
       .spyOn(context.container.evaluationService, 'evaluateAffected')
       .mockRejectedValue(new Error('評価の失敗'));
@@ -746,7 +940,8 @@ describe('取り込みの実行の制御・設定', () => {
   });
 
   it('取り込み設定の保存がなければ既定の取り込み元（ロボット・環境センサー）を返し、保存した設定を優先する', async () => {
-    const context = await setup();
+    // 既定の設定を確かめるため、接続設定を保存する HTTP の準備（withHttpFiles）は使わない
+    const context = await withEquipment();
 
     const defaults = await context.container.ingestionSettings.listSources();
     const [robotSource] = defaults;

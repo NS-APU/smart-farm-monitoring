@@ -31,6 +31,7 @@ import {
   ROBOT_ID,
   SENSOR_ID,
 } from '../support/builders.ts';
+import { withHttpFiles } from '../support/http-test-files.ts';
 import { createTestContext, TEST_NOW, TEST_USER } from '../support/test-context.ts';
 
 const USER = toUserId(TEST_USER.userId);
@@ -478,12 +479,14 @@ describe('異常検知と通知（UC-10）', () => {
 
 describe('通知の一覧・既読（UC-05, UC-22）', () => {
   async function withNotifications() {
-    const context = await setup();
+    const context = await withHttpFiles();
     await context.container.repositories.observations.saveMany([
       temperature(30, new Date(TEST_NOW.getTime() - HOUR_MS).toISOString()),
     ]);
     await context.container.evaluationService.evaluateAll('DEV');
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    // HTTP は、設備のファイルのパスがある設備だけが、取得の対象。ファイルを置いたうえで、接続を切る
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    context.files.faults.set({ mode: 'DOWN' });
     await context.container.ingestionService.runSource('robot');
     return context;
   }
@@ -1389,8 +1392,13 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
   });
 
   it('ジョブを、識別子から起動できる（取り込み・評価・連携・通知の配信）', async () => {
-    const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    // HTTP は、ファイルのパスがある設備だけが、取得の対象。環境センサーも、取り込み元として実行されるよう、ファイルを置く
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
 
     const results = await Promise.all(
       JOB_IDS.map((jobId) => context.container.jobRunner.run(jobId)),
