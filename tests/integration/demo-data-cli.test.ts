@@ -5,7 +5,6 @@
 
 import { afterAll, describe, expect, it } from 'vitest';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
-import { EquipmentSchema, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { KEPT_PARTITIONS } from '../../src/backend/infrastructure/dynamodb/data-reset.ts';
 import { createJobLock } from '../../src/backend/infrastructure/dynamodb/job-lock.ts';
@@ -24,13 +23,6 @@ import {
 afterAll(dropDynamoTestTables);
 
 const BUCKET = 'dummy-file-server';
-
-/** ファイルのパスを持たない設備（開発サイトの、以前に投入したデモの設備）にする。 */
-function withoutSourceFilePath(equipment: Equipment): Equipment {
-  return EquipmentSchema.parse(
-    Object.fromEntries(Object.entries(equipment).filter(([key]) => key !== 'sourceFilePath')),
-  );
-}
 
 function output() {
   const lines: string[] = [];
@@ -197,9 +189,12 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
 
     expect(first).toEqual({
       exitCode: 0,
+      lines: [`info: ${APPLIED}（取り込み元 2 件・ファイルのパスを設定した設備 2 件）`],
+    });
+    expect(second).toEqual({
+      exitCode: 0,
       lines: [`info: ${APPLIED}（取り込み元 2 件・ファイルのパスを設定した設備 0 件）`],
     });
-    expect(second.exitCode).toBe(0);
     expect(first.lines.join('')).not.toContain('demo-feed.example.com');
     expect(await robotSourceConnection(container)).toEqual([
       [
@@ -213,16 +208,12 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
     ]);
   });
 
-  it('ファイルのパスを持たない既存のデモの設備（以前に投入したもの）に、ファイルのパスを設定する。環境変数 DEMO_FEED_URL でも指定できる', async () => {
+  it('seed の設備（ファイルのパスを持たない。以前に投入したものも同じ）に、ファイルのパスを設定する。環境変数 DEMO_FEED_URL でも指定できる', async () => {
     const { run, container } = await setup();
     await run(['seed']);
-    for (const id of ['ROBOT-01', 'SENSOR-01']) {
-      const equipment = await container.repositories.equipment.get(toEquipmentId(id));
-      if (equipment === undefined) {
-        throw new Error('デモの設備がありません');
-      }
-      await container.repositories.equipment.save(withoutSourceFilePath(equipment));
-    }
+    expect(
+      (await container.repositories.equipment.get(toEquipmentId('ROBOT-01')))?.sourceFilePath,
+    ).toBeUndefined();
 
     const result = await run(['use-http-feed'], {}, { DEMO_FEED_URL: FEED_URL });
 

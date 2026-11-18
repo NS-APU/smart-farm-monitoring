@@ -5,7 +5,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
-import { EquipmentSchema, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import { DEMO_FEED_FILE_PATHS } from '../../src/backend/application/demo/demo-feed-schedule.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
 import { createControllableClock } from '../../src/backend/infrastructure/local/clocks.ts';
@@ -21,13 +20,6 @@ import { applyDemoFeed, parseDemoFeedUrl } from '../../src/backend/runtime/demo-
 
 const NOW = new Date('2026-10-20T04:22:30.000Z');
 const URL_MESSAGE = '接続先の URL が正しくありません';
-
-/** ファイルのパスを持たない設備（開発サイトの、以前に投入したデモの設備）にする。 */
-function withoutSourceFilePath(equipment: Equipment): Equipment {
-  return EquipmentSchema.parse(
-    Object.fromEntries(Object.entries(equipment).filter(([key]) => key !== 'sourceFilePath')),
-  );
-}
 
 describe('接続先の URL の解析（parseDemoFeedUrl）', () => {
   it('https の URL を、HTTP の接続設定（HTTPS・認証なし）にする。ポートは、指定があれば持つ。ホストは小文字にそろう', () => {
@@ -93,9 +85,9 @@ describe('取り込みを、デモ用の HTTP 配信に向ける（applyDemoFeed
     });
     await container.initialize();
     if (options.withEquipment !== false) {
-      // 開発サイトの既存のデモの設備のように、ファイルのパスを持たない状態にする
+      // seed の直後のデモの設備（ファイルのパスを持たない）
       for (const equipment of buildDemoEquipment(NOW)) {
-        await container.repositories.equipment.save(withoutSourceFilePath(equipment));
+        await container.repositories.equipment.save(equipment);
       }
     }
     return container;
@@ -174,8 +166,8 @@ describe('取り込みを、デモ用の HTTP 配信に向ける（applyDemoFeed
     await expect(applyDemoFeed(container, connection)).rejects.toThrow('pnpm demo-data seed');
 
     expect(await container.ingestionSettings.listSources()).toEqual(before);
-    expect((await container.repositories.equipment.get(DEMO_ROBOT_ID))?.sourceFilePath).toBe(
-      DEMO_FEED_FILE_PATHS.robot,
-    );
+    expect(
+      (await container.repositories.equipment.get(DEMO_ROBOT_ID))?.sourceFilePath,
+    ).toBeUndefined();
   });
 });

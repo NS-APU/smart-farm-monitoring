@@ -12951,15 +12951,15 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 仕様（ADR-0025）:
 - デモ用の HTTP 配信: 専用の Lambda に、認証なしの Function URL（開発サイトだけ）。`GET`・`HEAD` で、取り込み元ごとの `latest.json`（`/robot/latest.json`・`/environment-sensor/latest.json`）を、リクエストごとに、現在の時刻から作って返す（`Last-Modified` は現在の区間の開始）。`GET`・`HEAD` 以外は 405、定めたパス以外は 404。権限・環境変数なし
-- デモの設備（ロボット・環境センサー）に `sourceFilePath` を持たせる。`pnpm demo-data use-http-feed [--url URL]`・`seed --url` で、取り込み元の接続を HTTP（認証なし）にし、デモの設備にファイルのパスを設定する（何度実行しても同じ）
+- `pnpm demo-data use-http-feed [--url URL]`・`seed --url` で、取り込み元の接続を HTTP（認証なし）にし、デモの設備にファイルのパス（`sourceFilePath`）を設定する（何度実行しても同じ）。`seed`・`SEED_MODE=DEMO`・E2E の設備は、ファイルパスを持たない（変えない）
 
 ### 62.1 追加したテスト
 
 | 層・ファイル | 追加した内容（件数） |
 | ------------ | -------------------- |
-| 結合: `tests/integration/demo-feed-http.test.ts`（新規。6 件） | ハンドラ: `GET` が各パスで合成データのファイルを返す（JSON・`Last-Modified` は区間の開始・キャッシュしない）、`HEAD` はヘッダーだけ（`GET` と同じヘッダー。メソッドの大文字・小文字を問わない）、同じ区間は同じ内容・区間が変わると最新の区間を含む内容と新しい `Last-Modified`、`GET`・`HEAD` 以外・メソッドなしは 405（`Allow`）、定めたパス以外・`..` を含むパス・パスなしは 404（内容を含めない）。取り込み: 手元の HTTP サーバーが、ハンドラを呼ぶだけの形で、デモの設備の `sourceFilePath` ごとに、HTTP アダプタ（`HEAD`・`GET`）が読み、ロボット・環境センサーの観測値を保存する（4 区間 × 項目）／同じ区間のうちの 2 回目は増えない・接続テストが成功する |
+| 結合: `tests/integration/demo-feed-http.test.ts`（新規。6 件） | ハンドラ: `GET` が各パスで合成データのファイルを返す（JSON・`Last-Modified` は区間の開始・キャッシュしない）、`HEAD` はヘッダーだけ（`GET` と同じヘッダー。メソッドの大文字・小文字を問わない）、同じ区間は同じ内容・区間が変わると最新の区間を含む内容と新しい `Last-Modified`、`GET`・`HEAD` 以外・メソッドなしは 405（`Allow`）、定めたパス以外・`..` を含むパス・パスなしは 404（内容を含めない）。取り込み: 手元の HTTP サーバーが、ハンドラを呼ぶだけの形で、`use-http-feed` と同じ処理（`applyDemoFeed`）で設定した、デモの設備の `sourceFilePath` ごとに、HTTP アダプタ（`HEAD`・`GET`）が読み、ロボット・環境センサーの観測値を保存する（4 区間 × 項目）／同じ区間のうちの 2 回目は増えない・接続テストが成功する |
 | 結合: `tests/integration/demo-feed-connection.test.ts`（新規。16 件） | 接続先の URL の解析（https・http・ポート・ホストの小文字化・正しくない URL の 9 通り〔空・スキームなし・http・https 以外・パス・クエリ・フラグメント・認証情報・ユーザー名・ホストの空白〕・エラー文に URL を含めない）、設定の適用（取り込み元の接続を HTTP にし、ほかの設定を変えない／何度実行しても同じ・接続先の変更は反映／設備にあるファイルのパスは上書きしない／デモの設備がなければ、先に seed のエラーで、何も変えない） |
-| 結合: `tests/integration/demo-data-cli.test.ts`（既存のファイルに 9 件。DynamoDB Local が必要） | `use-http-feed`: seed のあとに接続を HTTP にする・何度実行しても同じ・接続先を出力しない／ファイルのパスを持たない既存のデモの設備に設定する・環境変数 `DEMO_FEED_URL`／`seed --url` で、投入のあとに同じ設定をする／URL がない・`--url` の値がない・正しくない URL（4 通り）は、何も変えずエラー／デモの設備がなければ先に seed のエラー・`seed` の URL が正しくなければ投入しない／本番サイト（`SFM_ENVIRONMENT=production`）では実行しない |
+| 結合: `tests/integration/demo-data-cli.test.ts`（既存のファイルに 9 件。DynamoDB Local が必要） | `use-http-feed`: seed のあとに接続を HTTP にする・何度実行しても同じ・接続先を出力しない／seed の設備（ファイルのパスを持たない。以前に投入したものも同じ）に設定する・環境変数 `DEMO_FEED_URL`／`seed --url` で、投入のあとに同じ設定をする／URL がない・`--url` の値がない・正しくない URL（4 通り）は、何も変えずエラー／デモの設備がなければ先に seed のエラー・`seed` の URL が正しくなければ投入しない／本番サイト（`SFM_ENVIRONMENT=production`）では実行しない |
 | IaC: `infra/test/evaluation-stack.test.ts`（既存のファイルに 4 件） | デモ用の HTTP 配信: 関数（Node.js 24・ARM・256 MB・短いタイムアウト・環境変数なし）、IAM は基本の実行ロールだけ（追加の権限なし）、Function URL は認証なしでこの関数だけに向き、呼び出しの許可もこの関数だけ、出力 `DemoFeedUrl`（値はテンプレートに書かない） |
 
 ### 62.2 変更した既存のテスト

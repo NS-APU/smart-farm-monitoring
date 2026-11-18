@@ -25,7 +25,7 @@
 
 ### 2. デモの設備と、取り込みの設定
 
-- デモの設備（ロボット・環境センサー）に、`sourceFilePath`（上のパス。`DEMO_FEED_FILE_PATHS`）を持たせる（`SEED_MODE=DEMO`・`pnpm demo-data seed`）。MOCK のあいだは、ファイルパスは使われず、動作は変わらない。
+- デモの設備（ロボット・環境センサー）の `sourceFilePath`（上のパス。`DEMO_FEED_FILE_PATHS`）は、**下のコマンドが設定する**。`seed`（`SEED_MODE=DEMO` を含む）が作る設備は、ファイルパスを持たない（ローカルのデモ・E2E・MOCK のあいだの動作を、変えないため。「ファイルパスを持つ設備がない」状態を前提にする HTTP の試験が、既にある）。
 - **`pnpm demo-data use-http-feed [--url <配信の URL>]`**（環境変数 `DEMO_FEED_URL` でも指定できる）: 取り込み元（ロボット・環境センサー）の接続を HTTP（認証なし）にし、デモの設備に `sourceFilePath` を設定する（すでにあれば、そのまま）。何度実行しても、同じ。デモの設備がなければ、先に `seed` を実行するよう、エラーにして、何も変えない。`seed` に `--url`（または `DEMO_FEED_URL`）を付けると、投入のあとに、同じことをする。
 - URL は、スキーム・ホスト・ポートだけ（パス・クエリ・認証情報は、指定できない。エラーのメッセージにも、含めない）。**接続先は、リポジトリに書かない**: スタックの出力 `DemoFeedUrl` を、運用者が、環境変数・引数で渡す。コマンドの出力にも、接続先を含めない。
 - 開発サイト専用（`SFM_ENVIRONMENT=production` では、実行しない）。AWS の操作（デプロイ・コマンドの実行）は、運用者が行う。
@@ -38,7 +38,7 @@
 
 | PR | 内容 |
 |----|------|
-| PR 1（追加のみ。このADRの 1〜3） | デモ用の HTTP 配信（Lambda・Function URL・出力 `DemoFeedUrl`）、デモの設備の `sourceFilePath`、`demo-data use-http-feed`・`seed --url`。MOCK・S3・定期生成は、**残す**（動作は変えない）。マージ後に、運用者が、開発サイトで、HTTP のデモの取り込みを確認する |
+| PR 1（追加のみ。このADRの 1〜3） | デモ用の HTTP 配信（Lambda・Function URL・出力 `DemoFeedUrl`）、`demo-data use-http-feed`・`seed --url`（デモの設備の `sourceFilePath` を設定する）。MOCK・S3・定期生成は、**残す**（動作は変えない）。マージ後に、運用者が、開発サイトで、HTTP のデモの取り込みを確認する |
 | PR 2 | テスト（E2E・結合・負荷）を、HTTP のテスト用ファイルサーバーに置き換える（共通の補助を作る）。MOCK は、まだ残す |
 | PR 3 | MOCK の接続方式・S3 のファイルソース・デモ用の S3 に置く Lambda・S3 のバケット・EventBridge のルール・開発用 API の `/dev/mocks/file-server`・MOCK 用の分岐（最短の間隔で動かす）を削除する。このADRが、ADR-0012 の該当部分を置換する |
 

@@ -23,6 +23,7 @@ import {
 } from '../../src/backend/infrastructure/local/synthetic-data.ts';
 import { parseConfig } from '../../src/backend/runtime/config.ts';
 import { createContainer } from '../../src/backend/runtime/container.ts';
+import { applyDemoFeed, parseDemoFeedUrl } from '../../src/backend/runtime/demo-feed-connection.ts';
 import {
   createDemoFeedHttpHandler,
   type DemoFeedHttpEvent,
@@ -161,24 +162,12 @@ describe('デモ用の HTTP 配信を、取り込み（JB-01）が読む', () =>
     for (const equipment of buildDemoEquipment(NOW)) {
       await container.repositories.equipment.save(equipment);
     }
-    const sources = await container.ingestionSettings.listSources();
-    await container.ingestionSettings.saveSources(
-      sources.map((source) => ({
-        ...source,
-        connection: {
-          type: 'HTTP',
-          protocol: 'HTTP',
-          host: '127.0.0.1',
-          port,
-          authMethod: 'NONE',
-          apiKeyHeaderName: 'X-API-Key',
-        },
-      })),
-    );
+    // デモの設備は、ファイルのパスを持たない（seed の直後）。コマンド（use-http-feed）と同じ処理で、HTTP の配信に向ける
+    await applyDemoFeed(container, parseDemoFeedUrl(`http://127.0.0.1:${String(port)}/`));
     return { container, clock };
   }
 
-  it('設備（デモの設備）の sourceFilePath ごとに、配信のファイルを取得し、ロボット・環境センサーの観測値を保存する', async () => {
+  it('デモの設備の sourceFilePath（use-http-feed が設定したもの）ごとに、配信のファイルを取得し、ロボット・環境センサーの観測値を保存する', async () => {
     const { container } = await setup();
 
     const robot = await container.ingestionService.runSource('robot');
