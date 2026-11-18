@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-20。ユーザーの判断。Issue #77）
 - 日付: 2026-10-20
+- 更新（2026-11-18。#344）: **一部を置換した**（[ADR-0025](./0025-demo-http-file-feed.md)）。「1. ファイルサーバーのモックの S3 版」と「3. 合成データの定期生成」（S3 のバケット・S3 に置く Lambda・EventBridge のルール）は、デモ用の HTTP 配信に置き換え、削除した（#344 の PR 3a）。「2. デモデータの投入とリセット」は、有効（`reset` の S3 のファイルの削除は、S3 の廃止に伴い、なくなった）。以下の本文は、決定の時点（2026-10-20）の記録として残す
 - 関連: [ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0011](./0011-jobs-eventbridge-lambda.md)、[security.md](../../20_development/security.md)
 
 目的: 顧客に評価いただく環境で、ログイン直後から画面を評価できるようにするための、ファイルサーバーのモック・デモデータ・リセットの決定を残す。

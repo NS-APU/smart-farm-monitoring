@@ -11,7 +11,6 @@
 | `APP_MODE` | `production`（本番）。Lambda は、**必ず明示する**（未設定は起動エラー） | 既定の `local` は、開発用の設定 |
 | `PERSISTENCE` | `dynamodb`（本番。Lambda は、`SfmData` の出力から、環境変数を設定する。Issue #75。`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` に、`SfmData` のスタックの出力のテーブル名を指定する。`DYNAMODB_ENDPOINT` は、本番・共有環境では指定しない）。Lambda は **必ず明示する**。Lambda で `file` は使えない（読み取り専用のファイルシステム・複数の実行環境） | メモリのみ・ローカルのファイルは、データが失われる・分裂する |
 | `AUTH_PROVIDER` | `cognito`（Amazon Cognito。ADR-0008）。`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` に、`SfmData` のスタックの出力を指定する。`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない。ローカル・テストは、既定の `local` | 本番の Lambda は、パスワードを Cognito に預ける（アプリ内の認証は、セッションをメモリに持つため、Lambda では使えない） |
-| `FILE_SERVER_S3_BUCKET` | 評価環境の Lambda は、IaC が、ファイルサーバーのモックのバケットを指定する（Issue #77）。取り込み元ごとに `<バケット>/<取り込み元の識別子>/` にファイルを置く。**置くのは、合成データだけ**（実データ・個人情報は置かない） | Lambda には、ローカルのディレクトリがない。未指定の `FILE_SERVER_DIR` は、ローカル用 |
 | `DEV_API_ENABLED` | 指定しない（無効）。`production` では、指定しても無効 | 開発用 API は、全データの消去・時計の操作・ジョブの強制実行を含む |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 権限を分けたロール定義を指定する。未指定だと、既定の 2 ロール（管理者 `admin`＝全権限、一般 `general`＝手動入力のみ）で動作する | 最小権限（security.md）。ロールは、管理者・一般の 2 種類（ADR-0013。実装済み〔#115〕） |
 | `TRUSTED_PROXY_HOPS` | 評価環境（CloudFront → 関数の URL）は、**設定しない（0）**。関数の URL が `X-Forwarded-For` を切り詰めるため、段数では識別できず、`1` 以上にすると偽装できる（ADR-0010）。既定の 0 は、`X-Forwarded-For` を信頼しない | ログインの試行回数の制限の接続元。偽装の防止（V-007） |
@@ -40,7 +39,6 @@
 | 想定外のエラー（バグ・データの不整合） | `想定外のエラーが発生しました`（`errorName`・`errorMessage`・`errorCause`・`errorStack`・`path`） | 原因の調査。利用者への応答には、内部情報を含めない |
 | 取り込みの失敗 | `ファイルの取り込みに失敗しました`・`ファイルを読めませんでした`・`ファイルの一覧の取得に失敗しました`（`sourceId`・`fileId`） | ファイルサーバーの接続・ファイルの形式を確認する。画面の取り込みログ（取り込み設定）にも記録される |
 | ジョブの失敗・タイムアウト | `ジョブの実行に失敗しました`（`jobId`・`errorName`） | `OperationTimeoutError` は、外部通信が応答しなかった（既定: 通信30秒・ジョブ10分） |
-| 合成データの生成（デモ。Issue #77）の実行・失敗 | `合成データのファイルを置きました`（`files`: 8）・`合成データのファイルを置けませんでした`（エラー） | 生成の Lambda のロググループ（関数名は、スタックの出力 `DemoFeedFunctionName`）。失敗が続くと、デモのデータが古くなる。原因（`errorName`）が `AccessDenied` なら、バケットの権限・バケット名を確認する。ADR-0012 |
 | ジョブの Lambda（EventBridge）の実行・重複 | `ジョブを終了しました`（`jobId`・`outcome`: `EXECUTED` または `SKIPPED`・`durationMs`）・`前回の実行が続いているため、ジョブを実行しません`・`ジョブのロックを解放できませんでした`（警告） | `SKIPPED` が続くときは、前回の実行が、間隔より長くかかっている（実行時間を確認する）。失敗は `ジョブの実行に失敗しました`。ジョブのログは、ジョブの Lambda のロググループ（関数名は、スタックの出力 `JobFunctionName`）。ADR-0011 |
 | 設備の評価の失敗 | `設備の評価に失敗しました`（`equipmentId`） | その設備の保存データ・判断基準を確認する。ほかの設備の評価は続く |
 | データファイルの書き込みの失敗 | `データファイルの書き込みに失敗しました。再び書き込みます` | ディスクの空き容量・権限を確認する（メモリ上の変更は保持され、再試行される） |
@@ -118,7 +116,7 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
 | スタック | 中身 | 備考 |
 |----------|------|------|
 | `SfmData` | DynamoDB のテーブル 2 つ・Cognito のユーザープール | 状態を持つ。削除の保護あり。評価環境の更新・削除では、消えない |
-| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName`・`JobFunctionName`・`DemoFeedFunctionName`・`DemoFeedUrl`（開発サイトだけ。デモ用の HTTP 配信の URL。ADR-0025）・`FileServerBucketName` |
+| `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName`・`JobFunctionName`・`DemoFeedUrl`（開発サイトだけ。デモ用の HTTP 配信の URL。ADR-0025） |
 | `SfmGithubOidc` | GitHub Actions 用のロール | 初回に 1 回だけ作る |
 
 `deploy` は、`SfmData` → `SfmEvaluation` の順に更新する（Lambda が、`SfmData` の出力を使うため）。
@@ -169,8 +167,8 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
   - `pnpm demo-data reset`: **何も消さず**、消す対象の件数を示す。`pnpm demo-data reset --yes` で、ユーザー・ログインの試行回数の記録・ジョブのロック以外の全データと、S3 のファイルを消す（**元に戻せない**。必要なら、先に、オンデマンドバックアップを取る。[backup-restore.md](./backup-restore.md)）
   - `pnpm demo-data use-http-feed --url <DemoFeedUrl の値>`（または環境変数 `DEMO_FEED_URL`。`seed` にも `--url` を付けられる）: **取り込みを、デモ用の HTTP 配信に向ける**（ADR-0025。#344）。取り込み元（ロボット・環境センサー）の接続を HTTP（認証なし）にし、デモの設備（`ROBOT-01`・`SENSOR-01`）にファイルのパスを設定する。何度実行しても同じ。デモの設備がなければ、先に `seed`。URL（スタックの出力 `DemoFeedUrl`）は、チャット・Issue・PR に貼らない。実行後、SC-11 の「接続テスト」と「即時取得」で、確認する（Function URL が `HEAD` に `Last-Modified` つきで応答することは、実際の環境で、未確認）。取り込み元を MOCK に戻すときは、SC-11 の接続設定で「ファイルサーバーのモック」を選ぶ（#344 の PR 3 まで）
   - 消したあとは、`seed` で投入し直す。評価の直前に、`reset --yes` → `seed` で、最新の状態にできる
-  - 投入したデータの鮮度は、**合成データを定期的に生成する Lambda**（擬似のロボット・環境センサー。15 分ごとに、S3 に新しいファイルを置き、取り込み（JB-01）が読む）が保つ。`reset` のあとも、この Lambda は動き続ける（消した S3 のファイルは、次の実行で、直近 4 区間の分が、再び置かれる）。**`reset` と `seed` は、続けて実行する**（設備がない間に取り込みが走ると、その区間のファイルは、設備が見つからないとして棄却され、取り込み済みの扱いになる）
-  - 生成を止めたいとき（デモを使わない期間）: EventBridge のルール（ロジカル ID が `ScheduleDemoFeed` で始まるもの）を、AWS のコンソールで無効にする（CloudFormation は、手で変えた状態を、自動では戻さない。再び動かすときは、同じ場所で有効にする）
+  - 投入したデータの鮮度は、**取り込み（JB-01）が、デモ用の HTTP 配信（ADR-0025）から、定期に取得する**ことで保つ。配信は、リクエストごとに、現在の時刻の直近 4 区間のデータを返す。**`reset` は、設備と取り込みの設定（接続）も消す**ため、`reset` のあとは、`seed` と `use-http-feed` を、続けて実行する（`DEMO_FEED_URL` を指定すれば、`seed` だけで、同じことをする）。設備がない間に取り込みが走ると、その区間のファイルは、設備が見つからないとして棄却され、取り込み済みの扱いになる
+  - 取り込みを止めたいとき（デモを使わない期間）: SC-11 で、取り込み元の「自動取り込みを有効にする」を外す（配信の Lambda は、リクエストがなければ動かず、費用は、かからない）
 
 ### 7.6 障害時の確認（ログの見方）
 
@@ -441,8 +439,7 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 | デプロイのロール（OIDC） | `sfm-github-actions-deploy` | `sfm-github-actions-deploy-production` |
 | ワークフロー | 「Deploy development」 | 「Deploy production」（`main` 以外では動かない） |
 | データ | 基本は合成データ | 実データ可（個人情報は不可。9.8） |
-| 合成データの生成（デモ）の Lambda | あり | **なし** |
-| ファイルサーバーのモックの S3 | あり（デモが置く） | あり（**空のまま**。HTTP のアダプタは、#119 で実装済み。実ファイルサーバーに切り替えるまで、空のまま。Lambda の取り込みの失敗を避けるため） |
+| デモ用の HTTP 配信（Lambda の Function URL。ADR-0025） | あり | **なし** |
 | `pnpm demo-data` | 使える | **使えない**（`SFM_ENVIRONMENT=production` のとき実行しない安全装置） |
 | データの保護（削除の保護・RETAIN・PITR 35 日・ログ 30 日） | あり | 同じ |
 
@@ -511,7 +508,7 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 
 **元に戻せない**。削除の前に、保管の要否を決め、必要ならオンデマンドのバックアップを取る（9.6）。
 
-1. 評価環境のスタックを削除する: `$env:SFM_ENVIRONMENT = 'production'` のうえで、`pnpm --filter @smart-farm/infra run destroy`（`SfmProductionEvaluation*`。画面・API・ジョブ・S3 のモック・ログ。独自ドメインのとき、証明書・DNS のレコードも）。データは、残る
+1. 評価環境のスタックを削除する: `$env:SFM_ENVIRONMENT = 'production'` のうえで、`pnpm --filter @smart-farm/infra run destroy`（`SfmProductionEvaluation*`。画面・API・ジョブ・ログ。独自ドメインのとき、証明書・DNS のレコードも）。データは、残る
 2. データのスタックを削除する: スタックの削除の保護・テーブルの削除の保護を外し、`pnpm --filter @smart-farm/infra run destroy:data`（`SfmProductionData`）。手順の詳細は、commands.md「削除と再作成」の「データ（DynamoDB のテーブル）の削除」と同じ（スタック名を読み替える）。Cognito のユーザーも消える
 3. 終わったら、`Remove-Item Env:SFM_ENVIRONMENT` で、環境変数を消す
 
