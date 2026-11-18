@@ -11,7 +11,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { CATEGORY_LABELS } from '@smart-farm/shared/constants/items';
 import { VIEWPOINTS } from '@smart-farm/shared/constants/viewpoints';
 import { stubPush } from '../e2e/support/push.ts';
-import { clearSourceFiles, placeRobotFiles, placeSensorFiles } from './support/files.ts';
+import {
+  putSeededFiles,
+  seededUnits,
+  setFileServerMode,
+  useHttpFiles,
+} from './support/http-files.ts';
 import type { LimitKey } from './support/limits.ts';
 import { measure, measureRefresh, trackApi, type ActionSteps } from './support/recorder.ts';
 import { STRESS_USER } from './support/scale.ts';
@@ -32,8 +37,8 @@ import {
 const USER = STRESS_USER.userId;
 const HOUSE_1 = '負荷試験ハウス1';
 const ROBOT_NAME = '負荷試験ロボット1-1';
-/** 即時取得・定期取り込みで置くファイルの規模（1ファイル 144 記録）。 */
-const FILES = { count: 5, recordsPerFile: 144 };
+/** 即時取得・定期取り込みで置くファイルの規模（設備ごとに 1 ファイル。シードのロボット・センサーの台数。1ファイル 144 記録）。 */
+const FILES = { count: seededUnits().length, recordsPerFile: 144 };
 
 /** 一覧の各行（テスト ID）。 */
 const rowsOf = (page: Page, testId: string): Locator => page.getByTestId(testId);
@@ -806,8 +811,16 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     await expectListShown(page, 'ingestion-log-row');
     await expect(rowsOf(page, 'federation-log-row').first()).toBeVisible();
   };
-  clearSourceFiles('robot');
-  clearSourceFiles('environment-sensor');
+  // ファイルサーバー（HTTP。設備ごとに 1 ファイル）。ファイルのパスを持つ設備だけが取得の対象のため、接続テストの前に、ファイルを置く
+  await useHttpFiles(request, USER);
+  await putSeededFiles(request, USER, 'robot', {
+    startIndex: 0,
+    recordsPerFile: FILES.recordsPerFile,
+  });
+  await putSeededFiles(request, USER, 'environment-sensor', {
+    startIndex: 0,
+    recordsPerFile: FILES.recordsPerFile,
+  });
   await m(
     'UC-16',
     'メニューから「取り込み」を開く（取り込みのログ・連携の状況を表示）',
@@ -841,7 +854,6 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
 
   // UC-08・UC-09 即時取得（ファイルサーバーにファイルを置き、画面の「即時取得」を押す）
-  placeRobotFiles({ startIndex: 0, ...FILES });
   await m(
     'UC-08',
     `ロボットのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 記録）を「即時取得」する`,
@@ -852,7 +864,6 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: () => expect(result('robot')).toContainText(`ファイル ${String(FILES.count)} 件`),
     },
   );
-  placeSensorFiles({ startIndex: 0, ...FILES });
   await m(
     'UC-09',
     `環境センサーのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 行）を「即時取得」する`,
@@ -888,8 +899,14 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // UC-08・UC-09 定期取り込み（JB-01）: 設備ごとの取得間隔（既定: ロボット 1 分・センサー 5 分）が過ぎたことにして、ジョブを起動する
   await menu('取り込み').click();
   await ingestionShown();
-  placeRobotFiles({ startIndex: 100, ...FILES });
-  placeSensorFiles({ startIndex: 100, ...FILES });
+  await putSeededFiles(request, USER, 'robot', {
+    startIndex: 100,
+    recordsPerFile: FILES.recordsPerFile,
+  });
+  await putSeededFiles(request, USER, 'environment-sensor', {
+    startIndex: 100,
+    recordsPerFile: FILES.recordsPerFile,
+  });
   const advanced = await api(request, USER, 'POST', '/dev/clock/advance', { minutes: 6 });
   expect(advanced.ok()).toBe(true);
   const firstLog = (await logRows.first().textContent()) ?? '';
@@ -990,7 +1007,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
 
   // UC-24 取り込み失敗の通知（ファイルサーバーの停止 → 即時取得 → 通知）
-  await setMock(request, USER, 'file-server', 'DOWN');
+  await setFileServerMode(request, USER, 'DOWN');
   await m(
     'UC-24',
     'ファイルサーバーの停止中に「即時取得」を押す（再試行のあと失敗）',
@@ -1001,7 +1018,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: () => expect(result('robot')).toContainText('失敗'),
     },
   );
-  await setMock(request, USER, 'file-server', 'UP');
+  await setFileServerMode(request, USER, 'UP');
   await m('UC-24', '取り込み失敗の通知を、通知の一覧で確認する', '通知（SC-05）', 'screen', {
     act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: async () => {

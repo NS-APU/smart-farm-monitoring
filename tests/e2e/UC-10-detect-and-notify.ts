@@ -31,7 +31,6 @@ import {
   goToMenu,
   goToNotifications,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
@@ -39,6 +38,7 @@ import {
   setMock,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { expectRelatedStatus, fillEntryForm, mainArea, saveEntry } from './support/entry.ts';
 import { listNotifications } from './support/notifications.ts';
 import { deliveredPushes } from './support/push.ts';
@@ -559,9 +559,10 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     request,
   }, testInfo) => {
     await prepareApp(request);
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
-      'sensor-1.json',
+      'sensor.json',
       sensorJson([{ hoursAgo: 1, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
 
@@ -576,9 +577,11 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     await expect(unreadBadge(page)).not.toHaveText('0');
     await shot(page, testInfo, 'uc10-ingested-sensor');
     // 異常が続く間は、増えない
-    placeFile(
+    // 同じパスを、新しいデータで置き直す（HTTP は、1 設備 = 1 ファイル）
+    await placeFile(
+      request,
       'environment-sensor',
-      'sensor-2.json',
+      'sensor.json',
       sensorJson([{ hoursAgo: 0.5, temperature: 41, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -589,17 +592,20 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     request,
   }) => {
     await prepareApp(request);
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
-      'normal.json',
+      'sensor.json',
       sensorJson([{ hoursAgo: 2, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     expect(await environmentNotifications(request)).toHaveLength(0);
 
-    placeFile(
+    // 同じパスを、新しいデータで置き直す（HTTP は、1 設備 = 1 ファイル）
+    await placeFile(
+      request,
       'environment-sensor',
-      'caution.json',
+      'sensor.json',
       sensorJson([{ hoursAgo: 1, temperature: 28, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -624,7 +630,8 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       travelStoppedHours: 0.008,
       statusCode: 'HARVESTING',
     };
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'robot-slow.json',
       robotJson([

@@ -21,11 +21,11 @@ import {
   goToMenu,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { itemListQuery } from './support/pages.ts';
 import { runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -71,7 +71,8 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
       travelStoppedHours: 0.002,
       statusCode: 'CHARGING_WAIT',
     };
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'robot.json',
       robotJson([
@@ -171,9 +172,11 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await expect(auditRows(page).nth(0)).toContainText('編集');
     await expect(auditRows(page).nth(1)).toContainText('登録');
     await page.goto('/data-entry/history?targetType=equipment');
-    await expect(auditRows(page)).toHaveCount(2);
+    // 準備（ファイルを置く操作）が、設備のファイルのパスを設定する（API での設備の修正）ため、「編集」は 1 件多い（HTTP のファイルサーバー）
+    await expect(auditRows(page)).toHaveCount(3);
     await expect(auditRows(page).nth(0)).toContainText('削除');
     await expect(auditRows(page).nth(1)).toContainText('編集');
+    await expect(auditRows(page).nth(2)).toContainText('編集');
     await shot(page, testInfo, 'scenario-config-a-history');
     await b.context.close();
   });

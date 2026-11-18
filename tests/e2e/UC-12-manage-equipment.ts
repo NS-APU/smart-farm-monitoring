@@ -31,7 +31,6 @@ import {
   goToMenu,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
@@ -40,6 +39,7 @@ import {
   unreadBadge,
   logout,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { expectRelatedStatus, fillEntryForm, saveEntry } from './support/entry.ts';
 import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
@@ -224,12 +224,14 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       externalId: 'SENSOR-A-FILE',
     });
     // 構成に登録したデータ上の識別子のファイルが、その設備として取り込まれる
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'a.json',
       robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }], 'ROBOT-A-FILE'),
     );
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'a.json',
       sensorJson(
@@ -781,12 +783,22 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     request,
   }) => {
     await prepareApp(request);
+    // 2 つ目のロボット（HTTP は、1 設備 = 1 ファイル。複数のファイルは、複数のロボットに言い換える）
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: 'HOUSE-01',
+      externalId: 'ROBOT-SAMPLE-02',
+    });
     await openEquipment(page);
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
     await expect(rowOf(page, 'ROBOT-01')).toHaveCount(0);
 
-    placeFile(
+    // 削除したロボット（ROBOT-SAMPLE-01）の識別子のレコードを持つファイルを、有効な 2 つ目のロボットのファイルとして置く
+    await placeFile(
+      request,
       'robot',
       'after-delete.json',
       robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }]),
@@ -810,21 +822,32 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     request,
   }) => {
     await prepareApp(request);
+    // 2 つ目のロボット（HTTP は、1 設備 = 1 ファイル。複数のファイルは、複数のロボットに言い換える）
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: 'HOUSE-01',
+      externalId: 'ROBOT-SAMPLE-02',
+    });
     await openEquipment(page);
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
     await page.getByTestId('equipment-edit').getByLabel('データ上の識別子').fill('ROBOT-FILE-9');
     await page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click();
     await expect(notice(page)).toHaveText('修正しました');
 
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'new-id.json',
       robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }], 'ROBOT-FILE-9'),
     );
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'old-id.json',
       robotJson([{ hoursAgo: 0.4, fields: { harvestCount: 3 } }], ROBOT_EXTERNAL_ID),
+      { equipmentId: 'ROBOT-02' },
     );
     await runJob(request, 'JB-01');
 
@@ -834,8 +857,9 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     const robotLogs = logRows(page).filter({ hasText: 'ロボット' });
     await expect(robotLogs).toHaveCount(2);
     const linked = robotLogs.filter({ has: page.locator('.log-result', { hasText: /^成功$/ }) });
+    // 古い識別子のファイルは、2 つ目のロボットのファイルとして読むが、どの設備にも対応づかず、有効な記録が 1 件もない。HTTP は、ログが設備ごと（2 つ目のロボット）で、結果は「失敗」
     const unlinked = robotLogs.filter({
-      has: page.locator('.log-result', { hasText: /^一部成功$/ }),
+      has: page.locator('.log-result', { hasText: /^失敗$/ }),
     });
     await expect(linked.locator('td').nth(4)).toHaveText('1');
     await expect(linked.locator('td').nth(5)).toHaveText('1');
@@ -1036,7 +1060,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await expect(await testConnection(page, 'robot')).toContainText('接続');
 
     // UC-08・UC-09: ファイルサーバーのファイルを、即時取得で取り込む（環境センサーは、異常な温度）
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'robot.json',
       robotJson([
@@ -1046,7 +1071,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
         },
       ]),
     );
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor.json',
       sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),

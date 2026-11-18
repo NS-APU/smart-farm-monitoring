@@ -3,7 +3,8 @@
  */
 
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
-import { advanceMinutes, api, apiOk, setMock } from './app.ts';
+import { advanceMinutes, api, apiOk } from './app.ts';
+import { setFileServerMode } from './http-files.ts';
 import { environmentData, seed } from './viewpoint-scenarios.ts';
 
 export interface ApiNotification {
@@ -35,11 +36,11 @@ export async function failIngestion(
   request: APIRequestContext,
   sourceIds: readonly string[],
 ): Promise<void> {
-  await setMock(request, 'file-server', 'DOWN');
+  await setFileServerMode(request, 'DOWN');
   for (const sourceId of sourceIds) {
     await apiOk(request, 'POST', `/ingestion/${sourceId}/run`);
   }
-  await setMock(request, 'file-server', 'UP');
+  await setFileServerMode(request, 'UP');
 }
 
 /** 抑制の期間（60分）を超えて、取り込み失敗を繰り返し、通知を count 件作る。 */
@@ -47,12 +48,12 @@ export async function failIngestionRepeatedly(
   request: APIRequestContext,
   count: number,
 ): Promise<void> {
-  await setMock(request, 'file-server', 'DOWN');
+  await setFileServerMode(request, 'DOWN');
   for (let index = 0; index < count; index += 1) {
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 61);
   }
-  await setMock(request, 'file-server', 'UP');
+  await setFileServerMode(request, 'UP');
 }
 
 /** ログイン中の利用者の通知の一覧（API。新しい順）。 */

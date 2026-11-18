@@ -31,12 +31,11 @@ import {
   goToNotifications,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
-  setMock,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile, setFileServerMode } from './support/http-files.ts';
 import { fillEntryForm, saveEntry } from './support/entry.ts';
 import { seedAbnormalEnvironment } from './support/notifications.ts';
 import {
@@ -211,7 +210,7 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
     request,
   }, testInfo) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
     await page.getByTestId('source-robot').getByRole('button', { name: '即時取得' }).click();
@@ -236,8 +235,13 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
       .fill('FILE_SERVER_NEW');
     await page.getByTestId('source-robot').getByRole('button', { name: '設定を保存' }).click();
     await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
-    await setMock(request, 'file-server', 'UP');
-    placeFile('robot', 'a.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
+    await setFileServerMode(request, 'UP');
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
+    );
     await page.getByTestId('source-robot').getByRole('button', { name: '接続テスト' }).click();
     await expect(page.getByTestId('result-robot')).toHaveText('接続できました');
     // 復旧後は、即時取得で、取り込める
