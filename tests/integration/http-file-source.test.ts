@@ -92,10 +92,52 @@ async function robotSource(context: TestContext) {
 }
 
 describe('接続設定の保存', () => {
-  it('既定の取り込み元は、接続方式 MOCK', async () => {
+  it('既定の取り込み元は、接続が未設定', async () => {
     const context = await withEquipment();
 
-    expect((await robotSource(context))?.connection).toEqual({ type: 'MOCK' });
+    expect((await robotSource(context))?.connection).toBeUndefined();
+  });
+
+  it('接続方式 MOCK（廃止。ADR-0025）は、保存できない（検証エラー）。保存済みの設定は、変わらない', async () => {
+    const context = await withEquipment();
+
+    const response = await update(context, { type: 'MOCK' });
+
+    expect(response.status).toBe(400);
+    expect((await robotSource(context))?.connection).toBeUndefined();
+  });
+
+  it('以前に保存された接続方式 MOCK は、未設定として読める。取り込み設定を取得できる', async () => {
+    const context = await withEquipment();
+    // 以前の版が保存した形（接続方式 MOCK）を、設定の保管先に直接置く
+    await context.container.repositories.settings.set('ingestion.sources', [
+      {
+        sourceId: 'robot',
+        kind: 'ROBOT',
+        profileId: 'robot-json',
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: { type: 'MOCK' },
+        isEnabled: true,
+      },
+      {
+        sourceId: 'environment-sensor',
+        kind: 'SENSOR',
+        profileId: 'environment-sensor-json',
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: { type: 'MOCK' },
+        isEnabled: true,
+      },
+    ]);
+
+    const response = await send(context, 'GET', '/ingestion/settings');
+
+    expect(response.status).toBe(200);
+    const body = IngestionSettingsResponseSchema.parse(await response.json());
+    expect(body.sources.map((source) => source.connection)).toEqual([undefined, undefined]);
+    expect(body.sources[0]).toMatchObject({
+      sourceId: 'robot',
+      credentials: { state: 'NOT_REQUIRED' },
+    });
   });
 
   it('HTTP の接続設定を保存でき、変更履歴に残る。値（パスワードなど）は、含まれない', async () => {
@@ -132,15 +174,6 @@ describe('接続設定の保存', () => {
     });
   });
 
-  it('MOCK に戻せる', async () => {
-    const context = await withEquipment();
-    await update(context, httpConnection());
-
-    await update(context, { type: 'MOCK' });
-
-    expect((await robotSource(context))?.connection).toEqual({ type: 'MOCK' });
-  });
-
   it.each([
     ['スキームを含むホスト', { host: 'https://fileserver.example.ac.jp' }, 'host'],
     ['ポートの範囲外', { port: 70000 }, 'port'],
@@ -159,7 +192,7 @@ describe('接続設定の保存', () => {
     expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(
       `sources.0.connection.${field}`,
     );
-    expect((await robotSource(context))?.connection).toEqual({ type: 'MOCK' });
+    expect((await robotSource(context))?.connection).toBeUndefined();
   });
 
   it.each([
@@ -178,7 +211,7 @@ describe('接続設定の保存', () => {
     expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(
       'sources.0.connection.host',
     );
-    expect((await robotSource(context))?.connection).toEqual({ type: 'MOCK' });
+    expect((await robotSource(context))?.connection).toBeUndefined();
   });
 
   it('HTTP_FILE_SOURCE_ALLOW_PRIVATE を指定すると、内部のアドレスも指定できる（ローカル・テスト用）', async () => {
@@ -322,13 +355,16 @@ describe('接続テスト（HTTP）', () => {
     expect(server.requests).toHaveLength(0);
   });
 
-  it('MOCK の取り込み元は、これまでどおり（ファイルサーバーのモックで接続テスト）', async () => {
+  it('接続が未設定の取り込み元は、接続テストが失敗する（接続先が設定されていない旨を示す）', async () => {
     const context = await withEquipment();
-    context.placeFile('robot', 'placeholder.txt', 'x');
+    await withRobotFilePath(context, '/data/robot-01.json');
 
     const response = await send(context, 'POST', '/ingestion/robot/test');
 
-    expect(await response.json()).toEqual({ ok: true, message: '接続できました' });
+    const body = (await response.json()) as { ok: boolean; message: string };
+    expect(body.ok).toBe(false);
+    expect(body.message).toContain('接続先が設定されていません');
+    expect(body.message).not.toContain('/data/robot-01.json');
   });
 });
 
@@ -555,5 +591,40 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
     expect(body.ok).toBe(false);
     expect(body.message).toContain('ファイルパスが設定された設備がありません');
     expect(server.requests).toHaveLength(0);
+  });
+});
+
+describe('取り込み（接続が未設定。ADR-0025）', () => {
+  async function run(context: TestContext) {
+    return (await send(context, 'POST', '/ingestion/robot/run')).json() as Promise<{
+      result: string;
+      recordCount: number;
+      filesProcessed: number;
+    }>;
+  }
+
+  it('取得の対象の設備（ファイルパスを持つ設備）がなければ、取り込みは成功し、0 件（失敗にしない）', async () => {
+    const context = await withEquipment();
+
+    const summary = await run(context);
+
+    expect(summary).toMatchObject({ result: 'SUCCESS', recordCount: 0, filesProcessed: 0 });
+  });
+
+  it('取得の対象の設備があれば、取り込みは失敗として記録され、何も取り込まない（理由に、内部の情報を含めない）', async () => {
+    const context = await withEquipment();
+    await withRobotFilePath(context, '/data/robot-01.json');
+
+    const summary = await run(context);
+
+    expect(summary).toMatchObject({ result: 'FAILURE', recordCount: 0, filesProcessed: 0 });
+    const logs = (await (await send(context, 'GET', '/ingestion/logs')).json()) as {
+      items: { result: string; errorMessage?: string }[];
+    };
+    expect(logs.items[0]?.result).toBe('FAILURE');
+    const message = logs.items[0]?.errorMessage ?? '';
+    // 取り込みログの理由は、接続の失敗の固定の文言（理由の細目（接続先が未設定）は、接続テストで示す）
+    expect(message).toBe('ファイルサーバーに接続できませんでした');
+    expect(message).not.toContain('/data/robot-01.json');
   });
 });

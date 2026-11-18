@@ -1,11 +1,9 @@
 /**
- * E2E の補助（UC-04 以降の共通部分）: API の呼び出し、ファイルサーバーのモックへのファイルの配置、
+ * E2E の補助（UC-04 以降の共通部分）: API の呼び出し、取り込みの合成データ（JSON）の組み立て、
  * ユーザーの追加と切り替え（別のブラウザのコンテキスト）、ブラウザの時計の固定、画面の操作の補助。
  * 値は、docs の判断基準・仕様から手計算で選ぶ。評価のコードを呼び出して、期待値を作らない。
  */
 
-import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import {
   expect,
   type APIRequestContext,
@@ -20,10 +18,6 @@ import { LoginResponseSchema } from '../../../src/shared/schemas/auth.ts';
 import { E2E_USER } from './e2e-user.ts';
 import { loginViaUi } from './helpers.ts';
 import { NOW, prepare, type PrepareOptions } from './viewpoint-scenarios.ts';
-
-/** バックエンドのファイルサーバーのモックのルート（playwright.config.ts の FILE_SERVER_DIR と同じ）。 */
-export const FILE_SERVER_ROOT = resolve('test-result/e2e-file-server');
-const FIXTURES_ROOT = resolve('tests/fixtures/file-server');
 
 /** 設備のデモ（ハウス1・収穫ロボット1・環境センサー1）の識別子。 */
 export const HOUSE_ID = 'HOUSE-01';
@@ -155,10 +149,10 @@ export async function runJob(
   await apiOk(request, 'POST', `/dev/jobs/${jobId}/run`, {});
 }
 
-/** モック（ファイルサーバー・農業情報基盤・Web Push）の状態を切り替える（開発用 API）。 */
+/** モック（農業情報基盤・Web Push）の状態を切り替える（開発用 API）。ファイルサーバーは、HTTP のテスト用サーバー（support/http-files.ts）。 */
 export async function setMock(
   request: APIRequestContext,
-  target: 'file-server' | 'federation' | 'web-push',
+  target: 'federation' | 'web-push',
   mode: 'UP' | 'DOWN' | 'SLOW' | 'REJECT',
 ): Promise<void> {
   await apiOk(request, 'PUT', `/dev/mocks/${target}`, { mode });
@@ -269,55 +263,7 @@ export async function addEntryAs(
   ).toBe(true);
 }
 
-// ファイルサーバーのモック
-
-/**
- * ファイルサーバーのモックの内容（ファイル）を空にする。
- * ディレクトリ（ルート・取り込み元）は、サーバーが参照しているため、Windows で削除が拒否される（EPERM）ことがある。
- * そのため、ディレクトリは残して、中のファイルだけを消す。ディレクトリがない状態は、`removeSourceDirectory` で作る
- */
-export function clearFileServer(): void {
-  mkdirSync(FILE_SERVER_ROOT, { recursive: true });
-  removeFilesIn(FILE_SERVER_ROOT);
-}
-
-function removeFilesIn(directory: string): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      removeFilesIn(path);
-    } else {
-      rmSync(path, { force: true, maxRetries: 10, retryDelay: 100 });
-    }
-  }
-}
-
-/** 取り込み元のディレクトリそのものを消す（取り込み元の場所がない状態を作る）。 */
-export function removeSourceDirectory(sourceId: string): void {
-  rmSync(join(FILE_SERVER_ROOT, sourceId), {
-    recursive: true,
-    force: true,
-    maxRetries: 15,
-    retryDelay: 200,
-  });
-}
-
-/** ファイルサーバーのモックに、任意の内容のファイルを置く。 */
-export function placeFile(sourceId: string, name: string, content: string): void {
-  const directory = join(FILE_SERVER_ROOT, sourceId);
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, name), content, 'utf8');
-}
-
-/** ファイルサーバーのモックに、合成データのフィクスチャを置く（tests/fixtures/file-server/ からの相対パス）。 */
-export function placeFixture(sourceId: string, fixture: string, asName?: string): void {
-  const directory = join(FILE_SERVER_ROOT, sourceId);
-  mkdirSync(directory, { recursive: true });
-  cpSync(
-    join(FIXTURES_ROOT, fixture),
-    join(directory, asName ?? fixture.split('/').at(-1) ?? fixture),
-  );
-}
+// 取り込みの合成データ
 
 /** 観測値の日時を、現在（固定した時計）から相対で指定した、ロボットの JSON（合成データ）。 */
 export function robotJson(
@@ -364,12 +310,11 @@ export function sensorJson(
 
 // 準備・ブラウザ
 
-/** データを初期化（デモの設備のみ）し、時計を固定し、ファイルサーバーのモックを空にする。 */
+/** データを初期化（デモの設備のみ）し、時計を固定する。HTTP のファイルサーバーは、`placeFile` などが、必要になったときに、空にして接続する（support/http-files.ts）。 */
 export async function prepareApp(
   request: APIRequestContext,
   options: PrepareOptions = {},
 ): Promise<void> {
-  clearFileServer();
   await prepare(request, options);
 }
 

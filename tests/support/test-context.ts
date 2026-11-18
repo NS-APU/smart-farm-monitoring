@@ -3,9 +3,6 @@
  * 認証情報は、明らかにダミーとわかる値（実際の認証情報ではない）。
  */
 
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import type { Hono } from 'hono';
 import { NULL_LOGGER, type Logger } from '../../src/backend/application/ports/logger-port.ts';
 import {
@@ -24,7 +21,6 @@ import type { AppEnv } from '../../src/backend/presentation/api-deps.ts';
 import { parseConfig, type AppConfig } from '../../src/backend/runtime/config.ts';
 import { createContainer, type Container } from '../../src/backend/runtime/container.ts';
 import { equipmentSet } from './builders.ts';
-import { FIXTURES_DIRECTORY } from './fixtures-path.ts';
 import { TEST_NOW, TEST_USER } from './test-constants.ts';
 
 // 他のテストが、これまでどおり test-context.ts から import できるようにする
@@ -35,8 +31,6 @@ export interface TestContext {
   readonly app: Hono<AppEnv>;
   readonly clock: ControllableClock;
   readonly config: AppConfig;
-  /** モックのファイルサーバーのルート（テストごとの一時ディレクトリ）。 */
-  readonly fileServerDirectory: string;
   /** ログインして、アクセストークンを返す。 */
   login(): Promise<string>;
   /** 認証つきでリクエストする。 */
@@ -49,10 +43,6 @@ export interface TestContext {
       headers?: Readonly<Record<string, string>>;
     },
   ): Promise<Response>;
-  /** 合成データのフィクスチャを、モックのファイルサーバーに置く。 */
-  placeFixture(sourceId: string, fixtureRelativePath: string, asName?: string): void;
-  /** 任意の内容のファイルを、モックのファイルサーバーに置く。 */
-  placeFile(sourceId: string, name: string, content: string): void;
 }
 
 export interface TestContextOptions {
@@ -67,11 +57,9 @@ export interface TestContextOptions {
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
-  const fileServerDirectory = mkdtempSync(join(tmpdir(), 'smart-farm-test-'));
   const config = parseConfig({
     APP_MODE: 'test',
     PERSISTENCE: 'memory',
-    FILE_SERVER_DIR: fileServerDirectory,
     INITIAL_USER_ID: TEST_USER.userId,
     INITIAL_USER_NAME: TEST_USER.userName,
     INITIAL_USER_PASSWORD: TEST_USER.password,
@@ -98,7 +86,6 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     app,
     clock,
     config,
-    fileServerDirectory,
     async login() {
       const response = await app.request('/api/v1/auth/login', {
         method: 'POST',
@@ -118,17 +105,6 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
         },
         ...(requestOptions.body === undefined ? {} : { body: JSON.stringify(requestOptions.body) }),
       });
-    },
-    placeFixture(sourceId, fixtureRelativePath, asName) {
-      const directory = join(fileServerDirectory, sourceId);
-      mkdirSync(directory, { recursive: true });
-      const name = asName ?? fixtureRelativePath.split('/').at(-1) ?? fixtureRelativePath;
-      cpSync(join(FIXTURES_DIRECTORY, 'file-server', fixtureRelativePath), join(directory, name));
-    },
-    placeFile(sourceId, name, content) {
-      const directory = join(fileServerDirectory, sourceId);
-      mkdirSync(directory, { recursive: true });
-      writeFileSync(join(directory, name), content, 'utf8');
     },
   };
   return context;
@@ -155,6 +131,22 @@ export async function withEquipment(options: TestContextOptions = {}): Promise<T
     await context.container.repositories.equipment.save(equipment);
   }
   return context;
+}
+
+/**
+ * 登録済みのロボット・センサーに、ファイルのパス（`sourceFilePath`）を設定する。設備は、ファイルのパスを持つとき、自動取り込みの対象になる
+ * （ADR-0023。パスがない設備は、手動のみの運用）。データの新しさ（自動取り込みの観測値での判定）を確かめるテストが、自動取り込みの対象にするために使う。
+ * ファイルサーバーに接続しないテスト（観測値を直接保存する）向け。取り込みを実行するテストは、`withHttpFiles` を使う。
+ */
+export async function withSourceFilePaths(context: TestContext): Promise<void> {
+  for (const equipment of await context.container.repositories.equipment.list()) {
+    if (equipment.equipmentType !== 'FACILITY' && equipment.sourceFilePath === undefined) {
+      await context.container.repositories.equipment.save({
+        ...equipment,
+        sourceFilePath: `/${equipment.equipmentType.toLowerCase()}/${equipment.equipmentId}.json`,
+      });
+    }
+  }
 }
 
 /**

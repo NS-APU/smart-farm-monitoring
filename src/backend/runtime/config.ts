@@ -84,8 +84,6 @@ const EnvSchema = z.object({
   COGNITO_CLIENT_ID: z.string().min(1).optional(),
   /** AWS のリージョン（Lambda では、実行環境が設定する）。 */
   AWS_REGION: z.string().min(1).optional(),
-  /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
-  FILE_SERVER_DIR: z.string().min(1).default('.local-data/file-server'),
   /**
    * 秘密情報（接続先の認証情報・Web Push の秘密鍵）の保管先（Issue #206。D-55）。memory = メモリ（ローカル・テスト）、
    * ssm = パラメータストア（SecureString。本番・開発サイト）。名前に SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
@@ -243,7 +241,6 @@ export interface AppConfig {
   readonly dynamodb: DynamoDbConfig | undefined;
   /** AUTH_PROVIDER=cognito のときだけ。 */
   readonly cognito: CognitoConfig | undefined;
-  readonly fileServerDirectory: string;
   /** 秘密情報の保管先。ssm のときは、パスの接頭辞が要る。 */
   readonly secrets: {
     readonly provider: 'memory' | 'ssm';
@@ -472,7 +469,6 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     dataFile: parsed.DATA_FILE,
     dynamodb,
     cognito,
-    fileServerDirectory: parsed.FILE_SERVER_DIR,
     secrets: parseSecrets(parsed),
     seedMode: parsed.SEED_MODE,
     evaluationOnWrite: parsed.EVALUATION_ON_WRITE,

@@ -33,7 +33,10 @@ const LEGACY_PROFILE_IDS: Readonly<Record<string, string>> = {
   'environment-sensor-csv': 'environment-sensor-json',
 };
 
-/** 既定の取り込み元。接続先は、ローカルではファイルサーバーのモック（Q-002 が確定するまで）。 */
+/**
+ * 既定の取り込み元。接続は、未設定（画面・API で、HTTP の接続先を設定する。ADR-0025）。
+ * `connectionRef`（接続設定の参照名。HTTP では使わない）の既定値は、名前だけ残る（#367 で、取り込み元ごとの接続とともに廃止する）。
+ */
 function defaultIngestionSources(): IngestionSource[] {
   return [
     {
@@ -41,7 +44,6 @@ function defaultIngestionSources(): IngestionSource[] {
       kind: 'ROBOT',
       profileId: 'robot-json',
       connectionRef: 'FILE_SERVER_MOCK',
-      connection: { type: 'MOCK' },
       isEnabled: true,
     },
     {
@@ -49,7 +51,6 @@ function defaultIngestionSources(): IngestionSource[] {
       kind: 'SENSOR',
       profileId: 'environment-sensor-json',
       connectionRef: 'FILE_SERVER_MOCK',
-      connection: { type: 'MOCK' },
       isEnabled: true,
     },
   ];

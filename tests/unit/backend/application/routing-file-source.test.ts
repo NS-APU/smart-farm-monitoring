@@ -1,6 +1,7 @@
 /**
- * 接続方式で振り分けるファイルソース（Issue #172。ADR-0022）の単体テスト。
- * MOCK は、これまでのファイルソース（モック・S3）へ。HTTP は、秘密情報から認証のヘッダーを組み立て、設備ごとのファイルパス（ADR-0023。Issue #119）で、接続テスト・一覧・取得をする。
+ * HTTP のファイルサーバーのファイルソース（Issue #172。ADR-0022・ADR-0025）の単体テスト。
+ * 秘密情報から認証のヘッダーを組み立て、設備ごとのファイルパス（ADR-0023。Issue #119）で、接続テスト・一覧・取得をする。
+ * 接続が未設定の取り込み元（接続方式 MOCK を廃止した後の、未設定。ADR-0025）・取り込み元の設定がない場合の扱いも検証する。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -13,6 +14,7 @@ import {
 } from '../../../../src/backend/application/ingestion/routing-file-source.ts';
 import {
   FileSourceFailure,
+  FileSourceUnavailableError,
   type FileSourcePort,
 } from '../../../../src/backend/application/ports/file-source-port.ts';
 import type { SecretPort } from '../../../../src/backend/application/ports/secret-port.ts';
@@ -58,7 +60,6 @@ function robot(
 const DEFAULT_EQUIPMENT = [robot('ROBOT-01', '/data/robot-01.json')];
 
 interface Harness {
-  readonly calls: string[];
   readonly probes: { headers: Record<string, string>; path: string }[];
   readonly port: FileSourcePort;
 }
@@ -71,25 +72,9 @@ function build(options: {
   stat?: HttpFileClient['stat'];
   read?: HttpFileClient['read'];
 }): Harness {
-  const calls: string[] = [];
   const probes: { headers: Record<string, string>; path: string }[] = [];
-  const base: FileSourcePort = {
-    testConnection: (sourceId) => {
-      calls.push(`base.test:${sourceId}`);
-      return Promise.resolve();
-    },
-    listFiles: (sourceId) => {
-      calls.push(`base.list:${sourceId}`);
-      return Promise.resolve([]);
-    },
-    readFile: (sourceId, fileId) => {
-      calls.push(`base.read:${sourceId}:${fileId}`);
-      return Promise.resolve('content');
-    },
-  };
   const probe = options.probe ?? (() => Promise.resolve());
   const port = createRoutingFileSource({
-    base,
     ingestionSettings: { listSources: () => Promise.resolve(options.sources) },
     secrets: options.secrets ?? createMemorySecretPort(),
     equipment: { list: () => Promise.resolve(options.equipment ?? DEFAULT_EQUIPMENT) },
@@ -103,7 +88,7 @@ function build(options: {
       read: options.read ?? (() => Promise.resolve('')),
     },
   });
-  return { calls, probes, port };
+  return { probes, port };
 }
 
 async function failureOf(promise: Promise<unknown>): Promise<FileSourceFailure> {
@@ -116,31 +101,85 @@ async function failureOf(promise: Promise<unknown>): Promise<FileSourceFailure> 
   throw new Error('失敗するはずの処理が、成功した');
 }
 
-describe('接続方式 MOCK', () => {
-  it('テスト・一覧・取得を、これまでのファイルソースへ渡す', async () => {
-    const { calls, probes, port } = build({ sources: [source('robot', { type: 'MOCK' })] });
+describe('接続が未設定の取り込み元・取り込み元の設定がない場合', () => {
+  const UNSET = source('robot', undefined);
 
-    await port.testConnection('robot');
-    await port.listFiles('robot');
-    await port.readFile('robot', 'a.json');
+  it('接続テストは、接続せずに、NOT_CONFIGURED（接続先が設定されていません）', async () => {
+    const { probes, port } = build({ sources: [UNSET] });
 
-    expect(calls).toEqual(['base.test:robot', 'base.list:robot', 'base.read:robot:a.json']);
+    const failure = await failureOf(port.testConnection('robot'));
+
+    expect(failure.reason).toBe('NOT_CONFIGURED');
+    expect(failure.message).toBe('接続先が設定されていません');
     expect(probes).toHaveLength(0);
   });
 
-  it('設定にない取り込み元も、これまでのファイルソースへ渡す（これまでの動作を保つ）', async () => {
-    const { calls, port } = build({ sources: [] });
+  it('一覧は、取得の対象の設備（種別が合い、ファイルパスを持つ設備）がなければ、何も問い合わせず、空', async () => {
+    let requested = 0;
+    const stat = () => {
+      requested += 1;
+      return Promise.resolve({});
+    };
+    const noPath = build({ sources: [UNSET], equipment: [robot('ROBOT-01', undefined)], stat });
+    const otherKind = build({
+      sources: [UNSET],
+      equipment: [robot('SENSOR-01', '/data/sensor-01.json', { equipmentType: 'SENSOR' })],
+      stat,
+    });
+    const noMatchPaths = build({ sources: [UNSET], stat });
 
-    await port.listFiles('unknown');
+    expect(await noPath.port.listFiles('robot')).toEqual([]);
+    expect(await otherKind.port.listFiles('robot')).toEqual([]);
+    // paths で絞った結果、対象がない場合も、空
+    expect(await noMatchPaths.port.listFiles('robot', { paths: ['/data/none.json'] })).toEqual([]);
+    expect(await noMatchPaths.port.listFiles('robot', { paths: [] })).toEqual([]);
+    expect(requested).toBe(0);
+  });
 
-    expect(calls).toEqual(['base.list:unknown']);
+  it('一覧は、取得の対象の設備があれば、NOT_CONFIGURED（paths で絞った対象があるときも）', async () => {
+    const all = build({ sources: [UNSET] });
+    const narrowed = build({ sources: [UNSET] });
+
+    expect((await failureOf(all.port.listFiles('robot'))).reason).toBe('NOT_CONFIGURED');
+    expect(
+      (await failureOf(narrowed.port.listFiles('robot', { paths: ['/data/robot-01.json'] })))
+        .reason,
+    ).toBe('NOT_CONFIGURED');
+  });
+
+  it('取得は、NOT_FOUND（ファイルが見つかりません）', async () => {
+    const { port } = build({ sources: [UNSET] });
+
+    const failure = await failureOf(port.readFile('robot', '/data/robot-01.json'));
+
+    expect(failure.reason).toBe('NOT_FOUND');
+  });
+
+  it('取り込み元の設定がない（未知の識別子）は、3 つの操作とも、「取り込み元がありません」で利用できない', async () => {
+    const { probes, port } = build({ sources: [] });
+
+    for (const operation of [
+      () => port.testConnection('unknown'),
+      () => port.listFiles('unknown'),
+      () => port.readFile('unknown', '/data/robot-01.json'),
+    ]) {
+      const error: unknown = await operation().then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(FileSourceUnavailableError);
+      expect(error).not.toBeInstanceOf(FileSourceFailure);
+      expect((error as Error).message).toBe('取り込み元がありません');
+    }
+    expect(probes).toHaveLength(0);
   });
 });
 
 describe('接続方式 HTTP: 接続テスト', () => {
   it('秘密情報から認証のヘッダーを組み立てて、接続テストをする', async () => {
     const secrets = createMemorySecretPort({ 'file-server/robot': 'dummy-token' });
-    const { calls, probes, port } = build({
+    const { probes, port } = build({
       sources: [source('robot', HTTP_CONNECTION)],
       secrets,
     });
@@ -150,7 +189,6 @@ describe('接続方式 HTTP: 接続テスト', () => {
     expect(probes).toEqual([
       { headers: { Authorization: 'Bearer dummy-token' }, path: '/data/robot-01.json' },
     ]);
-    expect(calls).toEqual([]);
   });
 
   it('認証なし（NONE）は、秘密情報を読まずに、接続テストをする', async () => {
@@ -386,14 +424,6 @@ describe('接続方式 HTTP: 一覧', () => {
     expect(none).toEqual([]);
     expect(unknown).toEqual([]);
     expect(statted).toEqual([]);
-  });
-
-  it('モック・S3（接続方式 MOCK）は、ファイルパスの指定を使わず、これまでどおり、一覧を返す', async () => {
-    const { port, calls } = build({ sources: [source('robot', { type: 'MOCK' })] });
-
-    await port.listFiles('robot', { paths: ['/data/robot-01.json'] });
-
-    expect(calls).toEqual(['base.list:robot']);
   });
 
   it('更新日時・大きさを示さないサーバーは、更新日時を 1970 年（書き換え直後とみなさない）、大きさを 0 として返す', async () => {

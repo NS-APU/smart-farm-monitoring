@@ -2,7 +2,6 @@
  * 取り込み（UC-08, UC-09, UC-15, UC-24。JB-01）の結合テスト。
  * HTTP のテスト用ファイルサーバー（tests/support/http-file-server.ts。設備ごとのファイルパス〔1 設備 = 1 ファイル〕+ 合成データのフィクスチャ。
  * Issue #344。ADR-0025）、メモリ上のデータ、固定した時計を使う。
- * 削除済みの設備のデータの扱いは、モックのファイルサーバーを使う（「MOCK 専用」のテスト。#344 の PR 3 で、MOCK とともに削除する）。
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -310,73 +309,6 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
 
     expect(summary).toMatchObject({ recordCount: 0, rejectedCount: 1 });
     expect(await observationsOf(context)).toHaveLength(0);
-  });
-
-  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
-  it('削除した設備のデータ上の識別子のデータは、取り込みの対象から外れ、「削除済みの設備」として別に数える（棄却数に含めない。UC-12。Issue #231。ADR-0018 の D-28）', async () => {
-    const context = await withEquipment();
-    await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
-
-    const summary = await context.container.ingestionService.runSource('robot');
-
-    // ファイルの2件のレコードは、どちらも削除済みの設備のもの。保存せず、棄却数にも数えない
-    expect(summary).toMatchObject({ recordCount: 0, rejectedCount: 0, deletedEquipmentCount: 2 });
-    expect(await observationsOf(context)).toHaveLength(0);
-    // 削除済みの設備のレコードだけの実行は、取り込みログを増やさない（D-48）
-    expect(
-      (await context.container.repositories.ingestion.listLogs({}, { limit: 10 })).items,
-    ).toEqual([]);
-  });
-
-  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
-  it('登録のない識別子のレコードは、これまでどおり、棄却として数える（削除済みの設備と区別する）。削除済みの設備のレコードは、取り込み元単位のログに、別の項目で示す', async () => {
-    const context = await withEquipment();
-    await context.container.equipmentService.delete(ROBOT_ID, toUserId(TEST_USER.userId));
-    context.placeFile(
-      'robot',
-      'mixed.json',
-      JSON.stringify({
-        robotId: 'ROBOT-NEVER-REGISTERED',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount: 1 }],
-      }),
-    );
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
-
-    const summary = await context.container.ingestionService.runSource('robot');
-
-    expect(summary).toMatchObject({ rejectedCount: 1, deletedEquipmentCount: 2 });
-    const logs = (await context.container.repositories.ingestion.listLogs({}, { limit: 10 })).items;
-    expect(logs).toHaveLength(1);
-    expect(logs[0]).toMatchObject({
-      sourceId: 'robot',
-      rejectedCount: 1,
-      deletedEquipmentCount: 2,
-    });
-    expect(logs[0]?.equipmentId).toBeUndefined();
-  });
-
-  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
-  it('削除済みの設備の識別子は、設備の記録が残っていなくても、別に残した一覧で判定する（設備の記録が消えても〔#229〕、判定が変わらない）', async () => {
-    const context = await createTestContext();
-    // ロボットの設備の記録は、ない（ハウスとセンサーだけ）。データ上の識別子は、削除済みの一覧にだけある
-    for (const equipment of equipmentSet()) {
-      if (equipment.equipmentId !== ROBOT_ID) {
-        await context.container.repositories.equipment.save(equipment);
-      }
-    }
-    await context.container.repositories.settings.set(DELETED_EXTERNAL_IDS_KEY, [
-      {
-        externalId: 'ROBOT-SAMPLE-01',
-        equipmentType: 'ROBOT',
-        deletedAt: '2026-10-08T00:00:00.000Z',
-      },
-    ]);
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
-
-    const summary = await context.container.ingestionService.runSource('robot');
-
-    expect(summary).toMatchObject({ rejectedCount: 0, deletedEquipmentCount: 2 });
   });
 
   it('削除した設備のデータ上の識別子のデータは、取り込みの対象から外れ、「削除済みの設備」として別に数える（棄却数に含めない。D-28。HTTP: 別の設備のファイルに、削除済みの設備の識別子のレコードがある）', async () => {
@@ -884,11 +816,24 @@ describe('取り込みの実行の制御・設定', () => {
     const { service, repositories } = build(stubFileSource([]), {
       get: (profileId) => (profileId === 'robot-json' ? undefined : defaults.get(profileId)),
     });
+    // 定期の実行の対象は、ファイルのパスを持つ設備がある取り込み元だけ（ADR-0023）
+    for (const item of equipmentSet()) {
+      await repositories.equipment.save(
+        item.equipmentType === 'FACILITY'
+          ? item
+          : {
+              ...item,
+              sourceFilePath: `/${item.equipmentType.toLowerCase()}/${item.equipmentId}.json`,
+            },
+      );
+    }
 
     await expect(service.runDueSources()).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
 
-    // センサーは実行した（取り込み元の開始日時がある）。ファイルがなく、新しいデータもないため、ログには残さない（Issue #201）
-    expect(await repositories.ingestion.lastStartedAt('environment-sensor')).not.toBeNull();
+    // センサーは実行した（設備ごとの最終の実行がある。ロボットは、実行の前に失敗したため、ない）。ファイルがなく、新しいデータもないため、ログには残さない（Issue #201）
+    const runs = await repositories.ingestion.listEquipmentRuns();
+    expect(runs.has(SENSOR_ID)).toBe(true);
+    expect(runs.has(ROBOT_ID)).toBe(false);
     const logs = await repositories.ingestion.listLogs(
       { sourceId: 'environment-sensor' },
       { limit: 10 },

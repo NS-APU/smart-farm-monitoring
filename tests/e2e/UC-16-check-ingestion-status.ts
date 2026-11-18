@@ -95,7 +95,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await openStatus(page);
 
     const logs = page.getByTestId('ingestion-logs');
-    await expect(logs.getByRole('columnheader').allTextContents()).resolves.toEqual([
+    await expect(logs.getByRole('columnheader')).toHaveText([
       '日時',
       '取り込み元',
       '設備',

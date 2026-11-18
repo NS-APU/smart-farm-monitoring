@@ -55,7 +55,6 @@ export default defineConfig({
         TRUSTED_PROXY_HOPS: '1',
         PORT: String(BACKEND_PORT),
         PERSISTENCE: 'memory',
-        FILE_SERVER_DIR: 'test-result/e2e-file-server',
         SEED_MODE: 'NONE',
         INITIAL_USER_ID: E2E_USER.userId,
         INITIAL_USER_NAME: E2E_USER.userName,

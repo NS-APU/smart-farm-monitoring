@@ -50,7 +50,7 @@ export function parseDemoFeedUrl(text: string): HttpFileServerConnection {
     ...(url.port === '' ? {} : { port: Number(url.port) }),
     authMethod: 'NONE',
   });
-  if (!parsed.success || parsed.data.type !== 'HTTP') {
+  if (!parsed.success) {
     throw new ConfigError(URL_MESSAGE);
   }
   return parsed.data;

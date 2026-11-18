@@ -136,7 +136,6 @@ export function createDevRoutes(deps: ApiDeps, dev: DevApiDeps): Hono<AppEnv> {
   });
 
   const mockTargets = new Map<string, FaultController>([
-    ['file-server', dev.faults.fileServer],
     ['federation', dev.faults.federation],
     ['web-push', dev.faults.webPush],
   ]);

@@ -16,7 +16,7 @@ export const IngestionIntervalSchema = z.union(
   INGESTION_INTERVAL_MINUTES_OPTIONS.map((minutes) => z.literal(minutes)),
 );
 
-export const FILE_SERVER_CONNECTION_TYPES = ['MOCK', 'HTTP'] as const;
+export const FILE_SERVER_CONNECTION_TYPES = ['HTTP'] as const;
 export const FILE_SERVER_PROTOCOLS = ['HTTPS', 'HTTP'] as const;
 export const FILE_SERVER_AUTH_METHODS = ['NONE', 'BASIC', 'BEARER', 'API_KEY'] as const;
 export type FileServerProtocol = (typeof FILE_SERVER_PROTOCOLS)[number];
@@ -100,30 +100,30 @@ const ApiKeyHeaderNameSchema = z
  * ファイルサーバーの接続設定（Issue #172。ADR-0022）。認証情報の値（パスワード・トークン・API キー）は持たない。
  * 値は、秘密情報の保管先（SecretPort。Issue #206）に置く（NFR-5.4）。
  */
-export const FileServerConnectionSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('MOCK') }),
-  z.object({
-    type: z.literal('HTTP'),
-    protocol: z.enum(FILE_SERVER_PROTOCOLS).default('HTTPS'),
-    host: HostSchema,
-    /** 省略は、プロトコルの既定（HTTPS が 443、HTTP が 80）。 */
-    port: z
-      .number({ error: PORT_MESSAGE })
-      .int(PORT_MESSAGE)
-      .min(1, PORT_MESSAGE)
-      .max(65535, PORT_MESSAGE)
-      .optional(),
-    authMethod: z.enum(FILE_SERVER_AUTH_METHODS).default('NONE'),
-    /** 認証方式が API_KEY のときに、API キーを送るヘッダー名。 */
-    apiKeyHeaderName: ApiKeyHeaderNameSchema.default(DEFAULT_API_KEY_HEADER_NAME),
-  }),
-]);
+export const FileServerConnectionSchema = z.object({
+  type: z.literal('HTTP'),
+  protocol: z.enum(FILE_SERVER_PROTOCOLS).default('HTTPS'),
+  host: HostSchema,
+  /** 省略は、プロトコルの既定（HTTPS が 443、HTTP が 80）。 */
+  port: z
+    .number({ error: PORT_MESSAGE })
+    .int(PORT_MESSAGE)
+    .min(1, PORT_MESSAGE)
+    .max(65535, PORT_MESSAGE)
+    .optional(),
+  authMethod: z.enum(FILE_SERVER_AUTH_METHODS).default('NONE'),
+  /** 認証方式が API_KEY のときに、API キーを送るヘッダー名。 */
+  apiKeyHeaderName: ApiKeyHeaderNameSchema.default(DEFAULT_API_KEY_HEADER_NAME),
+});
 export type FileServerConnection = z.infer<typeof FileServerConnectionSchema>;
-export type HttpFileServerConnection = Extract<FileServerConnection, { type: 'HTTP' }>;
+/** 以前の名前（接続方式が MOCK と HTTP の 2 つだったとき。ADR-0025 の PR 3b で、MOCK を廃止し、HTTP だけになった）。 */
+export type HttpFileServerConnection = FileServerConnection;
 
-/** 接続先の表示用の URL（クエリ・認証情報を含まない）。接続を持たない（MOCK）は undefined。 */
-export function describeConnectionTarget(connection: FileServerConnection): string | undefined {
-  if (connection.type !== 'HTTP') {
+/** 接続先の表示用の URL（クエリ・認証情報を含まない）。接続が未設定なら undefined。 */
+export function describeConnectionTarget(
+  connection: FileServerConnection | undefined,
+): string | undefined {
+  if (connection === undefined) {
     return undefined;
   }
   const scheme = connection.protocol.toLowerCase();
@@ -132,6 +132,13 @@ export function describeConnectionTarget(connection: FileServerConnection): stri
       ? ''
       : `:${String(connection.port)}`;
   return `${scheme}://${connection.host}${port}`;
+}
+
+/** 以前の接続方式 MOCK（廃止。ADR-0025）の保存済みの設定を、未設定として読み替える。それ以外は、そのまま。 */
+function dropLegacyMockConnection(value: unknown): unknown {
+  return typeof value === 'object' && value !== null && 'type' in value && value.type === 'MOCK'
+    ? undefined
+    : value;
 }
 
 /**
@@ -143,8 +150,13 @@ export const IngestionSourceSchema = z.object({
   /** 解釈に使う FormatProfile の識別子。 */
   profileId: z.string().min(1),
   connectionRef: z.string().min(1),
-  /** ファイルサーバーの接続設定。保存がない既存の設定は、MOCK（移行不要）。 */
-  connection: FileServerConnectionSchema.default({ type: 'MOCK' }),
+  /**
+   * ファイルサーバーの接続設定。未設定のとき（保存がない・以前の接続方式 MOCK で保存された設定）は、省略。
+   * 以前に保存された `{ type: 'MOCK' }` は、読み込むときに、未設定として読み替える（移行しない。ADR-0025）。
+   */
+  connection: z
+    .preprocess(dropLegacyMockConnection, FileServerConnectionSchema.optional())
+    .optional(),
   /**
    * 取得間隔は、設備ごとの設定（Equipment.intervalMinutes。Issue #197）。以前に保存された取り込み元ごとの取得間隔は、
    * 読み込むときに無視する（移行しない）。

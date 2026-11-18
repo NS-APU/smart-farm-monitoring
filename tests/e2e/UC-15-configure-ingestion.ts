@@ -29,7 +29,6 @@ import {
   prepareApp,
   runJob,
   setEquipmentInterval,
-  removeSourceDirectory,
 } from './support/app.ts';
 import { placeFixture, setFileServerMode } from './support/http-files.ts';
 import {
@@ -232,7 +231,7 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
 
     const tested = await testConnection(page, 'robot');
 
-    // HTTP の停止は、理由がわかる失敗として、理由が括弧書きで付く（MOCK は、理由なし）
+    // HTTP の停止は、理由がわかる失敗として、理由が括弧書きで付く
     await expect(tested).toHaveText(
       '接続できませんでした（ファイルサーバーに接続できません）。接続先と認証情報の設定を確認してください',
     );
@@ -242,22 +241,19 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
     await shot(page, testInfo, 'uc15-test-failed');
   });
 
-  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）
-  test('取り込み元の場所（ディレクトリ）がなくても、内部情報を含めずに、接続できない旨を表示する', async ({
+  test('接続先が未設定の取り込み元は、接続テストで、設定を促す旨を表示する（内部情報は含めない）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    removeSourceDirectory('environment-sensor');
     await openIngestion(page);
 
     const tested = await testConnection(page, 'environment-sensor');
 
     await expect(tested).toHaveText(
-      '接続できませんでした。接続先と認証情報の設定を確認してください',
+      '接続できませんでした（接続先が設定されていません）。接続先と認証情報の設定を確認してください',
     );
-    await expect(tested).not.toContainText('test-result');
-    await expect(tested).not.toContainText('e2e-file-server');
+    await expect(tested).toHaveClass(/form-error/);
   });
 
   test('停止が復旧すると、接続テストに成功する', async ({ page, request }) => {
@@ -403,6 +399,9 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
     await prepareApp(request);
     // 取得間隔は、設備ごとの設定（#197）。ロボットを 1 時間にする（環境センサーは、既定の 5 分）
     await setEquipmentInterval(request, ROBOT_ID, 60);
+    // 定期の取り込みの対象は、ファイルのパスを持つ設備（ADR-0023）。ロボット・環境センサーに、ファイルを置く
+    await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
+    await placeFixture(request, 'environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await openIngestion(page);
 
     // 新しいデータがない実行は、取り込みのログに残さない（Issue #201）ため、取り込み元ごとの「最終の実行」で、実行したかを確かめる
@@ -431,6 +430,8 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
     request,
   }) => {
     await prepareApp(request);
+    // 定期の取り込みの対象は、ファイルのパスを持つ設備（ADR-0023）。環境センサーに、ファイルを置く
+    await placeFixture(request, 'environment-sensor', 'environment-sensor/sensor-sample-001.json');
     await openIngestion(page);
     await enabledBox(page, 'robot').uncheck();
     await save(page, 'robot').click();
@@ -438,13 +439,14 @@ test.describe('設定は、自動取り込み（UC-08・UC-09）に使われる�
 
     await runJob(request, 'JB-01');
 
-    // 無効にした取り込み元は、実行しない。有効な取り込み元は、実行する（新しいデータがないため、ログには残らない。Issue #201）
+    // 無効にした取り込み元は、実行しない。有効な取り込み元は、実行する（環境センサーのファイルを取り込む）
     await openIngestion(page);
     await expect(page.getByTestId('last-started-robot')).toHaveText('まだ実行していません');
     await expect(page.getByTestId('last-started-environment-sensor')).toHaveText(
       '2026/10/09 12:00:00',
     );
-    await expect(logRows(page)).toHaveCount(0);
+    await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(0);
+    await expect(logRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(1);
     await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await runNow(page, 'robot');
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(1);

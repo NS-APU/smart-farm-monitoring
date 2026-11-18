@@ -1,14 +1,16 @@
 /**
- * 接続方式で振り分けるファイルソース（Issue #172・#119。ADR-0022・ADR-0023）。
- * 取り込み元の接続設定（connection）が MOCK のときは、これまでのファイルソース（モック・S3）へ渡す。
- * HTTP のときは、秘密情報（SecretPort）から認証のヘッダーを組み立て、**設備ごとのファイルパス**（設備の `sourceFilePath`）に、
- * 接続テスト・一覧（メタデータ）・取得のリクエストを送る。取り込み元の種別（ロボット・センサー）に合う、有効な設備が対象。
+ * HTTP のファイルサーバーのファイルソース（Issue #172・#119・#344。ADR-0022・ADR-0023・ADR-0025）。取り込み元の接続設定（HTTP）に従い、
+ * 秘密情報（SecretPort）から認証のヘッダーを組み立て、**設備ごとのファイルパス**（設備の `sourceFilePath`）に、接続テスト・一覧（メタデータ）・
+ * 取得のリクエストを送る。取り込み元の種別（ロボット・センサー）に合う、有効な設備が対象。
+ * 接続が未設定の取り込み元は、取得の対象の設備（ファイルのパスを持つ設備）がなければ、何もしない（一覧は空）。対象があれば、
+ * 「接続先が設定されていません」の失敗にする。接続テストは、未設定なら失敗。
  */
 
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { HttpFileServerConnection } from '@smart-farm/shared/schemas/ingestion';
 import {
   FileSourceFailure,
+  FileSourceUnavailableError,
   type FileMeta,
   type FileSourcePort,
 } from '../ports/file-source-port.ts';
@@ -41,8 +43,6 @@ export interface HttpFileClient {
 }
 
 export interface RoutingFileSourceDeps {
-  /** 接続方式が MOCK の取り込み元、および、設定にない取り込み元の、ファイルソース。 */
-  readonly base: FileSourcePort;
   readonly ingestionSettings: Pick<IngestionSettings, 'listSources'>;
   readonly equipment: Pick<EquipmentRepository, 'list'>;
   readonly secrets: SecretPort;
@@ -55,6 +55,13 @@ export interface RoutingFileSourceDeps {
 const UNKNOWN_MODIFIED_AT = new Date(0);
 
 interface HttpSource {
+  /** 接続設定。未設定は、undefined。 */
+  readonly connection: HttpFileServerConnection | undefined;
+  readonly kind: Equipment['equipmentType'];
+}
+
+/** 接続が設定されている取り込み元。 */
+interface ConnectedSource {
   readonly connection: HttpFileServerConnection;
   readonly kind: Equipment['equipmentType'];
 }
@@ -64,14 +71,16 @@ interface Target {
 }
 
 export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSourcePort {
-  const { base, ingestionSettings, equipment, secrets, http, maxFileBytes } = deps;
+  const { ingestionSettings, equipment, secrets, http, maxFileBytes } = deps;
 
-  async function httpSourceOf(sourceId: string): Promise<HttpSource | undefined> {
+  /** 取り込み元の設定。取り込み元がなければ、利用できない旨の失敗にする。 */
+  async function sourceOf(sourceId: string): Promise<HttpSource> {
     const sources = await ingestionSettings.listSources();
     const source = sources.find((candidate) => candidate.sourceId === sourceId);
-    return source?.connection.type === 'HTTP'
-      ? { connection: source.connection, kind: source.kind }
-      : undefined;
+    if (source === undefined) {
+      throw new FileSourceUnavailableError('取り込み元がありません');
+    }
+    return { connection: source.connection, kind: source.kind };
   }
 
   /**
@@ -130,7 +139,7 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
     }
   }
 
-  async function testHttp(sourceId: string, source: HttpSource): Promise<void> {
+  async function testHttp(sourceId: string, source: ConnectedSource): Promise<void> {
     const [first] = await targetsOf(source.kind);
     if (first === undefined) {
       throw new FileSourceFailure('NO_FILE_PATH');
@@ -142,7 +151,7 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
 
   async function listHttp(
     sourceId: string,
-    source: HttpSource,
+    source: ConnectedSource,
     paths: readonly string[] | undefined,
   ): Promise<FileMeta[]> {
     const files: FileMeta[] = [];
@@ -171,7 +180,11 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
     );
   }
 
-  async function readHttp(sourceId: string, source: HttpSource, fileId: string): Promise<string> {
+  async function readHttp(
+    sourceId: string,
+    source: ConnectedSource,
+    fileId: string,
+  ): Promise<string> {
     // 設備に設定されたファイルパスだけを取得する（任意のパスを、取得させない）
     if (!(await targetsOf(source.kind)).some((target) => target.path === fileId)) {
       throw new FileSourceFailure('NOT_FOUND');
@@ -188,28 +201,31 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
 
   return {
     async testConnection(sourceId) {
-      const source = await httpSourceOf(sourceId);
-      if (source === undefined) {
-        return base.testConnection(sourceId);
+      const source = await sourceOf(sourceId);
+      if (source.connection === undefined) {
+        throw new FileSourceFailure('NOT_CONFIGURED');
       }
-      return testHttp(sourceId, source);
+      return testHttp(sourceId, { ...source, connection: source.connection });
     },
 
     async listFiles(sourceId, options) {
-      const source = await httpSourceOf(sourceId);
-      if (source === undefined) {
-        // モック・S3 は、1 つのファイルに複数の設備が入るため、ファイルパスの指定を使わない
-        return base.listFiles(sourceId);
+      const source = await sourceOf(sourceId);
+      if (source.connection === undefined) {
+        // 接続が未設定。取得の対象の設備がなければ、何もしない。あれば、設定が足りない旨の失敗にする
+        if ((await targetsOf(source.kind, options?.paths)).length === 0) {
+          return [];
+        }
+        throw new FileSourceFailure('NOT_CONFIGURED');
       }
-      return listHttp(sourceId, source, options?.paths);
+      return listHttp(sourceId, { ...source, connection: source.connection }, options?.paths);
     },
 
     async readFile(sourceId, fileId) {
-      const source = await httpSourceOf(sourceId);
-      if (source === undefined) {
-        return base.readFile(sourceId, fileId);
+      const source = await sourceOf(sourceId);
+      if (source.connection === undefined) {
+        throw new FileSourceFailure('NOT_FOUND');
       }
-      return readHttp(sourceId, source, fileId);
+      return readHttp(sourceId, { ...source, connection: source.connection }, fileId);
     },
   };
 }

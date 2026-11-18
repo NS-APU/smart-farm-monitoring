@@ -1,9 +1,9 @@
 /**
- * FileSourcePort の契約テスト（モックと、将来の実ファイルサーバーのアダプタ（Q-002）で共通に適用する。V-128）。
+ * FileSourcePort の契約テスト（ファイルサーバーのアダプタ（HTTP）に適用する。V-128。以前は、モックとも共通だった）。
  * アダプタごとに、ファイルの用意・停止の再現を行う `ContractSubject` を渡す。
  * 契約: 一覧は更新日時の古い順（同時刻は名前の順）／ファイルの内容は UTF-8 のテキスト／大きさ（バイト）を返す／
  * 存在しないファイル・不正な識別子・停止中は FileSourceUnavailableError。
- * アダプタによって、ファイルの識別子の形が違う（モック・S3 は名前。HTTP はファイルパス）ため、`fileIdOf` で、名前から識別子を求める。
+ * アダプタによって、ファイルの識別子の形が違う（HTTP はファイルパス）ため、`fileIdOf` で、名前から識別子を求める。
  * まだ決まっていない契約（取り込み元の場所がない場合の一覧・接続の暗号化と認証・タイムアウト）は、Q-002 の確定後に追加する。
  */
 
@@ -19,7 +19,7 @@ export interface ContractSubject {
   readonly putFile: (sourceId: string, name: string, content: string, modifiedAt: Date) => void;
   /** 接続できない状態にする。 */
   readonly setDown: () => void;
-  /** 名前から、一覧に出るファイルの識別子を求める。省略は、名前そのもの（モック・S3）。 */
+  /** 名前から、一覧に出るファイルの識別子を求める。省略は、名前そのもの。 */
   readonly fileIdOf?: (name: string) => string;
 }
 

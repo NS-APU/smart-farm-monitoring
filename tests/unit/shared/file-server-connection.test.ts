@@ -1,6 +1,6 @@
 /**
  * ファイルサーバーの接続設定（Issue #172。ADR-0022）のスキーマの単体テスト。
- * 接続方式（MOCK／HTTP）、プロトコル・ホスト・ポート・認証方式の検証。ファイルパスは、設備が持つ（ADR-0023。設備のテストで検証する）。認証情報の値は持たない（NFR-5.4）。
+ * 接続方式（HTTP のみ。MOCK は ADR-0025 で廃止）、プロトコル・ホスト・ポート・認証方式の検証。ファイルパスは、設備が持つ（ADR-0023。設備のテストで検証する）。認証情報の値は持たない（NFR-5.4）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -19,9 +19,9 @@ const VALID_HTTP = {
   authMethod: 'BASIC',
 } as const;
 
-describe('接続設定 MOCK', () => {
-  it('type だけで有効', () => {
-    expect(FileServerConnectionSchema.parse({ type: 'MOCK' })).toEqual({ type: 'MOCK' });
+describe('接続設定: 接続方式', () => {
+  it('MOCK（廃止した接続方式）は、不正', () => {
+    expect(FileServerConnectionSchema.safeParse({ type: 'MOCK' }).success).toBe(false);
   });
 });
 
@@ -200,8 +200,21 @@ describe('取り込み元の設定（connection の追加）', () => {
     isEnabled: true,
   } as const;
 
-  it('connection がない既存の設定は、MOCK として読める（移行不要）', () => {
-    expect(IngestionSourceSchema.parse(base).connection).toEqual({ type: 'MOCK' });
+  it('connection がない既存の設定は、未設定（connection が undefined）として読める（移行不要）', () => {
+    expect(IngestionSourceSchema.parse(base).connection).toBeUndefined();
+  });
+
+  it('接続方式 MOCK で保存されていた設定（{ type: MOCK }）は、読み込むときに、未設定として読み替える', () => {
+    const parsed = IngestionSourceSchema.parse({ ...base, connection: { type: 'MOCK' } });
+
+    expect(parsed.connection).toBeUndefined();
+  });
+
+  it('HTTP の接続設定が不正なら、未設定に読み替えず、読み込みは失敗する（MOCK の読み替えだけが対象）', () => {
+    expect(
+      IngestionSourceSchema.safeParse({ ...base, connection: { ...VALID_HTTP, host: 'http://x' } })
+        .success,
+    ).toBe(false);
   });
 
   it('connection を持つ設定を読める', () => {
@@ -253,7 +266,7 @@ describe('接続先の表示（describeConnectionTarget）', () => {
     ).toBe('http://fileserver.example.ac.jp');
   });
 
-  it('MOCK は、undefined（接続先を持たない）', () => {
-    expect(describeConnectionTarget({ type: 'MOCK' })).toBeUndefined();
+  it('未設定（undefined）は、undefined（接続先を持たない）', () => {
+    expect(describeConnectionTarget(undefined)).toBeUndefined();
   });
 });

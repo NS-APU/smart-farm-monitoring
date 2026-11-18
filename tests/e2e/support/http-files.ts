@@ -1,14 +1,13 @@
 /**
- * E2E の、HTTP のファイルサーバー（Issue #344。ADR-0025）の補助。モックのファイルサーバー（`placeFile`・`placeFixture`・`setMock('file-server')`）の
- * 置き換え。取り込み（JB-01）の HTTP アダプタが接続する先を、テストのプロセスの中（127.0.0.1。空きポート。tests/support/http-file-server.ts）に立てる。
+ * E2E の、HTTP のファイルサーバー（Issue #344。ADR-0025）の補助。取り込み（JB-01）の HTTP アダプタが接続する先を、テストのプロセスの中（127.0.0.1。空きポート。tests/support/http-file-server.ts）に立てる。
  * バックエンドは、別のプロセス（playwright.config.ts の webServer。`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`）で、そのサーバーに接続する。
- * - `prepareApp`・`prepare`（`/dev/reset`）は、取り込み元の接続を MOCK に戻す。そのため、このファイルの関数は、**呼ばれた時点で、前回の
+ * - `prepareApp`・`prepare`（`/dev/reset`）は、取り込み元の接続を、未設定に戻す。そのため、このファイルの関数は、**呼ばれた時点で、前回の
  *   `prepare` のあとに設定していなければ**、サーバーを空（ファイルなし・停止なし）にし、取り込み元の接続を、このサーバー（HTTP・認証なし）にする
  * - `placeFile`・`placeFixture`: ファイルを置き、**その種別（ロボット・センサー）の設備の `sourceFilePath` を、`/<取り込み元>/<名前>` にする**
  *   （API で設備を修正する）。HTTP は、**1 設備 = 1 ファイル**（ADR-0023）。同じ設備に、別の名前のファイルを置こうとすると、エラー
- *   （モックの「1 つの取り込み元に複数のファイル」を、同じパスの上書き・別の設備〔`equipmentId`〕への配置に言い換える）
+ *   （「1 つの取り込み元に複数のファイル」は、同じパスの上書き・別の設備〔`equipmentId`〕への配置に言い換える）
  * - `setFileServerMode`: 停止（DOWN。接続を切る）・遅延（SLOW）・拒否（REJECT。503）・復旧（UP）。停止などを指定したとき、ファイルのパスを持たない
- *   ロボット・センサーには、**仮のパス**を割り当てる（HTTP は、ファイルのパスを持つ設備だけが、取得の対象。モックは、取り込み元の全体が止まった。
+ *   ロボット・センサーには、**仮のパス**を割り当てる（HTTP は、ファイルのパスを持つ設備だけが、取得の対象。
  *   仮のパスは、あとで `placeFile` が、本来のパスに付け替える）
  * 置くのは、合成データだけ。ワーカーは 1 つ（playwright.config.ts）のため、サーバーは、ワーカーごとに 1 つ。
  */
@@ -169,6 +168,21 @@ export function placeFixture(
   return placeFile(request, sourceId, options.asName ?? basename(fixture), content, options);
 }
 
+/**
+ * ファイルのパスを持たない設備（ロボット・センサー）に、仮のパスを割り当てる（ファイルは置かない）。
+ * 自動取り込みの対象（ファイルのパスを持つ設備。ADR-0023）にして、データの鮮度・停止の判定などを、自動取り込みの運用として確かめる。
+ */
+export async function assignPlaceholderPaths(request: APIRequestContext): Promise<void> {
+  for (const item of await equipmentList(request)) {
+    const sourceId = (Object.keys(EQUIPMENT_TYPE_OF) as FileSourceId[]).find(
+      (candidate) => EQUIPMENT_TYPE_OF[candidate] === item.equipmentType,
+    );
+    if (sourceId !== undefined && item.sourceFilePath === undefined) {
+      await assignFilePath(request, item.equipmentId, placeholderPath(sourceId, item.equipmentId));
+    }
+  }
+}
+
 /** ファイルサーバーの状態を切り替える（停止〔DOWN。接続を切る〕・遅延〔SLOW〕・拒否〔REJECT。503〕・復旧〔UP〕）。 */
 export async function setFileServerMode(
   request: APIRequestContext,
@@ -177,19 +191,8 @@ export async function setFileServerMode(
 ): Promise<void> {
   const server = await ensure(request);
   if (mode !== 'UP') {
-    // ファイルのパスを持たない設備（ロボット・センサー）に、仮のパスを割り当てる（取得の対象にして、停止などを効かせる）
-    for (const item of await equipmentList(request)) {
-      const sourceId = (Object.keys(EQUIPMENT_TYPE_OF) as FileSourceId[]).find(
-        (candidate) => EQUIPMENT_TYPE_OF[candidate] === item.equipmentType,
-      );
-      if (sourceId !== undefined && item.sourceFilePath === undefined) {
-        await assignFilePath(
-          request,
-          item.equipmentId,
-          placeholderPath(sourceId, item.equipmentId),
-        );
-      }
-    }
+    // 停止などを効かせるため、取得の対象にする
+    await assignPlaceholderPaths(request);
   }
   server.faults.set({ mode, ...(delayMs === undefined ? {} : { delayMs }) });
 }
