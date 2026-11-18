@@ -30,7 +30,6 @@ import {
   api,
   apiOk,
   openAs,
-  placeFile as placeMockFile,
   prepareApp,
   robotJson,
   runJob,
@@ -632,24 +631,6 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
       'data-result',
       'SUCCESS',
     );
-  });
-
-  test('ファイルサーバーの応答が遅くても（遅延）、時計を進めて待たずに、取り込める（遅延の再現）', async ({
-    page,
-    request,
-  }) => {
-    await prepareApp(request);
-    // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）: モックの遅延は、時計を進めて待つ。HTTP の応答の待ちは、10 秒で時間切れになる
-    await apiOk(request, 'PUT', '/dev/mocks/file-server', { mode: 'SLOW', delayMs: 60_000 });
-    placeMockFile('robot', 'a.json', robotJson(speedRecords('RUNNING')));
-    await alignBrowserClock(page);
-    await openAs(page, '/settings/ingestion');
-
-    const result = await runNow(page, 'robot');
-
-    await expect(result).toContainText('取り込み 14 件');
-    const clock = await apiOk<{ now: string }>(request, 'GET', '/dev/clock');
-    expect(new Date(clock.now).getTime()).toBeGreaterThan(Date.parse('2026-10-09T03:00:00.000Z'));
   });
 });
 

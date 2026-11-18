@@ -2,7 +2,6 @@
  * 設備ごとの取得間隔での取り込み（Issue #197。ADR-0016 の D-11）の結合テスト。
  * 取り込みのジョブ（JB-01。1 分ごとに起動）が、設備ごとに、「最終の開始から、その設備の取得間隔が過ぎたか」を判定し、
  * 間隔が来た設備のファイルだけを取り込む（HTTP は、設備ごとのファイル）。未設定の間隔は、種別ごとの既定（ロボット 1 分・センサー 5 分）。
- * モック・S3（1 つのファイルに複数の設備が入る）は、その取り込み元の設備のどれかの間隔が来たら、ファイル全体を取り込む。
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -322,62 +321,6 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 });
 
-describe('接続方式 MOCK（モック・S3。1 つのファイルに、複数の設備が入る）', () => {
-  it('その取り込み元の設備の、どれかの間隔が来たら、ファイル全体を取り込む（ファイルパスは指定しない）。すべての設備の開始の日時を更新する', async () => {
-    const { runAfter, repositories } = await build({ connection: { type: 'MOCK' } });
-
-    const first = await runAfter(0);
-    const after1 = await runAfter(MINUTE);
-    const after2 = await runAfter(MINUTE);
-
-    // ロボット 1（既定 1 分）が、毎分来るため、ロボットの取り込み元は、毎分動く。センサー（5 分）は、動かない
-    expect(first.sources).toEqual(['environment-sensor', 'robot']);
-    expect(first.calls).toEqual([
-      { sourceId: 'robot', paths: undefined },
-      { sourceId: 'environment-sensor', paths: undefined },
-    ]);
-    expect(after1.sources).toEqual(['robot']);
-    expect(after2.sources).toEqual(['robot']);
-    const states = await repositories.ingestion.listEquipmentRuns();
-    expect(states.get('ROBOT-T2')?.startedAt.toISOString()).toBe(
-      new Date(TEST_NOW.getTime() + 2 * MINUTE).toISOString(),
-    );
-  });
-
-  it('設備の間隔が、すべて長ければ、その最短の間隔まで、動かさない（ロボット 1 を 30 分にすれば、ロボットの取り込み元は、最短の 5 分）', async () => {
-    const { runAfter, repositories } = await build({ connection: { type: 'MOCK' } });
-    const robot = await repositories.equipment.get(ROBOT_ID);
-    if (robot === undefined) {
-      throw new Error('テストの前提');
-    }
-    await repositories.equipment.save({ ...robot, intervalMinutes: 30 });
-    await runAfter(0);
-
-    const after1 = await runAfter(MINUTE);
-    const after5 = await runAfter(4 * MINUTE);
-
-    expect(after1.sources).toEqual([]);
-    expect(after5.sources).toEqual(['environment-sensor', 'robot']);
-  });
-
-  it('設備が 1 つもない種別の取り込み元は、種別ごとの既定の間隔（ロボット 1 分）で、動かす（未登録の記録を、棄却として数えるため）', async () => {
-    const { runAfter, repositories } = await build({ connection: { type: 'MOCK' } });
-    for (const id of [ROBOT_ID, ROBOT_2_ID]) {
-      const item = await repositories.equipment.get(id);
-      if (item !== undefined) {
-        await repositories.equipment.save({ ...item, isDeleted: true });
-      }
-    }
-    await runAfter(0);
-
-    const after30s = await runAfter(30 * MS);
-    const after1 = await runAfter(30 * MS);
-
-    expect(after30s.sources).toEqual([]);
-    expect(after1.sources).toEqual(['robot']);
-  });
-});
-
 describe('取り込みログは、設備ごと。空振りは残さず、設備ごとの最終の実行を持つ（Issue #201。ADR-0016 の D-48）', () => {
   const logsOf = async (repositories: Awaited<ReturnType<typeof build>>['repositories']) =>
     (await repositories.ingestion.listLogs({}, { limit: 50 })).items;
@@ -462,42 +405,22 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
     );
   });
 
-  it('1 つのファイルに複数の設備が入る（モック・S3）ときは、設備ごとのログに件数を分ける。どの設備にも結びつかない記録は、取り込み元単位のログ（一部成功）に数える', async () => {
+  it('設備のファイルに、その設備に結びつかない記録（未登録の設備の識別子）が入るときは、棄却として、そのファイルの設備のログ（一部成功）に数える。取り込み元単位のログは、残さない', async () => {
     const { runAfter, repositories } = await build({
-      connection: { type: 'MOCK' },
-      files: { '/all.json': 'ROBOT-SAMPLE-01+ROBOT-SAMPLE-02+UNKNOWN-ROBOT' },
+      connection: HTTP_CONNECTION,
+      files: { [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01+UNKNOWN-ROBOT' },
     });
 
     await runAfter(0);
 
     const robotLogs = (await logsOf(repositories)).filter((log) => log.sourceId === 'robot');
-    const byEquipment = robotLogs
-      .filter((log) => log.equipmentId !== undefined)
-      .map((log) => [log.equipmentId, log.recordCount, log.result])
-      .sort();
-    expect(byEquipment).toEqual([
-      ['ROBOT-T1', 1, 'SUCCESS'],
-      ['ROBOT-T2', 1, 'SUCCESS'],
-    ]);
-    const unlinked = robotLogs.filter((log) => log.equipmentId === undefined);
-    expect(unlinked).toHaveLength(1);
-    expect(unlinked[0]).toMatchObject({ result: 'PARTIAL', recordCount: 0, rejectedCount: 1 });
-  });
-
-  it('設備が 1 つもない取り込み元は、取り込み元ごとの最終の開始日時を持つ（取得間隔の判定に使う）', async () => {
-    const { runAfter, repositories } = await build({ connection: { type: 'MOCK' } });
-    for (const id of [ROBOT_ID, ROBOT_2_ID]) {
-      const item = await repositories.equipment.get(id);
-      if (item !== undefined) {
-        await repositories.equipment.save({ ...item, isDeleted: true });
-      }
-    }
-
-    await runAfter(0);
-
-    expect((await repositories.ingestion.lastStartedAt('robot'))?.toISOString()).toBe(
-      TEST_NOW.toISOString(),
-    );
+    expect(robotLogs).toHaveLength(1);
+    expect(robotLogs[0]).toMatchObject({
+      equipmentId: ROBOT_ID,
+      result: 'PARTIAL',
+      recordCount: 1,
+      rejectedCount: 1,
+    });
   });
 
   it('取り込めなかった不正な値は、その設備のログに数える。同じ不正な値が続いても（新しく保存した観測値がない）、ログを増やさない', async () => {

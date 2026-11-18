@@ -611,8 +611,8 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
 
   /**
    * 実行の結果を、設備ごとの結果と、設備に結びつかない結果に分ける（Issue #201）。
-   * ファイルが 1 つの設備のもの（設備のファイルパス。HTTP）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備の結果にする。
-   * 1 つのファイルに複数の設備が入る場合（モック・S3。または、設備のファイルに、ほかの設備の記録が入る場合）は、設備ごとの記録の数だけを、設備の結果にする。
+   * ファイルが 1 つの設備のもの（設備のファイルパス）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備の結果にする。
+   * 設備のファイルに、ほかの設備の記録が入る場合は、設備ごとの記録の数だけを、設備の結果にする。
    * 取り込めなかった記録・取り込めなかったファイル（設備が分からない）は、設備に結びつかない結果（取り込み元単位）にする。
    */
   function attributeOutcomes(
@@ -996,9 +996,9 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
   }
 
   /**
-   * 取り込み元を 1 回、実行する。`dueEquipmentIds` を指定すると（接続方式 HTTP。設備ごとのファイル）、その設備のファイルだけを取り込む
-   * （設備ごとの取得間隔。Issue #197）。指定がなければ、すべての設備（即時取得）。モック・S3 は、1 つのファイルに複数の設備が入るため、
-   * 指定にかかわらず、ファイル全体を取り込む。取り込む設備の、開始の日時を記録する（失敗しても、間隔が来るまで、再試行しない）。
+   * 取り込み元を 1 回、実行する。`dueEquipmentIds` を指定すると、その設備のファイルだけを取り込む
+   * （設備ごとの取得間隔。Issue #197）。指定がなければ、ファイルのパスを持つ、すべての設備（即時取得）。
+   * 取り込む設備の、開始の日時を記録する（失敗しても、間隔が来るまで、再試行しない）。
    */
   async function runSourceUnlocked(
     source: IngestionSource,
@@ -1011,20 +1011,18 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     }
 
     const equipmentIndex = await loadEquipmentIndex(source);
-    const isHttp = source.connection.type === 'HTTP';
-    const fetched = isHttp
-      ? equipmentIndex.members.filter(
-          (member) =>
-            member.sourceFilePath !== undefined &&
-            (dueEquipmentIds === undefined || dueEquipmentIds.has(member.equipmentId)),
-        )
-      : equipmentIndex.members;
+    // 取得の対象は、ファイルのパスを持つ設備（設備ごとに 1 ファイル。ADR-0023）。間隔が来た設備に絞る指定もある
+    const fetched = equipmentIndex.members.filter(
+      (member) =>
+        member.sourceFilePath !== undefined &&
+        (dueEquipmentIds === undefined || dueEquipmentIds.has(member.equipmentId)),
+    );
     if (equipmentIndex.members.length === 0) {
       // 設備が 1 つもない取り込み元は、取り込み元ごとの開始日時で、取得間隔を判定する
       await repositories.ingestion.recordSourceStarted(source.sourceId, startedAt);
     }
     const paths =
-      isHttp && dueEquipmentIds !== undefined
+      dueEquipmentIds !== undefined
         ? fetched.flatMap((member) => member.sourceFilePath ?? [])
         : undefined;
 
@@ -1112,31 +1110,22 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
   }
 
   /**
-   * 取得間隔が来た設備の取り込み（設備ごと。Issue #197）。接続方式 HTTP は、間隔が来た設備のファイルだけ。
-   * モック・S3 は、その取り込み元の設備の、どれかの間隔が来たら、ファイル全体（最短の間隔で動く）。設備が 1 つもない種別は、
-   * 種別ごとの既定の間隔（取り込み元ごとの最終の開始から）。来ていなければ、undefined（実行しない）。
+   * 取得間隔が来た設備の取り込み（設備ごと。Issue #197）。ファイルのパスを持つ設備（設備ごとに 1 ファイル。ADR-0023）のうち、
+   * 取得間隔が来た設備だけ。来ていなければ、undefined（実行しない）。
    */
-  async function dueScopeOf(
-    source: IngestionSource,
+  function dueScopeOf(
     members: readonly Equipment[],
     states: ReadonlyMap<string, Date>,
     nowMs: number,
-  ): Promise<{ readonly dueEquipmentIds?: ReadonlySet<EquipmentId> } | undefined> {
-    const dueOf = (items: readonly Equipment[]): Equipment[] =>
-      items.filter((item) => isIntervalDue(item, states.get(item.equipmentId), nowMs));
-    if (source.connection.type === 'HTTP') {
-      const due = dueOf(members.filter((member) => member.sourceFilePath !== undefined));
-      return due.length === 0
-        ? undefined
-        : { dueEquipmentIds: new Set(due.map((item) => item.equipmentId)) };
-    }
-    if (members.length > 0) {
-      return dueOf(members).length === 0 ? undefined : {};
-    }
-    const lastStartedAt = await repositories.ingestion.lastStartedAt(source.sourceId);
-    return isIntervalDue({ equipmentType: source.kind }, lastStartedAt ?? undefined, nowMs)
-      ? {}
-      : undefined;
+  ): { readonly dueEquipmentIds: ReadonlySet<EquipmentId> } | undefined {
+    const due = members.filter(
+      (member) =>
+        member.sourceFilePath !== undefined &&
+        isIntervalDue(member, states.get(member.equipmentId), nowMs),
+    );
+    return due.length === 0
+      ? undefined
+      : { dueEquipmentIds: new Set(due.map((item) => item.equipmentId)) };
   }
 
   return {
@@ -1170,7 +1159,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
           const members = (await equipmentRead).filter(
             (item) => item.equipmentType === source.kind,
           );
-          const scope = await dueScopeOf(source, members, await statesRead, now.getTime());
+          const scope = dueScopeOf(members, await statesRead, now.getTime());
           if (scope !== undefined) {
             summaries.push(await runLocked(source.sourceId, scope.dueEquipmentIds));
           }

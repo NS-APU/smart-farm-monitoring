@@ -21,6 +21,7 @@ pnpm exec playwright install chromium
 # 開発サーバ起動
 pnpm dev:backend     # バックエンド（Node サーバー。http://127.0.0.1:8787）。.env があれば読み込む
 pnpm dev:frontend    # フロントエンド（Vite。http://127.0.0.1:5173。/api/v1 をバックエンドへ中継）
+pnpm dev:demo-feed   # デモ用の合成データの HTTP 配信（ファイルサーバーの代わり。http://127.0.0.1:8790。--port N または DEMO_FEED_PORT でポート指定。ADR-0025）。使い方は「ローカルでの動かし方」
 
 # ビルド
 pnpm build           # フロントエンドを dist/frontend へ出力
@@ -193,7 +194,7 @@ pnpm demo-data seed          # 投入する（設備がすでにあれば、何�
 pnpm demo-data seed --days 30   # 合成データを 30 日分にする（1 か月分の推移の実測用。1〜31。既定は 3）
 pnpm demo-data use-http-feed --url "<DemoFeedUrl の値>"   # 取り込みを、デモ用の HTTP 配信に向ける（#344。ADR-0025）。環境変数 DEMO_FEED_URL でも指定できる。seed にも --url を付けられる。値は、チャット・Issue・PR に貼らない
 pnpm demo-data reset         # 何も消さず、消す対象の件数を示す
-pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す。S3 のファイルも消す）
+pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す）
 
 # 終わったら、必ず消す（同じターミナルで、手元のバックエンドを起動したとき、AWS に向いてしまうため）
 Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:DEMO_FEED_URL -ErrorAction SilentlyContinue
@@ -202,9 +203,9 @@ Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_
 - 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`DEMO_FEED_URL`（SfmEvaluation の出力 `DemoFeedUrl`）は、`use-http-feed`・`seed` が、デモ用の HTTP 配信に向けるときに使う（`--url` でも指定できる）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
 - `seed` は、設備がすでにあれば、何もしない。投入し直すときは、`reset --yes` のあとに、`seed`
 - `seed --days N`（1〜31。既定 3。範囲外・数値でない値は、何も投入せずエラー）は、合成データの日数を指定する（Issue #79）。1 か月分のデータが要る実測（推移の表示。NFR-3.5）のときに使う。30 日分は、観測値で約 3 万件を、DynamoDB に書く。測ったあとは、`reset --yes` → `seed`（既定の 3 日分）で、元に戻せる
-- `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目、S3 のファイル。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
+- `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
 - AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
-- 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除、（S3 のファイルも消すとき）バケットの一覧と、オブジェクトの削除
+- 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除
 - **状態: 確認済み**（2026-10-20。`seed`・`reset`（`--yes` なし・あり）・ユーザーが残ること・投入し直し。結果は、ADR-0012 の「検証」）。S3 のファイルがある状態での `reset --yes` も、確認済み（生成の Lambda のあと。2026-10-20）。operations.md 7.5
 - **開発サイト専用**（Issue #117）。**本番サイトでは、実行できない**（環境変数 `SFM_ENVIRONMENT=production` のとき、`seed`・`reset` とも、何もせずに終了する安全装置。本番サイトは、合成データを入れず、`reset` は、実データを消すため）
 
@@ -271,8 +272,13 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 - `.env.example` を `.env` にコピーして使う（値はダミー。`.env` は Git 管理外）。`SEED_MODE=DEMO` で、デモの設備・合成データ・評価が入る。ログインは、`.env` の `INITIAL_USER_ID`・`INITIAL_USER_PASSWORD`
 - バックエンドとフロントエンドを、それぞれ別のターミナルで起動し、`http://127.0.0.1:5173` を開く
 - 初期ユーザーでのログイン手順は、次節
-- ファイルサーバーのモックに、合成データのファイル（`tests/fixtures/file-server/` を参考）を、`.local-data/file-server/robot/` や `.local-data/file-server/environment-sensor/` に置くと、取り込みの対象になる
-- 開発用 API（時計・モックの停止・ジョブの起動・リセット）は、既定で無効。`.env` に `DEV_API_ENABLED=true` を指定したときだけ有効（E2E の設定は、指定済み）。dev_spec.md 3.8
+- 取り込み（ファイルサーバー）をローカルで試すには、デモ用の合成データの HTTP 配信を使う（接続方式は HTTP だけ。ディレクトリのモックは廃止した。ADR-0025）:
+  1. `pnpm dev:demo-feed` を別のターミナルで起動する（127.0.0.1 だけ。既定ポート 8790。ファイルは `/robot/latest.json`・`/environment-sensor/latest.json`。停止は Ctrl+C）
+  2. `.env` に `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` を指定して、バックエンドを起動する（手元の配信など、内部のアドレスに接続するため。ローカル・テストだけ。`APP_MODE=production` では無効）
+  3. 画面の SC-11（取り込み設定）で、取り込み元（ロボット・環境センサー）の接続を、プロトコル HTTP・ホスト 127.0.0.1・ポート 8790・認証方式 なし にして保存する（接続が未設定のままでは、取り込まない）
+  4. 画面の SC-10（設備）で、ロボット・環境センサーの「ファイルのパス」に、上のファイルのパスを設定する（`SEED_MODE=DEMO` のデモの設備は、ファイルのパスを持たない）。SC-11 の「接続テスト」「即時取得」で確かめる
+  - `pnpm demo-data use-http-feed --url http://127.0.0.1:8790` は、`PERSISTENCE=dynamodb` 専用（DynamoDB のデータに対して、取り込み元の接続とデモの設備のパスを一括で設定する）。`PERSISTENCE=file` のローカルでは、上の 3・4 を画面で行う
+- 開発用 API（時計・連携・通知のモックの停止・ジョブの起動・リセット）は、既定で無効。`.env` に `DEV_API_ENABLED=true` を指定したときだけ有効（E2E の設定は、指定済み）。dev_spec.md 3.8
 
 ### 初期ユーザーでのログイン手順（ローカル）
 
@@ -397,4 +403,4 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 
 ## 外部サービス
 
-開発・テストに、外部サービスは不要（ファイルサーバー・農業情報基盤・Web Push は、ローカルのモック。dev_spec.md 3.5）。本番の接続先: ファイルサーバーは未確定（Q-002）。農業情報基盤は、NGSI-LD（`FEDERATION_MODE=ngsi-ld`。接続先は画面で設定。ADR-0024。手順は federation-platform-setup.md）。
+開発・テストに、外部サービスは不要（農業情報基盤・Web Push は、ローカルのモック。ファイルサーバーは、HTTP のテスト用サーバー・`pnpm dev:demo-feed`。dev_spec.md 3.5）。本番の接続先: ファイルサーバーは未確定（Q-002）。農業情報基盤は、NGSI-LD（`FEDERATION_MODE=ngsi-ld`。接続先は画面で設定。ADR-0024。手順は federation-platform-setup.md）。

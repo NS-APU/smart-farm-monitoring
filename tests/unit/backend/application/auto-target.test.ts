@@ -1,6 +1,6 @@
 /**
  * 自動取り込みの対象の判定（Issue #202。ADR-0016 の D-12）の単体テスト。
- * 設備は、取り込み元が有効で、種別が同じで、取得先がある（HTTP は、設備ごとのファイルパス。モック・S3 は、種別が合えば対象）とき、
+ * 設備は、取り込み元が有効で、種別が同じで、取得先がある（設備ごとのファイルパスを持つ。ファイルサーバーは HTTP。ADR-0023）とき、
  * 自動取り込みの対象。対象でない設備（手動のみの運用）は、「古い」「未取得」の警告を出さない。
  */
 
@@ -16,49 +16,60 @@ const HTTP: IngestionSource['connection'] = {
   apiKeyHeaderName: 'X-API-Key',
 };
 
+const ROBOT_WITH_PATH = { equipmentType: 'ROBOT', sourceFilePath: '/robots/1.json' } as const;
+
 function source(overrides: Partial<IngestionSource> = {}): IngestionSource {
   return {
     sourceId: 'robot',
     kind: 'ROBOT',
     profileId: 'robot-json',
     connectionRef: 'FILE_SERVER_MOCK',
-    connection: { type: 'MOCK' },
+    connection: HTTP,
     isEnabled: true,
     ...overrides,
   };
 }
 
 describe('自動取り込みの対象', () => {
-  it('取り込み元が有効で、種別が同じなら、対象（モック・S3 は、ファイルパスがなくても対象）', () => {
-    expect(isAutoIngestionTarget({ equipmentType: 'ROBOT' }, [source()])).toBe(true);
+  it('取り込み元が有効で、種別が同じで、設備にファイルパスがあれば、対象', () => {
+    expect(isAutoIngestionTarget(ROBOT_WITH_PATH, [source()])).toBe(true);
   });
 
-  it('取り込み元が無効なら、対象でない', () => {
-    expect(isAutoIngestionTarget({ equipmentType: 'ROBOT' }, [source({ isEnabled: false })])).toBe(
-      false,
-    );
+  it('取り込み元が無効なら、ファイルパスがあっても、対象でない', () => {
+    expect(isAutoIngestionTarget(ROBOT_WITH_PATH, [source({ isEnabled: false })])).toBe(false);
   });
 
   it('種別が違う取り込み元だけなら、対象でない', () => {
     expect(
-      isAutoIngestionTarget({ equipmentType: 'SENSOR' }, [
+      isAutoIngestionTarget({ equipmentType: 'SENSOR', sourceFilePath: '/sensors/1.json' }, [
         source(),
         source({ isEnabled: false, sourceId: 'environment-sensor', kind: 'SENSOR' }),
       ]),
     ).toBe(false);
   });
 
-  it('HTTP は、設備ごとのファイルパスがあれば対象。なければ、取り込み元が有効でも、対象でない（取得されない）', () => {
-    const http = source({ connection: HTTP });
+  it('設備にファイルパスがなければ、取り込み元が有効で、種別が同じでも、対象でない（取得されない）', () => {
+    expect(isAutoIngestionTarget({ equipmentType: 'ROBOT' }, [source()])).toBe(false);
+  });
 
-    expect(
-      isAutoIngestionTarget({ equipmentType: 'ROBOT', sourceFilePath: '/robots/1.json' }, [http]),
-    ).toBe(true);
-    expect(isAutoIngestionTarget({ equipmentType: 'ROBOT' }, [http])).toBe(false);
+  it('接続が未設定の取り込み元でも、有効で、種別が同じで、設備にファイルパスがあれば、対象（接続の設定は、判定に使わない）', () => {
+    const unconfigured: IngestionSource = {
+      sourceId: 'robot',
+      kind: 'ROBOT',
+      profileId: 'robot-json',
+      connectionRef: 'FILE_SERVER_MOCK',
+      isEnabled: true,
+    };
+
+    expect(isAutoIngestionTarget(ROBOT_WITH_PATH, [unconfigured])).toBe(true);
   });
 
   it('ハウスは、対象でない（取り込み元の種別に、ハウスはない）。取り込み元がなければ、対象でない', () => {
-    expect(isAutoIngestionTarget({ equipmentType: 'FACILITY' }, [source()])).toBe(false);
-    expect(isAutoIngestionTarget({ equipmentType: 'ROBOT' }, [])).toBe(false);
+    expect(
+      isAutoIngestionTarget({ equipmentType: 'FACILITY', sourceFilePath: '/houses/1.json' }, [
+        source(),
+      ]),
+    ).toBe(false);
+    expect(isAutoIngestionTarget(ROBOT_WITH_PATH, [])).toBe(false);
   });
 });

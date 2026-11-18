@@ -115,7 +115,7 @@ async function credentialsOf(context: TestContext, sourceId = 'robot') {
 }
 
 describe('状態（設定済み／未設定）', () => {
-  it('モック・認証なしは、認証情報が不要（NOT_REQUIRED）', async () => {
+  it('接続が未設定・認証なしは、認証情報が不要（NOT_REQUIRED）', async () => {
     const { context } = await setup();
 
     expect(await credentialsOf(context)).toEqual({ state: 'NOT_REQUIRED' });
@@ -291,9 +291,9 @@ describe('入力の検証', () => {
     expect(await context.container.secrets.get('file-server/robot')).toBeUndefined();
   });
 
-  it('認証が不要な設定（モック・認証なし）には、登録できない', async () => {
+  it('認証が不要な設定（接続が未設定・認証なし）には、登録できない', async () => {
     const { context } = await setup();
-    const mock = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const unset = await send(context, 'PUT', '/ingestion/robot/credentials', {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
@@ -303,7 +303,7 @@ describe('入力の検証', () => {
       token: DUMMY_TOKEN,
     });
 
-    expect(mock.status).toBe(400);
+    expect(unset.status).toBe(400);
     expect(none.status).toBe(400);
     expect(await context.container.secrets.get('file-server/robot')).toBeUndefined();
   });

@@ -13,6 +13,7 @@ import {
   TEST_USER,
   THREE_ROLES_JSON,
   withEquipment,
+  withSourceFilePaths,
 } from '../support/test-context.ts';
 
 describe('セキュリティヘッダー（V-015）', () => {
@@ -184,6 +185,7 @@ describe('データの新しさ（V-024）', () => {
 
   it('手動入力だけがある場合は、データを受信していない（NONE）。自動取り込みの観測値があれば、新しさを判定する', async () => {
     const context = await withEquipment();
+    await withSourceFilePaths(context);
     const received = context.clock.now().toISOString();
     await context.container.repositories.observations.saveMany([
       observation({
@@ -224,6 +226,7 @@ describe('データの新しさ（V-024）', () => {
 
   it('削除済みの観測値は、データの新しさに数えない', async () => {
     const context = await withEquipment();
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       observation({
         equipmentId: ROBOT_ID,

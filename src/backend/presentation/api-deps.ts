@@ -39,7 +39,6 @@ import type { MockFederation } from '../infrastructure/local/mock-federation.ts'
 export interface DevApiDeps {
   readonly clock: ControllableClock;
   readonly faults: {
-    readonly fileServer: FaultController;
     readonly federation: FaultController;
     readonly webPush: FaultController;
   };

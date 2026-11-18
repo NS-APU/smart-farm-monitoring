@@ -35,6 +35,7 @@ export const FILE_SOURCE_FAILURE_REASONS = {
   ADDRESS_BLOCKED: '内部のアドレスには接続できません',
   TOO_LARGE: 'ファイルが大きすぎます',
   NO_FILE_PATH: 'ファイルパスが設定された設備がありません',
+  NOT_CONFIGURED: '接続先が設定されていません',
 } as const;
 export type FileSourceFailureReason = keyof typeof FILE_SOURCE_FAILURE_REASONS;
 
@@ -51,9 +52,9 @@ export class FileSourceFailure extends FileSourceUnavailableError {
 /** ファイルの一覧の取得の指定（Issue #197）。 */
 export interface ListFilesOptions {
   /**
-   * 取得するファイルのパス（設備ごとのファイル。接続方式 HTTP）。指定すると、そのパスのファイルだけを問い合わせる
+   * 取得するファイルのパス（設備ごとのファイル）。指定すると、そのパスのファイルだけを問い合わせる
    * （設備ごとの取得間隔で、間隔が来た設備のファイルだけを取り込むため）。空は、何も問い合わせない。
-   * 未指定は、すべて。モック・S3（1 つのファイルに複数の設備が入る）は、使わない。
+   * 未指定は、すべて。
    */
   readonly paths?: readonly string[] | undefined;
 }

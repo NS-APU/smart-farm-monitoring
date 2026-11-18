@@ -48,7 +48,7 @@
 
 **実装で変わった点・実装されていない点**
 
-- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 宇都宮大学のファイルサーバーへの接続（HTTP のアダプタは、#119 で実装済み。接続先・認証情報は #298）・実農業情報基盤（Secrets は、パラメータストア版が実装済み。#206。**実 Web Push 配信も、実装済み**〔#241。`WEB_PUSH_DELIVERY=vapid`。開発サイトで、実機への配信を確認済み〕。評価環境のファイルサーバーは、モック。**農業情報基盤は、NGSI-LD のアダプタ**〔#177。ADR-0024。`FEDERATION_MODE=ngsi-ld`。IaC で設定。接続先を画面で設定するまでは、連携は保留。ローカル・テストは、モック〕）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
+- **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 宇都宮大学のファイルサーバーへの接続（HTTP のアダプタは、#119 で実装済み。接続先・認証情報は #298）・実農業情報基盤（Secrets は、パラメータストア版が実装済み。#206。**実 Web Push 配信も、実装済み**〔#241。`WEB_PUSH_DELIVERY=vapid`。開発サイトで、実機への配信を確認済み〕。評価環境のファイルサーバーは、デモ用の HTTP 配信（ADR-0025）。**農業情報基盤は、NGSI-LD のアダプタ**〔#177。ADR-0024。`FEDERATION_MODE=ngsi-ld`。IaC で設定。接続先を画面で設定するまでは、連携は保留。ローカル・テストは、モック〕）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
 - 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
@@ -63,7 +63,7 @@
 | D-01 | DB | DynamoDB（architecture.md 13.1。ADR-0005） | **DynamoDB の Repository を実装**（`infrastructure/dynamodb/`。`PERSISTENCE=dynamodb`。ADR-0007。DynamoDB Local で契約テストを通し、AWS で確認済み）。ローカルは、`PERSISTENCE=memory\|file`（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション） | 実装済み（AWS で確認済み） |
 | D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito で確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | 実装済み（手元から AWS で確認済み） |
 | D-03 | ホスティング・ジョブ起動 | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章） | **Amplify は使わず**、IaC（`infra/`。AWS CDK）で、画面（S3 + CloudFront）・API の Lambda（`runtime/lambda.ts`。本番の組み立て。ADR-0009）・ジョブの Lambda と EventBridge の 4 つのルール（`runtime/job-lambda.ts`。ADR-0011）・データ（DynamoDB・Cognito）・合成データの生成の Lambda（ADR-0012）を作る（ADR-0006。Issue #71・#75・#76・#77）。デプロイは、GitHub Actions + OIDC（手動実行） | 実装済み（AWS で確認済み。画面のホスティングは、Amplify ではなく S3 + CloudFront） |
-| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリを見立てたモック（`mock-file-server.ts`。#344 の PR 3b で削除する）。S3 を見立てたモック（ADR-0012）は、#344 の PR 3a で削除した。**HTTP のアダプタ**（Issue #119。ADR-0023）がある: 取り込み元ごとの接続設定（`connection`。接続方式 MOCK／HTTP。ADR-0022。#172）と、設備ごとのファイルパス（`sourceFilePath`）で、**接続テスト・一覧（HEAD）・取得（GET。大きさの上限）**をする（`infrastructure/http/`: `http-client.ts`〔共通。内部のアドレスを拒否・リダイレクトに従わない〕・`http-probe.ts`・`http-file-reader.ts`）。`routing-file-source.ts` が、接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイル）。**宇都宮大学のサーバーとは、未接続**（接続先・認証情報・実ファイルの形式は、別の Issue。#298）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。認証情報は、`SecretPort`（`file-server/<取り込み元>`）から読む。値は、SC-11 から、管理者が書き込み専用で登録する（#207） | 一部（HTTP のアダプタは、汎用のサーバーで確認。宇都宮大学のサーバーへの接続は #298） |
+| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリ・S3 を見立てたモック（`mock-file-server.ts`・ADR-0012 の S3 版）は、#344 の PR 3a・3b で削除した（接続方式は HTTP の 1 つだけ。ADR-0025）。**HTTP のアダプタ**（Issue #119。ADR-0023）がある: 取り込み元ごとの接続設定（`connection`。HTTP。省略可で、未設定が既定。ADR-0022。#172）と、設備ごとのファイルパス（`sourceFilePath`）で、**接続テスト・一覧（HEAD）・取得（GET。大きさの上限）**をする（`infrastructure/http/`: `http-client.ts`〔共通。内部のアドレスを拒否・リダイレクトに従わない〕・`http-probe.ts`・`http-file-reader.ts`）。`routing-file-source.ts` が、取り込み元の接続設定と設備ごとのファイルパスで、HTTP のアダプタに振り分ける。接続が未設定の取り込み元は、接続テストが失敗し、一覧は、取得の対象の設備がなければ 0 件・あれば失敗（「接続先が設定されていません」）、取得は NOT_FOUND。**宇都宮大学のサーバーとは、未接続**（接続先・認証情報・実ファイルの形式は、別の Issue。#298）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。認証情報は、`SecretPort`（`file-server/<取り込み元>`）から読む。値は、SC-11 から、管理者が書き込み専用で登録する（#207） | 一部（HTTP のアダプタは、汎用のサーバーで確認。宇都宮大学のサーバーへの接続は #298） |
 | D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信は、`WEB_PUSH_DELIVERY=vapid` で、実配信（`web-push/web-push-notifier.ts`。送信は `library-sender.ts`〔`web-push` 3.6.7〕。秘密鍵は SecretPort）。既定の `dummy` は、ダミー（`dummy-web-push.ts`。記録のみ。ローカル・テスト）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は、購読の暗号鍵（p256dh・auth）も送る                                                                           | 実装済み（#241。実機の確認は、運用手順 8.6） |
 | D-06 | 農業情報基盤との連携       | 連携方式は、NGSI-LD（Orion-LD）の upsert（ADR-0024。architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）と、NGSI-LD のアダプタ（`http/ngsi-ld-federation.ts`。`FEDERATION_MODE=ngsi-ld`）                                                                                                                                                                         | 一部実装（#177 の PR 1。設備の連携・設定の画面は、PR 2・3）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
@@ -121,7 +121,7 @@
 
 処理の骨格は次のとおり。
 
-1. **取り込む**: ファイルサーバー（実装はモック）のロボットデータ（JSON）・環境センサーデータ（JSON）を、定期（または即時）に取り込む。取り込めないデータは、農作業者が手動で入力する
+1. **取り込む**: ファイルサーバー（実装は HTTP のアダプタ。評価環境は、デモ用の HTTP 配信）のロボットデータ（JSON）・環境センサーデータ（JSON）を、定期（または即時）に取り込む。取り込めないデータは、農作業者が手動で入力する
 2. **評価する**: 観測値を、10 の観点・短期と長期の視点で集計し、判断基準（上限型・下限型・範囲型の閾値）で「正常・注意・異常・不明」を判定する。診断メッセージと推奨アクションを付ける
 3. **見せる・知らせる**: ダッシュボード・観点の詳細・推移・満足度のレーダーチャートで示す。「注意」「異常」への変化を通知する（画面内＋ Web Push）
 4. **連携する**: 取り込んだデータ・手動入力・評価結果を、連携キューに積み、農業情報基盤へ非同期に送る（NGSI-LD のアダプタ。ローカル・テストは、モック）
@@ -133,7 +133,7 @@
 | 管理者       | ロール `admin`。全 10 権限を持つ（全設備を閲覧する `equipment:view-all` を含む）（ADR-0013。最初のユーザー〔`pnpm initial-user`〕のロール）。ロール・権限は、設定（`ROLE_DEFINITIONS_JSON`）で変えられる |
 | 一般         | ロール `general`。手動入力（`manual-entry:write`）と、ログインしていれば使える操作（参照・既読・Web Push の購読・自身のユーザー名の編集・パスワードの変更）ができる。取り込みの設定・全体のログ・連携のログは、管理者のみ（`ingestion:read`）。閲覧できるハウスの割り当て（#330）・通知（#331）・取り込み・連携のハウス別の記録（#332）は、割り当てたハウスの分だけ。E2E のサーバーは、`admin`・`general` に、参照のみの確認用の `viewer`（`ingestion:read` のみ）を加えて起動する |
 | システム     | スケジューラ（`Scheduler`）と、取り込み・評価・連携・通知の配信のジョブ（JB-01〜JB-04）                                                                                                                  |
-| 外部システム | ファイルサーバー（ロボットデータ・環境センサーデータ。実装はモック）、農業情報基盤（連携先。NGSI-LD のアダプタ。ローカル・テストは、モック）                                                                                               |
+| 外部システム | ファイルサーバー（ロボットデータ・環境センサーデータ。実装は HTTP のアダプタ。評価環境は、デモ用の HTTP 配信）、農業情報基盤（連携先。NGSI-LD のアダプタ。ローカル・テストは、モック）                                                                                               |
 
 ## 主な機能
 
@@ -188,7 +188,7 @@
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
 | 閲覧の割り当て                 | `GET /facility-access`・`PUT /facility-access/:facilityId`                                                                          | `user:manage`                         |
 | ヘルスチェック                 | `GET /health`（`/api/v1` の外）                                                                                                     | 認証なし。外部の状態に依存しない      |
-| 開発用（ローカル・テストのみ） | `/api/v1/dev/*`（時計・ジョブ・スケジューラ・モックの停止と遅延・データのリセットと投入）                                           | 要ログインのみ（権限なし。課題 I-01） |
+| 開発用（ローカル・テストのみ） | `/api/v1/dev/*`（時計・ジョブ・スケジューラ・農業情報基盤・Web Push のモックの停止と遅延・データのリセットと投入）                                           | 要ログインのみ（権限なし。課題 I-01） |
 
 共通の作りは次のとおり（`presentation/`）。
 
@@ -212,7 +212,7 @@
 **Lambda での実行（Issue #76。ADR-0011）**: ジョブ専用の Lambda（`runtime/job-lambda.ts`。1 つ）を、EventBridge の 4 つのルール（`DEFAULT_SCHEDULE` と同じ間隔: JB-01 は 1 分・JB-02 は 5 分・JB-03 は 5 分・JB-04 は 1 分）が、入力 `{ "jobId": "JB-01" }` で起動する。実行の前に、DynamoDB のリース式ロック（`Main` の `JOBLOCK` / `job:{jobId}`。期限 360 秒）を取り、取れなければ、何もせずに終わる（`SKIPPED`）。失敗は例外を投げ、再試行はしない（次の周期で、再び実行される）。ローカルのスケジューラは、変えていない（ロックは、メモリの実装）。
 
 
-**デモ用の HTTP ファイル配信（Issue #344。ADR-0025）**: 上とは別に、専用の Lambda（`runtime/demo-feed-http-lambda.ts`）に、認証なしの Function URL を付け（開発サイトだけ）、`GET`・`HEAD` で、取り込み元ごとのファイル（`/robot/latest.json`・`/environment-sensor/latest.json`）を、**リクエストごとに**、現在の時刻から作って返す（`Last-Modified` は、現在の区間の開始。保管しない）。権限・環境変数は持たない（S3・DynamoDB・Cognito・秘密情報を使わない）。`pnpm demo-data use-http-feed` が、取り込み元の接続を HTTP にし、デモの設備に `sourceFilePath` を設定する（`seed` の設備は、ファイルパスを持たない）。（以前の、S3 に置く方式〔ADR-0012〕は、#344 の PR 3a で削除した。ディレクトリのモックは、PR 3b で削除する。）出力 `DemoFeedUrl`。
+**デモ用の HTTP ファイル配信（Issue #344。ADR-0025）**: 上とは別に、専用の Lambda（`runtime/demo-feed-http-lambda.ts`）に、認証なしの Function URL を付け（開発サイトだけ）、`GET`・`HEAD` で、取り込み元ごとのファイル（`/robot/latest.json`・`/environment-sensor/latest.json`）を、**リクエストごとに**、現在の時刻から作って返す（`Last-Modified` は、現在の区間の開始。保管しない）。権限・環境変数は持たない（S3・DynamoDB・Cognito・秘密情報を使わない）。`pnpm demo-data use-http-feed` が、取り込み元の接続を HTTP にし、デモの設備に `sourceFilePath` を設定する（`seed` の設備は、ファイルパスを持たない）。（以前の、S3 に置く方式〔ADR-0012〕は、#344 の PR 3a で削除した。ディレクトリのモックは、PR 3b で削除した。）ローカルでは、`pnpm dev:demo-feed`（`runtime/demo-feed-server.ts`・`demo-feed-main.ts`）が、同じハンドラを、127.0.0.1 の HTTP サーバー（既定ポート 8790。`--port`・環境変数 `DEMO_FEED_PORT`）から返す。出力 `DemoFeedUrl`。
 
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
 
@@ -257,8 +257,8 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 
 - ブラウザで `http://127.0.0.1:5173` を開き、`.env` の `INITIAL_USER_ID`・`INITIAL_USER_PASSWORD` でログインする。初期ユーザーは、ユーザーが 1 人もいないときだけ作られる（`ensureInitialUser`）
 - バックエンドの起動処理は、`runtime/main.ts` → `startNodeServer`（`parseConfig` → `createContainer` → `initialize` → `createApp` → `serve`）。`SCHEDULER_ENABLED=true` なら、`SCHEDULER_TICK_SECONDS` ごとに `scheduler.tick()` を呼ぶ。終了時（SIGINT・SIGTERM）は、未保存のデータをファイルへ書き出す
-- データは、`PERSISTENCE=file` なら `.local-data/store.json`（書き込みは、一時ファイルに書いてから置き換える）、`memory` なら保持しない。ファイルサーバーのモックは、`FILE_SERVER_DIR/<取り込み元>/` のファイル
-- 取り込みを試すには、`FILE_SERVER_DIR/robot/` と `FILE_SERVER_DIR/environment-sensor/` に、`tests/fixtures/file-server/` を参考にした合成データのファイルを置き、画面の「即時取得」（SC-11）を押す
+- データは、`PERSISTENCE=file` なら `.local-data/store.json`（書き込みは、一時ファイルに書いてから置き換える）、`memory` なら保持しない。ファイルサーバーは、ローカルでは、`pnpm dev:demo-feed`（デモ用の HTTP 配信）を使う
+- 取り込みを試すには、`pnpm dev:demo-feed`（合成データの HTTP 配信。127.0.0.1。既定ポート 8790）を起動し、バックエンドを `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` で起動する。画面（SC-11）で取り込み元の接続を HTTP・127.0.0.1・ポート・認証なしにして保存し、設備（SC-10）にファイルのパス（`/robot/latest.json`・`/environment-sensor/latest.json`）を設定して、「即時取得」（SC-11）を押す（接続が未設定のままでは、取り込まない）
 
 ## 本番（AWS）との差
 
@@ -267,7 +267,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | データベース             | DynamoDB                                  | **実装済み**（`infrastructure/dynamodb/`。ADR-0007。DynamoDB Local で、契約テストを通した。AWS で確認済み（Lambda から。バックアップ・復元・全データの削除と再作成を含む））。IaC は `infra/lib/data-stack.ts`。ローカルは、メモリ＋ JSON ファイル |
 | 認証                     | Cognito                                   | **実装済み**（`infrastructure/cognito/`。ADR-0008。偽の Cognito で、契約テストを通した。AWS で確認済み（手元のバックエンドから、Lambda からも）。IaC は `SfmData`（ユーザープール・クライアント）。ローカルの既定は、アプリ内の認証（`createLocalAuth`） |
 | 実行                     | Lambda＋ EventBridge                      | API の Lambda（`createLambdaHandler`。`@hono/aws-lambda` の `handle`。ADR-0009）と、ジョブの Lambda（`createJobLambdaHandler`。EventBridge の 4 つのルールが起動する。Issue #76。ADR-0011） |
-| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | モック（ディレクトリ。評価環境の Lambda は、S3 を見立てたモック。ADR-0012）と、HTTP（設備ごとのファイルパスで、一覧・取得・接続テスト。ADR-0023。#119）。宇都宮大学のサーバーへの接続は、別の Issue（#298） |
+| ファイルサーバー         | 実サーバー（SFTP・S3・HTTPS など。Q-002） | HTTP（設備ごとのファイルパスで、一覧・取得・接続テスト。ADR-0023。#119）だけ。評価環境は、デモ用の HTTP 配信（ADR-0025）。ディレクトリ・S3 のモックは、廃止した。宇都宮大学のサーバーへの接続は、別の Issue（#298） |
 | 農業情報基盤             | 連携方式は、NGSI-LD（Orion-LD）の upsert（ADR-0024。認証なし）                 | モック（成功・停止・遅延・拒否を再現）。`FEDERATION_MODE=ngsi-ld` で、NGSI-LD のアダプタ（接続先が未設定のあいだは、保留）                                                                                              |
 | Web Push                 | 外部の配信サービス                        | `vapid`: プッシュサービスへ実際に送る（#241）。`dummy`（既定）: 配信の記録のみ。購読と受信のブラウザ側は実装済み                                                                          |
 | 秘密情報                 | シークレット管理サービス                  | `SecretPort`（非同期の `get`・`set`・`status`）の、パラメータストア版（SecureString。#206）と、メモリ・環境変数版がある。使う場所は、ファイルサーバーの認証情報の登録と接続テスト（#207）。HTTP の取得（#119）でも、認証のヘッダーの組み立てに使う。Web Push の VAPID の秘密鍵の読み出し（#241。`web-push/vapid-private-key`））                                                                      |
@@ -289,7 +289,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 | 農作業者                | 権限を持つロール（既定は、管理者 `admin`＝全 10 権限、一般 `general`＝手動入力のみ）でログインした利用者 |
 | 閲覧者                  | 権限なしのロール（例: E2E の `viewer`）でログインした利用者。コード上は固定のロールではない |
 | （システム）            | `Scheduler` と `JobRunner`（JB-01〜JB-04）                                                  |
-| ファイルサーバー        | `FileSourcePort` の先。取り込み（UC-08・UC-09）で読み取られる（実装はモック）               |
+| ファイルサーバー        | `FileSourcePort` の先。取り込み（UC-08・UC-09）で読み取られる（実装は HTTP のアダプタ）               |
 | 農業情報基盤            | `FederationPort` の先。連携（UC-11）で書き込まれる（実装はモック）                          |
 
 ## ユースケース図 1: ログイン済みの利用者（要ログインのみで使える）
@@ -376,7 +376,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   sys(["システム<br>Scheduler と JobRunner"])
-  fs(["ファイルサーバー<br>モック"])
+  fs(["ファイルサーバー<br>HTTP"])
   fed(["農業情報基盤<br>モック"])
   push(["Web Push の配信先<br>ダミー"])
   worker(["農作業者"])
@@ -814,7 +814,7 @@ classDiagram
   FederationItem "0..*" --> "0..*" FederationLogEntry : 送信の結果を記録
 ```
 
-- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `MOCK`／`HTTP`、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。保存がなければ `MOCK`。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）
+- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `HTTP` の 1 つだけ、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。省略可で、保存がなければ未設定。保存済みの `MOCK` は、読み込むときに未設定に読み替える。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）
 - **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID`（ファイルごとに、最新の版の 1 件を上書き。#201）。形式違いのファイルは `FAILURE` で記録する
 - **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
@@ -1006,7 +1006,7 @@ flowchart LR
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
-| `FileSourcePort`                           | `ports/file-source-port.ts`     | `local/mock-file-server.ts`（ディレクトリのモック。停止・遅延を再現）（S3 のモックは、#344 の PR 3a で削除した。ADR-0025）。取り込み元の接続方式で、`application/ingestion/routing-file-source.ts` が振り分ける。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
+| `FileSourcePort`                           | `ports/file-source-port.ts`     | HTTP のアダプタだけ（ディレクトリ・S3 のモックは、#344 の PR 3a・3b で削除した。ADR-0025）。`application/ingestion/routing-file-source.ts` が、取り込み元の接続設定（未設定を含む）と設備ごとのファイルパスで扱う。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON の FormatProfile。CSV は #174 で削除）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | `http/ngsi-ld-federation.ts`（NGSI-LD の upsert。`FEDERATION_MODE=ngsi-ld`。ADR-0024）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `web-push/web-push-notifier.ts`（実配信。#241。結果: 2xx 配信・404/410 購読が無効・それ以外 失敗）、`local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
@@ -1025,7 +1025,7 @@ flowchart LR
   NODE["Node サーバー 127.0.0.1:8787<br>serve と Hono アプリ<br>runtime/main.ts"]
   CT["Container<br>コンポジションルート"]
   REPO["LocalRepositories<br>メモリと store.json"]
-  FS["ファイルサーバーのモック<br>FILE_SERVER_DIR 配下（Lambda は S3）"]
+  FS["ファイルサーバー（HTTP）<br>ローカルは dev:demo-feed・テストはテスト用サーバー"]
   FD["農業情報基盤のモック"]
   WP["Web Push のダミー"]
   CK["操作できる時計"]
@@ -1164,7 +1164,8 @@ flowchart LR
 | `DYNAMODB_ENDPOINT`・`AWS_REGION`                               | なし                      | DynamoDB の接続先（DynamoDB Local など。ローカルの確認用。指定すると、起動時にテーブルを作り、ダミーの認証情報を使う。AWS では指定しない）、リージョン（Lambda では実行環境が設定）。`PERSISTENCE=dynamodb` では、`DEV_API_ENABLED` は使えない |
 | `AUTH_PROVIDER`                                                 | `local`                   | `local`（アプリ内の認証）／`cognito`（Amazon Cognito。ADR-0008）。`cognito` は、`COGNITO_USER_POOL_ID`・`COGNITO_CLIENT_ID` が必須で、`PERSISTENCE=dynamodb` が必要。`INITIAL_USER_*` とは併用できない（最初のユーザーは、`pnpm initial-user` で作る） |
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
-| `FILE_SERVER_DIR`                                               | `.local-data/file-server` | ファイルサーバーのモックのルート（`<ルート>/<取り込み元>/`）                                                                                    |
+| `HTTP_FILE_SOURCE_ALLOW_PRIVATE`                                | `false`                   | `true` のとき、取り込み元の接続先に、内部のアドレス（127.0.0.1 など）を許す。ローカル・テストの確認用（`pnpm dev:demo-feed` など）。`APP_MODE=production` では、無効（ADR-0022）  |
+| `DEMO_FEED_PORT`                                                | `8790`                    | `pnpm dev:demo-feed`（バックエンドではなく、デモ用の配信のコマンド）のポート。`--port` でも指定できる（0〜65535）                               |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
 | `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123。ADR-0014） |
@@ -2019,7 +2020,7 @@ stateDiagram-v2
   Discovered --> Imported : 解釈と保存に成功
 ```
 
-- **取り込みログは、設備ごと**（#201。ADR-0016 の D-48）: 新しいデータがあった設備・ファイルを取り込めなかった設備ごとに、1 件（`equipmentId` を持つ）。**空振り（新しいデータがない成功）は、残さない**。設備に結びつかない結果（接続の失敗・一覧の取得の失敗・想定外の例外・どの設備にも結びつかない記録やファイルの失敗）は、取り込み元単位で 1 件（`equipmentId` なし。以前のログも同じ）。ファイルが 1 つの設備のもの（設備の `sourceFilePath`。HTTP）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備のログにする。1 つのファイルに複数の設備が入る場合（モック・S3）は、設備ごとの記録の数をそれぞれのログにし、取り込めなかった記録・ファイルは、取り込み元単位のログ（一部成功／失敗）にする。
+- **取り込みログは、設備ごと**（#201。ADR-0016 の D-48）: 新しいデータがあった設備・ファイルを取り込めなかった設備ごとに、1 件（`equipmentId` を持つ）。**空振り（新しいデータがない成功）は、残さない**。設備に結びつかない結果（接続の失敗・一覧の取得の失敗・想定外の例外・どの設備にも結びつかない記録やファイルの失敗）は、取り込み元単位で 1 件（`equipmentId` なし。以前のログも同じ）。ファイルが 1 つの設備のもの（設備の `sourceFilePath`）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備のログにする。1 つのファイルに複数の設備の記録が入る場合は、設備ごとの記録の数をそれぞれのログにし、取り込めなかった記録・ファイルは、取り込み元単位のログ（一部成功／失敗）にする。
 - **取り込みログの取得**（`GET /ingestion/logs`。#201 の PR 3）: 新しい順（並べ替えなし）。絞り込み: 取り込み元（`sourceId`）、設備（`equipmentId`。その設備のログと、その設備の取り込み元の、設備に結びつかないログ。取り込み元は、設備の種別と同じ種別の取り込み元から決める。登録のない設備は、その設備のログだけ）、結果（`SUCCESS`／`FAILURE`。失敗は一部成功を含む）、期間（`from`・`to`。開始日時。両端を含む）。DynamoDB は、設備を指定すると、設備と取り込み元の 2 つのパーティションだけを読み、期間はソートキーの範囲、結果はアプリ側の条件で絞る。画面（SC-11）は、設備・結果・期間（日本時間の日付）の絞り込みを URL（`equipment`・`result`・`from`・`to`）に反映し、1 ページ 20 件。取り込み設定・状況の応答（`GET /ingestion/settings`）は、取り込み元ごとに、その種別の設備ごとの最終の実行（`equipment`: 設備・日時・結果・最後の成功・最後にデータが取れた日時）を含む
 - 取り込みログは、ハウスごとの内訳（`facilities`。ハウスごとの結果と件数）を持つ。設備ごとのログは、その設備のハウス 1 つ。設備に結びつかないログは、取り込めなかったファイルの設備（`sourceFilePath` が同じ）のハウスだけ。接続の失敗・設備に結びつかないファイルの失敗は、持たない。DynamoDB は、ハウス別の記録（`ILOGF#{ハウス}`）も書く。一般ユーザーは、`GET /ingestion/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
 
@@ -2356,7 +2357,7 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 **再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。
 
-**取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。接続方式 HTTP は、間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。モック・S3 は、設備のどれかの間隔が来たら、ファイル全体（最短の間隔で動く）。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
+**取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 
 **対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。ただし、**削除した設備の識別子**（設備の記録が残っている削除済みの設備と、削除のときに設定 `equipment.deletedExternalIds` に残した識別子。登録中の設備にある識別子は除く）の記録は、「削除済みの設備」として別に数え（`deletedEquipmentCount`）、保存せず、拒否にも数えない（#231。ADR-0018 の D-28）。取り込みの結果と、取り込み元単位のログ（`IngestionLog.deletedEquipmentCount`。削除済みの設備のレコードだけの実行は、ログを残さない）に持つ。
 
@@ -2521,7 +2522,7 @@ for 区間:
 | ページ分割             | カーソルは、オフセットを base64url にした不透明な文字列。`limit + offset` の位置から続きを返し、続きがあれば `nextCursor`。不正なカーソルは `VALIDATION_ERROR` | `local/repositories/collection-helpers.ts`（`paginated`） |
 | 並べ替えの安定化       | 同じ値のときは、計測日時 → 一意キーの順で並べ、ページ分割の結果を安定させる                                                                                    | `compareObservations` ほか                         |
 | 取得間隔の「古い」判定（設備ごと。#198） | 設備（ハウスなら配下のロボット・センサー）ごとに、`max(設備の取得間隔 × STALE_AFTER_INTERVALS（3）, 3 分)`（既定 ロボット 3 分・センサー 15 分）を超えて、最終の受信から経った設備が 1 つでもあれば `STALE`（`staleEquipment` に、その設備を返す）、データのある設備がなければ `NONE`            | `dashboard-query.ts`                               |
-| 手動のみの運用（#202） | 選んだ設備（ハウスなら配下のロボット・センサー）に、自動取り込みの対象（同じ種別の取り込み元が有効で、取得先がある。HTTP は `sourceFilePath`。モック・S3 は種別が合えば対象。`isAutoIngestionTarget`）が 1 つもなければ `MANUAL`（警告しない。`lastManualInputAt` に、最終の手動入力〔論理削除を除く受信日時の最大。`receivedAtByEquipment` の `manualOnly`〕を返す）。「データ取得停止」の通知も、対象でない設備は対象にしない | `dashboard-query.ts`・`auto-target.ts` |
+| 手動のみの運用（#202） | 選んだ設備（ハウスなら配下のロボット・センサー）に、自動取り込みの対象（同じ種別の取り込み元が有効で、取得先がある（`sourceFilePath`）。`isAutoIngestionTarget`）が 1 つもなければ `MANUAL`（警告しない。`lastManualInputAt` に、最終の手動入力〔論理削除を除く受信日時の最大。`receivedAtByEquipment` の `manualOnly`〕を返す）。「データ取得停止」の通知も、対象でない設備は対象にしない | `dashboard-query.ts`・`auto-target.ts` |
 | パスワードのハッシュ   | `scrypt`（ソルト 16 バイト、鍵 64 バイト）。形式 `scrypt$<salt>$<hash>`。比較は `timingSafeEqual`                                                              | `password-hasher.ts`                               |
 | ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、窓（既定 15 分。`LOGIN_FAILURE_WINDOW_MINUTES`）の中で、上限（既定 5 回。`LOGIN_FAILURE_LIMIT`）に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
 | 評価の単位             | ハウス＝ハウスと配下の観測値をまとめて評価。ロボット・センサー＝その設備のみ                                                                                   | `scope.ts`                                         |
@@ -2541,7 +2542,7 @@ for 区間:
 | 単体テスト（shared）   | `tests/unit/shared/`（12 ファイル）                                                                               | Vitest `node` プロジェクト | 定数・スキーマ・検証・判断基準の表示用変換。外部依存なし                                                                                                                                           |
 | 単体テスト（backend）  | `tests/unit/backend/{domain,application,presentation,infrastructure,runtime}/`（41 ファイル）                                 | Vitest `node`              | 評価エンジン・品質判定・通知の規則・認可の方針・アダプタ（時計・認証・モック・FormatProfile・ログ）・設定・組み立て・Node サーバー・Lambda ハンドラ。外部はスタブ・一時ディレクトリ                |
 | 単体テスト（frontend） | `tests/unit/frontend/`（30 ファイル）                                                                            | Vitest `frontend`（jsdom） | 画面・API クライアント・ルーター・ポーリング・グラフ・Web Push。API は `fetch` のスタブ                                                                                                            |
-| 結合テスト             | `tests/integration/`（52 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・一時ディレクトリのファイルサーバー）                                         |
+| 結合テスト             | `tests/integration/`（52 ファイル）                                                                               | Vitest `node`              | Hono アプリを `app.request` で呼ぶ。サービス＋ローカルのアダプタ（メモリのデータ・モックの外部サービス・固定した時計・HTTP のテスト用ファイルサーバー）                                         |
 | 単体テスト（IaC）      | `infra/test/`（6 ファイル）                                                                                      | Vitest `infra` プロジェクト | CDK のスタックの組み立て（`Template` のアサーション）・IaC の設定の読み取り（Issue #71 以降）。AWS には接続しない |
 | E2E テスト             | `tests/e2e/`（`UC-01`〜`UC-24` の 25 ファイル〔UC-15 が 2 ファイル〕＋ `scenario-*.ts` の 7 ファイル。補助は `support/` の 9 ファイル） | Playwright（chromium）     | ブラウザ＋ Vite ＋ Node サーバー（`APP_MODE=test`・メモリのデータ・モックの外部サービス）                                                                                                          |
 | 合成データ             | `tests/fixtures/file-server/`（`robot/` に JSON 3 つ、`environment-sensor/` に JSON 3 つ）                        | -                          | 正常・一部不正（`-002-partial`・`-002-invalid`）・壊れたファイル（`-003-broken`・`-003-bad-structure`）。設備の識別子は `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`                                         |
@@ -2588,15 +2589,15 @@ flowchart LR
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | 操作できる時計          | 固定・進行・実時間（`ControllableClock`）。固定中の `sleep` は待たずに時刻を進める。結合テストは `TEST_NOW = 2026-10-09T03:00:00Z`（日本時間 12:00）で固定。E2E のサーバーの時計は、開発用 API（`PUT /dev/clock`）で固定し、ブラウザの時計は `page.clock.setFixedTime` で合わせる | `infrastructure/local/clocks.ts`・`tests/support/test-context.ts`・`tests/e2e/support/app.ts` |
 | 識別子の連番            | `createSequentialIdGenerator('test')`。ログ・並べ替えで順序が読み取れる                                                                                                                                                                                                           | `infrastructure/local/ids.ts`                                                                 |
-| 開発用 API              | `/api/v1/dev/*`: データのリセット（`NONE`・`DEMO`・`EQUIPMENT`）、観測値の投入（`/dev/observations`。個別と系列、`evaluate` で評価の更新）、時計の操作、ジョブとスケジューラの起動、モックの停止・遅延・拒否の切り替え、モックの記録の参照                                        | `presentation/dev-routes.ts`（結合テスト `dev-seed.test.ts` で検証）                          |
-| モックの外部サービス    | ファイルサーバー（ディレクトリ）・農業情報基盤・Web Push のダミー。`FaultController` で `UP`・`DOWN`・`SLOW`・`REJECT` を切り替え、受け取り・配信を記録する                                                                                                                       | `infrastructure/local/mock-*.ts`・`dummy-web-push.ts`・`faults.ts`                            |
+| 開発用 API              | `/api/v1/dev/*`: データのリセット（`NONE`・`DEMO`・`EQUIPMENT`）、観測値の投入（`/dev/observations`。個別と系列、`evaluate` で評価の更新）、時計の操作、ジョブとスケジューラの起動、モック（農業情報基盤・Web Push）の停止・遅延・拒否の切り替え、モックの記録の参照                                        | `presentation/dev-routes.ts`（結合テスト `dev-seed.test.ts` で検証）                          |
+| モックの外部サービス    | 農業情報基盤・Web Push のダミー（ファイルサーバーは、HTTP のテスト用サーバー〔`tests/support/http-file-server.ts`〕。停止・遅延・拒否は、同じ `FaultController`）。`FaultController` で `UP`・`DOWN`・`SLOW`・`REJECT` を切り替え、受け取り・配信を記録する                                                                                                                       | `infrastructure/local/mock-*.ts`・`dummy-web-push.ts`・`faults.ts`                            |
 | 合成データ              | 種つきの擬似乱数（`mulberry32`）で、ロボット・センサーの観測値を生成する。実データは使わない                                                                                                                                                                                      | `infrastructure/local/synthetic-data.ts`・`tests/fixtures/`                                   |
 | シードデータ            | `SEED_MODE=DEMO`: デモの設備（ハウス 1・収穫ロボット 1・環境センサー 1）と、3 日分の合成データ（温度の基準 26℃で「注意」になる）、手動入力、評価。`reset(EQUIPMENT)`: 設備のみ                                                                                                    | `runtime/container.ts`（`seedDemoData`）・`synthetic-data.ts`                                 |
 | ダミーの認証情報        | 結合テスト: `test-user`／`Dummy-Passw0rd-test`、E2E: `e2e-user`／`Dummy-Passw0rd-e2e`。いずれも、明らかにダミーとわかる値                                                                                                                                                         | `tests/support/test-context.ts`・`tests/e2e/support/e2e-user.ts`                              |
 | 画面の単体テストの補助  | `createFakeFetch(handler)`（呼び出しの記録つきの `fetch` のスタブ。`METHOD /path` → 応答）、`createMemorySession`、`management-frontend.ts` の `App` の描画（全権限・権限なしのログイン）                                                                                         | `tests/support/frontend.ts`・`management-frontend.ts`                                         |
 | Repository の契約テスト | `describe.each` で、メモリ・ファイル永続化・DynamoDB（DynamoDB Local）の 3 実装に、同じテスト（実装ごとに 39 件）を適用する。DynamoDB 固有の振る舞い（時刻の正規化・併合順・カウンター・読み取りの上限・再送）は、`tests/integration/dynamodb-adapter.test.ts`                                                                                                                                            | `tests/integration/repository-contract.test.ts`                                               |
 
-結合テストの組み立て（`createTestContext`）は、一時ディレクトリをファイルサーバーのモックのルートとし、`parseConfig`（`APP_MODE=test`・`PERSISTENCE=memory`）→ `createContainer`（固定した時計・連番の ID）→ `createApp` を作り、`login()`・`request()`・`placeFixture()`・`placeFile()` を提供する（モックのファイルサーバー。#344 の PR 3 で削除する）。取り込みのテストは、`withHttpFiles()`（`tests/support/http-test-files.ts`）で、HTTP のテスト用ファイルサーバー（`tests/support/http-file-server.ts`。テストのプロセスの中。127.0.0.1。`HEAD`・`GET`・`Last-Modified`・停止〔接続を切る〕・遅延・拒否・リクエストの記録）に、取り込み元の接続を向ける。`files.placeFile()`・`files.placeFixture()` は、ファイルを置き、その種別の設備の `sourceFilePath` を設定する（**1 設備 = 1 ファイル**。同じ設備に別の名前のファイルを置くとエラー）。停止・遅延は `files.faults`（ADR-0025）。
+結合テストの組み立て（`createTestContext`）は、`parseConfig`（`APP_MODE=test`・`PERSISTENCE=memory`）→ `createContainer`（固定した時計・連番の ID）→ `createApp` を作り、`login()`・`request()` を提供する（ディレクトリのモックのファイルサーバー〔`placeFixture()`・`placeFile()`〕は、#344 の PR 3b で削除した）。取り込みのテストは、`withHttpFiles()`（`tests/support/http-test-files.ts`）で、HTTP のテスト用ファイルサーバー（`tests/support/http-file-server.ts`。テストのプロセスの中。127.0.0.1。`HEAD`・`GET`・`Last-Modified`・停止〔接続を切る〕・遅延・拒否・リクエストの記録）に、取り込み元の接続を向ける。`files.placeFile()`・`files.placeFixture()` は、ファイルを置き、その種別の設備の `sourceFilePath` を設定する（**1 設備 = 1 ファイル**。同じ設備に別の名前のファイルを置くとエラー）。停止・遅延は `files.faults`（ADR-0025）。
 
 ## E2E（Playwright）の構成
 
@@ -2606,8 +2607,8 @@ flowchart LR
   BR["chromium<br>1280x720<br>video と screenshot"]
   VITE["Vite 127.0.0.1:5173"]
   BE["Node サーバー 127.0.0.1:8787<br>APP_MODE test<br>PERSISTENCE memory<br>SEED_MODE NONE"]
-  FS["test-result/e2e-file-server<br>モックのファイルサーバー"]
-  DEV["開発用 API<br>reset 時計 ジョブ モック"]
+  FS["HTTP のテスト用ファイルサーバー<br>テストのプロセスの中"]
+  DEV["開発用 API<br>reset 時計 ジョブ 連携・通知のモック"]
   OUT["test-result/e2e<br>動画 画像 trace<br>test-result/playwright-report"]
 
   T --> BR
@@ -2626,7 +2627,7 @@ flowchart LR
 - `testDir: ./tests/e2e`、`testMatch: /(?:UC-\d{2}|scenario)-[a-z0-9-]+\.ts$/`（`support/` の補助は実行しない）。`fullyParallel: false`・`workers: 1`（バックエンドのデータを共有するため、順次実行。各テストの前に `POST /dev/reset`）
 - `use`: `video: { mode: 'on', size: 1280x720 }`、`screenshot: 'on'`、`trace: 'retain-on-failure'`、`locale: ja-JP`、`timezoneId: Asia/Tokyo`。プロジェクトは `chromium`（Desktop Chrome、viewport 1280×720）のみ
 - `outputDir: ./test-result/e2e`、レポータは `list` と `html`（`./test-result/playwright-report`、`open: never`）
-- `webServer` は 2 つ（`reuseExistingServer: false`）: バックエンド（`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`。`APP_MODE=test`・`PORT=8787`・`PERSISTENCE=memory`・`FILE_SERVER_DIR=test-result/e2e-file-server`・`SEED_MODE=NONE`・初期ユーザー・`LOG_LEVEL=warn`・`INGESTION_RETRY_BASE_DELAY_MS=10`・ロール定義 `worker`（全権限）と `viewer`（権限なし）・ダミーの `WEB_PUSH_PUBLIC_KEY`）、Vite（`node ../../node_modules/vite/bin/vite.js`。Windows のシェルで `pnpm` の解決に失敗することがあるため直接起動）。ポート 5173・8787 が空いている必要がある
+- `webServer` は 2 つ（`reuseExistingServer: false`）: バックエンド（`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`。`APP_MODE=test`・`PORT=8787`・`PERSISTENCE=memory`・`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`・`SEED_MODE=NONE`・初期ユーザー・`LOG_LEVEL=warn`・`INGESTION_RETRY_BASE_DELAY_MS=10`・ロール定義 `worker`（全権限）と `viewer`（権限なし）・ダミーの `WEB_PUSH_PUBLIC_KEY`）、Vite（`node ../../node_modules/vite/bin/vite.js`。Windows のシェルで `pnpm` の解決に失敗することがあるため直接起動）。ポート 5173・8787 が空いている必要がある
 
 ### ファイルの命名とシナリオ
 
@@ -2638,7 +2639,8 @@ flowchart LR
 
 | ファイル                                                  | 内容                                                                                                                                                                                                                                                                                                             |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app.ts`                                                  | API の呼び出し（`api`・`apiOk`。401 ならログインし直す）、`runJob`・`setMock`・`advanceMinutes`、`addUser`、ファイルサーバーのモックへの配置（`placeFile`・`placeFixture`・`robotJson`・`sensorCsv`）、`prepareApp`、`alignBrowserClock`、`newUserSession`、`openAs`、`goToMenu`、`unreadBadge`、`confirmDialog` |
+| `app.ts`                                                  | API の呼び出し（`api`・`apiOk`。401 ならログインし直す）、`runJob`・`setMock`・`advanceMinutes`、`addUser`、`robotJson`・`sensorJson`、`prepareApp`、`alignBrowserClock`、`newUserSession`、`openAs`、`goToMenu`、`unreadBadge`、`confirmDialog` |
+| `http-files.ts`                                           | HTTP のテスト用ファイルサーバー（`placeFile`・`placeFixture`・`setFileServerMode`・`fileServerRequests`。設備の `sourceFilePath` を設定し、取り込み元の接続をこのサーバーに向ける。ADR-0025） |
 | `viewpoint-scenarios.ts`                                  | 観点ごとのデータ（`harvestAccuracyData`・`environmentData` など。正常・注意・異常・不明の値と境界値）、`seed`（開発用 API で観測値を投入）、`prepare`（リセットと時計の固定）、`shot`・`expectCleanLayout`                                                                                                       |
 | `helpers.ts`・`e2e-user.ts`                               | 画面からのログイン、データのリセット、ダミーの利用者とロール定義                                                                                                                                                                                                                                                 |
 | `entry.ts`・`ingestion.ts`・`notifications.ts`・`push.ts` | 手動入力・取り込み・通知・Web Push の画面操作と API の確認                                                                                                                                                                                                                                                       |
@@ -2652,7 +2654,7 @@ flowchart LR
   - 見出し・バッジ・ボタン・タグなどの文字が、箱からあふれない（`scrollWidth` > `clientWidth` を検出）
   - 並んだ観点のカードの高さが揃っている（同じ行の上端が近いカードの高さの差が 2px 以内）
 - 画面の幅（1280px・768px・375px）での確認、長い値・最大長の値の表示の確認も、E2E で行う（`.speccheck/` のレポートに、見つけた不具合と修正が記録されている）
-- UI のない UC（UC-08〜UC-11・UC-24）は、ファイルサーバーのモックにファイルを置く・開発用 API でジョブと時計を操作する・モックを停止する、のいずれかで入口を作り、結果を画面（SC-05・SC-09・SC-11・SC-02）で確認する
+- UI のない UC（UC-08〜UC-11・UC-24）は、HTTP のテスト用ファイルサーバー（`support/http-files.ts`）にファイルを置く・開発用 API でジョブと時計を操作する・ファイルサーバー（`setFileServerMode`）や連携・通知のモックを停止する、のいずれかで入口を作り、結果を画面（SC-05・SC-09・SC-11・SC-02）で確認する
 
 ## UC とテストの対応
 
@@ -2666,7 +2668,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-04     | `UC-04-view-recommended-action.ts`                                | `viewpoint-queries`                                                                                          | `backend/domain/viewpoint-evaluation.test.ts`（診断メッセージと推奨アクション）                                                                  |
 | UC-05     | `UC-05-check-alert.ts`                                            | `evaluation-notification`（通知の一覧・既読）・`notification-read-all`（一括既読。#240）                      | `frontend/notifications-page.test.tsx`                                                                                                           |
 | UC-06・07 | `UC-06-record-recovery.ts`・`UC-07-input-missing-data.ts`         | `management-api`（手動入力の登録）                                                                           | `shared/manual-entry.test.ts`・`frontend/entry-pages.test.tsx`                                                                                   |
-| UC-08・09 | `UC-08-import-robot-data.ts`・`UC-09-import-sensor-data.ts`       | `ingestion`                                                                                                  | `backend/infrastructure/adapters.test.ts`（FormatProfile・ファイルサーバーのモック）・`backend/domain/domain-rules.test.ts`（品質判定）          |
+| UC-08・09 | `UC-08-import-robot-data.ts`・`UC-09-import-sensor-data.ts`       | `ingestion`                                                                                                  | `backend/infrastructure/adapters.test.ts`（FormatProfile）・`integration/http-file-source-contract.test.ts`（FileSourcePort の契約テスト）・`backend/domain/domain-rules.test.ts`（品質判定）          |
 | UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知。出来事の判定・再発・抑制。#236）                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |

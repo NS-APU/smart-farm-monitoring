@@ -114,7 +114,6 @@ import { createLocalCredentials } from '../infrastructure/local/local-credential
 import { createLocalRepositories } from '../infrastructure/local/local-repositories.ts';
 import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
-import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
 import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
 import { readHttpFile, statHttpFile } from '../infrastructure/http/http-file-reader.ts';
 import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
@@ -359,7 +358,6 @@ function buildAdapters(
   const { repositories, store, prepare } = storage;
 
   const faults = {
-    fileServer: createFaultController(),
     federation: createFaultController(),
     webPush: createFaultController(),
   };
@@ -367,12 +365,6 @@ function buildAdapters(
     federation: createMockFederation({ faults: faults.federation, clock }),
     webPush: createDummyWebPush({ faults: faults.webPush }),
   };
-  // ファイルサーバーのモック: ローカルのディレクトリ（接続方式 MOCK。#344 の PR 3b で削除する）。S3 版は、削除した（ADR-0025）
-  const fileSource = createDirectoryFileSource({
-    rootDirectory: config.fileServerDirectory,
-    faults: faults.fileServer,
-    clock,
-  });
   // 秘密情報の保管先: パラメータストア（本番・開発サイト）、または、メモリ（ローカル・テスト）。使う場所は、#119・#207・#241 など
   // メモリの保管先は、開発用のリセットで消すため、変数に持つ（パラメータストアのときは、使わない）
   const memorySecrets = createMemorySecretPort();
@@ -441,7 +433,6 @@ function buildAdapters(
     federationTransport,
     federationConnection,
     webPush,
-    fileSource,
     secrets,
     policy,
     auth,
@@ -463,7 +454,7 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, webPush, fileSource, policy, auth, credentials, profiles } = adapters;
+  const { repositories, webPush, policy, auth, credentials, profiles } = adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
@@ -498,10 +489,9 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     logger,
   });
   const ingestionSettings = createIngestionSettings(repositories.settings);
-  // 取り込み元の接続方式で振り分ける（MOCK は、モック。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
+  // HTTP のファイルサーバーのファイルソース（設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
   const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
   const routedFileSource = createRoutingFileSource({
-    base: fileSource,
     ingestionSettings,
     equipment: repositories.equipment,
     secrets: adapters.secrets,
@@ -585,9 +575,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     audit: auditService,
     secrets: adapters.secrets,
     isConnectionAllowed: (connection) =>
-      connection.type !== 'HTTP' ||
-      config.httpFileSourceAllowPrivate ||
-      !isBlockedConnectionHost(connection.host),
+      config.httpFileSourceAllowPrivate || !isBlockedConnectionHost(connection.host),
   });
   const facilityLogService = createFacilityLogService({ repositories });
   const federationAdminService = createFederationAdminService({
@@ -693,7 +681,6 @@ function buildDevControls(
       mocks.webPush.reset();
       // 連携先の接続先など、メモリの秘密情報も、初期の状態に戻す（設定の保管は、データのリセットで戻る）
       adapters.memorySecrets.clear();
-      faults.fileServer.reset();
       faults.federation.reset();
       faults.webPush.reset();
       clock.unfreeze();

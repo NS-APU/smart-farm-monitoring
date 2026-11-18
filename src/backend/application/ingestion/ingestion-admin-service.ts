@@ -91,7 +91,7 @@ export function createIngestionAdminService(
 
   /** 認証情報の状態（値は、読まない・返さない）。保管先の障害は、UNAVAILABLE にして、設定の取得を止めない。 */
   async function credentialStatusOf(source: IngestionSource): Promise<IngestionCredentialStatus> {
-    if (source.connection.type !== 'HTTP' || source.connection.authMethod === 'NONE') {
+    if (source.connection === undefined || source.connection.authMethod === 'NONE') {
       return { state: 'NOT_REQUIRED' };
     }
     try {
@@ -193,7 +193,8 @@ export function createIngestionAdminService(
         updated.push({
           ...source,
           connectionRef: change.connectionRef,
-          connection: change.connection ?? source.connection,
+          // 省略は、現在の接続設定を保つ（未設定のままなら、未設定）
+          ...(change.connection === undefined ? {} : { connection: change.connection }),
           isEnabled: change.isEnabled,
         });
       }
@@ -221,7 +222,15 @@ export function createIngestionAdminService(
         throw new AppError('NOT_FOUND', '取り込み元が見つかりません');
       }
       const { connection } = source;
-      if (connection.type !== 'HTTP' || connection.authMethod === 'NONE') {
+      if (connection === undefined) {
+        throw validationError([
+          {
+            name: 'authMethod',
+            message: '接続先が設定されていません（先に接続設定を保存してから、登録してください）',
+          },
+        ]);
+      }
+      if (connection.authMethod === 'NONE') {
         throw validationError([
           {
             name: 'authMethod',

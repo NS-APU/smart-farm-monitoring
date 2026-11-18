@@ -6,7 +6,7 @@
  *   2. システムが、設定を保存する
  *   3. 農作業者が、接続テストを実行し、結果（成功、または、失敗の理由）を確認する
  *
- * 値の同値分割: 接続方式（モック・HTTP）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
+ * 値の同値分割: 接続（未設定・設定済み。接続方式の選択はない。HTTP のみ。ADR-0025）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
  * ホスト（正常・スキームつき）、設備のファイルパス（あり・なし・サーバーにない）、認証方式（なし・認証情報が未設定）、接続テスト（成功・ファイルなし）、
  * 取り込み（設備のファイルを、即時取得で取り込む。Issue #119）。
  * 認証情報の登録（Issue #207。D-47）: 認証方式（Basic）を選んで保存したあと、ユーザー名・パスワードを書き込み専用で登録し、
@@ -93,7 +93,8 @@ async function openIngestion(page: Page): Promise<void> {
 }
 
 const robot = (page: Page) => sourceCard(page, 'robot');
-const connectionType = (page: Page) => robot(page).getByLabel('接続方式');
+const unsetNote = (page: Page, sourceId: string) =>
+  page.getByTestId(`connection-unset-${sourceId}`);
 const protocol = (page: Page) => robot(page).getByLabel('プロトコル');
 const host = (page: Page) => robot(page).getByLabel('ホスト名');
 const portInput = (page: Page) => robot(page).getByLabel('ポート番号');
@@ -130,7 +131,6 @@ async function setRobotFilePath(request: APIRequestContext, sourceFilePath: stri
 
 /** HTTP の接続設定を入力する（手元のテスト用サーバー。プロトコルは HTTP）。 */
 async function fillConnection(page: Page, overrides: { auth?: string } = {}) {
-  await connectionType(page).selectOption('HTTP');
   await protocol(page).selectOption('HTTP');
   await host(page).fill('127.0.0.1');
   await portInput(page).fill(String(port));
@@ -138,18 +138,18 @@ async function fillConnection(page: Page, overrides: { auth?: string } = {}) {
 }
 
 test.describe('基本フロー: 接続設定を入力・保存し、接続テストで結果を確認する', () => {
-  test('既定は、接続方式「モック」。HTTP を選ぶと、接続先の入力を表示する', async ({
+  test('既定は、接続が未設定（案内と、空の入力）。接続方式の選択はない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
     await openIngestion(page);
 
-    await expect(connectionType(page)).toHaveValue('MOCK');
-    await expect(host(page)).toHaveCount(0);
-    await connectionType(page).selectOption('HTTP');
+    await expect(unsetNote(page, 'robot')).toContainText('接続先が設定されていません');
+    await expect(robot(page).getByLabel('接続方式')).toHaveCount(0);
     await expect(protocol(page)).toHaveValue('HTTPS');
     await expect(host(page)).toBeVisible();
+    await expect(host(page)).toHaveValue('');
     await expect(portInput(page)).toHaveAttribute('placeholder', '443');
     await expect(authMethod(page)).toHaveValue('NONE');
     // 取得するファイルのパスは、設備ごと（設備の画面）。接続設定には、入力欄がない
@@ -169,7 +169,7 @@ test.describe('基本フロー: 接続設定を入力・保存し、接続テス
     await save(page).click();
     await expect(result(page)).toHaveText('設定を保存しました');
     await page.reload();
-    await expect(connectionType(page)).toHaveValue('HTTP');
+    await expect(unsetNote(page, 'robot')).toHaveCount(0);
     await expect(host(page)).toHaveValue('127.0.0.1');
     await expect(portInput(page)).toHaveValue(String(port));
 
@@ -180,20 +180,21 @@ test.describe('基本フロー: 接続設定を入力・保存し、接続テス
     await shot(page, testInfo, 'uc15-connection');
   });
 
-  test('モックに戻せる。もう一方の取り込み元は、変わらない', async ({ page, request }) => {
+  test('一方の取り込み元に設定しても、もう一方の取り込み元は、未設定のまま', async ({
+    page,
+    request,
+  }) => {
     await prepareApp(request);
     await openIngestion(page);
     await fillConnection(page);
     await save(page).click();
     await expect(result(page)).toHaveText('設定を保存しました');
 
-    await connectionType(page).selectOption('MOCK');
-    await save(page).click();
-
-    await expect(result(page)).toHaveText('設定を保存しました');
     await page.reload();
-    await expect(connectionType(page)).toHaveValue('MOCK');
-    await expect(sourceCard(page, 'environment-sensor').getByLabel('接続方式')).toHaveValue('MOCK');
+
+    await expect(unsetNote(page, 'robot')).toHaveCount(0);
+    await expect(unsetNote(page, 'environment-sensor')).toBeVisible();
+    await expect(sourceCard(page, 'environment-sensor').getByLabel('ホスト名')).toHaveValue('');
   });
 });
 
@@ -230,7 +231,6 @@ test.describe('プロトコルの警告', () => {
   }) => {
     await prepareApp(request);
     await openIngestion(page);
-    await connectionType(page).selectOption('HTTP');
     await expect(page.getByTestId('plaintext-warning-robot')).toHaveCount(0);
 
     await protocol(page).selectOption('HTTP');
@@ -381,7 +381,6 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
   }) => {
     await prepareApp(request);
     await openIngestion(page);
-    await connectionType(page).selectOption('HTTP');
 
     await authMethod(page).selectOption('API_KEY');
 

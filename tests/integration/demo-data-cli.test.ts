@@ -251,9 +251,11 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
 
       expect(result.exitCode).toBe(1);
       expect(result.lines[0]).toContain(message);
-      expect(
-        (await robotSourceConnection(container)).map(([, connection]) => connection.type),
-      ).toEqual(['MOCK', 'MOCK']);
+      // 何も変えない = 既定のまま（接続は、未設定）
+      expect((await robotSourceConnection(container)).map(([, connection]) => connection)).toEqual([
+        undefined,
+        undefined,
+      ]);
     },
   );
 

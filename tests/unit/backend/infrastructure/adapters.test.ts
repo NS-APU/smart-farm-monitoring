@@ -1,12 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@smart-farm/shared/errors';
 import { NotificationIdSchema, toUserId } from '@smart-farm/shared/schemas/common';
 import type { FederationItem } from '@smart-farm/shared/schemas/ingestion';
 import type { Notification } from '@smart-farm/shared/schemas/notification';
-import { FileSourceUnavailableError } from '../../../../src/backend/application/ports/file-source-port.ts';
 import { FormatError } from '../../../../src/backend/application/ports/format-profile.ts';
 import {
   FederationRejectedError,
@@ -34,7 +31,6 @@ import {
 } from '../../../../src/backend/infrastructure/local/local-auth.ts';
 import { createLocalRepositories } from '../../../../src/backend/infrastructure/local/local-repositories.ts';
 import { createMockFederation } from '../../../../src/backend/infrastructure/local/mock-federation.ts';
-import { createDirectoryFileSource } from '../../../../src/backend/infrastructure/local/mock-file-server.ts';
 import {
   hashPassword,
   verifyPassword,
@@ -520,78 +516,6 @@ describe('ローカルの認証（AuthPort）', () => {
     await expect(auth.refresh(session.refreshToken)).rejects.toMatchObject({
       code: 'UNAUTHENTICATED',
     });
-  });
-});
-
-describe('ファイルサーバーのモック', () => {
-  function setup() {
-    const rootDirectory = mkdtempSync(join(tmpdir(), 'smart-farm-fs-'));
-    mkdirSync(join(rootDirectory, 'robot'));
-    writeFileSync(join(rootDirectory, 'robot', 'b.json'), '{"b":1}');
-    writeFileSync(join(rootDirectory, 'robot', 'a.json'), '{"a":1}');
-    mkdirSync(join(rootDirectory, 'robot', 'subdir'));
-    const faults = createFaultController();
-    const clock = createControllableClock(NOW);
-    return { source: createDirectoryFileSource({ rootDirectory, faults, clock }), faults, clock };
-  }
-
-  it('取り込み元のディレクトリのファイルを、更新日時・名前の順に一覧する（ディレクトリは除く）', async () => {
-    const { source } = setup();
-
-    const files = await source.listFiles('robot');
-
-    expect(files.map((file) => file.fileId)).toEqual(expect.arrayContaining(['a.json', 'b.json']));
-    expect(files).toHaveLength(2);
-    expect(files[0]?.sizeBytes).toBeGreaterThan(0);
-  });
-
-  it('ディレクトリがない取り込み元は、空の一覧にする。接続テストは失敗する', async () => {
-    const { source } = setup();
-
-    expect(await source.listFiles('environment-sensor')).toEqual([]);
-    await expect(source.testConnection('environment-sensor')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-    await expect(source.testConnection('robot')).resolves.toBeUndefined();
-  });
-
-  it('ファイルの内容を読める。存在しない・識別子が不正なファイルは読めない', async () => {
-    const { source } = setup();
-
-    expect(await source.readFile('robot', 'a.json')).toBe('{"a":1}');
-    await expect(source.readFile('robot', 'none.json')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-    await expect(source.readFile('robot', '../x.json')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-  });
-
-  it('取り込み元の識別子で、ルートの外へ出られない', async () => {
-    const { source } = setup();
-
-    await expect(source.listFiles('../etc')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-    await expect(source.listFiles('Robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-  });
-
-  it('停止（DOWN）を再現すると、すべての操作が接続できないエラーになる', async () => {
-    const { source, faults } = setup();
-    faults.set({ mode: 'DOWN' });
-
-    await expect(source.listFiles('robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-    await expect(source.readFile('robot', 'a.json')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-    await expect(source.testConnection('robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-  });
-
-  it('遅延（SLOW）を再現すると、指定した時間の経過後に応答する', async () => {
-    const { source, faults, clock } = setup();
-    faults.set({ mode: 'SLOW', delayMs: 5000 });
-
-    await source.listFiles('robot');
-
-    expect(clock.now()).toEqual(new Date(NOW.getTime() + 5000));
   });
 });
 

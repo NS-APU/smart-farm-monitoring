@@ -359,11 +359,8 @@ export const MANAGEMENT_MESSAGES = {
     sourceNames: { robot: 'ロボットデータ', 'environment-sensor': '環境センサーデータ' },
     connectionRef: '接続先（接続設定の参照名）',
     connectionRefHint: '認証情報は、環境変数・シークレット管理の参照名で指定します',
-    connectionType: '接続方式',
-    connectionTypeLabels: {
-      MOCK: 'モック（開発・検証用）',
-      HTTP: 'HTTP・HTTPS（ファイルサーバー）',
-    },
+    connectionUnset:
+      '接続先が設定されていません。ファイルサーバー（HTTP・HTTPS）のホスト名などを設定して、保存してください。設備にファイルのパスを設定すると、取り込みの対象になります',
     protocol: 'プロトコル',
     protocolLabels: { HTTPS: 'HTTPS（推奨）', HTTP: 'HTTP（暗号化なし）' },
     plaintextWarning:

@@ -1,7 +1,7 @@
 /**
  * 取り込み設定（SC-11）のファイルサーバーの接続設定（Issue #172。ADR-0022）の画面テスト。
- * 接続方式（モック／HTTP）、プロトコル・ホスト・ポート・認証方式の入力、平文 HTTP の警告、ファイルパスは設備ごと（設備の画面）という案内、
- * 入力の検証、接続テストの失敗の理由の表示。認証情報の値は、画面で入力・表示しない。
+ * 接続方式の選択はない（HTTP のみ。プロトコル・ホスト・ポート・認証方式の入力を常に表示する）、接続が未設定のときの案内、
+ * 平文 HTTP の警告、ファイルパスは設備ごと（設備の画面）という案内、入力の検証、接続テストの失敗の理由の表示。認証情報の値は、画面で入力・表示しない。
  */
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -24,13 +24,13 @@ const HTTP_CONNECTION = {
   apiKeyHeaderName: 'X-Auth-Token',
 };
 
+/** 既定は、接続が未設定の取り込み元（connection を省略）。 */
 function source(overrides: Record<string, unknown> = {}) {
   return {
     sourceId: 'robot',
     kind: 'ROBOT',
     profileId: 'robot-v1',
     connectionRef: 'file-server-main',
-    connection: { type: 'MOCK' },
     isEnabled: true,
     formatProfile: { versionLabel: 'v0.1', status: 'PROVISIONAL' },
     lastStartedAt: null,
@@ -70,41 +70,49 @@ function save(scope: HTMLElement): void {
   fireEvent.click(within(scope).getByRole('button', { name: '設定を保存' }));
 }
 
-describe('接続方式の切り替え', () => {
-  it('モック: ホスト・ポート・認証方式の入力と、ファイルパスの案内は、表示しない', async () => {
+describe('接続の入力（接続方式の選択はない。HTTP のみ）', () => {
+  it('接続方式の選択欄はなく、プロトコル・ホスト・ポート・認証方式の入力を常に表示する', async () => {
     renderApp('/settings/ingestion', routes([source()]));
     const robot = await robotCard();
 
-    expect(
-      within(robot).getByLabelText<HTMLSelectElement>('接続方式', { exact: false }).value,
-    ).toBe('MOCK');
-    expect(within(robot).queryByLabelText('ホスト', { exact: false })).toBeNull();
-    expect(within(robot).queryByLabelText('ポート', { exact: false })).toBeNull();
-    expect(within(robot).queryByLabelText('ファイルパス', { exact: false })).toBeNull();
-    expect(
-      within(robot).queryByText('取得するファイルは、設備ごとに', { exact: false }),
-    ).toBeNull();
-    expect(within(robot).queryByLabelText('認証方式', { exact: false })).toBeNull();
+    expect(within(robot).queryByLabelText('接続方式', { exact: false })).toBeNull();
+    expect(within(robot).getByLabelText('プロトコル', { exact: false })).toBeDefined();
+    expect(within(robot).getByLabelText('ホスト', { exact: false })).toBeDefined();
+    expect(within(robot).getByLabelText('ポート', { exact: false })).toBeDefined();
+    expect(within(robot).getByLabelText('認証方式', { exact: false })).toBeDefined();
   });
 
-  it('HTTP を選ぶと、プロトコル（既定は HTTPS）・ホスト・ポート・認証方式の入力を表示する。ファイルパスは、設備ごと（設備の画面）という案内を表示し、入力欄は持たない', async () => {
+  it('接続が未設定のときは、案内を表示し、入力は空（HTTPS・ホスト空・ポート空・認証なし）から始まる。ファイルパスは、設備ごと（設備の画面）という案内を表示し、入力欄は持たない', async () => {
     renderApp('/settings/ingestion', routes([source()]));
     const robot = await robotCard();
 
-    choose(robot, '接続方式', 'HTTP');
-
+    expect(within(robot).getByTestId('connection-unset-robot').textContent).toContain(
+      '接続先が設定されていません',
+    );
     expect(
       within(robot).getByLabelText<HTMLSelectElement>('プロトコル', { exact: false }).value,
     ).toBe('HTTPS');
-    expect(within(robot).getByLabelText('ホスト', { exact: false })).toBeDefined();
-    expect(within(robot).getByLabelText('ポート', { exact: false })).toBeDefined();
+    expect(within(robot).getByLabelText<HTMLInputElement>('ホスト', { exact: false }).value).toBe(
+      '',
+    );
+    expect(within(robot).getByLabelText<HTMLInputElement>('ポート', { exact: false }).value).toBe(
+      '',
+    );
+    expect(
+      within(robot).getByLabelText<HTMLSelectElement>('認証方式', { exact: false }).value,
+    ).toBe('NONE');
+    expect(within(robot).queryByLabelText('ヘッダー名', { exact: false })).toBeNull();
     expect(within(robot).queryByLabelText('ファイルパス', { exact: false })).toBeNull();
     expect(
       within(robot).getByText('取得するファイルは、設備ごとに', { exact: false }),
     ).toBeDefined();
-    expect(
-      within(robot).getByLabelText<HTMLSelectElement>('認証方式', { exact: false }).value,
-    ).toBe('NONE');
+  });
+
+  it('接続が保存済みのときは、案内を表示しない', async () => {
+    renderApp('/settings/ingestion', routes([source({ connection: HTTP_CONNECTION })]));
+    const robot = await robotCard();
+
+    expect(within(robot).queryByTestId('connection-unset-robot')).toBeNull();
   });
 
   it('保存済みの HTTP の接続設定を、入力に表示する。API キーのヘッダー名は、認証方式が API キーのときだけ', async () => {
@@ -167,7 +175,6 @@ describe('設定の保存', () => {
     );
     const robot = await robotCard();
 
-    choose(robot, '接続方式', 'HTTP');
     choose(robot, 'ホスト', 'fileserver.example.ac.jp');
     choose(robot, '認証方式', 'BASIC');
     save(robot);
@@ -190,6 +197,53 @@ describe('設定の保存', () => {
       ],
     });
   });
+
+  it('接続が未設定で、何も入力しないときは、connection を送らず、参照名・有効／無効だけを保存できる', async () => {
+    const { calls } = renderApp(
+      '/settings/ingestion',
+      routes([source()], {
+        'PUT /ingestion/settings': () => jsonResponse({ sources: [source()] }),
+      }),
+    );
+    const robot = await robotCard();
+
+    fireEvent.click(within(robot).getByRole('checkbox'));
+    save(robot);
+
+    expect((await screen.findByTestId('result-robot')).textContent).toBe('設定を保存しました');
+    expect(callsOf(calls, 'PUT', '/ingestion/settings')[0]?.body).toEqual({
+      sources: [{ sourceId: 'robot', connectionRef: 'file-server-main', isEnabled: false }],
+    });
+  });
+
+  it.each([
+    ['プロトコルだけ HTTP にした', { name: 'プロトコル', value: 'HTTP' }],
+    ['ポートだけ入力した', { name: 'ポート', value: '8443' }],
+    ['認証方式だけ選んだ', { name: '認証方式', value: 'BASIC' }],
+  ])(
+    '接続が未設定で、%s（ホストは空）ときは、送らず、ホストの項目にエラーを表示する',
+    async (_name, change) => {
+      const { calls } = renderApp(
+        '/settings/ingestion',
+        routes([source()], {
+          'PUT /ingestion/settings': () => jsonResponse({ sources: [source()] }),
+        }),
+      );
+      const robot = await robotCard();
+
+      choose(robot, change.name, change.value);
+      save(robot);
+
+      await waitFor(() => {
+        expect(
+          within(robot).getAllByText('ホスト名は、FQDN・IPv4・[IPv6] で指定してください', {
+            exact: false,
+          }).length,
+        ).toBeGreaterThan(0);
+      });
+      expect(callsOf(calls, 'PUT', '/ingestion/settings')).toHaveLength(0);
+    },
+  );
 
   it('ポートを入力すると、数値で送る', async () => {
     const { calls } = renderApp(
@@ -318,10 +372,16 @@ describe('参照のみ（権限がない）', () => {
     const robot = await robotCard();
 
     expect(
-      within(robot).getByLabelText<HTMLSelectElement>('接続方式', { exact: false }).disabled,
+      within(robot).getByLabelText<HTMLSelectElement>('プロトコル', { exact: false }).disabled,
     ).toBe(true);
     expect(
       within(robot).getByLabelText<HTMLInputElement>('ホスト', { exact: false }).readOnly,
+    ).toBe(true);
+    expect(
+      within(robot).getByLabelText<HTMLInputElement>('ポート', { exact: false }).readOnly,
+    ).toBe(true);
+    expect(
+      within(robot).getByLabelText<HTMLSelectElement>('認証方式', { exact: false }).disabled,
     ).toBe(true);
   });
 });
@@ -332,7 +392,7 @@ describe('認証情報の登録（Issue #207。D-47。書き込み専用）', ()
   const DUMMY_PASSWORD = 'dummy-password-0123';
   const UPDATED_AT = '2026-11-09T02:00:00.000Z';
 
-  it('状態を示す: 未設定・設定済み（更新日時つき）・確認できない。認証が不要（モック・認証なし）は、登録の欄を出さない', async () => {
+  it('状態を示す: 未設定・設定済み（更新日時つき）・確認できない。認証が不要（接続が未設定・認証なし）は、登録の欄を出さない', async () => {
     renderApp(
       '/settings/ingestion',
       routes([
@@ -343,7 +403,7 @@ describe('認証情報の登録（Issue #207。D-47。書き込み専用）', ()
           credentials: { state: 'CONFIGURED', updatedAt: UPDATED_AT },
         }),
         source({ sourceId: 'custom-1', connection: { ...HTTP_CONNECTION, authMethod: 'NONE' } }),
-        source({ sourceId: 'custom-2', connection: { type: 'MOCK' } }),
+        source({ sourceId: 'custom-2' }),
         source({ sourceId: 'custom-3', connection: BEARER, credentials: { state: 'UNAVAILABLE' } }),
       ]),
     );
@@ -571,7 +631,6 @@ describe('認証情報の登録（Issue #207。D-47。書き込み専用）', ()
     renderApp('/settings/ingestion', routes([source()]));
     const robot = await robotCard();
 
-    choose(robot, '接続方式', 'HTTP');
     choose(robot, '認証方式', 'BASIC');
 
     expect(within(robot).queryByRole('button', { name: '認証情報を保存' })).toBeNull();

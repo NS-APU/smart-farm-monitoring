@@ -23,6 +23,7 @@ import {
   TEST_USER,
   THREE_ROLES_JSON,
   withEquipment,
+  withSourceFilePaths,
 } from '../support/test-context.ts';
 
 function json(body: unknown): RequestInit {
@@ -464,6 +465,7 @@ describe('設備・ステータスコード（UC-12, UC-17 の参照）', () => 
 describe('ダッシュボード（UC-01）', () => {
   it('設備を省略すると、最初のハウスの全観点を、スキーマに合う形で返す', async () => {
     const context = await withEquipment();
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       observation({
         equipmentId: SENSOR_ID,
@@ -823,13 +825,12 @@ describe('開発用 API（ローカル・テストのみ）', () => {
     expect(missing.status).toBe(404);
   });
 
-  // MOCK 専用（#344 の PR 3 で、MOCK とともに削除する）。開発用 API（/dev/mocks/file-server）による、モックのファイルサーバーの停止の切り替え
-  it('モック（ファイルサーバー・農業情報基盤・Web Push）の停止・遅延を再現できる', async () => {
+  it('モック（農業情報基盤・Web Push）の停止・遅延を再現できる。ファイルサーバーのモックは、廃止した（ADR-0025）', async () => {
     const context = await withEquipment();
     const token = await context.login();
 
     const down = await (
-      await context.request('/dev/mocks/file-server', {
+      await context.request('/dev/mocks/federation', {
         method: 'PUT',
         token,
         body: { mode: 'DOWN' },
@@ -851,14 +852,19 @@ describe('開発用 API（ローカル・テストのみ）', () => {
       token,
       body: { mode: 'BROKEN' },
     });
-    const ingestion = await context.container.ingestionService.runSource('robot');
+    // ファイルサーバーのモックは、廃止した（ファイルサーバーは、HTTP のテスト用サーバーで再現する）
+    const fileServer = await context.request('/dev/mocks/file-server', {
+      method: 'PUT',
+      token,
+      body: { mode: 'DOWN' },
+    });
 
     expect(down).toEqual({ mode: 'DOWN', delayMs: 0 });
     expect(slow).toEqual({ mode: 'SLOW', delayMs: 2000 });
     expect(push).toEqual({ mode: 'UP', delayMs: 0 });
     expect(unknown.status).toBe(404);
     expect(invalid.status).toBe(400);
-    expect(ingestion.result).toBe('FAILURE');
+    expect(fileServer.status).toBe(404);
   });
 
   it('モックが受け取った連携・配信の内容を確認できる', async () => {

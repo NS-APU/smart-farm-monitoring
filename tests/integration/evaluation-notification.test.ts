@@ -32,7 +32,12 @@ import {
   SENSOR_ID,
 } from '../support/builders.ts';
 import { withHttpFiles } from '../support/http-test-files.ts';
-import { createTestContext, TEST_NOW, TEST_USER } from '../support/test-context.ts';
+import {
+  createTestContext,
+  TEST_NOW,
+  TEST_USER,
+  withSourceFilePaths,
+} from '../support/test-context.ts';
 
 const USER = toUserId(TEST_USER.userId);
 const JOB_OK: JobResult = {
@@ -967,6 +972,7 @@ describe('ダッシュボード（UC-01）', () => {
 
   it('評価がまだなら、全観点を不明にして、評価されていない旨を示す。データは未取得', async () => {
     const context = await setup();
+    await withSourceFilePaths(context);
 
     const dashboard = await get(context);
 
@@ -996,6 +1002,7 @@ describe('ダッシュボード（UC-01）', () => {
   it('観点を表示順に、ステータス・主要メトリクス・診断メッセージ・推奨アクションつきで返し、件数を集計する', async () => {
     const context = await setup();
     await useFifteenMinuteIntervals(context);
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       ...generateAutoObservations({
         robotId: ROBOT_ID,
@@ -1045,6 +1052,7 @@ describe('ダッシュボード（UC-01）', () => {
   it('最終のデータ取得から取得間隔の3倍が過ぎたら、データが古いとする', async () => {
     const context = await setup();
     await useFifteenMinuteIntervals(context);
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       temperature(20, new Date(TEST_NOW.getTime() - 60_000).toISOString()),
     ]);
@@ -1129,6 +1137,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('一部の種別だけ有効なら、有効な設備だけで、従来どおり判定する（無効な種別の設備は、判定しない）。無効な種別の設備を選べば、手動のみ', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await disable(context, 'ROBOT');
       await context.container.repositories.observations.saveMany([
         autoData(ROBOT_ID, 'harvestCount', 600),
@@ -1184,6 +1193,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('自動取り込みが有効な間は、従来どおり（手動入力は、判定に含めない。最終の手動入力は、なし）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([
         autoData(SENSOR_ID, 'temperatureCelsius', 30),
         manualData(SENSOR_ID, 1),
@@ -1284,6 +1294,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('設備ごとに、その設備の取得間隔 × 3（既定: ロボット 1 分 → 3 分、センサー 5 分 → 15 分）で判定する。ハウスは、配下のいずれかが古ければ、古い', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([robotData(10), sensorData(10)]);
 
       const house = await get(context);
@@ -1306,6 +1317,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('設備の取得間隔を変えると、その設備の基準が変わる（ロボットを 1 時間にすると 180 分）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       const robotEquipment = must(await context.container.repositories.equipment.get(ROBOT_ID));
       await context.container.repositories.equipment.save({
         ...robotEquipment,
@@ -1326,6 +1338,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('最低 3 分（1 分間隔のロボットで、3 分は新しい・3 分を超えると古い）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([robotData(3)]);
       const boundary = await get(context, { equipmentId: ROBOT_ID });
       context.clock.advance(60_000);
@@ -1338,6 +1351,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('まだデータのない設備は、判定の対象にしない（ほかの設備にデータがあれば、その設備だけで判定する）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([sensorData(1)]);
 
       const house = await get(context);
@@ -1348,6 +1362,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('どの設備にもデータがなければ、未取得（NONE）。古い設備は、ない', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
 
       const house = await get(context);
 
@@ -1357,6 +1372,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('手動入力は、判定に含めない（自動データの停止が隠れない）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([
         robotData(10),
         observation({
@@ -1376,6 +1392,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('最終のデータ取得（lastReceivedAt）は、判定の対象の設備の、最も新しい受信日時', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([robotData(10), sensorData(2)]);
 
       const house = await get(context);

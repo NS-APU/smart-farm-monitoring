@@ -67,7 +67,6 @@ export default defineConfig({
         TRUSTED_PROXY_HOPS: '1',
         PORT: String(BACKEND_PORT),
         PERSISTENCE: 'memory',
-        FILE_SERVER_DIR: 'test-result/stress/file-server',
         SEED_MODE: 'NONE',
         INITIAL_USER_ID: STRESS_USER.userId,
         INITIAL_USER_NAME: STRESS_USER.userName,

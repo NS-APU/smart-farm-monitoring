@@ -13,6 +13,7 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import { HOUSE_ID, apiOk, setEquipmentInterval } from './support/app.ts';
+import { assignPlaceholderPaths } from './support/http-files.ts';
 import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
 import {
   dashboardCard as card,
@@ -468,6 +469,8 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     request,
   }, testInfo) => {
     await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+    await assignPlaceholderPaths(request);
 
     await openDashboard(page);
 
@@ -478,7 +481,8 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     await expect(page.getByText('最終のデータ取得:')).toBeVisible();
     await expect(page.getByTestId('data-status')).toContainText('未取得');
     await expect(card(page, 'harvestAccuracy').locator('.diagnostic')).toContainText(
-      '評価がまだ行われていません',
+      // 設備にファイルのパスを設定した時点で、評価が 1 回行われる（データがないため、不明）
+      'データ不足のため評価できません。未取得の項目: 収穫数、果実損傷数、誤収穫数、取り残し数',
     );
     expect(await summaryCount(page, 'UNKNOWN')).toBe(10);
     await shot(page, testInfo, 'dashboard-none');
@@ -524,6 +528,8 @@ test.describe('代替フロー: データがまだ取り込まれていない・
       request,
     }, testInfo) => {
       await prepare(request);
+      // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+      await assignPlaceholderPaths(request);
       // 取得間隔は、設備ごとの設定（#197。既定は、ロボット 1 分・センサー 5 分）。この検証は、15 分にする
       await setEquipmentInterval(request, ROBOT, 15);
       await setEquipmentInterval(request, SENSOR, 15);
@@ -562,6 +568,8 @@ test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低
     request,
   }, testInfo) => {
     await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+    await assignPlaceholderPaths(request);
     // 既定の取得間隔（ロボット 1 分 → 3 分・センサー 5 分 → 15 分）。どちらも、10 分前に受け取った
     const tenMinutesAgo = new Date(NOW.getTime() - 10 * 60_000).toISOString();
     await seed(request, {
@@ -599,6 +607,8 @@ test.describe('手動のみの運用（自動取り込みが有効でない間�
     request,
   }, testInfo) => {
     await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+    await assignPlaceholderPaths(request);
     // 手動入力のデータ（30 分前に入力）と、古い自動取り込みのデータ
     const at = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
     await seed(request, {

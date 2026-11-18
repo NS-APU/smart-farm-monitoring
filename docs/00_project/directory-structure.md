@@ -29,11 +29,11 @@ smart-farm-monitoring/
 │   ├── stress/        # 負荷テスト（Playwright。stress-NN-<英語の概略名>.ts。補助は support/: データ規模 scale.ts・データ投入 seed-data.ts・サーバー起動 stress-server.ts・許容時間 limits.ts・計測 recorder.ts・結果ログ report-log.ts・手動入力の計測日時 observed-at.ts など）
 │   ├── smoke/         # サーバーレス環境（評価環境）のスモークテスト・性能の実測（Playwright。smoke-NN-<英語の概略名>.ts。認証の確認は auth/auth-NN-<英語の概略名>.ts（`pnpm test:smoke:auth`）。補助は support/: 接続先・認証情報 smoke-env.ts・画面操作 smoke-ui.ts・結果ログ smoke-report.ts など。計測と許容時間は、tests/stress/support/ を共有）
 │   ├── csp/           # 画面の CSP の確認（Playwright。csp-NN-<英語の概略名>.ts。本番ビルドの画面に CSP を付けて、主な画面を一巡する。`pnpm test:csp`。Issue #127）
-│   ├── fixtures/      # テストデータ（合成データ。ファイルサーバーのモック用のファイル）
-│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
+│   ├── fixtures/      # テストデータ（合成データ。HTTP のテスト用ファイルサーバーに置くファイル）
+│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。HTTP のテスト用ファイルサーバーは http-file-server.ts・http-test-files.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
 ├── test-result/   # テストの出力（Git 管理外。カバレッジ・動画・レポート）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
 ├── dist/          # ビルドの出力（Git 管理外）
-└── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化・ファイルサーバーのモック）
+└── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化）
 ```
 
 各ディレクトリの詳細（層の責務・パッケージ・テスト）は [dev_spec.md](../10_design/functions/dev_spec.md) 1章・2章・6章を参照する。

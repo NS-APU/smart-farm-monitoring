@@ -1,6 +1,6 @@
 /**
  * FileSourcePort の契約テストを、HTTP のファイルサーバー（手元の HTTP サーバー。設備ごとのファイルパス）に適用する（Issue #119。ADR-0023）。
- * モック・S3 と同じ契約に合格すること。HTTP では、ファイルの識別子は、ファイルパス（`/` + 名前）。
+ * 取り込み元がない（未知の識別子）場合は、利用できない旨の失敗（FileSourceUnavailableError）になること。HTTP では、ファイルの識別子は、ファイルパス（`/` + 名前）。
  * 設備（ロボット）ごとに 1 ファイル。ファイルを置くたびに、その名前のファイルパスを持つロボットを登録する。
  */
 
@@ -9,10 +9,6 @@ import type { AddressInfo } from 'node:net';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import { createRoutingFileSource } from '../../src/backend/application/ingestion/routing-file-source.ts';
-import {
-  FileSourceUnavailableError,
-  type FileSourcePort,
-} from '../../src/backend/application/ports/file-source-port.ts';
 import {
   readHttpFile,
   statHttpFile,
@@ -61,15 +57,8 @@ describeFileSourceContract('HTTP のファイルサーバー（手元の HTTP �
     return listeningPort;
   }
 
-  // 取り込み元がない（未知の識別子）場合は、これまでのファイルソース（base）へ渡る。契約: 失敗する
-  const unknownSource: FileSourcePort = {
-    testConnection: () => Promise.reject(new FileSourceUnavailableError('取り込み元がありません')),
-    listFiles: () => Promise.reject(new FileSourceUnavailableError('取り込み元がありません')),
-    readFile: () => Promise.reject(new FileSourceUnavailableError('取り込み元がありません')),
-  };
   const allowPrivateAddresses = true;
   const source = createRoutingFileSource({
-    base: unknownSource,
     ingestionSettings: {
       listSources: async () => [
         {

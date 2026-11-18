@@ -66,17 +66,14 @@ function sourceName(sourceId: string): string {
 }
 
 /** 接続設定の内容が同じか（保存済みの接続設定を変えていないときは、送らない）。 */
-function isSameConnection(a: FileServerConnection, b: FileServerConnection): boolean {
-  if (a.type === 'HTTP' && b.type === 'HTTP') {
-    return (
-      a.protocol === b.protocol &&
-      a.host === b.host &&
-      a.port === b.port &&
-      a.authMethod === b.authMethod &&
-      a.apiKeyHeaderName === b.apiKeyHeaderName
-    );
-  }
-  return a.type === b.type;
+function isSameConnection(a: FileServerConnection, b: FileServerConnection | undefined): boolean {
+  return (
+    a.protocol === b?.protocol &&
+    a.host === b.host &&
+    a.port === b.port &&
+    a.authMethod === b.authMethod &&
+    a.apiKeyHeaderName === b.apiKeyHeaderName
+  );
 }
 
 /** ポートの入力が、数字でない（空は、省略として、有効）。 */
@@ -114,17 +111,14 @@ function SourceCard(props: SourceCardProps): ReactNode {
   /** 実行中の操作（実行中の表示を、その操作のボタンだけに出す）。 */
   const [operation, setOperation] = useState<'test' | 'run' | undefined>(undefined);
   const [connectionRef, setConnectionRef] = useState(source.connectionRef);
+  // 接続の設定。未設定（undefined）のときは、空の入力から始める
   const saved = source.connection;
-  const savedHttp = saved.type === 'HTTP' ? saved : undefined;
-  const [connectionType, setConnectionType] = useState<FileServerConnection['type']>(saved.type);
-  const [protocol, setProtocol] = useState<FileServerProtocol>(savedHttp?.protocol ?? 'HTTPS');
-  const [host, setHost] = useState(savedHttp?.host ?? '');
-  const [port, setPort] = useState(savedHttp?.port === undefined ? '' : String(savedHttp.port));
-  const [authMethod, setAuthMethod] = useState<FileServerAuthMethod>(
-    savedHttp?.authMethod ?? 'NONE',
-  );
+  const [protocol, setProtocol] = useState<FileServerProtocol>(saved?.protocol ?? 'HTTPS');
+  const [host, setHost] = useState(saved?.host ?? '');
+  const [port, setPort] = useState(saved?.port === undefined ? '' : String(saved.port));
+  const [authMethod, setAuthMethod] = useState<FileServerAuthMethod>(saved?.authMethod ?? 'NONE');
   const [apiKeyHeaderName, setApiKeyHeaderName] = useState(
-    savedHttp?.apiKeyHeaderName ?? DEFAULT_API_KEY_HEADER_NAME,
+    saved?.apiKeyHeaderName ?? DEFAULT_API_KEY_HEADER_NAME,
   );
   // 認証情報の入力（書き込み専用。保存したら、空に戻す。保存済みの値は、受け取らない）
   const [credentialUsername, setCredentialUsername] = useState('');
@@ -135,12 +129,11 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const { result, onResult: setResult } = props;
   const errors = { ...clientErrors, ...withoutSourcePrefix(submit.fieldErrors) };
-  const isHttp = connectionType === 'HTTP';
   const canEdit = props.canConfigure;
   // 認証情報の登録は、保存済みの設定の認証方式で行う（サーバーが、保存済みの設定と照合する）
   const savedAuthMethod =
-    saved.type === 'HTTP' && saved.authMethod !== 'NONE' ? saved.authMethod : undefined;
-  const credentialsBlocked = !(isHttp && authMethod === savedAuthMethod);
+    saved !== undefined && saved.authMethod !== 'NONE' ? saved.authMethod : undefined;
+  const credentialsBlocked = authMethod !== savedAuthMethod;
   const credentialStatus = source.credentials;
   const credentialErrorsShown = { ...credentialErrors, ...errors };
   const locked = submit.busy || source.isRunning;
@@ -149,23 +142,25 @@ function SourceCard(props: SourceCardProps): ReactNode {
     event.preventDefault();
     setResult(undefined);
     const portText = port.trim();
-    const connection =
-      connectionType === 'MOCK'
-        ? { type: 'MOCK' }
-        : {
-            type: 'HTTP',
-            protocol,
-            host,
-            ...(portText === ''
-              ? {}
-              : { port: portIsInvalid(portText) ? Number.NaN : Number(portText) }),
-            authMethod,
-            apiKeyHeaderName,
-          };
+    // 接続が未設定で、何も入力していないときは、接続を送らない（未設定のまま。参照名・有効／無効だけを保存できる）
+    const untouched =
+      saved === undefined &&
+      host.trim() === '' &&
+      portText === '' &&
+      protocol === 'HTTPS' &&
+      authMethod === 'NONE';
+    const connection = {
+      type: 'HTTP',
+      protocol,
+      host,
+      ...(portText === '' ? {} : { port: portIsInvalid(portText) ? Number.NaN : Number(portText) }),
+      authMethod,
+      apiKeyHeaderName,
+    };
     const parsed = IngestionSourceUpdateSchema.safeParse({
       sourceId: source.sourceId,
       connectionRef,
-      connection,
+      ...(untouched ? {} : { connection }),
       isEnabled,
     });
     if (!parsed.success) {
@@ -336,6 +331,11 @@ function SourceCard(props: SourceCardProps): ReactNode {
           void handleSave(event);
         }}
       >
+        {saved === undefined ? (
+          <p className="muted" data-testid={`connection-unset-${source.sourceId}`}>
+            {TEXT.connectionUnset}
+          </p>
+        ) : null}
         <div className="form-grid">
           <Field
             label={TEXT.connectionRef}
@@ -356,137 +356,117 @@ function SourceCard(props: SourceCardProps): ReactNode {
               />
             )}
           </Field>
-          <Field label={TEXT.connectionType} name="connectionType" required>
-            {(control) => (
-              <select
-                {...control}
-                value={connectionType}
-                disabled={!canEdit}
-                onChange={(event) => {
-                  setConnectionType(event.target.value === 'HTTP' ? 'HTTP' : 'MOCK');
-                }}
-              >
-                {(['MOCK', 'HTTP'] as const).map((type) => (
-                  <option key={type} value={type}>
-                    {TEXT.connectionTypeLabels[type]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          {isHttp ? (
-            <>
+          <>
+            <Field
+              label={TEXT.protocol}
+              name="connection.protocol"
+              error={errors['connection.protocol']}
+            >
+              {(control) => (
+                <select
+                  {...control}
+                  value={protocol}
+                  disabled={!canEdit}
+                  onChange={(event) => {
+                    setProtocol(event.target.value === 'HTTP' ? 'HTTP' : 'HTTPS');
+                  }}
+                >
+                  {FILE_SERVER_PROTOCOLS.map((value) => (
+                    <option key={value} value={value}>
+                      {TEXT.protocolLabels[value]}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field
+              label={TEXT.host}
+              name="connection.host"
+              error={errors['connection.host']}
+              hint={TEXT.hostHint}
+              required
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  value={host}
+                  readOnly={!canEdit}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) => {
+                    setHost(event.target.value);
+                  }}
+                />
+              )}
+            </Field>
+            <Field
+              label={TEXT.port}
+              name="connection.port"
+              error={errors['connection.port']}
+              hint={TEXT.portHint}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  inputMode="numeric"
+                  value={port}
+                  placeholder={String(defaultHttpPort(protocol))}
+                  readOnly={!canEdit}
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setPort(event.target.value);
+                  }}
+                />
+              )}
+            </Field>
+            <p className="field-note muted">{TEXT.filePathNotice}</p>
+            <Field
+              label={TEXT.authMethod}
+              name="connection.authMethod"
+              error={errors['connection.authMethod']}
+            >
+              {(control) => (
+                <select
+                  {...control}
+                  value={authMethod}
+                  disabled={!canEdit}
+                  onChange={(event) => {
+                    setAuthMethod(
+                      FILE_SERVER_AUTH_METHODS.find((value) => value === event.target.value) ??
+                        'NONE',
+                    );
+                  }}
+                >
+                  {FILE_SERVER_AUTH_METHODS.map((value) => (
+                    <option key={value} value={value}>
+                      {TEXT.authMethodLabels[value]}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            {authMethod === 'API_KEY' ? (
               <Field
-                label={TEXT.protocol}
-                name="connection.protocol"
-                error={errors['connection.protocol']}
-              >
-                {(control) => (
-                  <select
-                    {...control}
-                    value={protocol}
-                    disabled={!canEdit}
-                    onChange={(event) => {
-                      setProtocol(event.target.value === 'HTTP' ? 'HTTP' : 'HTTPS');
-                    }}
-                  >
-                    {FILE_SERVER_PROTOCOLS.map((value) => (
-                      <option key={value} value={value}>
-                        {TEXT.protocolLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </Field>
-              <Field
-                label={TEXT.host}
-                name="connection.host"
-                error={errors['connection.host']}
-                hint={TEXT.hostHint}
-                required
+                label={TEXT.apiKeyHeaderName}
+                name="connection.apiKeyHeaderName"
+                error={errors['connection.apiKeyHeaderName']}
+                hint={TEXT.apiKeyHeaderNameHint}
               >
                 {(control) => (
                   <input
                     {...control}
-                    value={host}
+                    value={apiKeyHeaderName}
                     readOnly={!canEdit}
                     autoComplete="off"
                     spellCheck={false}
                     onChange={(event) => {
-                      setHost(event.target.value);
+                      setApiKeyHeaderName(event.target.value);
                     }}
                   />
                 )}
               </Field>
-              <Field
-                label={TEXT.port}
-                name="connection.port"
-                error={errors['connection.port']}
-                hint={TEXT.portHint}
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    inputMode="numeric"
-                    value={port}
-                    placeholder={String(defaultHttpPort(protocol))}
-                    readOnly={!canEdit}
-                    autoComplete="off"
-                    onChange={(event) => {
-                      setPort(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
-              <p className="field-note muted">{TEXT.filePathNotice}</p>
-              <Field
-                label={TEXT.authMethod}
-                name="connection.authMethod"
-                error={errors['connection.authMethod']}
-              >
-                {(control) => (
-                  <select
-                    {...control}
-                    value={authMethod}
-                    disabled={!canEdit}
-                    onChange={(event) => {
-                      setAuthMethod(
-                        FILE_SERVER_AUTH_METHODS.find((value) => value === event.target.value) ??
-                          'NONE',
-                      );
-                    }}
-                  >
-                    {FILE_SERVER_AUTH_METHODS.map((value) => (
-                      <option key={value} value={value}>
-                        {TEXT.authMethodLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </Field>
-              {authMethod === 'API_KEY' ? (
-                <Field
-                  label={TEXT.apiKeyHeaderName}
-                  name="connection.apiKeyHeaderName"
-                  error={errors['connection.apiKeyHeaderName']}
-                  hint={TEXT.apiKeyHeaderNameHint}
-                >
-                  {(control) => (
-                    <input
-                      {...control}
-                      value={apiKeyHeaderName}
-                      readOnly={!canEdit}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(event) => {
-                        setApiKeyHeaderName(event.target.value);
-                      }}
-                    />
-                  )}
-                </Field>
-              ) : null}
-            </>
-          ) : null}
+            ) : null}
+          </>
           <p className="muted" data-testid={`interval-moved-${source.sourceId}`}>
             {TEXT.intervalMoved}
           </p>
@@ -504,7 +484,7 @@ function SourceCard(props: SourceCardProps): ReactNode {
             </label>
           </div>
         </div>
-        {isHttp && protocol === 'HTTP' ? (
+        {protocol === 'HTTP' ? (
           <p
             role="alert"
             className="notice notice-warning"
@@ -514,7 +494,7 @@ function SourceCard(props: SourceCardProps): ReactNode {
             {TEXT.plaintextWarning}
           </p>
         ) : null}
-        {isHttp && authMethod !== 'NONE' && savedAuthMethod === undefined ? (
+        {authMethod !== 'NONE' && savedAuthMethod === undefined ? (
           <p className="muted" data-testid={`credentials-note-${source.sourceId}`}>
             {TEXT.credentialsAfterSave}
           </p>

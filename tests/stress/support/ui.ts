@@ -115,7 +115,7 @@ export async function runJob(
 export async function setMock(
   request: APIRequestContext,
   userId: string,
-  target: 'file-server' | 'federation' | 'web-push',
+  target: 'federation' | 'web-push',
   mode: 'UP' | 'DOWN' | 'SLOW' | 'REJECT',
 ): Promise<void> {
   const response = await api(request, userId, 'PUT', `/dev/mocks/${target}`, { mode });
