@@ -16,8 +16,6 @@ export const API_PATHS = {
   equipment: (equipmentId: string) => `/equipment/${segment(equipmentId)}`,
   statusCode: (code: string) => `/status-codes/${segment(code)}`,
   user: (userId: string) => `/users/${segment(userId)}`,
-  ingestionTest: (sourceId: string) => `/ingestion/${segment(sourceId)}/test`,
-  ingestionCredentials: (sourceId: string) => `/ingestion/${segment(sourceId)}/credentials`,
   ingestionRun: (sourceId: string) => `/ingestion/${segment(sourceId)}/run`,
   /** 設備ごとの接続（Issue #367。ADR-0026）。 */
   ingestionEquipmentConnection: (equipmentId: string) =>

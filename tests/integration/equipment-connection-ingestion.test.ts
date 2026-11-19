@@ -1,6 +1,6 @@
 /**
  * 設備ごとの接続での取り込み（Issue #367。ADR-0026）の結合テスト。
- * 設備に自分の接続があれば、それを使い（認証情報も、設備ごと）、なければ、取り込み元の共通の接続を使う（移行期間）。
+ * 接続は、設備ごと（認証情報も、設備ごと）。設備に接続がなければ、「接続先が設定されていません」の失敗にする（共通の接続は、廃止した）。
  * 1 台の接続の失敗（停止・認証の失敗・未設定）が、同じ取り込み元の、ほかの設備の取り込みを止めない（失敗の分離）。
  * 別々の HTTP のテスト用サーバー（tests/support/http-file-server.ts）に、設備ごとに接続する。認証情報は、明らかにダミーとわかる値。
  */
@@ -137,7 +137,7 @@ interface Harness {
 
 /**
  * 2 つのハウスのロボットが、別々のサーバーにファイルを持つ組み立て。ロボット（ROBOT_ID）は FILE_A（サーバー A）、
- * ロボット 2（ROBOT_2_ID）は FILE_B（サーバー B）。設備ごとの接続・取り込み元の共通の接続は、まだ設定しない（テストが設定する）。
+ * ロボット 2（ROBOT_2_ID）は FILE_B（サーバー B）。設備ごとの接続は、まだ設定しない（テストが設定する）。
  */
 async function setup(): Promise<Harness> {
   const context = await withEquipment({ env: HTTP_FILES_ENV });
@@ -214,26 +214,33 @@ describe('設備ごとの接続での取り込み', () => {
     expect(await logsOf(harness.context, ROBOT_2_ID)).toHaveLength(1);
   });
 
-  it('設備の接続は、取り込み元の共通の接続より優先される。接続のない設備は、共通の接続を使う', async () => {
+  it('以前に保存された取り込み元の共通の接続（connection・connectionRef）があっても、接続のない設備は、使わない（共通の接続へのフォールバックは、ない）', async () => {
     const harness = await setup();
     const { context, serverA, serverB } = harness;
-    // 共通の接続は、サーバー B。ロボットだけ、自分の接続（サーバー A）を持つ。ロボット 2 は、共通の接続（サーバー B）を使う
+    // 以前の版が保存した形（取り込み元の共通の接続は、サーバー B）を、設定の保管先に直接置く。ロボットだけ、自分の接続（サーバー A）を持つ
     await harness.connections.save(ROBOT_ID, connectionTo(serverA.port));
     const sources = await context.container.ingestionSettings.listSources();
-    await context.container.ingestionSettings.saveSources(
-      sources.map((source) => ({ ...source, connection: connectionTo(serverB.port) })),
+    await context.container.repositories.settings.set(
+      'ingestion.sources',
+      sources.map((source) => ({
+        ...source,
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: connectionTo(serverB.port),
+      })),
     );
 
     const summary = await context.container.ingestionService.runSource('robot');
 
-    expect(summary).toMatchObject({ result: 'SUCCESS', filesProcessed: 2, recordCount: 2 });
-    // ロボットのファイル（FILE_A）は、サーバー A に問い合わせた（共通の接続のサーバー B には、FILE_A の問い合わせがない）
+    expect(summary).toMatchObject({ result: 'PARTIAL', filesProcessed: 1, recordCount: 1 });
+    // ロボットのファイル（FILE_A）は、サーバー A に問い合わせた。ロボット 2 は、共通の接続（サーバー B）に、問い合わせない
     expect(headsOf(serverA, FILE_A)).toBe(1);
-    expect(headsOf(serverB, FILE_A)).toBe(0);
-    expect(headsOf(serverB, FILE_B)).toBe(1);
+    expect(serverB.requests).toEqual([]);
+    expect(await logsOf(harness.context, ROBOT_2_ID)).toMatchObject([
+      { result: 'FAILURE', errorMessage: '接続先が設定されていません' },
+    ]);
   });
 
-  it('設備に接続がなく、共通の接続もない設備は、「接続先が設定されていません」で失敗する。接続のある設備は、取り込む', async () => {
+  it('設備に接続がない設備は、「接続先が設定されていません」で失敗する。接続のある設備は、取り込む', async () => {
     const harness = await setup();
     await harness.connections.save(ROBOT_ID, connectionTo(harness.serverA.port));
 
@@ -249,7 +256,7 @@ describe('設備ごとの接続での取り込み', () => {
     expect(harness.serverB.requests).toEqual([]);
   });
 
-  it('設備ごとの認証情報（BASIC。設備ごとに別の値）で取得できる。共通の接続の設備は、取り込み元の認証情報を使う', async () => {
+  it('設備ごとの認証情報（BASIC。設備ごとに別の値）で取得できる。別の設備の認証情報は、使わない', async () => {
     const harness = await setup();
     const { context, connections } = harness;
     const server = await startBasicAuthServer({
@@ -259,14 +266,15 @@ describe('設備ごとの接続での取り込み', () => {
         body: robotFile('ROBOT-SAMPLE-01'),
       },
       [FILE_B]: {
-        username: 'dummy-user-shared',
-        password: 'dummy-password-shared',
+        username: 'dummy-user-b',
+        password: 'dummy-password-b',
         body: robotFile('ROBOT-SAMPLE-02'),
       },
     });
     const basic = connectionTo(server.port, { authMethod: 'BASIC' });
-    // ロボット: 設備ごとの接続・認証情報。ロボット 2: 取り込み元の共通の接続・認証情報
+    // ロボット・ロボット 2: 設備ごとの接続・認証情報（別の値）
     await connections.save(ROBOT_ID, basic);
+    await connections.save(ROBOT_2_ID, basic);
     await context.container.secrets.set(
       fileServerEquipmentSecretReference(ROBOT_ID),
       credentialsSecretValue({
@@ -275,16 +283,12 @@ describe('設備ごとの接続での取り込み', () => {
         password: 'dummy-password-a',
       }),
     );
-    const sources = await context.container.ingestionSettings.listSources();
-    await context.container.ingestionSettings.saveSources(
-      sources.map((source) => ({ ...source, connection: basic })),
-    );
     await context.container.secrets.set(
-      'file-server/robot',
+      fileServerEquipmentSecretReference(ROBOT_2_ID),
       credentialsSecretValue({
         authMethod: 'BASIC',
-        username: 'dummy-user-shared',
-        password: 'dummy-password-shared',
+        username: 'dummy-user-b',
+        password: 'dummy-password-b',
       }),
     );
 
@@ -651,7 +655,6 @@ describe('一覧の再試行（スタブのファイルソース）', () => {
     const { context } = await setup();
     const calls: (readonly string[] | undefined)[] = [];
     const fileSource: FileSourcePort = {
-      testConnection: () => Promise.resolve(),
       testEquipment: () => Promise.resolve(),
       listFiles: (_sourceId, options) => {
         calls.push(options?.paths);

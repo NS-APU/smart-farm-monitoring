@@ -1,7 +1,7 @@
 /**
  * 設備ごとのファイルサーバーの接続（Issue #367。ADR-0026。UC-12・UC-15）の管理 API・管理サービスの結合テスト。
  * - `PUT・DELETE /ingestion/equipment/{equipmentId}/connection`・`PUT .../credentials`・`POST .../test`
- * - `GET /ingestion/settings` の設備ごとの項目（ファイルのパス・接続・出どころ・認証情報の状態）
+ * - `GET /ingestion/settings` の設備ごとの項目（ファイルのパス・接続・認証情報の状態）
  * - 設備の削除で、設備ごとの接続も削除する。認証情報の値は、応答・ログ・変更履歴に残さない（NFR-5.4）
  * データはメモリ（実際の AWS には、接続しない）。認証情報は、明らかにダミーとわかる値。
  */
@@ -97,25 +97,6 @@ async function putConnection(
   return send(context, 'PUT', connectionPath(equipmentId), { connection: value });
 }
 
-/** 取り込み元（ロボット・センサー）の共通の接続を設定する（移行期間の共通の接続）。 */
-async function setSharedConnection(
-  context: TestContext,
-  sourceId: 'robot' | 'environment-sensor',
-  value: Record<string, unknown>,
-) {
-  const response = await send(context, 'PUT', '/ingestion/settings', {
-    sources: [
-      {
-        sourceId,
-        connectionRef: 'FILE_SERVER_MOCK',
-        isEnabled: true,
-        connection: value,
-      },
-    ],
-  });
-  expect(response.status).toBe(200);
-}
-
 async function describeEquipment(context: TestContext, sourceId: string, equipmentId: string) {
   const body = IngestionSettingsResponseSchema.parse(
     await (await send(context, 'GET', '/ingestion/settings')).json(),
@@ -130,7 +111,7 @@ async function describeEquipment(context: TestContext, sourceId: string, equipme
 }
 
 describe('PUT /ingestion/equipment/{equipmentId}/connection（設備ごとの接続の保存）', () => {
-  it('ロボットの接続を保存し、応答は、出どころ EQUIPMENT・接続・認証情報の状態を示す。保存先に、その設備の接続が入る', async () => {
+  it('ロボットの接続を保存し、応答は、接続・認証情報の状態を示す。保存先に、その設備の接続が入る', async () => {
     const { context } = await setup();
 
     const response = await putConnection(context, ROBOT_ID, connection('NONE', { port: 8443 }));
@@ -139,7 +120,6 @@ describe('PUT /ingestion/equipment/{equipmentId}/connection（設備ごとの接
     const body = EquipmentConnectionResponseSchema.parse(await response.json());
     expect(body).toMatchObject({
       equipmentId: ROBOT_ID,
-      connectionOrigin: 'EQUIPMENT',
       connection: { type: 'HTTP', protocol: 'HTTPS', host: DUMMY_HOST, port: 8443 },
       credentials: { state: 'NOT_REQUIRED' },
     });
@@ -268,8 +248,8 @@ describe('PUT /ingestion/equipment/{equipmentId}/connection（設備ごとの接
   });
 });
 
-describe('DELETE /ingestion/equipment/{equipmentId}/connection（共通の接続に戻る）', () => {
-  it('設備ごとの接続を削除する。共通の接続がなければ NONE、あれば SHARED（共通の接続と、共通の認証情報の状態）', async () => {
+describe('DELETE /ingestion/equipment/{equipmentId}/connection（未設定に戻す）', () => {
+  it('設備ごとの接続を削除する。削除後は、接続なし（共通の接続に戻らない。保存済みの旧い共通の接続があっても、使わない）', async () => {
     const { context } = await setup();
     await putConnection(
       context,
@@ -283,16 +263,21 @@ describe('DELETE /ingestion/equipment/{equipmentId}/connection（共通の接続
     expect(cleared.status).toBe(200);
     expect(clearedBody).toEqual({
       equipmentId: ROBOT_ID,
-      connectionOrigin: 'NONE',
       credentials: { state: 'NOT_REQUIRED' },
     });
     expect((await context.container.equipmentConnections.list()).has(ROBOT_ID)).toBe(false);
 
-    await setSharedConnection(
-      context,
-      'robot',
-      connection('BEARER', { host: 'dummy-shared.example.invalid' }),
-    );
+    // 以前の版が保存した、取り込み元の共通の接続（無視される）があっても、削除後は、接続なしのまま
+    await context.container.repositories.settings.set('ingestion.sources', [
+      {
+        sourceId: 'robot',
+        kind: 'ROBOT',
+        profileId: 'robot-json',
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: connection('BEARER', { host: 'dummy-shared.example.invalid' }),
+        isEnabled: true,
+      },
+    ]);
     await putConnection(
       context,
       ROBOT_ID,
@@ -300,10 +285,9 @@ describe('DELETE /ingestion/equipment/{equipmentId}/connection（共通の接続
     );
     const back = await send(context, 'DELETE', connectionPath(ROBOT_ID));
 
-    expect(EquipmentConnectionResponseSchema.parse(await back.json())).toMatchObject({
-      connectionOrigin: 'SHARED',
-      connection: { host: 'dummy-shared.example.invalid', authMethod: 'BEARER' },
-      credentials: { state: 'NOT_CONFIGURED' },
+    expect(EquipmentConnectionResponseSchema.parse(await back.json())).toEqual({
+      equipmentId: ROBOT_ID,
+      credentials: { state: 'NOT_REQUIRED' },
     });
   });
 
@@ -407,9 +391,8 @@ describe('PUT /ingestion/equipment/{equipmentId}/credentials（設備ごとの�
     ).toBeUndefined();
   });
 
-  it('設備ごとの接続が未設定なら 400（取り込み元の共通の接続があっても、設備ごとの接続の保存が先に必要）', async () => {
+  it('設備ごとの接続が未設定なら 400（先に、設備ごとの接続の保存が必要）', async () => {
     const { context } = await setup();
-    await setSharedConnection(context, 'robot', connection('BEARER'));
 
     const response = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
@@ -479,8 +462,8 @@ describe('PUT /ingestion/equipment/{equipmentId}/credentials（設備ごとの�
   });
 });
 
-describe('GET /ingestion/settings の設備ごとの項目（出どころ・接続・認証情報の状態）', () => {
-  it('どちらの接続もない設備は、出どころ NONE（接続なし・認証情報は不要）。ファイルのパスを示す', async () => {
+describe('GET /ingestion/settings の設備ごとの項目（接続・認証情報の状態）', () => {
+  it('接続がない設備は、接続なし（認証情報は不要）。ファイルのパスを示す', async () => {
     const { context } = await setup();
     const robot = await context.container.repositories.equipment.get(ROBOT_ID);
     if (robot === undefined) {
@@ -495,7 +478,6 @@ describe('GET /ingestion/settings の設備ごとの項目（出どころ・接�
 
     expect(item).toMatchObject({
       sourceFilePath: '/dummy/robot-01.json',
-      connectionOrigin: 'NONE',
       credentials: { state: 'NOT_REQUIRED' },
     });
     expect(item.connection).toBeUndefined();
@@ -504,44 +486,52 @@ describe('GET /ingestion/settings の設備ごとの項目（出どころ・接�
     );
   });
 
-  it('取り込み元の共通の接続だけがあれば、SHARED（共通の接続と、共通の認証情報の状態）。取り込み元の項目の共通の接続・認証情報は、そのまま', async () => {
+  it('以前に保存された取り込み元の接続（connection・connectionRef）は、読めるが、応答に出さない。設備の接続には、使わない', async () => {
     const { context } = await setup();
-    await setSharedConnection(
-      context,
-      'robot',
-      connection('BEARER', { host: 'dummy-shared.example.invalid' }),
-    );
+    // 以前の版が保存した形（取り込み元ごとの共通の接続・参照名・取得間隔）を、設定の保管先に直接置く
+    await context.container.repositories.settings.set('ingestion.sources', [
+      {
+        sourceId: 'robot',
+        kind: 'ROBOT',
+        profileId: 'robot-json',
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: connection('BEARER', { host: 'dummy-shared.example.invalid' }),
+        intervalMinutes: 15,
+        isEnabled: false,
+      },
+      {
+        sourceId: 'environment-sensor',
+        kind: 'SENSOR',
+        profileId: 'environment-sensor-json',
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection: connection('NONE', { host: 'dummy-shared.example.invalid' }),
+        isEnabled: true,
+      },
+    ]);
 
-    const item = await describeEquipment(context, 'robot', ROBOT_ID);
-    const settings = IngestionSettingsResponseSchema.parse(
-      await (await send(context, 'GET', '/ingestion/settings')).json(),
-    );
-    const source = settings.sources.find((candidate) => candidate.sourceId === 'robot');
+    const response = await send(context, 'GET', '/ingestion/settings');
 
-    expect(item).toMatchObject({
-      connectionOrigin: 'SHARED',
-      connection: { host: 'dummy-shared.example.invalid', authMethod: 'BEARER' },
-      credentials: { state: 'NOT_CONFIGURED' },
-    });
-    expect(source?.connection).toMatchObject({ host: 'dummy-shared.example.invalid' });
-    expect(source?.credentials).toEqual({ state: 'NOT_CONFIGURED' });
-
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
-      authMethod: 'BEARER',
-      token: DUMMY_TOKEN,
-    });
-    expect((await describeEquipment(context, 'robot', ROBOT_ID)).credentials.state).toBe(
-      'CONFIGURED',
-    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain('dummy-shared.example.invalid');
+    const body = IngestionSettingsResponseSchema.parse(JSON.parse(text));
+    expect(body.sources.map((source) => [source.sourceId, source.isEnabled])).toEqual([
+      ['robot', false],
+      ['environment-sensor', true],
+    ]);
+    for (const source of body.sources) {
+      expect(Object.keys(source)).not.toContain('connection');
+      expect(Object.keys(source)).not.toContain('connectionRef');
+      expect(Object.keys(source)).not.toContain('credentials');
+      for (const item of source.equipment) {
+        expect(item.connection).toBeUndefined();
+        expect(item.credentials).toEqual({ state: 'NOT_REQUIRED' });
+      }
+    }
   });
 
-  it('設備ごとの接続があれば、共通の接続があっても、EQUIPMENT（設備の接続と、設備の認証情報の状態）。もう一方の種別・設備は、影響を受けない', async () => {
+  it('設備ごとの接続があれば、設備の接続と、設備の認証情報の状態を示す。もう一方の種別・設備は、影響を受けない', async () => {
     const { context } = await setup();
-    await setSharedConnection(
-      context,
-      'robot',
-      connection('BEARER', { host: 'dummy-shared.example.invalid' }),
-    );
     await putConnection(
       context,
       ROBOT_ID,
@@ -558,15 +548,12 @@ describe('GET /ingestion/settings の設備ごとの項目（出どころ・接�
     const sensor = await describeEquipment(context, 'environment-sensor', SENSOR_ID);
 
     expect(before).toMatchObject({
-      connectionOrigin: 'EQUIPMENT',
       connection: { host: 'dummy-own.example.invalid', authMethod: 'BASIC' },
       credentials: { state: 'NOT_CONFIGURED' },
     });
     expect(after.credentials.state).toBe('CONFIGURED');
-    expect(sensor).toMatchObject({
-      connectionOrigin: 'NONE',
-      credentials: { state: 'NOT_REQUIRED' },
-    });
+    expect(sensor.connection).toBeUndefined();
+    expect(sensor.credentials).toEqual({ state: 'NOT_REQUIRED' });
   });
 
   it('認証なし（NONE）の設備ごとの接続は、認証情報が不要。保管先は、読まない', async () => {
@@ -580,7 +567,7 @@ describe('GET /ingestion/settings の設備ごとの項目（出どころ・接�
     expect(status).not.toHaveBeenCalled();
   });
 
-  it('保管先の読み出しは、認証が必要な設備ごとに 1 回（設備ごとの接続が EQUIPMENT の設備）。保管先の障害は、UNAVAILABLE（設定は、読める）', async () => {
+  it('保管先の読み出しは、認証が必要な設備ごとに 1 回。保管先の障害は、UNAVAILABLE（設定は、読める）', async () => {
     const { context } = await setup();
     await putConnection(context, ROBOT_ID, connection('BASIC'));
     await putConnection(context, SENSOR_ID, connection('BEARER'));

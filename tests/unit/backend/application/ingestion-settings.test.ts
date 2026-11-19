@@ -49,11 +49,7 @@ describe('保存済みの設定の、旧い FormatProfile の識別子の読み�
       'robot-json',
       'environment-sensor-json',
     ]);
-    expect(sources[1]).toMatchObject({
-      sourceId: 'environment-sensor',
-      connectionRef: 'FILE_SERVER_MOCK',
-      isEnabled: true,
-    });
+    expect(sources[1]).toMatchObject({ sourceId: 'environment-sensor', isEnabled: true });
   });
 
   it('以前に保存された、取り込み元ごとの取得間隔は、読み込むときに無視する（取得間隔は、設備ごと。#197）。保存し直すと、残らない', async () => {
@@ -68,6 +64,47 @@ describe('保存済みの設定の、旧い FormatProfile の識別子の読み�
     expect(JSON.stringify(await repositories.settings.get(INGESTION_SETTINGS_KEY))).not.toContain(
       'intervalMinutes',
     );
+  });
+
+  it('以前に保存された、取り込み元の共通の接続（connection）・接続設定の参照名（connectionRef）は、読み込むときに無視する（接続は、設備ごと。#367）。保存し直すと、残らない', async () => {
+    const { repositories } = createLocalRepositories();
+    await repositories.settings.set(INGESTION_SETTINGS_KEY, [
+      {
+        ...storedSource('robot', 'robot-json'),
+        connection: {
+          type: 'HTTP',
+          protocol: 'HTTPS',
+          host: 'dummy-files.example.invalid',
+          authMethod: 'NONE',
+        },
+      },
+    ]);
+    const settings = createIngestionSettings(repositories.settings);
+
+    const sources = await settings.listSources();
+    await settings.saveSources(sources);
+
+    expect(sources[0]).not.toHaveProperty('connection');
+    expect(sources[0]).not.toHaveProperty('connectionRef');
+    expect(sources[0]).toMatchObject({
+      sourceId: 'robot',
+      profileId: 'robot-json',
+      isEnabled: true,
+    });
+    const saved = JSON.stringify(await repositories.settings.get(INGESTION_SETTINGS_KEY));
+    expect(saved).not.toContain('connection');
+    expect(saved).not.toContain('dummy-files.example.invalid');
+  });
+
+  it('保存がなければ、既定の取り込み元は、接続・接続設定の参照名を持たない', async () => {
+    const { repositories } = createLocalRepositories();
+
+    const sources = await createIngestionSettings(repositories.settings).listSources();
+
+    for (const source of sources) {
+      expect(source).not.toHaveProperty('connection');
+      expect(source).not.toHaveProperty('connectionRef');
+    }
   });
 
   it('読み替えた設定を保存し直しても、新しい識別子になる（旧い識別子は、残らない）', async () => {

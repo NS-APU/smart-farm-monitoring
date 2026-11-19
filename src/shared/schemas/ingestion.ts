@@ -134,29 +134,15 @@ export function describeConnectionTarget(
   return `${scheme}://${connection.host}${port}`;
 }
 
-/** 以前の接続方式 MOCK（廃止。ADR-0025）の保存済みの設定を、未設定として読み替える。それ以外は、そのまま。 */
-function dropLegacyMockConnection(value: unknown): unknown {
-  return typeof value === 'object' && value !== null && 'type' in value && value.type === 'MOCK'
-    ? undefined
-    : value;
-}
-
 /**
- * 取り込み元の設定。認証情報の値は持たず、接続設定の参照名（connectionRef）のみ持つ（NFR-5.4）。
+ * 取り込み元の設定（取り込み元ごとの有効／無効）。接続・認証情報は、設備ごと（Issue #367。ADR-0026）。
+ * 以前に保存された取り込み元の接続（`connection`）・接続設定の参照名（`connectionRef`）は、読み込むときに無視する（共通の接続の廃止）。
  */
 export const IngestionSourceSchema = z.object({
   sourceId: z.string().min(1).max(100),
   kind: z.enum(INGESTION_SOURCE_KINDS),
   /** 解釈に使う FormatProfile の識別子。 */
   profileId: z.string().min(1),
-  connectionRef: z.string().min(1),
-  /**
-   * ファイルサーバーの接続設定。未設定のとき（保存がない・以前の接続方式 MOCK で保存された設定）は、省略。
-   * 以前に保存された `{ type: 'MOCK' }` は、読み込むときに、未設定として読み替える（移行しない。ADR-0025）。
-   */
-  connection: z
-    .preprocess(dropLegacyMockConnection, FileServerConnectionSchema.optional())
-    .optional(),
   /**
    * 取得間隔は、設備ごとの設定（Equipment.intervalMinutes。Issue #197）。以前に保存された取り込み元ごとの取得間隔は、
    * 読み込むときに無視する（移行しない）。
@@ -245,17 +231,9 @@ export const FederationItemSchema = z.object({
 });
 export type FederationItem = z.infer<typeof FederationItemSchema>;
 
-/** 取り込み元の設定の変更（接続先の参照名・有効／無効。FR-1.4）。取得間隔は、設備ごと（Issue #197）。 */
+/** 取り込み元の設定の変更（有効／無効。FR-1.4）。接続は設備ごと（Issue #367）、取得間隔も設備ごと（Issue #197）。 */
 export const IngestionSourceUpdateSchema = z.object({
   sourceId: z.string().min(1).max(100),
-  connectionRef: z
-    .string()
-    .trim()
-    .min(1, '接続先の参照名を入力してください')
-    .max(100, '接続先の参照名は100文字以内で指定してください')
-    .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, '接続先の参照名は英数字・記号（_ . -）のみ使えます'),
-  /** 省略は、現在の接続設定を保つ。 */
-  connection: FileServerConnectionSchema.optional(),
   isEnabled: z.boolean(),
 });
 export type IngestionSourceUpdate = z.infer<typeof IngestionSourceUpdateSchema>;
@@ -291,7 +269,7 @@ function secretTokenSchema(requiredMessage: string) {
 
 /**
  * ファイルサーバーの認証情報の登録（Issue #207。D-47）。書き込み専用で、保存後は、値を再表示しない。
- * 認証方式は、保存済みの接続設定と同じでなければならない。値は、SecretPort（file-server/<取り込み元>）に保存する。
+ * 認証方式は、保存済みの接続設定と同じでなければならない。値は、SecretPort（file-server/equipment/<設備 ID のハッシュ>）に保存する。
  */
 export const IngestionCredentialsInputSchema = z.discriminatedUnion('authMethod', [
   z.object({
@@ -328,28 +306,20 @@ export const IngestionCredentialStatusSchema = z.object({
 });
 export type IngestionCredentialStatus = z.infer<typeof IngestionCredentialStatusSchema>;
 
-/**
- * 設備が実際に使う接続の出どころ（Issue #367。ADR-0026）。EQUIPMENT = 設備ごとの接続、SHARED = 取り込み元の共通の接続（移行期間だけ。
- * 共通の接続の廃止で、なくなる）、NONE = どちらもない（未設定。取り込みは「接続先が設定されていません」で失敗する）。
- */
-export const CONNECTION_ORIGINS = ['EQUIPMENT', 'SHARED', 'NONE'] as const;
-export type ConnectionOrigin = (typeof CONNECTION_ORIGINS)[number];
-
 /** 設備ごとの、取り込みの最終の実行（Issue #201）。一度も実行していない設備は、日時・結果が null。 */
 export const EquipmentIngestionStatusSchema = z.object({
   equipmentId: EquipmentIdSchema,
   name: z.string(),
   /** 設備のファイルのパス（Equipment.sourceFilePath）。取り込みの対象は、ファイルのパスを持つ設備だけ。 */
   sourceFilePath: z.string().optional(),
-  /** 設備が実際に使う接続（設備ごとの接続。なければ共通の接続）。どちらもなければ、省略。 */
+  /** 設備の接続（Issue #367。ADR-0026）。未設定なら、省略（取り込みは「接続先が設定されていません」で失敗する）。 */
   connection: FileServerConnectionSchema.optional(),
-  connectionOrigin: z.enum(CONNECTION_ORIGINS).default('NONE'),
   /**
    * 「データが古い（取り込みが停止中）」の基準（分）。その設備の取得間隔 × 倍数（サーバーの設定 `STALE_AFTER_INTERVALS`）、最低 3 分
    * （ダッシュボードと同じ基準。ADR-0016 の D-12）。画面は、最後にデータが取れた日時から、この分数を超えていれば「停止中」にする。
    */
   staleThresholdMinutes: z.number().positive().optional(),
-  /** 設備の認証情報の状態（出どころが EQUIPMENT のとき、設備の認証情報。SHARED のとき、共通の認証情報）。値は含めない。 */
+  /** 設備の認証情報の状態（接続が未設定、または、認証方式が「なし」なら、不要）。値は含めない。 */
   credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
   lastStartedAt: IsoDateTimeSchema.nullable(),
   lastResult: z.enum(INGESTION_RESULTS).nullable(),
@@ -371,8 +341,6 @@ export const IngestionSourceStatusSchema = IngestionSourceSchema.extend({
   /** その取り込み元の種別の設備ごとの、最終の実行（設備の一覧の順。Issue #201）。 */
   equipment: z.array(EquipmentIngestionStatusSchema).default([]),
   isRunning: z.boolean(),
-  /** 認証情報の状態（設定済み／未設定と更新日時。値は含めない）。 */
-  credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
 });
 export type IngestionSourceStatus = z.infer<typeof IngestionSourceStatusSchema>;
 
@@ -387,11 +355,10 @@ export const EquipmentConnectionUpdateSchema = z.object({
 });
 export type EquipmentConnectionUpdate = z.infer<typeof EquipmentConnectionUpdateSchema>;
 
-/** 設備ごとの接続の、保存・削除の応答。削除のあとの出どころは、共通の接続があれば SHARED、なければ NONE。 */
+/** 設備ごとの接続の、保存・削除の応答。削除のあとは、接続は省略（未設定）。 */
 export const EquipmentConnectionResponseSchema = z.object({
   equipmentId: EquipmentIdSchema,
   connection: FileServerConnectionSchema.optional(),
-  connectionOrigin: z.enum(CONNECTION_ORIGINS),
   credentials: IngestionCredentialStatusSchema,
 });
 export type EquipmentConnectionResponse = z.infer<typeof EquipmentConnectionResponseSchema>;

@@ -166,12 +166,13 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
   const FEED_URL = 'https://demo-feed.example.com/';
   const APPLIED = '取り込みを、デモ用の HTTP 配信に向けました';
 
-  async function robotSourceConnection(container: Awaited<ReturnType<typeof setup>>['container']) {
-    const sources = await container.ingestionSettings.listSources();
-    return sources.map((source) => [source.sourceId, source.connection] as const);
+  /** 設備ごとの接続（設備 ID の順）。 */
+  async function equipmentConnectionsOf(container: Awaited<ReturnType<typeof setup>>['container']) {
+    const saved = await container.equipmentConnections.list();
+    return [...saved].sort(([left], [right]) => left.localeCompare(right));
   }
 
-  it('seed のあとに、取り込み元の接続を HTTP にする（--url）。接続先は、出力しない。何度実行しても、同じ', async () => {
+  it('seed のあとに、デモの設備ごとの接続を HTTP にする（--url）。接続先は、出力しない。何度実行しても、同じ', async () => {
     const { run, container } = await setup();
     await run(['seed']);
 
@@ -180,22 +181,19 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
 
     expect(first).toEqual({
       exitCode: 0,
-      lines: [`info: ${APPLIED}（取り込み元 2 件・ファイルのパスを設定した設備 2 件）`],
+      lines: [`info: ${APPLIED}（接続を設定した設備 2 件・ファイルのパスを設定した設備 2 件）`],
     });
     expect(second).toEqual({
       exitCode: 0,
-      lines: [`info: ${APPLIED}（取り込み元 2 件・ファイルのパスを設定した設備 0 件）`],
+      lines: [`info: ${APPLIED}（接続を設定した設備 2 件・ファイルのパスを設定した設備 0 件）`],
     });
     expect(first.lines.join('')).not.toContain('demo-feed.example.com');
-    expect(await robotSourceConnection(container)).toEqual([
+    expect(await equipmentConnectionsOf(container)).toEqual([
       [
-        'robot',
+        'ROBOT-01',
         expect.objectContaining({ type: 'HTTP', protocol: 'HTTPS', host: 'demo-feed.example.com' }),
       ],
-      [
-        'environment-sensor',
-        expect.objectContaining({ type: 'HTTP', host: 'demo-feed.example.com' }),
-      ],
+      ['SENSOR-01', expect.objectContaining({ type: 'HTTP', host: 'demo-feed.example.com' })],
     ]);
   });
 
@@ -246,9 +244,9 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
     expect(result.lines).toHaveLength(2);
     expect(result.lines[0]).toContain('デモデータを投入しました');
     expect(result.lines[1]).toContain(APPLIED);
-    expect(await robotSourceConnection(container)).toEqual([
-      ['robot', expect.objectContaining({ type: 'HTTP' })],
-      ['environment-sensor', expect.objectContaining({ type: 'HTTP' })],
+    expect(await equipmentConnectionsOf(container)).toEqual([
+      ['ROBOT-01', expect.objectContaining({ type: 'HTTP' })],
+      ['SENSOR-01', expect.objectContaining({ type: 'HTTP' })],
     ]);
   });
 
@@ -270,11 +268,8 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
 
       expect(result.exitCode).toBe(1);
       expect(result.lines[0]).toContain(message);
-      // 何も変えない = 既定のまま（接続は、未設定）
-      expect((await robotSourceConnection(container)).map(([, connection]) => connection)).toEqual([
-        undefined,
-        undefined,
-      ]);
+      // 何も変えない = 既定のまま（設備ごとの接続は、未設定）
+      expect(await equipmentConnectionsOf(container)).toEqual([]);
     },
   );
 

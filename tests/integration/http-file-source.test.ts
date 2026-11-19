@@ -1,6 +1,7 @@
 /**
- * ファイルサーバーの接続設定（HTTP）の結合テスト（Issue #172・#119。ADR-0022・ADR-0023。UC-15）。
- * 取り込み設定の保存（検証・変更履歴）と、接続テスト・取り込み（手元の HTTP サーバー・秘密情報・認証方式・設備ごとのファイルパス）を、API を通して確かめる。
+ * ファイルサーバーの接続設定（HTTP）の結合テスト（Issue #172・#119・#367。ADR-0022・ADR-0023・ADR-0026。UC-15）。
+ * 設備ごとの接続の保存（検証・変更履歴）と、接続テスト・取り込み（手元の HTTP サーバー・秘密情報・認証方式・設備ごとのファイルパス）を、API を通して確かめる。
+ * 接続・認証情報は、設備ごと（共通の接続・`PUT /ingestion/{sourceId}/credentials`・`POST /ingestion/{sourceId}/test` は、廃止した）。
  * 認証情報は、明らかにダミーとわかる値。内部のアドレスは、既定で拒否する（HTTP_FILE_SOURCE_ALLOW_PRIVATE で、テストだけ許可）。
  */
 
@@ -10,14 +11,10 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuditLogListResponseSchema } from '@smart-farm/shared/schemas/audit';
 import { IngestionSettingsResponseSchema } from '@smart-farm/shared/schemas/ingestion';
+import { fileServerEquipmentSecretReference } from '../../src/backend/application/ingestion/file-server-credentials.ts';
 import { ROBOT_ID, equipmentSet } from '../support/builders.ts';
 import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
-import {
-  createTestContext,
-  errorOf,
-  withEquipment,
-  type TestContext,
-} from '../support/test-context.ts';
+import { errorOf, withEquipment, type TestContext } from '../support/test-context.ts';
 
 const servers: Server[] = [];
 
@@ -61,18 +58,12 @@ function httpConnection(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function update(context: TestContext, connection?: unknown) {
-  return send(context, 'PUT', '/ingestion/settings', {
-    sources: [
-      {
-        sourceId: 'robot',
-        connectionRef: 'FILE_SERVER_MOCK',
-        intervalMinutes: 15,
-        isEnabled: true,
-        ...(connection === undefined ? {} : { connection }),
-      },
-    ],
-  });
+const testPath = (equipmentId: string) => `/ingestion/equipment/${equipmentId}/test`;
+const ROBOT_SECRET = fileServerEquipmentSecretReference(ROBOT_ID);
+
+/** ロボットの接続を保存する（設備ごと。ADR-0026）。 */
+function update(context: TestContext, connection: unknown) {
+  return send(context, 'PUT', `/ingestion/equipment/${ROBOT_ID}/connection`, { connection });
 }
 
 /** 設備（ロボット）に、ファイルパスを設定する（取得するファイルは、設備ごと。ADR-0023）。 */
@@ -84,30 +75,33 @@ async function withRobotFilePath(context: TestContext, sourceFilePath: string): 
   await context.container.repositories.equipment.save({ ...robot, sourceFilePath });
 }
 
-async function robotSource(context: TestContext) {
+/** 設定の応答の、ロボットの設備の項目（接続・認証情報の状態）。 */
+async function robotItem(context: TestContext) {
   const body = IngestionSettingsResponseSchema.parse(
     await (await send(context, 'GET', '/ingestion/settings')).json(),
   );
-  return body.sources[0];
+  return body.sources
+    .flatMap((source) => source.equipment)
+    .find((item) => item.equipmentId === ROBOT_ID);
 }
 
-describe('接続設定の保存', () => {
-  it('既定の取り込み元は、接続が未設定', async () => {
+describe('接続設定の保存（設備ごと）', () => {
+  it('既定の設備は、接続が未設定', async () => {
     const context = await withEquipment();
 
-    expect((await robotSource(context))?.connection).toBeUndefined();
+    expect((await robotItem(context))?.connection).toBeUndefined();
   });
 
-  it('接続方式 MOCK（廃止。ADR-0025）は、保存できない（検証エラー）。保存済みの設定は、変わらない', async () => {
+  it('接続方式 MOCK（廃止。ADR-0025）は、設備の接続に保存できない（検証エラー）。保存済みの設定は、変わらない', async () => {
     const context = await withEquipment();
 
     const response = await update(context, { type: 'MOCK' });
 
     expect(response.status).toBe(400);
-    expect((await robotSource(context))?.connection).toBeUndefined();
+    expect((await robotItem(context))?.connection).toBeUndefined();
   });
 
-  it('以前に保存された接続方式 MOCK は、未設定として読める。取り込み設定を取得できる', async () => {
+  it('以前に保存された取り込み元の接続（接続方式 MOCK）は、無視される。取り込み設定を取得できる（設備の接続は、未設定）', async () => {
     const context = await withEquipment();
     // 以前の版が保存した形（接続方式 MOCK）を、設定の保管先に直接置く
     await context.container.repositories.settings.set('ingestion.sources', [
@@ -133,11 +127,12 @@ describe('接続設定の保存', () => {
 
     expect(response.status).toBe(200);
     const body = IngestionSettingsResponseSchema.parse(await response.json());
-    expect(body.sources.map((source) => source.connection)).toEqual([undefined, undefined]);
-    expect(body.sources[0]).toMatchObject({
-      sourceId: 'robot',
-      credentials: { state: 'NOT_REQUIRED' },
-    });
+    expect(body.sources.map((source) => Object.keys(source).includes('connection'))).toEqual([
+      false,
+      false,
+    ]);
+    expect((await robotItem(context))?.connection).toBeUndefined();
+    expect((await robotItem(context))?.credentials).toEqual({ state: 'NOT_REQUIRED' });
   });
 
   it('HTTP の接続設定を保存でき、変更履歴に残る。値（パスワードなど）は、含まれない', async () => {
@@ -146,7 +141,7 @@ describe('接続設定の保存', () => {
     const response = await update(context, httpConnection({ port: 8443 }));
 
     expect(response.status).toBe(200);
-    expect((await robotSource(context))?.connection).toEqual({
+    expect((await robotItem(context))?.connection).toEqual({
       type: 'HTTP',
       protocol: 'HTTPS',
       host: 'fileserver.example.ac.jp',
@@ -158,20 +153,59 @@ describe('接続設定の保存', () => {
       await (await send(context, 'GET', '/audit-logs?targetType=ingestion-settings')).json(),
     );
     expect(audit.items).toHaveLength(1);
+    expect(audit.items[0]?.targetId).toBe(`equipment-connections/${ROBOT_ID}`);
     expect(JSON.stringify(audit.items[0]?.after)).toContain('fileserver.example.ac.jp');
   });
 
-  it('connection を省略すると、現在の接続設定を保つ', async () => {
+  it('取り込み元の設定（有効／無効）の保存は、設備ごとの接続を変えない。旧項目（connection・connectionRef）を送っても、無視される', async () => {
     const context = await withEquipment();
     await update(context, httpConnection());
 
-    const response = await update(context);
+    const response = await send(context, 'PUT', '/ingestion/settings', {
+      sources: [
+        {
+          sourceId: 'robot',
+          isEnabled: false,
+          // 以前の版が送っていた項目（無視される。共通の接続は、持たない）
+          connectionRef: 'FILE_SERVER_MOCK',
+          connection: httpConnection({ host: 'ignored.example.ac.jp' }),
+        },
+      ],
+    });
 
     expect(response.status).toBe(200);
-    expect((await robotSource(context))?.connection).toMatchObject({
+    const text = await response.text();
+    expect(text).not.toContain('ignored.example.ac.jp');
+    const body = IngestionSettingsResponseSchema.parse(JSON.parse(text));
+    expect(body.sources.map((source) => [source.sourceId, source.isEnabled])).toEqual([
+      ['robot', false],
+      ['environment-sensor', true],
+    ]);
+    expect((await robotItem(context))?.connection).toMatchObject({
       type: 'HTTP',
       host: 'fileserver.example.ac.jp',
     });
+    // 保存された取り込み元の設定にも、旧項目は入らない
+    const stored = JSON.stringify(
+      await context.container.repositories.settings.get('ingestion.sources'),
+    );
+    expect(stored).not.toContain('ignored.example.ac.jp');
+    expect(stored).not.toContain('connectionRef');
+  });
+
+  it('取り込み元の設定は、{ sourceId, isEnabled } だけで保存できる', async () => {
+    const context = await withEquipment();
+
+    const response = await send(context, 'PUT', '/ingestion/settings', {
+      sources: [{ sourceId: 'environment-sensor', isEnabled: false }],
+    });
+
+    expect(response.status).toBe(200);
+    const body = IngestionSettingsResponseSchema.parse(await response.json());
+    expect(body.sources.map((source) => [source.sourceId, source.isEnabled])).toEqual([
+      ['robot', true],
+      ['environment-sensor', false],
+    ]);
   });
 
   it.each([
@@ -190,9 +224,9 @@ describe('接続設定の保存', () => {
 
     expect(response.status).toBe(400);
     expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(
-      `sources.0.connection.${field}`,
+      `connection.${field}`,
     );
-    expect((await robotSource(context))?.connection).toBeUndefined();
+    expect((await robotItem(context))?.connection).toBeUndefined();
   });
 
   it.each([
@@ -208,14 +242,12 @@ describe('接続設定の保存', () => {
     const response = await update(context, httpConnection({ host }));
 
     expect(response.status).toBe(400);
-    expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(
-      'sources.0.connection.host',
-    );
-    expect((await robotSource(context))?.connection).toBeUndefined();
+    expect((await errorOf(response)).fields?.map((item) => item.name)).toContain('connection.host');
+    expect((await robotItem(context))?.connection).toBeUndefined();
   });
 
   it('HTTP_FILE_SOURCE_ALLOW_PRIVATE を指定すると、内部のアドレスも指定できる（ローカル・テスト用）', async () => {
-    const context = await createTestContext({ env: { HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' } });
+    const context = await withEquipment({ env: { HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' } });
 
     const response = await update(context, httpConnection({ host: '127.0.0.1' }));
 
@@ -223,7 +255,7 @@ describe('接続設定の保存', () => {
   });
 });
 
-describe('接続テスト（HTTP）', () => {
+describe('接続テスト（HTTP。設備ごと）', () => {
   async function setup(status: number | ((request: IncomingMessage) => number)) {
     const context = await withEquipment({ env: { HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' } });
     await withRobotFilePath(context, '/data/robot-01.json');
@@ -244,7 +276,7 @@ describe('接続テスト（HTTP）', () => {
     const { context, server } = await setup(200);
     await configure(context, server.port, { authMethod: 'NONE' });
 
-    const response = await send(context, 'POST', '/ingestion/robot/test');
+    const response = await send(context, 'POST', testPath(ROBOT_ID));
 
     expect(await response.json()).toEqual({ ok: true, message: '接続できました' });
     expect(server.requests[0]?.authorization).toBeUndefined();
@@ -254,11 +286,11 @@ describe('接続テスト（HTTP）', () => {
     const { context, server } = await setup(200);
     await configure(context, server.port, { authMethod: 'BASIC' });
     await context.container.secrets.set(
-      'file-server/robot',
+      ROBOT_SECRET,
       JSON.stringify({ username: 'dummy-user', password: 'dummy-pass' }),
     );
 
-    const response = await send(context, 'POST', '/ingestion/robot/test');
+    const response = await send(context, 'POST', testPath(ROBOT_ID));
 
     expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
     expect(server.requests[0]?.authorization).toBe(
@@ -268,15 +300,15 @@ describe('接続テスト（HTTP）', () => {
 
   it('Bearer トークン・API キーも、送れる', async () => {
     const { context, server } = await setup(200);
-    await context.container.secrets.set('file-server/robot', 'dummy-token');
+    await context.container.secrets.set(ROBOT_SECRET, 'dummy-token');
 
     await configure(context, server.port, { authMethod: 'BEARER' });
-    await send(context, 'POST', '/ingestion/robot/test');
+    await send(context, 'POST', testPath(ROBOT_ID));
     await configure(context, server.port, {
       authMethod: 'API_KEY',
       apiKeyHeaderName: 'X-Auth-Token',
     });
-    await send(context, 'POST', '/ingestion/robot/test');
+    await send(context, 'POST', testPath(ROBOT_ID));
 
     expect(server.requests[0]?.authorization).toBe('Bearer dummy-token');
     expect(server.requests[1]?.['x-auth-token']).toBe('dummy-token');
@@ -286,7 +318,7 @@ describe('接続テスト（HTTP）', () => {
     const { context, server } = await setup(200);
     await configure(context, server.port, { authMethod: 'BASIC' });
 
-    const response = await send(context, 'POST', '/ingestion/robot/test');
+    const response = await send(context, 'POST', testPath(ROBOT_ID));
 
     const body = (await response.json()) as { ok: boolean; message: string };
     expect(body.ok).toBe(false);
@@ -304,9 +336,9 @@ describe('接続テスト（HTTP）', () => {
     async (status, text) => {
       const { context, server } = await setup(status);
       await configure(context, server.port, { authMethod: 'BEARER' });
-      await context.container.secrets.set('file-server/robot', 'dummy-token-value');
+      await context.container.secrets.set(ROBOT_SECRET, 'dummy-token-value');
 
-      const response = await send(context, 'POST', '/ingestion/robot/test');
+      const response = await send(context, 'POST', testPath(ROBOT_ID));
 
       const body = (await response.json()) as { ok: boolean; message: string };
       expect(body.ok).toBe(false);
@@ -322,19 +354,19 @@ describe('接続テスト（HTTP）', () => {
       request.headers.authorization === 'Bearer new-token' ? 200 : 401,
     );
     await configure(context, server.port, { authMethod: 'BEARER' });
-    await context.container.secrets.set('file-server/robot', 'old-token');
+    await context.container.secrets.set(ROBOT_SECRET, 'old-token');
     expect(
-      ((await (await send(context, 'POST', '/ingestion/robot/test')).json()) as { ok: boolean }).ok,
+      ((await (await send(context, 'POST', testPath(ROBOT_ID))).json()) as { ok: boolean }).ok,
     ).toBe(false);
 
-    await context.container.secrets.set('file-server/robot', 'new-token');
+    await context.container.secrets.set(ROBOT_SECRET, 'new-token');
 
     expect(
-      ((await (await send(context, 'POST', '/ingestion/robot/test')).json()) as { ok: boolean }).ok,
+      ((await (await send(context, 'POST', testPath(ROBOT_ID))).json()) as { ok: boolean }).ok,
     ).toBe(true);
   });
 
-  it('内部のアドレスは、既定では、接続テストでも拒否する（保存済みの設定が、あとから内部のアドレスだった場合）', async () => {
+  it('内部のアドレスは、既定では、接続テストでも拒否する（保存済みの設備の接続が、あとから内部のアドレスだった場合）', async () => {
     const context = await withEquipment({ env: { HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' } });
     await withRobotFilePath(context, '/data/robot-01.json');
     const server = await startServer(() => ({ status: 200 }));
@@ -343,11 +375,11 @@ describe('接続テスト（HTTP）', () => {
     const strict = await withEquipment();
     await withRobotFilePath(strict, '/data/robot-01.json');
     await strict.container.repositories.settings.set(
-      'ingestion.sources',
-      await context.container.repositories.settings.get('ingestion.sources'),
+      'ingestion.equipment-connections',
+      await context.container.repositories.settings.get('ingestion.equipment-connections'),
     );
 
-    const response = await send(strict, 'POST', '/ingestion/robot/test');
+    const response = await send(strict, 'POST', testPath(ROBOT_ID));
 
     const body = (await response.json()) as { ok: boolean; message: string };
     expect(body.ok).toBe(false);
@@ -355,11 +387,11 @@ describe('接続テスト（HTTP）', () => {
     expect(server.requests).toHaveLength(0);
   });
 
-  it('接続が未設定の取り込み元は、接続テストが失敗する（接続先が設定されていない旨を示す）', async () => {
+  it('接続が未設定の設備は、接続テストが失敗する（接続先が設定されていない旨を示す）', async () => {
     const context = await withEquipment();
     await withRobotFilePath(context, '/data/robot-01.json');
 
-    const response = await send(context, 'POST', '/ingestion/robot/test');
+    const response = await send(context, 'POST', testPath(ROBOT_ID));
 
     const body = (await response.json()) as { ok: boolean; message: string };
     expect(body.ok).toBe(false);
@@ -417,7 +449,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
     return { port: (server.address() as AddressInfo).port, requests };
   }
 
-  /** ロボットに、ファイルパスを設定し、取り込み元（ロボット）を、手元のサーバーの HTTP 接続にする。 */
+  /** ロボットに、ファイルパスを設定し、ロボットの接続を、手元のサーバーの HTTP 接続にする（設備ごと）。 */
   async function setup(
     files: Map<string, FileEntry>,
     options: { authorization?: string; connection?: Record<string, unknown> } = {},
@@ -467,7 +499,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
       new Map([[PATH, { content: ROBOT_FILE, lastModified: MODIFIED }]]),
     );
 
-    const test = await (await send(context, 'POST', '/ingestion/robot/test')).json();
+    const test = await (await send(context, 'POST', testPath(ROBOT_ID))).json();
     const summary = await run(context);
 
     expect(test).toEqual({ ok: true, message: '接続できました' });
@@ -522,7 +554,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
     });
 
     const withoutSecret = await run(context);
-    await context.container.secrets.set('file-server/robot', 'dummy-token');
+    await context.container.secrets.set(ROBOT_SECRET, 'dummy-token');
     const withSecret = await run(context);
 
     expect(withoutSecret).toMatchObject({ result: 'FAILURE', recordCount: 0 });
@@ -542,7 +574,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
       new Map([[PATH, { content: ROBOT_FILE, lastModified: MODIFIED }]]),
       { authorization: 'Bearer right-token', connection: { authMethod: 'BEARER' } },
     );
-    await context.container.secrets.set('file-server/robot', 'wrong-token');
+    await context.container.secrets.set(ROBOT_SECRET, 'wrong-token');
 
     const summary = await run(context);
 
@@ -570,7 +602,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
     expect(server.requests.some((request) => request.method === 'GET')).toBe(false);
   });
 
-  it('ファイルパスが設定された設備がなければ、接続テストは、その旨で失敗する（接続しない）', async () => {
+  it('ファイルパスが設定されていない設備は、接続テストが、その旨で失敗する（接続しない）', async () => {
     const context = await withEquipment({ env: { HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' } });
     const server = await startFileServer(new Map());
     await update(
@@ -583,7 +615,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
       }),
     );
 
-    const body = (await (await send(context, 'POST', '/ingestion/robot/test')).json()) as {
+    const body = (await (await send(context, 'POST', testPath(ROBOT_ID))).json()) as {
       ok: boolean;
       message: string;
     };
@@ -594,7 +626,7 @@ describe('取り込み（HTTP。設備ごとのファイルパス。Issue #119�
   });
 });
 
-describe('取り込み（接続が未設定。ADR-0025）', () => {
+describe('取り込み（設備に接続が未設定。ADR-0025・ADR-0026）', () => {
   async function run(context: TestContext) {
     return (await send(context, 'POST', '/ingestion/robot/run')).json() as Promise<{
       result: string;

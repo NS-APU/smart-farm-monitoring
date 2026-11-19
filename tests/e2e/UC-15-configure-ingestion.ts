@@ -9,7 +9,8 @@
  *   代替フロー  接続テストに失敗した場合は、失敗した旨を表示する（内部情報は表示しない。NFR-5.6）。設定の値が不正な場合は、保存しない
  *   事後条件    取り込みの設定が保存されている。以降の自動取り込み（UC-08、UC-09）に使われる
  *
- * 値の同値分割: 接続先の参照名（API だけ。画面の入力欄は、設備ごとの接続に移り、なくなった。正常・空・長すぎる・使えない文字・境界の長さ）、
+ * 値の同値分割: 取り込み元の設定の変更（API。有効／無効だけ。接続は設備ごと〔Issue #367〕のため、接続・接続先の参照名は持たない。
+ * 正常・取り込み元が存在しない・重複・有効／無効が真偽値でない・空の一覧・旧項目の接続先の参照名〔無視〕）、
  * 有効／無効、接続テスト（設備ごと。成功・ファイルサーバー停止・接続先が未設定・ファイルのパスなし）、即時取得（成功・一部成功・失敗・二重実行）、
  * 権限（設定・実行できる・参照のみ）。
  * 関連するユースケース: UC-08・UC-09（設定が自動取り込みに使われる）、UC-16（実行の記録を確認）、UC-24（失敗の通知）。
@@ -84,13 +85,10 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
       await expect(equipmentRow(page, equipmentId)).toBeVisible();
       await expect(page.getByTestId(`equipment-nopath-${equipmentId}`)).toBeVisible();
       await expect(page.getByTestId(`equipment-target-${equipmentId}`)).toHaveText('未設定');
-      await expect(page.getByTestId(`equipment-origin-${equipmentId}`)).toHaveAttribute(
-        'data-origin',
-        'NONE',
-      );
-      // 接続の入力欄（共通の接続・接続先の参照名）と、認証情報（パスワード・秘密鍵）を入力・表示する欄は、この画面にはない
+      // 接続の入力欄と、認証情報（パスワード・秘密鍵）を入力・表示する欄は、この画面にはない。接続の出どころを示す表示もない（接続は設備ごとだけ）
+      await expect(page.getByTestId(`equipment-origin-${equipmentId}`)).toHaveCount(0);
+      await expect(page.getByTestId(`shared-connection-notice-${sourceId}`)).toHaveCount(0);
       await expect(card.getByLabel('ホスト名')).toHaveCount(0);
-      await expect(card.getByLabel('接続先（接続設定の参照名）')).toHaveCount(0);
       await expect(card.locator('input[type="password"]')).toHaveCount(0);
     }
     await expect(sourceCard(page, 'robot')).toContainText(
@@ -150,104 +148,122 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
   });
 });
 
-test.describe('代替フロー: 設定の値が不正な場合は、保存しない（接続先の参照名。画面の入力欄はなく、API で設定する）', () => {
-  const invalid: readonly { name: string; value: string; message: string }[] = [
-    { name: '空', value: '', message: '接続先の参照名を入力してください' },
-    { name: '半角の空白のみ', value: '   ', message: '接続先の参照名を入力してください' },
-    {
-      name: '101文字（境界の外）',
-      value: 'A'.repeat(101),
-      message: '接続先の参照名は100文字以内で指定してください',
-    },
-    {
-      name: '使えない文字（空白を含む）',
-      value: 'FILE SERVER',
-      message: '接続先の参照名は英数字・記号（_ . -）のみ使えます',
-    },
-    {
-      name: '使えない文字（!）',
-      value: 'FILE!',
-      message: '接続先の参照名は英数字・記号（_ . -）のみ使えます',
-    },
-    {
-      name: '先頭が記号',
-      value: '_FILE',
-      message: '接続先の参照名は英数字・記号（_ . -）のみ使えます',
-    },
-    {
-      name: '日本語',
-      value: 'ファイル',
-      message: '接続先の参照名は英数字・記号（_ . -）のみ使えます',
-    },
-  ];
-
-  /** 接続先の参照名の現在の値（取り込み元ロボット）。 */
-  async function currentRef(
+test.describe('代替フロー: 設定の値が不正な場合は、保存しない（取り込み元の設定は、有効／無効だけ。API で確かめる）', () => {
+  /** 取り込み元の設定（有効／無効）。 */
+  async function currentSources(
     request: Parameters<typeof prepareApp>[0],
-  ): Promise<string | undefined> {
-    const settings = await apiOk<{ sources: { sourceId: string; connectionRef: string }[] }>(
+  ): Promise<{ sourceId: string; isEnabled: boolean }[]> {
+    const settings = await apiOk<{ sources: { sourceId: string; isEnabled: boolean }[] }>(
       request,
       'GET',
       '/ingestion/settings',
     );
-    return settings.sources.find((source) => source.sourceId === 'robot')?.connectionRef;
+    return settings.sources.map(({ sourceId, isEnabled }) => ({ sourceId, isEnabled }));
   }
 
-  for (const item of invalid) {
-    test(`接続先の参照名が${item.name}: 項目のエラーを返し、保存しない`, async ({ request }) => {
-      await prepareApp(request);
-      const before = await currentRef(request);
+  const invalid: readonly {
+    name: string;
+    sources: unknown;
+    field: string;
+  }[] = [
+    {
+      name: '存在しない取り込み元',
+      sources: [{ sourceId: 'unknown-source', isEnabled: false }],
+      field: 'sources.0.sourceId',
+    },
+    {
+      name: '同じ取り込み元の重複',
+      sources: [
+        { sourceId: 'robot', isEnabled: false },
+        { sourceId: 'robot', isEnabled: true },
+      ],
+      field: 'sources.1.sourceId',
+    },
+    {
+      name: '有効／無効が真偽値でない',
+      sources: [{ sourceId: 'robot', isEnabled: 'false' }],
+      field: 'sources.0.isEnabled',
+    },
+    {
+      name: '有効／無効がない',
+      sources: [{ sourceId: 'robot' }],
+      field: 'sources.0.isEnabled',
+    },
+    { name: '取り込み元の指定がない（空の一覧）', sources: [], field: 'sources' },
+  ];
 
-      const response = await api(request, 'PUT', '/ingestion/settings', {
-        sources: [{ sourceId: 'robot', connectionRef: item.value, isEnabled: true }],
-      });
+  for (const item of invalid) {
+    test(`${item.name}: 項目のエラーを返し、保存しない`, async ({ request }) => {
+      await prepareApp(request);
+      const before = await currentSources(request);
+
+      const response = await api(request, 'PUT', '/ingestion/settings', { sources: item.sources });
 
       expect(response.status()).toBe(400);
       const body = (await response.json()) as {
         error: { code: string; fields: { name: string; message: string }[] };
       };
       expect(body.error.code).toBe('VALIDATION_ERROR');
-      expect(body.error.fields).toContainEqual({
-        name: 'sources.0.connectionRef',
-        message: item.message,
-      });
-      expect(await currentRef(request)).toBe(before);
+      expect(body.error.fields.map((field) => field.name)).toContain(item.field);
+      expect(await currentSources(request)).toEqual(before);
     });
   }
 
-  const valid: readonly { name: string; value: string }[] = [
-    { name: '1文字（A）', value: 'A' },
-    { name: '100文字（境界）', value: `A${'b'.repeat(99)}` },
-    { name: '記号を含む（file_server-1.prod）', value: 'file_server-1.prod' },
-  ];
+  test('取り込み元の応答には、接続・接続先の参照名の項目がない（接続は、設備ごとの状況に出る）', async ({
+    request,
+  }) => {
+    await prepareApp(request);
 
-  for (const item of valid) {
-    test(`接続先の参照名が${item.name}: 保存できる`, async ({ request }) => {
-      await prepareApp(request);
+    const settings = await apiOk<{ sources: Record<string, unknown>[] }>(
+      request,
+      'GET',
+      '/ingestion/settings',
+    );
 
-      await apiOk(request, 'PUT', '/ingestion/settings', {
-        sources: [{ sourceId: 'robot', connectionRef: item.value, isEnabled: true }],
-      });
+    expect(settings.sources.length).toBeGreaterThan(0);
+    for (const source of settings.sources) {
+      expect(source).not.toHaveProperty('connectionRef');
+      expect(source).not.toHaveProperty('connection');
+      expect(source).not.toHaveProperty('credentials');
+    }
+  });
 
-      expect(await currentRef(request)).toBe(item.value);
-    });
-  }
+  test('旧項目の接続先の参照名を送っても、無視する（有効／無効だけを保存する。応答にも出ない）', async ({
+    request,
+  }) => {
+    await prepareApp(request);
 
-  test('画面の「設定を保存」は、接続先の参照名を変えない（有効／無効だけを保存する）', async ({
+    const saved = await apiOk<{ sources: ({ sourceId: string } & Record<string, unknown>)[] }>(
+      request,
+      'PUT',
+      '/ingestion/settings',
+      { sources: [{ sourceId: 'robot', connectionRef: 'dummy-ref', isEnabled: false }] },
+    );
+
+    const robot = saved.sources.find((source) => source.sourceId === 'robot');
+    expect(robot).toMatchObject({ isEnabled: false });
+    expect(robot).not.toHaveProperty('connectionRef');
+    expect(await currentSources(request)).toEqual([
+      { sourceId: 'robot', isEnabled: false },
+      { sourceId: 'environment-sensor', isEnabled: true },
+    ]);
+  });
+
+  test('画面の「設定を保存」は、有効／無効だけを保存する。もう一方の取り込み元は変わらない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    await apiOk(request, 'PUT', '/ingestion/settings', {
-      sources: [{ sourceId: 'robot', connectionRef: 'keep-this-ref', isEnabled: true }],
-    });
     await openIngestion(page);
 
     await enabledBox(page, 'robot').uncheck();
     await save(page, 'robot').click();
 
     await expect(result(page, 'robot')).toHaveText('設定を保存しました');
-    expect(await currentRef(request)).toBe('keep-this-ref');
+    expect(await currentSources(request)).toEqual([
+      { sourceId: 'robot', isEnabled: false },
+      { sourceId: 'environment-sensor', isEnabled: true },
+    ]);
   });
 });
 
@@ -520,16 +536,12 @@ test.describe('権限: 設定・実行する権限のない利用者（閲覧者
       method: 'PUT',
       headers: { authorization: `Bearer ${accessToken}` },
       data: {
-        sources: [{ sourceId: 'robot', connectionRef: 'X', isEnabled: false }],
+        sources: [{ sourceId: 'robot', isEnabled: false }],
       },
     });
     expect(denied.status()).toBe(403);
-    // 接続テスト・即時取得・設備ごとの接続・認証情報の登録も、サーバー側で拒否する
-    for (const path of [
-      '/ingestion/robot/test',
-      '/ingestion/robot/run',
-      `/ingestion/equipment/${ROBOT_ID}/test`,
-    ]) {
+    // 即時取得・設備ごとの接続テスト・接続・認証情報の登録も、サーバー側で拒否する
+    for (const path of ['/ingestion/robot/run', `/ingestion/equipment/${ROBOT_ID}/test`]) {
       const refused = await request.fetch(`/api/v1${path}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${accessToken}` },

@@ -1,6 +1,6 @@
 /**
  * デモの取り込みを、デモ用の HTTP 配信に向ける処理（Issue #344。ADR-0025）のテスト。接続先の URL の解析と、
- * 取り込み元の接続・デモの設備のファイルのパスの設定。データはメモリ（実際の AWS には、接続しない）。
+ * デモの設備ごとの接続・ファイルのパスの設定。データはメモリ（実際の AWS には、接続しない）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -95,20 +95,17 @@ describe('取り込みを、デモ用の HTTP 配信に向ける（applyDemoFeed
 
   const connection = parseDemoFeedUrl('https://demo-feed.example.com/');
 
-  it('取り込み元（ロボット・環境センサー）の接続を HTTP にし、デモの設備にファイルのパスを設定する。そのほかの設定は、変えない', async () => {
+  it('デモの設備（ロボット・環境センサー）ごとの接続を HTTP にし、ファイルのパスを設定する。取り込み元の設定は、変えない', async () => {
     const container = await setup();
     const before = await container.ingestionSettings.listSources();
 
     const applied = await applyDemoFeed(container, connection);
 
-    expect(applied).toEqual({ sources: 2, equipment: 2 });
-    const after = await container.ingestionSettings.listSources();
-    expect(after).toHaveLength(before.length);
-    for (const source of after) {
-      expect(source.connection).toEqual(connection);
-      const original = before.find((item) => item.sourceId === source.sourceId);
-      expect({ ...source, connection: undefined }).toEqual({ ...original, connection: undefined });
-    }
+    expect(applied).toEqual({ connections: 2, equipment: 2 });
+    expect(await container.ingestionSettings.listSources()).toEqual(before);
+    const saved = await container.equipmentConnections.list();
+    expect(saved.get(DEMO_ROBOT_ID)).toEqual(connection);
+    expect(saved.get(DEMO_SENSOR_ID)).toEqual(connection);
     expect((await container.repositories.equipment.get(DEMO_ROBOT_ID))?.sourceFilePath).toBe(
       DEMO_FEED_FILE_PATHS.robot,
     );
@@ -126,12 +123,16 @@ describe('取り込みを、デモ用の HTTP 配信に向ける（applyDemoFeed
       parseDemoFeedUrl('https://other-feed.example.com/'),
     );
 
-    expect(again).toEqual({ sources: 2, equipment: 0 });
-    const sources = await container.ingestionSettings.listSources();
-    expect(sources.map((source) => source.connection)).toEqual([
-      expect.objectContaining({ type: 'HTTP', host: 'other-feed.example.com' }),
-      expect.objectContaining({ type: 'HTTP', host: 'other-feed.example.com' }),
-    ]);
+    expect(again).toEqual({ connections: 2, equipment: 0 });
+    const saved = await container.equipmentConnections.list();
+    expect(saved.get(DEMO_ROBOT_ID)).toMatchObject({
+      type: 'HTTP',
+      host: 'other-feed.example.com',
+    });
+    expect(saved.get(DEMO_SENSOR_ID)).toMatchObject({
+      type: 'HTTP',
+      host: 'other-feed.example.com',
+    });
   });
 
   it('設備にすでにあるファイルのパスは、上書きしない', async () => {
@@ -166,6 +167,7 @@ describe('取り込みを、デモ用の HTTP 配信に向ける（applyDemoFeed
     await expect(applyDemoFeed(container, connection)).rejects.toThrow('pnpm demo-data seed');
 
     expect(await container.ingestionSettings.listSources()).toEqual(before);
+    expect((await container.equipmentConnections.list()).size).toBe(0);
     expect(
       (await container.repositories.equipment.get(DEMO_ROBOT_ID))?.sourceFilePath,
     ).toBeUndefined();

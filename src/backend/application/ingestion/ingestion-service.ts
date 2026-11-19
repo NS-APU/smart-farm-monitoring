@@ -98,7 +98,6 @@ export interface IngestionService {
   runSource(sourceId: string): Promise<IngestionRunSummary>;
   /** 取得間隔が来ている取り込み元を実行する（スケジューラ。JB-01）。 */
   runDueSources(): Promise<IngestionRunSummary[]>;
-  testConnection(sourceId: string): Promise<ConnectionTestResult>;
   /** 設備 1 つの接続テスト（その設備の接続・認証情報・ファイルのパス。Issue #367）。設備がなければ NOT_FOUND。 */
   testEquipmentConnection(equipmentId: string): Promise<ConnectionTestResult>;
   /** 取り込み元が実行中か（二重実行の防止。画面で、実行中を示す）。 */
@@ -1146,7 +1145,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
 
     const found = await listFilesWithRetry(source.sourceId, paths);
     // 取得の対象のファイルが、すべて、設備ごとの失敗（接続の停止・認証の失敗・未設定）のときは、取り込み元全体の失敗として扱う
-    // （取り込み元の共通の接続の停止など。取り込み元ごとのログ・通知）。一部の設備だけの失敗は、その設備だけの失敗にする（Issue #367）
+    // （取り込み元全体の失敗。取り込み元ごとのログ・通知）。一部の設備だけの失敗は、その設備だけの失敗にする（Issue #367）
     const failedPaths = new Set(found.ok ? found.failures.map((failure) => failure.path) : []);
     const fetchedPaths = new Set(fetched.flatMap((member) => member.sourceFilePath ?? []));
     const listing: Listing =
@@ -1355,11 +1354,6 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         );
       }
       return summaries;
-    },
-
-    async testConnection(sourceId) {
-      await findSource(sourceId);
-      return runConnectionTest(() => fileSource.testConnection(sourceId));
     },
 
     async testEquipmentConnection(equipmentId) {

@@ -25,7 +25,6 @@ function source(overrides: Record<string, unknown> = {}) {
     sourceId: 'robot',
     kind: 'ROBOT',
     profileId: 'robot-v1',
-    connectionRef: 'file-server-main',
     isEnabled: true,
     formatProfile: { versionLabel: 'v0.1', status: 'PROVISIONAL' },
     lastStartedAt: '2026-10-09T02:00:00.000Z',
@@ -36,7 +35,6 @@ function source(overrides: Record<string, unknown> = {}) {
         name: '収穫ロボット1',
         sourceFilePath: '/data/robot-1.json',
         connection: EQUIPMENT_CONNECTION,
-        connectionOrigin: 'EQUIPMENT',
         credentials: { state: 'CONFIGURED', updatedAt: '2026-10-09T03:00:00.000Z' },
         lastStartedAt: '2026-10-09T02:00:00.000Z',
         lastResult: 'FAILURE',
@@ -376,7 +374,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(within(robotRun).getByRole('button', { name: '即時取得' })).toBeDefined();
   });
 
-  it('設定の保存: 自動取り込みの有効／無効を送る。接続先の参照名は、現在の値をそのまま送り（入力欄はない）、接続・取得間隔は送らない（#367）', async () => {
+  it('設定の保存: 自動取り込みの有効／無効だけを送る。接続・接続設定の参照名・取得間隔は送らない（#367。共通の接続の廃止）', async () => {
     const { calls } = renderApp(
       '/settings/ingestion',
       baseRoutes({ 'PUT /ingestion/settings': () => jsonResponse(SETTINGS) }),
@@ -391,7 +389,6 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       sources: [
         {
           sourceId: 'robot',
-          connectionRef: 'file-server-main',
           isEnabled: false,
         },
       ],
@@ -404,7 +401,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       baseRoutes({
         'PUT /ingestion/settings': () =>
           errorBody(422, 'VALIDATION_ERROR', '入力内容を確認してください', [
-            { name: 'sources.0.connectionRef', message: '接続先の参照名を確認してください' },
+            { name: 'sources.0.sourceId', message: '取り込み元を確認してください' },
           ]),
       }),
     );
@@ -777,7 +774,6 @@ function equipmentStatus(overrides: Record<string, unknown> = {}) {
     name: '収穫ロボット1',
     sourceFilePath: '/data/robot-01.json',
     connection: EQUIPMENT_CONNECTION,
-    connectionOrigin: 'EQUIPMENT',
     // 停止中の基準（分）は、サーバーが、設備の取得間隔 × 倍数（最低 3 分）で計算して返す。ロボットの既定（1 分 × 3）は、最低の 3 分
     staleThresholdMinutes: 3,
     credentials: { state: 'CONFIGURED', updatedAt: '2026-10-09T03:00:00.000Z' },
@@ -807,7 +803,7 @@ function settingsRoutes(
 }
 
 describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）', () => {
-  it('取り込み元ごとに、設備ごとの表を示す: 設備名・ファイルのパス・接続先・接続の出どころ・認証情報の状態・最終の実行・結果・最後にデータが取れた日時', async () => {
+  it('取り込み元ごとに、設備ごとの表を示す: 設備名・ファイルのパス・接続先・認証情報の状態・最終の実行・結果・最後にデータが取れた日時', async () => {
     renderApp('/settings/ingestion', baseRoutes());
 
     const robot1 = await screen.findByTestId('equipment-run-ROBOT-1');
@@ -821,7 +817,7 @@ describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）
     ).toEqual([
       '設備',
       'ファイルのパス',
-      '接続先（出どころ）',
+      '接続先',
       '認証情報',
       '最終の実行（結果）',
       '最後にデータが取れた日時',
@@ -835,7 +831,8 @@ describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）
     expect(within(robot1).getByTestId('equipment-target-ROBOT-1').textContent).toBe(
       'https://fileserver.example.ac.jp:8443',
     );
-    expect(within(robot1).getByTestId('equipment-origin-ROBOT-1').textContent).toBe('設備ごと');
+    // 接続の出どころ（設備ごと／共通）は、ない（共通の接続の廃止）
+    expect(within(robot1).queryByTestId('equipment-origin-ROBOT-1')).toBeNull();
     expect(within(robot1).getByTestId('equipment-credentials-ROBOT-1').textContent).toContain(
       '設定済み',
     );
@@ -852,13 +849,12 @@ describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）
     ).toBe(true);
   });
 
-  it('接続が未設定の設備は、接続先を「未設定」、出どころを「未設定」と示す。ファイルのパスがない設備には、「ファイルのパスを設定すると、取り込みの対象になる」の案内を示す', async () => {
+  it('接続が未設定の設備は、接続先を「未設定」と示す。ファイルのパスがない設備には、「ファイルのパスを設定すると、取り込みの対象になる」の案内を示す', async () => {
     renderApp('/settings/ingestion', baseRoutes());
 
     const robot2 = await screen.findByTestId('equipment-run-ROBOT-2');
 
     expect(within(robot2).getByTestId('equipment-target-ROBOT-2').textContent).toBe('未設定');
-    expect(within(robot2).getByTestId('equipment-origin-ROBOT-2').textContent).toBe('未設定');
     expect(within(robot2).getByTestId('equipment-nopath-ROBOT-2').textContent).toContain(
       'ファイルのパスを設定すると、取り込みの対象になります',
     );
@@ -869,22 +865,15 @@ describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）
     );
   });
 
-  it('接続の出どころ（設備ごと／共通〔移行期間〕／未設定）を示す。共通の接続を使う設備があるときだけ、取り込み元に、設備ごとの接続の設定を促す注意を示す', async () => {
+  it('接続先は、設備の接続があれば、接続先のホスト（表示用の URL）、なければ「未設定」を示す。接続の出どころ・共通の接続の注意は、示さない（共通の接続の廃止）', async () => {
     renderApp(
       '/settings/ingestion',
       settingsRoutes([
         equipmentStatus({ equipmentId: 'ROBOT-A', name: 'ロボットA' }),
         equipmentStatus({
-          equipmentId: 'ROBOT-B',
-          name: 'ロボットB',
-          connectionOrigin: 'SHARED',
-          credentials: { state: 'NOT_CONFIGURED' },
-        }),
-        equipmentStatus({
           equipmentId: 'ROBOT-C',
           name: 'ロボットC',
           connection: undefined,
-          connectionOrigin: 'NONE',
           credentials: { state: 'NOT_REQUIRED' },
         }),
       ]),
@@ -892,19 +881,12 @@ describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）
 
     await screen.findByTestId('equipment-run-ROBOT-A');
 
-    expect(screen.getByTestId('equipment-origin-ROBOT-A').textContent).toBe('設備ごと');
-    expect(screen.getByTestId('equipment-origin-ROBOT-B').textContent).toBe('共通（移行期間）');
-    expect(screen.getByTestId('equipment-origin-ROBOT-C').textContent).toBe('未設定');
-    expect(screen.getByTestId('equipment-credentials-ROBOT-B').textContent).toBe('未設定');
-    expect(screen.getByTestId('shared-connection-notice-robot').textContent).toContain(
-      '設備ごとの接続を設定してください（共通の接続は、廃止予定です）',
+    expect(screen.getByTestId('equipment-target-ROBOT-A').textContent).toBe(
+      'https://fileserver.example.ac.jp:8443',
     );
-  });
-
-  it('共通の接続を使う設備がなければ、注意を示さない', async () => {
-    renderApp('/settings/ingestion', baseRoutes());
-    await screen.findByTestId('source-robot');
-
+    expect(screen.getByTestId('equipment-target-ROBOT-C').textContent).toBe('未設定');
+    expect(screen.queryByTestId('equipment-origin-ROBOT-A')).toBeNull();
+    expect(screen.queryByTestId('equipment-origin-ROBOT-C')).toBeNull();
     expect(screen.queryByTestId('shared-connection-notice-robot')).toBeNull();
   });
 

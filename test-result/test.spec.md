@@ -40,7 +40,7 @@
 | 結合（`tests/integration/`）               |         57 |       1392 |
 | 合計                                       |        200 |       4439 |
 
-内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕・#326・#351・#352・#353・#354・#355・#356・#357・#358・#359・#360・#361〜#366・#367〔PR A〕・#344〔PR 1・PR 2a・PR 2b・PR 3a・PR 3b。PR 2b は、件数を変えない。PR 3a は、削除。PR 3b は、MOCK の削除と、未設定の取り込み元・`dev:demo-feed` の追加〕。#326 の分〔単体 6 件・E2E 4 件〕・#351 の分〔単体 5 件〕・#352 の分〔単体 39 件・E2E 15 件〕・#353 の分〔単体 正味 9 件・E2E 6 件〕・#354 の分〔単体 正味 7 件・E2E 11 件〕・#355・#356 の分〔単体 11 件・E2E 9 件〕・#357 の分〔単体 15 件・E2E 15 件〕・#358〜#360 の分〔単体・結合 63 件・E2E 15 件〕・#361〜#366 の分〔単体・結合 103 件・E2E 20 件〕は 2026-11-17 までに、#344 の PR 1 の分〔単体・結合 35 件〕・PR 2a の分〔単体・結合 13 件〕は 2026-11-18 に加算し、PR 3a の分〔単体・結合 −44 件。S3 の廃止に伴う削除〕は 2026-11-18 に差し引き、PR 3b の分〔単体・結合 +7 件・E2E −1 件。66 章〕は 2026-11-18 に加算し、#367 の PR A の分〔単体・結合 +171 件・E2E +19 件。67 章〕は 2026-11-19 に加算し、frontend の単体テストの全件〔41 ファイル・794 件成功〕と、E2E の `--list`〔947 件〕、`vitest list`〔3923 件〕で確認した。単体・結合の全件〔DynamoDB Local が必要〕は、CI で確認する）: E2E 947 件（UC ごと 859 件・25 ファイル、シナリオ 88 件・15 ファイル。`playwright test --list` の件数）、単体・結合 3923 件・164 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜61 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
+内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕・#326・#351・#352・#353・#354・#355・#356・#357・#358・#359・#360・#361〜#366・#367〔PR A・PR B〕・#344〔PR 1・PR 2a・PR 2b・PR 3a・PR 3b。PR 2b は、件数を変えない。PR 3a は、削除。PR 3b は、MOCK の削除と、未設定の取り込み元・`dev:demo-feed` の追加〕。#326 の分〔単体 6 件・E2E 4 件〕・#351 の分〔単体 5 件〕・#352 の分〔単体 39 件・E2E 15 件〕・#353 の分〔単体 正味 9 件・E2E 6 件〕・#354 の分〔単体 正味 7 件・E2E 11 件〕・#355・#356 の分〔単体 11 件・E2E 9 件〕・#357 の分〔単体 15 件・E2E 15 件〕・#358〜#360 の分〔単体・結合 63 件・E2E 15 件〕・#361〜#366 の分〔単体・結合 103 件・E2E 20 件〕は 2026-11-17 までに、#344 の PR 1 の分〔単体・結合 35 件〕・PR 2a の分〔単体・結合 13 件〕は 2026-11-18 に加算し、PR 3a の分〔単体・結合 −44 件。S3 の廃止に伴う削除〕は 2026-11-18 に差し引き、PR 3b の分〔単体・結合 +7 件・E2E −1 件。66 章〕は 2026-11-18 に加算し、#367 の PR A の分〔単体・結合 +171 件・E2E +19 件。67 章〕・PR B の分〔単体・結合 −27 件・E2E −4 件。68 章〕は 2026-11-19 に加算・差し引き、frontend の単体テストの全件〔41 ファイル・789 件成功〕と、E2E の `--list`〔943 件〕、`vitest list`〔3896 件〕で確認した。単体・結合の全件〔DynamoDB Local が必要〕は、CI で確認する）: E2E 943 件（UC ごと 855 件・25 ファイル、シナリオ 88 件・15 ファイル。`playwright test --list` の件数）、単体・結合 3896 件・163 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜61 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
 取り込み後の実測値（Issue #38 の取り込み時に、コミット済みの内容を、一時ディレクトリに展開して、実行した。単体・結合は、Issue #71 で更新した）: `pnpm test:unit`（カバレッジの閾値つき）は、65 ファイル・1564 件（成功 1562・スキップ 2）で成功（Issue #39 の PR #58 で、許容時間の倍率の単体テスト 14 件を加え、Issue #60 の PR #61 で、トークンの更新の重なりのテスト 1 件を加え、Issue #71・#87 で、IaC のテスト 35 件を加えた後の値）。カバレッジは、行 99.40%・分岐 96.12%・関数 99.80%・文 99.42%（すべて閾値 95% 以上）。`pnpm test:e2e` は 764 件すべて成功（43.6 分）。`pnpm test:stress` は 4 件成功（443 操作・NG 0。応答時間は、実行環境で異なる）。
@@ -189,6 +189,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 65 | ファイルサーバーのモックの S3・デモ用の S3 に置く Lambda の廃止（#344 の PR 3a。ADR-0025）に伴う、テストの削除・変更 | #344 |
 | 66 | ファイルサーバーのモック（接続方式 MOCK）の廃止（#344 の PR 3b。ADR-0025）に伴う、テストの削除・変更・追加 | #344 |
 | 67 | ファイルサーバーの接続を、設備ごとに持つ（#367 の PR A。ADR-0026）で、追加・変更・削除したテスト | #367 |
+| 68 | 取り込み元の共通の接続・共通の認証情報の廃止（#367 の PR B。ADR-0026）に伴う、テストの削除・変更・追加 | #367 |
 
 ## 2. UC 別のテスト仕様
 
@@ -13199,3 +13200,54 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - 負荷テスト（`pnpm test:stress`）: **4 件が成功（NG 0。441 操作すべてが許容時間内。3.0 分）**。途中の 1 回は、他の作業が動いている状態で、stress-02 の 1 操作（ログイン・並べ替え）が許容（3 秒）を 3.0〜3.3 秒で超えた。許容は緩めていない。他の作業のない状態で再実行し、成功した
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
 - **未確認**: CI（`ci:full`）での E2E 全体・カバレッジ、DynamoDB Local が必要なテスト、AWS・実機での移行コマンドの実行（運用者の作業。operations.md 8.10）
+
+## 68. 取り込み元の共通の接続・共通の認証情報の廃止（#367 の PR B。ADR-0026）に伴う、テストの削除・変更・追加
+
+この章は、1.2 節の件数に反映している（単体・結合: 3923 件 → 3896 件〔−27 件〕、frontend の単体: 794 件 → 789 件〔−5 件。単体・結合の内数〕、E2E: 947 件 → 943 件〔−4 件〕。2026-11-19 の実測）。#367 の **PR B**: 取り込み元の共通の接続（`IngestionSource.connection`）・接続設定の参照名（`connectionRef`）・共通の認証情報（`file-server/<取り込み元>`）・接続の出どころ「共通」と、共通の接続へのフォールバックを廃止した。取り込みの接続は、設備ごとの接続だけ（なければ「接続先が設定されていません」）。`PUT /ingestion/{sourceId}/credentials`・`POST /ingestion/{sourceId}/test`・`FileSourcePort.testConnection`・移行コマンド `pnpm migrate-equipment-connections` を削除した（開発サイトの移行は済み。本番サイトは、共通の接続を設定したことがなく、移行は不要）。保存済みの旧項目は、読み込むときに無視する。**削除したテストは、廃止した機能（共通の接続・参照名・共通の認証情報・出どころ・フォールバック・移行コマンド）を対象にしたもの**で、同じ観点（検証・認証情報・接続テスト・取り込みの振る舞い）は、設備ごとの接続のテストとして残している。期待値を、通すためだけに緩めたものはない。
+
+### 68.1 削除したテスト
+
+| ファイル | 削除した内容 | 理由 |
+| -------- | ------------ | ---- |
+| `tests/integration/migrate-equipment-connections-cli.test.ts`（ファイルごと。11 件） | 移行コマンド | コマンドを削除した |
+| `tests/unit/backend/application/routing-file-source.test.ts`（7 件） | 取り込み元の `testConnection`・共通の接続へのフォールバック・最初の設備を選ぶ接続テスト | 共通の接続と `testConnection` を廃止した。**同じ観点は、`testEquipment` のテスト（認証・`NOT_CONFIGURED`・`NO_FILE_PATH`・設備なし）に残っている** |
+| `tests/unit/backend/application/auto-target.test.ts`（1 件）・`file-server-credentials.test.ts`（2 件） | 接続が未設定の取り込み元でも対象／取り込み元ごとの参照名 | 取り込み元が接続を持たなくなった。共通の参照名の関数を廃止した（設備ごとの参照名のテストを追加） |
+| `tests/integration/management-api.test.ts`（3 件） | 接続設定の参照名の検証（空・使えない文字・長すぎる）が 400 になるテスト | 参照名を廃止した（同じ値を送っても無視されることの確認を追加） |
+| `tests/integration/equipment-connection-api.test.ts`（1 件）・`equipment-connection-ingestion.test.ts`（1 件） | 共通の接続だけで設備が「共通」になる／設備の接続が共通の接続より優先される | 出どころ「共通」とフォールバックを廃止した（旧項目が使われないことの確認を追加） |
+| `tests/unit/frontend/equipment-connection.test.tsx`（4 件）・`ingestion-page.test.tsx`（1 件） | 共通の接続を使う設備の注意・「この設備の接続にする」・解除で共通に戻る・共通の注意がないこと | 共通の接続を廃止した |
+| `tests/e2e/UC-15-configure-ingestion.ts`（11 件） | 接続先の参照名の検証（API。不正 7 件・正常 3 件）と、画面の「設定を保存」が参照名を変えないこと | 参照名を廃止した。**取り込み元の設定の更新が、有効／無効だけになったことを確かめる 9 件に置き換えた** |
+| `tests/e2e/UC-15-configure-file-server-connection.ts`（2 件） | 共通の接続（移行期間）を使っている設備の注意（SC-11・設備のダイアログ） | 共通の接続を廃止した |
+
+### 68.2 変更した既存のテスト
+
+仕様の変更（承認済み。ADR-0026）による。**期待値の緩和ではない**。
+
+| ファイル | 変更 |
+| -------- | ---- |
+| `tests/unit/backend/application/routing-file-source.test.ts` | 全体を「接続は設備ごと」の形に直した。`testConnection` で書かれていた認証のテスト（ヘッダー・`NONE`・未設定・保管先の障害・取り直し・認証失敗）は、`testEquipment` に移した（期待は同じ） |
+| `tests/unit/backend/application/ingestion-settings.test.ts` | 保存済みの旧項目つきの設定が読めること・無視されること・保存し直しても残らないことを追加。読み替えのテストの期待から `connectionRef` を外した |
+| `tests/integration/http-file-source.test.ts`・`ingestion-credentials.test.ts`・`management-api.test.ts` | 接続設定の保存・検証・内部アドレスの拒否・接続テスト・認証情報の登録・取り込みを、設備ごとの API（`PUT /ingestion/equipment/{id}/connection`・`credentials`・`POST …/test`）に書き直した。検証エラーの項目名は `sources.0.connection.*` から `connection.*`。`PUT /ingestion/settings` は `{ sourceId, isEnabled }` だけ（旧項目は、以前は参照名の検証で 400、いまは無視） |
+| `tests/integration/ingestion.test.ts`・`ingestion-by-facility.test.ts`・`ingestion-per-equipment.test.ts`・`ingestion-reliability.test.ts`・`equipment-connection-ingestion.test.ts`・`evaluation-notification.test.ts`・`demo-feed-http.test.ts` | `FileSourcePort`・`IngestionService` のスタブから `testConnection` を除き、接続テストを設備ごと（`testEquipmentConnection`）に変更（メッセージの期待は同じ） |
+| `tests/integration/demo-data-cli.test.ts`・`demo-feed-connection.test.ts`・`demo-feed-equipment-connection.test.ts` | デモの取り込みの結果を `{ connections, equipment }` に。出力の文言を「接続を設定した設備 N 件・ファイルのパスを設定した設備 M 件」に変更（`demo-data-cli` は、DynamoDB Local が必要。**CI で確認する**） |
+| `tests/integration/api.test.ts` | ルート数の期待 57 → 55（削除した 2 ルート）。削除したルートが存在しないことの確認を追加 |
+| `tests/support/http-test-files.ts`・`tests/support/file-source-contract.ts` | 補助は、共通の接続を設定せず、設備のファイルのパスを設定するときに、その設備の接続を保存する。契約テストの接続テストを `testEquipment` に |
+| `tests/unit/shared/file-server-connection.test.ts` | 「取り込み元の設定（connection の追加）」を、「共通の接続の廃止」（旧項目は無視される）に差し替えた |
+| `tests/unit/frontend/ingestion-page.test.tsx`・`equipment-connection.test.tsx` | 保存の送信を `{ sourceId, isEnabled }` に。表の見出し「接続先（出どころ）」→「接続先」・出どころの表示がないこと。解除は「接続を未設定に戻す」（確認・結果の文言） |
+| `tests/e2e/UC-15-*`・`UC-16`・`UC-01` | 出どころの確認（`equipment-origin`・`data-origin`）を、接続先（`equipment-target`）の確認に。見出し「接続先」。解除の文言。`PUT /ingestion/settings` から `connectionRef` を除く。**「未設定に戻したあと、接続テスト・取り込みが失敗し、もう一方の設備は成功する」を追加** |
+
+### 68.3 追加したテスト
+
+- 旧項目（`connection`・`connectionRef`）が保存済みでも、`GET /ingestion/settings` が読め、応答に出ない（`equipment-connection-api.test.ts`）。`PUT /ingestion/settings` が `{ sourceId, isEnabled }` だけで成功し、旧項目を送っても無視される（`http-file-source.test.ts`・`management-api.test.ts` 3 件）
+- 旧い共通の接続が保存されていても、接続のない設備は使わず、「接続先が設定されていません」で失敗する（`equipment-connection-ingestion.test.ts`）
+- 設備ごとの参照名の形・同じ ID は同じ参照名・100 文字の大文字 ID（`file-server-credentials.test.ts`）
+- E2E: 取り込み元の設定の更新の検証（不正 5 件・応答に旧項目がないこと・旧項目が無視されること・「設定を保存」が有効／無効だけを保存すること）、接続を未設定に戻したあとの動作
+
+### 68.4 実測
+
+手元（Windows。2026-11-19）:
+
+- 単体・結合・フロントエンド・IaC（`vitest run --maxWorkers=3`）: 176 ファイル中 166 ファイル・3727 件が成功、2 件スキップ。DynamoDB Local が必要な 10 ファイル（169 件）が、実行できず失敗（元から。**CI で確認する**）。カバレッジのしきい値の判定は、失敗したファイルがあるため、手元では出ない（**CI で確認する**）。`vitest list` は 3896 件、`playwright test --list` は 943 件。フロントエンド（`--project frontend`）は 41 ファイル・789 件がすべて成功
+- E2E: 影響を受けるファイル（UC-15〔2 ファイル〕で 44 件、UC-16・01・24・05・08・12・14 で 194 件）が、すべて成功。**E2E の全体（943 件）の手元の実行は、していない**。CI（`ci:full`）で確認する
+- 負荷テスト（`pnpm test:stress`）: 4 件が成功（3.2 分。許容は緩めていない）
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
+- **未確認**: CI（`ci:full`）での E2E 全体・カバレッジ、DynamoDB Local が必要なテスト（`demo-data-cli` の出力文言の変更を含む）、本番サイトでの確認（共通の接続の設定がないため、移行は不要）

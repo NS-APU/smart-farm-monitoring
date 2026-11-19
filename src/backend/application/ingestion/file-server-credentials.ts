@@ -1,6 +1,6 @@
 /**
  * ファイルサーバーの認証情報（Issue #172。ADR-0022）。
- * 値（パスワード・トークン・API キー）は、SecretPort の `file-server/<取り込み元の識別子>` に置く（NFR-5.4）。
+ * 値（パスワード・トークン・API キー）は、SecretPort の `file-server/equipment/<設備 ID のハッシュ>`（設備ごと）に置く（NFR-5.4）。
  * 値の形式は、認証方式ごとに、次のとおり。
  * - BASIC: JSON `{"username":"…","password":"…"}`
  * - BEARER: トークンの文字列
@@ -15,11 +15,6 @@ import type {
 } from '@smart-farm/shared/schemas/ingestion';
 import { FileSourceFailure } from '../ports/file-source-port.ts';
 import { parseSecretReference } from '../secret-reference.ts';
-
-/** 取り込み元の認証情報の、秘密情報の参照名。 */
-export function fileServerSecretReference(sourceId: string): string {
-  return parseSecretReference(`file-server/${sourceId}`);
-}
 
 /**
  * 設備ごとの認証情報の、秘密情報の参照名（Issue #367。ADR-0026）: `file-server/equipment/<設備 ID の SHA-256 の先頭 32 文字（16 進）>`。

@@ -6,7 +6,7 @@
  * - `seed [--days N]`: デモの設備（ハウス 1・ロボット 1・環境センサー 1）・直近 N 日分（既定 3 日。1〜31）の合成データ・手入力の例を作り、評価する。
  *   ローカルの `SEED_MODE=DEMO` と同じ内容。設備がすでにあれば、何もしない（何度実行しても、既存のデータを上書きしない）。
  *   `--days 30` は、1 か月分の推移の表示の実測用（Issue #79。実測のあとは、reset のあと、既定の日数で投入し直せる）
- * - `use-http-feed [--url URL]`: 取り込みを、デモ用の HTTP 配信（ADR-0025）に向ける。取り込み元（ロボット・環境センサー）の接続を HTTP にし、
+ * - `use-http-feed [--url URL]`: 取り込みを、デモ用の HTTP 配信（ADR-0025）に向ける。デモの設備（ロボット・環境センサー）ごとの接続を HTTP にし、
  *   デモの設備に、取得するファイルのパスを設定する（何度実行しても、同じ。デモの設備がなければ、先に seed）。URL は、SfmEvaluation の出力 `DemoFeedUrl`
  *   （`--url` または環境変数 `DEMO_FEED_URL`）。`seed` も、`--url`・`DEMO_FEED_URL` があれば、投入のあとに、同じことをする
  * - `reset`: ユーザー・ログインの試行回数の記録・ジョブのロック以外の、すべてのデータ（DynamoDB の観測値・設備・評価・通知・設定など）と、
@@ -114,7 +114,7 @@ async function useFeed(
 ): Promise<void> {
   const applied = await applyDemoFeed(container, parseDemoFeedUrl(feedUrl));
   output.info(
-    `取り込みを、デモ用の HTTP 配信に向けました（取り込み元 ${String(applied.sources)} 件・ファイルのパスを設定した設備 ${String(applied.equipment)} 件）`,
+    `取り込みを、デモ用の HTTP 配信に向けました（接続を設定した設備 ${String(applied.connections)} 件・ファイルのパスを設定した設備 ${String(applied.equipment)} 件）`,
   );
 }
 

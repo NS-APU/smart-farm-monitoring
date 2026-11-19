@@ -1,6 +1,6 @@
 /**
  * 取り込み設定・状況のユースケース（UC-15、UC-16。FR-1.4〜1.8、FR-8.3）。
- * 取り込み元ごとの接続先（参照名）・取得間隔・有効／無効の設定、設備ごとの接続（Issue #367。ADR-0026）、設定と状況（解釈に使う仕様の版・状態、最終の取得）、
+ * 取り込み元ごとの有効／無効の設定、設備ごとの接続・認証情報（Issue #367。ADR-0026。取得間隔は、設備ごと）、設定と状況（解釈に使う仕様の版・状態、最終の取得）、
  * 取り込みのログと連携の結果の参照。認証情報の値は、扱わない・返さない（NFR-5.4）。
  */
 
@@ -10,7 +10,6 @@ import { toIsoOrNull } from '@smart-farm/shared/time';
 import type { EquipmentId, UserId } from '@smart-farm/shared/schemas/common';
 import { staleThresholdMinutesOf, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
-  ConnectionOrigin,
   ConnectionTestResponse,
   EquipmentConnectionResponse,
   FederationLogListResponse,
@@ -36,7 +35,6 @@ import type { EquipmentConnections } from './equipment-connections.ts';
 import {
   credentialsSecretValue,
   fileServerEquipmentSecretReference,
-  fileServerSecretReference,
 } from './file-server-credentials.ts';
 import type { IngestionService } from './ingestion-service.ts';
 import { INGESTION_SETTINGS_KEY, type IngestionSettings } from './ingestion-settings.ts';
@@ -49,12 +47,6 @@ const INTERNAL_ADDRESS_MESSAGE =
 export interface IngestionAdminService {
   describe(): Promise<IngestionSettingsResponse>;
   update(input: IngestionSettingsUpdateRequest, actor: UserId): Promise<IngestionSettingsResponse>;
-  /** 認証情報を登録・上書きする（書き込み専用。値は、返さない・記録しない。Issue #207）。 */
-  setCredentials(
-    sourceId: string,
-    input: IngestionCredentialsInput,
-    actor: UserId,
-  ): Promise<IngestionCredentialStatus>;
   /**
    * 設備ごとの接続を保存する（Issue #367。ADR-0026）。ロボット・センサーだけ。内部のアドレスは拒否する。
    * 認証情報の値は、含めない（`setEquipmentCredentials` で、別に登録する）。
@@ -64,7 +56,7 @@ export interface IngestionAdminService {
     connection: FileServerConnection,
     actor: UserId,
   ): Promise<EquipmentConnectionResponse>;
-  /** 設備ごとの接続を削除する（取り込み元の共通の接続に戻る。移行期間）。応答は、削除後の状態。 */
+  /** 設備ごとの接続を削除する（未設定に戻る）。応答は、削除後の状態。 */
   clearEquipmentConnection(
     equipmentId: EquipmentId,
     actor: UserId,
@@ -120,17 +112,6 @@ function latestDate(dates: readonly Date[]): Date | null {
   );
 }
 
-/** 設備が実際に使う接続の出どころ（設備ごと → 取り込み元の共通 → なし）。 */
-function originOf(
-  own: FileServerConnection | undefined,
-  shared: FileServerConnection | undefined,
-): ConnectionOrigin {
-  if (own !== undefined) {
-    return 'EQUIPMENT';
-  }
-  return shared === undefined ? 'NONE' : 'SHARED';
-}
-
 export function createIngestionAdminService(
   deps: IngestionAdminServiceDeps,
 ): IngestionAdminService {
@@ -157,10 +138,6 @@ export function createIngestionAdminService(
       return { state: 'UNAVAILABLE' };
     }
   }
-
-  /** 取り込み元の共通の認証情報の状態。 */
-  const credentialStatusOf = (source: IngestionSource): Promise<IngestionCredentialStatus> =>
-    credentialStatusOfConnection(source.connection, fileServerSecretReference(source.sourceId));
 
   /** 設備ごとの認証情報の状態。 */
   const equipmentCredentialStatusOf = (
@@ -193,32 +170,13 @@ export function createIngestionAdminService(
     return found;
   }
 
-  /** 設備の保存・削除のあとの、実際に使う接続の状態（出どころ・接続・認証情報の状態）。 */
+  /** 設備の保存・削除のあとの、設備の接続の状態（接続・認証情報の状態）。接続がなければ、接続は省略。 */
   async function connectionStateOf(equipment: Equipment): Promise<EquipmentConnectionResponse> {
     const own = (await equipmentConnections.list()).get(equipment.equipmentId);
-    if (own !== undefined) {
-      return {
-        equipmentId: equipment.equipmentId,
-        connection: own,
-        connectionOrigin: 'EQUIPMENT',
-        credentials: await equipmentCredentialStatusOf(equipment.equipmentId, own),
-      };
-    }
-    const source = (await ingestionSettings.listSources()).find(
-      (candidate) => candidate.kind === equipment.equipmentType,
-    );
-    if (source?.connection !== undefined) {
-      return {
-        equipmentId: equipment.equipmentId,
-        connection: source.connection,
-        connectionOrigin: 'SHARED',
-        credentials: await credentialStatusOf(source),
-      };
-    }
     return {
       equipmentId: equipment.equipmentId,
-      connectionOrigin: 'NONE',
-      credentials: { state: 'NOT_REQUIRED' },
+      ...omitUndefined({ connection: own }),
+      credentials: await equipmentCredentialStatusOf(equipment.equipmentId, own),
     };
   }
 
@@ -242,8 +200,6 @@ export function createIngestionAdminService(
           const lastSucceededAt = latestDate(
             memberRuns.flatMap((run) => run.lastSucceededAt ?? []),
           );
-          // 取り込み元の共通の認証情報の状態（共通の接続を使う設備と、取り込み元の項目が共有する）
-          const sharedCredentials = await credentialStatusOf(source);
           return {
             ...source,
             formatProfile: {
@@ -256,23 +212,15 @@ export function createIngestionAdminService(
               members.map(async (item) => {
                 const run = runs.get(item.equipmentId);
                 const own = ownConnections.get(item.equipmentId);
-                const connectionOrigin = originOf(own, source.connection);
-                const credentials: IngestionCredentialStatus =
-                  connectionOrigin === 'EQUIPMENT'
-                    ? await equipmentCredentialStatusOf(item.equipmentId, own)
-                    : connectionOrigin === 'SHARED'
-                      ? sharedCredentials
-                      : { state: 'NOT_REQUIRED' };
                 return {
                   equipmentId: item.equipmentId,
                   name: item.name,
                   ...omitUndefined({
                     sourceFilePath: item.sourceFilePath,
-                    connection: own ?? source.connection,
+                    connection: own,
                     staleThresholdMinutes: staleThresholdMinutesOf(item, staleAfterIntervals),
                   }),
-                  connectionOrigin,
-                  credentials,
+                  credentials: await equipmentCredentialStatusOf(item.equipmentId, own),
                   lastStartedAt: toIsoOrNull(run?.startedAt ?? null),
                   lastResult: run?.result ?? null,
                   lastSuccessAt: toIsoOrNull(run?.lastSucceededAt ?? null),
@@ -281,7 +229,6 @@ export function createIngestionAdminService(
               }),
             ),
             isRunning: ingestionService.isRunning(source.sourceId),
-            credentials: sharedCredentials,
           };
         }),
       ),
@@ -306,21 +253,7 @@ export function createIngestionAdminService(
           ]);
         }
         seen.add(change.sourceId);
-        if (change.connection !== undefined && !isConnectionAllowed(change.connection)) {
-          throw validationError([
-            {
-              name: `sources.${String(index)}.connection.host`,
-              message: INTERNAL_ADDRESS_MESSAGE,
-            },
-          ]);
-        }
-        updated.push({
-          ...source,
-          connectionRef: change.connectionRef,
-          // 省略は、現在の接続設定を保つ（未設定のままなら、未設定）
-          ...(change.connection === undefined ? {} : { connection: change.connection }),
-          isEnabled: change.isEnabled,
-        });
+        updated.push({ ...source, isEnabled: change.isEnabled });
       }
       // 指定がなかった取り込み元は、そのまま残す
       const next = current.map(
@@ -336,57 +269,6 @@ export function createIngestionAdminService(
         after: next,
       });
       return describe();
-    },
-
-    async setCredentials(sourceId, input, actor) {
-      const source = (await ingestionSettings.listSources()).find(
-        (candidate) => candidate.sourceId === sourceId,
-      );
-      if (source === undefined) {
-        throw new AppError('NOT_FOUND', '取り込み元が見つかりません');
-      }
-      const { connection } = source;
-      if (connection === undefined) {
-        throw validationError([
-          {
-            name: 'authMethod',
-            message: '接続先が設定されていません（先に接続設定を保存してから、登録してください）',
-          },
-        ]);
-      }
-      if (connection.authMethod === 'NONE') {
-        throw validationError([
-          {
-            name: 'authMethod',
-            message:
-              'この取り込み元は、認証情報が不要です（認証方式を設定してから、登録してください）',
-          },
-        ]);
-      }
-      if (connection.authMethod !== input.authMethod) {
-        throw validationError([
-          {
-            name: 'authMethod',
-            message:
-              '認証方式が、保存済みの設定と違います。先に設定を保存してから、登録してください',
-          },
-        ]);
-      }
-      // 値は、保管先へ渡すだけ。例外にも、変更履歴にも、含めない
-      try {
-        await secrets.set(fileServerSecretReference(sourceId), credentialsSecretValue(input));
-      } catch {
-        // 保管先のエラーの内容・原因は、値を含みうるため、引き継がない（ログ・応答に出さない）
-        throw new AppError('SERVICE_UNAVAILABLE', '認証情報を保存できませんでした');
-      }
-      await audit.record({
-        operation: 'UPDATE',
-        targetType: INGESTION_SETTINGS_TARGET_TYPE,
-        targetId: `credentials/${sourceId}`,
-        actor,
-        after: { credentialsUpdated: true, authMethod: input.authMethod },
-      });
-      return credentialStatusOf(source);
     },
 
     async setEquipmentConnection(equipmentId, connection, actor) {

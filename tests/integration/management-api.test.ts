@@ -1659,7 +1659,6 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(body.sources.map((source) => source.sourceId)).toEqual(['robot', 'environment-sensor']);
     const robot = body.sources[0];
     expect(robot).toMatchObject({
-      connectionRef: 'FILE_SERVER_MOCK',
       isEnabled: true,
       isRunning: false,
       formatProfile: { versionLabel: 'robot-json@0.2.0(PROVISIONAL)', status: 'PROVISIONAL' },
@@ -1688,14 +1687,13 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(failed?.lastSuccessAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
   });
 
-  it('接続先の参照名・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
+  it('有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま（接続設定の参照名は、持たない。ADR-0026）', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
       sources: [
         {
           sourceId: 'robot',
-          connectionRef: 'FILE_SERVER_2',
           isEnabled: false,
         },
       ],
@@ -1703,18 +1701,16 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
 
     expect(response.status).toBe(200);
     const body = await settings(context);
-    expect(body.sources[0]).toMatchObject({
-      connectionRef: 'FILE_SERVER_2',
-      isEnabled: false,
-    });
-    expect(body.sources[1]).toMatchObject({ connectionRef: 'FILE_SERVER_MOCK' });
+    expect(body.sources[0]).toMatchObject({ isEnabled: false });
+    expect(body.sources[1]).toMatchObject({ isEnabled: true });
+    expect(JSON.stringify(body)).not.toContain('connectionRef');
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?targetType=ingestion-settings')).json(),
     );
     expect(audit.items).toHaveLength(1);
   });
 
-  it('取得間隔は、設備ごとの設定（Issue #197）。以前のクライアントが、取り込み元の取得間隔を送っても、無視して保存し、設定にも応答にも残らない', async () => {
+  it('取得間隔は、設備ごとの設定（Issue #197）。以前のクライアントが、取り込み元の取得間隔・接続設定の参照名を送っても、無視して保存し、設定にも応答にも残らない', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
@@ -1735,36 +1731,48 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(
       JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
     ).not.toContain('intervalMinutes');
+    expect(
+      JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
+    ).not.toContain('connectionRef');
   });
 
-  it.each([
-    ['参照名が空', { connectionRef: '' }, 'sources.0.connectionRef'],
-    ['参照名に使えない文字', { connectionRef: 'bad ref!' }, 'sources.0.connectionRef'],
-    ['参照名が長すぎる', { connectionRef: 'a'.repeat(101) }, 'sources.0.connectionRef'],
-    ['存在しない取り込み元', { sourceId: 'unknown' }, 'sources.0.sourceId'],
-  ])('不正な設定（%s）は保存しない', async (_name, override, field) => {
+  it('不正な設定（存在しない取り込み元）は保存しない', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
-      sources: [
-        {
-          sourceId: 'robot',
-          connectionRef: 'FILE_SERVER_MOCK',
-          isEnabled: true,
-          ...override,
-        },
-      ],
+      sources: [{ sourceId: 'unknown', isEnabled: true }],
     });
 
     expect(response.status).toBe(400);
-    expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(field);
+    expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(
+      'sources.0.sourceId',
+    );
   });
+
+  it.each([
+    ['空', ''],
+    ['使えない文字', 'bad ref!'],
+    ['長すぎる値', 'a'.repeat(101)],
+  ])(
+    '以前の接続設定の参照名（%s）を送っても、検証せず、無視して保存する（共通の接続の廃止。ADR-0026）',
+    async (_name, connectionRef) => {
+      const context = await withEquipment();
+
+      const response = await send(context, 'PUT', '/ingestion/settings', {
+        sources: [{ sourceId: 'robot', connectionRef, isEnabled: false }],
+      });
+
+      expect(response.status).toBe(200);
+      expect(
+        JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
+      ).not.toContain('connectionRef');
+    },
+  );
 
   it('同じ取り込み元を重複して指定した設定は保存しない', async () => {
     const context = await withEquipment();
     const source = {
       sourceId: 'robot',
-      connectionRef: 'FILE_SERVER_MOCK',
       isEnabled: true,
     };
 
@@ -1775,14 +1783,14 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(response.status).toBe(400);
   });
 
-  it('接続テスト: 接続できれば成功、ファイルサーバーが停止していれば、内部情報を含まない失敗を返す', async () => {
+  it('接続テスト（設備ごと）: 接続できれば成功、ファイルサーバーが停止していれば、内部情報を含まない失敗を返す', async () => {
     const context = await withHttpFiles();
     await context.files.placeFile('robot', 'placeholder.txt', 'x');
 
-    const ok = await send(context, 'POST', '/ingestion/robot/test');
+    const ok = await send(context, 'POST', `/ingestion/equipment/${ROBOT_ID}/test`);
     context.files.faults.set({ mode: 'DOWN' });
-    const failed = await send(context, 'POST', '/ingestion/robot/test');
-    const unknown = await send(context, 'POST', '/ingestion/unknown/test');
+    const failed = await send(context, 'POST', `/ingestion/equipment/${ROBOT_ID}/test`);
+    const unknown = await send(context, 'POST', '/ingestion/equipment/ROBOT-NONE/test');
 
     expect(await ok.json()).toEqual({ ok: true, message: '接続できました' });
     const failure = (await failed.json()) as { ok: boolean; message: string };

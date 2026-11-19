@@ -696,7 +696,7 @@ test.describe('設備ごとの接続と状況の表（SC-11。Issue #367。ADR-0
     });
   }
 
-  test('設備ごとに、ファイルのパス・接続先・接続の出どころ・認証情報の状態を示す（認証情報の値は示さない）。ファイルのパスや接続がない設備は、その旨を示す', async ({
+  test('設備ごとに、ファイルのパス・接続先・認証情報の状態を示す（認証情報の値は示さない）。ファイルのパスや接続がない設備は、その旨を示す', async ({
     page,
     request,
   }, testInfo) => {
@@ -714,7 +714,7 @@ test.describe('設備ごとの接続と状況の表（SC-11。Issue #367。ADR-0
     await expect(table.getByRole('columnheader')).toHaveText([
       '設備',
       'ファイルのパス',
-      '接続先（出どころ）',
+      '接続先',
       '認証情報',
       '最終の実行（結果）',
       '最後にデータが取れた日時',
@@ -725,18 +725,13 @@ test.describe('設備ごとの接続と状況の表（SC-11。Issue #367。ADR-0
     await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
       'http://127.0.0.1:18080',
     );
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveText('設備ごと');
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
-      'data-origin',
-      'EQUIPMENT',
-    );
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveCount(0);
     await expect(page.getByTestId(`equipment-credentials-${ROBOT_ID}`)).toHaveText('未設定');
-    // 接続のない設備は、接続先「未設定」・出どころ「未設定」・認証情報「不要」
+    // 接続のない設備は、接続先「未設定」・認証情報「不要」
     await expect(page.getByTestId(`equipment-path-${SENSOR_ID}`)).toHaveText(
       '/environment-sensor/status.json',
     );
     await expect(page.getByTestId(`equipment-target-${SENSOR_ID}`)).toHaveText('未設定');
-    await expect(page.getByTestId(`equipment-origin-${SENSOR_ID}`)).toHaveText('未設定');
     await expect(page.getByTestId(`equipment-credentials-${SENSOR_ID}`)).toHaveText('不要');
     await shot(page, testInfo, 'uc16-equipment-table');
   });

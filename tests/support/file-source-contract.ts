@@ -2,7 +2,7 @@
  * FileSourcePort の契約テスト（ファイルサーバーのアダプタ（HTTP）に適用する。V-128。以前は、モックとも共通だった）。
  * アダプタごとに、ファイルの用意・停止の再現を行う `ContractSubject` を渡す。
  * 契約: 一覧は更新日時の古い順（同時刻は名前の順）／ファイルの内容は UTF-8 のテキスト／大きさ（バイト）を返す／
- * 存在しないファイル・不正な識別子・停止中は FileSourceUnavailableError。
+ * 存在しないファイル・不正な識別子・停止中は FileSourceUnavailableError。接続テストは、設備ごと（`testEquipment`。ADR-0026）。
  * アダプタによって、ファイルの識別子の形が違う（HTTP はファイルパス）ため、`fileIdOf` で、名前から識別子を求める。
  * まだ決まっていない契約（取り込み元の場所がない場合の一覧・接続の暗号化と認証・タイムアウト）は、Q-002 の確定後に追加する。
  */
@@ -21,6 +21,8 @@ export interface ContractSubject {
   readonly setDown: () => void;
   /** 名前から、一覧に出るファイルの識別子を求める。省略は、名前そのもの。 */
   readonly fileIdOf?: (name: string) => string;
+  /** 名前のファイルを持つ設備の ID（設備ごとの接続テストの対象）。 */
+  readonly equipmentIdOf: (name: string) => string;
 }
 
 export function describeFileSourceContract(name: string, create: () => ContractSubject): void {
@@ -64,12 +66,12 @@ export function describeFileSourceContract(name: string, create: () => ContractS
     });
 
     it('停止中は、接続テスト・一覧・読み取りのすべてが、FileSourceUnavailableError で失敗する', async () => {
-      const { source, putFile, setDown, fileIdOf = (name) => name } = create();
+      const { source, putFile, setDown, fileIdOf = (name) => name, equipmentIdOf } = create();
       putFile('robot', 'a.json', '{}', OLD);
 
       setDown();
 
-      await expect(source.testConnection('robot')).rejects.toBeInstanceOf(
+      await expect(source.testEquipment(equipmentIdOf('a.json'))).rejects.toBeInstanceOf(
         FileSourceUnavailableError,
       );
       await expect(source.listFiles('robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
@@ -78,11 +80,11 @@ export function describeFileSourceContract(name: string, create: () => ContractS
       );
     });
 
-    it('取り込み元がある場合、接続テストは成功する', async () => {
-      const { source, putFile } = create();
+    it('設備に接続とファイルがある場合、設備の接続テストは成功する', async () => {
+      const { source, putFile, equipmentIdOf } = create();
       putFile('robot', 'a.json', '{}', OLD);
 
-      await expect(source.testConnection('robot')).resolves.toBeUndefined();
+      await expect(source.testEquipment(equipmentIdOf('a.json'))).resolves.toBeUndefined();
     });
   });
 }

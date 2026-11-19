@@ -314,26 +314,6 @@ export function updateIngestionSettings(api: ApiClient, input: IngestionSettings
   });
 }
 
-/** 認証情報を登録・上書きする（書き込み専用。応答は、状態だけ）。 */
-export function saveIngestionCredentials(
-  api: ApiClient,
-  sourceId: string,
-  input: IngestionCredentialsInput,
-) {
-  return api.request(API_PATHS.ingestionCredentials(sourceId), {
-    method: 'PUT',
-    body: input,
-    schema: IngestionCredentialStatusSchema,
-  });
-}
-
-export function testIngestionConnection(api: ApiClient, sourceId: string) {
-  return api.request(API_PATHS.ingestionTest(sourceId), {
-    method: 'POST',
-    schema: ConnectionTestResponseSchema,
-  });
-}
-
 /** 設備ごとの接続を保存する（Issue #367。ADR-0026）。認証情報の値は含めない。 */
 export function saveEquipmentConnection(
   api: ApiClient,
@@ -347,7 +327,7 @@ export function saveEquipmentConnection(
   });
 }
 
-/** 設備ごとの接続を削除する（削除のあとの出どころは、共通の接続があれば SHARED、なければ NONE）。 */
+/** 設備ごとの接続を削除する（削除のあとは、未設定。応答の接続は省略）。 */
 export function deleteEquipmentConnection(api: ApiClient, equipmentId: string) {
   return api.request(API_PATHS.ingestionEquipmentConnection(equipmentId), {
     method: 'DELETE',

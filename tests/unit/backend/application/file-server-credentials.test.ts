@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { HttpFileServerConnection } from '../../../../src/shared/schemas/ingestion.ts';
 import {
   buildAuthHeaders,
-  fileServerSecretReference,
+  fileServerEquipmentSecretReference,
 } from '../../../../src/backend/application/ingestion/file-server-credentials.ts';
 import { FileSourceFailure } from '../../../../src/backend/application/ports/file-source-port.ts';
 
@@ -32,14 +32,19 @@ function reasonOf(action: () => unknown): string {
   throw new Error('失敗するはずの処理が、成功した');
 }
 
-describe('秘密情報の参照名', () => {
-  it('取り込み元ごとに、file-server/<取り込み元の識別子>', () => {
-    expect(fileServerSecretReference('robot')).toBe('file-server/robot');
-    expect(fileServerSecretReference('environment-sensor')).toBe('file-server/environment-sensor');
+describe('秘密情報の参照名（設備ごと）', () => {
+  it('設備ごとに、file-server/equipment/<設備 ID のハッシュ（16 進 32 文字）>。同じ設備 ID は、常に同じ参照名', () => {
+    const reference = fileServerEquipmentSecretReference('ROBOT-01');
+
+    expect(reference).toMatch(/^file-server\/equipment\/[0-9a-f]{32}$/);
+    expect(fileServerEquipmentSecretReference('ROBOT-01')).toBe(reference);
+    expect(fileServerEquipmentSecretReference('ROBOT-02')).not.toBe(reference);
   });
 
-  it('参照名にできない識別子は、エラー（値を含めない）', () => {
-    expect(() => fileServerSecretReference('../x')).toThrow('秘密情報の参照名が正しくありません');
+  it('設備 ID は、大文字・100 文字まででも、参照名にできる（設備 ID そのものは、参照名に含めない）', () => {
+    const equipmentId = `ROBOT-${'A'.repeat(94)}`;
+
+    expect(fileServerEquipmentSecretReference(equipmentId)).not.toContain('ROBOT');
   });
 });
 

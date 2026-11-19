@@ -6,7 +6,6 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
-import type { IngestionSource } from '@smart-farm/shared/schemas/ingestion';
 import { createIngestionService } from '../../src/backend/application/ingestion/ingestion-service.ts';
 import { createIngestionSettings } from '../../src/backend/application/ingestion/ingestion-settings.ts';
 import {
@@ -33,14 +32,6 @@ const ROBOT_1_FILE = '/robots/robot-1.json';
 const ROBOT_2_FILE = '/robots/robot-2.json';
 const SENSOR_1_FILE = '/sensors/sensor-1.json';
 
-const HTTP_CONNECTION: IngestionSource['connection'] = {
-  type: 'HTTP',
-  protocol: 'HTTPS',
-  host: 'files.example.invalid',
-  authMethod: 'NONE',
-  apiKeyHeaderName: 'X-API-Key',
-};
-
 interface ListCall {
   readonly sourceId: string;
   readonly paths: readonly string[] | undefined;
@@ -50,16 +41,17 @@ interface ListCall {
  * 取り込みサービス。ファイルソースは、一覧の問い合わせ（取り込み元・ファイルパスの指定）を記録するスタブ。
  * 設備: ロボット 1（間隔の指定なし = 既定 1 分）・ロボット 2（5 分）・センサー 1（指定なし = 既定 5 分）。
  */
-async function build(options: {
-  connection: IngestionSource['connection'];
-  intervals?: boolean;
-  /** ファイルの置き換え（パス → 内容の設備の識別子。`+` で区切ると、1 つのファイルに複数の設備）。省略は、既定の 3 ファイル。 */
-  files?: Record<string, string>;
-  /** 記録の項目の値（既定は、収穫数 2）。不正な値を試すとき。 */
-  fields?: Record<string, number | string>;
-  /** 形式が仕様と異なる（解釈できない）ファイルのパス。 */
-  brokenFiles?: readonly string[];
-}) {
+async function build(
+  options: {
+    intervals?: boolean;
+    /** ファイルの置き換え（パス → 内容の設備の識別子。`+` で区切ると、1 つのファイルに複数の設備）。省略は、既定の 3 ファイル。 */
+    files?: Record<string, string>;
+    /** 記録の項目の値（既定は、収穫数 2）。不正な値を試すとき。 */
+    fields?: Record<string, number | string>;
+    /** 形式が仕様と異なる（解釈できない）ファイルのパス。 */
+    brokenFiles?: readonly string[];
+  } = {},
+) {
   const { repositories } = createLocalRepositories();
   const clock = createControllableClock(TEST_NOW);
   const listCalls: ListCall[] = [];
@@ -71,7 +63,6 @@ async function build(options: {
     [SENSOR_1_FILE]: 'SENSOR-SAMPLE-01',
   };
   const fileSource: FileSourcePort = {
-    testConnection: () => Promise.resolve(),
     testEquipment: () => Promise.resolve(),
     listFiles: (sourceId, listOptions) => {
       listCalls.push({ sourceId, paths: listOptions?.paths });
@@ -112,12 +103,6 @@ async function build(options: {
     },
   };
   const ingestionSettings = createIngestionSettings(repositories.settings);
-  await ingestionSettings.saveSources(
-    (await ingestionSettings.listSources()).map((source) => ({
-      ...source,
-      connection: options.connection,
-    })),
-  );
   const equipment: Equipment[] = [...equipmentSet(), ...secondHouseSet()].map((item) => {
     const extra: Partial<Equipment> =
       item.equipmentId === ROBOT_ID
@@ -188,7 +173,7 @@ const pathsOf = (calls: readonly ListCall[], sourceId: string): string[] | undef
 
 describe('接続方式 HTTP（設備ごとのファイル）', () => {
   it('初回は、取り込みの記録がない設備を、すべて取り込む。以後は、設備ごとの間隔が来た設備のファイルだけを取り込む', async () => {
-    const { runAfter } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter } = await build();
 
     const first = await runAfter(0);
     const after1 = await runAfter(MINUTE);
@@ -211,7 +196,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('間隔が来ていない設備のファイルは、一覧の問い合わせにも含めない。どの設備も来ていない取り込み元は、問い合わせない', async () => {
-    const { runAfter } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter } = await build();
     await runAfter(0);
 
     const after30s = await runAfter(30 * MS);
@@ -221,7 +206,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('起動のずれを許す: 間隔の 5 秒前までに起動されても、間隔が来たものとして扱う。それより早ければ、扱わない', async () => {
-    const { runAfter } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter } = await build();
     await runAfter(0);
 
     const early = await runAfter(54 * MS);
@@ -234,7 +219,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('取得間隔を変えると、次の判定から、反映される（設備ごとの設定 intervalMinutes）', async () => {
-    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, repositories } = await build();
     const robot = await repositories.equipment.get(ROBOT_ID);
     if (robot === undefined) {
       throw new Error('テストの前提');
@@ -251,7 +236,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('ファイルパスのない設備・削除済みの設備は、取り込まない（取り込みの記録も、更新しない）', async () => {
-    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, repositories } = await build();
     const robot2 = await repositories.equipment.get(ROBOT_2_ID);
     if (robot2 === undefined) {
       throw new Error('テストの前提');
@@ -272,7 +257,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('接続できなかった場合も、開始の日時を更新する（間隔が来るまで、再試行しない）', async () => {
-    const { runAfter, control, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, control, repositories } = await build();
     control.listFails = true;
 
     const failed = await runAfter(0);
@@ -287,9 +272,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('即時取得（runSource）は、間隔に関係なく、その取り込み元のすべての設備を取り込み、開始の日時を更新する。そのあとの、定期の実行は、間隔が来るまで、動かない', async () => {
-    const { service, runAfter, listCalls, repositories } = await build({
-      connection: HTTP_CONNECTION,
-    });
+    const { service, runAfter, listCalls, repositories } = await build({});
 
     await service.runSource('robot');
     const states = await repositories.ingestion.listEquipmentRuns();
@@ -303,7 +286,7 @@ describe('接続方式 HTTP（設備ごとのファイル）', () => {
   });
 
   it('無効にした取り込み元は、動かさず、その設備の記録も、更新しない', async () => {
-    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, repositories } = await build();
     const settings = createIngestionSettings(repositories.settings);
     await settings.saveSources(
       (await settings.listSources()).map((source) => ({
@@ -327,7 +310,7 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
     (await repositories.ingestion.listLogs({}, { limit: 50 })).items;
 
   it('新しいデータがあった設備ごとに、ログを 1 件ずつ残す（設備・取り込み元・件数・結果・ハウス）', async () => {
-    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, repositories } = await build();
 
     await runAfter(0);
 
@@ -349,7 +332,7 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
   });
 
   it('空振り（新しいデータがない成功）は、ログに残さない。設備ごとの最終の実行（開始・終了・結果）は、更新し、最後にデータが取れた日時は、そのまま', async () => {
-    const { runAfter, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, repositories } = await build();
     await runAfter(0);
     const firstLogs = (await logsOf(repositories)).length;
 
@@ -366,7 +349,7 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
   });
 
   it('接続できない失敗は、設備に結びつかないため、取り込み元ごとに 1 件（設備の指定なし）。設備ごとの最終の実行は、失敗にする', async () => {
-    const { runAfter, control, repositories } = await build({ connection: HTTP_CONNECTION });
+    const { runAfter, control, repositories } = await build();
     control.listFails = true;
 
     await runAfter(0);
@@ -387,7 +370,6 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
 
   it('設備のファイルが形式違いなら、その設備のログ（失敗）を残す。ほかの設備は、成功のログ', async () => {
     const { runAfter, repositories } = await build({
-      connection: HTTP_CONNECTION,
       brokenFiles: [ROBOT_2_FILE],
     });
 
@@ -408,7 +390,6 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
 
   it('設備のファイルに、その設備に結びつかない記録（未登録の設備の識別子）が入るときは、棄却として、そのファイルの設備のログ（一部成功）に数える。取り込み元単位のログは、残さない', async () => {
     const { runAfter, repositories } = await build({
-      connection: HTTP_CONNECTION,
       files: { [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01+UNKNOWN-ROBOT' },
     });
 
@@ -426,7 +407,6 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
 
   it('取り込めなかった不正な値は、その設備のログに数える。同じ不正な値が続いても（新しく保存した観測値がない）、ログを増やさない', async () => {
     const { runAfter, repositories } = await build({
-      connection: HTTP_CONNECTION,
       files: { [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01' },
       // 収穫数に小数（整数の項目）は、不正
       fields: { harvestCount: 1.5 },

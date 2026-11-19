@@ -8,14 +8,6 @@ import { describe, expect, it } from 'vitest';
 import type { IngestionSource } from '../../../../src/shared/schemas/ingestion.ts';
 import { isAutoIngestionTarget } from '../../../../src/backend/application/ingestion/auto-target.ts';
 
-const HTTP: IngestionSource['connection'] = {
-  type: 'HTTP',
-  protocol: 'HTTPS',
-  host: 'files.example.invalid',
-  authMethod: 'NONE',
-  apiKeyHeaderName: 'X-API-Key',
-};
-
 const ROBOT_WITH_PATH = { equipmentType: 'ROBOT', sourceFilePath: '/robots/1.json' } as const;
 
 function source(overrides: Partial<IngestionSource> = {}): IngestionSource {
@@ -23,8 +15,6 @@ function source(overrides: Partial<IngestionSource> = {}): IngestionSource {
     sourceId: 'robot',
     kind: 'ROBOT',
     profileId: 'robot-json',
-    connectionRef: 'FILE_SERVER_MOCK',
-    connection: HTTP,
     isEnabled: true,
     ...overrides,
   };
@@ -50,18 +40,6 @@ describe('自動取り込みの対象', () => {
 
   it('設備にファイルパスがなければ、取り込み元が有効で、種別が同じでも、対象でない（取得されない）', () => {
     expect(isAutoIngestionTarget({ equipmentType: 'ROBOT' }, [source()])).toBe(false);
-  });
-
-  it('接続が未設定の取り込み元でも、有効で、種別が同じで、設備にファイルパスがあれば、対象（接続の設定は、判定に使わない）', () => {
-    const unconfigured: IngestionSource = {
-      sourceId: 'robot',
-      kind: 'ROBOT',
-      profileId: 'robot-json',
-      connectionRef: 'FILE_SERVER_MOCK',
-      isEnabled: true,
-    };
-
-    expect(isAutoIngestionTarget(ROBOT_WITH_PATH, [unconfigured])).toBe(true);
   });
 
   it('ハウスは、対象でない（取り込み元の種別に、ハウスはない）。取り込み元がなければ、対象でない', () => {

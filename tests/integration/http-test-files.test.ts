@@ -111,25 +111,25 @@ describe('HTTP のテスト用ファイルサーバー（startHttpFileServer）'
 });
 
 describe('取り込みの HTTP のテスト用ファイルサーバーの準備（useHttpFileServer・withHttpFiles）', () => {
-  it('取り込み元（ロボット・環境センサー）の接続を、テスト用のサーバー（127.0.0.1。HTTP・認証なし）にする', async () => {
+  it('共通の接続は設定しない。ファイルのパスを設定した設備（placeFile・assignPath）の接続を、テスト用のサーバー（127.0.0.1。HTTP・認証なし）にする', async () => {
     const created = await context();
+    const expected = {
+      type: 'HTTP',
+      protocol: 'HTTP',
+      host: '127.0.0.1',
+      port: created.files.server.port,
+      authMethod: 'NONE',
+      apiKeyHeaderName: 'X-API-Key',
+    };
+    expect((await created.container.equipmentConnections.list()).size).toBe(0);
 
-    const sources = await created.container.ingestionSettings.listSources();
+    await created.files.placeFile('robot', 'a.json', '{}');
+    await created.files.assignPath(SENSOR_ID, '/environment-sensor/b.json');
 
-    expect(sources.map((source) => source.sourceId).sort()).toEqual([
-      'environment-sensor',
-      'robot',
-    ]);
-    for (const source of sources) {
-      expect(source.connection).toEqual({
-        type: 'HTTP',
-        protocol: 'HTTP',
-        host: '127.0.0.1',
-        port: created.files.server.port,
-        authMethod: 'NONE',
-        apiKeyHeaderName: 'X-API-Key',
-      });
-    }
+    const saved = await created.container.equipmentConnections.list();
+    expect([...saved.keys()].sort()).toEqual([ROBOT_ID, SENSOR_ID].sort());
+    expect(saved.get(ROBOT_ID)).toEqual(expected);
+    expect(saved.get(SENSOR_ID)).toEqual(expected);
   });
 
   it('placeFile・placeFixture は、取り込み元の種別の設備の sourceFilePath を、/<取り込み元>/<名前> にして、ファイルを置く。取り込みが成功する', async () => {

@@ -41,7 +41,6 @@ type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 /** 指定した名前のファイルを持ち、内容は空の JSON オブジェクトを返す、ファイルサーバーのスタブ。 */
 function stubFileSource(names: readonly string[]): FileSource {
   return {
-    testConnection: () => Promise.resolve(),
     testEquipment: () => Promise.resolve(),
     listFiles: () =>
       Promise.resolve(
@@ -737,9 +736,10 @@ describe('取り込みの実行の制御・設定', () => {
     await expect(context.container.ingestionService.runSource('none')).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
-    await expect(context.container.ingestionService.testConnection('none')).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    });
+    // 接続テストは、設備ごと。存在しない設備は、見つからないエラーにする
+    await expect(
+      context.container.ingestionService.testEquipmentConnection('ROBOT-NONE'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('実行中の取り込み元を重ねて実行すると、競合（二重実行の防止）にする', async () => {
@@ -761,13 +761,13 @@ describe('取り込みの実行の制御・設定', () => {
     ).toBe('CONFLICT');
   });
 
-  it('接続テスト: 成功と失敗を、内部情報を含まないメッセージで返す', async () => {
+  it('接続テスト（設備ごと）: 成功と失敗を、内部情報を含まないメッセージで返す', async () => {
     const context = await setup();
     await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
-    const ok = await context.container.ingestionService.testConnection('robot');
+    const ok = await context.container.ingestionService.testEquipmentConnection(ROBOT_ID);
     context.files.faults.set({ mode: 'DOWN' });
-    const ng = await context.container.ingestionService.testConnection('robot');
+    const ng = await context.container.ingestionService.testEquipmentConnection(ROBOT_ID);
 
     expect(ok).toEqual({ ok: true, message: '接続できました' });
     expect(ng.ok).toBe(false);
@@ -908,7 +908,6 @@ describe('取り込みの実行の制御・設定', () => {
 describe('取り込みの境界（スタブのファイル取得）', () => {
   it('ファイルを読めなかった場合は、そのファイルを失敗として数え、取り込みは失敗にする', async () => {
     const { service, repositories } = build({
-      testConnection: () => Promise.resolve(),
       testEquipment: () => Promise.resolve(),
       listFiles: () =>
         Promise.resolve([
@@ -927,7 +926,6 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
 
   it('一覧の取得が接続エラー以外で失敗した場合は、一覧を取得できなかった旨を記録する', async () => {
     const { service, repositories, notifyIngestionFailure } = build({
-      testConnection: () => Promise.resolve(),
       testEquipment: () => Promise.resolve(),
       listFiles: () => Promise.reject(new Error('想定外')),
       readFile: () => Promise.resolve(''),
@@ -948,7 +946,6 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
 
   it('形式違い以外の想定外のエラーは、握りつぶさず、呼び出し元へ伝える', async () => {
     const { service, repositories } = build({
-      testConnection: () => Promise.resolve(),
       testEquipment: () => Promise.resolve(),
       listFiles: () =>
         Promise.resolve([

@@ -1,10 +1,10 @@
 /**
  * 取り込みのテストの、HTTP のファイルサーバー（Issue #344。ADR-0025）の準備。モックのファイルサーバー（`context.placeFile`・`placeFixture`・
  * `faults.fileServer`）の置き換え。
- * - `useHttpFileServer(context)`: テスト用の HTTP サーバー（http-file-server.ts）を立て、取り込み元（ロボット・環境センサー）の接続を、
- *   そのサーバー（127.0.0.1。HTTP・認証なし）にする。コンテキストは、`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` で作る（`HTTP_FILES_ENV`。
+ * - `useHttpFileServer(context)`: テスト用の HTTP サーバー（http-file-server.ts）を立てる。接続は、**設備ごと**（ADR-0026。共通の接続はない）で、
+ *   ファイルのパスを設備に設定するとき（`files.*`）に、その設備の接続を、そのサーバー（127.0.0.1。HTTP・認証なし）にする。コンテキストは、`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` で作る（`HTTP_FILES_ENV`。
  *   `withHttpFiles()` が、設備の一式〔withEquipment〕と合わせて、作る。内部のアドレスを、既定で拒否することを確かめるテストのため、既定にはしない）
- * - `files.placeFile`・`files.placeFixture`: ファイルを置き、**その取り込み元の種別の設備の `sourceFilePath` を、そのパスにする**
+ * - `files.placeFile`・`files.placeFixture`: ファイルを置き、**その取り込み元の種別の設備の `sourceFilePath` を、そのパスにし、その設備の接続を保存する**
  *   （HTTP は、1 設備 = 1 ファイル。ADR-0023）。パスは `/<取り込み元>/<名前>`。設備は、`equipmentId` で指定する（省略は、その種別の
  *   最初の設備）。**同じ設備に、別の名前のファイルを置こうとするとエラー**（モックの「1 つの取り込み元に複数のファイル」を、
  *   同じパスの上書き・別の設備への配置に言い換える。意図しない言い換えを避ける）
@@ -56,13 +56,13 @@ export interface HttpTestFiles {
     fixtureRelativePath: string,
     options?: PlaceOptions & { readonly asName?: string },
   ): Promise<void>;
-  /** 設備の `sourceFilePath` を設定する（ファイルは置かない。ファイルが、まだ置かれていない状態の確認用）。 */
+  /** 設備の `sourceFilePath` と接続を設定する（ファイルは置かない。ファイルが、まだ置かれていない状態の確認用）。 */
   assignPath(equipmentId: EquipmentId, path: string): Promise<void>;
 }
 
 export type HttpTestContext = TestContext & { readonly files: HttpTestFiles };
 
-/** HTTP のテスト用サーバーを立て、取り込み元の接続を、それにする。 */
+/** HTTP のテスト用サーバーを立てる（設備の接続は、ファイルのパスを設定するとき〔`files.*`〕に、設備ごとに、それにする）。 */
 export async function useHttpFileServer(context: TestContext): Promise<HttpTestContext> {
   if (!context.config.httpFileSourceAllowPrivate) {
     throw new Error(
@@ -70,21 +70,22 @@ export async function useHttpFileServer(context: TestContext): Promise<HttpTestC
     );
   }
   const server = await startHttpFileServer();
-  const { ingestionSettings, repositories } = context.container;
-  const sources = await ingestionSettings.listSources();
-  await ingestionSettings.saveSources(
-    sources.map((source) => ({
-      ...source,
-      connection: {
-        type: 'HTTP' as const,
-        protocol: 'HTTP' as const,
-        host: '127.0.0.1',
-        port: server.port,
-        authMethod: 'NONE' as const,
-        apiKeyHeaderName: 'X-API-Key',
-      },
-    })),
-  );
+  const { equipmentConnections, repositories } = context.container;
+
+  /** 設備のファイルのパスを設定し、その設備の接続（テスト用サーバー。HTTP・127.0.0.1・認証なし）を保存する（ADR-0026。共通の接続はない）。 */
+  async function assign(equipment: Equipment, path: string): Promise<void> {
+    if (equipment.sourceFilePath !== path) {
+      await repositories.equipment.save({ ...equipment, sourceFilePath: path });
+    }
+    await equipmentConnections.save(equipment.equipmentId, {
+      type: 'HTTP',
+      protocol: 'HTTP',
+      host: '127.0.0.1',
+      port: server.port,
+      authMethod: 'NONE',
+      apiKeyHeaderName: 'X-API-Key',
+    });
+  }
 
   async function equipmentFor(
     sourceId: FileSourceId,
@@ -120,9 +121,7 @@ export async function useHttpFileServer(context: TestContext): Promise<HttpTestC
         `HTTP のファイルサーバーは、1 設備 = 1 ファイル（設備 ${equipment.equipmentId} は、すでに ${equipment.sourceFilePath} を持つ。${path} は置けない）。同じパスの上書き、または、別の設備（equipmentId を指定）に言い換える`,
       );
     }
-    if (equipment.sourceFilePath === undefined) {
-      await repositories.equipment.save({ ...equipment, sourceFilePath: path });
-    }
+    await assign(equipment, path);
     server.put(path, content, {
       modifiedAt: options.modifiedAt,
       omitLastModified: options.omitLastModified,
@@ -146,7 +145,7 @@ export async function useHttpFileServer(context: TestContext): Promise<HttpTestC
       if (equipment === undefined) {
         throw new Error(`テストの前提: 設備があります: ${equipmentId}`);
       }
-      await repositories.equipment.save({ ...equipment, sourceFilePath: path });
+      await assign(equipment, path);
     },
   };
   return Object.assign(context, { files });

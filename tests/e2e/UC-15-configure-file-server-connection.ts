@@ -7,9 +7,9 @@
  *   2. システムが、設備を保存してから、接続を保存する
  *   3. 農作業者が、その設備だけの接続テストを実行し、結果（成功、または、失敗の理由）を確認する
  *
- * 値の同値分割: 接続（未設定・設備ごと・共通〔移行期間〕。接続方式の選択はない。HTTP のみ。ADR-0025）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
+ * 値の同値分割: 接続（未設定・設備ごと。接続方式の選択はない。HTTP のみ。ADR-0025。取り込み元の共通の接続は、廃止した）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
  * ホスト（正常・スキームつき）、設備のファイルパス（あり・なし・サーバーにない）、認証方式（なし・認証情報が未設定）、接続テスト（成功・ファイルなし）、
- * 取り込み（設備のファイルを、即時取得で取り込む。Issue #119）、コピー（同じ種別の設備から接続を写す。認証情報は写さない）、解除（共通の接続・未設定に戻す）、
+ * 取り込み（設備のファイルを、即時取得で取り込む。Issue #119）、コピー（同じ種別の設備から接続を写す。認証情報は写さない）、「接続を未設定に戻す」（解除。未設定に戻したあとは、取り込みが「接続先が設定されていません」で失敗する）、
  * 登録と同時の保存（設備は登録でき、接続の保存だけが失敗した場合）。
  * 認証情報の登録（Issue #207。D-47）: 認証方式（Basic）を選んで保存したあと、ユーザー名・パスワードを書き込み専用で登録し、
  * 「設定済み」と更新日時を示す。保存後は、値を再表示しない。登録した認証情報で、接続テストが成功する。
@@ -185,7 +185,7 @@ test.describe('基本フロー: 設備のダイアログで接続設定を入力
     await expect(host(page)).toHaveValue('');
     await expect(portInput(page)).toHaveAttribute('placeholder', '443');
     await expect(authMethod(page)).toHaveValue('NONE');
-    // 設備ごとの接続のため、解除・認証情報の欄は、接続を保存するまで出ない
+    // 接続がないため、「接続を未設定に戻す」・認証情報の欄は、接続を保存するまで出ない
     await expect(page.getByTestId('equipment-connection-remove')).toHaveCount(0);
     await expect(credentialsBox(page)).toHaveCount(0);
     // ファイルのパス（設備の項目）の案内。設備ごとの接続が必要なことを伝える
@@ -221,7 +221,7 @@ test.describe('基本フロー: 設備のダイアログで接続設定を入力
     await shot(page, testInfo, 'uc15-connection');
   });
 
-  test('一方の設備に設定しても、もう一方の設備は、未設定のまま（取り込み元の共通の接続は、設定しない）', async ({
+  test('一方の設備に設定しても、もう一方の設備は、未設定のまま（接続は、設備ごとだけ）', async ({
     page,
     request,
   }) => {
@@ -233,16 +233,12 @@ test.describe('基本フロー: 設備のダイアログで接続設定を入力
 
     await expect(unsetNote(page)).toBeVisible();
     await expect(host(page)).toHaveValue('');
-    // 取り込み設定・状況の、設備ごとの表の出どころ
+    // 取り込み設定・状況の、設備ごとの表の接続先
     await page.goto('/settings/ingestion');
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
-      'data-origin',
-      'EQUIPMENT',
+    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
+      `http://127.0.0.1:${String(port)}`,
     );
-    await expect(page.getByTestId(`equipment-origin-${SENSOR_ID}`)).toHaveAttribute(
-      'data-origin',
-      'NONE',
-    );
+    await expect(page.getByTestId(`equipment-target-${SENSOR_ID}`)).toHaveText('未設定');
   });
 
   test('接続の入力を変えて、まだ保存していないときは、接続テストを使えず、保存してからテストする旨を示す', async ({
@@ -524,17 +520,16 @@ test.describe('コピー: 同じ種別の既存設備から、接続を写す（
     await expect(authMethod(page)).toHaveValue('BASIC');
     await expect(credentialsStatus(page)).toContainText('未設定');
     await page.goto('/settings/ingestion');
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
-      'data-origin',
-      'EQUIPMENT',
+    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
+      `http://127.0.0.1:${String(port)}`,
     );
     await expect(page.getByTestId(`equipment-credentials-${ROBOT_ID}`)).toHaveText('未設定');
     await expect(page.getByTestId(`equipment-credentials-${ROBOT_2_ID}`)).toContainText('設定済み');
   });
 });
 
-test.describe('解除: 設備ごとの接続を解除し、共通の接続・未設定に戻す', () => {
-  test('確認のうえ、設備ごとの接続を解除すると、未設定に戻る。取り消すと、解除しない', async ({
+test.describe('接続を未設定に戻す: 設備の接続を解除し、未設定に戻す', () => {
+  test('確認のうえ、「接続を未設定に戻す」と、未設定に戻る。取り消すと、戻さない', async ({
     page,
     request,
   }, testInfo) => {
@@ -542,10 +537,13 @@ test.describe('解除: 設備ごとの接続を解除し、共通の接続・未
     await saveConnectionByApi(request, ROBOT_ID);
     await openEquipmentDialog(page);
     await expect(host(page)).toHaveValue('127.0.0.1');
+    await expect(page.getByTestId('equipment-connection-remove')).toHaveText('接続を未設定に戻す');
 
     await page.getByTestId('equipment-connection-remove').click();
     const confirm = page.getByTestId('equipment-connection-remove-confirm');
-    await expect(confirm).toContainText('接続先が設定されていません');
+    await expect(confirm).toContainText('未設定に戻します');
+    await expect(confirm).toContainText('「接続先が設定されていません」で失敗します');
+    await expect(page.getByTestId('equipment-connection-remove-yes')).toHaveText('未設定に戻す');
     await shot(page, testInfo, 'uc15-connection-remove-confirm');
     await confirm.getByRole('button', { name: 'キャンセル' }).click();
     await expect(confirm).toHaveCount(0);
@@ -554,109 +552,51 @@ test.describe('解除: 設備ごとの接続を解除し、共通の接続・未
     await page.getByTestId('equipment-connection-remove').click();
     await page.getByTestId('equipment-connection-remove-yes').click();
 
-    await expect(connectionResult(page)).toHaveText('設備ごとの接続を解除しました');
+    await expect(connectionResult(page)).toHaveText('接続を未設定に戻しました');
     await expect(unsetNote(page)).toBeVisible();
     await expect(host(page)).toHaveValue('');
     await expect(page.getByTestId('equipment-connection-remove')).toHaveCount(0);
     await page.goto('/settings/ingestion');
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
-      'data-origin',
-      'NONE',
-    );
     await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText('未設定');
   });
-});
 
-test.describe('共通の接続（移行期間）を使っている設備の注意', () => {
-  /** 取り込み元（ロボット）の共通の接続を、API で設定する（移行期間の既存の設定の再現）。 */
-  async function setSharedConnection(request: APIRequestContext): Promise<void> {
-    const current = await apiOk<{
-      sources: { sourceId: string; connectionRef: string; isEnabled: boolean }[];
-    }>(request, 'GET', '/ingestion/settings');
-    const robot = current.sources.find((source) => source.sourceId === 'robot');
-    if (robot === undefined) {
-      throw new Error('テストの前提: ロボットの取り込み元がある');
-    }
-    await apiOk(request, 'PUT', '/ingestion/settings', {
-      sources: [
-        {
-          sourceId: 'robot',
-          connectionRef: robot.connectionRef,
-          isEnabled: robot.isEnabled,
-          connection: {
-            type: 'HTTP',
-            protocol: 'HTTP',
-            host: '127.0.0.1',
-            port,
-            authMethod: 'NONE',
-          },
-        },
-      ],
-    });
-  }
-
-  test('取り込み設定・状況に、共通の接続を使っている設備があることと、設備ごとの出どころ（共通〔移行期間〕）を示す。使っていない取り込み元には、示さない', async ({
+  test('未設定に戻すと、接続テストは「接続先が設定されていません」で、取り込みは接続できないとして、失敗する。接続は、設備ごとのため、ほかの設備には影響しない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    await setSharedConnection(request);
-
-    await alignBrowserClock(page);
-    await openAs(page, '/settings/ingestion');
-
-    await expect(page.getByTestId('shared-connection-notice-robot')).toContainText(
-      '取り込み元の共通の接続を使っている設備があります',
-    );
-    await expect(page.getByTestId('shared-connection-notice-robot')).toContainText(
-      '共通の接続は、廃止予定です',
-    );
-    await expect(page.getByTestId('shared-connection-notice-environment-sensor')).toHaveCount(0);
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
-      'data-origin',
-      'SHARED',
-    );
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveText('共通（移行期間）');
-    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
-      `http://127.0.0.1:${String(port)}`,
-    );
-    await expect(page.getByTestId(`equipment-origin-${SENSOR_ID}`)).toHaveText('未設定');
-  });
-
-  test('設備のダイアログに、共通の接続を使っている注意を示し、入力欄に共通の値を表示する。この設備の接続にして保存すると、設備ごとの接続になる。解除すると、共通の接続に戻る', async ({
-    page,
-    request,
-  }, testInfo) => {
-    await prepareApp(request);
-    await setSharedConnection(request);
+    await setRobotFilePath(request, FILE_PATH);
+    await saveConnectionByApi(request, ROBOT_ID);
+    await assignFilePath(request, SENSOR_ID, FILE_PATH);
+    await saveConnectionByApi(request, SENSOR_ID);
     await openEquipmentDialog(page);
+    await testButton(page).click();
+    await expect(connectionResult(page)).toHaveText('接続できました');
 
-    await expect(page.getByTestId('equipment-connection-shared')).toContainText(
-      '取り込み元の共通の接続を使っています',
-    );
-    await expect(page.getByTestId('equipment-connection-shared-note')).toContainText(
-      '入力欄には、いま使っている共通の接続の値を表示しています',
-    );
-    await expect(host(page)).toHaveValue('127.0.0.1');
-    await expect(portInput(page)).toHaveValue(String(port));
-    await expect(page.getByTestId('equipment-connection-remove')).toHaveCount(0);
-    await shot(page, testInfo, 'uc15-connection-shared');
-
-    await page.getByTestId('equipment-connection-adopt').click();
-    await expect(page.getByTestId('equipment-connection-result')).toContainText(
-      '保存すると、この設備だけの接続になります',
-    );
-    await saveEquipment(page).click();
-    await expect(notice(page)).toHaveText('修正しました');
-
-    await openEquipmentDialog(page);
-    await expect(page.getByTestId('equipment-connection-shared')).toHaveCount(0);
-    await expect(host(page)).toHaveValue('127.0.0.1');
-    // 設備ごとの接続を解除すると、共通の接続に戻る
     await page.getByTestId('equipment-connection-remove').click();
     await page.getByTestId('equipment-connection-remove-yes').click();
-    await expect(connectionResult(page)).toHaveText('設備ごとの接続を解除しました');
-    await expect(page.getByTestId('equipment-connection-shared')).toBeVisible();
+    await expect(connectionResult(page)).toHaveText('接続を未設定に戻しました');
+    requests.length = 0;
+
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText('未設定');
+    await expect(page.getByTestId(`equipment-target-${SENSOR_ID}`)).toHaveText(
+      `http://127.0.0.1:${String(port)}`,
+    );
+    const tested = await testEquipmentConnection(page, ROBOT_ID);
+    await expect(tested).toContainText('接続先が設定されていません');
+    await expect(tested).toHaveClass(/form-error/);
+    const ran = await runNow(page, 'robot');
+    await expect(ran).toContainText('取得しました（失敗）');
+    await expect(logRows(page).first()).toHaveAttribute('data-result', 'FAILURE');
+    // 取り込みのログは、理由を細かく示さない（接続できなかった旨）。理由の「接続先が設定されていません」は、接続テストで示す
+    await expect(logRows(page).first()).toContainText('ファイルサーバーに接続できませんでした');
+    await expect(page.getByTestId(`equipment-result-${ROBOT_ID}`)).toHaveText('失敗');
+    // 未設定の設備には、接続しない
+    expect(requests).toEqual([]);
+    // もう一方の設備（接続あり）は、取り込める
+    const sensor = await testEquipmentConnection(page, SENSOR_ID);
+    await expect(sensor).toHaveText('接続できました');
   });
 });
 
@@ -694,10 +634,6 @@ test.describe('登録と同時の保存: ロボットを登録するときに、
     await expect(notice(page)).toHaveText('登録しました');
     await page.goto('/settings/ingestion');
     await expect(page.getByTestId(`equipment-path-${ROBOT_2_ID}`)).toHaveText(FILE_PATH);
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_2_ID}`)).toHaveAttribute(
-      'data-origin',
-      'EQUIPMENT',
-    );
     await expect(page.getByTestId(`equipment-target-${ROBOT_2_ID}`)).toHaveText(
       `http://127.0.0.1:${String(port)}`,
     );
@@ -757,9 +693,8 @@ test.describe('登録と同時の保存: ロボットを登録するときに、
         .filter((item) => item.equipmentId === ROBOT_2_ID),
     ).toHaveLength(1);
     await page.goto('/settings/ingestion');
-    await expect(page.getByTestId(`equipment-origin-${ROBOT_2_ID}`)).toHaveAttribute(
-      'data-origin',
-      'EQUIPMENT',
+    await expect(page.getByTestId(`equipment-target-${ROBOT_2_ID}`)).toHaveText(
+      `http://127.0.0.1:${String(port)}`,
     );
   });
 });
