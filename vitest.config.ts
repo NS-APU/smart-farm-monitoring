@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 /**
  * Vitest の設定（単体・結合テスト）。方針は docs/30_quality/test-policy.md と docs/10_design/functions/dev_spec.md 6章。
- * - node プロジェクト: shared・backend の単体テストと、結合テスト（Hono アプリの app.request）
+ * - node プロジェクト: shared・backend・tooling（E2E の実行まわり。Issue #519）の単体テストと、結合テスト（Hono アプリの app.request）
  * - infra プロジェクト: IaC（AWS CDK。infra/）のテスト。CDK は infra/ の依存のため、テストも infra/test/ に置く
  * - frontend プロジェクト: jsdom 上の React コンポーネントの単体テスト
  * - カバレッジ: 本体コード（src/）全体で、行・分岐・関数・文のすべて 95% 以上（test-policy.md の 90% より厳しい値を採用）。
@@ -18,6 +18,7 @@ export default defineConfig({
           include: [
             'tests/unit/shared/**/*.test.ts',
             'tests/unit/backend/**/*.test.ts',
+            'tests/unit/tooling/**/*.test.ts',
             'tests/integration/**/*.test.ts',
           ],
           // DynamoDB アダプタのテストが使う、DynamoDB Local（Java）の用意（tests/support/dynamodb-local-global-setup.ts）

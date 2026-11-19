@@ -15,6 +15,7 @@ import {
   type TestInfo,
 } from '@playwright/test';
 import { LoginResponseSchema } from '../../../src/shared/schemas/auth.ts';
+import { E2E_VIDEO } from './e2e-options.ts';
 import { E2E_USER } from './e2e-user.ts';
 import { loginViaUi } from './helpers.ts';
 import { NOW, prepare, type PrepareOptions } from './viewpoint-scenarios.ts';
@@ -323,14 +324,21 @@ export async function alignBrowserClock(page: Page, at: Date = NOW): Promise<voi
   await page.clock.setFixedTime(at);
 }
 
-/** 指定した利用者として、新しいブラウザのコンテキスト（動画つき）を開く（複数ユーザーのシナリオ用）。 */
+/** 指定した利用者として、新しいブラウザのコンテキストを開く（複数ユーザーのシナリオ用。動画は、E2E_VIDEO=1 のときだけ）。 */
 export async function newUserSession(
   browser: Browser,
   testInfo: TestInfo,
   label: string,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
-    recordVideo: { dir: testInfo.outputPath(`video-${label}`), size: { width: 1280, height: 720 } },
+    ...(E2E_VIDEO
+      ? {
+          recordVideo: {
+            dir: testInfo.outputPath(`video-${label}`),
+            size: { width: 1280, height: 720 },
+          },
+        }
+      : {}),
     viewport: { width: 1280, height: 720 },
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',

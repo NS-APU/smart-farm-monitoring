@@ -662,7 +662,8 @@ test.describe('古い画面の部品が取得できない場合（デプロイ�
     let blocked = true;
     let attempts = 0;
     // ステータスコードの画面の部品（遅延読み込み）の取得を、失敗させる（削除済みのファイルを取得しようとする状況の再現）
-    await page.route(/status-codes-page\.tsx/, async (route) => {
+    // URL は、開発サーバーでは `status-codes-page.tsx`、本番ビルドでは `status-codes-page-<ハッシュ>.js`（Issue #519）
+    await page.route(/status-codes-page(?:\.tsx|-[\w-]+\.js)/, async (route) => {
       attempts += 1;
       if (blocked) {
         await route.abort();

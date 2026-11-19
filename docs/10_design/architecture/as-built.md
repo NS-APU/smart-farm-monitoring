@@ -2602,12 +2602,12 @@ flowchart LR
 ```mermaid
 flowchart LR
   T["Playwright のテスト<br>tests/e2e"]
-  BR["chromium<br>1280x720<br>video と screenshot"]
-  VITE["Vite 127.0.0.1:5173"]
+  BR["chromium<br>1280x720<br>screenshot<br>video は E2E_VIDEO=1"]
+  VITE["本番ビルドを vite preview<br>127.0.0.1:5173"]
   BE["Node サーバー 127.0.0.1:8787<br>APP_MODE test<br>PERSISTENCE memory<br>SEED_MODE NONE"]
   FS["HTTP のテスト用ファイルサーバー<br>テストのプロセスの中"]
   DEV["開発用 API<br>reset 時計 ジョブ 連携・通知のモック"]
-  OUT["test-result/e2e<br>動画 画像 trace<br>test-result/playwright-report"]
+  OUT["test-result/e2e<br>画像 trace 動画は任意<br>test-result/playwright-report"]
 
   T --> BR
   BR --> VITE
@@ -2623,9 +2623,9 @@ flowchart LR
 `playwright.config.ts` の要点:
 
 - `testDir: ./tests/e2e`、`testMatch: /(?:UC-\d{2}|scenario)-[a-z0-9-]+\.ts$/`（`support/` の補助は実行しない）。`fullyParallel: false`・`workers: 1`（バックエンドのデータを共有するため、順次実行。各テストの前に `POST /dev/reset`）
-- `use`: `video: { mode: 'on', size: 1280x720 }`、`screenshot: 'on'`、`trace: 'retain-on-failure'`、`locale: ja-JP`、`timezoneId: Asia/Tokyo`。プロジェクトは `chromium`（Desktop Chrome、viewport 1280×720）のみ
+- `use`: `video: 'off'`（既定。環境変数 `E2E_VIDEO=1` のときだけ `{ mode: 'on', size: 1280x720 }`。Issue #519）、`screenshot: 'on'`、`trace: 'retain-on-failure'`、`locale: ja-JP`、`timezoneId: Asia/Tokyo`。プロジェクトは `chromium`（Desktop Chrome、viewport 1280×720）のみ
 - `outputDir: ./test-result/e2e`、レポータは `list` と `html`（`./test-result/playwright-report`、`open: never`）
-- `webServer` は 2 つ（`reuseExistingServer: false`）: バックエンド（`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`。`APP_MODE=test`・`PORT=8787`・`PERSISTENCE=memory`・`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`・`SEED_MODE=NONE`・初期ユーザー・`LOG_LEVEL=warn`・`INGESTION_RETRY_BASE_DELAY_MS=10`・ロール定義 `worker`（全権限）と `viewer`（権限なし）・ダミーの `WEB_PUSH_PUBLIC_KEY`）、Vite（`node ../../node_modules/vite/bin/vite.js`。Windows のシェルで `pnpm` の解決に失敗することがあるため直接起動）。ポート 5173・8787 が空いている必要がある
+- `webServer` は 2 つ（`reuseExistingServer: false`）: バックエンド（`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`。`APP_MODE=test`・`PORT=8787`・`PERSISTENCE=memory`・`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`・`SEED_MODE=NONE`・初期ユーザー・`LOG_LEVEL=warn`・`INGESTION_RETRY_BASE_DELAY_MS=10`・ロール定義 `worker`（全権限）と `viewer`（権限なし）・ダミーの `WEB_PUSH_PUBLIC_KEY`）、フロントエンド（本番ビルドを `vite build` → `vite preview`。環境変数 `E2E_DEV_SERVER=1` なら、Vite の開発サーバー。いずれも `node ../../node_modules/vite/bin/vite.js` を直接起動する。Windows のシェルで `pnpm` の解決に失敗することがあるため）。ポート 5173・8787 が空いている必要がある。`E2E_PORT_OFFSET` で、ポートと出力先（`outputDir`・HTML レポート）をずらせる。`pnpm test:e2e:parallel`（`scripts/e2e-parallel.ts`）は、これを使って、複数のインスタンスを並列に実行する
 
 ### ファイルの命名とシナリオ
 
@@ -2645,7 +2645,7 @@ flowchart LR
 
 ### スクリーンショット・動画・レイアウトの検査
 
-- **動画**は常に撮影（`video: on`）。複数の利用者のシナリオは、コンテキストごとに動画を記録する。**スクリーンショット**は、`screenshot: 'on'` の自動撮影と、シナリオの要所での名前つきの撮影（`shot()`。ページ全体）
+- **動画**は、`E2E_VIDEO=1` のときだけ撮影する（既定は撮らない）。複数の利用者のシナリオは、撮影するとき、コンテキストごとに動画を記録する。**スクリーンショット**は、`screenshot: 'on'` の自動撮影と、シナリオの要所での名前つきの撮影（`shot()`。ページ全体）
 - **`shot(page, testInfo, name)`** は、撮影の前に `expectCleanLayout` を実行し、問題があればテストを失敗させる。`expectCleanLayout` が機械的に確認すること:
   - 横スクロールがない（`scrollWidth` ≦ `clientWidth` ＋ 1）
   - 同じ種類の要素（カード・表・ダイアログ・ログインのフォームなど）が重ならない。要素が表示領域の左右にはみ出さない

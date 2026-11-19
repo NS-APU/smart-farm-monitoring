@@ -18,7 +18,7 @@ smart-farm-monitoring/
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト・アプリのアイコン・テーマの初期適用スクリプト）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts・observation-list-period.ts などの補助）
 ├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・test/ のテスト。API の Lambda は、バックエンド本体 `src/backend/runtime/lambda.ts` を、esbuild でまとめて配る。ADR-0006・ADR-0007・ADR-0009）
-├── scripts/       # 補助スクリプト（generate-app-icons.ts: アプリのアイコンの生成。Issue #326）
+├── scripts/       # 補助スクリプト（generate-app-icons.ts: アプリのアイコンの生成。Issue #326。e2e-parallel.ts: E2E の並列実行。Issue #519）
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
 ├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）
 ├── .vscode/       # エディタ（VS Code）の設定（settings.json。cSpell の用語）
@@ -31,7 +31,7 @@ smart-farm-monitoring/
 │   ├── csp/           # 画面の CSP の確認（Playwright。csp-NN-<英語の概略名>.ts。本番ビルドの画面に CSP を付けて、主な画面を一巡する。`pnpm test:csp`。Issue #127）
 │   ├── fixtures/      # テストデータ（合成データ。HTTP のテスト用ファイルサーバーに置くファイル）
 │   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。HTTP のテスト用ファイルサーバーは http-file-server.ts・http-test-files.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
-├── test-result/   # テストの出力（Git 管理外。カバレッジ・動画・レポート）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
+├── test-result/   # テストの出力（Git 管理外。カバレッジ・レポート・E2E_VIDEO=1 のときの動画）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
 ├── dist/          # ビルドの出力（Git 管理外）
 └── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化）
 ```
@@ -51,7 +51,7 @@ smart-farm-monitoring/
 | `tsconfig.json` | TypeScript の共通設定（各パッケージが継承） |
 | `eslint.config.js`・`.oxlintrc.json`・`.prettierrc`・`.prettierignore`・`.editorconfig` | Lint（ESLint と、アクセシビリティ用の oxlint）・フォーマットの設定 |
 | `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts`・`playwright.csp.config.ts`・`playwright.smoke.config.ts`・`playwright.smoke-auth.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）、画面の CSP の確認（`pnpm test:csp`）、評価環境の性能の実測（`pnpm test:smoke`）・認証の確認（`pnpm test:smoke:auth`。`tests/smoke/auth/`）の設定 |
-| `dev-ports.ts` | 開発サーバーのポート（Vite 5173・バックエンド 8787）。`playwright.config.ts` と `src/frontend/vite.config.ts` が共有する |
+| `dev-ports.ts` | 開発サーバーのポート（Vite 5173・バックエンド 8787。環境変数 `E2E_PORT_OFFSET` で、両方をずらせる）。`playwright.config.ts` と `src/frontend/vite.config.ts` が共有する |
 
 ## docs/ の構成
 
