@@ -25,7 +25,7 @@ smart-farm-monitoring/
 ├── playwright.stress.config.ts   # 負荷テスト（`pnpm test:stress`。6.5）
 ├── playwright.csp.config.ts      # 画面の CSP の確認（`pnpm test:csp`。6.7）
 ├── playwright.smoke.config.ts    # サーバーレス環境のスモークテスト・性能の実測（`pnpm test:smoke`。手動実行。6.6）
-├── dev-ports.ts                  # 開発サーバーのポート（Vite 5173・バックエンド 8787）。playwright.config.ts と vite.config.ts が共有
+├── dev-ports.ts                  # 開発サーバーのポート（Vite 5173・バックエンド 8787。環境変数 E2E_PORT_OFFSET で、両方をずらせる）。playwright.config.ts と vite.config.ts が共有
 ├── .env.example                  # 環境変数の一覧（ダミー値）
 ├── src/
 │   ├── shared/                   # @smart-farm/shared: フロントエンドとバックエンドで共有する定数・スキーマ・型
@@ -49,7 +49,7 @@ smart-farm-monitoring/
 │   ├── fixtures/                         # 合成データ（HTTP のテスト用ファイルサーバーに置くファイル）
 │   └── support/                          # テストの補助（組み立て・データ生成・API のスタブ・画面の単体テストの描画）
 ├── scripts/                      # 補助スクリプト（generate-app-icons.ts: アプリのアイコン〔仮の絵柄〕の生成）
-└── test-result/                  # テストの出力（Git 管理外。カバレッジ、動画、スクリーンショット、レポート）
+└── test-result/                  # テストの出力（Git 管理外。カバレッジ、スクリーンショット、レポート、E2E_VIDEO=1 のときの動画）
 ```
 
 ### 1.2 パッケージ
@@ -89,7 +89,7 @@ smart-farm-monitoring/
 | oxlint | `.oxlintrc.json`。`jsx-a11y` プラグインの、eslint-plugin-jsx-a11y の推奨設定と同じルール・オプション（31 ルール）のみを有効にする。`pnpm lint` は、`eslint .` に続けて `oxlint -c .oxlintrc.json src/frontend` を実行する。例外の指定は、`oxlint-disable-next-line` を使う（`eslint-disable` だと ESLint が「未使用の指示」と報告するため） |
 | Prettier | `.prettierrc`（シングルクォート、100桁、末尾カンマ）。`docs/`・Markdown・`tests/fixtures/`（意図的に不正な形式のファイルを含む）・`test-result/` は対象外 |
 | Vitest | `vitest.config.ts`。プロジェクトを2つ持つ: `node`（`tests/unit/{shared,backend}`・`tests/integration`）、`frontend`（`tests/unit/frontend`、jsdom）。カバレッジは v8、出力は `./test-result/coverage` |
-| Playwright | `playwright.config.ts`。`tests/e2e/UC-NN-*.ts`・`tests/e2e/scenario-*.ts`、video は手元で常に有効（CI では撮らない）、出力は `./test-result/e2e`、HTML レポートは `./test-result/playwright-report`。バックエンドと Vite を起動して実行する（6章） |
+| Playwright | `playwright.config.ts`。`tests/e2e/UC-NN-*.ts`・`tests/e2e/scenario-*.ts`、video は既定で撮らない（`E2E_VIDEO=1` で撮る）、出力は `./test-result/e2e`、HTML レポートは `./test-result/playwright-report`。バックエンドと、フロントエンド（本番ビルドを `vite preview` で配信）を起動して実行する。並列実行は `pnpm test:e2e:parallel`（6章） |
 
 ### 1.5 スクリプト
 
@@ -464,14 +464,14 @@ UC 単位の E2E（`UC-NN-*.ts`）とは別に、**複数の利用者が関わ�
 
 ### 6.3 E2E の設定（Playwright）
 
-- **video は、手元では常に有効**（`use.video: { mode: 'on' }`）。**CI（環境変数 `CI` がある）では、撮らない**（`'off'`。保存せず、捨てていたため。時間がかかる。Issue #185）。出力は `./test-result/` 配下: 動画・スクリーンショット・トレースは `./test-result/e2e/`、HTML レポートは `./test-result/playwright-report/`
-- バックエンド: `node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`（`APP_MODE=test`、`PERSISTENCE=memory`、`LOG_LEVEL=warn`、再試行の待ち時間 10 ms）。フロントエンド: `vite`（`127.0.0.1:5173`。`/api/v1` をバックエンド `127.0.0.1:8787` へ中継）。テストは1ワーカーで、順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）
+- **video は、既定では撮らない**（`use.video: 'off'`。撮影のために、全体の所要時間が約 2 割延びる。Issue #185・#519）。環境変数 `E2E_VIDEO=1` のときだけ撮る（`use.video: { mode: 'on' }`。`newUserSession` のコンテキストも同じ）。出力は `./test-result/` 配下: 動画（`E2E_VIDEO=1` のとき）・スクリーンショット・トレースは `./test-result/e2e/`、HTML レポートは `./test-result/playwright-report/`
+- バックエンド: `node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`（`APP_MODE=test`、`PERSISTENCE=memory`、`LOG_LEVEL=warn`、再試行の待ち時間 10 ms）。フロントエンド: 本番ビルド（`vite build` の成果物 `./test-result/e2e-dist`）を `vite preview`（`127.0.0.1:5173`。`/api/v1` をバックエンド `127.0.0.1:8787` へ中継）で配信する（Vite の開発サーバーは、モジュールを 1 つずつ配信するため、初期表示が遅く、全体で約 2 割長い。Issue #519。開発サーバーを使うときは、環境変数 `E2E_DEV_SERVER=1`）。1 つのインスタンスの中では、テストは1ワーカーで、順次実行する（バックエンドのデータを共有するため。各テストの前に `POST /dev/reset`）
 - テスト用の初期ユーザー（`tests/e2e/support/e2e-user.ts`）は、明らかにダミーとわかる値。実際の認証情報ではない
 - 画面の確認（余計な隙間・要素の重なり・偏りがないこと）は、スクリーンショット（`screenshot: 'on'` と、シナリオごとの名前つきの撮影）を目視して行う。`shot()` と `expectCleanLayout`（`tests/e2e/support/viewpoint-scenarios.ts`）が、撮影のたびに、横スクロール・要素の重なり・表示領域からのはみ出し・文字のあふれ・同じ行のカードの高さの不揃い・表の列の潰れ（文字が1字ずつ縦に折り返される）・ページの下の余計な空白（見えない要素が文書の高さを伸ばす）を機械的に確認する
 - ロール: E2E のサーバーは、管理者（`admin`。全権限）・一般（`general`。手動入力のみ）の既定の 2 ロールに、参照のみの確認用の閲覧者（`viewer`。`ingestion:read` のみ）を加えて起動する（`ROLE_DEFINITIONS_JSON`。`tests/e2e/support/e2e-user.ts`）。権限による表示・操作の制限と、サーバー側の拒否を確かめる
 - Web Push の公開鍵は、ダミー値の `WEB_PUSH_PUBLIC_KEY` を渡す。ブラウザの Push API・通知の許可は、`addInitScript` で差し替える（3.5）
 - バックエンドには、`DEV_API_ENABLED=true`（開発用 API）と `TRUSTED_PROXY_HOPS=1`（接続元を、`X-Forwarded-For` で、テストごとに分ける）を渡す
-- 前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。全 E2E を 1 つのランナーで実行すると、約 20 分（CI の実測。17〜21 分）。CI では、4 つのシャード（`--shard=N/4`）に分けて、別のランナーで並行して実行する（Issue #185）
+- 前提: ポート 5173（Vite）・8787（バックエンド）が空いていること（`reuseExistingServer: false`）。全 E2E を 1 つのランナーで実行すると、約 20 分（CI の実測。17〜21 分）。CI では、4 つのシャード（`--shard=N/4`）に分けて、別のランナーで並行して実行する（Issue #185）。**手元では、`pnpm test:e2e:parallel [--shards N]`（`scripts/e2e-parallel.ts`。既定 4）で、同じように分けて、並列に実行する**（Issue #519）: フロントエンドを 1 回ビルドし、インスタンスごとに、バックエンド・`vite preview` を、環境変数 `E2E_PORT_OFFSET`（100 × 番号）でずらしたポート（既定の 5173・8787 と重ならない。ユーザーの開発サーバーと同時に動く）で起動する。出力先は `./test-result/e2e-<ずらした値>/`・`./test-result/playwright-report-<ずらした値>/`。インスタンス同士は、状態を共有しない（バックエンドは、インスタンスごと。HTTP のテスト用ファイルサーバーは、空きポート）
 - 同じ時刻（固定した時計の同一の瞬間）に作った、ステータスの履歴・変更履歴は、同じキーに上書き・順序が不定になるため、E2E は、時計を進めてから次の操作を行う（既知の制約）
 
 ### 6.4 `pnpm` のスクリプト

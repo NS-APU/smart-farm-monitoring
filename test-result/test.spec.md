@@ -40,6 +40,8 @@
 | 結合（`tests/integration/`）               |         57 |       1392 |
 | 合計                                       |        200 |       4439 |
 
+追記（2026-11-19。Issue #519）: 上の表（2026-11-10 の実測）のあとに、単体: tooling（`tests/unit/tooling/`。E2E の実行まわり。ポートのずらし・実行の設定・並列実行の引数の解析）1 ファイル・19 件を追加した（上の表の件数には含まない）。全 E2E は 943 件（2026-11-19 の実測。`pnpm test:e2e:parallel`〔2 インスタンス〕で、すべて成功）。
+
 内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕・#326・#351・#352・#353・#354・#355・#356・#357・#358・#359・#360・#361〜#366・#367〔PR A・PR B〕・#344〔PR 1・PR 2a・PR 2b・PR 3a・PR 3b。PR 2b は、件数を変えない。PR 3a は、削除。PR 3b は、MOCK の削除と、未設定の取り込み元・`dev:demo-feed` の追加〕。#326 の分〔単体 6 件・E2E 4 件〕・#351 の分〔単体 5 件〕・#352 の分〔単体 39 件・E2E 15 件〕・#353 の分〔単体 正味 9 件・E2E 6 件〕・#354 の分〔単体 正味 7 件・E2E 11 件〕・#355・#356 の分〔単体 11 件・E2E 9 件〕・#357 の分〔単体 15 件・E2E 15 件〕・#358〜#360 の分〔単体・結合 63 件・E2E 15 件〕・#361〜#366 の分〔単体・結合 103 件・E2E 20 件〕は 2026-11-17 までに、#344 の PR 1 の分〔単体・結合 35 件〕・PR 2a の分〔単体・結合 13 件〕は 2026-11-18 に加算し、PR 3a の分〔単体・結合 −44 件。S3 の廃止に伴う削除〕は 2026-11-18 に差し引き、PR 3b の分〔単体・結合 +7 件・E2E −1 件。66 章〕は 2026-11-18 に加算し、#367 の PR A の分〔単体・結合 +171 件・E2E +19 件。67 章〕・PR B の分〔単体・結合 −27 件・E2E −4 件。68 章〕は 2026-11-19 に加算・差し引き、frontend の単体テストの全件〔41 ファイル・789 件成功〕と、E2E の `--list`〔943 件〕、`vitest list`〔3896 件〕で確認した。単体・結合の全件〔DynamoDB Local が必要〕は、CI で確認する）: E2E 943 件（UC ごと 855 件・25 ファイル、シナリオ 88 件・15 ファイル。`playwright test --list` の件数）、単体・結合 3896 件・163 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜61 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
@@ -10454,7 +10456,7 @@ UC-02（観点の詳細・元データ）、UC-04（診断メッセージ・推�
 
 ## 5. 共通の検査・補助・設定
 
-E2E の共通の検査（レイアウト・スクリーンショット・動画）と、カバレッジの仕様。値は、コード（`tests/e2e/support/viewpoint-scenarios.ts`、`tests/e2e/support/app.ts`、`playwright.config.ts`、`vitest.config.ts`）から確認した。
+E2E の共通の検査（レイアウト・スクリーンショット・動画）と、カバレッジの仕様。値は、コード（`tests/e2e/support/viewpoint-scenarios.ts`、`tests/e2e/support/app.ts`、`tests/e2e/support/e2e-options.ts`、`playwright.config.ts`、`vitest.config.ts`）から確認した。
 
 ### 5.1 expectCleanLayout（レイアウトの検査）
 
@@ -10484,9 +10486,9 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 
 ### 5.3 動画（video）
 
-- `playwright.config.ts` の `use.video` は `{ mode: 'on', size: { width: 1280, height: 720 } }`。すべてのテストで、常に撮影する。
-- 複数の利用者のテストは、`newUserSession(browser, testInfo, label)`（`tests/e2e/support/app.ts`）で、利用者 B のブラウザのコンテキストを別に作る。このコンテキストは、`recordVideo: { dir: testInfo.outputPath('video-<label>'), size: { width: 1280, height: 720 } }` で、コンテキストごとに動画を記録する。ビューポートは 1280x720、`locale` は `ja-JP`、`timezoneId` は `Asia/Tokyo`。
-- 出力先は、`outputDir: './test-result/e2e'`（テストごとのフォルダ）。
+- `playwright.config.ts` の `use.video` は、既定で `'off'`（撮影しない。撮影のために、全体の所要時間が約 2 割延びる。Issue #519）。環境変数 `E2E_VIDEO=1`（`tests/e2e/support/e2e-options.ts` の `E2E_VIDEO`）のときだけ、`{ mode: 'on', size: { width: 1280, height: 720 } }` で、すべてのテストを撮影する。
+- 複数の利用者のテストは、`newUserSession(browser, testInfo, label)`（`tests/e2e/support/app.ts`）で、利用者 B のブラウザのコンテキストを別に作る。このコンテキストは、`E2E_VIDEO=1` のときだけ、`recordVideo: { dir: testInfo.outputPath('video-<label>'), size: { width: 1280, height: 720 } }` で、コンテキストごとに動画を記録する。ビューポートは 1280x720、`locale` は `ja-JP`、`timezoneId` は `Asia/Tokyo`。
+- 出力先は、`outputDir: './test-result/e2e'`（テストごとのフォルダ。環境変数 `E2E_PORT_OFFSET` を指定したインスタンスは、`./test-result/e2e-<ずらした値>`）。
 
 ### 5.4 スクリーンショット・トレース・レポートの設定
 
@@ -10495,12 +10497,12 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | `use.screenshot`                | `'on'`                                                                                                                                                                                                 | 各テストの終了時に、自動でスクリーンショットを撮る（`shot()` の名前つきの撮影とは別） |
 | `use.trace`                     | `'retain-on-failure'`                                                                                                                                                                                  | 失敗したテストのトレースのみ残す                                                      |
 | `use.locale` / `use.timezoneId` | `ja-JP` / `Asia/Tokyo`                                                                                                                                                                                 |                                                                                       |
-| `use.baseURL`                   | `http://127.0.0.1:5173`                                                                                                                                                                                | フロントエンド（Vite）。バックエンドは 8787                                           |
+| `use.baseURL`                   | `http://127.0.0.1:5173`                                                                                                                                                                                | フロントエンド（本番ビルドを `vite preview`）。バックエンドは 8787。`E2E_PORT_OFFSET` で、両方をずらす |
 | `projects`                      | `chromium` のみ（Desktop Chrome、viewport 1280x720）                                                                                                                                                   |                                                                                       |
 | `fullyParallel` / `workers`     | `false` / `1`                                                                                                                                                                                          | バックエンドのデータを共有するため、順次実行                                          |
 | `outputDir`                     | `./test-result/e2e`                                                                                                                                                                                    | 動画・スクリーンショット・トレース。実行のたびに消去される                            |
 | `reporter`                      | `list` と `html`（`./test-result/playwright-report`、`open: 'never'`）                                                                                                                                 |                                                                                       |
-| `webServer`                     | バックエンド（`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`）と Vite（`node ../../node_modules/vite/bin/vite.js`）。どちらも `reuseExistingServer: false`、`timeout: 60000` | 環境変数は 5.8節                                                                      |
+| `webServer`                     | バックエンド（`node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`。`timeout: 60000`）と、フロントエンド（`vite build` → `vite preview`。`E2E_DEV_SERVER=1` なら Vite の開発サーバー。`E2E_FRONTEND_DIST` があれば、ビルドしない。`timeout: 300000`）。どちらも `reuseExistingServer: false` | 環境変数は 5.8節                                                                      |
 
 ### 5.5 カバレッジ
 
@@ -10552,7 +10554,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 | `sensorCsv(rows, sensorId = 'SENSOR-SAMPLE-01')`                                                   | 関数     | 環境センサーの CSV 文字列。ヘッダー `sensor_id,timestamp,temperature_c,humidity_pct,illuminance_lx,co2_ppm`。行は `{hoursAgo, temperature, humidity, illuminance, co2}`（`NOW` から hoursAgo 時間前）                                                                                               |
 | `prepareApp(request, options = {})`                                                                | 関数     | `clearFileServer()` を呼び、`prepare(request, options)` を呼ぶ。`prepare` は `POST /dev/reset`（`options.equipment === false` なら seed `NONE`、それ以外は `EQUIPMENT`＝デモの設備のみ）の後、`PUT /dev/clock`（`at` は `options.now` か `NOW`、mode `FREEZE`）で時計を固定する。テストの最初に呼ぶ |
 | `alignBrowserClock(page, at = NOW)`                                                                | 関数     | `page.clock.setFixedTime(at)`。ブラウザの時計を、サーバーの固定した時計に合わせる                                                                                                                                                                                                                   |
-| `newUserSession(browser, testInfo, label)`                                                         | 関数     | 新しいブラウザのコンテキスト（`recordVideo` は `testInfo.outputPath('video-<label>')`、size 1280x720。viewport 1280x720、locale `ja-JP`、timezone `Asia/Tokyo`）を作り、ページを開き、`alignBrowserClock` を呼ぶ。`{context, page}` を返す。複数の利用者のシナリオで、利用者 B のブラウザとして使う |
+| `newUserSession(browser, testInfo, label)`                                                         | 関数     | 新しいブラウザのコンテキスト（`recordVideo` は、`E2E_VIDEO=1` のときだけ、`testInfo.outputPath('video-<label>')`、size 1280x720。viewport 1280x720、locale `ja-JP`、timezone `Asia/Tokyo`）を作り、ページを開き、`alignBrowserClock` を呼ぶ。`{context, page}` を返す。複数の利用者のシナリオで、利用者 B のブラウザとして使う |
 | `openAs(page, path, user = E2E_USER)`                                                              | 関数     | `page.goto(path)`。ユーザー ID の入力欄（ラベル「ユーザーID」）かバナー（banner ロール）のどちらかが現れるまで待ち、入力欄が見えていれば `loginViaUi(page, user.password, user.userId)` でログインする。最後に、バナーが表示されることを確認する（すでにログイン済みならそのまま）                  |
 | `goToMenu(page, name)`                                                                             | 関数     | ナビゲーション「メニュー」の中の、名前が `name` に完全一致するリンクをクリックする                                                                                                                                                                                                                  |
 | `unreadBadge(page)`                                                                                | 関数     | ヘッダーの未読件数（`data-testid="unread-count"`）                                                                                                                                                                                                                                                  |
@@ -10813,12 +10815,12 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
 
 - テストの置き場所: `testDir: './tests/e2e'`
 - `testMatch`: `/(?:UC-\d{2}|scenario)-[a-z0-9-]+\.ts$/`（`UC-NN-...ts` と `scenario-...ts`）
-- `outputDir`: `./test-result/e2e`
-- `fullyParallel: false`、`workers: 1`
+- `outputDir`: `./test-result/e2e`（`E2E_PORT_OFFSET` を指定したインスタンスは、`./test-result/e2e-<ずらした値>`。HTML レポートも同様）
+- `fullyParallel: false`、`workers: 1`（1 つのインスタンスの中。並列は、複数のインスタンスで行う。`pnpm test:e2e:parallel`。dev_spec.md 6 章）
 - `reporter`: `list` と `html`（`outputFolder: './test-result/playwright-report'`、`open: 'never'`）
-- `use`: `baseURL` は `http://127.0.0.1:5173`（フロントエンド。バックエンドは 8787）、`video: { mode: 'on', size: { width: 1280, height: 720 } }`（常に撮影）、`screenshot: 'on'`、`trace: 'retain-on-failure'`、`locale: 'ja-JP'`、`timezoneId: 'Asia/Tokyo'`
+- `use`: `baseURL` は `http://127.0.0.1:5173`（フロントエンド。バックエンドは 8787）、`video: 'off'`（既定。`E2E_VIDEO=1` のときだけ `{ mode: 'on', size: { width: 1280, height: 720 } }`）、`screenshot: 'on'`、`trace: 'retain-on-failure'`、`locale: 'ja-JP'`、`timezoneId: 'Asia/Tokyo'`
 - `projects`: `chromium` のみ（`devices['Desktop Chrome']`、viewport 1280x720）
-- `webServer`（2つ。どちらも `reuseExistingServer: false`、`timeout: 60000`）
+- `webServer`（2つ。どちらも `reuseExistingServer: false`。バックエンドは `timeout: 60000`、フロントエンドは `timeout: 300000`〔本番ビルドを含む〕）
   - バックエンド: `node --disable-warning=ExperimentalWarning src/backend/runtime/main.ts`、待機 URL は `http://127.0.0.1:8787/health`。環境変数は次のとおり。
 
     | 環境変数                        | 値                                                                                                                                    | ダミーか                                         |
@@ -10837,7 +10839,7 @@ E2E の共通の検査（レイアウト・スクリーンショット・動画�
     | `INITIAL_USER_ROLE`             | `admin`                                                                                                                              | 設定値                                           |
     | `WEB_PUSH_PUBLIC_KEY`           | Base64 文字列（デコードすると `dummy-web-push-public-key-for-e2e-0123456789-abcdefghijklmnop-qrs`）                                   | ダミー（コメントにも「公開鍵（ダミー）」とある） |
 
-  - フロントエンド: `node ../../node_modules/vite/bin/vite.js`（`cwd: src/frontend`）、待機 URL は `http://127.0.0.1:5173`。環境変数の指定なし
+  - フロントエンド: `node ../../node_modules/vite/bin/vite.js build --outDir <出力先> --emptyOutDir && node ../../node_modules/vite/bin/vite.js preview --outDir <出力先> --host 127.0.0.1 --port 5173 --strictPort`（`cwd: src/frontend`。出力先は `test-result/e2e-dist`）、待機 URL は `http://127.0.0.1:5173`。環境変数 `E2E_DEV_SERVER=1` のときは `node ../../node_modules/vite/bin/vite.js`（開発サーバー）、`E2E_FRONTEND_DIST` があるときは、ビルドせずに、そのディレクトリを配信する。環境変数の指定なし
 
 #### vitest.config.ts（単体・結合）
 

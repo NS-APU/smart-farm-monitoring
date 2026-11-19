@@ -9,7 +9,7 @@
 - Windows では、カレントディレクトリのドライブ文字の大文字・小文字が、モジュールの読み込みとカバレッジの計測に影響する。Git Bash から `node node_modules/vitest/vitest.mjs` を直接呼ぶ（`c:` の小文字になる）と、同じファイルが二重に読み込まれ、カバレッジが 0% になることがある。テストは、`pnpm`（`pnpm test:unit`・`pnpm exec vitest ...`）経由で実行する
 - Windows の Git Bash では、`node -e "..."` の文字列の中のバックスラッシュ（正規表現の `\p`・`\x00` など）が落ちて、意図と違う動きになる。スクリプトは、ファイル（`.mjs`）に書いて `node ファイル.mjs` で実行する。また、git の `リビジョン:パス`（例: `HEAD:src/a.ts`）は、パスが変換されるため、`MSYS_NO_PATHCONV=1` を付けて実行する
 - 単体・結合のテスト（`pnpm test:unit`）は、DynamoDB アダプタの契約テストのため、**DynamoDB Local（AWS の公式の配布物。Java で動く）が必要**。次のどちらかを、環境変数で指定する（どちらもなければ、DynamoDB のテストが、設定を促すエラーで失敗する。スキップはしない）。手順は、「DynamoDB Local」の節
-- E2E は、ポート 5173（Vite）・8787（バックエンド）を使う。空いていること（別の E2E・開発サーバーが動いていないこと）を確認してから実行する。全 E2E の所要時間は、約 45 分
+- E2E（`pnpm test:e2e`）は、ポート 5173（フロントエンド）・8787（バックエンド）を使う。空いていること（別の E2E・開発サーバーが動いていないこと）を確認してから実行する。**開発サーバーが動いているときは、`pnpm test:e2e:parallel`（別のポートを使う）を使う**。全 E2E（943 件）の所要時間は、`pnpm test:e2e:parallel` で、約 20 分（手元の Windows。詳細は「E2E の所要時間」）
 
 ```bash
 # セットアップ（依存パッケージのインストール）
@@ -34,10 +34,12 @@ pnpm exec vitest run tests/unit/shared/shared.test.ts
 pnpm exec playwright test tests/e2e/UC-06-record-recovery.ts            # E2E（ユースケースごと）
 pnpm exec playwright test tests/e2e/UC-12-manage-equipment.ts -g "運用の一連"   # E2E（テスト名で絞り込み）
 pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts           # E2E（複数のユースケース・利用者をまたぐシナリオ）
+E2E_VIDEO=1 pnpm exec playwright test tests/e2e/UC-06-record-recovery.ts  # E2E（動画も撮る。既定は撮らない）
 
 # テスト（単体・結合のみ / E2E のみ）
 pnpm test:unit
 pnpm test:e2e
+pnpm test:e2e:parallel [--shards N] [Playwright の引数]   # E2E を、複数のインスタンス（既定 2）に分けて並列に実行（別のポート。開発サーバーと同時に動く）
 
 # データファイル（PERSISTENCE=file）のバックアップ・復元（手順は docs/40_operations/backup-restore.md）
 pnpm data:backup backup [--keep N]
@@ -231,6 +233,29 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 6. **接続元の制限（失敗 5 回 → 429）は、最後に確認する**。この制限は、手元のマシン全体にかかり、Cognito 自身のロックも重なるため、**約 15 分は、ログインできなくなる**
 7. **後始末**: 確認用のバックエンドを止める（自分で起動したものだけ）。確認用のユーザーは、検証用のパスワードのため、評価に使う前に、削除するか、パスワードを変える。`SfmData` は、削除しない（削除の保護がある）
 
+## E2E の所要時間（Issue #519）
+
+手元（Windows・論理コア 14）の全 E2E（943 件）は、次の 3 つの変更で、約 40 分から約 20 分になった。
+
+| 変更 | 内容 | 効果（UC-21 の 33 件での実測） |
+|------|------|-------------------------------|
+| 動画を撮らない | 既定では撮らない。必要なときは、環境変数 `E2E_VIDEO=1` | 126 秒 → 101 秒 |
+| フロントエンドを本番ビルドで配信 | `vite build` → `vite preview`。開発サーバーに戻すときは `E2E_DEV_SERVER=1`。CI も同じ | 101 秒 → 78 秒 |
+| 並列実行 | `pnpm test:e2e:parallel [--shards N]`。インスタンスごとに、ポート・出力先を分ける（`E2E_PORT_OFFSET`。`dev-ports.ts`） | 下の表 |
+
+`pnpm test:e2e:parallel`（2026-11-19。全 943 件。動画なし・本番ビルド）:
+
+| インスタンス数 | 全体の所要時間 | 結果 |
+|----------------|----------------|------|
+| 2（既定） | 約 20.1 分（1209 秒。ビルドを含む） | **943 件すべて成功** |
+| 3 | 約 19.5 分（1171 秒） | 4 件失敗（30 秒のタイムアウトなど。負荷のため。単独のインスタンスでは、同じファイルが、すべて成功） |
+| 4 | 約 18.7 分（1124 秒） | 4 件失敗（3 件は、負荷のためのタイムアウト。1 件は、UC-17 の古い画面の再現が、本番ビルドのファイル名に合っていなかったため。修正済み） |
+
+- **インスタンスを増やしても、全体の時間は、ほぼ変わらない**（手元の CPU が、頭打ちになる）。3 以上は、タイムアウトの失敗が出たため、既定は 2。CPU の多い PC では、`--shards` で増やせる（そのときは、失敗がないことを確認する）
+- 単独のインスタンス（`pnpm test:e2e`）の全体の所要時間は、動画なし・本番ビルドで、実測していない（UC-21 の実測からの推定は、約 25 分）
+- `pnpm test:e2e:parallel` は、フロントエンドを 1 回だけビルドして、全インスタンスで配信する。出力は、行ごとに `[N/M]` の印がつく。終了コードは、すべてのインスタンスが成功したときだけ 0。途中で止めるときは、Ctrl+C（Playwright が、起動したサーバーを片づける）
+- CI（`ubuntu-24.04`。4 つのシャード）の所要時間は、この変更の後の値を、PR に記載する
+
 ## 実行結果（2026-11-11。設備ごとの取得間隔〔Issue #197 の PR 1。#194 の子〕の後。`develop` の `3d7a67f`〔#342 のマージ〕に、#197 の変更を加えた状態）
 
 手元（Windows）で実行した値。E2E は、開発サーバーのポート（5173・8787）と競合しないよう、空きポート（18787・15173）で実行した（`dev-ports.ts` を一時的に変え、実行後に戻した）。GitHub Actions の結果は、PR に記載する。
@@ -300,7 +325,7 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 | 出力 | 場所 |
 |------|------|
 | カバレッジ（HTML・lcov・サマリ） | `./test-result/coverage/`（`index.html`） |
-| E2E の動画・スクリーンショット・トレース | `./test-result/e2e/` |
+| E2E のスクリーンショット・トレース（動画は `E2E_VIDEO=1` のときだけ） | `./test-result/e2e/`（`pnpm test:e2e:parallel` は、`./test-result/e2e-<100 の倍数>/`） |
 | E2E の HTML レポート | `./test-result/playwright-report/` |
 
 `./test-result/` は Git 管理外（負荷テストのログ・レポートと、テスト仕様書 `test.spec.md` を除く）。
