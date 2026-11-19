@@ -42,7 +42,7 @@ import {
 import { placeFile } from './support/http-files.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { expectRelatedStatus, fillEntryForm, saveEntry } from './support/entry.ts';
-import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
+import { federationRows, logRows, runNow, testEquipmentConnection } from './support/ingestion.ts';
 import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 import { locatorOf, rowBy, itemListQuery } from './support/pages.ts';
 
@@ -1054,10 +1054,10 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await expect(rows(page)).toHaveCount(3);
     await shot(page, testInfo, 'uc12-scenario-equipment');
 
-    // UC-15: 取り込みの設定を確認し、接続テストを行う
+    // UC-15: 取り込みの設定を確認し、設備の接続テストを行う（ファイルのパス・接続を設定していない設備は、接続できない旨を示す）
     await goToMenu(page, '取り込み');
     await expect(page.getByTestId('source-robot')).toBeVisible();
-    await expect(await testConnection(page, 'robot')).toContainText('接続');
+    await expect(await testEquipmentConnection(page, 'ROBOT-01')).toContainText('接続');
 
     // UC-08・UC-09: ファイルサーバーのファイルを、即時取得で取り込む（環境センサーは、異常な温度）
     await placeFile(
@@ -1156,5 +1156,92 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     // UC-13: ログアウトする
     await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+  });
+});
+
+test.describe('設備の登録の案内（SC-10-5・SC-10-9。Issue #367）', () => {
+  test('SC-10-5: 設備IDに使える文字の説明を、ハウス・ロボット・環境センサーの登録のダイアログに示す。ファイルのパスの案内も示す。修正のダイアログには、設備IDの入力も説明もない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEquipment(page);
+
+    await openFacilityForm(page);
+    const rule = page.getByTestId('equipment-id-rule');
+    await expect(rule).toContainText(
+      '設備IDに使える文字は、英数字・ハイフン（-）・アンダースコア（_）',
+    );
+    await expect(rule).toContainText('先頭は英数字、100 文字以内');
+    await expect(rule).toContainText('登録後は、変更できません');
+    await closeDialog(page);
+
+    await openChildForm(page);
+    await expect(rule).toContainText('英数字・ハイフン（-）・アンダースコア（_）');
+    await expect(page.getByTestId('equipment-file-path-guide')).toContainText(
+      'ファイルのパスを設定すると、取り込みの対象になります',
+    );
+    await shot(page, testInfo, 'uc12-register-guide');
+    await closeDialog(page);
+
+    // 修正: 設備IDは変更できない（入力も、説明もない）。ロボットには、ファイルのパスの案内を示し、ハウスには示さない
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    await expect(page.getByTestId('equipment-id-rule')).toHaveCount(0);
+    await expect(page.getByTestId('equipment-file-path-guide')).toBeVisible();
+    await closeDialog(page);
+    await rowOf(page, 'HOUSE-01').getByRole('button', { name: '修正' }).click();
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    await expect(page.getByTestId('equipment-id-rule')).toHaveCount(0);
+    await expect(page.getByTestId('equipment-file-path-guide')).toHaveCount(0);
+    await expect(page.getByTestId('equipment-connection')).toHaveCount(0);
+  });
+
+  test('SC-10-9: ハウスを登録すると、続けてロボット・環境センサーを登録する案内を示し、ボタンで登録のダイアログを開ける。ロボット・環境センサーを登録すると、データ入力へ進む案内を示す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request, { equipment: false });
+    await openEquipment(page);
+    await expect(page.getByTestId('equipment-next-step')).toHaveCount(0);
+
+    await addFacility(page, 'HOUSE-A', 'Aハウス');
+
+    await expect(notice(page)).toHaveText('登録しました');
+    const next = page.getByTestId('equipment-next-step');
+    await expect(next).toContainText(
+      'ハウスを登録しました。続けて、ロボット・環境センサーを登録できます',
+    );
+    await shot(page, testInfo, 'uc12-next-after-facility');
+    await page.getByTestId('equipment-next-register-child').click();
+    await expect(childForm(page)).toBeVisible();
+    await expect(next).toHaveCount(0);
+
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-A',
+      id: 'ROBOT-A',
+      name: 'A収穫ロボット',
+    });
+
+    await expect(notice(page)).toHaveText('登録しました');
+    await expect(next).toContainText('ロボット・環境センサーを登録しました');
+    await expect(next).toContainText(
+      '自動取り込み（ファイルのパスと接続を設定した場合）か、手動入力で追加できます',
+    );
+    await expect(page.getByTestId('equipment-next-register-child')).toHaveCount(0);
+    await shot(page, testInfo, 'uc12-next-after-child');
+    await page.getByTestId('equipment-next-data-entry').click();
+    await expect(page).toHaveURL(/\/data-entry$/);
+  });
+
+  test('次の案内は、登録のダイアログを開くと消える', async ({ page, request }) => {
+    await prepareApp(request, { equipment: false });
+    await openEquipment(page);
+    await addFacility(page, 'HOUSE-A', 'Aハウス');
+    await expect(page.getByTestId('equipment-next-step')).toBeVisible();
+
+    await openChildForm(page);
+    await expect(page.getByTestId('equipment-next-step')).toHaveCount(0);
   });
 });

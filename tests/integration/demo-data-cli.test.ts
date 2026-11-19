@@ -199,6 +199,25 @@ describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344�
     ]);
   });
 
+  it('設備ごとの接続も、デモの設備（ロボット・環境センサー）に保存する。何度実行しても、同じ（Issue #367。ADR-0026）', async () => {
+    const { run, container } = await setup();
+    await run(['seed']);
+
+    await run(['use-http-feed', '--url', FEED_URL]);
+    await run(['use-http-feed', '--url', FEED_URL]);
+
+    const saved = await container.equipmentConnections.list();
+    expect([...saved.keys()].sort()).toEqual(['ROBOT-01', 'SENSOR-01']);
+    for (const connection of saved.values()) {
+      expect(connection).toMatchObject({
+        type: 'HTTP',
+        protocol: 'HTTPS',
+        host: 'demo-feed.example.com',
+        authMethod: 'NONE',
+      });
+    }
+  });
+
   it('seed の設備（ファイルのパスを持たない。以前に投入したものも同じ）に、ファイルのパスを設定する。環境変数 DEMO_FEED_URL でも指定できる', async () => {
     const { run, container } = await setup();
     await run(['seed']);

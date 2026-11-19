@@ -5,15 +5,16 @@
 
 import { z } from 'zod';
 import { PageQuerySchema } from '@smart-farm/shared/schemas/api';
-import { IsoDateTimeSchema } from '@smart-farm/shared/schemas/common';
+import { EquipmentIdSchema, IsoDateTimeSchema } from '@smart-farm/shared/schemas/common';
 import { FederationSettingsUpdateRequestSchema } from '@smart-farm/shared/schemas/federation-connection';
 import {
+  EquipmentConnectionUpdateSchema,
   IngestionCredentialsInputSchema,
   IngestionSettingsUpdateRequestSchema,
 } from '@smart-farm/shared/schemas/ingestion';
 import type { ApiDeps } from './api-deps.ts';
 import { actorOf, pathParam, scopeOfRequest } from './request-helpers.ts';
-import { parseJsonBody, parseQuery } from './request-parsing.ts';
+import { parseInput, parseJsonBody, parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
 
 /** 取り込みログの絞り込み（Issue #201）。結果: SUCCESS＝成功、FAILURE＝失敗（一部成功を含む）。期間: 開始日時（両端を含む）。 */
@@ -43,6 +44,35 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
           actorOf(c),
         ),
       );
+    },
+    // 設備ごとの接続（Issue #367。ADR-0026）
+    async 'PUT /ingestion/equipment/:equipmentId/connection'(c) {
+      const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
+      const input = await parseJsonBody(c, EquipmentConnectionUpdateSchema);
+      return c.json(
+        await deps.ingestionAdminService.setEquipmentConnection(
+          equipmentId,
+          input.connection,
+          actorOf(c),
+        ),
+      );
+    },
+    async 'DELETE /ingestion/equipment/:equipmentId/connection'(c) {
+      const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
+      return c.json(
+        await deps.ingestionAdminService.clearEquipmentConnection(equipmentId, actorOf(c)),
+      );
+    },
+    async 'PUT /ingestion/equipment/:equipmentId/credentials'(c) {
+      const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
+      const input = await parseJsonBody(c, IngestionCredentialsInputSchema);
+      return c.json(
+        await deps.ingestionAdminService.setEquipmentCredentials(equipmentId, input, actorOf(c)),
+      );
+    },
+    async 'POST /ingestion/equipment/:equipmentId/test'(c) {
+      const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
+      return c.json(await deps.ingestionAdminService.testEquipmentConnection(equipmentId));
     },
     async 'POST /ingestion/:sourceId/test'(c) {
       return c.json(await deps.ingestionService.testConnection(pathParam(c, 'sourceId')));

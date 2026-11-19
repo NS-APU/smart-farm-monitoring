@@ -24,6 +24,7 @@ import {
   newUserSession,
   openAs,
   prepareApp,
+  ROBOT_ID,
   robotJson,
   runJob,
   sensorJson,
@@ -31,7 +32,7 @@ import {
   unreadBadge,
 } from './support/app.ts';
 import { placeFile, setFileServerMode } from './support/http-files.ts';
-import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
+import { federationRows, logRows, runNow, testEquipmentConnection } from './support/ingestion.ts';
 import { listNotifications } from './support/notifications.ts';
 import { deliveredPushes, stubPush } from './support/push.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -127,7 +128,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
       robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
     );
     await goToMenu(b.page, '取り込み');
-    await expect(await testConnection(b.page, 'robot')).toHaveText('接続できました');
+    await expect(await testEquipmentConnection(b.page, ROBOT_ID)).toHaveText('接続できました');
     await expect(await runNow(b.page, 'robot')).toContainText('取得しました（成功）');
     await expect(logRows(b.page)).toHaveCount(3);
     await expect(logRows(b.page).first()).toContainText('成功');

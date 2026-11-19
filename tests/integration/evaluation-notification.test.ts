@@ -1519,6 +1519,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
         runSource: vi.fn(),
         runDueSources: vi.fn().mockResolvedValue([]),
         testConnection: vi.fn(),
+        testEquipmentConnection: vi.fn(),
         isRunning: vi.fn(),
       },
       evaluation: {

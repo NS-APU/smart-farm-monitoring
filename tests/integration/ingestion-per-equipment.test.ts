@@ -72,6 +72,7 @@ async function build(options: {
   };
   const fileSource: FileSourcePort = {
     testConnection: () => Promise.resolve(),
+    testEquipment: () => Promise.resolve(),
     listFiles: (sourceId, listOptions) => {
       listCalls.push({ sourceId, paths: listOptions?.paths });
       if (control.listFails) {

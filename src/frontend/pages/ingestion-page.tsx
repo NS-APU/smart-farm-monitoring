@@ -1,27 +1,13 @@
 /**
- * SC-11 取り込み設定・状況（UC-15、UC-16。FR-1.4〜1.8、FR-8.3）。取り込み元ごとの接続先（参照名）・取得間隔・有効／無効の設定、
- * 接続テスト、即時取得（実行中は二重実行を防ぐ）、解釈に使っている仕様の版と状態、取り込みのログ、農業情報基盤への連携の
- * 状況（成功・失敗・保留）。認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
+ * SC-11 取り込み設定・状況（UC-15、UC-16。FR-1.4〜1.8、FR-8.3）。取り込み元ごとの有効／無効の設定、即時取得（実行中は二重実行を防ぐ）、
+ * 設備ごとの接続と状況の表（接続先・接続の出どころ・認証情報の状態・最後にデータが取れた日時・停止中・設備だけの接続テスト。Issue #367）、
+ * 解釈に使っている仕様の版と状態、取り込みのログ、農業情報基盤への連携の状況（成功・失敗・保留）。接続・認証情報の入力は、設備のダイアログ（SC-10）で行う。
+ * 認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
  */
 
+import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
 import {
-  useCallback,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-  type SyntheticEvent,
-} from 'react';
-import {
-  DEFAULT_API_KEY_HEADER_NAME,
-  FILE_SERVER_AUTH_METHODS,
-  FILE_SERVER_PROTOCOLS,
-  IngestionCredentialsInputSchema,
-  IngestionSourceUpdateSchema,
-  defaultHttpPort,
   type FederationLogListResponse,
-  type FileServerAuthMethod,
-  type FileServerConnection,
-  type FileServerProtocol,
   type IngestionLog,
   type IngestionLogListResponse,
   type IngestionSourceStatus,
@@ -31,21 +17,23 @@ import {
   listFederationLogs,
   listIngestionLogs,
   runIngestion,
-  saveIngestionCredentials,
-  testIngestionConnection,
+  testEquipmentConnection,
   updateIngestionSettings,
   getIngestionSettings,
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
+import {
+  EquipmentIngestionTable,
+  type EquipmentTestResult,
+} from '../components/equipment-ingestion-table.tsx';
 import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { FederationSettingsPanel } from '../components/federation-settings-panel.tsx';
-import { Field, FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
+import { FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { Icon } from '../components/icon.tsx';
 import { isoToJstDateTimeInput, jstDateToIso } from '../components/jst.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
-import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { useCursorPaging, type CursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -65,30 +53,7 @@ function sourceName(sourceId: string): string {
   return names[sourceId] ?? sourceId;
 }
 
-/** 接続設定の内容が同じか（保存済みの接続設定を変えていないときは、送らない）。 */
-function isSameConnection(a: FileServerConnection, b: FileServerConnection | undefined): boolean {
-  return (
-    a.protocol === b?.protocol &&
-    a.host === b.host &&
-    a.port === b.port &&
-    a.authMethod === b.authMethod &&
-    a.apiKeyHeaderName === b.apiKeyHeaderName
-  );
-}
-
-/** ポートの入力が、数字でない（空は、省略として、有効）。 */
-function portIsInvalid(port: string): boolean {
-  return port.trim() !== '' && !/^[0-9]+$/.test(port.trim());
-}
-
-/** 項目のエラーのキー（`sources.0.connectionRef` → `connectionRef`）。 */
-function withoutSourcePrefix(errors: Readonly<Record<string, string>>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(errors).map(([name, message]) => [name.replace(/^sources\.\d+\./, ''), message]),
-  );
-}
-
-/** 操作（保存・接続テスト・即時取得）の結果の表示。設定の保存で、カードが作り直されても、残す。 */
+/** 操作（保存・即時取得）の結果の表示。設定の保存で、カードが作り直されても、残す。 */
 interface OperationResult {
   readonly ok: boolean;
   readonly text: string;
@@ -100,6 +65,8 @@ interface SourceCardProps {
   readonly onResult: (result: OperationResult | undefined) => void;
   readonly canConfigure: boolean;
   readonly canRun: boolean;
+  /** 設備のダイアログ（SC-10）へのリンクを出す（設備を変更する権限がある）。 */
+  readonly canOpenEquipment: boolean;
   /** 設定の保存・即時取得の後に、画面の表示を更新する。 */
   readonly onChanged: () => void;
 }
@@ -109,122 +76,42 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const { api } = useAuth();
   const submit = useSubmit();
   /** 実行中の操作（実行中の表示を、その操作のボタンだけに出す）。 */
-  const [operation, setOperation] = useState<'test' | 'run' | undefined>(undefined);
-  const [connectionRef, setConnectionRef] = useState(source.connectionRef);
-  // 接続の設定。未設定（undefined）のときは、空の入力から始める
-  const saved = source.connection;
-  const [protocol, setProtocol] = useState<FileServerProtocol>(saved?.protocol ?? 'HTTPS');
-  const [host, setHost] = useState(saved?.host ?? '');
-  const [port, setPort] = useState(saved?.port === undefined ? '' : String(saved.port));
-  const [authMethod, setAuthMethod] = useState<FileServerAuthMethod>(saved?.authMethod ?? 'NONE');
-  const [apiKeyHeaderName, setApiKeyHeaderName] = useState(
-    saved?.apiKeyHeaderName ?? DEFAULT_API_KEY_HEADER_NAME,
-  );
-  // 認証情報の入力（書き込み専用。保存したら、空に戻す。保存済みの値は、受け取らない）
-  const [credentialUsername, setCredentialUsername] = useState('');
-  const [credentialPassword, setCredentialPassword] = useState('');
-  const [credentialSecret, setCredentialSecret] = useState('');
-  const [credentialErrors, setCredentialErrors] = useState<Readonly<Record<string, string>>>({});
+  const [operation, setOperation] = useState<'run' | undefined>(undefined);
+  /** 接続テストを実行している設備と、設備ごとの接続テストの結果。 */
+  const [testingId, setTestingId] = useState<string | undefined>(undefined);
+  const [testResults, setTestResults] = useState<
+    Readonly<Record<string, EquipmentTestResult | undefined>>
+  >({});
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
-  const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const { result, onResult: setResult } = props;
-  const errors = { ...clientErrors, ...withoutSourcePrefix(submit.fieldErrors) };
-  const canEdit = props.canConfigure;
-  // 認証情報の登録は、保存済みの設定の認証方式で行う（サーバーが、保存済みの設定と照合する）
-  const savedAuthMethod =
-    saved !== undefined && saved.authMethod !== 'NONE' ? saved.authMethod : undefined;
-  const credentialsBlocked = authMethod !== savedAuthMethod;
-  const credentialStatus = source.credentials;
-  const credentialErrorsShown = { ...credentialErrors, ...errors };
   const locked = submit.busy || source.isRunning;
+  const hasSharedConnection = source.equipment.some((item) => item.connectionOrigin === 'SHARED');
 
   async function handleSave(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
     setResult(undefined);
-    const portText = port.trim();
-    // 接続が未設定で、何も入力していないときは、接続を送らない（未設定のまま。参照名・有効／無効だけを保存できる）
-    const untouched =
-      saved === undefined &&
-      host.trim() === '' &&
-      portText === '' &&
-      protocol === 'HTTPS' &&
-      authMethod === 'NONE';
-    const connection = {
-      type: 'HTTP',
-      protocol,
-      host,
-      ...(portText === '' ? {} : { port: portIsInvalid(portText) ? Number.NaN : Number(portText) }),
-      authMethod,
-      apiKeyHeaderName,
-    };
-    const parsed = IngestionSourceUpdateSchema.safeParse({
-      sourceId: source.sourceId,
-      connectionRef,
-      ...(untouched ? {} : { connection }),
-      isEnabled,
-    });
-    if (!parsed.success) {
-      setClientErrors(fieldErrorsOfZod(parsed.error));
-      return;
-    }
-    setClientErrors({});
-    // 接続設定を変えていないときは、送らない（現在の接続設定を保つ）
-    const { connection: changed, ...unchanged } = parsed.data;
-    const payload =
-      changed === undefined || isSameConnection(changed, saved) ? unchanged : parsed.data;
-    const result = await submit.run(() => updateIngestionSettings(api, { sources: [payload] }));
-    if (result.ok) {
+    // 接続は、設備ごとに設定する（この画面では送らない。現在の接続先の参照名を、そのまま送る）
+    const saved = await submit.run(() =>
+      updateIngestionSettings(api, {
+        sources: [{ sourceId: source.sourceId, connectionRef: source.connectionRef, isEnabled }],
+      }),
+    );
+    if (saved.ok) {
       setResult({ ok: true, text: TEXT.saved });
       props.onChanged();
     }
   }
 
-  /** 認証情報の入力で Enter を押したときは、設定のフォームを送らず、認証情報を保存する。 */
-  function handleCredentialEnter(event: KeyboardEvent<HTMLInputElement>): void {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      if (!credentialsBlocked) {
-        void handleSaveCredentials();
-      }
-    }
-  }
-
-  async function handleSaveCredentials(): Promise<void> {
-    if (savedAuthMethod === undefined) {
-      return;
-    }
+  async function handleTestEquipment(equipmentId: string): Promise<void> {
     setResult(undefined);
-    const candidate =
-      savedAuthMethod === 'BASIC'
-        ? { authMethod: 'BASIC', username: credentialUsername, password: credentialPassword }
-        : savedAuthMethod === 'BEARER'
-          ? { authMethod: 'BEARER', token: credentialSecret }
-          : { authMethod: 'API_KEY', apiKey: credentialSecret };
-    const parsed = IngestionCredentialsInputSchema.safeParse(candidate);
-    if (!parsed.success) {
-      setCredentialErrors(fieldErrorsOfZod(parsed.error));
-      return;
-    }
-    setCredentialErrors({});
-    const result = await submit.run(() =>
-      saveIngestionCredentials(api, source.sourceId, parsed.data),
-    );
-    if (result.ok) {
-      setCredentialUsername('');
-      setCredentialPassword('');
-      setCredentialSecret('');
-      setResult({ ok: true, text: TEXT.credentialsSaved });
-      props.onChanged();
-    }
-  }
-
-  async function handleTest(): Promise<void> {
-    setResult(undefined);
-    setOperation('test');
-    const tested = await submit.run(() => testIngestionConnection(api, source.sourceId));
-    setOperation(undefined);
+    setTestingId(equipmentId);
+    const tested = await submit.run(() => testEquipmentConnection(api, equipmentId));
+    setTestingId(undefined);
     if (tested.ok) {
-      setResult({ ok: tested.value.ok, text: tested.value.message });
+      setTestResults((current) => ({
+        ...current,
+        [equipmentId]: { ok: tested.value.ok, text: tested.value.message },
+      }));
     }
   }
 
@@ -272,58 +159,30 @@ function SourceCard(props: SourceCardProps): ReactNode {
               : formatDateTimeJst(source.lastStartedAt)}
           </dd>
         </div>
-        <div>
-          <dt>{TEXT.lastSuccess}</dt>
-          <dd data-testid={`last-success-${source.sourceId}`}>
-            {source.lastSuccessAt === null
-              ? TEXT.neverRun
-              : formatDateTimeJst(source.lastSuccessAt)}
-          </dd>
-        </div>
       </dl>
-      {source.equipment.length === 0 ? null : (
-        <div className="table-scroll">
-          <table
-            className="data-table card-table equipment-runs"
-            aria-label={`${sourceName(source.sourceId)}の${TEXT.equipmentRuns}`}
-          >
-            <thead>
-              <tr>
-                <th scope="col">{TEXT.logEquipment}</th>
-                <th scope="col">{TEXT.lastStarted}</th>
-                <th scope="col">{TEXT.logResult}</th>
-                <th scope="col">{TEXT.equipmentRunData}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {source.equipment.map((item) => (
-                <tr key={item.equipmentId} data-testid={`equipment-run-${item.equipmentId}`}>
-                  <td data-label={TEXT.logEquipment}>{item.name}</td>
-                  <td data-label={TEXT.lastStarted}>
-                    {item.lastStartedAt === null
-                      ? TEXT.neverRun
-                      : formatDateTimeJst(item.lastStartedAt)}
-                  </td>
-                  <td data-label={TEXT.logResult}>
-                    {item.lastResult === null ? (
-                      MESSAGES.common.missingValue
-                    ) : (
-                      <span className={`log-result log-result-${item.lastResult.toLowerCase()}`}>
-                        {TEXT.runResultLabels[item.lastResult]}
-                      </span>
-                    )}
-                  </td>
-                  <td data-label={TEXT.equipmentRunData}>
-                    {item.lastDataAt === null
-                      ? MESSAGES.common.missingValue
-                      : formatDateTimeJst(item.lastDataAt)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {hasSharedConnection ? (
+        <p
+          role="status"
+          className="notice notice-warning"
+          data-testid={`shared-connection-notice-${source.sourceId}`}
+        >
+          <Icon name="status-caution" size={18} />
+          {TEXT.sharedConnectionNotice}
+        </p>
+      ) : null}
+      <EquipmentIngestionTable
+        source={source}
+        sourceLabel={sourceName(source.sourceId)}
+        canRun={props.canRun}
+        canOpenEquipment={props.canOpenEquipment}
+        locked={locked}
+        testingId={testingId}
+        results={testResults}
+        now={new Date()}
+        onTest={(equipmentId) => {
+          void handleTestEquipment(equipmentId);
+        }}
+      />
       <form
         noValidate
         aria-label={`${sourceName(source.sourceId)}の設定`}
@@ -331,142 +190,7 @@ function SourceCard(props: SourceCardProps): ReactNode {
           void handleSave(event);
         }}
       >
-        {saved === undefined ? (
-          <p className="muted" data-testid={`connection-unset-${source.sourceId}`}>
-            {TEXT.connectionUnset}
-          </p>
-        ) : null}
         <div className="form-grid">
-          <Field
-            label={TEXT.connectionRef}
-            name="connectionRef"
-            error={errors.connectionRef}
-            hint={TEXT.connectionRefHint}
-            required
-          >
-            {(control) => (
-              <input
-                {...control}
-                value={connectionRef}
-                readOnly={!props.canConfigure}
-                autoComplete="off"
-                onChange={(event) => {
-                  setConnectionRef(event.target.value);
-                }}
-              />
-            )}
-          </Field>
-          <>
-            <Field
-              label={TEXT.protocol}
-              name="connection.protocol"
-              error={errors['connection.protocol']}
-            >
-              {(control) => (
-                <select
-                  {...control}
-                  value={protocol}
-                  disabled={!canEdit}
-                  onChange={(event) => {
-                    setProtocol(event.target.value === 'HTTP' ? 'HTTP' : 'HTTPS');
-                  }}
-                >
-                  {FILE_SERVER_PROTOCOLS.map((value) => (
-                    <option key={value} value={value}>
-                      {TEXT.protocolLabels[value]}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            <Field
-              label={TEXT.host}
-              name="connection.host"
-              error={errors['connection.host']}
-              hint={TEXT.hostHint}
-              required
-            >
-              {(control) => (
-                <input
-                  {...control}
-                  value={host}
-                  readOnly={!canEdit}
-                  autoComplete="off"
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setHost(event.target.value);
-                  }}
-                />
-              )}
-            </Field>
-            <Field
-              label={TEXT.port}
-              name="connection.port"
-              error={errors['connection.port']}
-              hint={TEXT.portHint}
-            >
-              {(control) => (
-                <input
-                  {...control}
-                  inputMode="numeric"
-                  value={port}
-                  placeholder={String(defaultHttpPort(protocol))}
-                  readOnly={!canEdit}
-                  autoComplete="off"
-                  onChange={(event) => {
-                    setPort(event.target.value);
-                  }}
-                />
-              )}
-            </Field>
-            <p className="field-note muted">{TEXT.filePathNotice}</p>
-            <Field
-              label={TEXT.authMethod}
-              name="connection.authMethod"
-              error={errors['connection.authMethod']}
-            >
-              {(control) => (
-                <select
-                  {...control}
-                  value={authMethod}
-                  disabled={!canEdit}
-                  onChange={(event) => {
-                    setAuthMethod(
-                      FILE_SERVER_AUTH_METHODS.find((value) => value === event.target.value) ??
-                        'NONE',
-                    );
-                  }}
-                >
-                  {FILE_SERVER_AUTH_METHODS.map((value) => (
-                    <option key={value} value={value}>
-                      {TEXT.authMethodLabels[value]}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            {authMethod === 'API_KEY' ? (
-              <Field
-                label={TEXT.apiKeyHeaderName}
-                name="connection.apiKeyHeaderName"
-                error={errors['connection.apiKeyHeaderName']}
-                hint={TEXT.apiKeyHeaderNameHint}
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    value={apiKeyHeaderName}
-                    readOnly={!canEdit}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(event) => {
-                      setApiKeyHeaderName(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
-            ) : null}
-          </>
           <p className="muted" data-testid={`interval-moved-${source.sourceId}`}>
             {TEXT.intervalMoved}
           </p>
@@ -476,139 +200,22 @@ function SourceCard(props: SourceCardProps): ReactNode {
                 type="checkbox"
                 checked={isEnabled}
                 disabled={!props.canConfigure}
+                aria-describedby={`enabled-impact-${source.sourceId}`}
                 onChange={(event) => {
                   setIsEnabled(event.target.checked);
                 }}
               />
               {TEXT.enabled}
             </label>
+            <p
+              id={`enabled-impact-${source.sourceId}`}
+              className="field-hint"
+              data-testid={`enabled-impact-${source.sourceId}`}
+            >
+              {TEXT.enabledImpact}
+            </p>
           </div>
         </div>
-        {protocol === 'HTTP' ? (
-          <p
-            role="alert"
-            className="notice notice-warning"
-            data-testid={`plaintext-warning-${source.sourceId}`}
-          >
-            <Icon name="status-caution" size={18} />
-            {TEXT.plaintextWarning}
-          </p>
-        ) : null}
-        {authMethod !== 'NONE' && savedAuthMethod === undefined ? (
-          <p className="muted" data-testid={`credentials-note-${source.sourceId}`}>
-            {TEXT.credentialsAfterSave}
-          </p>
-        ) : null}
-        {savedAuthMethod === undefined ? null : (
-          <fieldset className="credentials-section" data-testid={`credentials-${source.sourceId}`}>
-            <legend>{TEXT.credentialsHeading}</legend>
-            <p data-testid={`credentials-status-${source.sourceId}`}>
-              {TEXT.credentialsStatusLabel}:{' '}
-              {credentialStatus.state === 'CONFIGURED'
-                ? credentialStatus.updatedAt === undefined
-                  ? TEXT.credentialsConfigured
-                  : TEXT.credentialsUpdatedAt(formatDateTimeJst(credentialStatus.updatedAt))
-                : credentialStatus.state === 'UNAVAILABLE'
-                  ? TEXT.credentialsStatus.UNAVAILABLE
-                  : TEXT.credentialsStatus.NOT_CONFIGURED}
-            </p>
-            {props.canConfigure ? (
-              <>
-                <p className="muted">{TEXT.credentialsLead}</p>
-                {credentialsBlocked ? (
-                  <p className="muted" data-testid={`credentials-unsaved-${source.sourceId}`}>
-                    {TEXT.credentialsUnsaved}
-                  </p>
-                ) : null}
-                <div className="form-grid">
-                  {savedAuthMethod === 'BASIC' ? (
-                    <>
-                      <Field
-                        label={TEXT.credentialsUsername}
-                        name="username"
-                        error={credentialErrorsShown.username}
-                      >
-                        {(control) => (
-                          <input
-                            {...control}
-                            value={credentialUsername}
-                            autoComplete="off"
-                            spellCheck={false}
-                            disabled={credentialsBlocked}
-                            onKeyDown={handleCredentialEnter}
-                            onChange={(event) => {
-                              setCredentialUsername(event.target.value);
-                            }}
-                          />
-                        )}
-                      </Field>
-                      <Field
-                        label={TEXT.credentialsPassword}
-                        name="password"
-                        error={credentialErrorsShown.password}
-                      >
-                        {(control) => (
-                          <input
-                            {...control}
-                            type="password"
-                            value={credentialPassword}
-                            autoComplete="new-password"
-                            disabled={credentialsBlocked}
-                            onKeyDown={handleCredentialEnter}
-                            onChange={(event) => {
-                              setCredentialPassword(event.target.value);
-                            }}
-                          />
-                        )}
-                      </Field>
-                    </>
-                  ) : (
-                    <Field
-                      label={
-                        savedAuthMethod === 'BEARER'
-                          ? TEXT.credentialsToken
-                          : TEXT.credentialsApiKey
-                      }
-                      name={savedAuthMethod === 'BEARER' ? 'token' : 'apiKey'}
-                      error={
-                        credentialErrorsShown[savedAuthMethod === 'BEARER' ? 'token' : 'apiKey']
-                      }
-                    >
-                      {(control) => (
-                        <input
-                          {...control}
-                          type="password"
-                          value={credentialSecret}
-                          autoComplete="new-password"
-                          spellCheck={false}
-                          disabled={credentialsBlocked}
-                          onKeyDown={handleCredentialEnter}
-                          onChange={(event) => {
-                            setCredentialSecret(event.target.value);
-                          }}
-                        />
-                      )}
-                    </Field>
-                  )}
-                </div>
-                {credentialErrorsShown.authMethod === undefined ? null : (
-                  <p className="field-error">{credentialErrorsShown.authMethod}</p>
-                )}
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    disabled={locked || credentialsBlocked}
-                    onClick={() => {
-                      void handleSaveCredentials();
-                    }}
-                  >
-                    {TEXT.credentialsSave}
-                  </button>
-                </div>
-              </>
-            ) : null}
-          </fieldset>
-        )}
         <FormError message={submit.formMessage} />
         {props.canConfigure || props.canRun ? (
           <div className="form-actions">
@@ -618,27 +225,15 @@ function SourceCard(props: SourceCardProps): ReactNode {
               </button>
             ) : null}
             {props.canRun ? (
-              <>
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={locked}
-                  onClick={() => {
-                    void handleTest();
-                  }}
-                >
-                  {operation === 'test' ? TEXT.testing : TEXT.test}
-                </button>
-                <button
-                  type="button"
-                  disabled={locked}
-                  onClick={() => {
-                    void handleRun();
-                  }}
-                >
-                  {operation === 'run' || source.isRunning ? TEXT.running : TEXT.run}
-                </button>
-              </>
+              <button
+                type="button"
+                disabled={locked}
+                onClick={() => {
+                  void handleRun();
+                }}
+              >
+                {operation === 'run' || source.isRunning ? TEXT.running : TEXT.run}
+              </button>
             ) : null}
           </div>
         ) : null}
@@ -855,6 +450,7 @@ function IngestionContent(): ReactNode {
   const [results, setResults] = useState<Readonly<Record<string, OperationResult | undefined>>>({});
   const canConfigure = usePermission('ingestion:configure');
   const canRun = usePermission('ingestion:run');
+  const canOpenEquipment = usePermission('equipment:manage');
   const query = useQueryParams();
   // ログの絞り込み（設備・結果・期間〔日本時間の日付〕。条件は URL に反映する。Issue #201）
   const logEquipment = query.get('equipment');
@@ -927,6 +523,9 @@ function IngestionContent(): ReactNode {
         </p>
       </div>
       <p className="muted">{TEXT.lead}</p>
+      <p className="muted" data-testid="ingestion-connection-lead">
+        <strong>{TEXT.connectionHeading}</strong> {TEXT.connectionLead}
+      </p>
       {canConfigure || canRun ? null : <PermissionNotice message={TEXT.readOnly} />}
 
       <h2>{TEXT.sources}</h2>
@@ -937,7 +536,7 @@ function IngestionContent(): ReactNode {
       ) : (
         settings.data.sources.map((source) => (
           <SourceCard
-            key={`${source.sourceId}|${source.connectionRef}|${JSON.stringify(source.connection)}|${String(source.isEnabled)}`}
+            key={`${source.sourceId}|${source.connectionRef}|${String(source.isEnabled)}`}
             source={source}
             result={results[source.sourceId]}
             onResult={(result) => {
@@ -945,6 +544,7 @@ function IngestionContent(): ReactNode {
             }}
             canConfigure={canConfigure}
             canRun={canRun}
+            canOpenEquipment={canOpenEquipment}
             onChanged={refreshAll}
           />
         ))

@@ -57,11 +57,26 @@ export interface ListFilesOptions {
    * 未指定は、すべて。
    */
   readonly paths?: readonly string[] | undefined;
+  /**
+   * 設備ごとの失敗の受け取り（Issue #367。ADR-0026）。指定すると、ファイルごとの失敗（接続・認証・未設定など。ファイルが見つからない
+   * 場合を除く）を、投げずに、ここへ渡し、そのファイルを除いて一覧を返す（1 つの設備の接続の失敗が、他の設備の取り込みを止めない）。
+   * 指定がなければ、最初の失敗を投げる（これまでの動作）。
+   */
+  readonly onFailure?: ((failure: FileListFailure) => void) | undefined;
+}
+
+/** 一覧の取得で、ファイルごとに失敗したもの。 */
+export interface FileListFailure {
+  /** 失敗したファイルのパス（設備の `sourceFilePath`）。 */
+  readonly path: string;
+  readonly error: FileSourceUnavailableError;
 }
 
 export interface FileSourcePort {
   /** 接続テスト。失敗した場合は FileSourceUnavailableError を投げる。 */
   testConnection(sourceId: string): Promise<void>;
+  /** 設備 1 つの接続テスト（その設備の接続・認証情報・ファイルのパス。Issue #367）。失敗した場合は FileSourceUnavailableError を投げる。 */
+  testEquipment(equipmentId: string): Promise<void>;
   /** 取り込み元のファイルの一覧（更新日時の古い順）。 */
   listFiles(sourceId: string, options?: ListFilesOptions): Promise<FileMeta[]>;
   /** ファイルの内容（UTF-8 のテキスト）。 */

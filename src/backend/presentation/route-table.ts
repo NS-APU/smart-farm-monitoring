@@ -165,6 +165,31 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'ingestion:run',
     useCases: ['UC-08', 'UC-09', 'UC-15', 'UC-24'],
   },
+  // 設備ごとの接続（Issue #367。ADR-0026）。パスの段数が、取り込み元のルート（/ingestion/:sourceId/...）と違うため、衝突しない
+  {
+    method: 'PUT',
+    path: '/ingestion/equipment/:equipmentId/connection',
+    access: 'ingestion:configure',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  {
+    method: 'DELETE',
+    path: '/ingestion/equipment/:equipmentId/connection',
+    access: 'ingestion:configure',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/ingestion/equipment/:equipmentId/credentials',
+    access: 'ingestion:configure',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  {
+    method: 'POST',
+    path: '/ingestion/equipment/:equipmentId/test',
+    access: 'ingestion:run',
+    useCases: ['UC-12', 'UC-15'],
+  },
   { method: 'GET', path: '/ingestion/logs', access: 'ingestion:read', useCases: ['UC-16'] },
   {
     method: 'GET',

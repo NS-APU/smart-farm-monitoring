@@ -17,6 +17,7 @@ import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
 import { equipmentFederationPayload } from '../../domain/federation-payload.ts';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { FederationService } from '../federation/federation-service.ts';
+import type { EquipmentConnections } from '../ingestion/equipment-connections.ts';
 import { requireActiveEquipment } from './require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
@@ -46,6 +47,8 @@ export interface EquipmentServiceDeps {
   readonly settings: SettingsRepository;
   /** 設備の名前・ID を、連携キューに積む（登録・修正のとき。Issue #177。ADR-0024）。 */
   readonly federation: Pick<FederationService, 'enqueue'>;
+  /** 設備を削除したとき、その設備ごとの接続を削除する（Issue #367。ADR-0026。省略は、何もしない）。 */
+  readonly equipmentConnections?: Pick<EquipmentConnections, 'remove'>;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
   readonly clock: ClockPort;
@@ -239,6 +242,8 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       await recordDeletedExternalIds(settingsRepository, [target, ...children], clock.now());
       for (const equipment of [target, ...children]) {
         await repository.save({ ...equipment, isDeleted: true });
+        // 設備ごとの接続も、削除する（認証情報は、保管先に削除の機能がないため、残す。ADR-0026）
+        await deps.equipmentConnections?.remove(equipment.equipmentId);
         await audit.record({
           operation: 'DELETE',
           targetType: EQUIPMENT_TARGET_TYPE,

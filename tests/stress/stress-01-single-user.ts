@@ -812,7 +812,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     await expect(rowsOf(page, 'federation-log-row').first()).toBeVisible();
   };
   // ファイルサーバー（HTTP。設備ごとに 1 ファイル）。ファイルのパスを持つ設備だけが取得の対象のため、接続テストの前に、ファイルを置く
-  await useHttpFiles(request, USER);
+  const fileServer = await useHttpFiles();
   await putSeededFiles(request, USER, 'robot', {
     startIndex: 0,
     recordsPerFile: FILES.recordsPerFile,
@@ -836,20 +836,23 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['robot', 'ロボットデータ'],
     ['environment-sensor', '環境センサーデータ'],
   ] as const) {
-    // 取得間隔は、設備ごとの設定（Issue #197）。この画面では、接続先の参照名を変えずに、保存を押す
+    // 取得間隔・接続は、設備ごとの設定（Issue #197・#367）。この画面では、自動取り込みの有効／無効（変えずに）の保存を押す
     await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み設定・状況（SC-11）', 'operation', {
       act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
       respond: () => expect(result(id)).toHaveText('設定を保存しました'),
     });
   }
+  // 接続テストは、設備ごとの表の「接続テスト」（Issue #367）。シードの最初のロボットで行う
+  const firstRobotId = seededUnits()[0]?.robot.equipmentId ?? '';
   await m(
     'UC-15',
-    'ロボットデータの「接続テスト」を押す',
+    'ロボット 1 台の「接続テスト」を押す（設備ごとの表）',
     '取り込み設定・状況（SC-11）',
     'operation',
     {
-      act: () => sourceCard('robot').getByRole('button', { name: '接続テスト' }).click(),
-      respond: () => expect(result('robot')).toBeVisible(),
+      act: () => page.getByTestId(`equipment-test-${firstRobotId}`).click(),
+      respond: () =>
+        expect(page.getByTestId(`equipment-test-result-${firstRobotId}`)).toBeVisible(),
     },
   );
 
@@ -1007,7 +1010,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
 
   // UC-24 取り込み失敗の通知（ファイルサーバーの停止 → 即時取得 → 通知）
-  await setFileServerMode(request, USER, 'DOWN');
+  await setFileServerMode('DOWN');
   await m(
     'UC-24',
     'ファイルサーバーの停止中に「即時取得」を押す（再試行のあと失敗）',
@@ -1018,7 +1021,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: () => expect(result('robot')).toContainText('失敗'),
     },
   );
-  await setFileServerMode(request, USER, 'UP');
+  await setFileServerMode('UP');
   await m('UC-24', '取り込み失敗の通知を、通知の一覧で確認する', '通知（SC-05）', 'screen', {
     act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: async () => {
@@ -1179,13 +1182,39 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         .filter({ hasText: 'ROBOT-ADDED' })
         .getByRole('button', { name: '修正' })
         .click(),
-    respond: () => expect(page.getByTestId('equipment-edit')).toBeVisible(),
+    // 設備のダイアログは、「取り込み元の接続」の欄の読み込み（取り込み設定・状況の取得）まで含めて、表示できたとする（Issue #367）
+    respond: async () => {
+      await expect(page.getByTestId('equipment-edit')).toBeVisible();
+      await expect(page.getByTestId('equipment-connection')).toBeVisible();
+      await expect(page.getByTestId('equipment-connection-loading')).toHaveCount(0);
+    },
   });
   await page.getByTestId('equipment-edit').getByLabel('名称').fill('負荷試験の追加ロボット（改）');
   await m('UC-12', 'ロボットの名称を変更して「保存」を押す', '設備（SC-10）', 'operation', {
     act: () => page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click(),
     respond: () => expect(equipmentNotice).toHaveText('修正しました'),
   });
+  // 設備ごとの接続（Issue #367）: 修正のダイアログで、取り込み元の接続（ホスト名・ポート）を入力して保存する（設備を保存してから、接続を保存する）
+  await equipmentRows
+    .filter({ hasText: 'ROBOT-ADDED' })
+    .getByRole('button', { name: '修正' })
+    .click();
+  const connectionBox = page.getByTestId('equipment-connection');
+  await expect(connectionBox).toBeVisible();
+  await expect(page.getByTestId('equipment-connection-loading')).toHaveCount(0);
+  await connectionBox.getByLabel('プロトコル').selectOption('HTTP');
+  await connectionBox.getByLabel('ホスト名').fill('127.0.0.1');
+  await connectionBox.getByLabel('ポート番号').fill(String(fileServer.port));
+  await m(
+    'UC-12',
+    'ロボットの取り込み元の接続（ホスト名・ポート）を入力して「保存」を押す（設備と接続の保存）',
+    '設備（SC-10）',
+    'operation',
+    {
+      act: () => page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click(),
+      respond: () => expect(equipmentNotice).toHaveText('修正しました'),
+    },
+  );
   await m(
     'UC-12',
     '追加したハウス（配下のロボット・センサーを含む）の「削除」を押し、確認で削除する',
