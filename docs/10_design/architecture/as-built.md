@@ -63,7 +63,7 @@
 | D-01 | DB | DynamoDB（architecture.md 13.1。ADR-0005） | **DynamoDB の Repository を実装**（`infrastructure/dynamodb/`。`PERSISTENCE=dynamodb`。ADR-0007。DynamoDB Local で契約テストを通し、AWS で確認済み）。ローカルは、`PERSISTENCE=memory\|file`（`infrastructure/local/local-store.ts`・`local-repositories.ts`。18 コレクション） | 実装済み（AWS で確認済み） |
 | D-02 | 認証                       | Amazon Cognito（architecture.md 9章・13.1）                                                                                                               | アプリ内の認証（`local-auth.ts`。scrypt・不透明トークン・メモリ上のセッション）と、**Cognito の実装**（`cognito/cognito-identity.ts`。`AUTH_PROVIDER=cognito`。ADR-0008。実際の Cognito で確認済み。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010）） | 実装済み（手元から AWS で確認済み） |
 | D-03 | ホスティング・ジョブ起動 | Amplify Hosting＋Lambda＋EventBridge（architecture.md 11章） | **Amplify は使わず**、IaC（`infra/`。AWS CDK）で、画面（S3 + CloudFront）・API の Lambda（`runtime/lambda.ts`。本番の組み立て。ADR-0009）・ジョブの Lambda と EventBridge の 4 つのルール（`runtime/job-lambda.ts`。ADR-0011）・データ（DynamoDB・Cognito）・合成データの生成の Lambda（ADR-0012）を作る（ADR-0006。Issue #71・#75・#76・#77）。デプロイは、GitHub Actions + OIDC（手動実行） | 実装済み（AWS で確認済み。画面のホスティングは、Amplify ではなく S3 + CloudFront） |
-| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリ・S3 を見立てたモック（`mock-file-server.ts`・ADR-0012 の S3 版）は、#344 の PR 3a・3b で削除した（接続方式は HTTP の 1 つだけ。ADR-0025）。**HTTP のアダプタ**（Issue #119。ADR-0023）がある: 取り込み元ごとの接続設定（`connection`。HTTP。省略可で、未設定が既定。ADR-0022。#172）と、設備ごとのファイルパス（`sourceFilePath`）で、**接続テスト・一覧（HEAD）・取得（GET。大きさの上限）**をする（`infrastructure/http/`: `http-client.ts`〔共通。内部のアドレスを拒否・リダイレクトに従わない〕・`http-probe.ts`・`http-file-reader.ts`）。`routing-file-source.ts` が、取り込み元の接続設定と設備ごとのファイルパスで、HTTP のアダプタに振り分ける。接続が未設定の取り込み元は、接続テストが失敗し、一覧は、取得の対象の設備がなければ 0 件・あれば失敗（「接続先が設定されていません」）、取得は NOT_FOUND。**宇都宮大学のサーバーとは、未接続**（接続先・認証情報・実ファイルの形式は、別の Issue。#298）。`connectionRef`（接続設定の参照名）は保存・表示されるが、接続には使われない。認証情報は、`SecretPort`（`file-server/<取り込み元>`）から読む。値は、SC-11 から、管理者が書き込み専用で登録する（#207） | 一部（HTTP のアダプタは、汎用のサーバーで確認。宇都宮大学のサーバーへの接続は #298） |
+| D-04 | ファイルサーバー | 実サーバー用アダプタ（architecture.md 5.1。接続先は Q-002 で未決定） | ディレクトリ・S3 を見立てたモック（`mock-file-server.ts`・ADR-0012 の S3 版）は、#344 の PR 3a・3b で削除した（接続方式は HTTP の 1 つだけ。ADR-0025）。**HTTP のアダプタ**（Issue #119。ADR-0023）がある: 設備ごとの接続設定（HTTP。未設定が既定。ADR-0022・ADR-0026。#172・#367）と、設備ごとのファイルパス（`sourceFilePath`）で、**接続テスト・一覧（HEAD）・取得（GET。大きさの上限）**をする（`infrastructure/http/`: `http-client.ts`〔共通。内部のアドレスを拒否・リダイレクトに従わない〕・`http-probe.ts`・`http-file-reader.ts`）。`routing-file-source.ts` が、設備ごとの接続と設備ごとのファイルパスで、HTTP のアダプタに振り分ける。接続が未設定の設備は、接続テスト・一覧・取得が「接続先が設定されていません」の失敗になる（取得の対象の設備がなければ、一覧は 0 件。取り込み元の共通の接続は、ない）。**宇都宮大学のサーバーとは、未接続**（接続先・認証情報・実ファイルの形式は、別の Issue。#298）。認証情報は、`SecretPort`（`file-server/equipment/<設備 ID の SHA-256 の先頭 32 文字>`。設備ごと）から読む。値は、設備のダイアログ（SC-10）から、管理者が書き込み専用で登録する（#207・#367） | 一部（HTTP のアダプタは、汎用のサーバーで確認。宇都宮大学のサーバーへの接続は #298） |
 | D-05 | Web Push の配信            | 外部の配信サービスへ送信（architecture.md 8章）                                                                                                           | 配信は、`WEB_PUSH_DELIVERY=vapid` で、実配信（`web-push/web-push-notifier.ts`。送信は `library-sender.ts`〔`web-push` 3.6.7〕。秘密鍵は SecretPort）。既定の `dummy` は、ダミー（`dummy-web-push.ts`。記録のみ。ローカル・テスト）。ブラウザ側（`push/browser-push.ts`・`public/sw.js`）は、購読の暗号鍵（p256dh・auth）も送る                                                                           | 実装済み（#241。実機の確認は、運用手順 8.6） |
 | D-06 | 農業情報基盤との連携       | 連携方式は、NGSI-LD（Orion-LD）の upsert（ADR-0024。architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）と、NGSI-LD のアダプタ（`http/ngsi-ld-federation.ts`。`FEDERATION_MODE=ngsi-ld`）                                                                                                                                                                         | 一部実装（#177 の PR 1。設備の連携・設定の画面は、PR 2・3）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
@@ -183,8 +183,8 @@
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
 |                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings`                                                            | `ingestion:read`                      |
-|                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`（#367） | `ingestion:configure`                 |
-|                                | `POST /ingestion/:sourceId/test`・`POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test`（#367）                                                                   | `ingestion:run`                       |
+|                                | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`（#367） | `ingestion:configure`                 |
+|                                | `POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test`（#367）                                                                   | `ingestion:run`                       |
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
 | 閲覧の割り当て                 | `GET /facility-access`・`PUT /facility-access/:facilityId`                                                                          | `user:manage`                         |
 | ヘルスチェック                 | `GET /health`（`/api/v1` の外）                                                                                                     | 認証なし。外部の状態に依存しない      |
@@ -433,7 +433,7 @@ flowchart LR
 | UC-12 | ハウス・ロボット・センサーの構成を管理する         | SC-10                                            | `/equipment` 一式                                                                       | -                       | `equipment:manage`（参照は LOGIN）     | `EquipmentService`                                     |
 | UC-13 | ログイン・ログアウトする                           | SC-01                                            | `/auth/login`・`/auth/refresh`・`/auth/logout`                                          | -                       | PUBLIC（ログアウトは LOGIN）           | `AuthService`・`createLocalAuth`                       |
 | UC-14 | ユーザーを管理する                                 | SC-14                                            | `/users` 一式                                                                           | -                       | `user:manage`                          | `UserService`                                          |
-| UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | SC-11                                            | `/ingestion/settings`・`/ingestion/:id/test`・`/ingestion/:id/run`                      | JB-01                   | `ingestion:configure`・`ingestion:run` | `IngestionAdminService`・`IngestionService`            |
+| UC-15 | 取り込みを設定し、接続テスト・即時取得を行う       | SC-11                                            | `/ingestion/settings`・`/ingestion/:id/run`・`/ingestion/equipment/:equipmentId/…`（設備ごとの接続）                      | JB-01                   | `ingestion:configure`・`ingestion:run` | `IngestionAdminService`・`IngestionService`            |
 | UC-16 | 取り込み・連携の状況を確認する                     | SC-11                                            | `GET /ingestion/logs`・`GET /federation/logs`・`GET /ingestion/facility-logs`・`GET /federation/facility-logs` | JB-01・JB-03            | LOGIN                                  | `IngestionAdminService`                                |
 | UC-17 | ステータスコードを管理する                         | SC-12                                            | `/status-codes` 一式                                                                    | -                       | `status-code:manage`（参照は LOGIN）   | `StatusCodeService`                                    |
 | UC-18 | 入力済みデータを管理する（一覧・修正・削除・履歴） | SC-07・SC-08                                     | `/manual-entries`・`GET /audit-logs`                                                    | JB-02                   | `manual-entry:write`・`audit:read`     | `ManualEntryService`・`AuditService`                   |
@@ -703,8 +703,6 @@ classDiagram
     +string sourceId
     +IngestionSourceKind kind
     +string profileId
-    +string connectionRef
-    +FileServerConnection connection
     +IngestionInterval intervalMinutes
     +boolean isEnabled
   }
@@ -814,7 +812,7 @@ classDiagram
   FederationItem "0..*" --> "0..*" FederationLogEntry : 送信の結果を記録
 ```
 
-- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `HTTP` の 1 つだけ、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。省略可で、保存がなければ未設定。保存済みの `MOCK` は、読み込むときに未設定に読み替える。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）。この `connection`（取り込み元の共通の接続）は、**移行期間**だけ残る（設備ごとの接続がない設備が使う。廃止は、#367 の次の PR。ADR-0026）
+- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。持つのは、`sourceId`・`kind`・`profileId`・`isEnabled` だけ。**接続・接続設定の参照名・認証情報は持たない**（接続は設備ごと。下の EquipmentConnections。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023・ADR-0026）。取得間隔も持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197）。以前に保存された `connection`（接続方式 `MOCK` を含む）・`connectionRef`・`filePath`・取得間隔は、読み込むときに無視する（データは移行しない。取り込み元の共通の接続は、#367 の 2 つ目の PR で廃止した）
 - **EquipmentConnections**（設備ごとの接続。#367。ADR-0026）: 設備 ID → `FileServerConnection`。保存するのは設定（`settings` コレクションのキー `ingestion.equipment-connections`。`application/ingestion/equipment-connections.ts`。`list`・`save`・`remove`）。設備の項目には持たない（設備は、ログインした利用者のだれもが読めるため）。対象は、ロボット・センサー。設備を削除すると（`EquipmentService.delete`）、その設備の接続も削除する。認証情報の値は持たず、SecretPort の `file-server/equipment/<設備 ID の SHA-256 の先頭 32 文字>`（`file-server-credentials.ts` の `fileServerEquipmentSecretReference`）に置く（削除しても、保管先に残る）
 - **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID`（ファイルごとに、最新の版の 1 件を上書き。#201）。形式違いのファイルは `FAILURE` で記録する
 - **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
@@ -1007,7 +1005,7 @@ flowchart LR
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
-| `FileSourcePort`                           | `ports/file-source-port.ts`     | HTTP のアダプタだけ（ディレクトリ・S3 のモックは、#344 の PR 3a・3b で削除した。ADR-0025）。`application/ingestion/routing-file-source.ts` が、設備ごとの接続（なければ、移行期間は、取り込み元の共通の接続。どちらもなければ、未設定の失敗）と設備ごとのファイルパスで扱う（一覧は、設備ごとに問い合わせ、`onFailure` で、設備ごとの失敗を渡して、ほかの設備を続ける。`testEquipment` は、設備 1 つの接続テスト。#367。ADR-0026）。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
+| `FileSourcePort`                           | `ports/file-source-port.ts`     | HTTP のアダプタだけ（ディレクトリ・S3 のモックは、#344 の PR 3a・3b で削除した。ADR-0025）。`application/ingestion/routing-file-source.ts` が、設備ごとの接続（なければ、未設定の失敗）と設備ごとのファイルパスで扱う（一覧は、設備ごとに問い合わせ、`onFailure` で、設備ごとの失敗を渡して、ほかの設備を続ける。`testEquipment` は、設備 1 つの接続テスト〔取り込み元単位の `testConnection` は、廃止〕。#367。ADR-0026）。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON の FormatProfile。CSV は #174 で削除）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | `http/ngsi-ld-federation.ts`（NGSI-LD の upsert。`FEDERATION_MODE=ngsi-ld`。ADR-0024）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `web-push/web-push-notifier.ts`（実配信。#241。結果: 2xx 配信・404/410 購読が無効・それ以外 失敗）、`local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
@@ -1142,8 +1140,8 @@ flowchart LR
 | 権限                  | 要求するルート                                                        | 画面         |
 | --------------------- | --------------------------------------------------------------------- | ------------ |
 | `equipment:manage`    | `POST /equipment`・`PUT`・`DELETE /equipment/:id`                     | SC-10        |
-| `ingestion:configure` | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials` | SC-11・SC-10 |
-| `ingestion:run`       | `POST /ingestion/:sourceId/test`・`/run`・`POST /ingestion/equipment/:equipmentId/test` | SC-11・SC-10 |
+| `ingestion:configure` | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials` | SC-11・SC-10 |
+| `ingestion:run`       | `POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test` | SC-11・SC-10 |
 | `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
 | `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
@@ -1185,7 +1183,7 @@ flowchart LR
 | `WEB_PUSH_SUBJECT`                                              | なし                      | VAPID の連絡先（https の URL。個人のメールアドレスは使わない）                                                                                  |
 | `CREDENTIAL_STORE`                                              | `memory`                  | 秘密情報の保管先（`memory`・`ssm`＝パラメータストア）。`ssm` は、本番・開発サイト（#206）。名前に、SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
 | `CREDENTIAL_PATH_PREFIX`                                        | なし                      | `ssm` のときの、パスの接頭辞（先頭と末尾が `/`。例: `/sfm/development/`）。`ssm` では、必須
-| `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版。テスト用）。参照名の `/`・`-` は `_` になる（例: `file-server/robot` → `SECRET_FILE_SERVER_ROBOT`）。コンテナは、使わない                                                                                            |
+| `SECRET_<参照名>`                                               | -                         | `SecretPort`（環境変数版。テスト用）。参照名の `/`・`-` は `_` になる（例: `web-push/vapid-private-key` → `SECRET_WEB_PUSH_VAPID_PRIVATE_KEY`）。コンテナは、使わない                                                                                            |
 
 アプリケーション層の動作設定（`application/settings.ts` の `DEFAULT_APP_SETTINGS`）と、その他のコード内の定数は次のとおり。
 
@@ -1570,7 +1568,7 @@ sequenceDiagram
   end
 ```
 
-- 画面の「即時取得」（SC-11。`POST /ingestion/:sourceId/run`。`ingestion:run`）は、`IngestionService.runSource` を直接呼び、**同期して実行**し、結果の概要を 202 で返す。「接続テスト」は `testConnection`（`FileSourcePort.testConnection`。ファイルパスを持つ最初の設備の、解決した接続で確かめる）で、`{ ok, message }` を返す。設備ごとの接続テスト（`POST /ingestion/equipment/:equipmentId/test`。`ingestion:run`。#367）は、`IngestionAdminService.testEquipmentConnection` → `IngestionService.testEquipmentConnection`（`FileSourcePort.testEquipment`）で、同じ形を返す
+- 画面の「即時取得」（SC-11。`POST /ingestion/:sourceId/run`。`ingestion:run`）は、`IngestionService.runSource` を直接呼び、**同期して実行**し、結果の概要を 202 で返す。「接続テスト」は、設備ごと（取り込み元単位の接続テストは、廃止した。ADR-0026）。設備ごとの接続テスト（`POST /ingestion/equipment/:equipmentId/test`。`ingestion:run`。#367）は、`IngestionAdminService.testEquipmentConnection` → `IngestionService.testEquipmentConnection`（`FileSourcePort.testEquipment`）で、`{ ok, message }` を返す
 - 取り込み元ごとに独立して実行する。想定外のエラーで 1 つが失敗しても、他の取り込み元は実行し、すべての実行後に最初のエラーをジョブへ伝える
 
 **ファイルごとの処理（`processFile`）**
@@ -1794,7 +1792,7 @@ sequenceDiagram
   else 取り込み設定の更新 PUT /ingestion/settings
     APP->>IA: update(input, actor) 権限<br>ingestion:configure
     IA->>SR: listSources 経由で現在の設定を取得
-    IA->>IA: sourceId の存在と重複を確認<br>connectionRef・connection<br>isEnabled を変更<br>（connection は省略で保持。内部のアドレスは拒否）<br>指定のない取り込み元は残す
+    IA->>IA: sourceId の存在と重複を確認<br>isEnabled を変更<br>指定のない取り込み元は残す
     IA->>SR: set ingestion.sources
     IA->>AU: record UPDATE ingestion-settings<br>before と after
   end
@@ -2000,7 +1998,6 @@ stateDiagram-v2
   [*] --> Enabled : 既定の 2 取り込み元 isEnabled true
   Enabled --> Disabled : PUT ingestion settings で無効にする
   Disabled --> Enabled : PUT ingestion settings で有効にする
-  Enabled --> Enabled : PUT ingestion settings で接続先の参照名と取得間隔を変更
 ```
 
 - 取り込み元の設定は、保存がなければコードの既定（`robot`・`environment-sensor`）を返す。更新すると、`settings` コレクションのキー `ingestion.sources` に保存し、変更履歴を残す。取り込み元の追加・削除の操作はない
@@ -2675,7 +2672,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
 | UC-14     | `UC-14-manage-users.ts`                                           | `management-api`・`role-access`（ロールごとの認可・本人のユーザー名の編集。#115）・`facility-access`・`facility-scope-api`（閲覧の割り当て・閲覧範囲の絞り込み。#330）・`migrate-user-roles-cli`（既存ユーザーのロールの移行。#115）                                                                                             | `frontend/users-page.test.tsx`・`frontend/profile-page.test.tsx`（ユーザー名の変更。#115）                                                                                                                   |
-| UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`ingestion-connection.test.tsx`                                                                                                               |
+| UC-15・16 | `UC-15-configure-ingestion.ts`・`UC-15-configure-file-server-connection.ts`・`UC-16-check-ingestion-status.ts` | `management-api`・`ingestion`・`ingestion-credentials`（認証情報。#207）・`http-file-source`・`equipment-source-file-path`（#119・#172） | `frontend/ingestion-page.test.tsx`・`equipment-connection.test.tsx`（設備の接続。#367）|
 | UC-17     | `UC-17-manage-status-codes.ts`                                    | `management-api`・`api`                                                                                      | `frontend/status-codes-page.test.tsx`・`frontend/stale-chunk.test.tsx`（古い画面の部品の取得の失敗。#323）                                                                                                            |
 | UC-18     | `UC-18-manage-entries.ts`                                         | `management-api`（入力済みデータの管理・変更履歴）                                                           | `frontend/entry-pages.test.tsx`                                                                                                                  |
 | UC-19     | `UC-19-edit-criteria.ts`                                          | `management-api`                                                                                             | `frontend/criteria-edit-page.test.tsx`・`shared/criteria-text.test.ts`・`shared/shared.test.ts`（判断基準の検証）                                |
