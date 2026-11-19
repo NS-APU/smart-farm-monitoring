@@ -17,6 +17,8 @@
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  ROBOT_ID,
+  SENSOR_ID,
   USER_B,
   addUser,
   advanceMinutes,
@@ -30,8 +32,13 @@ import {
   setMock,
   unreadBadge,
 } from './support/app.ts';
-import { placeFile, placeFixture, setFileServerMode } from './support/http-files.ts';
-import { logRows, runNow, sourceCard } from './support/ingestion.ts';
+import {
+  assignFilePath,
+  placeFile,
+  placeFixture,
+  setFileServerMode,
+} from './support/http-files.ts';
+import { logRows, runNow } from './support/ingestion.ts';
 import { listNotifications } from './support/notifications.ts';
 import { deliveredPushes } from './support/push.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -386,10 +393,10 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
 // ---------------------------------------------------------------------------
 // 画面の幅（1280px・768px・375px）でも、失敗の通知（SC-05）と、失敗の取り込みの状況（SC-11）が、潰れず、はみ出さない（NFR-7.3）。
 // 取り込み元の名称・失敗の理由は、固定の短い文言（取り込み元は「ロボットデータ」「環境センサーデータ」の2つ。取り込み元の追加・名称の変更はない）。
-// 長い値になりうるのは、接続先の参照名（100 文字。英数字・記号のみで、区切りがない）と、失敗のログの件数。
+// 長い値になりうるのは、設備ごとの表のファイルのパス（100 文字。区切りがない。接続先の参照名の入力欄は、設備ごとの接続への移行で、なくなった。Issue #367）と、失敗のログの件数。
 // ---------------------------------------------------------------------------
 
-const LONG_CONNECTION_REF = `${'ConnectionRef-'.repeat(7)}XX`;
+const LONG_FILE_PATH = `/robot/${'LongPathSegment_'.repeat(5)}x.json`;
 const VIEWPORTS = [
   { name: 'デスクトップ幅（1280px）', width: 1280, height: 720 },
   { name: 'タブレット幅（768px。NFR-7.3）', width: 768, height: 1024 },
@@ -479,20 +486,19 @@ for (const viewport of VIEWPORTS) {
       await shot(page, testInfo, `uc24-notifications-${String(viewport.width)}`);
     });
 
-    test('SC-11: 失敗の取り込み（長い接続先の参照名100文字・失敗のログ23件・2ページ）でも、取り込み元のカード・結果の表示・ログの表が崩れない', async ({
+    test('SC-11: 失敗の取り込み（長いファイルのパス・失敗のログ23件・2ページ）でも、取り込み元のカード・設備ごとの表・結果の表示・ログの表が崩れない', async ({
       page,
       request,
     }, testInfo) => {
       await prepareApp(request);
-      expect(LONG_CONNECTION_REF).toHaveLength(100);
-      await apiOk(request, 'PUT', '/ingestion/settings', {
-        sources: ['robot', 'environment-sensor'].map((sourceId) => ({
-          sourceId,
-          connectionRef: LONG_CONNECTION_REF,
-          intervalMinutes: 5,
-          isEnabled: true,
-        })),
-      });
+      expect(LONG_FILE_PATH.length).toBeGreaterThan(85);
+      // 設備のファイルのパスを長くする（ファイルは置かない。停止の再現が、設備ごとの接続を、テスト用サーバーに向ける）
+      await assignFilePath(request, ROBOT_ID, LONG_FILE_PATH);
+      await assignFilePath(
+        request,
+        SENSOR_ID,
+        LONG_FILE_PATH.replace('/robot/', '/environment-sensor/'),
+      );
       await setFileServerMode(request, 'DOWN');
       // 1 ページは 20 件（Issue #201）。22 件 + 即時取得 1 件 = 23 件で、2 ページになる
       for (let index = 0; index < 11; index += 1) {
@@ -502,9 +508,7 @@ for (const viewport of VIEWPORTS) {
       }
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await openIngestion(page);
-      await expect(sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）')).toHaveValue(
-        LONG_CONNECTION_REF,
-      );
+      await expect(page.getByTestId(`equipment-path-${ROBOT_ID}`)).toHaveText(LONG_FILE_PATH);
 
       const result = await runNow(page, 'robot');
 
@@ -530,7 +534,7 @@ for (const viewport of VIEWPORTS) {
           expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
         }
       }
-      // 取り込み元のカードの中身（参照名の入力欄・ボタン・結果の表示）が、カードの枠に収まる
+      // 取り込み元のカードの中身（ボタン・結果の表示。設備ごとの表の中は、表の枠の中で横にスクロールできるため、表の枠が、カードに収まることを確かめる）が、カードの枠に収まる
       for (const sourceId of ['robot', 'environment-sensor'] as const) {
         const card = await page.getByTestId(`source-${sourceId}`).boundingBox();
         const left = card?.x ?? -1;
@@ -542,11 +546,22 @@ for (const viewport of VIEWPORTS) {
           .locator('input, select, button, [role="status"], .tag')
           .evaluateAll((nodes) =>
             nodes
+              .filter((node) => node.closest('.table-scroll') === null)
               .map((node) => node.getBoundingClientRect())
               .filter((rect) => rect.width > 0)
               .map((rect) => ({ left: rect.left, right: rect.right })),
           );
-        for (const rect of inner) {
+        const tableFrames = await page
+          .getByTestId(`source-${sourceId}`)
+          .locator('.table-scroll')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => {
+              const rect = node.getBoundingClientRect();
+              return { left: rect.left, right: rect.right };
+            }),
+          );
+        expect(tableFrames.length, `${sourceId} の設備ごとの表`).toBeGreaterThan(0);
+        for (const rect of [...inner, ...tableFrames]) {
           expect(rect.left, `${sourceId} の内側の左端`).toBeGreaterThanOrEqual(left - 1);
           expect(rect.right, `${sourceId} の内側の右端`).toBeLessThanOrEqual(right + 1);
         }

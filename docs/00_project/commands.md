@@ -53,6 +53,10 @@ pnpm migrate-user-roles
 # 既存の通知の移行（ハウスの補完と、ハウスごとのカウンターの再集計。Issue #331。AWS は operations.md 8.8。ローカルのファイル〔PERSISTENCE=file〕は、ハウスの補完だけ）
 pnpm migrate-notification-counters
 
+# 取り込みの接続を、設備ごとにする移行（取り込み元の共通の接続の値を、ファイルのパスを持つ設備ごとの接続へコピー。Issue #367。ADR-0026。AWS は operations.md 8.10）
+pnpm migrate-equipment-connections          # ドライラン（既定。件数だけを示し、書き込まない）
+pnpm migrate-equipment-connections --yes    # 実行する（冪等）
+
 # Lint / 型検査 / フォーマット
 pnpm lint            # ESLint（eslint .）→ oxlint（jsx-a11y。.oxlintrc.json）
 pnpm typecheck
@@ -275,9 +279,9 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 - 取り込み（ファイルサーバー）をローカルで試すには、デモ用の合成データの HTTP 配信を使う（接続方式は HTTP だけ。ディレクトリのモックは廃止した。ADR-0025）:
   1. `pnpm dev:demo-feed` を別のターミナルで起動する（127.0.0.1 だけ。既定ポート 8790。ファイルは `/robot/latest.json`・`/environment-sensor/latest.json`。停止は Ctrl+C）
   2. `.env` に `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` を指定して、バックエンドを起動する（手元の配信など、内部のアドレスに接続するため。ローカル・テストだけ。`APP_MODE=production` では無効）
-  3. 画面の SC-11（取り込み設定）で、取り込み元（ロボット・環境センサー）の接続を、プロトコル HTTP・ホスト 127.0.0.1・ポート 8790・認証方式 なし にして保存する（接続が未設定のままでは、取り込まない）
-  4. 画面の SC-10（設備）で、ロボット・環境センサーの「ファイルのパス」に、上のファイルのパスを設定する（`SEED_MODE=DEMO` のデモの設備は、ファイルのパスを持たない）。SC-11 の「接続テスト」「即時取得」で確かめる
-  - `pnpm demo-data use-http-feed --url http://127.0.0.1:8790` は、`PERSISTENCE=dynamodb` 専用（DynamoDB のデータに対して、取り込み元の接続とデモの設備のパスを一括で設定する）。`PERSISTENCE=file` のローカルでは、上の 3・4 を画面で行う
+  3. 画面の SC-10（設備）で、ロボット・環境センサーの「ファイルのパス」に、上のファイルのパスを設定する（`SEED_MODE=DEMO` のデモの設備は、ファイルのパスを持たない）
+  4. 同じ設備のダイアログの「取り込み元の接続」で、接続を、プロトコル HTTP・ホスト 127.0.0.1・ポート 8790・認証方式 なし にして保存する（接続は、設備ごと。ADR-0026。接続がない設備は、取り込み元の共通の接続〔移行期間〕を使い、どちらもなければ、取り込まない）。SC-11 の設備ごとの「接続テスト」と、「即時取得」で確かめる
+  - `pnpm demo-data use-http-feed --url http://127.0.0.1:8790` は、`PERSISTENCE=dynamodb` 専用（DynamoDB のデータに対して、取り込み元の共通の接続・デモの設備ごとの接続・デモの設備のパスを一括で設定する）。`PERSISTENCE=file` のローカルでは、上の 3・4 を画面で行う
 - 開発用 API（時計・連携・通知のモックの停止・ジョブの起動・リセット）は、既定で無効。`.env` に `DEV_API_ENABLED=true` を指定したときだけ有効（E2E の設定は、指定済み）。dev_spec.md 3.8
 
 ### 初期ユーザーでのログイン手順（ローカル）
@@ -293,6 +297,7 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 - `INITIAL_USER_*` を指定しないと、ユーザーが作られず、ログインできない
 - 初期ユーザーのロールは、既定の管理者 `admin`（全権限）。既定のロールは、管理者 `admin`・一般 `general`（手動入力のみ）の 2 つ（ADR-0013）。`ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` で変えられる（dev_spec.md 3.3）
 - **ロールの移行（ローカル）**: ロールを 2 つに分ける前（Issue #115 より前）に作った `.local-data/store.json` のユーザーは、ロールが `worker` のままで、権限がなくなる。次のどちらかで直す。(1) `$env:PERSISTENCE='file'; pnpm migrate-user-roles`（`DATA_FILE` の既定は `.local-data/store.json`。`MIGRATE_DRY_RUN=true` で、人数の確認だけ）。(2) `.local-data/store.json` を消して、`.env` の初期ユーザーを作り直す（データも消える）。開発サーバーを止めてから実行する
+- **設備ごとの接続の移行**（`pnpm migrate-equipment-connections`。#367）: 取り込み元の共通の接続の値を、ファイルのパスを持つ、削除されていない、ロボット・センサーの設備のうち、設備ごとの接続を持たないものへ、コピーする（共通の接続が未設定の種別は、コピーしない）。**ドライランが既定**で、`--yes` を付けたときだけ書き込む（`MIGRATE_DRY_RUN` は使わない）。何度実行しても同じ（冪等）。**認証情報は、コピーしない**（設備ごとに、設備のダイアログ〔SC-10〕から入力し直す）。出力は、件数だけ（ホスト名・設備名・接続の値・AWS のエラーのメッセージは出さない）。ローカルは `$env:PERSISTENCE='file'; pnpm migrate-equipment-connections`（`DATA_FILE` の設定にコピー。開発サーバーを止めてから実行する）。AWS は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE` を指定して実行する（手順は operations.md 8.10。ユーザーが実行）
 - パスワードは、ハッシュ化（scrypt）して保存し、ログに出さない（security.md）。実際の運用では、`.env.example` のダミー値を使わず、別の値にする
 
 ## テストの出力

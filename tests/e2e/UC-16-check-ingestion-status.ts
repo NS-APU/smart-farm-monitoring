@@ -16,6 +16,8 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import {
   GENERAL,
+  ROBOT_ID,
+  SENSOR_ID,
   VIEWER,
   addUser,
   advanceMinutes,
@@ -30,9 +32,20 @@ import {
   sensorJson,
   setMock,
 } from './support/app.ts';
-import { placeFile, placeFixture, setFileServerMode } from './support/http-files.ts';
-import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
-import { shot } from './support/viewpoint-scenarios.ts';
+import {
+  assignFilePath,
+  placeFile,
+  placeFixture,
+  setFileServerMode,
+} from './support/http-files.ts';
+import {
+  equipmentRow,
+  federationRows,
+  logRows,
+  sourceCard,
+  testEquipmentConnection,
+} from './support/ingestion.ts';
+import { NOW, shot } from './support/viewpoint-scenarios.ts';
 
 async function openStatus(page: Page, query = ''): Promise<void> {
   await alignBrowserClock(page);
@@ -119,13 +132,16 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(logRows(page).nth(1).locator('td').nth(4)).toHaveText('1');
     await expect(logRows(page).nth(1).locator('td').nth(5)).toHaveText('14');
     await expect(logRows(page).nth(1).locator('td').nth(8)).toHaveText('—');
-    // 取り込み元ごとの、最終の成功日時
-    await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).toHaveText(
-      '2026/10/09 12:00:00',
+    // 取り込み元ごとの、最終の実行。設備ごとの表に、最終の実行の結果と、最後にデータが取れた日時（「最終の成功」は、廃止）
+    await expect(page.getByTestId('last-started-robot')).toHaveText('2026/10/09 12:00:00');
+    await expect(page.getByTestId('last-started-environment-sensor')).toHaveText(
+      '2026/10/09 12:15:00',
     );
-    await expect(
-      sourceCard(page, 'environment-sensor').getByTestId('last-success-environment-sensor'),
-    ).toHaveText('まだ実行していません');
+    await expect(page.getByTestId(`equipment-result-${ROBOT_ID}`)).toHaveText('成功');
+    await expect(page.getByTestId(`equipment-data-${ROBOT_ID}`)).toHaveText('2026/10/09 12:00:00');
+    await expect(page.getByTestId(`equipment-result-${SENSOR_ID}`)).toHaveText('一部成功');
+    await expect(page.getByTestId(`equipment-data-${SENSOR_ID}`)).toHaveText('2026/10/09 12:15:00');
+    await expect(sourceCard(page, 'robot').getByText('最終の成功')).toHaveCount(0);
     await shot(page, testInfo, 'uc16-logs');
   });
 
@@ -195,7 +211,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
     await expect(page.getByTestId('permission-notice')).toBeVisible();
     await expect(page.getByRole('button', { name: '即時取得' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '接続テスト' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /接続テスト/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '設定を保存' })).toHaveCount(0);
     await shot(page, testInfo, 'uc16-viewer');
   });
@@ -295,9 +311,9 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
     await expect(row.locator('.log-result')).toHaveText('失敗');
     await expect(row.locator('td').nth(8)).toHaveText('ファイルサーバーに接続できませんでした');
     await expect(row).not.toContainText('test-result');
-    await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).toHaveText(
-      'まだ実行していません',
-    );
+    // 設備ごとの表: 接続できなかった設備の最終の実行は失敗。データは、まだ取れていない
+    await expect(page.getByTestId(`equipment-result-${ROBOT_ID}`)).toHaveText('失敗');
+    await expect(page.getByTestId(`equipment-data-${ROBOT_ID}`)).toHaveText('—');
   });
 });
 
@@ -420,12 +436,17 @@ test.describe('設備ごとの最終の実行（空振りは、ログに残さ�
     await expect(logRows(page)).toHaveCount(1);
     const robot = page.getByTestId('equipment-run-ROBOT-01');
     await expect(robot).toContainText('収穫ロボット1');
-    await expect(robot.locator('td').nth(1)).toHaveText('2026/10/09 12:05:00');
-    await expect(robot.locator('td').nth(2)).toHaveText('成功');
-    await expect(robot.locator('td').nth(3)).toHaveText('2026/10/09 12:00:00');
-    await expect(page.getByTestId('equipment-run-SENSOR-01').locator('td').nth(1)).toHaveText(
-      'まだ実行していません',
+    // 設備ごとの表は、列が増えた（Issue #367）ため、列の位置ではなく、列の見出し（data-label）で引く
+    await expect(robot.locator('td[data-label="最終の実行（結果）"]')).toContainText(
+      '2026/10/09 12:05:00',
     );
+    await expect(page.getByTestId('equipment-result-ROBOT-01')).toHaveText('成功');
+    await expect(robot.locator('td[data-label="最後にデータが取れた日時"]')).toHaveText(
+      '2026/10/09 12:00:00',
+    );
+    await expect(
+      page.getByTestId('equipment-run-SENSOR-01').locator('td[data-label="最終の実行（結果）"]'),
+    ).toHaveText('まだ実行していません');
   });
 });
 
@@ -548,7 +569,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
 });
 
 test.describe('代替フロー: 失敗や保留が続く場合は、設定の見直し（UC-15）へ進める', () => {
-  test('取り込み・連携の状況の画面から、同じ画面で、取り込みの設定（接続先・有効／無効）を見直せる', async ({
+  test('取り込み・連携の状況の画面から、同じ画面で、自動取り込みの有効／無効を見直せる。設備ごとの接続は、設備のダイアログ（SC-10）へのリンクで見直せる', async ({
     page,
     request,
   }) => {
@@ -558,18 +579,19 @@ test.describe('代替フロー: 失敗や保留が続く場合は、設定の見
     await openStatus(page);
     await expect(logRows(page).first().locator('.log-result')).toHaveText('失敗');
 
-    await sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）').fill('FILE_SERVER_2');
     await sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする').uncheck();
     await sourceCard(page, 'robot').getByRole('button', { name: '設定を保存' }).click();
 
     await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
     await page.reload();
-    await expect(sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）')).toHaveValue(
-      'FILE_SERVER_2',
-    );
     await expect(
       sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする'),
     ).not.toBeChecked();
+    // 接続先（設備ごと）は、設備のダイアログで見直す。リンクの名前に、設備名を含む
+    await expect(page.getByRole('link', { name: '収穫ロボット1の接続を設定・修正' })).toBeVisible();
+    await page.getByTestId(`equipment-configure-${ROBOT_ID}`).click();
+    await expect(page).toHaveURL(/\/settings\/equipment\?edit=ROBOT-01$/);
+    await expect(page.getByTestId('equipment-connection')).toBeVisible();
   });
 
   test('メニューの「取り込み」から、取り込み・連携の状況の画面を開ける', async ({
@@ -635,5 +657,165 @@ test.describe('ハウス別の記録（一般ユーザー向け。Issue #332。A
     // 連携は、ハウス 2 の評価の分だけ（ハウス 1 の記録は、示さない）
     await expect(page.getByTestId('facility-federation-row').first()).toContainText('ハウス2');
     await expect(page.getByTestId('facility-federation').getByText('ハウス1')).toHaveCount(0);
+  });
+});
+
+test.describe('設備ごとの接続と状況の表（SC-11。Issue #367。ADR-0026）', () => {
+  interface SettingsResponse {
+    sources: {
+      sourceId: string;
+      equipment: { equipmentId: string; staleThresholdMinutes?: number }[];
+    }[];
+  }
+
+  /** 設備ごとの、「停止中」の基準（分。サーバーが返す、ダッシュボードの「データが古い」と同じ基準）。 */
+  async function thresholdOf(
+    request: APIRequestContext,
+    sourceId: string,
+    equipmentId: string,
+  ): Promise<number> {
+    const settings = await apiOk<SettingsResponse>(request, 'GET', '/ingestion/settings');
+    const threshold = settings.sources
+      .find((source) => source.sourceId === sourceId)
+      ?.equipment.find((item) => item.equipmentId === equipmentId)?.staleThresholdMinutes;
+    if (threshold === undefined) {
+      throw new Error(`テストの前提: 停止中の基準がある: ${equipmentId}`);
+    }
+    return threshold;
+  }
+
+  /** 設備の接続を、API で保存する（HTTP。ポートは、指定）。 */
+  async function connect(
+    request: APIRequestContext,
+    equipmentId: string,
+    port: number,
+    authMethod: 'NONE' | 'BASIC' = 'NONE',
+  ): Promise<void> {
+    await apiOk(request, 'PUT', `/ingestion/equipment/${equipmentId}/connection`, {
+      connection: { type: 'HTTP', protocol: 'HTTP', host: '127.0.0.1', port, authMethod },
+    });
+  }
+
+  test('設備ごとに、ファイルのパス・接続先・接続の出どころ・認証情報の状態を示す（認証情報の値は示さない）。ファイルのパスや接続がない設備は、その旨を示す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    // ロボット: 設備ごとの接続（Basic 認証。認証情報は未設定）。センサー: ファイルのパスだけ（接続は未設定）
+    await assignFilePath(request, ROBOT_ID, '/robot/status.json');
+    await connect(request, ROBOT_ID, 18080, 'BASIC');
+    await assignFilePath(request, SENSOR_ID, '/environment-sensor/status.json');
+
+    await openStatus(page);
+
+    const table = sourceCard(page, 'robot').getByRole('table', {
+      name: 'ロボットデータの設備ごとの接続と状況',
+    });
+    await expect(table.getByRole('columnheader')).toHaveText([
+      '設備',
+      'ファイルのパス',
+      '接続先（出どころ）',
+      '認証情報',
+      '最終の実行（結果）',
+      '最後にデータが取れた日時',
+      '操作',
+    ]);
+    await expect(equipmentRow(page, ROBOT_ID)).toContainText('収穫ロボット1');
+    await expect(page.getByTestId(`equipment-path-${ROBOT_ID}`)).toHaveText('/robot/status.json');
+    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
+      'http://127.0.0.1:18080',
+    );
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveText('設備ごと');
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
+      'data-origin',
+      'EQUIPMENT',
+    );
+    await expect(page.getByTestId(`equipment-credentials-${ROBOT_ID}`)).toHaveText('未設定');
+    // 接続のない設備は、接続先「未設定」・出どころ「未設定」・認証情報「不要」
+    await expect(page.getByTestId(`equipment-path-${SENSOR_ID}`)).toHaveText(
+      '/environment-sensor/status.json',
+    );
+    await expect(page.getByTestId(`equipment-target-${SENSOR_ID}`)).toHaveText('未設定');
+    await expect(page.getByTestId(`equipment-origin-${SENSOR_ID}`)).toHaveText('未設定');
+    await expect(page.getByTestId(`equipment-credentials-${SENSOR_ID}`)).toHaveText('不要');
+    await shot(page, testInfo, 'uc16-equipment-table');
+  });
+
+  test('ファイルのパスを持たない設備は、「ファイルのパスを設定すると、取り込みの対象になります」を示す。設備を削除して 0 台になった取り込み元は、その旨を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openStatus(page);
+    await expect(page.getByTestId(`equipment-nopath-${ROBOT_ID}`)).toHaveText(
+      'ファイルのパスを設定すると、取り込みの対象になります',
+    );
+    await expect(page.getByTestId('equipment-empty-robot')).toHaveCount(0);
+
+    await apiOk(request, 'DELETE', `/equipment/${ROBOT_ID}`);
+    await page.reload();
+
+    await expect(page.getByTestId('equipment-empty-robot')).toHaveText(
+      '取り込みの対象の設備（ロボット・環境センサー）が登録されていません',
+    );
+    await expect(equipmentRow(page, SENSOR_ID)).toBeVisible();
+  });
+
+  test('最後にデータが取れてから、設備ごとの基準（ダッシュボードの「データが古い」と同じ）を超えると、「停止中」を示す。データがまだない設備・自動取り込みを無効にした取り込み元は、示さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await placeNewData(request, 'robot', 1);
+    await runIngestionApi(request, 'robot');
+    const threshold = await thresholdOf(request, 'robot', ROBOT_ID);
+    const lastData = NOW.getTime();
+
+    // 基準の手前（基準の 1 分前）: 停止中ではない
+    await alignBrowserClock(page, new Date(lastData + (threshold - 1) * 60_000));
+    await openAs(page, '/settings/ingestion');
+    await expect(equipmentRow(page, ROBOT_ID)).toBeVisible();
+    await expect(page.getByTestId(`equipment-data-${ROBOT_ID}`)).toHaveText('2026/10/09 12:00:00');
+    await expect(page.getByTestId(`equipment-stopped-${ROBOT_ID}`)).toHaveCount(0);
+
+    // 基準を超える（基準の 1 分後）: 停止中。データがまだないセンサーは、示さない
+    await alignBrowserClock(page, new Date(lastData + (threshold + 1) * 60_000));
+    await page.reload();
+    await expect(page.getByTestId(`equipment-stopped-${ROBOT_ID}`)).toHaveText('停止中');
+    await expect(page.getByTestId(`equipment-stopped-${ROBOT_ID}`)).toHaveAttribute(
+      'title',
+      new RegExp(`基準（${String(threshold)} 分）を超えています`),
+    );
+    await expect(page.getByTestId(`equipment-stopped-${SENSOR_ID}`)).toHaveCount(0);
+    await shot(page, testInfo, 'uc16-equipment-stopped');
+
+    // 自動取り込みを無効にした取り込み元は、停止中を判定しない（手動の運用。ダッシュボードの警告と同じ）
+    await sourceCard(page, 'robot').getByLabel('自動取り込みを有効にする').uncheck();
+    await sourceCard(page, 'robot').getByRole('button', { name: '設定を保存' }).click();
+    await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
+    await expect(page.getByTestId(`equipment-stopped-${ROBOT_ID}`)).toHaveCount(0);
+  });
+
+  test('設備ごとの「接続テスト」は、その設備だけを確かめる（結果は、設備ごとの表に示す）。「接続を設定・修正」は、設備のダイアログへのリンク', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await placeNewData(request, 'robot', 1);
+    await placeNewData(request, 'environment-sensor', 1);
+    await openStatus(page);
+
+    const robotResult = await testEquipmentConnection(page, ROBOT_ID);
+
+    await expect(robotResult).toHaveText('接続できました');
+    // もう一方の設備の結果には、影響しない
+    await expect(page.getByTestId(`equipment-test-result-${SENSOR_ID}`)).toHaveCount(0);
+    await expect(page.getByTestId(`equipment-test-${ROBOT_ID}`)).toHaveAccessibleName(
+      '収穫ロボット1の接続テスト',
+    );
+    await expect(page.getByTestId(`equipment-configure-${SENSOR_ID}`)).toHaveAttribute(
+      'href',
+      `/settings/equipment?edit=${SENSOR_ID}`,
+    );
   });
 });

@@ -852,6 +852,47 @@ textarea {
   }
 }
 
+/* 取り込み設定・状況の、設備ごとの接続と状況の表（SC-11。.equipment-runs）: 7 列。列が 1 文字幅へ潰れず、見出し・タグが縦に伸びない。
+   設備名・日時・認証情報・見出しは折り返さず（最小の幅を保つ）、長くなりうるファイルのパス・接続先だけを、枠の中で折り返す。
+   表が枠より広い場合は、表の枠（.table-scroll）の中で横にスクロールする。900px 以下は、card-table で、設備ごとのカードにする */
+.equipment-runs {
+  min-width: 900px;
+}
+
+.equipment-runs th {
+  white-space: nowrap;
+}
+
+.equipment-runs td:nth-child(1),
+.equipment-runs td:nth-child(4),
+.equipment-runs td:nth-child(5),
+.equipment-runs td:nth-child(6) {
+  white-space: nowrap;
+}
+
+.equipment-runs td:nth-child(1) {
+  min-width: 8em;
+}
+
+.equipment-runs td:nth-child(2),
+.equipment-runs td:nth-child(3) {
+  min-width: 11em;
+  overflow-wrap: anywhere;
+}
+
+.equipment-runs .tag,
+.equipment-runs .log-result {
+  white-space: nowrap;
+}
+
+/* 1 つのセルに、値と、そのタグ（出どころ・結果・停止中）を、縦に並べる */
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
 /* 設備の表: 狭い幅でも、列が 1 文字ずつ折り返すほど押しつぶされないよう、最小の幅を保つ（表の枠の中で横にスクロールする） */
 .equipment-table {
   min-width: 760px;

@@ -42,6 +42,7 @@ type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 function stubFileSource(names: readonly string[]): FileSource {
   return {
     testConnection: () => Promise.resolve(),
+    testEquipment: () => Promise.resolve(),
     listFiles: () =>
       Promise.resolve(
         names.map((name) => ({ fileId: name, name, modifiedAt: STUB_MODIFIED_AT, sizeBytes: 1 })),
@@ -908,6 +909,7 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
   it('ファイルを読めなかった場合は、そのファイルを失敗として数え、取り込みは失敗にする', async () => {
     const { service, repositories } = build({
       testConnection: () => Promise.resolve(),
+      testEquipment: () => Promise.resolve(),
       listFiles: () =>
         Promise.resolve([
           { fileId: 'a.json', name: 'a.json', modifiedAt: STUB_MODIFIED_AT, sizeBytes: 1 },
@@ -926,6 +928,7 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
   it('一覧の取得が接続エラー以外で失敗した場合は、一覧を取得できなかった旨を記録する', async () => {
     const { service, repositories, notifyIngestionFailure } = build({
       testConnection: () => Promise.resolve(),
+      testEquipment: () => Promise.resolve(),
       listFiles: () => Promise.reject(new Error('想定外')),
       readFile: () => Promise.resolve(''),
     });
@@ -946,6 +949,7 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
   it('形式違い以外の想定外のエラーは、握りつぶさず、呼び出し元へ伝える', async () => {
     const { service, repositories } = build({
       testConnection: () => Promise.resolve(),
+      testEquipment: () => Promise.resolve(),
       listFiles: () =>
         Promise.resolve([
           { fileId: 'a.json', name: 'a.json', modifiedAt: STUB_MODIFIED_AT, sizeBytes: 1 },

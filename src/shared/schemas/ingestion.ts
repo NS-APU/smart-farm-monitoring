@@ -328,10 +328,29 @@ export const IngestionCredentialStatusSchema = z.object({
 });
 export type IngestionCredentialStatus = z.infer<typeof IngestionCredentialStatusSchema>;
 
+/**
+ * 設備が実際に使う接続の出どころ（Issue #367。ADR-0026）。EQUIPMENT = 設備ごとの接続、SHARED = 取り込み元の共通の接続（移行期間だけ。
+ * 共通の接続の廃止で、なくなる）、NONE = どちらもない（未設定。取り込みは「接続先が設定されていません」で失敗する）。
+ */
+export const CONNECTION_ORIGINS = ['EQUIPMENT', 'SHARED', 'NONE'] as const;
+export type ConnectionOrigin = (typeof CONNECTION_ORIGINS)[number];
+
 /** 設備ごとの、取り込みの最終の実行（Issue #201）。一度も実行していない設備は、日時・結果が null。 */
 export const EquipmentIngestionStatusSchema = z.object({
   equipmentId: EquipmentIdSchema,
   name: z.string(),
+  /** 設備のファイルのパス（Equipment.sourceFilePath）。取り込みの対象は、ファイルのパスを持つ設備だけ。 */
+  sourceFilePath: z.string().optional(),
+  /** 設備が実際に使う接続（設備ごとの接続。なければ共通の接続）。どちらもなければ、省略。 */
+  connection: FileServerConnectionSchema.optional(),
+  connectionOrigin: z.enum(CONNECTION_ORIGINS).default('NONE'),
+  /**
+   * 「データが古い（取り込みが停止中）」の基準（分）。その設備の取得間隔 × 倍数（サーバーの設定 `STALE_AFTER_INTERVALS`）、最低 3 分
+   * （ダッシュボードと同じ基準。ADR-0016 の D-12）。画面は、最後にデータが取れた日時から、この分数を超えていれば「停止中」にする。
+   */
+  staleThresholdMinutes: z.number().positive().optional(),
+  /** 設備の認証情報の状態（出どころが EQUIPMENT のとき、設備の認証情報。SHARED のとき、共通の認証情報）。値は含めない。 */
+  credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
   lastStartedAt: IsoDateTimeSchema.nullable(),
   lastResult: z.enum(INGESTION_RESULTS).nullable(),
   /** 最後に成功（SUCCESS）した実行の終了日時。 */
@@ -361,6 +380,21 @@ export const IngestionSettingsResponseSchema = z.object({
   sources: z.array(IngestionSourceStatusSchema),
 });
 export type IngestionSettingsResponse = z.infer<typeof IngestionSettingsResponseSchema>;
+
+/** PUT /ingestion/equipment/{equipmentId}/connection の入力（設備ごとの接続の保存。Issue #367）。 */
+export const EquipmentConnectionUpdateSchema = z.object({
+  connection: FileServerConnectionSchema,
+});
+export type EquipmentConnectionUpdate = z.infer<typeof EquipmentConnectionUpdateSchema>;
+
+/** 設備ごとの接続の、保存・削除の応答。削除のあとの出どころは、共通の接続があれば SHARED、なければ NONE。 */
+export const EquipmentConnectionResponseSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  connection: FileServerConnectionSchema.optional(),
+  connectionOrigin: z.enum(CONNECTION_ORIGINS),
+  credentials: IngestionCredentialStatusSchema,
+});
+export type EquipmentConnectionResponse = z.infer<typeof EquipmentConnectionResponseSchema>;
 
 export const ConnectionTestResponseSchema = z.object({ ok: z.boolean(), message: z.string() });
 export type ConnectionTestResponse = z.infer<typeof ConnectionTestResponseSchema>;

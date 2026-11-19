@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-11-06。ユーザーの判断。Issue #119）。暫定（宇都宮大学のファイルサーバーへの接続で見直す。#298）
 - 日付: 2026-11-06
+- 更新（2026-11-19。#367）: **接続・認証情報は、取り込み元の共通の 1 つから、設備ごとに持つ**ことにした（[ADR-0026](./0026-per-equipment-file-server-connection.md)）。ファイルのパスに加えて、設備ごとの接続で、その設備のファイルを取得する（失敗も、設備ごとに分ける）。実装の 1 つ目の PR では、取り込み元の共通の接続を、移行期間として残している。共通の接続の廃止は、実装の 2 つ目の PR で行い、そのときに、本文を直す。
 - 関連: [ADR-0022](./0022-file-server-http-connection-provisional.md)（接続の設定・接続テスト・内部のアドレスの拒否）、[ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)（取得と解釈の分離）、[ADR-0015](./0015-provisional-policy-external-specs.md)（1 ファイルを随時更新する方式）、[architecture.md](../architecture/architecture.md) 5.1、[data-dictionary.md](../data/data-dictionary.md) 2 章、[functional-specification.md](../functions/functional-specification.md) SC-10・SC-11
 
 目的: HTTP の `FileSourcePort`（一覧・取得）を作るにあたり、「どのファイルを取得するか」を、取り込み元ごとの接続設定ではなく、**設備ごとのファイルパス**で決める。あわせて、HTTP の一覧・取得・接続テストの動作を記録する。

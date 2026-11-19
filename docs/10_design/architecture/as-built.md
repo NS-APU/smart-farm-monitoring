@@ -152,8 +152,8 @@
 | SC-07 | 入力データ一覧（検索・修正・削除）                       | `/data-entry/list`                  | `entry-list-page.tsx`                          | 参照は要ログイン、修正・削除は `manual-entry:write`                                    |
 | SC-08 | 変更履歴                                                 | `/data-entry/history`               | `entry-history-page.tsx`                       | `audit:read`                                                                           |
 | SC-09 | 取り込み済みデータ一覧                                   | `/observations`                     | `observations-page.tsx`                        | 要ログイン                                                                             |
-| SC-10 | ハウス・設備                                             | `/settings/equipment`               | `equipment-page.tsx`・`facility-access-panel.tsx` | 参照は要ログイン、変更は `equipment:manage`。ハウスの行の閲覧の割り当て（#330）は `user:manage` |
-| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`                           | 閲覧は `ingestion:read`（ないと、`facility-ingestion-view.tsx` が、閲覧できるハウスの取り込み・連携の記録だけを示す。メニューは全員に表示。#332）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
+| SC-10 | ハウス・設備                                             | `/settings/equipment`               | `equipment-page.tsx`・`facility-access-panel.tsx`・`components/equipment-connection-section.tsx` | 参照は要ログイン、変更は `equipment:manage`。ハウスの行の閲覧の割り当て（#330）は `user:manage`。ロボット・センサーのダイアログの「取り込み元の接続」（#367。ADR-0026）は、`ingestion:read` で表示、保存・認証情報は `ingestion:configure`、接続テストは `ingestion:run` |
+| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`・`components/equipment-ingestion-table.tsx`（設備ごとの接続と状況の表。#367） | 閲覧は `ingestion:read`（ないと、`facility-ingestion-view.tsx` が、閲覧できるハウスの取り込み・連携の記録だけを示す。メニューは全員に表示。#332）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
 | SC-12 | ステータスコード管理                                     | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
 | SC-13 | 判断基準の編集                                           | `/viewpoints/:viewpointId/criteria` | `criteria-edit-page.tsx`                       | 参照は要ログイン、編集は `criteria:edit`                                               |
 | SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
@@ -183,8 +183,8 @@
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
 |                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings`                                                            | `ingestion:read`                      |
-|                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`                                                                   | `ingestion:configure`                 |
-|                                | `POST /ingestion/:sourceId/test`・`POST /ingestion/:sourceId/run`                                                                   | `ingestion:run`                       |
+|                                | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`（#367） | `ingestion:configure`                 |
+|                                | `POST /ingestion/:sourceId/test`・`POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test`（#367）                                                                   | `ingestion:run`                       |
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
 | 閲覧の割り当て                 | `GET /facility-access`・`PUT /facility-access/:facilityId`                                                                          | `user:manage`                         |
 | ヘルスチェック                 | `GET /health`（`/api/v1` の外）                                                                                                     | 認証なし。外部の状態に依存しない      |
@@ -814,7 +814,8 @@ classDiagram
   FederationItem "0..*" --> "0..*" FederationLogEntry : 送信の結果を記録
 ```
 
-- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `HTTP` の 1 つだけ、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。省略可で、保存がなければ未設定。保存済みの `MOCK` は、読み込むときに未設定に読み替える。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）
+- **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。接続先は参照名（`connectionRef`）と、接続設定（`connection`: 接続方式 `HTTP` の 1 つだけ、プロトコル・ホスト・ポート・認証方式・API キーのヘッダー名。省略可で、保存がなければ未設定。保存済みの `MOCK` は、読み込むときに未設定に読み替える。保存済みの `filePath` は無視する。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023）で、認証情報の値は持たない。取得間隔は持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197。以前に保存された値は、読み込むときに無視する）。この `connection`（取り込み元の共通の接続）は、**移行期間**だけ残る（設備ごとの接続がない設備が使う。廃止は、#367 の次の PR。ADR-0026）
+- **EquipmentConnections**（設備ごとの接続。#367。ADR-0026）: 設備 ID → `FileServerConnection`。保存するのは設定（`settings` コレクションのキー `ingestion.equipment-connections`。`application/ingestion/equipment-connections.ts`。`list`・`save`・`remove`）。設備の項目には持たない（設備は、ログインした利用者のだれもが読めるため）。対象は、ロボット・センサー。設備を削除すると（`EquipmentService.delete`）、その設備の接続も削除する。認証情報の値は持たず、SecretPort の `file-server/equipment/<設備 ID の SHA-256 の先頭 32 文字>`（`file-server-credentials.ts` の `fileServerEquipmentSecretReference`）に置く（削除しても、保管先に残る）
 - **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID`（ファイルごとに、最新の版の 1 件を上書き。#201）。形式違いのファイルは `FAILURE` で記録する
 - **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@0.1.0(PROVISIONAL)`。#174）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
@@ -1006,7 +1007,7 @@ flowchart LR
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
 | `IdGeneratorPort`                          | `ports/id-generator-port.ts`    | `local/ids.ts`（`createUuidGenerator`。テスト用に連番の `createSequentialIdGenerator`）                                                                         | -                                             |
 | `Logger`                                   | `ports/logger-port.ts`          | `logging/json-logger.ts`（1 行 1 イベントの JSON。秘密情報らしい名前のフィールドをマスク）                                                                      | -                                             |
-| `FileSourcePort`                           | `ports/file-source-port.ts`     | HTTP のアダプタだけ（ディレクトリ・S3 のモックは、#344 の PR 3a・3b で削除した。ADR-0025）。`application/ingestion/routing-file-source.ts` が、取り込み元の接続設定（未設定を含む）と設備ごとのファイルパスで扱う。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
+| `FileSourcePort`                           | `ports/file-source-port.ts`     | HTTP のアダプタだけ（ディレクトリ・S3 のモックは、#344 の PR 3a・3b で削除した。ADR-0025）。`application/ingestion/routing-file-source.ts` が、設備ごとの接続（なければ、移行期間は、取り込み元の共通の接続。どちらもなければ、未設定の失敗）と設備ごとのファイルパスで扱う（一覧は、設備ごとに問い合わせ、`onFailure` で、設備ごとの失敗を渡して、ほかの設備を続ける。`testEquipment` は、設備 1 つの接続テスト。#367。ADR-0026）。HTTP は、`http/`（`http-client.ts`〔共通〕・`http-probe.ts`〔接続テスト〕・`http-file-reader.ts`〔メタデータ・取得〕。設備ごとのファイルパス。#172・#119。ADR-0022・ADR-0023）                                                                                           | SFTP・S3・HTTPS など（Q-002）                 |
 | `FormatProfile`・`FormatProfileRegistry`   | `ports/format-profile.ts`       | `format-profiles/declarative-profile.ts`（設定 JSON から作る JSON の FormatProfile。CSV は #174 で削除）                                                                       | 確定仕様の FormatProfile を追加して差し替える |
 | `FederationPort`                           | `ports/federation-port.ts`      | `local/mock-federation.ts`（受け取りを記録。停止・遅延・拒否を再現）                                                                                            | `http/ngsi-ld-federation.ts`（NGSI-LD の upsert。`FEDERATION_MODE=ngsi-ld`。ADR-0024）                       |
 | `NotifierPort`                             | `ports/notifier-port.ts`        | `web-push/web-push-notifier.ts`（実配信。#241。結果: 2xx 配信・404/410 購読が無効・それ以外 失敗）、`local/dummy-web-push.ts`（配信を記録。失敗・購読無効を再現）                                                                                                   | Web Push の配信サービス                       |
@@ -1141,8 +1142,8 @@ flowchart LR
 | 権限                  | 要求するルート                                                        | 画面         |
 | --------------------- | --------------------------------------------------------------------- | ------------ |
 | `equipment:manage`    | `POST /equipment`・`PUT`・`DELETE /equipment/:id`                     | SC-10        |
-| `ingestion:configure` | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`     | SC-11        |
-| `ingestion:run`       | `POST /ingestion/:sourceId/test`・`/run`                              | SC-11        |
+| `ingestion:configure` | `PUT /ingestion/settings`・`PUT /ingestion/:sourceId/credentials`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials` | SC-11・SC-10 |
+| `ingestion:run`       | `POST /ingestion/:sourceId/test`・`/run`・`POST /ingestion/equipment/:equipmentId/test` | SC-11・SC-10 |
 | `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
 | `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
@@ -1569,7 +1570,7 @@ sequenceDiagram
   end
 ```
 
-- 画面の「即時取得」（SC-11。`POST /ingestion/:sourceId/run`。`ingestion:run`）は、`IngestionService.runSource` を直接呼び、**同期して実行**し、結果の概要を 202 で返す。「接続テスト」は `testConnection`（`FileSourcePort.testConnection`）で、`{ ok, message }` を返す
+- 画面の「即時取得」（SC-11。`POST /ingestion/:sourceId/run`。`ingestion:run`）は、`IngestionService.runSource` を直接呼び、**同期して実行**し、結果の概要を 202 で返す。「接続テスト」は `testConnection`（`FileSourcePort.testConnection`。ファイルパスを持つ最初の設備の、解決した接続で確かめる）で、`{ ok, message }` を返す。設備ごとの接続テスト（`POST /ingestion/equipment/:equipmentId/test`。`ingestion:run`。#367）は、`IngestionAdminService.testEquipmentConnection` → `IngestionService.testEquipmentConnection`（`FileSourcePort.testEquipment`）で、同じ形を返す
 - 取り込み元ごとに独立して実行する。想定外のエラーで 1 つが失敗しても、他の取り込み元は実行し、すべての実行後に最初のエラーをジョブへ伝える
 
 **ファイルごとの処理（`processFile`）**
@@ -2022,7 +2023,7 @@ stateDiagram-v2
 
 - **取り込みログは、設備ごと**（#201。ADR-0016 の D-48）: 新しいデータがあった設備・ファイルを取り込めなかった設備ごとに、1 件（`equipmentId` を持つ）。**空振り（新しいデータがない成功）は、残さない**。設備に結びつかない結果（接続の失敗・一覧の取得の失敗・想定外の例外・どの設備にも結びつかない記録やファイルの失敗）は、取り込み元単位で 1 件（`equipmentId` なし。以前のログも同じ）。ファイルが 1 つの設備のもの（設備の `sourceFilePath`）で、その設備の記録だけを含むときは、ファイルの結果のすべてを、その設備のログにする。1 つのファイルに複数の設備の記録が入る場合は、設備ごとの記録の数をそれぞれのログにし、取り込めなかった記録・ファイルは、取り込み元単位のログ（一部成功／失敗）にする。
 - **取り込みログの取得**（`GET /ingestion/logs`。#201 の PR 3）: 新しい順（並べ替えなし）。絞り込み: 取り込み元（`sourceId`）、設備（`equipmentId`。その設備のログと、その設備の取り込み元の、設備に結びつかないログ。取り込み元は、設備の種別と同じ種別の取り込み元から決める。登録のない設備は、その設備のログだけ）、結果（`SUCCESS`／`FAILURE`。失敗は一部成功を含む）、期間（`from`・`to`。開始日時。両端を含む）。DynamoDB は、設備を指定すると、設備と取り込み元の 2 つのパーティションだけを読み、期間はソートキーの範囲、結果はアプリ側の条件で絞る。画面（SC-11）は、設備・結果・期間（日本時間の日付）の絞り込みを URL（`equipment`・`result`・`from`・`to`）に反映し、1 ページ 20 件。取り込み設定・状況の応答（`GET /ingestion/settings`）は、取り込み元ごとに、その種別の設備ごとの最終の実行（`equipment`: 設備・日時・結果・最後の成功・最後にデータが取れた日時）を含む
-- 取り込みログは、ハウスごとの内訳（`facilities`。ハウスごとの結果と件数）を持つ。設備ごとのログは、その設備のハウス 1 つ。設備に結びつかないログは、取り込めなかったファイルの設備（`sourceFilePath` が同じ）のハウスだけ。接続の失敗・設備に結びつかないファイルの失敗は、持たない。DynamoDB は、ハウス別の記録（`ILOGF#{ハウス}`）も書く。一般ユーザーは、`GET /ingestion/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
+- 取り込みログは、ハウスごとの内訳（`facilities`。ハウスごとの結果と件数）を持つ。設備ごとのログは、その設備のハウス 1 つ。設備に結びつかないログは、取り込めなかったファイルの設備（`sourceFilePath` が同じ）のハウスだけ。取り込み元全体の接続の失敗・設備に結びつかないファイルの失敗は、持たない（設備ごとの接続の失敗〔#367〕は、その設備のハウスの失敗として持つ）。DynamoDB は、ハウス別の記録（`ILOGF#{ハウス}`）も書く。一般ユーザーは、`GET /ingestion/facility-logs` で、閲覧できるハウスの分だけを見る（#332）
 
 - 取り込みログ（`IngestionLog`）は、**追記のみ**で、更新・削除しない。取り込み済みファイルの記録（`IngestedFileRecord`）は、ファイルごとに最新の 1 件を上書きする（#201）。**設備ごとの最終の実行**（`EquipmentRunState`。開始・終了・結果・最後の成功・最後にデータが取れた日時）は、設備ごとに 1 件を上書きする（#201。`recordEquipmentRuns`。1 回の実行につき、設備ごとに 1 回の書き込み）。SC-11 の取り込み元ごとの「最終の実行」「最終の成功」は、その種別の設備の最終の実行から求める（設備が 1 つもなければ、取り込み元ごとの開始日時 `recordSourceStarted`）
 - 取り込みログの結果: 処理したファイルがない（すべて取り込み済みの場合を含む）、または、失敗したファイルも不正な値もなければ `SUCCESS`、一部だけ失敗（または不正な値）があり、取り込めた件数が 1 件以上なら `PARTIAL`、取り込めた件数が 0 なら `FAILURE`。一覧の取得に失敗した場合は `FAILURE`（`attempts` は試行回数）
@@ -2355,7 +2356,7 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 | 名前が違う・同じ内容                         | 識別子が違うため、なし             | 別のファイルとして読む。観測値は、同じ値（同じ計測日時・同じ値）なら、保存・連携しない（D-08） |
 | 読み取りに失敗（`readFile`）                 | 記録しない                         | 次回の取り込みで、また対象になる                                                           |
 
-**再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。
+**再試行**（`listFilesWithRetry`）: 一覧の取得を、最大 `maxAttempts`（3）回試す。失敗後の待ち時間は `retryBaseDelayMs × 2^(試行回数 − 1)`（既定 1 秒、2 秒。3 回目の失敗の後は待たない）。待ちは `ClockPort.sleep`（固定した時計では、待たずに時刻だけを進める）。3 回とも失敗したら、ログに `FAILURE`（`attempts` 3）を残し、取り込み失敗を通知する。**設備ごとの失敗**（#367。ADR-0026）: 一覧は、設備ごとに問い合わせ、1 つの設備の接続の失敗（`FileSourceUnavailableError`。認証・停止・未設定）は、`onFailure` で受け取り、ほかの設備のファイルの一覧を続ける。再試行は、失敗した設備のファイルのパスだけを対象にし、取得できたファイルは、結果に保つ。再試行しても失敗した設備には、設備ごとの失敗のログ（理由は固定の文言）と、設備ごとの最終の実行（`FAILURE`）を残し、通知は、取り込み元ごとに 1 回（設備名〔先頭 3 件と「ほか N 件」〕と固定の理由）。取り込みの結果は、取り込めたファイルがあれば `PARTIAL`、なければ `FAILURE`。**取得の対象のファイルのすべてが失敗したとき**（すべての設備が失敗）は、これまでどおり、取り込み元全体の失敗（取り込み元単位のログ。理由「ファイルサーバーに接続できませんでした」）。想定外のエラー（バグなど）は、全体の失敗として伝える。
 
 **取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 

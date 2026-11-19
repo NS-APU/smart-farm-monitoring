@@ -58,7 +58,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
 
   // 取得間隔は、設備ごとの設定（Issue #197。既定: ロボット 1 分・センサー 5 分）。定期取り込みは、時計を 6 分進めて起動する
   // ファイルサーバー（HTTP）は、設備ごとに 1 ファイル（ADR-0023）。大量の取り込み用に、専用のハウスと、その配下のロボット・センサーを追加する
-  await useHttpFiles(request, USER);
+  await useHttpFiles();
   await createBulkEquipment(request, USER, { robots, sensors });
 
   await page.goto('/login');
@@ -70,7 +70,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await expect(logRows.first()).toBeVisible();
 
   // 1. 即時取得（画面の操作）: ロボット・センサー、それぞれ数百ファイル
-  await putBulkFiles(request, USER, 'robot', {
+  await putBulkFiles('robot', {
     count: robots,
     startIndex: 0,
     recordsPerFile: robotRecordsPerFile,
@@ -86,7 +86,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
       respond: () => expect(result('robot')).toContainText(`ファイル ${String(robots)} 件`),
     },
   );
-  await putBulkFiles(request, USER, 'environment-sensor', {
+  await putBulkFiles('environment-sensor', {
     count: sensors,
     startIndex: 0,
     recordsPerFile: sensorRecordsPerFile,
@@ -119,12 +119,12 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
 
   // 3. 定期取り込み（JB-01）: 新しいファイルを数百置き、取得間隔が過ぎたことにして、ジョブを起動する
   // 同じパスのファイルを、新しい内容（計測日時・値）に置き直す（設備ごとに 1 ファイル）
-  await putBulkFiles(request, USER, 'robot', {
+  await putBulkFiles('robot', {
     count: robots,
     startIndex: 100,
     recordsPerFile: robotRecordsPerFile,
   });
-  await putBulkFiles(request, USER, 'environment-sensor', {
+  await putBulkFiles('environment-sensor', {
     count: sensors,
     startIndex: 100,
     recordsPerFile: sensorRecordsPerFile,
@@ -174,6 +174,26 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
     },
   );
   await screenshot(page, '31-dashboard-after-bulk');
+  // 設備ごとの接続と状況の表（Issue #367）: 大量の設備（ロボット・センサー合わせて数十台。シードを含む）の行を示す
+  const equipmentRunRows = page.locator('[data-testid^="equipment-run-"]');
+  await m(
+    'UC-16',
+    `大量の取り込みのあとに、取り込み設定・状況（設備ごとの接続と状況の表。ロボット・センサー合わせて ${String(robots + sensors)} 台以上）を開く`,
+    '取り込み設定・状況（SC-11）',
+    'screen',
+    {
+      act: () => menu('取り込み').click(),
+      respond: async () => {
+        await expect(
+          page.getByRole('heading', { name: '取り込み設定・状況', level: 1 }),
+        ).toBeVisible();
+        await expect(equipmentRunRows.first()).toBeVisible();
+        await expect(loadingView(page)).toHaveCount(0);
+        expect(await equipmentRunRows.count()).toBeGreaterThanOrEqual(robots + sensors);
+      },
+    },
+  );
+  await screenshot(page, '31-ingestion-equipment-table-after-bulk');
 
   // 5. 大量の取り込みのあとの、画面の表示・保存
   await m(

@@ -2,15 +2,15 @@
  * UC-15 取り込みを設定し、接続テスト・即時取得を行う（SC-11。FR-1.3〜FR-1.5、FR-1.7、NFR-5.4）。
  *
  * ユースケースシナリオ（use-cases.md）:
- *   基本フロー  1. 農作業者が、取り込みの設定（接続先、認証情報）を入力する（取得間隔は、設備ごとの設定。UC-12）
+ *   基本フロー  1. 農作業者が、取り込みの設定（接続先、認証情報）を入力する（接続・取得間隔は、設備ごとの設定。UC-12・UC-15 のファイルサーバー接続の E2E）
  *               2. システムが、設定を保存する
- *               3. 農作業者が、接続テストを実行し、結果を確認する
+ *               3. 農作業者が、接続テストを実行し、結果を確認する（SC-11 の設備ごとの表。Issue #367）
  *               4. 農作業者が、必要に応じて、手動で即時に取得する
  *   代替フロー  接続テストに失敗した場合は、失敗した旨を表示する（内部情報は表示しない。NFR-5.6）。設定の値が不正な場合は、保存しない
  *   事後条件    取り込みの設定が保存されている。以降の自動取り込み（UC-08、UC-09）に使われる
  *
- * 値の同値分割: 接続先の参照名（正常・空・長すぎる・使えない文字・境界の長さ）、
- * 有効／無効、接続テスト（成功・ファイルサーバー停止・取り込み元の場所がない）、即時取得（成功・一部成功・失敗・二重実行）、
+ * 値の同値分割: 接続先の参照名（API だけ。画面の入力欄は、設備ごとの接続に移り、なくなった。正常・空・長すぎる・使えない文字・境界の長さ）、
+ * 有効／無効、接続テスト（設備ごと。成功・ファイルサーバー停止・接続先が未設定・ファイルのパスなし）、即時取得（成功・一部成功・失敗・二重実行）、
  * 権限（設定・実行できる・参照のみ）。
  * 関連するユースケース: UC-08・UC-09（設定が自動取り込みに使われる）、UC-16（実行の記録を確認）、UC-24（失敗の通知）。
  */
@@ -18,6 +18,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   ROBOT_ID,
+  SENSOR_ID,
   VIEWER,
   addUser,
   advanceMinutes,
@@ -30,13 +31,14 @@ import {
   runJob,
   setEquipmentInterval,
 } from './support/app.ts';
-import { placeFixture, setFileServerMode } from './support/http-files.ts';
+import { assignFilePath, placeFixture, setFileServerMode } from './support/http-files.ts';
 import {
   SOURCE_NAMES,
+  equipmentRow,
   logRows,
   runNow,
   sourceCard,
-  testConnection,
+  testEquipmentConnection,
   type SourceId,
 } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -48,28 +50,29 @@ async function openIngestion(page: Page, user?: Parameters<typeof openAs>[2]): P
   await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
 }
 
-const refInput = (page: Page, sourceId: SourceId) =>
-  sourceCard(page, sourceId).getByLabel('接続先（接続設定の参照名）');
 const enabledBox = (page: Page, sourceId: SourceId) =>
   sourceCard(page, sourceId).getByLabel('自動取り込みを有効にする');
 const save = (page: Page, sourceId: SourceId) =>
   sourceCard(page, sourceId).getByRole('button', { name: '設定を保存' });
 const result = (page: Page, sourceId: SourceId) => page.getByTestId(`result-${sourceId}`);
-const fieldError = (page: Page, sourceId: SourceId, name: string) =>
-  sourceCard(page, sourceId).locator(`[data-field="${name}"] .field-error`);
 
 test.describe('基本フロー: 取り込み元ごとの設定を入力・保存し、接続テストと即時取得を行う', () => {
-  test('取り込み元（ロボットデータ・環境センサーデータ）ごとに、接続先・有効／無効と、解釈に使っている仕様の版・状態を表示する。認証情報は表示しない', async ({
+  test('取り込み元（ロボットデータ・環境センサーデータ）ごとに、有効／無効・設備ごとの接続と状況の表と、解釈に使っている仕様の版・状態を表示する。接続・認証情報の入力欄はない（設備のダイアログで入力する）', async ({
     page,
     request,
   }, testInfo) => {
     await prepareApp(request);
     await openIngestion(page);
 
-    for (const sourceId of ['robot', 'environment-sensor'] as const) {
+    await expect(page.getByTestId('ingestion-connection-lead')).toContainText(
+      '接続は設備ごとに設定します',
+    );
+    for (const [sourceId, equipmentId] of [
+      ['robot', ROBOT_ID],
+      ['environment-sensor', SENSOR_ID],
+    ] as const) {
       const card = sourceCard(page, sourceId);
       await expect(card.getByRole('heading', { name: SOURCE_NAMES[sourceId] })).toBeVisible();
-      await expect(refInput(page, sourceId)).toHaveValue('FILE_SERVER_MOCK');
       // 取得間隔は、設備ごとの設定（設備管理。#197）。この画面には、入力欄を出さず、案内を示す
       await expect(card.getByLabel('取得間隔')).toHaveCount(0);
       await expect(page.getByTestId(`interval-moved-${sourceId}`)).toHaveText(
@@ -77,7 +80,17 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
       );
       await expect(enabledBox(page, sourceId)).toBeChecked();
       await expect(card.getByTestId(`last-started-${sourceId}`)).toHaveText('まだ実行していません');
-      // 認証情報（パスワード・秘密鍵）を入力・表示する欄はない
+      // 設備ごとの表: ファイルのパスも接続も、まだない設備
+      await expect(equipmentRow(page, equipmentId)).toBeVisible();
+      await expect(page.getByTestId(`equipment-nopath-${equipmentId}`)).toBeVisible();
+      await expect(page.getByTestId(`equipment-target-${equipmentId}`)).toHaveText('未設定');
+      await expect(page.getByTestId(`equipment-origin-${equipmentId}`)).toHaveAttribute(
+        'data-origin',
+        'NONE',
+      );
+      // 接続の入力欄（共通の接続・接続先の参照名）と、認証情報（パスワード・秘密鍵）を入力・表示する欄は、この画面にはない
+      await expect(card.getByLabel('ホスト名')).toHaveCount(0);
+      await expect(card.getByLabel('接続先（接続設定の参照名）')).toHaveCount(0);
       await expect(card.locator('input[type="password"]')).toHaveCount(0);
     }
     await expect(sourceCard(page, 'robot')).toContainText(
@@ -90,27 +103,30 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     await shot(page, testInfo, 'uc15-settings');
   });
 
-  test('接続先の参照名・有効／無効を変更して保存すると、設定が保存され、再読み込みしても保持される。もう一方の取り込み元は変わらない', async ({
+  test('自動取り込みの有効／無効を変更して保存すると、設定が保存され、再読み込みしても保持される。もう一方の取り込み元は変わらない。外したときの影響を説明する', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
     await openIngestion(page);
+    await expect(page.getByTestId('enabled-impact-robot')).toContainText(
+      '外すと、手動の運用になります',
+    );
+    await expect(page.getByTestId('enabled-impact-robot')).toContainText(
+      'ダッシュボードの「データが古い」の警告も出なくなります',
+    );
 
     // 1. 設定を入力する → 2. 保存する
-    await refInput(page, 'robot').fill('FILE_SERVER_2');
     await enabledBox(page, 'robot').uncheck();
     await save(page, 'robot').click();
 
     await expect(result(page, 'robot')).toHaveText('設定を保存しました');
     await page.reload();
-    await expect(refInput(page, 'robot')).toHaveValue('FILE_SERVER_2');
     await expect(enabledBox(page, 'robot')).not.toBeChecked();
-    await expect(refInput(page, 'environment-sensor')).toHaveValue('FILE_SERVER_MOCK');
     await expect(enabledBox(page, 'environment-sensor')).toBeChecked();
   });
 
-  test('接続テストに成功すると、「接続できました」を表示する。続けて、即時取得で、取り込む', async ({
+  test('接続テストに成功すると、「接続できました」を表示する（設備ごとの表）。続けて、即時取得で、取り込む', async ({
     page,
     request,
   }, testInfo) => {
@@ -119,7 +135,7 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     await openIngestion(page);
 
     // 3. 接続テストを実行し、結果を確認する
-    const tested = await testConnection(page, 'robot');
+    const tested = await testEquipmentConnection(page, ROBOT_ID);
     await expect(tested).toHaveText('接続できました');
     await expect(tested).toHaveClass(/form-success/);
 
@@ -127,14 +143,14 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     const ran = await runNow(page, 'robot');
     await expect(ran).toContainText('取得しました（成功）');
     await expect(ran).toContainText('ファイル 1 件、取り込み 14 件、読み取れなかった記録 0 件');
-    await expect(sourceCard(page, 'robot').getByTestId('last-success-robot')).not.toHaveText(
-      'まだ実行していません',
-    );
+    // 設備ごとの表: 最終の実行の結果・最後にデータが取れた日時
+    await expect(page.getByTestId(`equipment-result-${ROBOT_ID}`)).toHaveText('成功');
+    await expect(page.getByTestId(`equipment-data-${ROBOT_ID}`)).toHaveText('2026/10/09 12:00:00');
     await shot(page, testInfo, 'uc15-run');
   });
 });
 
-test.describe('代替フロー: 設定の値が不正な場合は、保存しない', () => {
+test.describe('代替フロー: 設定の値が不正な場合は、保存しない（接続先の参照名。画面の入力欄はなく、API で設定する）', () => {
   const invalid: readonly { name: string; value: string; message: string }[] = [
     { name: '空', value: '', message: '接続先の参照名を入力してください' },
     { name: '半角の空白のみ', value: '   ', message: '接続先の参照名を入力してください' },
@@ -165,21 +181,37 @@ test.describe('代替フロー: 設定の値が不正な場合は、保存しな
     },
   ];
 
-  for (const item of invalid) {
-    test(`接続先の参照名が${item.name}: 項目のエラーを表示し、保存しない`, async ({
-      page,
+  /** 接続先の参照名の現在の値（取り込み元ロボット）。 */
+  async function currentRef(
+    request: Parameters<typeof prepareApp>[0],
+  ): Promise<string | undefined> {
+    const settings = await apiOk<{ sources: { sourceId: string; connectionRef: string }[] }>(
       request,
-    }) => {
+      'GET',
+      '/ingestion/settings',
+    );
+    return settings.sources.find((source) => source.sourceId === 'robot')?.connectionRef;
+  }
+
+  for (const item of invalid) {
+    test(`接続先の参照名が${item.name}: 項目のエラーを返し、保存しない`, async ({ request }) => {
       await prepareApp(request);
-      await openIngestion(page);
+      const before = await currentRef(request);
 
-      await refInput(page, 'robot').fill(item.value);
-      await save(page, 'robot').click();
+      const response = await api(request, 'PUT', '/ingestion/settings', {
+        sources: [{ sourceId: 'robot', connectionRef: item.value, isEnabled: true }],
+      });
 
-      await expect(fieldError(page, 'robot', 'connectionRef')).toHaveText(item.message);
-      await expect(result(page, 'robot')).toHaveCount(0);
-      await page.reload();
-      await expect(refInput(page, 'robot')).toHaveValue('FILE_SERVER_MOCK');
+      expect(response.status()).toBe(400);
+      const body = (await response.json()) as {
+        error: { code: string; fields: { name: string; message: string }[] };
+      };
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(body.error.fields).toContainEqual({
+        name: 'sources.0.connectionRef',
+        message: item.message,
+      });
+      expect(await currentRef(request)).toBe(before);
     });
   }
 
@@ -190,32 +222,32 @@ test.describe('代替フロー: 設定の値が不正な場合は、保存しな
   ];
 
   for (const item of valid) {
-    test(`接続先の参照名が${item.name}: 保存できる`, async ({ page, request }) => {
+    test(`接続先の参照名が${item.name}: 保存できる`, async ({ request }) => {
       await prepareApp(request);
-      await openIngestion(page);
 
-      await refInput(page, 'robot').fill(item.value);
-      await save(page, 'robot').click();
+      await apiOk(request, 'PUT', '/ingestion/settings', {
+        sources: [{ sourceId: 'robot', connectionRef: item.value, isEnabled: true }],
+      });
 
-      await expect(result(page, 'robot')).toHaveText('設定を保存しました');
-      await page.reload();
-      await expect(refInput(page, 'robot')).toHaveValue(item.value);
+      expect(await currentRef(request)).toBe(item.value);
     });
   }
 
-  test('エラーを直して、もう一度保存できる', async ({ page, request }, testInfo) => {
+  test('画面の「設定を保存」は、接続先の参照名を変えない（有効／無効だけを保存する）', async ({
+    page,
+    request,
+  }) => {
     await prepareApp(request);
+    await apiOk(request, 'PUT', '/ingestion/settings', {
+      sources: [{ sourceId: 'robot', connectionRef: 'keep-this-ref', isEnabled: true }],
+    });
     await openIngestion(page);
-    await refInput(page, 'robot').fill('bad ref');
-    await save(page, 'robot').click();
-    await expect(fieldError(page, 'robot', 'connectionRef')).toBeVisible();
-    await shot(page, testInfo, 'uc15-invalid');
 
-    await refInput(page, 'robot').fill('good-ref');
+    await enabledBox(page, 'robot').uncheck();
     await save(page, 'robot').click();
 
-    await expect(fieldError(page, 'robot', 'connectionRef')).toHaveCount(0);
     await expect(result(page, 'robot')).toHaveText('設定を保存しました');
+    expect(await currentRef(request)).toBe('keep-this-ref');
   });
 });
 
@@ -229,7 +261,7 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
     await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
 
-    const tested = await testConnection(page, 'robot');
+    const tested = await testEquipmentConnection(page, ROBOT_ID);
 
     // HTTP の停止は、理由がわかる失敗として、理由が括弧書きで付く
     await expect(tested).toHaveText(
@@ -241,19 +273,25 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
     await shot(page, testInfo, 'uc15-test-failed');
   });
 
-  test('接続先が未設定の取り込み元は、接続テストで、設定を促す旨を表示する（内部情報は含めない）', async ({
+  test('接続先が未設定の設備は、接続テストで、設定を促す旨を表示する（内部情報は含めない）。ファイルのパスがない設備は、その旨を表示する', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 環境センサーは、ファイルのパスだけを設定する（接続は、設定しない）。ロボットは、何も設定しない
+    await assignFilePath(request, SENSOR_ID, '/environment-sensor/unconnected.json');
     await openIngestion(page);
 
-    const tested = await testConnection(page, 'environment-sensor');
+    const unconnected = await testEquipmentConnection(page, SENSOR_ID);
 
-    await expect(tested).toHaveText(
+    await expect(unconnected).toHaveText(
       '接続できませんでした（接続先が設定されていません）。接続先と認証情報の設定を確認してください',
     );
-    await expect(tested).toHaveClass(/form-error/);
+    await expect(unconnected).toHaveClass(/form-error/);
+    await expect(unconnected).not.toContainText('/environment-sensor/');
+    const noPath = await testEquipmentConnection(page, ROBOT_ID);
+    await expect(noPath).toContainText('ファイルパスが設定された設備がありません');
+    await expect(noPath).toHaveClass(/form-error/);
   });
 
   test('停止が復旧すると、接続テストに成功する', async ({ page, request }) => {
@@ -261,10 +299,10 @@ test.describe('代替フロー: 接続テストに失敗した場合は、失敗
     await placeFixture(request, 'robot', 'robot/robot-sample-001.json');
     await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
-    await expect(await testConnection(page, 'robot')).toHaveClass(/form-error/);
+    await expect(await testEquipmentConnection(page, ROBOT_ID)).toHaveClass(/form-error/);
 
     await setFileServerMode(request, 'UP');
-    const tested = await testConnection(page, 'robot');
+    const tested = await testEquipmentConnection(page, ROBOT_ID);
 
     await expect(tested).toHaveText('接続できました');
   });
@@ -370,9 +408,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
     // 実行中は、画面のボタンが使えない。「取得中」の表示は、即時取得のボタンだけに出す
     const running = sourceCard(page, 'robot').getByRole('button', { name: '取得中…' });
     await expect(running).toBeDisabled();
-    await expect(
-      sourceCard(page, 'robot').getByRole('button', { name: '接続テスト' }),
-    ).toBeDisabled();
+    await expect(page.getByTestId(`equipment-test-${ROBOT_ID}`)).toBeDisabled();
     await expect(
       sourceCard(page, 'robot').getByRole('button', { name: '設定を保存' }),
     ).toBeDisabled();
@@ -467,13 +503,14 @@ test.describe('権限: 設定・実行する権限のない利用者（閲覧者
       '取り込みを設定・実行する権限がありません。参照のみできます',
     );
     await expect(save(page, 'robot')).toHaveCount(0);
-    await expect(sourceCard(page, 'robot').getByRole('button', { name: '接続テスト' })).toHaveCount(
-      0,
-    );
+    await expect(page.getByTestId(`equipment-test-${ROBOT_ID}`)).toHaveCount(0);
     await expect(sourceCard(page, 'robot').getByRole('button', { name: '即時取得' })).toHaveCount(
       0,
     );
-    await expect(refInput(page, 'robot')).toHaveAttribute('readonly', '');
+    // 設備のダイアログへのリンクは、設備を変更する権限がある利用者だけ（設備ごとの表は、参照できる）
+    await expect(equipmentRow(page, ROBOT_ID)).toBeVisible();
+    await expect(page.getByTestId(`equipment-configure-${ROBOT_ID}`)).toHaveCount(0);
+    await expect(enabledBox(page, 'robot')).toBeDisabled();
     await shot(page, testInfo, 'uc15-readonly');
     const login = await request.post('/api/v1/auth/login', {
       data: { userId: VIEWER.userId, password: VIEWER.password },
@@ -487,11 +524,38 @@ test.describe('権限: 設定・実行する権限のない利用者（閲覧者
       },
     });
     expect(denied.status()).toBe(403);
-    // 接続テスト・即時取得も、サーバー側で拒否する
-    for (const path of ['/ingestion/robot/test', '/ingestion/robot/run']) {
+    // 接続テスト・即時取得・設備ごとの接続・認証情報の登録も、サーバー側で拒否する
+    for (const path of [
+      '/ingestion/robot/test',
+      '/ingestion/robot/run',
+      `/ingestion/equipment/${ROBOT_ID}/test`,
+    ]) {
       const refused = await request.fetch(`/api/v1${path}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(refused.status()).toBe(403);
+    }
+    const connection = {
+      type: 'HTTP',
+      protocol: 'HTTP',
+      host: '127.0.0.1',
+      port: 8080,
+      authMethod: 'NONE',
+    };
+    for (const attempt of [
+      { method: 'PUT', path: `/ingestion/equipment/${ROBOT_ID}/connection`, data: { connection } },
+      { method: 'DELETE', path: `/ingestion/equipment/${ROBOT_ID}/connection`, data: undefined },
+      {
+        method: 'PUT',
+        path: `/ingestion/equipment/${ROBOT_ID}/credentials`,
+        data: { authMethod: 'BEARER', token: 'dummy-token' },
+      },
+    ]) {
+      const refused = await request.fetch(`/api/v1${attempt.path}`, {
+        method: attempt.method,
+        headers: { authorization: `Bearer ${accessToken}` },
+        ...(attempt.data === undefined ? {} : { data: attempt.data }),
       });
       expect(refused.status()).toBe(403);
     }

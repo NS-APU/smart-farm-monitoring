@@ -2,7 +2,9 @@
  * 負荷テストの、HTTP のファイルサーバー（Issue #344。ADR-0025）。取り込み（JB-01）の HTTP アダプタが接続する先を、テストのプロセスの中
  * （127.0.0.1。空きポート。tests/support/http-file-server.ts）に立てる。バックエンドは、別のプロセス（stress-server.ts。
  * `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`）で、そのサーバーに接続する。
- * - `useHttpFiles`: サーバーを立て（なければ）、取り込み元の接続を、そのサーバー（HTTP・認証なし）にする（サーバーごとに 1 回）
+ * - `useHttpFiles`: サーバーを立て（なければ）、空（ファイルなし・停止なし）にする
+ * - 接続は、設備ごと（Issue #367。ADR-0026）: 設備に、その接続（HTTP・127.0.0.1・このサーバーのポート・認証なし）を、`PUT /ingestion/equipment/:id/connection` で保存する
+ *   （取り込み元の共通の接続は、設定しない）。シードの設備は、初めて置くときに 1 回、大量の取り込み用の設備は、作るときに保存する
  * - 設備ごとに 1 ファイル（ADR-0023）。シードの設備（ロボット・センサー）は、`putSeededFiles` が、設備の `sourceFilePath` を設定して置く
  * - 大量の取り込みは、専用のハウスの配下に、設備を追加して（`createBulkEquipment`）、設備ごとに 1 ファイルを置く。ハウスごと削除して戻す
  *   （`removeBulkEquipment`。ほかの負荷テストの計測に、影響させない）
@@ -27,57 +29,53 @@ interface EquipmentItem {
 }
 
 let serverPromise: Promise<HttpFileServer> | undefined;
-let configuredFor: HttpFileServer | undefined;
-/** 設備のファイルのパスを、設定済みの設備（API の呼び出しを、繰り返さない）。 */
+/** 設備のファイルのパスと、設備ごとの接続を、設定済みの設備（API の呼び出しを、繰り返さない）。 */
 const assigned = new Set<string>();
 
-/** サーバーを立て（なければ）、取り込み元の接続を、そのサーバーにする（サーバーごとに 1 回）。置いたファイルは、消さない。 */
-async function ensureServer(request: APIRequestContext, userId: string): Promise<HttpFileServer> {
+/** サーバーを立てる（なければ）。置いたファイルは、消さない。 */
+async function ensureServer(): Promise<HttpFileServer> {
   serverPromise ??= startHttpFileServer();
-  const server = await serverPromise;
-  if (configuredFor !== server) {
-    const current = await api(request, userId, 'GET', '/ingestion/settings');
-    expect(current.ok(), `GET /ingestion/settings: ${String(current.status())}`).toBe(true);
-    const { sources } = (await current.json()) as {
-      sources: { sourceId: string; connectionRef: string; isEnabled: boolean }[];
-    };
-    const update = await api(request, userId, 'PUT', '/ingestion/settings', {
-      sources: sources.map((source) => ({
-        sourceId: source.sourceId,
-        connectionRef: source.connectionRef,
-        isEnabled: source.isEnabled,
-        connection: {
-          type: 'HTTP',
-          protocol: 'HTTP',
-          host: '127.0.0.1',
-          port: server.port,
-          authMethod: 'NONE',
-        },
-      })),
-    });
-    expect(update.ok(), `PUT /ingestion/settings: ${String(update.status())}`).toBe(true);
-    configuredFor = server;
-  }
-  return server;
+  return serverPromise;
 }
 
-/** サーバーを、空（ファイルなし・停止なし）にして返す（なければ立て、取り込み元の接続を、そのサーバーにする）。 */
-export async function useHttpFiles(
+/** 設備の接続（HTTP・127.0.0.1・テスト用サーバーのポート・認証なし）を、API で保存する（設備ごとの接続。Issue #367）。 */
+async function connectEquipment(
   request: APIRequestContext,
   userId: string,
-): Promise<HttpFileServer> {
-  const server = await ensureServer(request, userId);
+  server: HttpFileServer,
+  equipmentId: string,
+): Promise<void> {
+  const response = await api(
+    request,
+    userId,
+    'PUT',
+    `/ingestion/equipment/${equipmentId}/connection`,
+    {
+      connection: {
+        type: 'HTTP',
+        protocol: 'HTTP',
+        host: '127.0.0.1',
+        port: server.port,
+        authMethod: 'NONE',
+      },
+    },
+  );
+  expect(
+    response.ok(),
+    `PUT /ingestion/equipment/${equipmentId}/connection: ${String(response.status())}`,
+  ).toBe(true);
+}
+
+/** サーバーを、空（ファイルなし・停止なし）にして返す（なければ立てる）。 */
+export async function useHttpFiles(): Promise<HttpFileServer> {
+  const server = await ensureServer();
   server.reset();
   return server;
 }
 
 /** ファイルサーバーの状態を切り替える（停止〔DOWN。接続を切る〕・復旧〔UP〕など）。 */
-export async function setFileServerMode(
-  request: APIRequestContext,
-  userId: string,
-  mode: 'UP' | 'DOWN' | 'SLOW' | 'REJECT',
-): Promise<void> {
-  (await ensureServer(request, userId)).faults.set({ mode });
+export async function setFileServerMode(mode: 'UP' | 'DOWN' | 'SLOW' | 'REJECT'): Promise<void> {
+  (await ensureServer()).faults.set({ mode });
 }
 
 async function equipmentList(request: APIRequestContext, userId: string): Promise<EquipmentItem[]> {
@@ -138,7 +136,7 @@ export async function putSeededFiles(
   source: Source,
   options: { readonly startIndex: number; readonly recordsPerFile: number },
 ): Promise<number> {
-  const server = await ensureServer(request, userId);
+  const server = await ensureServer();
   const units = seededUnits();
   const items = units.some(
     (unit) => !assigned.has(source === 'robot' ? unit.robot.equipmentId : unit.sensor.equipmentId),
@@ -154,6 +152,8 @@ export async function putSeededFiles(
         throw new Error(`設備が見つかりません: ${target.equipmentId}`);
       }
       await assignFilePath(request, userId, item, path);
+      // 取得には、設備ごとの接続が要る（Issue #367）
+      await connectEquipment(request, userId, server, target.equipmentId);
       assigned.add(target.equipmentId);
     }
     const content =
@@ -181,7 +181,7 @@ function bulkId(source: Source, index: number): string {
   return `${source === 'robot' ? 'ROBOT' : 'SENSOR'}-BULK-${String(index + 1).padStart(3, '0')}`;
 }
 
-/** 大量の取り込み用に、専用のハウスと、その配下のロボット・センサーを作る（設備ごとに、ファイルのパスを持つ）。 */
+/** 大量の取り込み用に、専用のハウスと、その配下のロボット・センサーを作る（設備ごとに、ファイルのパスと、接続を持つ）。 */
 export async function createBulkEquipment(
   request: APIRequestContext,
   userId: string,
@@ -194,6 +194,7 @@ export async function createBulkEquipment(
       `POST /equipment ${String(body.equipmentId)}: ${String(response.status())}`,
     ).toBe(true);
   };
+  const server = await ensureServer();
   await post({
     equipmentId: BULK_HOUSE_ID,
     equipmentType: 'FACILITY',
@@ -213,6 +214,7 @@ export async function createBulkEquipment(
         externalId: id,
         sourceFilePath: `/${source}/${id.toLowerCase()}.json`,
       });
+      await connectEquipment(request, userId, server, id);
     }
   }
 }
@@ -230,8 +232,6 @@ export async function removeBulkEquipment(
  * `startIndex` を変えると、内容が、前に置いたものと変わる。置いたファイルの数（設備の数）を返す。
  */
 export async function putBulkFiles(
-  request: APIRequestContext,
-  userId: string,
   source: Source,
   options: {
     readonly count: number;
@@ -240,7 +240,7 @@ export async function putBulkFiles(
     readonly brokenCount?: number;
   },
 ): Promise<number> {
-  const server = await ensureServer(request, userId);
+  const server = await ensureServer();
   for (let index = 0; index < options.count; index += 1) {
     const id = bulkId(source, index);
     const fileOptions = {

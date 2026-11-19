@@ -19,4 +19,11 @@ export const API_PATHS = {
   ingestionTest: (sourceId: string) => `/ingestion/${segment(sourceId)}/test`,
   ingestionCredentials: (sourceId: string) => `/ingestion/${segment(sourceId)}/credentials`,
   ingestionRun: (sourceId: string) => `/ingestion/${segment(sourceId)}/run`,
+  /** 設備ごとの接続（Issue #367。ADR-0026）。 */
+  ingestionEquipmentConnection: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/connection`,
+  ingestionEquipmentCredentials: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/credentials`,
+  ingestionEquipmentTest: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/test`,
 } as const;

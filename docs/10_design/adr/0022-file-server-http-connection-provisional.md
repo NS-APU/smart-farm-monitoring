@@ -4,6 +4,7 @@
 - 日付: 2026-11-05
 - 更新（2026-11-06。#119）: **ファイルパスは、取り込み元の接続設定ではなく、設備ごとに持つ**ことにした（[ADR-0023](./0023-http-file-source-per-equipment-file.md)）。接続設定の `filePath`（1 取り込み元 = 1 ファイル）は廃止し、保存済みの設定に残る `filePath` は、読み出すときに無視する。ファイルの一覧・取得・接続テストは、ADR-0023 のとおり実装した（以下の「ファイルパス」「接続テスト」「取得」の記述は、この更新で置き換わる）。
 - 更新（2026-11-18。#344）: **接続方式 `MOCK` は、[ADR-0025](./0025-demo-http-file-feed.md) の PR 3b で廃止した**。接続方式は `HTTP` の 1 つだけで、`connection` は省略可（**未設定が既定**）。以前に保存された `{ type: 'MOCK' }` は、読み込むときに未設定として読み替える（データは移行しない）。以下の `MOCK` の記述は、この更新で置き換わる。
+- 更新（2026-11-19。#367）: **接続・認証情報は、取り込み元ごとの共通の 1 つから、設備ごとに持つ**ことにした（[ADR-0026](./0026-per-equipment-file-server-connection.md)）。接続の項目・検証・接続テスト・内部のアドレスの拒否は、このADRのまま、設備ごとに適用する。実装の 1 つ目の PR では、設備ごとの接続を追加し、取り込み元の共通の接続・共通の認証情報（`file-server/<取り込み元>`）は、移行期間として残している（設備に接続がなければ、共通の接続を使う）。共通の接続・共通の認証情報の廃止は、実装の 2 つ目の PR で行い、そのときに、本文を直す。
 - 関連: [ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)、[ADR-0015](./0015-provisional-policy-external-specs.md)、[ADR-0016](./0016-ingestion-federation-rules.md)（SecretPort は D-55）、[architecture.md](../architecture/architecture.md) 5.1、[security.md](../../20_development/security.md)、[functional-specification.md](../functions/functional-specification.md) SC-11
 
 目的: ファイルサーバーの接続の方式と接続先を、画面から設定して切り替えられるようにするための、暫定の設計（設定の項目・検証・接続テスト・内部のアドレスの扱い）と、実行環境（Lambda）からのアクセス手段の比較を、記録する。実際のファイルの取得（一覧・読み取り）のアダプタは、#119 で作る。

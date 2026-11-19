@@ -28,6 +28,7 @@ import {
   advanceMinutes,
   alignBrowserClock,
   confirmDialog,
+  goToMenu,
   goToNotifications,
   newUserSession,
   openAs,
@@ -228,13 +229,14 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
       'ファイルサーバーに接続できませんでした',
     );
     await expect(unreadBadge(page)).toHaveText('0');
-    // 設定を見直す（接続先の参照名の変更）→ 復旧 → 取り込む
-    await page
-      .getByTestId('source-robot')
-      .getByLabel('接続先（接続設定の参照名）')
-      .fill('FILE_SERVER_NEW');
-    await page.getByTestId('source-robot').getByRole('button', { name: '設定を保存' }).click();
-    await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
+    // 接続先を見直す（SC-11 の設備ごとの表から、設備のダイアログの「取り込み元の接続」を開き、接続テストで確かめる）→ 復旧 → 取り込む
+    await page.getByTestId(`equipment-configure-${ROBOT_ID}`).click();
+    const connection = page.getByTestId('equipment-connection');
+    await expect(connection.getByLabel('ホスト名')).toHaveValue('127.0.0.1');
+    await connection.getByTestId('equipment-connection-test').click();
+    await expect(connection.getByTestId('equipment-connection-result')).toContainText(
+      '接続できませんでした（ファイルサーバーに接続できません）',
+    );
     await setFileServerMode(request, 'UP');
     await placeFile(
       request,
@@ -242,8 +244,13 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
       'a.json',
       robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
     );
-    await page.getByTestId('source-robot').getByRole('button', { name: '接続テスト' }).click();
-    await expect(page.getByTestId('result-robot')).toHaveText('接続できました');
+    await connection.getByTestId('equipment-connection-test').click();
+    await expect(connection.getByTestId('equipment-connection-result')).toHaveText(
+      '接続できました',
+    );
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await goToMenu(page, '取り込み');
     // 復旧後は、即時取得で、取り込める
     await page.getByTestId('source-robot').getByRole('button', { name: '即時取得' }).click();
     await expect(page.getByTestId('result-robot')).toContainText('取得しました（成功）');

@@ -37,7 +37,16 @@ import {
   setEquipmentInterval,
   unreadBadge,
 } from './support/app.ts';
-import { placeFile, placeFixture, setFileServerMode } from './support/http-files.ts';
+import {
+  assignFilePath,
+  fileServerRequests,
+  placeFile,
+  placeFixture,
+  saveEquipmentConnection,
+  setFileServerMode,
+} from './support/http-files.ts';
+import { startHttpFileServer, type HttpFileServer } from '../support/http-file-server.ts';
+import { listNotifications } from './support/notifications.ts';
 import { logRows, runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 import {
@@ -676,5 +685,151 @@ test.describe('API でも確認する（取り込みの結果）', () => {
       '/observations?source=AUTO_IMPORT&limit=100',
     );
     expect(observations.items).toHaveLength(14);
+  });
+});
+
+test.describe('設備ごとの接続: 1 つのファイルサーバーの停止が、ほかの設備の取り込みを止めない（Issue #367。ADR-0026）', () => {
+  /** 2 つ目のロボットが接続する、別のファイルサーバー（テストのプロセスの中）。 */
+  let second: HttpFileServer;
+
+  test.beforeAll(async () => {
+    second = await startHttpFileServer();
+  });
+
+  test.afterAll(async () => {
+    await second.close();
+  });
+
+  const SECOND_PATH = '/robot/second.json';
+  const SECOND_ROBOT_NAME = '収穫ロボット（ROBOT-02）';
+  const equipmentResult = (page: Page, equipmentId: string) =>
+    page.getByTestId(`equipment-result-${equipmentId}`);
+  const equipmentData = (page: Page, equipmentId: string) =>
+    page.getByTestId(`equipment-data-${equipmentId}`);
+
+  /** ロボット 2 台: ROBOT-01 は、通常のテスト用サーバー、ROBOT-02 は、別のサーバーに接続する（それぞれ、自分のファイルを持つ）。 */
+  async function prepareTwoServers(request: APIRequestContext): Promise<void> {
+    await prepareApp(request);
+    second.reset();
+    await placeFile(
+      request,
+      'robot',
+      'first.json',
+      robotJson([{ hoursAgo: 1, fields: { harvestCount: 12, statusCode: 'HARVESTING' } }]),
+    );
+    await addRobot(request, 'ROBOT-02', 'ROBOT-SAMPLE-02');
+    await assignFilePath(request, 'ROBOT-02', SECOND_PATH);
+    await saveEquipmentConnection(request, 'ROBOT-02', second.port);
+    second.put(
+      SECOND_PATH,
+      robotJson(
+        [{ hoursAgo: 1, fields: { harvestCount: 7, statusCode: 'RUNNING' } }],
+        'ROBOT-SAMPLE-02',
+      ),
+    );
+  }
+
+  test('一方のサーバーが停止していても、もう一方の設備のファイルは取り込まれる（一部成功）。SC-11 の設備ごとの表で、失敗した設備は失敗、成功した設備は成功。再試行は、失敗した設備のファイルだけにする', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareTwoServers(request);
+    second.faults.set({ mode: 'DOWN' });
+    await openIngestion(page);
+
+    const ran = await runNow(page, 'robot');
+
+    // 取り込めた設備があるため、一部成功。ROBOT-01 のファイルは、取り込まれる
+    await expect(ran).toContainText('取得しました（一部成功）');
+    await expect(ran).toContainText('ファイル 1 件、取り込み 2 件');
+    await expect(equipmentResult(page, 'ROBOT-01')).toHaveText('成功');
+    await expect(equipmentResult(page, 'ROBOT-02')).toHaveText('失敗');
+    await expect(equipmentData(page, 'ROBOT-01')).toHaveText('2026/10/09 12:00:00');
+    await expect(equipmentData(page, 'ROBOT-02')).toHaveText('—');
+    // 失敗の設備のログは、設備ごと。理由は、固定の文言（接続先・ファイルのパスを含まない）
+    const failure = logRows(page).filter({ hasText: SECOND_ROBOT_NAME });
+    await expect(failure).toHaveCount(1);
+    await expect(failure).toHaveAttribute('data-result', 'FAILURE');
+    await expect(failure).toContainText('ファイルサーバーに接続できません');
+    await expect(failure).not.toContainText('127.0.0.1');
+    await expect(failure).not.toContainText(SECOND_PATH);
+    await expect(logRows(page).filter({ hasText: '収穫ロボット1' }).first()).toHaveAttribute(
+      'data-result',
+      'SUCCESS',
+    );
+    // 再試行（最大 3 回）は、失敗した設備のファイルだけ。成功した設備のファイルは、取り直さない
+    const logs = await apiOk<{ items: { equipmentId?: string; attempts: number }[] }>(
+      request,
+      'GET',
+      '/ingestion/logs',
+    );
+    expect(logs.items.find((item) => item.equipmentId === 'ROBOT-02')?.attempts).toBe(3);
+    expect(second.requests.filter((item) => item.method === 'HEAD')).toHaveLength(3);
+    const firstRequests = await fileServerRequests();
+    expect(firstRequests.filter((item) => item.path === '/robot/first.json')).toEqual([
+      { method: 'HEAD', path: '/robot/first.json' },
+      { method: 'GET', path: '/robot/first.json' },
+    ]);
+    // ROBOT-01 のデータだけが、取り込み済みになる
+    const observations = await apiOk<{ items: { equipmentId: string }[] }>(
+      request,
+      'GET',
+      '/observations?source=AUTO_IMPORT&limit=100',
+    );
+    expect(new Set(observations.items.map((item) => item.equipmentId))).toEqual(
+      new Set(['ROBOT-01']),
+    );
+    await shot(page, testInfo, 'uc08-isolated-failure');
+  });
+
+  test('失敗の通知は、取り込み元ごとに 1 件。失敗した設備の名前と、固定の理由を示す。停止が復旧したあとの取り込みで、止まっていた設備のファイルも取り込まれ、最終の実行は成功になる', async ({
+    page,
+    request,
+  }) => {
+    await prepareTwoServers(request);
+    second.faults.set({ mode: 'DOWN' });
+    await openIngestion(page);
+    await runNow(page, 'robot');
+
+    const failures = (await listNotifications(request)).filter(
+      (item) => item.kind === 'INGESTION_FAILURE' && item.sourceId === 'robot',
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.message).toContain(SECOND_ROBOT_NAME);
+    expect(failures[0]?.message).toContain('ファイルサーバーに接続できません');
+    expect(failures[0]?.message).not.toContain('収穫ロボット1');
+    expect(failures[0]?.message).not.toContain('127.0.0.1');
+
+    second.faults.set({ mode: 'UP' });
+    const recovered = await runNow(page, 'robot');
+
+    await expect(recovered).toContainText('取得しました（成功）');
+    await expect(recovered).toContainText('ファイル 1 件、取り込み 2 件');
+    await expect(equipmentResult(page, 'ROBOT-02')).toHaveText('成功');
+    await expect(equipmentData(page, 'ROBOT-02')).toHaveText('2026/10/09 12:00:00');
+    const observations = await apiOk<{ items: { equipmentId: string }[] }>(
+      request,
+      'GET',
+      '/observations?source=AUTO_IMPORT&limit=100',
+    );
+    expect(new Set(observations.items.map((item) => item.equipmentId))).toEqual(
+      new Set(['ROBOT-01', 'ROBOT-02']),
+    );
+  });
+
+  test('すべての設備のサーバーが停止していると、取り込み元の失敗（失敗）になる', async ({
+    page,
+    request,
+  }) => {
+    await prepareTwoServers(request);
+    second.faults.set({ mode: 'DOWN' });
+    await setFileServerMode(request, 'DOWN');
+    await openIngestion(page);
+
+    const ran = await runNow(page, 'robot');
+
+    await expect(ran).toContainText('取得しました（失敗）');
+    await expect(equipmentResult(page, 'ROBOT-01')).toHaveText('失敗');
+    await expect(equipmentResult(page, 'ROBOT-02')).toHaveText('失敗');
   });
 });

@@ -1,14 +1,16 @@
 /**
- * UC-15 取り込み元の接続設定（ファイルサーバーの HTTP）を設定し、接続テスト・取り込みを行う（SC-11。Issue #172・#119。ADR-0022・ADR-0023。FR-1.3、NFR-5.4）。
+ * UC-15 取り込み元の接続設定（ファイルサーバーの HTTP）を、設備ごとに設定し、接続テスト・取り込みを行う（SC-10 設備のダイアログの「取り込み元の接続」・SC-11。
+ * Issue #172・#119・#367。ADR-0022・ADR-0023・ADR-0026。FR-1.3、NFR-5.4）。
  *
  * ユースケースシナリオ（use-cases.md の UC-15 の基本フロー 1〜3）に対応する。
- *   1. 農作業者が、接続先（ホスト・ポート・プロトコル・認証方式）を入力する（取得するファイルのパスは、設備ごとに、設備の画面で指定する）
- *   2. システムが、設定を保存する
- *   3. 農作業者が、接続テストを実行し、結果（成功、または、失敗の理由）を確認する
+ *   1. 農作業者が、設備（ロボット・環境センサー）のダイアログで、接続先（プロトコル・ホスト・ポート・認証方式）を入力する（取得するファイルのパスも、設備ごと）
+ *   2. システムが、設備を保存してから、接続を保存する
+ *   3. 農作業者が、その設備だけの接続テストを実行し、結果（成功、または、失敗の理由）を確認する
  *
- * 値の同値分割: 接続（未設定・設定済み。接続方式の選択はない。HTTP のみ。ADR-0025）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
+ * 値の同値分割: 接続（未設定・設備ごと・共通〔移行期間〕。接続方式の選択はない。HTTP のみ。ADR-0025）、プロトコル（HTTPS・HTTP。HTTP は警告）、ポート（省略・指定・不正）、
  * ホスト（正常・スキームつき）、設備のファイルパス（あり・なし・サーバーにない）、認証方式（なし・認証情報が未設定）、接続テスト（成功・ファイルなし）、
- * 取り込み（設備のファイルを、即時取得で取り込む。Issue #119）。
+ * 取り込み（設備のファイルを、即時取得で取り込む。Issue #119）、コピー（同じ種別の設備から接続を写す。認証情報は写さない）、解除（共通の接続・未設定に戻す）、
+ * 登録と同時の保存（設備は登録でき、接続の保存だけが失敗した場合）。
  * 認証情報の登録（Issue #207。D-47）: 認証方式（Basic）を選んで保存したあと、ユーザー名・パスワードを書き込み専用で登録し、
  * 「設定済み」と更新日時を示す。保存後は、値を再表示しない。登録した認証情報で、接続テストが成功する。
  * 内部のアドレスの拒否（SSRF の対策）は、E2E では、手元のサーバーに接続するため許可している（HTTP_FILE_SOURCE_ALLOW_PRIVATE）。
@@ -19,7 +21,10 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import {
+  HOUSE_ID,
   ROBOT_EXTERNAL_ID,
+  ROBOT_ID,
+  SENSOR_ID,
   alignBrowserClock,
   apiOk,
   goToMenu,
@@ -27,7 +32,8 @@ import {
   prepareApp,
   robotJson,
 } from './support/app.ts';
-import { logRows, runNow, sourceCard, testConnection } from './support/ingestion.ts';
+import { assignFilePath } from './support/http-files.ts';
+import { logRows, runNow, testEquipmentConnection } from './support/ingestion.ts';
 import { NOW, shot } from './support/viewpoint-scenarios.ts';
 
 const FILE_PATH = '/data/robot/latest.json';
@@ -36,6 +42,9 @@ const SECURE_PATH = '/secure/data.json';
 const DUMMY_USER = 'dummy-user';
 const DUMMY_PASSWORD = 'dummy-password-0123';
 const DUMMY_BASIC = `Basic ${Buffer.from(`${DUMMY_USER}:${DUMMY_PASSWORD}`).toString('base64')}`;
+/** コピーの元になる、2 つ目のロボット（接続を持つ）。 */
+const ROBOT_2_ID = 'ROBOT-02';
+const ROBOT_2_NAME = '収穫ロボット2';
 
 /** 取り込むファイルの内容（ロボット 1 台の、1 時間前の記録 1 件。合成データ）と、更新日時（書き換えの直後ではない）。 */
 const ROBOT_FILE = robotJson([
@@ -85,47 +94,63 @@ test.beforeEach(() => {
   requests.length = 0;
 });
 
-async function openIngestion(page: Page): Promise<void> {
+/** 設備の修正のダイアログを開く（取り込み設定・状況の「接続を設定・修正」のリンクと同じ URL）。接続の読み込みを待つ。 */
+async function openEquipmentDialog(
+  page: Page,
+  equipmentId: string = ROBOT_ID,
+  user?: Parameters<typeof openAs>[2],
+): Promise<void> {
   await alignBrowserClock(page);
-  await openAs(page, '/');
-  await goToMenu(page, '取り込み');
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await openAs(page, `/settings/equipment?edit=${equipmentId}`, user);
+  await expect(page.getByTestId('equipment-edit')).toBeVisible();
+  await expect(page.getByTestId('equipment-connection')).toBeVisible();
+  await expect(page.getByTestId('equipment-connection-loading')).toHaveCount(0);
 }
 
-const robot = (page: Page) => sourceCard(page, 'robot');
-const unsetNote = (page: Page, sourceId: string) =>
-  page.getByTestId(`connection-unset-${sourceId}`);
-const protocol = (page: Page) => robot(page).getByLabel('プロトコル');
-const host = (page: Page) => robot(page).getByLabel('ホスト名');
-const portInput = (page: Page) => robot(page).getByLabel('ポート番号');
-const authMethod = (page: Page) => robot(page).getByLabel('認証方式');
-const save = (page: Page) => robot(page).getByRole('button', { name: '設定を保存' });
-const result = (page: Page) => page.getByTestId('result-robot');
+const connection = (page: Page) => page.getByTestId('equipment-connection');
+const protocol = (page: Page) => connection(page).getByLabel('プロトコル');
+const host = (page: Page) => connection(page).getByLabel('ホスト名');
+const portInput = (page: Page) => connection(page).getByLabel('ポート番号');
+const authMethod = (page: Page) => connection(page).getByLabel('認証方式');
+const saveEquipment = (page: Page) =>
+  page.getByTestId('equipment-edit').getByRole('button', { name: '保存', exact: true });
+const testButton = (page: Page) => page.getByTestId('equipment-connection-test');
+const connectionResult = (page: Page) => page.getByTestId('equipment-connection-result');
+const unsetNote = (page: Page) => page.getByTestId('equipment-connection-unset');
+const credentialsBox = (page: Page) => page.getByTestId('equipment-credentials');
+const credentialsStatus = (page: Page) => page.getByTestId('equipment-credentials-status');
+const notice = (page: Page) => page.getByTestId('equipment-notice');
 
 /** 設備（ロボット）に、取得するファイルのパスを設定する（取得するファイルは、設備ごと。ADR-0023）。 */
 async function setRobotFilePath(request: APIRequestContext, sourceFilePath: string): Promise<void> {
-  const tree = await apiOk<{
-    facilities: {
-      children: {
-        equipmentId: string;
-        equipmentType: string;
-        name: string;
-        facilityId?: string;
-        externalId?: string;
-      }[];
-    }[];
-  }>(request, 'GET', '/equipment');
-  const robotEquipment = tree.facilities
-    .flatMap((facility) => facility.children)
-    .find((child) => child.equipmentType === 'ROBOT');
-  if (robotEquipment === undefined) {
-    throw new Error('テストの前提: ロボットがない');
-  }
-  await apiOk(request, 'PUT', `/equipment/${robotEquipment.equipmentId}`, {
-    name: robotEquipment.name,
-    facilityId: robotEquipment.facilityId,
-    externalId: robotEquipment.externalId ?? ROBOT_EXTERNAL_ID,
-    sourceFilePath,
+  await assignFilePath(request, ROBOT_ID, sourceFilePath);
+}
+
+/** ロボットを、ハウス 1 に 1 つ追加する（コピーの元・別の設備の前提）。 */
+async function addSecondRobot(request: APIRequestContext): Promise<void> {
+  await apiOk(request, 'POST', '/equipment', {
+    equipmentId: ROBOT_2_ID,
+    equipmentType: 'ROBOT',
+    name: ROBOT_2_NAME,
+    facilityId: HOUSE_ID,
+    externalId: 'ROBOT-SAMPLE-02',
+  });
+}
+
+/** 設備の接続を、API で保存する（テスト用サーバー。プロトコルは HTTP）。 */
+async function saveConnectionByApi(
+  request: APIRequestContext,
+  equipmentId: string,
+  authMethodName: 'NONE' | 'BASIC' = 'NONE',
+): Promise<void> {
+  await apiOk(request, 'PUT', `/ingestion/equipment/${equipmentId}/connection`, {
+    connection: {
+      type: 'HTTP',
+      protocol: 'HTTP',
+      host: '127.0.0.1',
+      port,
+      authMethod: authMethodName,
+    },
   });
 }
 
@@ -137,78 +162,117 @@ async function fillConnection(page: Page, overrides: { auth?: string } = {}) {
   await authMethod(page).selectOption(overrides.auth ?? 'NONE');
 }
 
-test.describe('基本フロー: 接続設定を入力・保存し、接続テストで結果を確認する', () => {
-  test('既定は、接続が未設定（案内と、空の入力）。接続方式の選択はない', async ({
+/** 接続を入力して、設備のダイアログの「保存」を押す。保存すると、ダイアログは閉じる（「修正しました」）。 */
+async function fillAndSave(page: Page, overrides: { auth?: string } = {}): Promise<void> {
+  await fillConnection(page, overrides);
+  await saveEquipment(page).click();
+  await expect(notice(page)).toHaveText('修正しました');
+  await expect(page.getByTestId('equipment-edit')).toHaveCount(0);
+}
+
+test.describe('基本フロー: 設備のダイアログで接続設定を入力・保存し、その設備だけの接続テストで結果を確認する', () => {
+  test('既定は、接続が未設定（案内と、空の入力）。接続方式の選択はない。ファイルのパスと接続の案内を示す', async ({
     page,
     request,
-  }) => {
+  }, testInfo) => {
     await prepareApp(request);
-    await openIngestion(page);
+    await openEquipmentDialog(page);
 
-    await expect(unsetNote(page, 'robot')).toContainText('接続先が設定されていません');
-    await expect(robot(page).getByLabel('接続方式')).toHaveCount(0);
+    await expect(unsetNote(page)).toContainText('接続先が設定されていません');
+    await expect(connection(page).getByLabel('接続方式')).toHaveCount(0);
     await expect(protocol(page)).toHaveValue('HTTPS');
     await expect(host(page)).toBeVisible();
     await expect(host(page)).toHaveValue('');
     await expect(portInput(page)).toHaveAttribute('placeholder', '443');
     await expect(authMethod(page)).toHaveValue('NONE');
-    // 取得するファイルのパスは、設備ごと（設備の画面）。接続設定には、入力欄がない
-    await expect(robot(page).getByLabel('ファイルパス')).toHaveCount(0);
-    await expect(robot(page)).toContainText('取得するファイルは、設備ごとに');
+    // 設備ごとの接続のため、解除・認証情報の欄は、接続を保存するまで出ない
+    await expect(page.getByTestId('equipment-connection-remove')).toHaveCount(0);
+    await expect(credentialsBox(page)).toHaveCount(0);
+    // ファイルのパス（設備の項目）の案内。設備ごとの接続が必要なことを伝える
+    await expect(page.getByTestId('equipment-file-path-guide')).toContainText(
+      'ファイルのパスを設定すると、取り込みの対象になります',
+    );
+    await expect(page.getByTestId('equipment-edit').getByLabel('ファイルパス')).toBeVisible();
+    await shot(page, testInfo, 'uc15-connection-unset');
   });
 
-  test('接続設定を保存すると、再読み込みしても保持される。接続テストに成功し、テスト用サーバーには、設備のファイルの有無の確認（HEAD）だけが届く', async ({
+  test('接続を保存すると、再読み込みしても保持される。接続テストに成功し、テスト用サーバーには、設備のファイルの有無の確認（HEAD）だけが届く', async ({
     page,
     request,
   }, testInfo) => {
     await prepareApp(request);
     await setRobotFilePath(request, FILE_PATH);
-    await openIngestion(page);
+    await openEquipmentDialog(page);
 
-    await fillConnection(page);
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
-    await page.reload();
-    await expect(unsetNote(page, 'robot')).toHaveCount(0);
+    await fillAndSave(page);
+    await openEquipmentDialog(page);
+    await expect(unsetNote(page)).toHaveCount(0);
     await expect(host(page)).toHaveValue('127.0.0.1');
     await expect(portInput(page)).toHaveValue(String(port));
+    await expect(authMethod(page)).toHaveValue('NONE');
+    await page.reload();
+    await expect(host(page)).toHaveValue('127.0.0.1');
 
-    const tested = await testConnection(page, 'robot');
-    await expect(tested).toHaveText('接続できました');
-    await expect(tested).toHaveClass(/form-success/);
+    await testButton(page).click();
+
+    await expect(connectionResult(page)).toHaveText('接続できました');
+    await expect(connectionResult(page)).toHaveClass(/form-success/);
     expect(requests).toEqual([`HEAD ${FILE_PATH}`]);
     await shot(page, testInfo, 'uc15-connection');
   });
 
-  test('一方の取り込み元に設定しても、もう一方の取り込み元は、未設定のまま', async ({
+  test('一方の設備に設定しても、もう一方の設備は、未設定のまま（取り込み元の共通の接続は、設定しない）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    await openIngestion(page);
-    await fillConnection(page);
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
+    await openEquipmentDialog(page);
+    await fillAndSave(page);
 
-    await page.reload();
+    await openEquipmentDialog(page, SENSOR_ID);
 
-    await expect(unsetNote(page, 'robot')).toHaveCount(0);
-    await expect(unsetNote(page, 'environment-sensor')).toBeVisible();
-    await expect(sourceCard(page, 'environment-sensor').getByLabel('ホスト名')).toHaveValue('');
+    await expect(unsetNote(page)).toBeVisible();
+    await expect(host(page)).toHaveValue('');
+    // 取り込み設定・状況の、設備ごとの表の出どころ
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
+      'data-origin',
+      'EQUIPMENT',
+    );
+    await expect(page.getByTestId(`equipment-origin-${SENSOR_ID}`)).toHaveAttribute(
+      'data-origin',
+      'NONE',
+    );
+  });
+
+  test('接続の入力を変えて、まだ保存していないときは、接続テストを使えず、保存してからテストする旨を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await setRobotFilePath(request, FILE_PATH);
+    await openEquipmentDialog(page);
+    await expect(page.getByTestId('equipment-connection-test-unsaved')).toHaveCount(0);
+
+    await host(page).fill('127.0.0.1');
+
+    await expect(testButton(page)).toBeDisabled();
+    await expect(page.getByTestId('equipment-connection-test-unsaved')).toContainText(
+      '保存してから、接続テストをしてください',
+    );
   });
 });
 
 test.describe('取り込み: 設備のファイルを、即時取得で取り込む（Issue #119）', () => {
-  test('設備に設定したファイルパスのファイルを、取得して取り込める。同じ内容は、取り込み直さない', async ({
+  test('設備に設定したファイルパスのファイルを、設備ごとの接続で取得して取り込める。同じ内容は、取り込み直さない', async ({
     page,
     request,
   }, testInfo) => {
     await prepareApp(request);
     await setRobotFilePath(request, FILE_PATH);
-    await openIngestion(page);
-    await fillConnection(page);
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
+    await openEquipmentDialog(page);
+    await fillAndSave(page);
+    await goToMenu(page, '取り込み');
 
     const first = await runNow(page, 'robot');
     await expect(first).toContainText('取得しました（成功）');
@@ -216,8 +280,9 @@ test.describe('取り込み: 設備のファイルを、即時取得で取り込
     const second = await runNow(page, 'robot');
     await expect(second).toContainText('ファイル 0 件、取り込み 0 件');
 
-    // 取り込みの成否は、ログに記録される
+    // 取り込みの成否は、ログに記録される。設備ごとの表にも、最終の実行の結果が出る
     await expect(logRows(page).first()).toHaveAttribute('data-result', 'SUCCESS');
+    await expect(page.getByTestId(`equipment-result-${ROBOT_ID}`)).toHaveText('成功');
     // サーバーには、設備のファイルへの、HEAD（一覧）と GET（取得）だけが届く
     expect(new Set(requests)).toEqual(new Set([`HEAD ${FILE_PATH}`, `GET ${FILE_PATH}`]));
     await shot(page, testInfo, 'uc15-http-ingestion');
@@ -230,12 +295,12 @@ test.describe('プロトコルの警告', () => {
     request,
   }) => {
     await prepareApp(request);
-    await openIngestion(page);
-    await expect(page.getByTestId('plaintext-warning-robot')).toHaveCount(0);
+    await openEquipmentDialog(page);
+    const warning = page.getByTestId('equipment-connection-plaintext-warning');
+    await expect(warning).toHaveCount(0);
 
     await protocol(page).selectOption('HTTP');
 
-    const warning = page.getByTestId('plaintext-warning-robot');
     await expect(warning).toBeVisible();
     await expect(warning).toContainText('暗号化されません');
     await protocol(page).selectOption('HTTPS');
@@ -244,26 +309,31 @@ test.describe('プロトコルの警告', () => {
 });
 
 test.describe('代替フロー: 入力が不正なとき、保存しない。接続テストの失敗は、理由を示す', () => {
-  test('ホストにスキームを含める・ポートが範囲外のときは、項目にエラーを表示して保存しない', async ({
+  test('ホストにスキームを含める・ポートが範囲外のときは、項目にエラーを表示して保存しない（設備も保存しない）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    await openIngestion(page);
+    await openEquipmentDialog(page);
     await fillConnection(page);
 
     await host(page).fill('https://127.0.0.1');
     await portInput(page).fill('70000');
-    await save(page).click();
+    await saveEquipment(page).click();
 
-    const card = robot(page);
-    await expect(card.locator('[data-field="connection.host"] .field-error')).toContainText(
+    await expect(connection(page).locator('[data-field="host"] .field-error')).toContainText(
       'FQDN・IPv4・[IPv6]',
     );
-    await expect(card.locator('[data-field="connection.port"] .field-error')).toContainText(
+    await expect(connection(page).locator('[data-field="port"] .field-error')).toContainText(
       '1〜65535',
     );
-    await expect(result(page)).toHaveCount(0);
+    await expect(notice(page)).toHaveCount(0);
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    // 入力を直すと、保存できる
+    await host(page).fill('127.0.0.1');
+    await portInput(page).fill(String(port));
+    await saveEquipment(page).click();
+    await expect(notice(page)).toHaveText('修正しました');
   });
 
   test('設備のファイルがサーバーにないとき（404）は、「ファイルが見つかりません」を示す。接続先・ファイルパスは、表示しない', async ({
@@ -272,13 +342,13 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
   }) => {
     await prepareApp(request);
     await setRobotFilePath(request, '/missing/file.json');
-    await openIngestion(page);
-    await fillConnection(page);
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
+    await openEquipmentDialog(page);
+    await fillAndSave(page);
+    await openEquipmentDialog(page);
 
-    const tested = await testConnection(page, 'robot');
+    await testButton(page).click();
 
+    const tested = connectionResult(page);
     await expect(tested).toContainText('ファイルが見つかりません');
     await expect(tested).toHaveClass(/form-error/);
     await expect(tested).not.toContainText('127.0.0.1');
@@ -291,35 +361,37 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
   }) => {
     await prepareApp(request);
     await setRobotFilePath(request, FILE_PATH);
-    await openIngestion(page);
+    await openEquipmentDialog(page);
     await fillConnection(page, { auth: 'BASIC' });
-    await expect(page.getByTestId('credentials-note-robot')).toContainText(
-      '設定を保存したあとに、登録できます',
+    // 認証情報は、接続を保存したあとに登録する（保存前は、案内だけを示す）
+    await expect(page.getByTestId('equipment-connection-credentials-note')).toContainText(
+      '接続を保存したあとに、登録できます',
     );
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
-    await expect(page.getByTestId('credentials-status-robot')).toContainText('未設定');
+    await expect(credentialsBox(page)).toHaveCount(0);
+    await saveEquipment(page).click();
+    await expect(notice(page)).toHaveText('修正しました');
+    await openEquipmentDialog(page);
+    await expect(credentialsStatus(page)).toContainText('未設定');
 
-    const tested = await testConnection(page, 'robot');
+    await testButton(page).click();
 
-    await expect(tested).toContainText('認証情報が設定されていません');
+    await expect(connectionResult(page)).toContainText('認証情報が設定されていません');
     expect(requests).toEqual([]);
   });
 
-  test('ファイルパスが設定された設備がないときは、接続テストは、その旨を示し、接続しない', async ({
+  test('ファイルパスが設定されていない設備は、接続テストで、その旨を示し、接続しない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    await openIngestion(page);
-    await fillConnection(page);
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
+    await openEquipmentDialog(page);
+    await fillAndSave(page);
+    await openEquipmentDialog(page);
 
-    const tested = await testConnection(page, 'robot');
+    await testButton(page).click();
 
-    await expect(tested).toContainText('ファイルパスが設定された設備がありません');
-    await expect(tested).toHaveClass(/form-error/);
+    await expect(connectionResult(page)).toContainText('ファイルパスが設定された設備がありません');
+    await expect(connectionResult(page)).toHaveClass(/form-error/);
     expect(requests).toEqual([]);
   });
 
@@ -329,50 +401,52 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
   }, testInfo) => {
     await prepareApp(request);
     await setRobotFilePath(request, SECURE_PATH);
-    await openIngestion(page);
-    await fillConnection(page, { auth: 'BASIC' });
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
-    const credentials = page.getByTestId('credentials-robot');
+    await openEquipmentDialog(page);
+    await fillAndSave(page, { auth: 'BASIC' });
+    await openEquipmentDialog(page);
+    const credentials = credentialsBox(page);
     await expect(credentials.getByLabel('パスワード')).toHaveAttribute('type', 'password');
-    const failed = await testConnection(page, 'robot');
-    await expect(failed).toContainText('認証情報が設定されていません');
+    await testButton(page).click();
+    await expect(connectionResult(page)).toContainText('認証情報が設定されていません');
 
     await credentials.getByLabel('ユーザー名').fill(DUMMY_USER);
     await credentials.getByLabel('パスワード').fill(DUMMY_PASSWORD);
-    await credentials.getByRole('button', { name: '認証情報を保存' }).click();
+    await page.getByTestId('equipment-credentials-save').click();
 
-    await expect(result(page)).toHaveText('認証情報を保存しました');
-    await expect(page.getByTestId('credentials-status-robot')).toContainText('設定済み（更新:');
+    await expect(connectionResult(page)).toHaveText('認証情報を保存しました');
+    await expect(credentialsStatus(page)).toContainText('設定済み（更新:');
     await expect(credentials.getByLabel('ユーザー名')).toHaveValue('');
     await expect(credentials.getByLabel('パスワード')).toHaveValue('');
     await page.reload();
-    await expect(page.getByTestId('credentials-status-robot')).toContainText('設定済み（更新:');
+    await expect(credentialsStatus(page)).toContainText('設定済み（更新:');
     await expect(credentials.getByLabel('パスワード')).toHaveValue('');
     expect(await page.content()).not.toContain(DUMMY_PASSWORD);
 
-    const tested = await testConnection(page, 'robot');
-    await expect(tested).toHaveText('接続できました');
+    await testButton(page).click();
+    await expect(connectionResult(page)).toHaveText('接続できました');
     expect(requests).toEqual([`HEAD ${SECURE_PATH}`]);
+    // 取り込み設定・状況の、設備ごとの表にも、認証情報の状態を示す（値は示さない）
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-credentials-${ROBOT_ID}`)).toContainText(
+      '設定済み（更新:',
+    );
+    expect(await page.content()).not.toContain(DUMMY_PASSWORD);
     await shot(page, testInfo, 'uc15-credentials');
   });
 
-  test('認証方式を変えて、まだ保存していないときは、先に設定を保存するよう案内し、認証情報を登録できない', async ({
+  test('認証方式を変えて、まだ保存していないときは、先に設備を保存するよう案内し、認証情報を登録できない', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    await openIngestion(page);
-    await fillConnection(page, { auth: 'BASIC' });
-    await save(page).click();
-    await expect(result(page)).toHaveText('設定を保存しました');
+    await openEquipmentDialog(page);
+    await fillAndSave(page, { auth: 'BASIC' });
+    await openEquipmentDialog(page);
 
     await authMethod(page).selectOption('BEARER');
 
-    await expect(page.getByTestId('credentials-unsaved-robot')).toContainText('先に設定を保存');
-    await expect(
-      page.getByTestId('credentials-robot').getByRole('button', { name: '認証情報を保存' }),
-    ).toBeDisabled();
+    await expect(page.getByTestId('equipment-credentials-unsaved')).toContainText('先に設備を保存');
+    await expect(page.getByTestId('equipment-credentials-save')).toBeDisabled();
   });
 
   test('API キーを選ぶと、ヘッダー名の入力を表示する（既定は X-API-Key）', async ({
@@ -380,12 +454,333 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
     request,
   }) => {
     await prepareApp(request);
-    await openIngestion(page);
+    await openEquipmentDialog(page);
 
     await authMethod(page).selectOption('API_KEY');
 
-    await expect(robot(page).getByLabel('API キーのヘッダー名')).toHaveValue('X-API-Key');
+    await expect(connection(page).getByLabel('API キーのヘッダー名')).toHaveValue('X-API-Key');
     await authMethod(page).selectOption('BEARER');
-    await expect(robot(page).getByLabel('API キーのヘッダー名')).toHaveCount(0);
+    await expect(connection(page).getByLabel('API キーのヘッダー名')).toHaveCount(0);
+  });
+});
+
+test.describe('コピー: 同じ種別の既存設備から、接続を写す（認証情報は写さない）', () => {
+  test('コピーできる設備がないときは、選べない旨を示す', async ({ page, request }) => {
+    await prepareApp(request);
+    await openEquipmentDialog(page);
+
+    await expect(page.getByTestId('equipment-connection-copy')).toBeDisabled();
+    await expect(page.getByTestId('equipment-connection-copy')).toContainText(
+      'コピーできる設備（同じ種別で、設備ごとの接続を持つ設備）がありません',
+    );
+  });
+
+  test('同じ種別（ロボット）で、設備ごとの接続を持つ設備だけを選べる。写すのは接続の項目だけで、認証情報は写さず、保存して、入力し直す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addSecondRobot(request);
+    // ROBOT-02 は、Basic 認証の接続と、認証情報（設定済み）を持つ。SENSOR-01 も、接続を持つ（種別が違うため、選べない）
+    await saveConnectionByApi(request, ROBOT_2_ID, 'BASIC');
+    await apiOk(request, 'PUT', `/ingestion/equipment/${ROBOT_2_ID}/credentials`, {
+      authMethod: 'BASIC',
+      username: DUMMY_USER,
+      password: DUMMY_PASSWORD,
+    });
+    await saveConnectionByApi(request, SENSOR_ID);
+    await openEquipmentDialog(page);
+    const copy = page.getByTestId('equipment-connection-copy');
+    await expect(copy).toBeEnabled();
+    await expect(copy.locator('option')).toHaveText([
+      '選択してください',
+      `${ROBOT_2_NAME}（${ROBOT_2_ID}）`,
+    ]);
+
+    await copy.selectOption(ROBOT_2_ID);
+
+    await expect(page.getByTestId('equipment-connection-copied')).toContainText(
+      `「${ROBOT_2_NAME}」の接続の内容を、入力欄に写しました（まだ保存していません）`,
+    );
+    await expect(page.getByTestId('equipment-connection-copied')).toContainText(
+      '認証情報は、写していません',
+    );
+    await expect(protocol(page)).toHaveValue('HTTP');
+    await expect(host(page)).toHaveValue('127.0.0.1');
+    await expect(portInput(page)).toHaveValue(String(port));
+    await expect(authMethod(page)).toHaveValue('BASIC');
+    // 保存するまで、接続テストは使えず、認証情報の入力もない（保存したあとに入力する）
+    await expect(testButton(page)).toBeDisabled();
+    await expect(credentialsBox(page)).toHaveCount(0);
+    await expect(page.getByTestId('equipment-connection-credentials-note')).toBeVisible();
+    await shot(page, testInfo, 'uc15-connection-copied');
+
+    await saveEquipment(page).click();
+    await expect(notice(page)).toHaveText('修正しました');
+
+    // 保存した接続は、写した内容。認証情報は、写していない（コピー元は、設定済みのまま）
+    await openEquipmentDialog(page);
+    await expect(host(page)).toHaveValue('127.0.0.1');
+    await expect(authMethod(page)).toHaveValue('BASIC');
+    await expect(credentialsStatus(page)).toContainText('未設定');
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
+      'data-origin',
+      'EQUIPMENT',
+    );
+    await expect(page.getByTestId(`equipment-credentials-${ROBOT_ID}`)).toHaveText('未設定');
+    await expect(page.getByTestId(`equipment-credentials-${ROBOT_2_ID}`)).toContainText('設定済み');
+  });
+});
+
+test.describe('解除: 設備ごとの接続を解除し、共通の接続・未設定に戻す', () => {
+  test('確認のうえ、設備ごとの接続を解除すると、未設定に戻る。取り消すと、解除しない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await saveConnectionByApi(request, ROBOT_ID);
+    await openEquipmentDialog(page);
+    await expect(host(page)).toHaveValue('127.0.0.1');
+
+    await page.getByTestId('equipment-connection-remove').click();
+    const confirm = page.getByTestId('equipment-connection-remove-confirm');
+    await expect(confirm).toContainText('接続先が設定されていません');
+    await shot(page, testInfo, 'uc15-connection-remove-confirm');
+    await confirm.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(host(page)).toHaveValue('127.0.0.1');
+
+    await page.getByTestId('equipment-connection-remove').click();
+    await page.getByTestId('equipment-connection-remove-yes').click();
+
+    await expect(connectionResult(page)).toHaveText('設備ごとの接続を解除しました');
+    await expect(unsetNote(page)).toBeVisible();
+    await expect(host(page)).toHaveValue('');
+    await expect(page.getByTestId('equipment-connection-remove')).toHaveCount(0);
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
+      'data-origin',
+      'NONE',
+    );
+    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText('未設定');
+  });
+});
+
+test.describe('共通の接続（移行期間）を使っている設備の注意', () => {
+  /** 取り込み元（ロボット）の共通の接続を、API で設定する（移行期間の既存の設定の再現）。 */
+  async function setSharedConnection(request: APIRequestContext): Promise<void> {
+    const current = await apiOk<{
+      sources: { sourceId: string; connectionRef: string; isEnabled: boolean }[];
+    }>(request, 'GET', '/ingestion/settings');
+    const robot = current.sources.find((source) => source.sourceId === 'robot');
+    if (robot === undefined) {
+      throw new Error('テストの前提: ロボットの取り込み元がある');
+    }
+    await apiOk(request, 'PUT', '/ingestion/settings', {
+      sources: [
+        {
+          sourceId: 'robot',
+          connectionRef: robot.connectionRef,
+          isEnabled: robot.isEnabled,
+          connection: {
+            type: 'HTTP',
+            protocol: 'HTTP',
+            host: '127.0.0.1',
+            port,
+            authMethod: 'NONE',
+          },
+        },
+      ],
+    });
+  }
+
+  test('取り込み設定・状況に、共通の接続を使っている設備があることと、設備ごとの出どころ（共通〔移行期間〕）を示す。使っていない取り込み元には、示さない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await setSharedConnection(request);
+
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion');
+
+    await expect(page.getByTestId('shared-connection-notice-robot')).toContainText(
+      '取り込み元の共通の接続を使っている設備があります',
+    );
+    await expect(page.getByTestId('shared-connection-notice-robot')).toContainText(
+      '共通の接続は、廃止予定です',
+    );
+    await expect(page.getByTestId('shared-connection-notice-environment-sensor')).toHaveCount(0);
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveAttribute(
+      'data-origin',
+      'SHARED',
+    );
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_ID}`)).toHaveText('共通（移行期間）');
+    await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
+      `http://127.0.0.1:${String(port)}`,
+    );
+    await expect(page.getByTestId(`equipment-origin-${SENSOR_ID}`)).toHaveText('未設定');
+  });
+
+  test('設備のダイアログに、共通の接続を使っている注意を示し、入力欄に共通の値を表示する。この設備の接続にして保存すると、設備ごとの接続になる。解除すると、共通の接続に戻る', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await setSharedConnection(request);
+    await openEquipmentDialog(page);
+
+    await expect(page.getByTestId('equipment-connection-shared')).toContainText(
+      '取り込み元の共通の接続を使っています',
+    );
+    await expect(page.getByTestId('equipment-connection-shared-note')).toContainText(
+      '入力欄には、いま使っている共通の接続の値を表示しています',
+    );
+    await expect(host(page)).toHaveValue('127.0.0.1');
+    await expect(portInput(page)).toHaveValue(String(port));
+    await expect(page.getByTestId('equipment-connection-remove')).toHaveCount(0);
+    await shot(page, testInfo, 'uc15-connection-shared');
+
+    await page.getByTestId('equipment-connection-adopt').click();
+    await expect(page.getByTestId('equipment-connection-result')).toContainText(
+      '保存すると、この設備だけの接続になります',
+    );
+    await saveEquipment(page).click();
+    await expect(notice(page)).toHaveText('修正しました');
+
+    await openEquipmentDialog(page);
+    await expect(page.getByTestId('equipment-connection-shared')).toHaveCount(0);
+    await expect(host(page)).toHaveValue('127.0.0.1');
+    // 設備ごとの接続を解除すると、共通の接続に戻る
+    await page.getByTestId('equipment-connection-remove').click();
+    await page.getByTestId('equipment-connection-remove-yes').click();
+    await expect(connectionResult(page)).toHaveText('設備ごとの接続を解除しました');
+    await expect(page.getByTestId('equipment-connection-shared')).toBeVisible();
+  });
+});
+
+test.describe('登録と同時の保存: ロボットを登録するときに、接続も保存する', () => {
+  async function openRegisterDialog(page: Page): Promise<void> {
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/equipment');
+    await page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
+    await expect(page.getByRole('form', { name: 'ロボット・環境センサーを登録' })).toBeVisible();
+  }
+
+  async function fillRobot(page: Page): Promise<void> {
+    const form = page.getByRole('form', { name: 'ロボット・環境センサーを登録' });
+    await form.getByLabel('種別').selectOption('ROBOT');
+    await form.getByLabel('親のハウス').selectOption(HOUSE_ID);
+    await form.getByLabel('設備ID').fill(ROBOT_2_ID);
+    await form.getByLabel('名称').fill(ROBOT_2_NAME);
+    await form.getByLabel('データ上の識別子').fill(ROBOT_EXTERNAL_ID.replace('01', '02'));
+    await form.getByLabel('ファイルパス').fill(FILE_PATH);
+  }
+
+  test('接続を入力して登録すると、設備と、設備ごとの接続の両方を保存する', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openRegisterDialog(page);
+    await fillRobot(page);
+    await expect(connection(page)).toBeVisible();
+    await expect(unsetNote(page)).toBeVisible();
+    await fillConnection(page);
+
+    await page.getByRole('button', { name: '登録する' }).click();
+
+    await expect(notice(page)).toHaveText('登録しました');
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-path-${ROBOT_2_ID}`)).toHaveText(FILE_PATH);
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_2_ID}`)).toHaveAttribute(
+      'data-origin',
+      'EQUIPMENT',
+    );
+    await expect(page.getByTestId(`equipment-target-${ROBOT_2_ID}`)).toHaveText(
+      `http://127.0.0.1:${String(port)}`,
+    );
+  });
+
+  test('設備は登録できて、接続の保存だけが失敗したときは、その旨を示す。やり直すと、設備を重ねて登録せず、接続を保存する', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openRegisterDialog(page);
+    await fillRobot(page);
+    await fillConnection(page);
+    // 接続の保存だけを、一度、失敗させる（保管先の障害の再現）
+    let failNext = true;
+    await page.route('**/api/v1/ingestion/equipment/*/connection', async (route) => {
+      if (failNext && route.request().method() === 'PUT') {
+        failNext = false;
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'SERVICE_UNAVAILABLE', message: '接続を保存できませんでした' },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.getByRole('button', { name: '登録する' }).click();
+
+    await expect(page.getByTestId('equipment-partial')).toContainText(
+      '設備は登録しました。取り込み元の接続は、保存できませんでした',
+    );
+    // 設備は、登録されている
+    const tree = await apiOk<{ facilities: { children: { equipmentId: string }[] }[] }>(
+      request,
+      'GET',
+      '/equipment',
+    );
+    expect(
+      tree.facilities.flatMap((facility) => facility.children).map((item) => item.equipmentId),
+    ).toContain(ROBOT_2_ID);
+
+    await page.getByRole('button', { name: '登録する' }).click();
+
+    await expect(notice(page)).toHaveText('登録しました');
+    const after = await apiOk<{ facilities: { children: { equipmentId: string }[] }[] }>(
+      request,
+      'GET',
+      '/equipment',
+    );
+    expect(
+      after.facilities
+        .flatMap((facility) => facility.children)
+        .filter((item) => item.equipmentId === ROBOT_2_ID),
+    ).toHaveLength(1);
+    await page.goto('/settings/ingestion');
+    await expect(page.getByTestId(`equipment-origin-${ROBOT_2_ID}`)).toHaveAttribute(
+      'data-origin',
+      'EQUIPMENT',
+    );
+  });
+});
+
+test.describe('SC-11 から、設備のダイアログへ（接続を設定・修正）', () => {
+  test('設備ごとの表の「接続を設定・修正」から、その設備のダイアログを開く。接続テストは、その設備だけ', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await setRobotFilePath(request, FILE_PATH);
+    await saveConnectionByApi(request, ROBOT_ID);
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion');
+
+    await expect(await testEquipmentConnection(page, ROBOT_ID)).toHaveText('接続できました');
+    expect(requests).toEqual([`HEAD ${FILE_PATH}`]);
+    await page.getByTestId(`equipment-configure-${ROBOT_ID}`).click();
+
+    await expect(page).toHaveURL(new RegExp(`/settings/equipment\\?edit=${ROBOT_ID}$`));
+    await expect(page.getByRole('dialog')).toHaveAccessibleName(/ロボット（ROBOT-01）を修正/);
+    await expect(host(page)).toHaveValue('127.0.0.1');
   });
 });

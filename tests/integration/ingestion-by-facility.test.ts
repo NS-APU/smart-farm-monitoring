@@ -32,6 +32,7 @@ function build(options: { files: Record<string, string>; listFails?: boolean }) 
   const { repositories } = createLocalRepositories();
   const fileSource: FileSourcePort = {
     testConnection: () => Promise.resolve(),
+    testEquipment: () => Promise.resolve(),
     listFiles: () =>
       options.listFails === true
         ? Promise.reject(new FileSourceUnavailableError('接続できません'))

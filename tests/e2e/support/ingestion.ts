@@ -1,4 +1,7 @@
-/** 取り込み設定・状況（SC-11。UC-15、UC-16）の画面操作の補助。 */
+/**
+ * 取り込み設定・状況（SC-11。UC-15、UC-16）の画面操作の補助。接続は、設備ごと（Issue #367。ADR-0026）。SC-11 は、取り込み元ごとのカードに、
+ * 設備ごとの表（接続先・出どころ・接続テストなど）を持つ。接続・認証情報の入力は、設備のダイアログ（SC-10。UC-15 の E2E）で行う。
+ */
 
 import { expect, type Locator, type Page } from '@playwright/test';
 
@@ -28,11 +31,17 @@ export async function runNow(page: Page, sourceId: SourceId): Promise<Locator> {
   return result;
 }
 
-/** 接続テストを実行し、結果の表示を待つ。 */
-export async function testConnection(page: Page, sourceId: SourceId): Promise<Locator> {
-  const card = sourceCard(page, sourceId);
-  await card.getByRole('button', { name: '接続テスト' }).click();
-  const result = page.getByTestId(`result-${sourceId}`);
+/** 設備ごとの表の行（`equipment-run-<設備 ID>`）。 */
+export const equipmentRow = (page: Page, equipmentId: string): Locator =>
+  page.getByTestId(`equipment-run-${equipmentId}`);
+
+/**
+ * 設備の接続テスト（SC-11 の設備ごとの表のボタン）を実行し、結果の表示を待つ。結果は設備ごとに残る（再び実行すると、置き換わる）ため、
+ * 続けて実行するときは、結果の文言で、置き換わるまで待つ。
+ */
+export async function testEquipmentConnection(page: Page, equipmentId: string): Promise<Locator> {
+  await page.getByTestId(`equipment-test-${equipmentId}`).click();
+  const result = page.getByTestId(`equipment-test-result-${equipmentId}`);
   await expect(result).toBeVisible();
   return result;
 }

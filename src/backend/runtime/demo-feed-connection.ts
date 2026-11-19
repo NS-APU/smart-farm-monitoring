@@ -2,6 +2,7 @@
  * デモの取り込みを、デモ用の HTTP 配信（Issue #344。ADR-0025）に向ける（`pnpm demo-data use-http-feed`・`seed --url`）。
  * - 接続先の URL（HTTP 配信の Function URL。SfmEvaluation の出力 `DemoFeedUrl`）を、取り込み元（ロボット・環境センサー）の
  *   接続設定（HTTP。認証なし）にする
+ * - デモの設備ごとの接続（Issue #367。ADR-0026）にも、同じ接続を保存する（取り込み元の共通の接続は、移行期間のため、残す）
  * - デモの設備（ロボット・環境センサー）に、取得するファイルのパス（`sourceFilePath`）を設定する（すでにあれば、そのまま）
  * 何度実行しても、同じ結果になる。接続先は、リポジトリに書かない（運用者が、環境変数・引数で渡す）。
  */
@@ -65,7 +66,7 @@ export interface DemoFeedApplied {
 
 /** デモの取り込みを、HTTP 配信に向ける。デモの設備がなければ、先に seed を実行するよう、エラーにする（何も変えない）。 */
 export async function applyDemoFeed(
-  container: Pick<Container, 'repositories' | 'ingestionSettings'>,
+  container: Pick<Container, 'repositories' | 'ingestionSettings' | 'equipmentConnections'>,
   connection: HttpFileServerConnection,
 ): Promise<DemoFeedApplied> {
   const found: { equipment: Equipment; path: string }[] = [];
@@ -84,6 +85,10 @@ export async function applyDemoFeed(
       await container.repositories.equipment.save({ ...equipment, sourceFilePath: path });
       configured += 1;
     }
+  }
+  // 設備ごとの接続（デモの設備。上書きするため、何度実行しても、同じ）
+  for (const { equipment } of found) {
+    await container.equipmentConnections.save(equipment.equipmentId, { ...connection });
   }
   const sources = await container.ingestionSettings.listSources();
   const targets = sources.filter((source) =>

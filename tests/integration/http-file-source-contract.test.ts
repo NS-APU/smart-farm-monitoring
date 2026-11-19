@@ -79,6 +79,7 @@ describeFileSourceContract('HTTP のファイルサーバー（手元の HTTP �
         },
       ],
     },
+    equipmentConnections: { list: () => Promise.resolve(new Map()) },
     equipment: { list: () => Promise.resolve(equipment) },
     secrets: createMemorySecretPort(),
     maxFileBytes: 1_000_000,

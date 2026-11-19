@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { findItemDefinition } from '@smart-farm/shared/constants/items';
 import { MIN_STALE_THRESHOLD_MINUTES } from '@smart-farm/shared/constants/status';
 import { AppError } from '@smart-farm/shared/errors';
-import type { EquipmentId } from '@smart-farm/shared/schemas/common';
+import { toEquipmentId, type EquipmentId } from '@smart-farm/shared/schemas/common';
 import {
   effectiveIntervalMinutes,
   staleThresholdMinutesOf,
@@ -37,6 +37,7 @@ import type { ClockPort } from '../ports/clock-port.ts';
 import {
   FileSourceFailure,
   FileSourceUnavailableError,
+  type FileListFailure,
   type FileMeta,
   type FileSourcePort,
 } from '../ports/file-source-port.ts';
@@ -54,6 +55,9 @@ import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
 import { listDeletedExternalIds } from '../equipment/deleted-external-ids.ts';
 import { isAutoIngestionTarget } from './auto-target.ts';
 import { sourceDisplayName, type IngestionSettings } from './ingestion-settings.ts';
+
+/** 設備ごとの失敗の通知に載せる設備の数（それを超えた分は、「ほか N 件」）。 */
+const FAILED_EQUIPMENT_SHOWN = 3;
 
 /** 通知に載せる設備の名前の数（それを超えた分は、「ほか N 件」）。 */
 const STOPPED_NAMES_SHOWN = 3;
@@ -95,6 +99,8 @@ export interface IngestionService {
   /** 取得間隔が来ている取り込み元を実行する（スケジューラ。JB-01）。 */
   runDueSources(): Promise<IngestionRunSummary[]>;
   testConnection(sourceId: string): Promise<ConnectionTestResult>;
+  /** 設備 1 つの接続テスト（その設備の接続・認証情報・ファイルのパス。Issue #367）。設備がなければ NOT_FOUND。 */
+  testEquipmentConnection(equipmentId: string): Promise<ConnectionTestResult>;
   /** 取り込み元が実行中か（二重実行の防止。画面で、実行中を示す）。 */
   isRunning(sourceId: string): boolean;
 }
@@ -116,9 +122,17 @@ export interface IngestionServiceDeps {
   readonly logger: Logger;
 }
 
-/** ファイル一覧の取得結果（再試行の回数つき）。 */
+/**
+ * ファイル一覧の取得結果（再試行の回数つき）。`failures` は、再試行しても、一覧を取得できなかった設備のファイル（Issue #367。ADR-0026）。
+ * 1 つの設備の接続の失敗は、ほかの設備のファイルを止めない。
+ */
 type Listing =
-  | { readonly ok: true; readonly files: readonly FileMeta[]; readonly attempts: number }
+  | {
+      readonly ok: true;
+      readonly files: readonly FileMeta[];
+      readonly failures: readonly FileListFailure[];
+      readonly attempts: number;
+    }
   | { readonly ok: false; readonly error: unknown; readonly attempts: number };
 
 /** ファイルを取り込めなかった理由（通知・ログの文言を決める）。利用者に見せるため、内部情報を含めない。 */
@@ -285,27 +299,73 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     paths: readonly string[] | undefined,
   ): Promise<Listing> {
     let lastError: unknown;
+    // 設備ごとの失敗は、失敗したファイルのパスだけを再試行する（取得できたファイルは、結果に保つ）
+    let files: FileMeta[] = [];
+    let pending: readonly string[] | undefined = paths;
+    let failures = new Map<string, FileSourceUnavailableError>();
+    let listedOnce = false;
     for (let attempt = 1; attempt <= settings.maxAttempts; attempt += 1) {
+      const collected = new Map<string, FileSourceUnavailableError>();
       try {
-        const files = await withTimeout(
-          () => fileSource.listFiles(sourceId, paths === undefined ? undefined : { paths }),
+        const listed = await withTimeout(
+          () =>
+            fileSource.listFiles(sourceId, {
+              ...(pending === undefined ? {} : { paths: pending }),
+              onFailure: ({ path, error }) => {
+                collected.set(path, error);
+              },
+            }),
           settings.ioTimeoutMs,
           'ファイルの一覧の取得',
         );
-        return { ok: true, files, attempts: attempt };
+        // 再試行したパスの結果は、前回の結果を置き換える
+        const retried = new Set(pending ?? []);
+        files = [...files.filter((file) => !retried.has(file.fileId)), ...listed].sort(
+          (left, right) =>
+            left.modifiedAt.getTime() - right.modifiedAt.getTime() ||
+            left.fileId.localeCompare(right.fileId),
+        );
+        listedOnce = true;
+        failures = collected;
+        if (collected.size === 0) {
+          return { ok: true, files, failures: [], attempts: attempt };
+        }
+        pending = [...collected.keys()];
+        logger.warn('一部のファイルの一覧を取得できませんでした', {
+          sourceId,
+          attempt,
+          failedCount: collected.size,
+        });
       } catch (error) {
         // 応答がない（タイムアウト）場合は、接続できなかったものとして扱い、再試行する
-        lastError =
+        const failure =
           error instanceof OperationTimeoutError
             ? new FileSourceUnavailableError('ファイルサーバーが応答しません', { cause: error })
             : error;
-        logger.warn('ファイルの一覧の取得に失敗しました', { sourceId, attempt });
-        if (attempt < settings.maxAttempts) {
-          await clock.sleep(settings.retryBaseDelayMs * 2 ** (attempt - 1));
+        if (listedOnce && pending !== undefined && failure instanceof FileSourceUnavailableError) {
+          // 一部の設備の再試行が、一覧そのものの失敗になった: 再試行したパスは、失敗のまま
+          failures = new Map(pending.map((path) => [path, failure]));
+        } else if (listedOnce) {
+          // 想定外のエラー（バグなど）は、取得できたファイルがあっても、全体の失敗として伝える
+          return { ok: false, error: failure, attempts: attempt };
+        } else {
+          lastError = failure;
         }
+        logger.warn('ファイルの一覧の取得に失敗しました', { sourceId, attempt });
+      }
+      if (attempt < settings.maxAttempts) {
+        await clock.sleep(settings.retryBaseDelayMs * 2 ** (attempt - 1));
       }
     }
-    return { ok: false, error: lastError, attempts: settings.maxAttempts };
+    if (!listedOnce) {
+      return { ok: false, error: lastError, attempts: settings.maxAttempts };
+    }
+    return {
+      ok: true,
+      files,
+      failures: [...failures].map(([path, error]) => ({ path, error })),
+      attempts: settings.maxAttempts,
+    };
   }
 
   function toObservations(
@@ -753,25 +813,83 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     members: readonly Equipment[],
     startedAt: Date,
     perEquipment: ReadonlyMap<EquipmentId, Tally> | undefined,
+    /** 接続・認証などで、ファイルの一覧を取得できなかった設備（Issue #367）。最終の実行は、失敗にする。 */
+    failedEquipmentIds: ReadonlySet<EquipmentId> = new Set(),
   ): Promise<void> {
     const finishedAt = clock.now();
     await repositories.ingestion.recordEquipmentRuns(
       members.map((member) => {
         const tally = perEquipment?.get(member.equipmentId);
+        const failed = perEquipment === undefined || failedEquipmentIds.has(member.equipmentId);
         return {
           equipmentId: member.equipmentId,
           startedAt,
           finishedAt,
-          result:
-            perEquipment === undefined
-              ? 'FAILURE'
-              : tally === undefined
-                ? 'SUCCESS'
-                : decideResult(tally),
-          dataIngested: tally !== undefined && tally.recordCount > 0,
+          result: failed ? 'FAILURE' : tally === undefined ? 'SUCCESS' : decideResult(tally),
+          dataIngested: !failed && tally !== undefined && tally.recordCount > 0,
         };
       }),
     );
+  }
+
+  /**
+   * 一覧を取得できなかったファイルの、設備ごとの失敗（設備 ID の順）。ファイルのパスの持ち主（設備）に、結びつける
+   * （同じパスを持つ設備は、すべて）。持ち主がいないパスは、含めない。
+   */
+  function failuresByEquipment(
+    failures: readonly FileListFailure[],
+    equipmentIndex: EquipmentIndex,
+  ): Map<EquipmentId, FileSourceUnavailableError> {
+    const byEquipment = new Map<EquipmentId, FileSourceUnavailableError>();
+    for (const failure of failures) {
+      for (const equipmentId of equipmentIndex.equipmentByFile.get(failure.path) ?? []) {
+        byEquipment.set(equipmentId, failure.error);
+      }
+    }
+    return new Map([...byEquipment].sort(([left], [right]) => left.localeCompare(right)));
+  }
+
+  /**
+   * 設備ごとの失敗のログを書く（Issue #367。設備ごとのログ。ADR-0016 の D-48）。理由は、固定の文言（接続先・パス・認証情報を含まない）。
+   * 設備の接続の失敗は、同じ取り込み元の、ほかの設備の取り込みを止めない。
+   */
+  async function writeEquipmentFailureLogs(
+    source: IngestionSource,
+    profile: FormatProfile,
+    startedAt: Date,
+    attempts: number,
+    failures: ReadonlyMap<EquipmentId, FileSourceUnavailableError>,
+    equipmentIndex: EquipmentIndex,
+  ): Promise<void> {
+    for (const [equipmentId, error] of failures) {
+      const facilityId = equipmentIndex.facilityOf.get(equipmentId);
+      await writeLog(source, profile, startedAt, {
+        equipmentId,
+        result: 'FAILURE',
+        filesProcessed: 0,
+        recordCount: 0,
+        rejectedCount: 0,
+        attempts,
+        errorMessage: error.message,
+        ...(facilityId === undefined
+          ? {}
+          : { facilities: [{ facilityId, result: 'FAILURE', recordCount: 0 }] }),
+      });
+    }
+  }
+
+  /** 設備ごとの失敗の通知の理由（設備の名前と、固定の理由。先頭の 3 件と、ほか N 件。接続先・パスを含めない）。 */
+  function equipmentFailureReason(
+    failures: ReadonlyMap<EquipmentId, FileSourceUnavailableError>,
+    equipmentIndex: EquipmentIndex,
+  ): string {
+    const names = new Map(equipmentIndex.members.map((item) => [item.equipmentId, item.name]));
+    const entries = [...failures].map(
+      ([equipmentId, error]) => `${names.get(equipmentId) ?? equipmentId}: ${error.message}`,
+    );
+    const shown = entries.slice(0, FAILED_EQUIPMENT_SHOWN).join('／');
+    const rest = entries.length - FAILED_EQUIPMENT_SHOWN;
+    return rest > 0 ? `${shown} ほか ${String(rest)} 件` : shown;
   }
 
   /** ファイルの一覧を取得できなかった場合: 失敗のログを書き、取り込み失敗を通知する（UC-24。FR-7.4）。 */
@@ -1026,12 +1144,24 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         ? fetched.flatMap((member) => member.sourceFilePath ?? [])
         : undefined;
 
-    const listing = await listFilesWithRetry(source.sourceId, paths);
+    const found = await listFilesWithRetry(source.sourceId, paths);
+    // 取得の対象のファイルが、すべて、設備ごとの失敗（接続の停止・認証の失敗・未設定）のときは、取り込み元全体の失敗として扱う
+    // （取り込み元の共通の接続の停止など。取り込み元ごとのログ・通知）。一部の設備だけの失敗は、その設備だけの失敗にする（Issue #367）
+    const failedPaths = new Set(found.ok ? found.failures.map((failure) => failure.path) : []);
+    const fetchedPaths = new Set(fetched.flatMap((member) => member.sourceFilePath ?? []));
+    const listing: Listing =
+      found.ok &&
+      found.files.length === 0 &&
+      fetchedPaths.size > 0 &&
+      [...fetchedPaths].every((path) => failedPaths.has(path))
+        ? { ok: false, error: found.failures[0]?.error, attempts: found.attempts }
+        : found;
     if (!listing.ok) {
       const failed = await handleListingFailure(source, profile, startedAt, listing);
       await recordEquipmentRuns(fetched, startedAt, undefined);
       return failed;
     }
+    const equipmentFailures = failuresByEquipment(listing.failures, equipmentIndex);
 
     const statusCodes = await loadStatusCodes();
 
@@ -1059,7 +1189,15 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     }
     const { failedFiles, firstFailureKind, affectedEquipmentIds, ...counts } =
       tallyOutcomes(outcomes);
-    const result = decideResult({ ...counts, failedFiles });
+    // 一部の設備の一覧を取得できなかったとき: ファイルを取り込めた（取り込み済みで、変わりのないものを含む）設備があれば一部成功、なければ失敗
+    // （decideResult は、ファイルが 0 件のとき成功にするため、設備ごとの失敗があるときは、別に判定する）
+    const hasHealthyFile = outcomes.some((outcome) => !outcome?.failed);
+    const result =
+      equipmentFailures.size === 0
+        ? decideResult({ ...counts, failedFiles })
+        : hasHealthyFile
+          ? 'PARTIAL'
+          : 'FAILURE';
     const summary: IngestionRunSummary = {
       sourceId: source.sourceId,
       result,
@@ -1068,8 +1206,25 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     };
     const attribution = attributeOutcomes(outcomes, equipmentIndex);
     // 設備ごとの最終の実行を、先に記録する（設備ごとのログは、設備の一覧〔最終の実行の項目〕から探すため。DynamoDB）
-    await recordEquipmentRuns(fetched, startedAt, attribution.perEquipment);
+    await recordEquipmentRuns(
+      fetched,
+      startedAt,
+      attribution.perEquipment,
+      new Set(equipmentFailures.keys()),
+    );
     await writeRunLogs(source, profile, startedAt, listing.attempts, attribution, equipmentIndex);
+    if (equipmentFailures.size > 0) {
+      // 設備ごとの失敗のログと、取り込み元ごとに 1 件の通知（重複は、通知の抑制の仕組みで避ける）
+      await writeEquipmentFailureLogs(
+        source,
+        profile,
+        startedAt,
+        listing.attempts,
+        equipmentFailures,
+        equipmentIndex,
+      );
+      await notifyFailureSafely(source, equipmentFailureReason(equipmentFailures, equipmentIndex));
+    }
     // ファイル単位の失敗（読み取り・形式違い・大きさ）は、設定で有効にした場合のみ通知する（FR-7.4。重複は抑制する。V-017）
     if (failedFiles > 0 && firstFailureKind !== undefined && settings.notifyFileFailures) {
       await notifyFailureSafely(source, FAILURE_REASONS[firstFailureKind]);
@@ -1126,6 +1281,21 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     return due.length === 0
       ? undefined
       : { dueEquipmentIds: new Set(due.map((item) => item.equipmentId)) };
+  }
+
+  /** 接続テストを、時間切れ・失敗の文言つきで実行する（取り込み元・設備で共通）。 */
+  async function runConnectionTest(test: () => Promise<void>): Promise<ConnectionTestResult> {
+    try {
+      await withTimeout(test, settings.ioTimeoutMs, 'ファイルサーバーへの接続テスト');
+      return { ok: true, message: '接続できました' };
+    } catch (error) {
+      // 理由が分かる失敗（FileSourceFailure）は、理由を示す（接続先・認証情報を含まない固定の文言）
+      const reason = error instanceof FileSourceFailure ? `（${error.message}）` : '';
+      return {
+        ok: false,
+        message: `接続できませんでした${reason}。接続先と認証情報の設定を確認してください`,
+      };
+    }
   }
 
   return {
@@ -1189,21 +1359,15 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
 
     async testConnection(sourceId) {
       await findSource(sourceId);
-      try {
-        await withTimeout(
-          () => fileSource.testConnection(sourceId),
-          settings.ioTimeoutMs,
-          'ファイルサーバーへの接続テスト',
-        );
-        return { ok: true, message: '接続できました' };
-      } catch (error) {
-        // 理由が分かる失敗（FileSourceFailure）は、理由を示す（接続先・認証情報を含まない固定の文言）
-        const reason = error instanceof FileSourceFailure ? `（${error.message}）` : '';
-        return {
-          ok: false,
-          message: `接続できませんでした${reason}。接続先と認証情報の設定を確認してください`,
-        };
+      return runConnectionTest(() => fileSource.testConnection(sourceId));
+    },
+
+    async testEquipmentConnection(equipmentId) {
+      const found = await repositories.equipment.get(toEquipmentId(equipmentId));
+      if (found === undefined || found.isDeleted) {
+        throw new AppError('NOT_FOUND', '設備が見つかりません');
       }
+      return runConnectionTest(() => fileSource.testEquipment(equipmentId));
     },
   };
 }

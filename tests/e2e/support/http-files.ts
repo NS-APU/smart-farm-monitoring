@@ -1,14 +1,17 @@
 /**
  * E2E の、HTTP のファイルサーバー（Issue #344。ADR-0025）の補助。取り込み（JB-01）の HTTP アダプタが接続する先を、テストのプロセスの中（127.0.0.1。空きポート。tests/support/http-file-server.ts）に立てる。
  * バックエンドは、別のプロセス（playwright.config.ts の webServer。`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`）で、そのサーバーに接続する。
- * - `prepareApp`・`prepare`（`/dev/reset`）は、取り込み元の接続を、未設定に戻す。そのため、このファイルの関数は、**呼ばれた時点で、前回の
- *   `prepare` のあとに設定していなければ**、サーバーを空（ファイルなし・停止なし）にし、取り込み元の接続を、このサーバー（HTTP・認証なし）にする
+ * - `prepareApp`・`prepare`（`/dev/reset`）は、設備ごとの接続を消す（設備も、デモの設備に戻る）。そのため、このファイルの関数は、**呼ばれた時点で、前回の
+ *   `prepare` のあとに設定していなければ**、サーバーを空（ファイルなし・停止なし）にする。取り込み元の共通の接続は、設定しない
+ * - 接続は、**設備ごと**（Issue #367。ADR-0026）: 設備のファイルのパスを設定するときに、その設備の接続（HTTP・127.0.0.1・このサーバーのポート・
+ *   認証なし）も、`PUT /ingestion/equipment/:id/connection` で保存する（`prepare` のたびに消えるため、設備ごとに、その回に保存したかを覚える）
  * - `placeFile`・`placeFixture`: ファイルを置き、**その種別（ロボット・センサー）の設備の `sourceFilePath` を、`/<取り込み元>/<名前>` にする**
  *   （API で設備を修正する）。HTTP は、**1 設備 = 1 ファイル**（ADR-0023）。同じ設備に、別の名前のファイルを置こうとすると、エラー
  *   （「1 つの取り込み元に複数のファイル」は、同じパスの上書き・別の設備〔`equipmentId`〕への配置に言い換える）
  * - `setFileServerMode`: 停止（DOWN。接続を切る）・遅延（SLOW）・拒否（REJECT。503）・復旧（UP）。停止などを指定したとき、ファイルのパスを持たない
  *   ロボット・センサーには、**仮のパス**を割り当てる（HTTP は、ファイルのパスを持つ設備だけが、取得の対象。
- *   仮のパスは、あとで `placeFile` が、本来のパスに付け替える）
+ *   仮のパスは、あとで `placeFile` が、本来のパスに付け替える）。ファイルのパスを持つ設備は、すべて、このサーバーに接続する
+ * - `saveEquipmentConnection`: 設備の接続を、任意のサーバー（ポート）に向けて保存する（別のサーバーに接続する設備の用意）
  * 置くのは、合成データだけ。ワーカーは 1 つ（playwright.config.ts）のため、サーバーは、ワーカーごとに 1 つ。
  */
 
@@ -58,33 +61,52 @@ const isPlaceholderPath = (sourceId: FileSourceId, path: string): boolean =>
 
 let serverPromise: Promise<HttpFileServer> | undefined;
 let configuredEpoch = -1;
+/** 設備ごとの接続（このサーバー）を、保存した回（`prepare` の回数）。`prepare` で、設備ごとの接続は消えるため、回が変われば、保存し直す。 */
+const connectedEpoch = new Map<string, number>();
 
-/** テスト用サーバー（なければ、立てる）。前回の `prepare` のあとに、設定していなければ、空にして、取り込み元の接続をこのサーバーにする。 */
-async function ensure(request: APIRequestContext): Promise<HttpFileServer> {
+/** テスト用サーバー（なければ、立てる）。前回の `prepare` のあとに、設定していなければ、空にする。 */
+async function ensure(): Promise<HttpFileServer> {
   serverPromise ??= startHttpFileServer();
   const server = await serverPromise;
   if (configuredEpoch !== preparedEpoch()) {
     server.reset();
-    const current = await apiOk<{
-      sources: { sourceId: string; connectionRef: string; isEnabled: boolean }[];
-    }>(request, 'GET', '/ingestion/settings');
-    await apiOk(request, 'PUT', '/ingestion/settings', {
-      sources: current.sources.map((source) => ({
-        sourceId: source.sourceId,
-        connectionRef: source.connectionRef,
-        isEnabled: source.isEnabled,
-        connection: {
-          type: 'HTTP',
-          protocol: 'HTTP',
-          host: '127.0.0.1',
-          port: server.port,
-          authMethod: 'NONE',
-        },
-      })),
-    });
     configuredEpoch = preparedEpoch();
   }
   return server;
+}
+
+/** 設備の接続（HTTP・127.0.0.1・指定のポート・認証なし）を、API で保存する。別のサーバーに向ける設備の用意にも使う。 */
+export async function saveEquipmentConnection(
+  request: APIRequestContext,
+  equipmentId: string,
+  port: number,
+): Promise<void> {
+  await apiOk(request, 'PUT', `/ingestion/equipment/${equipmentId}/connection`, {
+    connection: { type: 'HTTP', protocol: 'HTTP', host: '127.0.0.1', port, authMethod: 'NONE' },
+  });
+  // 明示した接続は、補助が、テスト用サーバーに上書きしない
+  connectedEpoch.set(equipmentId, preparedEpoch());
+}
+
+/** 設備の接続を、API で削除する（補助は、その設備の接続を、保存し直さない）。 */
+export async function removeEquipmentConnection(
+  request: APIRequestContext,
+  equipmentId: string,
+): Promise<void> {
+  await apiOk(request, 'DELETE', `/ingestion/equipment/${equipmentId}/connection`);
+  connectedEpoch.set(equipmentId, preparedEpoch());
+}
+
+/** 設備の接続を、テスト用サーバーにする（前回の `prepare` のあとに、保存していなければ）。 */
+async function connectToServer(
+  request: APIRequestContext,
+  server: HttpFileServer,
+  equipmentId: string,
+): Promise<void> {
+  if (connectedEpoch.get(equipmentId) === preparedEpoch()) {
+    return;
+  }
+  await saveEquipmentConnection(request, equipmentId, server.port);
 }
 
 async function equipmentList(request: APIRequestContext): Promise<EquipmentItem[]> {
@@ -123,7 +145,7 @@ export async function placeFile(
   content: string,
   options: PlaceOptions = {},
 ): Promise<void> {
-  const server = await ensure(request);
+  const server = await ensure();
   const path = `/${sourceId}/${name}`;
   const type = EQUIPMENT_TYPE_OF[sourceId];
   const [equipment] = (await equipmentList(request))
@@ -151,6 +173,8 @@ export async function placeFile(
   if (equipment.sourceFilePath !== path) {
     await assignFilePath(request, equipment.equipmentId, path);
   }
+  // 取得には、設備ごとの接続が要る（Issue #367）
+  await connectToServer(request, server, equipment.equipmentId);
   server.put(path, content, {
     modifiedAt: options.modifiedAt,
     omitLastModified: options.omitLastModified,
@@ -173,13 +197,19 @@ export function placeFixture(
  * 自動取り込みの対象（ファイルのパスを持つ設備。ADR-0023）にして、データの鮮度・停止の判定などを、自動取り込みの運用として確かめる。
  */
 export async function assignPlaceholderPaths(request: APIRequestContext): Promise<void> {
+  const server = await ensure();
   for (const item of await equipmentList(request)) {
     const sourceId = (Object.keys(EQUIPMENT_TYPE_OF) as FileSourceId[]).find(
       (candidate) => EQUIPMENT_TYPE_OF[candidate] === item.equipmentType,
     );
-    if (sourceId !== undefined && item.sourceFilePath === undefined) {
+    if (sourceId === undefined) {
+      continue;
+    }
+    if (item.sourceFilePath === undefined) {
       await assignFilePath(request, item.equipmentId, placeholderPath(sourceId, item.equipmentId));
     }
+    // ファイルのパスを持つ設備は、すべて、このサーバーに接続する（設備ごとの接続。Issue #367）
+    await connectToServer(request, server, item.equipmentId);
   }
 }
 
@@ -189,7 +219,7 @@ export async function setFileServerMode(
   mode: 'UP' | 'DOWN' | 'SLOW' | 'REJECT',
   delayMs?: number,
 ): Promise<void> {
-  const server = await ensure(request);
+  const server = await ensure();
   if (mode !== 'UP') {
     // 停止などを効かせるため、取得の対象にする
     await assignPlaceholderPaths(request);
@@ -198,8 +228,6 @@ export async function setFileServerMode(
 }
 
 /** ファイルサーバーが受け取ったリクエスト（`HEAD`・`GET`。停止中のものも含む）。 */
-export async function fileServerRequests(
-  request: APIRequestContext,
-): Promise<readonly { method: string; path: string }[]> {
-  return (await ensure(request)).requests;
+export async function fileServerRequests(): Promise<readonly { method: string; path: string }[]> {
+  return (await ensure()).requests;
 }

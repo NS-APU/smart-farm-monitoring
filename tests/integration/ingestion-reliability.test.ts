@@ -96,6 +96,7 @@ async function build(
 function stubSource(overrides: Partial<FileSource> = {}): FileSource {
   return {
     testConnection: () => Promise.resolve(),
+    testEquipment: () => Promise.resolve(),
     listFiles: () => Promise.resolve([metaOf('robot.json')]),
     readFile: () => Promise.resolve(ROBOT_FILE),
     ...overrides,

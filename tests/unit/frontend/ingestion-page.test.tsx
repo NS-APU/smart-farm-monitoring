@@ -11,6 +11,15 @@ import {
   at,
 } from '../../support/management-frontend.ts';
 
+const EQUIPMENT_CONNECTION = {
+  type: 'HTTP',
+  protocol: 'HTTPS',
+  host: 'fileserver.example.ac.jp',
+  port: 8443,
+  authMethod: 'BASIC',
+  apiKeyHeaderName: 'X-API-Key',
+};
+
 function source(overrides: Record<string, unknown> = {}) {
   return {
     sourceId: 'robot',
@@ -25,6 +34,10 @@ function source(overrides: Record<string, unknown> = {}) {
       {
         equipmentId: 'ROBOT-1',
         name: '収穫ロボット1',
+        sourceFilePath: '/data/robot-1.json',
+        connection: EQUIPMENT_CONNECTION,
+        connectionOrigin: 'EQUIPMENT',
+        credentials: { state: 'CONFIGURED', updatedAt: '2026-10-09T03:00:00.000Z' },
         lastStartedAt: '2026-10-09T02:00:00.000Z',
         lastResult: 'FAILURE',
         lastSuccessAt: '2026-10-09T01:00:00.000Z',
@@ -142,15 +155,22 @@ function card(sourceId: string): HTMLElement {
 }
 
 describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
-  it('取り込み元ごとに、設定（接続先の参照名・有効）と、解釈に使う仕様の版・状態、最終の実行・成功を表示する', async () => {
+  it('取り込み元ごとに、有効の設定と、解釈に使う仕様の版・状態、最終の実行を表示する。共通の接続の入力（接続先の参照名・接続設定・認証情報・接続テスト）と、最終の成功は、ない（#367）', async () => {
     renderApp('/settings/ingestion', baseRoutes());
 
     const robot = await screen.findByTestId('source-robot');
     expect(within(robot).getByRole('heading', { name: 'ロボットデータ' })).toBeDefined();
     expect(robot.textContent).toContain('v0.1（仮決め）');
-    expect(within(robot).getByLabelText<HTMLInputElement>('接続先', { exact: false }).value).toBe(
-      'file-server-main',
-    );
+    // 取り込み元の共通の接続の入力は、ない（接続は、設備ごとに、設備のダイアログで設定する）
+    expect(within(robot).queryByLabelText('接続先', { exact: false })).toBeNull();
+    expect(within(robot).queryByLabelText('プロトコル', { exact: false })).toBeNull();
+    expect(within(robot).queryByLabelText('ホスト', { exact: false })).toBeNull();
+    expect(within(robot).queryByLabelText('ポート', { exact: false })).toBeNull();
+    expect(within(robot).queryByLabelText('認証方式', { exact: false })).toBeNull();
+    expect(within(robot).queryByLabelText('パスワード', { exact: false })).toBeNull();
+    expect(within(robot).queryByRole('button', { name: '認証情報を保存' })).toBeNull();
+    expect(screen.queryByTestId('last-success-robot')).toBeNull();
+    expect(robot.textContent).not.toContain('最終の成功');
     // 取得間隔は、設備ごとの設定（設備管理。Issue #197）。この画面には、入力欄を出さず、案内を示す
     expect(within(robot).queryByLabelText('取得間隔', { exact: false })).toBeNull();
     expect(screen.getByTestId('interval-moved-robot').textContent).toBe(
@@ -162,9 +182,6 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     const sensor = card('environment-sensor');
     expect(sensor.textContent).toContain('v1.0（確定）');
     expect(screen.getByTestId('last-started-environment-sensor').textContent).toBe(
-      'まだ実行していません',
-    );
-    expect(screen.getByTestId('last-success-environment-sensor').textContent).toBe(
       'まだ実行していません',
     );
     expect(within(sensor).getByRole<HTMLInputElement>('checkbox').checked).toBe(false);
@@ -329,24 +346,23 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(calls.filter((call) => call.path === '/federation/logs')).toEqual([]);
   });
 
-  it('閲覧の権限だけがあれば、参照のみ（入力欄は変更できず、保存・接続テスト・即時取得の操作を表示しない）', async () => {
+  it('閲覧の権限だけがあれば、参照のみ（自動取り込みは変更できず、保存・接続テスト・即時取得の操作を表示しない）', async () => {
     renderApp('/settings/ingestion', baseRoutes(), { login: loginWith(['ingestion:read']) });
     const robot = await screen.findByTestId('source-robot');
     expect(screen.getByTestId('permission-notice').textContent).toContain('権限がありません');
-    expect(
-      within(robot).getByLabelText<HTMLInputElement>('接続先', { exact: false }).readOnly,
-    ).toBe(true);
+    expect(within(robot).getByRole<HTMLInputElement>('checkbox').disabled).toBe(true);
     expect(within(robot).queryByRole('button', { name: '設定を保存' })).toBeNull();
     expect(within(robot).queryByRole('button', { name: '即時取得' })).toBeNull();
+    expect(within(robot).queryByRole('button', { name: /接続テスト/ })).toBeNull();
   });
 
-  it('設定の権限だけがある場合は、保存だけできる。実行の権限だけがある場合は、接続テスト・即時取得だけできる', async () => {
+  it('設定の権限だけがある場合は、保存だけできる。実行の権限だけがある場合は、設備ごとの接続テスト・即時取得だけできる', async () => {
     const view = renderApp('/settings/ingestion', baseRoutes(), {
       login: loginWith(['ingestion:read', 'ingestion:configure']),
     });
     const robot = await screen.findByTestId('source-robot');
     expect(within(robot).getByRole('button', { name: '設定を保存' })).toBeDefined();
-    expect(within(robot).queryByRole('button', { name: '接続テスト' })).toBeNull();
+    expect(within(robot).queryByRole('button', { name: /接続テスト/ })).toBeNull();
     view.unmount();
 
     renderApp('/settings/ingestion', baseRoutes(), {
@@ -354,34 +370,19 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     });
     const robotRun = await screen.findByTestId('source-robot');
     expect(within(robotRun).queryByRole('button', { name: '設定を保存' })).toBeNull();
-    expect(within(robotRun).getByRole('button', { name: '接続テスト' })).toBeDefined();
+    expect(
+      within(robotRun).getByRole('button', { name: '収穫ロボット1の接続テスト' }),
+    ).toBeDefined();
     expect(within(robotRun).getByRole('button', { name: '即時取得' })).toBeDefined();
   });
 
-  it('設定の保存: 接続先の参照名・有効を送る（取得間隔は、送らない）。不正な参照名は、保存しない', async () => {
+  it('設定の保存: 自動取り込みの有効／無効を送る。接続先の参照名は、現在の値をそのまま送り（入力欄はない）、接続・取得間隔は送らない（#367）', async () => {
     const { calls } = renderApp(
       '/settings/ingestion',
       baseRoutes({ 'PUT /ingestion/settings': () => jsonResponse(SETTINGS) }),
     );
     const robot = await screen.findByTestId('source-robot');
 
-    fireEvent.change(within(robot).getByLabelText('接続先', { exact: false }), {
-      target: { value: '' },
-    });
-    fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
-    expect(await within(robot).findByText('接続先の参照名を入力してください')).toBeDefined();
-    fireEvent.change(within(robot).getByLabelText('接続先', { exact: false }), {
-      target: { value: 'bad name!' },
-    });
-    fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
-    expect(
-      await within(robot).findByText('接続先の参照名は英数字・記号（_ . -）のみ使えます'),
-    ).toBeDefined();
-    expect(callsOf(calls, 'PUT', '/ingestion/settings')).toHaveLength(0);
-
-    fireEvent.change(within(robot).getByLabelText('接続先', { exact: false }), {
-      target: { value: 'file-server-sub' },
-    });
     fireEvent.click(within(robot).getByRole('checkbox'));
     fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
 
@@ -390,14 +391,14 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       sources: [
         {
           sourceId: 'robot',
-          connectionRef: 'file-server-sub',
+          connectionRef: 'file-server-main',
           isEnabled: false,
         },
       ],
     });
   });
 
-  it('設定の保存で、サーバーが項目ごとのエラーを返したら、その項目に表示する', async () => {
+  it('設定の保存で、サーバーがエラーを返したら、画面に表示する', async () => {
     renderApp(
       '/settings/ingestion',
       baseRoutes({
@@ -409,7 +410,19 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     );
     const robot = await screen.findByTestId('source-robot');
     fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
-    expect(await within(robot).findByText('接続先の参照名を確認してください')).toBeDefined();
+    expect((await within(robot).findByRole('alert')).textContent).toBe(
+      '入力内容を確認してください',
+    );
+  });
+
+  it('自動取り込みを有効にする欄の近くに、外した影響（手動の運用になる・ダッシュボードの「データが古い」の警告が出なくなる）を説明する（SC-11-9）', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+    const robot = await screen.findByTestId('source-robot');
+
+    const impact = within(robot).getByTestId('enabled-impact-robot');
+    expect(impact.textContent).toContain('手動の運用');
+    expect(impact.textContent).toContain('「データが古い」の警告も出なくなります');
+    expect(within(robot).getByRole('checkbox').getAttribute('aria-describedby')).toBe(impact.id);
   });
 
   it('即時取得: 削除済みの設備のレコードがあれば、「削除済みの設備の記録 N 件」を、読み取れなかった記録と別に示す（0 件のときは示さない。Issue #231）', async () => {
@@ -437,12 +450,12 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     );
   });
 
-  it('接続テスト: 結果のメッセージを示す（成功は成功の表示、失敗は失敗の表示）', async () => {
+  it('設備ごとの接続テスト: その設備の API（/ingestion/equipment/{設備 ID}/test）を呼び、結果のメッセージを、その設備の行に示す（成功は成功の表示、失敗は失敗の表示）', async () => {
     let ok = true;
-    renderApp(
+    const { calls } = renderApp(
       '/settings/ingestion',
       baseRoutes({
-        'POST /ingestion/robot/test': () =>
+        'POST /ingestion/equipment/ROBOT-1/test': () =>
           jsonResponse(
             ok
               ? { ok: true, message: '接続できました' }
@@ -452,29 +465,34 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     );
     const robot = await screen.findByTestId('source-robot');
 
-    fireEvent.click(within(robot).getByRole('button', { name: '接続テスト' }));
-    const success = await screen.findByTestId('result-robot');
+    fireEvent.click(within(robot).getByRole('button', { name: '収穫ロボット1の接続テスト' }));
+    const success = await screen.findByTestId('equipment-test-result-ROBOT-1');
     expect(success.textContent).toBe('接続できました');
     expect(success.className).toContain('form-success');
+    expect(callsOf(calls, 'POST', '/ingestion/equipment/ROBOT-1/test')).toHaveLength(1);
+    // ほかの設備の行には、結果を出さない
+    expect(screen.queryByTestId('equipment-test-result-ROBOT-2')).toBeNull();
 
     ok = false;
-    fireEvent.click(within(robot).getByRole('button', { name: '接続テスト' }));
+    fireEvent.click(within(robot).getByRole('button', { name: '収穫ロボット1の接続テスト' }));
     await waitFor(() => {
-      expect(screen.getByTestId('result-robot').textContent).toBe('接続できませんでした');
+      expect(screen.getByTestId('equipment-test-result-ROBOT-1').textContent).toBe(
+        '接続できませんでした',
+      );
     });
-    expect(screen.getByTestId('result-robot').className).toContain('form-error');
+    expect(screen.getByTestId('equipment-test-result-ROBOT-1').className).toContain('form-error');
   });
 
-  it('接続テストに失敗した場合（API のエラー）は、エラーを表示する', async () => {
+  it('設備ごとの接続テストに失敗した場合（API のエラー）は、エラーを表示する', async () => {
     renderApp(
       '/settings/ingestion',
       baseRoutes({
-        'POST /ingestion/robot/test': () =>
+        'POST /ingestion/equipment/ROBOT-1/test': () =>
           errorBody(500, 'INTERNAL_ERROR', 'テストできませんでした'),
       }),
     );
     const robot = await screen.findByTestId('source-robot');
-    fireEvent.click(within(robot).getByRole('button', { name: '接続テスト' }));
+    fireEvent.click(within(robot).getByRole('button', { name: '収穫ロボット1の接続テスト' }));
     expect((await within(robot).findByRole('alert')).textContent).toBe('テストできませんでした');
   });
 
@@ -536,18 +554,18 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       '/settings/ingestion',
       baseRoutes({
         'POST /ingestion/robot/run': () => pending,
-        'POST /ingestion/robot/test': () => pending,
+        'POST /ingestion/equipment/ROBOT-1/test': () => pending,
         'PUT /ingestion/settings': () => pending,
       }),
     );
     const robot = await screen.findByTestId('source-robot');
 
-    // 即時取得の実行中: 接続テストのボタンに「接続テスト中」と出さない
+    // 即時取得の実行中: 設備の接続テストのボタンに「接続テスト中」と出さない
     fireEvent.click(within(robot).getByRole('button', { name: '即時取得' }));
     await waitFor(() => {
       expect(buttonOf(robot, '取得中…').disabled).toBe(true);
     });
-    expect(buttonOf(robot, '接続テスト').disabled).toBe(true);
+    expect(buttonOf(robot, '収穫ロボット1の接続テスト').disabled).toBe(true);
     expect(buttonOf(robot, '設定を保存').disabled).toBe(true);
     finish(
       jsonResponse({
@@ -562,7 +580,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     await screen.findByTestId('result-robot');
   });
 
-  it('接続テストの実行中は、接続テストのボタンだけに「接続テスト中」と出す。設定の保存の実行中は、どのボタンにも出さない', async () => {
+  it('設備の接続テストの実行中は、その設備のボタンだけに「接続テスト中」と出し、ほかの操作を止める。設定の保存の実行中は、どのボタンにも出さない', async () => {
     let finishTest: (response: Response) => void = () => undefined;
     const pendingTest = new Promise<Response>((resolve) => {
       finishTest = resolve;
@@ -574,28 +592,31 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     renderApp(
       '/settings/ingestion',
       baseRoutes({
-        'POST /ingestion/robot/test': () => pendingTest,
+        'POST /ingestion/equipment/ROBOT-1/test': () => pendingTest,
         'PUT /ingestion/settings': () => pendingSave,
       }),
     );
     const robot = await screen.findByTestId('source-robot');
 
-    fireEvent.click(within(robot).getByRole('button', { name: '接続テスト' }));
+    fireEvent.click(within(robot).getByRole('button', { name: '収穫ロボット1の接続テスト' }));
     await waitFor(() => {
-      expect(buttonOf(robot, '接続テスト中…').disabled).toBe(true);
+      expect(within(robot).getByTestId('equipment-test-ROBOT-1').textContent).toBe('接続テスト中…');
     });
+    expect(buttonOf(robot, '収穫ロボット1の接続テスト').disabled).toBe(true);
+    // ほかの設備のボタンには、実行中の表示を出さない（操作は止める）
+    expect(within(robot).getByTestId('equipment-test-ROBOT-2').textContent).toBe('接続テスト');
     expect(buttonOf(robot, '即時取得').disabled).toBe(true);
     finishTest(jsonResponse({ ok: true, message: '接続できました' }));
-    await screen.findByTestId('result-robot');
+    await screen.findByTestId('equipment-test-result-ROBOT-1');
 
     fireEvent.click(within(robot).getByRole('button', { name: '設定を保存' }));
     await waitFor(() => {
-      expect(buttonOf(robot, '接続テスト').disabled).toBe(true);
+      expect(buttonOf(robot, '収穫ロボット1の接続テスト').disabled).toBe(true);
     });
-    expect(within(robot).queryByRole('button', { name: '接続テスト中…' })).toBeNull();
+    expect(within(robot).queryByText('接続テスト中…')).toBeNull();
     finishSave(jsonResponse(SETTINGS));
     await waitFor(() => {
-      expect(buttonOf(robot, '接続テスト').disabled).toBe(false);
+      expect(buttonOf(robot, '収穫ロボット1の接続テスト').disabled).toBe(false);
     });
   });
 
@@ -746,5 +767,293 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
       expect(texts.some((text) => text.includes('ログを取得できません'))).toBe(true);
       expect(texts.some((text) => text.includes('連携を取得できません'))).toBe(true);
     });
+  });
+});
+
+/** 取り込み元ごとの設備の状況（設備ごとの接続・停止中の判定の確認用）。 */
+function equipmentStatus(overrides: Record<string, unknown> = {}) {
+  return {
+    equipmentId: 'ROBOT-01',
+    name: '収穫ロボット1',
+    sourceFilePath: '/data/robot-01.json',
+    connection: EQUIPMENT_CONNECTION,
+    connectionOrigin: 'EQUIPMENT',
+    // 停止中の基準（分）は、サーバーが、設備の取得間隔 × 倍数（最低 3 分）で計算して返す。ロボットの既定（1 分 × 3）は、最低の 3 分
+    staleThresholdMinutes: 3,
+    credentials: { state: 'CONFIGURED', updatedAt: '2026-10-09T03:00:00.000Z' },
+    lastStartedAt: null,
+    lastResult: null,
+    lastSuccessAt: null,
+    lastDataAt: null,
+    ...overrides,
+  };
+}
+
+/** 現在から、指定の分だけ前の日時（ISO）。 */
+function minutesAgo(minutes: number): string {
+  return new Date(Date.now() - minutes * 60_000).toISOString();
+}
+
+function settingsRoutes(
+  equipment: readonly unknown[],
+  sourceOverrides: Record<string, unknown> = {},
+  extra: Routes = {},
+): Routes {
+  return baseRoutes({
+    'GET /ingestion/settings': () =>
+      jsonResponse({ sources: [source({ equipment, ...sourceOverrides })] }),
+    ...extra,
+  });
+}
+
+describe('SC-11: 設備ごとの接続と状況の表（Issue #367。ADR-0026）', () => {
+  it('取り込み元ごとに、設備ごとの表を示す: 設備名・ファイルのパス・接続先・接続の出どころ・認証情報の状態・最終の実行・結果・最後にデータが取れた日時', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+
+    const robot1 = await screen.findByTestId('equipment-run-ROBOT-1');
+    const table = within(screen.getByTestId('source-robot')).getByRole('table', {
+      name: 'ロボットデータの設備ごとの接続と状況',
+    });
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual([
+      '設備',
+      'ファイルのパス',
+      '接続先（出どころ）',
+      '認証情報',
+      '最終の実行（結果）',
+      '最後にデータが取れた日時',
+      '操作',
+    ]);
+    expect(within(robot1).getByText('収穫ロボット1')).toBeDefined();
+    expect(within(robot1).getByTestId('equipment-path-ROBOT-1').textContent).toBe(
+      '/data/robot-1.json',
+    );
+    // 接続先: 表示用の URL（クエリ・認証情報を含まない。既定のポートは省略する）
+    expect(within(robot1).getByTestId('equipment-target-ROBOT-1').textContent).toBe(
+      'https://fileserver.example.ac.jp:8443',
+    );
+    expect(within(robot1).getByTestId('equipment-origin-ROBOT-1').textContent).toBe('設備ごと');
+    expect(within(robot1).getByTestId('equipment-credentials-ROBOT-1').textContent).toContain(
+      '設定済み',
+    );
+    expect(within(robot1).getByTestId('equipment-credentials-ROBOT-1').textContent).toContain(
+      '2026/10/09 12:00:00',
+    );
+    expect(within(robot1).getByTestId('equipment-result-ROBOT-1').textContent).toBe('失敗');
+    expect(within(robot1).getByTestId('equipment-data-ROBOT-1').textContent).toBe(
+      '2026/10/09 09:30:00',
+    );
+    // 表の各セルは、項目名（data-label）を持つ（狭い画面で、カードにするため）
+    expect(
+      [...robot1.querySelectorAll('td')].every((cell) => cell.getAttribute('data-label') !== null),
+    ).toBe(true);
+  });
+
+  it('接続が未設定の設備は、接続先を「未設定」、出どころを「未設定」と示す。ファイルのパスがない設備には、「ファイルのパスを設定すると、取り込みの対象になる」の案内を示す', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+
+    const robot2 = await screen.findByTestId('equipment-run-ROBOT-2');
+
+    expect(within(robot2).getByTestId('equipment-target-ROBOT-2').textContent).toBe('未設定');
+    expect(within(robot2).getByTestId('equipment-origin-ROBOT-2').textContent).toBe('未設定');
+    expect(within(robot2).getByTestId('equipment-nopath-ROBOT-2').textContent).toContain(
+      'ファイルのパスを設定すると、取り込みの対象になります',
+    );
+    expect(within(robot2).getByTestId('equipment-credentials-ROBOT-2').textContent).toBe('不要');
+    // 設備がない取り込み元には、表の代わりに、その旨を示す
+    expect(screen.getByTestId('equipment-empty-custom-source').textContent).toContain(
+      '設備（ロボット・環境センサー）が登録されていません',
+    );
+  });
+
+  it('接続の出どころ（設備ごと／共通〔移行期間〕／未設定）を示す。共通の接続を使う設備があるときだけ、取り込み元に、設備ごとの接続の設定を促す注意を示す', async () => {
+    renderApp(
+      '/settings/ingestion',
+      settingsRoutes([
+        equipmentStatus({ equipmentId: 'ROBOT-A', name: 'ロボットA' }),
+        equipmentStatus({
+          equipmentId: 'ROBOT-B',
+          name: 'ロボットB',
+          connectionOrigin: 'SHARED',
+          credentials: { state: 'NOT_CONFIGURED' },
+        }),
+        equipmentStatus({
+          equipmentId: 'ROBOT-C',
+          name: 'ロボットC',
+          connection: undefined,
+          connectionOrigin: 'NONE',
+          credentials: { state: 'NOT_REQUIRED' },
+        }),
+      ]),
+    );
+
+    await screen.findByTestId('equipment-run-ROBOT-A');
+
+    expect(screen.getByTestId('equipment-origin-ROBOT-A').textContent).toBe('設備ごと');
+    expect(screen.getByTestId('equipment-origin-ROBOT-B').textContent).toBe('共通（移行期間）');
+    expect(screen.getByTestId('equipment-origin-ROBOT-C').textContent).toBe('未設定');
+    expect(screen.getByTestId('equipment-credentials-ROBOT-B').textContent).toBe('未設定');
+    expect(screen.getByTestId('shared-connection-notice-robot').textContent).toContain(
+      '設備ごとの接続を設定してください（共通の接続は、廃止予定です）',
+    );
+  });
+
+  it('共通の接続を使う設備がなければ、注意を示さない', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+    await screen.findByTestId('source-robot');
+
+    expect(screen.queryByTestId('shared-connection-notice-robot')).toBeNull();
+  });
+
+  it('停止中: 最後にデータが取れてから、サーバーが返す設備の基準（staleThresholdMinutes）を超えた設備に「停止中」を示す', async () => {
+    renderApp(
+      '/settings/ingestion',
+      settingsRoutes([
+        // 基準（3 分）を超えた
+        equipmentStatus({ equipmentId: 'ROBOT-OLD', name: '古い', lastDataAt: minutesAgo(10) }),
+        // 基準以内
+        equipmentStatus({ equipmentId: 'ROBOT-NEW', name: '新しい', lastDataAt: minutesAgo(1) }),
+        // まだ 1 件もデータがない（判定しない）
+        equipmentStatus({ equipmentId: 'ROBOT-NONE', name: 'なし', lastDataAt: null }),
+        // ファイルのパスを持たない（取り込みの対象ではない）
+        equipmentStatus({
+          equipmentId: 'ROBOT-NOPATH',
+          name: 'パスなし',
+          sourceFilePath: undefined,
+          lastDataAt: minutesAgo(600),
+        }),
+      ]),
+    );
+
+    await screen.findByTestId('equipment-run-ROBOT-OLD');
+
+    const stopped = screen.getByTestId('equipment-stopped-ROBOT-OLD');
+    expect(stopped.textContent).toBe('停止中');
+    expect(stopped.getAttribute('title')).toContain('基準（3 分）');
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-NEW')).toBeNull();
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-NONE')).toBeNull();
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-NOPATH')).toBeNull();
+  });
+
+  it('停止中の基準は、設備ごとに、サーバーが返す値（staleThresholdMinutes）を使う。基準が来ない設備は、判定しない', async () => {
+    renderApp(
+      '/settings/ingestion',
+      settingsRoutes([
+        // 基準 30 分: 20 分前は、停止中ではない
+        equipmentStatus({ staleThresholdMinutes: 30, lastDataAt: minutesAgo(20) }),
+        // 基準 3 分: 20 分前は、停止中
+        equipmentStatus({
+          equipmentId: 'ROBOT-SHORT',
+          name: '短い',
+          staleThresholdMinutes: 3,
+          lastDataAt: minutesAgo(20),
+        }),
+        // 基準が来ない（サーバーが返さない）: 判定しない
+        equipmentStatus({
+          equipmentId: 'ROBOT-NOTHRESHOLD',
+          name: '基準なし',
+          staleThresholdMinutes: undefined,
+          lastDataAt: minutesAgo(600),
+        }),
+      ]),
+    );
+
+    await screen.findByTestId('equipment-run-ROBOT-01');
+
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-01')).toBeNull();
+    expect(screen.getByTestId('equipment-stopped-ROBOT-SHORT')).toBeDefined();
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-NOTHRESHOLD')).toBeNull();
+  });
+
+  it('停止中の基準（環境センサー）: サーバーが返す 15 分。14 分前は停止中ではなく、16 分前は停止中。表示にも、その基準を使う', async () => {
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'GET /ingestion/settings': () =>
+          jsonResponse({
+            sources: [
+              source({
+                sourceId: 'environment-sensor',
+                kind: 'SENSOR',
+                equipment: [
+                  equipmentStatus({
+                    equipmentId: 'SENSOR-A',
+                    name: 'センサーA',
+                    staleThresholdMinutes: 15,
+                    lastDataAt: minutesAgo(14),
+                  }),
+                  equipmentStatus({
+                    equipmentId: 'SENSOR-B',
+                    name: 'センサーB',
+                    staleThresholdMinutes: 15,
+                    lastDataAt: minutesAgo(16),
+                  }),
+                ],
+              }),
+            ],
+          }),
+      }),
+    );
+
+    await screen.findByTestId('equipment-run-SENSOR-A');
+
+    expect(screen.queryByTestId('equipment-stopped-SENSOR-A')).toBeNull();
+    expect(screen.getByTestId('equipment-stopped-SENSOR-B').getAttribute('title')).toContain(
+      '基準（15 分）',
+    );
+  });
+
+  it('自動取り込みが無効な取り込み元は、停止中を示さない（手動の運用。ダッシュボードの警告も出ない）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      settingsRoutes([equipmentStatus({ lastDataAt: minutesAgo(600) })], { isEnabled: false }),
+    );
+
+    await screen.findByTestId('equipment-run-ROBOT-01');
+
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-01')).toBeNull();
+  });
+
+  it('最終の実行結果: 一部成功も、結果として示す（最後にデータが取れた日時に反映される）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      settingsRoutes([
+        equipmentStatus({
+          lastResult: 'PARTIAL',
+          lastStartedAt: minutesAgo(1),
+          lastDataAt: minutesAgo(1),
+        }),
+      ]),
+    );
+
+    expect((await screen.findByTestId('equipment-result-ROBOT-01')).textContent).toBe('一部成功');
+    expect(screen.queryByTestId('equipment-stopped-ROBOT-01')).toBeNull();
+  });
+
+  it('設備のダイアログ（接続を設定・修正）へのリンクを示す。設備を変更する権限がなければ、示さない', async () => {
+    const view = renderApp('/settings/ingestion', baseRoutes());
+
+    const link = await screen.findByRole('link', { name: '収穫ロボット1の接続を設定・修正' });
+    expect(link.getAttribute('href')).toBe('/settings/equipment?edit=ROBOT-1');
+    view.unmount();
+
+    renderApp('/settings/ingestion', baseRoutes(), {
+      login: loginWith(['ingestion:read', 'ingestion:run']),
+    });
+    await screen.findByTestId('equipment-run-ROBOT-1');
+    expect(screen.queryByRole('link', { name: /接続を設定・修正/ })).toBeNull();
+    expect(screen.getByRole('button', { name: '収穫ロボット1の接続テスト' })).toBeDefined();
+  });
+
+  it('接続は設備ごとに設定する旨を、画面の上に示す（取り込み元の共通の入力欄はない）', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+    await screen.findByTestId('source-robot');
+
+    expect(screen.getByTestId('ingestion-connection-lead').textContent).toContain(
+      '接続は設備ごとに設定します',
+    );
   });
 });

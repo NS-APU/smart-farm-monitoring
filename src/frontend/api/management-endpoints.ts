@@ -33,6 +33,7 @@ import {
 } from '@smart-farm/shared/schemas/equipment';
 import {
   ConnectionTestResponseSchema,
+  EquipmentConnectionResponseSchema,
   FacilityFederationLogListResponseSchema,
   FacilityIngestionLogListResponseSchema,
   FederationLogListResponseSchema,
@@ -40,6 +41,7 @@ import {
   IngestionLogListResponseSchema,
   IngestionRunResponseSchema,
   IngestionSettingsResponseSchema,
+  type FileServerConnection,
   type IngestionCredentialsInput,
   type IngestionSettingsUpdateRequest,
 } from '@smart-farm/shared/schemas/ingestion';
@@ -327,6 +329,48 @@ export function saveIngestionCredentials(
 
 export function testIngestionConnection(api: ApiClient, sourceId: string) {
   return api.request(API_PATHS.ingestionTest(sourceId), {
+    method: 'POST',
+    schema: ConnectionTestResponseSchema,
+  });
+}
+
+/** 設備ごとの接続を保存する（Issue #367。ADR-0026）。認証情報の値は含めない。 */
+export function saveEquipmentConnection(
+  api: ApiClient,
+  equipmentId: string,
+  connection: FileServerConnection,
+) {
+  return api.request(API_PATHS.ingestionEquipmentConnection(equipmentId), {
+    method: 'PUT',
+    body: { connection },
+    schema: EquipmentConnectionResponseSchema,
+  });
+}
+
+/** 設備ごとの接続を削除する（削除のあとの出どころは、共通の接続があれば SHARED、なければ NONE）。 */
+export function deleteEquipmentConnection(api: ApiClient, equipmentId: string) {
+  return api.request(API_PATHS.ingestionEquipmentConnection(equipmentId), {
+    method: 'DELETE',
+    schema: EquipmentConnectionResponseSchema,
+  });
+}
+
+/** 設備ごとの認証情報を登録・上書きする（書き込み専用。応答は、状態だけ）。 */
+export function saveEquipmentCredentials(
+  api: ApiClient,
+  equipmentId: string,
+  input: IngestionCredentialsInput,
+) {
+  return api.request(API_PATHS.ingestionEquipmentCredentials(equipmentId), {
+    method: 'PUT',
+    body: input,
+    schema: IngestionCredentialStatusSchema,
+  });
+}
+
+/** その設備だけの接続テスト。 */
+export function testEquipmentConnection(api: ApiClient, equipmentId: string) {
+  return api.request(API_PATHS.ingestionEquipmentTest(equipmentId), {
     method: 'POST',
     schema: ConnectionTestResponseSchema,
   });

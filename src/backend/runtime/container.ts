@@ -117,6 +117,10 @@ import { hashPassword } from '../infrastructure/local/password-hasher.ts';
 import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
 import { readHttpFile, statHttpFile } from '../infrastructure/http/http-file-reader.ts';
 import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
+import {
+  createEquipmentConnections,
+  type EquipmentConnections,
+} from '../application/ingestion/equipment-connections.ts';
 import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
 import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
 import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
@@ -190,6 +194,8 @@ export interface Container {
   /** 農業情報基盤との連携（連携キューへの追加・送信。Issue #177）。 */
   readonly federationService: FederationService;
   readonly ingestionSettings: IngestionSettings;
+  /** 設備ごとのファイルサーバーの接続（Issue #367。ADR-0026）。 */
+  readonly equipmentConnections: EquipmentConnections;
   readonly jobRunner: JobRunner;
   /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
   readonly jobLock: JobLockPort;
@@ -491,8 +497,10 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const ingestionSettings = createIngestionSettings(repositories.settings);
   // HTTP のファイルサーバーのファイルソース（設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
   const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
+  const equipmentConnections = createEquipmentConnections(repositories.settings);
   const routedFileSource = createRoutingFileSource({
     ingestionSettings,
+    equipmentConnections,
     equipment: repositories.equipment,
     secrets: adapters.secrets,
     maxFileBytes: settings.ingestion.maxFileBytes,
@@ -537,6 +545,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
     settings: repositories.settings,
+    equipmentConnections,
     federation,
     audit: auditService,
     evaluation: evaluationService,
@@ -567,6 +576,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const facilityScope = createFacilityScopeService({ repositories });
   const ingestionAdminService = createIngestionAdminService({
     ingestionSettings,
+    equipmentConnections,
     ingestion: repositories.ingestion,
     equipment: repositories.equipment,
     federation: repositories.federation,
@@ -576,6 +586,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     secrets: adapters.secrets,
     isConnectionAllowed: (connection) =>
       config.httpFileSourceAllowPrivate || !isBlockedConnectionHost(connection.host),
+    staleAfterIntervals: config.staleAfterIntervals,
   });
   const facilityLogService = createFacilityLogService({ repositories });
   const federationAdminService = createFederationAdminService({
@@ -605,6 +616,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     notificationService,
     evaluationService,
     ingestionSettings,
+    equipmentConnections,
     ingestionService,
     federation,
     auditService,
@@ -781,6 +793,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     ingestionService: services.ingestionService,
     federationService: services.federation,
     ingestionSettings: services.ingestionSettings,
+    equipmentConnections: services.equipmentConnections,
     jobRunner: services.jobRunner,
     jobLock: adapters.jobLock,
     secrets: adapters.secrets,
