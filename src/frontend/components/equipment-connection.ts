@@ -96,7 +96,7 @@ export function withoutConnectionPrefix(
   );
 }
 
-/** コピーできる設備（同じ種別で、設備ごとの接続を持つ。自分自身を除く）。 */
+/** コピーできる設備（同じ種別で、接続を持つ。自分自身を除く）。 */
 export interface CopyCandidate {
   readonly equipmentId: string;
   readonly name: string;
@@ -104,8 +104,7 @@ export interface CopyCandidate {
 }
 
 /**
- * 同じ種別（ロボット／センサー）で、設備ごとの接続（出どころが EQUIPMENT）を持つ設備の一覧。
- * 取り込み元（種別 `kind`）ごとの設備から選ぶ。共通の接続（SHARED）の設備は、含めない。
+ * 同じ種別（ロボット／センサー）で、接続を持つ設備の一覧。取り込み元（種別 `kind`）ごとの設備から選ぶ。
  */
 export function copyCandidatesOf(
   sources: readonly IngestionSourceStatus[],
@@ -116,9 +115,7 @@ export function copyCandidatesOf(
     .filter((source) => source.kind === equipmentType)
     .flatMap((source) => source.equipment)
     .flatMap((item) =>
-      item.connectionOrigin === 'EQUIPMENT' &&
-      item.connection !== undefined &&
-      item.equipmentId !== excludeEquipmentId
+      item.connection !== undefined && item.equipmentId !== excludeEquipmentId
         ? [{ equipmentId: item.equipmentId, name: item.name, connection: item.connection }]
         : [],
     );

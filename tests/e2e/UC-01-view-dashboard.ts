@@ -627,7 +627,6 @@ test.describe('手動のみの運用（自動取り込みが有効でない間�
       apiOk(request, 'PUT', '/ingestion/settings', {
         sources: ['robot', 'environment-sensor'].map((sourceId) => ({
           sourceId,
-          connectionRef: 'FILE_SERVER_MOCK',
           isEnabled,
         })),
       });

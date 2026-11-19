@@ -73,8 +73,6 @@ export interface FileListFailure {
 }
 
 export interface FileSourcePort {
-  /** 接続テスト。失敗した場合は FileSourceUnavailableError を投げる。 */
-  testConnection(sourceId: string): Promise<void>;
   /** 設備 1 つの接続テスト（その設備の接続・認証情報・ファイルのパス。Issue #367）。失敗した場合は FileSourceUnavailableError を投げる。 */
   testEquipment(equipmentId: string): Promise<void>;
   /** 取り込み元のファイルの一覧（更新日時の古い順）。 */

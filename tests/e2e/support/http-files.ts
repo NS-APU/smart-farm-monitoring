@@ -2,7 +2,7 @@
  * E2E の、HTTP のファイルサーバー（Issue #344。ADR-0025）の補助。取り込み（JB-01）の HTTP アダプタが接続する先を、テストのプロセスの中（127.0.0.1。空きポート。tests/support/http-file-server.ts）に立てる。
  * バックエンドは、別のプロセス（playwright.config.ts の webServer。`HTTP_FILE_SOURCE_ALLOW_PRIVATE=true`）で、そのサーバーに接続する。
  * - `prepareApp`・`prepare`（`/dev/reset`）は、設備ごとの接続を消す（設備も、デモの設備に戻る）。そのため、このファイルの関数は、**呼ばれた時点で、前回の
- *   `prepare` のあとに設定していなければ**、サーバーを空（ファイルなし・停止なし）にする。取り込み元の共通の接続は、設定しない
+ *   `prepare` のあとに設定していなければ**、サーバーを空（ファイルなし・停止なし）にする
  * - 接続は、**設備ごと**（Issue #367。ADR-0026）: 設備のファイルのパスを設定するときに、その設備の接続（HTTP・127.0.0.1・このサーバーのポート・
  *   認証なし）も、`PUT /ingestion/equipment/:id/connection` で保存する（`prepare` のたびに消えるため、設備ごとに、その回に保存したかを覚える）
  * - `placeFile`・`placeFixture`: ファイルを置き、**その種別（ロボット・センサー）の設備の `sourceFilePath` を、`/<取り込み元>/<名前>` にする**

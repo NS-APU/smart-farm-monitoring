@@ -1,6 +1,6 @@
 /**
  * SC-11 取り込み設定・状況（UC-15、UC-16。FR-1.4〜1.8、FR-8.3）。取り込み元ごとの有効／無効の設定、即時取得（実行中は二重実行を防ぐ）、
- * 設備ごとの接続と状況の表（接続先・接続の出どころ・認証情報の状態・最後にデータが取れた日時・停止中・設備だけの接続テスト。Issue #367）、
+ * 設備ごとの接続と状況の表（接続先・認証情報の状態・最後にデータが取れた日時・停止中・設備だけの接続テスト。Issue #367）、
  * 解釈に使っている仕様の版と状態、取り込みのログ、農業情報基盤への連携の状況（成功・失敗・保留）。接続・認証情報の入力は、設備のダイアログ（SC-10）で行う。
  * 認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
  */
@@ -30,7 +30,6 @@ import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { FederationSettingsPanel } from '../components/federation-settings-panel.tsx';
 import { FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
-import { Icon } from '../components/icon.tsx';
 import { isoToJstDateTimeInput, jstDateToIso } from '../components/jst.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
@@ -85,16 +84,13 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
   const { result, onResult: setResult } = props;
   const locked = submit.busy || source.isRunning;
-  const hasSharedConnection = source.equipment.some((item) => item.connectionOrigin === 'SHARED');
 
   async function handleSave(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
     setResult(undefined);
-    // 接続は、設備ごとに設定する（この画面では送らない。現在の接続先の参照名を、そのまま送る）
+    // 接続は、設備ごとに設定する（この画面では送らない。取り込み元ごとの設定は、有効／無効だけ）
     const saved = await submit.run(() =>
-      updateIngestionSettings(api, {
-        sources: [{ sourceId: source.sourceId, connectionRef: source.connectionRef, isEnabled }],
-      }),
+      updateIngestionSettings(api, { sources: [{ sourceId: source.sourceId, isEnabled }] }),
     );
     if (saved.ok) {
       setResult({ ok: true, text: TEXT.saved });
@@ -160,16 +156,6 @@ function SourceCard(props: SourceCardProps): ReactNode {
           </dd>
         </div>
       </dl>
-      {hasSharedConnection ? (
-        <p
-          role="status"
-          className="notice notice-warning"
-          data-testid={`shared-connection-notice-${source.sourceId}`}
-        >
-          <Icon name="status-caution" size={18} />
-          {TEXT.sharedConnectionNotice}
-        </p>
-      ) : null}
       <EquipmentIngestionTable
         source={source}
         sourceLabel={sourceName(source.sourceId)}
@@ -536,7 +522,7 @@ function IngestionContent(): ReactNode {
       ) : (
         settings.data.sources.map((source) => (
           <SourceCard
-            key={`${source.sourceId}|${source.connectionRef}|${String(source.isEnabled)}`}
+            key={`${source.sourceId}|${String(source.isEnabled)}`}
             source={source}
             result={results[source.sourceId]}
             onResult={(result) => {

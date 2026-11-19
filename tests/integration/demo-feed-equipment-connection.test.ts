@@ -1,6 +1,6 @@
 /**
  * デモの取り込みを、デモ用の HTTP 配信に向ける処理（Issue #344。ADR-0025）が、デモの設備ごとの接続（Issue #367。ADR-0026）も保存することのテスト。
- * 取り込み元の共通の接続は、移行期間のため、残す。データはメモリ（実際の AWS には、接続しない）。
+ * 取り込み元の共通の接続は、廃止した（PR B。取り込み元の設定は、変えない）。データはメモリ（実際の AWS には、接続しない）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -37,8 +37,9 @@ async function setup() {
 describe('デモの設備ごとの接続（applyDemoFeed）', () => {
   const connection = parseDemoFeedUrl('https://dummy-demo-feed.example.invalid/');
 
-  it('デモの設備（ロボット・環境センサー）の設備ごとの接続に、同じ接続（HTTP・認証なし）を保存する。取り込み元の共通の接続も、残す', async () => {
+  it('デモの設備（ロボット・環境センサー）の設備ごとの接続に、同じ接続（HTTP・認証なし）を保存する。取り込み元の設定は、変えない', async () => {
     const container = await setup();
+    const sourcesBefore = await container.ingestionSettings.listSources();
 
     await applyDemoFeed(container, connection);
 
@@ -46,10 +47,7 @@ describe('デモの設備ごとの接続（applyDemoFeed）', () => {
     expect([...saved.keys()].sort()).toEqual([DEMO_ROBOT_ID, DEMO_SENSOR_ID].sort());
     expect(saved.get(DEMO_ROBOT_ID)).toEqual(connection);
     expect(saved.get(DEMO_SENSOR_ID)).toEqual(connection);
-    const sources = await container.ingestionSettings.listSources();
-    for (const source of sources) {
-      expect(source.connection).toEqual(connection);
-    }
+    expect(await container.ingestionSettings.listSources()).toEqual(sourcesBefore);
   });
 
   it('何度実行しても、同じ（接続先の変更は、反映する）。デモの設備以外の設備ごとの接続は、変えない', async () => {

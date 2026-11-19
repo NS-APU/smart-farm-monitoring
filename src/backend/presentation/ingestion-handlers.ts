@@ -35,16 +35,6 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
       const input = await parseJsonBody(c, IngestionSettingsUpdateRequestSchema);
       return c.json(await deps.ingestionAdminService.update(input, actorOf(c)));
     },
-    async 'PUT /ingestion/:sourceId/credentials'(c) {
-      const input = await parseJsonBody(c, IngestionCredentialsInputSchema);
-      return c.json(
-        await deps.ingestionAdminService.setCredentials(
-          pathParam(c, 'sourceId'),
-          input,
-          actorOf(c),
-        ),
-      );
-    },
     // 設備ごとの接続（Issue #367。ADR-0026）
     async 'PUT /ingestion/equipment/:equipmentId/connection'(c) {
       const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
@@ -73,9 +63,6 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
     async 'POST /ingestion/equipment/:equipmentId/test'(c) {
       const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
       return c.json(await deps.ingestionAdminService.testEquipmentConnection(equipmentId));
-    },
-    async 'POST /ingestion/:sourceId/test'(c) {
-      return c.json(await deps.ingestionService.testConnection(pathParam(c, 'sourceId')));
     },
     async 'POST /ingestion/:sourceId/run'(c) {
       // ローカルでは、実行を待って、結果の概要を返す（本番は非同期に実行し、結果は取り込みログで確認する）

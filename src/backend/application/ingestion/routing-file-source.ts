@@ -2,8 +2,8 @@
  * HTTP のファイルサーバーのファイルソース（Issue #172・#119・#344・#367。ADR-0022・ADR-0023・ADR-0025・ADR-0026）。
  * 接続設定（HTTP）に従い、秘密情報（SecretPort）から認証のヘッダーを組み立て、**設備ごとのファイルパス**（設備の `sourceFilePath`）に、
  * 接続テスト・一覧（メタデータ）・取得のリクエストを送る。取り込み元の種別（ロボット・センサー）に合う、有効な設備が対象。
- * 接続は、**設備ごと**: 設備に自分の接続があれば、それ（認証情報も、設備ごと）。なければ、取り込み元の共通の接続（移行期間。認証情報も、共通）。
- * どちらもない設備は、「接続先が設定されていません」の失敗にする（取り込み元の接続が未設定で、取得の対象の設備がなければ、何もしない。一覧は空）。
+ * 接続は、**設備ごと**だけ（認証情報も、設備ごと）。接続がない設備は、「接続先が設定されていません」の失敗にする
+ * （取得の対象の設備がなければ、何もしない。一覧は空）。
  * 一覧は、設備ごとに、その設備の接続で問い合わせる。`onFailure` があれば、設備ごとの失敗を、投げずに渡して、ほかの設備を続ける
  * （1 つの設備の接続の失敗が、ほかの設備の取り込みを止めない）。
  */
@@ -18,11 +18,7 @@ import {
 } from '../ports/file-source-port.ts';
 import type { EquipmentRepository } from '../ports/repositories.ts';
 import type { SecretPort } from '../ports/secret-port.ts';
-import {
-  buildAuthHeaders,
-  fileServerEquipmentSecretReference,
-  fileServerSecretReference,
-} from './file-server-credentials.ts';
+import { buildAuthHeaders, fileServerEquipmentSecretReference } from './file-server-credentials.ts';
 import type { EquipmentConnections } from './equipment-connections.ts';
 import type { IngestionSettings } from './ingestion-settings.ts';
 
@@ -51,7 +47,7 @@ export interface HttpFileClient {
 
 export interface RoutingFileSourceDeps {
   readonly ingestionSettings: Pick<IngestionSettings, 'listSources'>;
-  /** 設備ごとの接続（Issue #367。ADR-0026）。設備に接続があれば、それを使い、なければ、取り込み元の共通の接続を使う（移行期間）。 */
+  /** 設備ごとの接続（Issue #367。ADR-0026）。設備に接続がなければ、「接続先が設定されていません」の失敗にする。 */
   readonly equipmentConnections: Pick<EquipmentConnections, 'list'>;
   readonly equipment: Pick<EquipmentRepository, 'list'>;
   readonly secrets: SecretPort;
@@ -64,8 +60,7 @@ export interface RoutingFileSourceDeps {
 const UNKNOWN_MODIFIED_AT = new Date(0);
 
 interface HttpSource {
-  /** 取り込み元の共通の接続設定（移行期間）。未設定は、undefined。 */
-  readonly connection: HttpFileServerConnection | undefined;
+  readonly sourceId: string;
   readonly kind: Equipment['equipmentType'];
 }
 
@@ -73,9 +68,9 @@ interface HttpSource {
 interface Target {
   readonly equipmentId: string;
   readonly path: string;
-  /** 解決した接続（設備の接続 ?? 取り込み元の共通の接続）。どちらもなければ、undefined。 */
+  /** 設備の接続。なければ、undefined。 */
   readonly connection: HttpFileServerConnection | undefined;
-  /** 認証情報の、秘密情報の参照名（設備の接続は設備ごと。共通の接続は取り込み元ごと）。接続がなければ、undefined。 */
+  /** 認証情報の、秘密情報の参照名（設備ごと）。接続がなければ、undefined。 */
   readonly secretReference: string | undefined;
 }
 
@@ -97,48 +92,35 @@ function sortFiles(files: FileMeta[]): FileMeta[] {
   );
 }
 
-/** 設備 1 つの接続の解決（設備の接続 ?? 取り込み元の共通の接続）と、認証情報の参照名。 */
+/** 設備 1 つの接続の解決（設備の接続だけ）と、認証情報の参照名。 */
 function resolveConnection(
-  shared: { readonly sourceId: string; readonly connection: HttpFileServerConnection | undefined },
   equipmentId: string,
   own: ReadonlyMap<string, HttpFileServerConnection>,
 ): Pick<Target, 'connection' | 'secretReference'> {
-  const ownConnection = own.get(equipmentId);
-  if (ownConnection !== undefined) {
-    return {
-      connection: ownConnection,
-      secretReference: fileServerEquipmentSecretReference(equipmentId),
-    };
-  }
-  return shared.connection === undefined
+  const connection = own.get(equipmentId);
+  return connection === undefined
     ? { connection: undefined, secretReference: undefined }
-    : {
-        connection: shared.connection,
-        secretReference: fileServerSecretReference(shared.sourceId),
-      };
+    : { connection, secretReference: fileServerEquipmentSecretReference(equipmentId) };
 }
 
 export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSourcePort {
   const { ingestionSettings, equipmentConnections, equipment, secrets, http, maxFileBytes } = deps;
 
   /** 取り込み元の設定。取り込み元がなければ、利用できない旨の失敗にする。 */
-  async function sourceOf(sourceId: string): Promise<HttpSource & { readonly sourceId: string }> {
+  async function sourceOf(sourceId: string): Promise<HttpSource> {
     const sources = await ingestionSettings.listSources();
     const source = sources.find((candidate) => candidate.sourceId === sourceId);
     if (source === undefined) {
       throw new FileSourceUnavailableError('取り込み元がありません');
     }
-    return { sourceId, connection: source.connection, kind: source.kind };
+    return { sourceId, kind: source.kind };
   }
 
   /**
    * 取得の対象（取り込み元の種別に合う、有効な設備の、ファイルパスと、解決した接続）。設備 ID の順。
    * `paths` を指定すると、そのパスの設備だけ（設備ごとの取得間隔。Issue #197）。設備ごとの接続は、1 回の操作で 1 回だけ読む。
    */
-  async function targetsOf(
-    source: HttpSource & { readonly sourceId: string },
-    paths?: readonly string[],
-  ): Promise<Target[]> {
+  async function targetsOf(source: HttpSource, paths?: readonly string[]): Promise<Target[]> {
     const wanted = paths === undefined ? undefined : new Set(paths);
     const items = (await equipment.list())
       .filter(
@@ -155,7 +137,7 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
     return items.map((item) => ({
       equipmentId: item.equipmentId,
       path: item.sourceFilePath ?? '',
-      ...resolveConnection(source, item.equipmentId, own),
+      ...resolveConnection(item.equipmentId, own),
     }));
   }
 
@@ -217,21 +199,6 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
   }
 
   return {
-    async testConnection(sourceId) {
-      const source = await sourceOf(sourceId);
-      const [first] = await targetsOf(source);
-      if (first === undefined) {
-        // 対象の設備がない: 共通の接続が未設定なら、未設定。設定済みなら、ファイルパスを持つ設備がない
-        throw new FileSourceFailure(
-          source.connection === undefined ? 'NOT_CONFIGURED' : 'NO_FILE_PATH',
-        );
-      }
-      if (!isConnected(first)) {
-        throw new FileSourceFailure('NOT_CONFIGURED');
-      }
-      await probeTarget(first);
-    },
-
     async testEquipment(equipmentId) {
       const found = (await equipment.list()).find((item) => item.equipmentId === equipmentId);
       if (found === undefined || found.isDeleted) {
@@ -244,18 +211,10 @@ export function createRoutingFileSource(deps: RoutingFileSourceDeps): FileSource
       ) {
         throw new FileSourceFailure('NO_FILE_PATH');
       }
-      // 設備に接続がなければ、同じ種別の取り込み元の共通の接続（移行期間）
-      const shared = (await ingestionSettings.listSources()).find(
-        (candidate) => candidate.kind === equipmentType,
-      );
       const target: Target = {
         equipmentId: found.equipmentId,
         path: sourceFilePath,
-        ...resolveConnection(
-          { sourceId: shared?.sourceId ?? '', connection: shared?.connection },
-          found.equipmentId,
-          await equipmentConnections.list(),
-        ),
+        ...resolveConnection(found.equipmentId, await equipmentConnections.list()),
       };
       if (!isConnected(target)) {
         throw new FileSourceFailure('NOT_CONFIGURED');

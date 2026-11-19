@@ -31,7 +31,6 @@ const ROBOT_2_FILE = '/robots/robot-2.json';
 function build(options: { files: Record<string, string>; listFails?: boolean }) {
   const { repositories } = createLocalRepositories();
   const fileSource: FileSourcePort = {
-    testConnection: () => Promise.resolve(),
     testEquipment: () => Promise.resolve(),
     listFiles: () =>
       options.listFails === true

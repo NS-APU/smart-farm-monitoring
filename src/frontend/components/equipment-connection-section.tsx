@@ -67,9 +67,7 @@ export function EquipmentConnectionSection(props: EquipmentConnectionSectionProp
   const canEdit = canConfigure;
   // 認証情報の登録は、保存済みの設備ごとの接続の認証方式で行う（サーバーが、保存済みの接続と照合する）
   const savedAuthMethod =
-    server.origin === 'EQUIPMENT' &&
-    server.connection !== undefined &&
-    server.connection.authMethod !== 'NONE'
+    server.connection !== undefined && server.connection.authMethod !== 'NONE'
       ? server.connection.authMethod
       : undefined;
   const credentialsBlocked = equipmentId === undefined || draft.authMethod !== savedAuthMethod;
@@ -138,35 +136,7 @@ export function EquipmentConnectionSection(props: EquipmentConnectionSectionProp
           {TEXT.readOnly}
         </p>
       )}
-      {server.origin === 'SHARED' ? (
-        <>
-          <p
-            role="status"
-            className="notice notice-warning"
-            data-testid="equipment-connection-shared"
-          >
-            <Icon name="status-caution" size={18} />
-            {TEXT.sharedWarning}
-          </p>
-          <p className="muted" data-testid="equipment-connection-shared-note">
-            {TEXT.sharedValuesNote}
-          </p>
-          {canEdit && !controller.adopted ? (
-            <div className="form-actions">
-              <button
-                type="button"
-                className="button-secondary"
-                data-testid="equipment-connection-adopt"
-                disabled={locked}
-                onClick={controller.adopt}
-              >
-                {TEXT.adopt}
-              </button>
-            </div>
-          ) : null}
-        </>
-      ) : null}
-      {server.origin === 'NONE' ? (
+      {server.connection === undefined ? (
         <p className="muted" data-testid="equipment-connection-unset">
           {TEXT.unset}
         </p>
@@ -412,7 +382,8 @@ export function EquipmentConnectionSection(props: EquipmentConnectionSectionProp
         </fieldset>
       )}
       <FormError message={controller.formMessage} />
-      {equipmentId !== undefined && (canRun || (canConfigure && server.origin === 'EQUIPMENT')) ? (
+      {equipmentId !== undefined &&
+      (canRun || (canConfigure && server.connection !== undefined)) ? (
         <div className="form-actions">
           {canRun ? (
             <button
@@ -427,7 +398,7 @@ export function EquipmentConnectionSection(props: EquipmentConnectionSectionProp
               {testing ? TEXT.testing : TEXT.test}
             </button>
           ) : null}
-          {canConfigure && server.origin === 'EQUIPMENT' ? (
+          {canConfigure && server.connection !== undefined ? (
             <button
               type="button"
               className="button-danger-outline"

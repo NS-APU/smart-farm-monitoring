@@ -246,13 +246,6 @@ export const MANAGEMENT_MESSAGES = {
       loading: '接続の情報を読み込んでいます…',
       loadFailed: '接続の情報を取得できません。設備の保存はできますが、接続は変更されません',
       unset: '接続先が設定されていません',
-      sharedWarning:
-        '取り込み元の共通の接続を使っています。設備ごとの接続を設定してください（共通の接続は、廃止予定です）',
-      sharedValuesNote:
-        '入力欄には、いま使っている共通の接続の値を表示しています。内容を変更して保存すると、この設備だけの接続になります（認証情報は、設備ごとに入力し直します）',
-      adopt: '共通の接続の内容を、この設備の接続にする',
-      adopted:
-        '保存すると、この設備だけの接続になります。認証情報は、保存したあとに、入力してください',
       protocol: 'プロトコル',
       protocolLabels: { HTTPS: 'HTTPS（推奨）', HTTP: 'HTTP（暗号化なし）' },
       plaintextWarning:
@@ -302,12 +295,12 @@ export const MANAGEMENT_MESSAGES = {
       test: '接続テスト',
       testing: '接続テスト中…',
       testUnsaved: '接続の入力を変更しています。保存してから、接続テストをしてください',
-      remove: '接続を設定しない／共通の接続を使う',
-      removing: '解除中…',
+      remove: '接続を未設定に戻す',
+      removing: '未設定に戻しています…',
       removeConfirm:
-        'この設備の接続（ホスト・ポート・認証方式）と認証情報の紐づけを解除します。共通の接続があれば、それを使い、なければ、この設備の取り込みは「接続先が設定されていません」で失敗します。認証情報の値は、保管先に残ります',
-      removeConfirmYes: '解除する',
-      removed: '設備ごとの接続を解除しました',
+        'この設備の接続（ホスト・ポート・認証方式）と認証情報の紐づけを解除し、未設定に戻します。解除すると、この設備の取り込みは「接続先が設定されていません」で失敗します。認証情報の値は、保管先に残ります',
+      removeConfirmYes: '未設定に戻す',
+      removed: '接続を未設定に戻しました',
     },
     facilityAccess: {
       column: '閲覧できるユーザー',
@@ -447,8 +440,6 @@ export const MANAGEMENT_MESSAGES = {
     connectionHeading: '接続は設備ごとに設定します',
     connectionLead:
       '接続先（ホスト名・ポート・認証方式・認証情報）は、設備のダイアログ（ハウス・設備の画面の「修正」）で、設備ごとに設定します。この画面では、設備ごとの接続の状況を確認し、接続テストができます',
-    sharedConnectionNotice:
-      '取り込み元の共通の接続を使っている設備があります。設備ごとの接続を設定してください（共通の接続は、廃止予定です）',
     profile: '解釈に使っている仕様',
     profileStatus: { PROVISIONAL: '仮決め', CONFIRMED: '確定' },
     lastStarted: '最終の実行',
@@ -476,15 +467,9 @@ export const MANAGEMENT_MESSAGES = {
     equipmentRunData: '最後にデータが取れた日時',
     equipmentFilePath: 'ファイルのパス',
     equipmentFilePathNone: 'ファイルのパスを設定すると、取り込みの対象になります',
-    equipmentConnectionTarget: '接続先（出どころ）',
+    equipmentConnectionTarget: '接続先',
     equipmentLastRun: '最終の実行（結果）',
     equipmentConnectionUnset: '未設定',
-    equipmentOrigin: '接続の出どころ',
-    equipmentOriginLabels: {
-      EQUIPMENT: '設備ごと',
-      SHARED: '共通（移行期間）',
-      NONE: '未設定',
-    },
     equipmentCredentials: '認証情報',
     equipmentCredentialsLabels: {
       NOT_REQUIRED: '不要',

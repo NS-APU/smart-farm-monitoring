@@ -1,5 +1,6 @@
 /**
- * ファイルサーバーの認証情報の登録（Issue #207。D-47。UC-15。FR-1.4）の結合テスト。
+ * ファイルサーバーの認証情報の登録（Issue #207。D-47。UC-15。FR-1.4）の結合テスト。認証情報は、設備ごと（Issue #367。ADR-0026。
+ * `PUT /ingestion/equipment/{equipmentId}/credentials`）。取り込み元ごとの登録（`PUT /ingestion/{sourceId}/credentials`）は、廃止した。
  * 書き込み専用（保存後は、値を再表示しない）。「設定済み／未設定」と更新日時だけを示す。
  * 値（パスワード・トークン・API キー）は、画面・API の応答・ログ・エラー・変更履歴のどこにも残さない。
  * 認証情報は、明らかにダミーとわかる値。
@@ -11,12 +12,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuditLogListResponseSchema } from '@smart-farm/shared/schemas/audit';
 import { IngestionSettingsResponseSchema } from '@smart-farm/shared/schemas/ingestion';
 import { createJsonLogger } from '../../src/backend/infrastructure/logging/json-logger.ts';
-import { equipmentSet } from '../support/builders.ts';
+import { fileServerEquipmentSecretReference } from '../../src/backend/application/ingestion/file-server-credentials.ts';
+import { ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
 import {
   addUserAndLogin,
-  createTestContext,
   errorOf,
   THREE_ROLES_JSON,
+  withEquipment,
   type TestContext,
 } from '../support/test-context.ts';
 
@@ -62,7 +64,7 @@ async function setup(env: Record<string, string> = {}): Promise<Harness> {
     sink: { write: (line: string) => logs.push(line) },
     minimumLevel: 'debug',
   });
-  const context = await createTestContext({
+  const context = await withEquipment({
     env: { HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true', ...env },
     logger,
   });
@@ -88,30 +90,30 @@ function connection(authMethod: string, overrides: Record<string, unknown> = {})
   };
 }
 
+const credentialsPath = (equipmentId: string) => `/ingestion/equipment/${equipmentId}/credentials`;
+const testPath = (equipmentId: string) => `/ingestion/equipment/${equipmentId}/test`;
+const ROBOT_SECRET = fileServerEquipmentSecretReference(ROBOT_ID);
+
+/** ロボットの接続を保存する（設備ごと）。 */
 async function configure(
   context: TestContext,
   authMethod: string,
   overrides: Record<string, unknown> = {},
+  equipmentId: string = ROBOT_ID,
 ) {
-  const response = await send(context, 'PUT', '/ingestion/settings', {
-    sources: [
-      {
-        sourceId: 'robot',
-        connectionRef: 'FILE_SERVER_MOCK',
-        intervalMinutes: 15,
-        isEnabled: true,
-        connection: connection(authMethod, overrides),
-      },
-    ],
+  const response = await send(context, 'PUT', `/ingestion/equipment/${equipmentId}/connection`, {
+    connection: connection(authMethod, overrides),
   });
   expect(response.status).toBe(200);
 }
 
-async function credentialsOf(context: TestContext, sourceId = 'robot') {
+async function credentialsOf(context: TestContext, equipmentId: string = ROBOT_ID) {
   const body = IngestionSettingsResponseSchema.parse(
     await (await send(context, 'GET', '/ingestion/settings')).json(),
   );
-  return body.sources.find((source) => source.sourceId === sourceId)?.credentials;
+  return body.sources
+    .flatMap((source) => source.equipment)
+    .find((item) => item.equipmentId === equipmentId)?.credentials;
 }
 
 describe('状態（設定済み／未設定）', () => {
@@ -134,13 +136,13 @@ describe('状態（設定済み／未設定）', () => {
     const { context } = await setup();
     await configure(context, 'BEARER');
 
-    const first = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const first = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
     const firstStatus = await credentialsOf(context);
     context.clock.advance(60_000);
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: `${DUMMY_TOKEN}-2`,
     });
@@ -158,7 +160,7 @@ describe('登録（書き込み専用）', () => {
     const { context } = await setup();
     await configure(context, 'BASIC');
 
-    const response = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const response = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BASIC',
       username: 'dummy-user',
       password: DUMMY_PASSWORD,
@@ -169,7 +171,7 @@ describe('登録（書き込み専用）', () => {
     expect(JSON.parse(text)).toMatchObject({ state: 'CONFIGURED' });
     expect(text).not.toContain(DUMMY_PASSWORD);
     expect(text).not.toContain('dummy-user');
-    expect(JSON.parse((await context.container.secrets.get('file-server/robot')) ?? '')).toEqual({
+    expect(JSON.parse((await context.container.secrets.get(ROBOT_SECRET)) ?? '')).toEqual({
       username: 'dummy-user',
       password: DUMMY_PASSWORD,
     });
@@ -178,36 +180,38 @@ describe('登録（書き込み専用）', () => {
   it('Bearer・API キー: 文字列を保存する', async () => {
     const { context } = await setup();
     await configure(context, 'BEARER');
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
-    expect(await context.container.secrets.get('file-server/robot')).toBe(DUMMY_TOKEN);
+    expect(await context.container.secrets.get(ROBOT_SECRET)).toBe(DUMMY_TOKEN);
 
     await configure(context, 'API_KEY');
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'API_KEY',
       apiKey: DUMMY_API_KEY,
     });
-    expect(await context.container.secrets.get('file-server/robot')).toBe(DUMMY_API_KEY);
+    expect(await context.container.secrets.get(ROBOT_SECRET)).toBe(DUMMY_API_KEY);
   });
 
-  it('取り込み元ごとに、別の保存名（もう一方の取り込み元は、変わらない）', async () => {
+  it('設備ごとに、別の保存名（もう一方の設備は、変わらない）', async () => {
     const { context } = await setup();
     await configure(context, 'BEARER');
 
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
 
-    expect(await context.container.secrets.get('file-server/environment-sensor')).toBeUndefined();
+    expect(
+      await context.container.secrets.get(fileServerEquipmentSecretReference(SENSOR_ID)),
+    ).toBeUndefined();
   });
 
-  it('登録した認証情報で、接続テストが成功する（保存から、接続まで）', async () => {
+  it('登録した認証情報で、設備の接続テストが成功する（保存から、接続まで）', async () => {
     const { context } = await setup();
     // 接続テストは、ファイルパスが設定された設備のファイルで行う（ADR-0023）
-    const robot = equipmentSet().find((item) => item.equipmentType === 'ROBOT');
+    const robot = await context.container.repositories.equipment.get(ROBOT_ID);
     if (robot === undefined) {
       throw new Error('テストの前提');
     }
@@ -224,14 +228,14 @@ describe('登録（書き込み専用）', () => {
         : 401;
     });
     await configure(context, 'BASIC', { port: server.port });
-    const before = await (await send(context, 'POST', '/ingestion/robot/test')).json();
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const before = await (await send(context, 'POST', testPath(ROBOT_ID))).json();
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BASIC',
       username: 'dummy-user',
       password: DUMMY_PASSWORD,
     });
 
-    const after = await (await send(context, 'POST', '/ingestion/robot/test')).json();
+    const after = await (await send(context, 'POST', testPath(ROBOT_ID))).json();
 
     expect((before as { ok: boolean; message: string }).message).toContain(
       '認証情報が設定されていません',
@@ -279,7 +283,7 @@ describe('入力の検証', () => {
     const { context, logs } = await setup();
     await configure(context, saved);
 
-    const response = await send(context, 'PUT', '/ingestion/robot/credentials', body);
+    const response = await send(context, 'PUT', credentialsPath(ROBOT_ID), body);
 
     const text = await response.text();
     expect(response.status).toBe(400);
@@ -288,30 +292,30 @@ describe('入力の検証', () => {
       expect(text).not.toContain(value);
     }
     expect(logs.join('\n')).not.toContain('X-Evil');
-    expect(await context.container.secrets.get('file-server/robot')).toBeUndefined();
+    expect(await context.container.secrets.get(ROBOT_SECRET)).toBeUndefined();
   });
 
   it('認証が不要な設定（接続が未設定・認証なし）には、登録できない', async () => {
     const { context } = await setup();
-    const unset = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const unset = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
     await configure(context, 'NONE');
-    const none = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const none = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
 
     expect(unset.status).toBe(400);
     expect(none.status).toBe(400);
-    expect(await context.container.secrets.get('file-server/robot')).toBeUndefined();
+    expect(await context.container.secrets.get(ROBOT_SECRET)).toBeUndefined();
   });
 
-  it('存在しない取り込み元は、404', async () => {
+  it('存在しない設備は、404', async () => {
     const { context } = await setup();
 
-    const response = await send(context, 'PUT', '/ingestion/unknown/credentials', {
+    const response = await send(context, 'PUT', credentialsPath('ROBOT-NONE'), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
@@ -322,7 +326,7 @@ describe('入力の検証', () => {
 
 describe('権限', () => {
   it('取り込みの設定の権限（ingestion:configure）がなければ、403。保存しない', async () => {
-    const context = await createTestContext({
+    const context = await withEquipment({
       env: { ROLE_DEFINITIONS_JSON: THREE_ROLES_JSON, HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true' },
     });
     await configure(context, 'BEARER');
@@ -331,13 +335,13 @@ describe('権限', () => {
     const response = await send(
       context,
       'PUT',
-      '/ingestion/robot/credentials',
+      credentialsPath(ROBOT_ID),
       { authMethod: 'BEARER', token: DUMMY_TOKEN },
       viewer,
     );
 
     expect(response.status).toBe(403);
-    expect(await context.container.secrets.get('file-server/robot')).toBeUndefined();
+    expect(await context.container.secrets.get(ROBOT_SECRET)).toBeUndefined();
   });
 });
 
@@ -346,7 +350,7 @@ describe('値を残さない（画面・API の応答・ログ・エラー・変
     const { context } = await setup();
     await configure(context, 'BASIC');
 
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BASIC',
       username: 'dummy-user',
       password: DUMMY_PASSWORD,
@@ -355,7 +359,7 @@ describe('値を残さない（画面・API の応答・ログ・エラー・変
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?targetType=ingestion-settings')).json(),
     );
-    const entry = audit.items.find((item) => item.targetId === 'credentials/robot');
+    const entry = audit.items.find((item) => item.targetId === `credentials/equipment/${ROBOT_ID}`);
     expect(entry).toMatchObject({ operation: 'UPDATE', after: { credentialsUpdated: true } });
     const text = JSON.stringify(audit);
     expect(text).not.toContain(DUMMY_PASSWORD);
@@ -366,15 +370,15 @@ describe('値を残さない（画面・API の応答・ログ・エラー・変
     const { context, logs } = await setup();
     await configure(context, 'BASIC');
 
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BASIC',
       username: 'dummy-user',
       password: DUMMY_PASSWORD,
     });
-    await send(context, 'POST', '/ingestion/robot/test');
+    await send(context, 'POST', testPath(ROBOT_ID));
 
     const text = logs.join('\n');
-    expect(text).toContain('/ingestion/robot/credentials');
+    expect(text).toContain(credentialsPath(ROBOT_ID));
     expect(text).not.toContain(DUMMY_PASSWORD);
     expect(text).not.toContain('dummy-user');
   });
@@ -386,7 +390,7 @@ describe('値を残さない（画面・API の応答・ログ・エラー・変
       new Error(`AccessDenied ${DUMMY_TOKEN}`),
     );
 
-    const response = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const response = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
@@ -400,7 +404,7 @@ describe('値を残さない（画面・API の応答・ログ・エラー・変
   it('設定の取得（GET /ingestion/settings）の応答に、値を含めない', async () => {
     const { context } = await setup();
     await configure(context, 'BEARER');
-    await send(context, 'PUT', '/ingestion/robot/credentials', {
+    await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BEARER',
       token: DUMMY_TOKEN,
     });
@@ -427,7 +431,7 @@ describe('エラーの形式', () => {
     const { context } = await setup();
     await configure(context, 'BASIC');
 
-    const response = await send(context, 'PUT', '/ingestion/robot/credentials', {
+    const response = await send(context, 'PUT', credentialsPath(ROBOT_ID), {
       authMethod: 'BASIC',
       username: '',
       password: '',

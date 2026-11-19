@@ -2,7 +2,7 @@
  * 設備のダイアログ（SC-10）の「取り込み元の接続」の欄の画面テスト（Issue #367。ADR-0026。ADR-0022 の接続の項目・検証）。
  * 接続は、設備ごとに持つ（取り込み元ごとの共通の入力欄は、ない）。ロボット・環境センサーのダイアログにだけ出る（ハウスにはない）。
  * 検証は共有のスキーマ（項目ごとにエラー）、保存は、設備 → 接続の順、認証情報は書き込み専用、その設備だけの接続テスト、
- * 同じ種別の設備からのコピー（認証情報は写さない）、接続の解除、共通の接続（移行期間）・未設定の注意、設備 ID の説明（SC-10-5）、
+ * 同じ種別の設備からのコピー（認証情報は写さない）、接続を未設定に戻す、未設定の注意、設備 ID の説明（SC-10-5）、
  * 登録後の案内（SC-10-9）。値はすべて合成データ。
  */
 
@@ -47,7 +47,6 @@ function status(overrides: Record<string, unknown> = {}) {
     name: '収穫ロボット1',
     sourceFilePath: '/data/robot-01.json',
     connection: BASIC,
-    connectionOrigin: 'EQUIPMENT',
     credentials: { state: 'NOT_CONFIGURED' },
     lastStartedAt: null,
     lastResult: null,
@@ -66,7 +65,6 @@ function sourceOf(
     sourceId,
     kind,
     profileId: `${sourceId}-v1`,
-    connectionRef: 'file-server-main',
     isEnabled: true,
     formatProfile: { versionLabel: 'v0.1', status: 'PROVISIONAL' },
     lastStartedAt: null,
@@ -110,7 +108,6 @@ function connectionResponse(overrides: Record<string, unknown> = {}) {
   return {
     equipmentId: 'ROBOT-01',
     connection: BASIC,
-    connectionOrigin: 'EQUIPMENT',
     credentials: { state: 'NOT_CONFIGURED' },
     ...overrides,
   };
@@ -343,7 +340,6 @@ describe('接続の入力（初期値・案内・警告）', () => {
         settings([
           status({
             connection: undefined,
-            connectionOrigin: 'NONE',
             credentials: { state: 'NOT_REQUIRED' },
           }),
         ]),
@@ -357,16 +353,14 @@ describe('接続の入力（初期値・案内・警告）', () => {
     expect(within(section).getByLabelText<HTMLInputElement>('ホスト', { exact: false }).value).toBe(
       '',
     );
-    expect(within(section).queryByTestId('equipment-connection-shared')).toBeNull();
     expect(within(section).queryByTestId('equipment-connection-remove')).toBeNull();
   });
 
-  it('設備ごとの接続があるときは、未設定・共通の接続の注意を示さない', async () => {
+  it('設備の接続があるときは、未設定の注意を示さない', async () => {
     renderApp('/settings/equipment', routes());
     const { section } = await openEditConnection();
 
     expect(within(section).queryByTestId('equipment-connection-unset')).toBeNull();
-    expect(within(section).queryByTestId('equipment-connection-shared')).toBeNull();
   });
 
   it('プロトコルが HTTP のときだけ、通信が暗号化されない旨を警告する', async () => {
@@ -380,76 +374,6 @@ describe('接続の入力（初期値・案内・警告）', () => {
     expect(warning.getAttribute('role')).toBe('alert');
     expect(warning.textContent).toContain('暗号化されません');
     expect(warning.textContent).toContain('HTTPS');
-  });
-
-  it('共通の接続を使う設備（移行期間）は、「設備ごとの接続を設定してください（共通の接続は、廃止予定）」の注意を示し、共通の接続の値を入力に表示する。何も変えなければ、接続を送らない', async () => {
-    const { calls } = renderApp(
-      '/settings/equipment',
-      routes(
-        {},
-        settings([status({ connectionOrigin: 'SHARED', credentials: { state: 'CONFIGURED' } })]),
-      ),
-    );
-    const { form, section } = await openEditConnection();
-
-    expect(within(section).getByTestId('equipment-connection-shared').textContent).toContain(
-      '設備ごとの接続を設定してください（共通の接続は、廃止予定です）',
-    );
-    expect(within(section).getByLabelText<HTMLInputElement>('ホスト', { exact: false }).value).toBe(
-      'fileserver.example.ac.jp',
-    );
-    // 共通の認証情報は、設備の認証情報ではない（登録の欄は、設備ごとの接続を保存してから）
-    expect(within(section).queryByTestId('equipment-credentials')).toBeNull();
-    expect(within(section).queryByTestId('equipment-connection-remove')).toBeNull();
-
-    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
-    await screen.findByTestId('equipment-notice');
-    expect(callsOf(calls, 'PUT', '/ingestion/equipment/ROBOT-01/connection')).toHaveLength(0);
-  });
-
-  it('共通の接続の内容を、この設備の接続にする（ボタン）と、保存のときに、設備ごとの接続として送る', async () => {
-    const { calls } = renderApp(
-      '/settings/equipment',
-      routes(
-        {
-          'PUT /ingestion/equipment/ROBOT-01/connection': () => jsonResponse(connectionResponse()),
-        },
-        settings([status({ connectionOrigin: 'SHARED', credentials: { state: 'CONFIGURED' } })]),
-      ),
-    );
-    const { form, section } = await openEditConnection();
-
-    fireEvent.click(within(section).getByTestId('equipment-connection-adopt'));
-    expect(within(section).getByTestId('equipment-connection-result').textContent).toContain(
-      '保存すると、この設備だけの接続になります',
-    );
-    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
-
-    await screen.findByTestId('equipment-notice');
-    expect(callsOf(calls, 'PUT', '/ingestion/equipment/ROBOT-01/connection')[0]?.body).toEqual({
-      connection: BASIC,
-    });
-  });
-
-  it('共通の接続の値を変更して保存すると、その設備だけの接続として送る', async () => {
-    const { calls } = renderApp(
-      '/settings/equipment',
-      routes(
-        {
-          'PUT /ingestion/equipment/ROBOT-01/connection': () => jsonResponse(connectionResponse()),
-        },
-        settings([status({ connectionOrigin: 'SHARED', credentials: { state: 'CONFIGURED' } })]),
-      ),
-    );
-    const { form, section } = await openEditConnection();
-
-    choose(section, 'ホスト', 'robot-only.example.ac.jp');
-    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
-
-    await screen.findByTestId('equipment-notice');
-    expect(
-      callsOf(calls, 'PUT', '/ingestion/equipment/ROBOT-01/connection')[0]?.body,
-    ).toMatchObject({ connection: { host: 'robot-only.example.ac.jp' } });
   });
 });
 
@@ -505,7 +429,6 @@ describe('接続の保存（設備 → 接続の順）', () => {
         settings([
           status({
             connection: undefined,
-            connectionOrigin: 'NONE',
             credentials: { state: 'NOT_REQUIRED' },
           }),
         ]),
@@ -531,7 +454,6 @@ describe('接続の保存（設備 → 接続の順）', () => {
         settings([
           status({
             connection: undefined,
-            connectionOrigin: 'NONE',
             credentials: { state: 'NOT_REQUIRED' },
           }),
         ]),
@@ -737,7 +659,6 @@ describe('接続の入力の検証（共有のスキーマ。項目ごとにエ�
           settings([
             status({
               connection: undefined,
-              connectionOrigin: 'NONE',
               credentials: { state: 'NOT_REQUIRED' },
             }),
           ]),
@@ -805,13 +726,11 @@ describe('同じ種別の設備から接続をコピー（認証情報は写さ�
         connection: { ...CONNECTION, host: 'source.example.ac.jp', port: 9000 },
         credentials: { state: 'CONFIGURED', updatedAt: UPDATED_AT },
       }),
-      // 共通の接続（SHARED）・未設定の設備は、コピー元にならない
-      status({ equipmentId: 'ROBOT-08', name: '共通のロボット', connectionOrigin: 'SHARED' }),
+      // 接続が未設定の設備は、コピー元にならない
       status({
         equipmentId: 'ROBOT-09',
         name: '未設定のロボット',
         connection: undefined,
-        connectionOrigin: 'NONE',
       }),
     ],
     [
@@ -823,7 +742,7 @@ describe('同じ種別の設備から接続をコピー（認証情報は写さ�
     ],
   );
 
-  it('選択肢は、同じ種別で、設備ごとの接続を持つ設備（自分自身を除く）だけ', async () => {
+  it('選択肢は、同じ種別で、接続を持つ設備（自分自身を除く）だけ', async () => {
     renderApp('/settings/equipment', routes({}, COPY_SETTINGS));
     const { section } = await openEditConnection();
 
@@ -941,15 +860,14 @@ describe('同じ種別の設備から接続をコピー（認証情報は写さ�
   });
 });
 
-describe('設備ごとの接続を解除（接続を設定しない／共通の接続を使う）', () => {
-  it('確認の文言を示し、キャンセルでは、何も送らない。確定すると、削除して、出どころ（共通／未設定）を反映する', async () => {
+describe('設備の接続を未設定に戻す', () => {
+  it('確認の文言を示し、キャンセルでは、何も送らない。確定すると、削除して、未設定を反映する', async () => {
     const { calls } = renderApp(
       '/settings/equipment',
       routes({
         'DELETE /ingestion/equipment/ROBOT-01/connection': () =>
           jsonResponse({
             equipmentId: 'ROBOT-01',
-            connectionOrigin: 'NONE',
             credentials: { state: 'NOT_REQUIRED' },
           }),
       }),
@@ -958,7 +876,7 @@ describe('設備ごとの接続を解除（接続を設定しない／共通の�
 
     fireEvent.click(within(section).getByTestId('equipment-connection-remove'));
     const confirm = within(section).getByTestId('equipment-connection-remove-confirm');
-    expect(confirm.textContent).toContain('共通の接続があれば、それを使い');
+    expect(confirm.textContent).toContain('未設定に戻します');
     expect(confirm.textContent).toContain('接続先が設定されていません');
     fireEvent.click(within(confirm).getByRole('button', { name: 'キャンセル' }));
     expect(within(section).queryByTestId('equipment-connection-remove-confirm')).toBeNull();
@@ -968,7 +886,7 @@ describe('設備ごとの接続を解除（接続を設定しない／共通の�
     fireEvent.click(within(section).getByTestId('equipment-connection-remove-yes'));
 
     expect((await within(section).findByTestId('equipment-connection-result')).textContent).toBe(
-      '設備ごとの接続を解除しました',
+      '接続を未設定に戻しました',
     );
     expect(callsOf(calls, 'DELETE', '/ingestion/equipment/ROBOT-01/connection')).toHaveLength(1);
     // 解除のあと: 未設定。入力は空に戻り、解除のボタンは出ない（ダイアログは、閉じない）
@@ -978,30 +896,6 @@ describe('設備ごとの接続を解除（接続を設定しない／共通の�
     );
     expect(within(section).queryByTestId('equipment-connection-remove')).toBeNull();
     expect(screen.getByTestId('equipment-edit')).toBeDefined();
-  });
-
-  it('解除のあと、共通の接続があれば、共通の接続を使う旨を示す（出どころ SHARED）', async () => {
-    renderApp(
-      '/settings/equipment',
-      routes({
-        'DELETE /ingestion/equipment/ROBOT-01/connection': () =>
-          jsonResponse({
-            equipmentId: 'ROBOT-01',
-            connection: CONNECTION,
-            connectionOrigin: 'SHARED',
-            credentials: { state: 'CONFIGURED' },
-          }),
-      }),
-    );
-    const { section } = await openEditConnection();
-
-    fireEvent.click(within(section).getByTestId('equipment-connection-remove'));
-    fireEvent.click(within(section).getByTestId('equipment-connection-remove-yes'));
-
-    expect(await within(section).findByTestId('equipment-connection-shared')).toBeDefined();
-    expect(within(section).getByLabelText<HTMLInputElement>('ホスト', { exact: false }).value).toBe(
-      'fileserver.example.ac.jp',
-    );
   });
 
   it('解除に失敗したら、エラーを表示し、確認は残す', async () => {
@@ -1387,7 +1281,6 @@ describe('認証情報の登録（D-47。書き込み専用。設備ごと）', 
         settings([
           status({
             connection: undefined,
-            connectionOrigin: 'NONE',
             credentials: { state: 'NOT_REQUIRED' },
           }),
         ]),

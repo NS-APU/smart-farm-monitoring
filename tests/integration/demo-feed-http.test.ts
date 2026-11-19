@@ -212,7 +212,7 @@ describe('デモ用の HTTP 配信を、取り込み（JB-01）が読む', () =>
     await container.ingestionService.runSource('robot');
 
     const second = await container.ingestionService.runSource('robot');
-    const test = await container.ingestionService.testConnection('robot');
+    const test = await container.ingestionService.testEquipmentConnection(DEMO_ROBOT_ID);
 
     expect(second.filesProcessed).toBe(0);
     expect(test).toMatchObject({ ok: true });

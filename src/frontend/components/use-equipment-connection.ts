@@ -6,7 +6,6 @@
 
 import { useState } from 'react';
 import type {
-  ConnectionOrigin,
   EquipmentIngestionStatus,
   FileServerConnection,
   IngestionCredentialStatus,
@@ -34,25 +33,22 @@ const TEXT = MESSAGES.equipment.connection;
 
 /** サーバーに保存されている、設備の接続の状態。 */
 export interface ConnectionServerState {
-  /** 設備が実際に使う接続（出どころが SHARED のときは、共通の接続）。 */
+  /** 設備の接続。未設定なら、undefined。 */
   readonly connection: FileServerConnection | undefined;
-  readonly origin: ConnectionOrigin;
   readonly credentials: IngestionCredentialStatus;
 }
 
 /** 接続がまだない設備（新規の登録・取り込み元に載っていない設備）の状態。 */
 export const NO_CONNECTION_STATE: ConnectionServerState = {
   connection: undefined,
-  origin: 'NONE',
   credentials: { state: 'NOT_REQUIRED' },
 };
 
 export function serverStateOf(
-  status: Pick<EquipmentIngestionStatus, 'connection' | 'connectionOrigin' | 'credentials'>,
+  status: Pick<EquipmentIngestionStatus, 'connection' | 'credentials'>,
 ): ConnectionServerState {
   return {
     connection: status.connection,
-    origin: status.connectionOrigin,
     credentials: status.credentials,
   };
 }
@@ -81,15 +77,12 @@ export interface EquipmentConnectionController {
   readonly formMessage: string | undefined;
   readonly notice: ConnectionNotice | undefined;
   readonly copiedFrom: string | undefined;
-  readonly adopted: boolean;
   readonly busy: boolean;
   /** 入力を検証する。保存が必要な接続があれば、その接続を返す（なければ undefined）。エラーは、項目に表示する。 */
   readonly prepare: () => PrepareResult;
   /** 接続を保存する（設備の保存のあと）。成功したら true。失敗は、formMessage・errors に残す。 */
   readonly commit: (equipmentId: string, connection: FileServerConnection) => Promise<boolean>;
   readonly copyFrom: (candidate: CopyCandidate) => void;
-  /** 共通の接続の内容を、この設備の接続にする（保存は、設備の保存のとき）。 */
-  readonly adopt: () => void;
   readonly saveCredentials: (
     equipmentId: string,
     input: IngestionCredentialsInput,
@@ -112,7 +105,6 @@ export function useEquipmentConnection(
   const [seeded, setSeeded] = useState(initial !== undefined);
   const [server, setServer] = useState<ConnectionServerState>(initial ?? NO_CONNECTION_STATE);
   const [draft, setDraftState] = useState<ConnectionDraft>(draftOfConnection(initial?.connection));
-  const [adopted, setAdopted] = useState(false);
   const [copiedFrom, setCopiedFrom] = useState<string | undefined>(undefined);
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const [notice, setNotice] = useState<ConnectionNotice | undefined>(undefined);
@@ -124,10 +116,9 @@ export function useEquipmentConnection(
     setDraftState(draftOfConnection(initial.connection));
   }
 
-  // 出どころが設備ごと・共通のときは、その接続の値を基準にする。未設定のときは、空の入力が基準
+  // 接続があるときは、その接続の値を基準にする。未設定のときは、空の入力が基準
   const baseline = draftOfConnection(server.connection);
   const dirty =
-    (server.origin === 'SHARED' && adopted) ||
     draft.protocol !== baseline.protocol ||
     draft.host !== baseline.host ||
     draft.port !== baseline.port ||
@@ -151,8 +142,8 @@ export function useEquipmentConnection(
       return { ok: false };
     }
     setClientErrors({});
-    // 設備ごとの接続を変えていないとき（空白・大文字小文字の違いだけ）は、送らない
-    if (server.origin === 'EQUIPMENT' && isSameConnection(parsed.connection, server.connection)) {
+    // 保存済みの接続を変えていないとき（空白・大文字小文字の違いだけ）は、送らない
+    if (isSameConnection(parsed.connection, server.connection)) {
       return { ok: true, connection: undefined };
     }
     return { ok: true, connection: parsed.connection };
@@ -167,11 +158,9 @@ export function useEquipmentConnection(
     const saved = result.value;
     setServer({
       connection: saved.connection ?? connection,
-      origin: saved.connectionOrigin,
       credentials: saved.credentials,
     });
     setDraftState(draftOfConnection(saved.connection ?? connection));
-    setAdopted(false);
     setCopiedFrom(undefined);
     onChanged();
     return true;
@@ -180,16 +169,9 @@ export function useEquipmentConnection(
   function copyFrom(candidate: CopyCandidate): void {
     // 接続の項目だけを写す（認証情報は、写さない）
     setDraftState(draftOfConnection(candidate.connection));
-    setAdopted(true);
     setCopiedFrom(candidate.name);
     setClientErrors({});
     setNotice(undefined);
-  }
-
-  function adopt(): void {
-    setAdopted(true);
-    setCopiedFrom(undefined);
-    setNotice({ ok: true, text: TEXT.adopted });
   }
 
   async function saveCredentials(
@@ -224,11 +206,9 @@ export function useEquipmentConnection(
     const cleared = result.value;
     setServer({
       connection: cleared.connection,
-      origin: cleared.connectionOrigin,
       credentials: cleared.credentials,
     });
     setDraftState(draftOfConnection(cleared.connection));
-    setAdopted(false);
     setCopiedFrom(undefined);
     setClientErrors({});
     setNotice({ ok: true, text: TEXT.removed });
@@ -246,12 +226,10 @@ export function useEquipmentConnection(
     formMessage: submit.formMessage,
     notice,
     copiedFrom,
-    adopted,
     busy: submit.busy,
     prepare,
     commit,
     copyFrom,
-    adopt,
     saveCredentials,
     test,
     remove,

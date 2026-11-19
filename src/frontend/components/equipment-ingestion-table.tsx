@@ -1,5 +1,5 @@
 /**
- * SC-11 取り込み設定・状況の、取り込み元ごとの「設備ごとの接続と状況」の表（Issue #367。ADR-0026）。設備名・ファイルのパス・接続先・接続の出どころ・
+ * SC-11 取り込み設定・状況の、取り込み元ごとの「設備ごとの接続と状況」の表（Issue #367。ADR-0026）。設備名・ファイルのパス・接続先・
  * 認証情報の状態・最終の実行・結果・最後にデータが取れた日時・停止中・操作（接続テスト・接続を設定・修正）。
  * 停止中は、ダッシュボードの「データが古い」と同じ基準（取得間隔 × 倍数、最低 3 分。ADR-0016 の D-12）で判定する。
  * 接続・認証情報の入力は、設備のダイアログ（SC-10）で行う（この表には、入力欄を持たない）。
@@ -94,19 +94,9 @@ export function EquipmentIngestionTable(props: EquipmentIngestionTableProps): Re
                   )}
                 </td>
                 <td data-label={TEXT.equipmentConnectionTarget}>
-                  <div className="cell-stack">
-                    <span data-testid={`equipment-target-${item.equipmentId}`}>
-                      {target ?? TEXT.equipmentConnectionUnset}
-                    </span>
-                    <span
-                      className="tag"
-                      title={TEXT.equipmentOrigin}
-                      data-testid={`equipment-origin-${item.equipmentId}`}
-                      data-origin={item.connectionOrigin}
-                    >
-                      {TEXT.equipmentOriginLabels[item.connectionOrigin]}
-                    </span>
-                  </div>
+                  <span data-testid={`equipment-target-${item.equipmentId}`}>
+                    {target ?? TEXT.equipmentConnectionUnset}
+                  </span>
                 </td>
                 <td data-label={TEXT.equipmentCredentials}>
                   <span data-testid={`equipment-credentials-${item.equipmentId}`}>
