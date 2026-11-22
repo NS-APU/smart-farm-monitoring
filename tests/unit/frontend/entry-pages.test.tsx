@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '../../../src/shared/constants/items.ts';
 import { PERMISSIONS } from '../../../src/shared/constants/permissions.ts';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '../../../src/shared/constants/viewpoints.ts';
@@ -20,6 +20,7 @@ import {
   type Routes,
 } from '../../support/management-frontend.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
+import { restoreScrollIntoView, stubScrollIntoView } from '../../support/scroll-into-view.ts';
 
 const SAVED = {
   entry: manualEntry(),
@@ -67,6 +68,10 @@ const SATISFACTION_LABELS = [
   '満足度（データ活用度合い）',
   '満足度（耐久性）',
 ];
+
+afterEach(() => {
+  restoreScrollIntoView();
+});
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -321,6 +326,39 @@ describe('データ入力（UC-06。SC-06）', () => {
       equipmentId: 'ROBOT-01',
       category: 'FAILURE',
     });
+  });
+
+  it('SC-06-3: 保存結果のパネルは、role="status" で、保存後に画面内へスクロールする（保存のたびに）。フォーカスは、押した保存ボタンのまま', async () => {
+    const scroll = stubScrollIntoView();
+    renderApp('/data-entry', {
+      'POST /manual-entries': () => jsonResponse(SAVED, 201),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    expect(screen.queryByTestId('entry-result')).toBeNull();
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '2' } });
+    const save = screen.getByRole('button', { name: '保存する' });
+    save.focus();
+    fireEvent.click(save);
+
+    const result = await screen.findByTestId('entry-result');
+
+    expect(result.getAttribute('role')).toBe('status');
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(result);
+    expect(scroll.mock.calls[0]?.[0]).toMatchObject({ block: 'nearest' });
+    expect(document.activeElement).toBe(save);
+
+    // 2 回目の保存でも、もう一度スクロールする（新しい結果が現れたとき）
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T12:00' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await waitFor(() => {
+      expect(scroll).toHaveBeenCalledTimes(2);
+    });
+    expect(scroll.mock.contexts[1]).toBe(screen.getByTestId('entry-result'));
   });
 
   describe('ステータスコード（文字列の項目）は、登録済みのコードから選ぶ（#192 の PR 2）', () => {
