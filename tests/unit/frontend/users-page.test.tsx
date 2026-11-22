@@ -341,3 +341,41 @@ describe('ユーザー: 登録・修正は、ダイアログで行う（Issue #3
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
+
+describe('ユーザー: パスワード欄の表示切替・Caps Lock の注意（Issue #157。SC-01-4）', () => {
+  it('登録のダイアログのパスワード欄に、表示切替がある（既定は非表示）。押すと表示に切り替わる', async () => {
+    renderApp('/settings/users', routes());
+    await screen.findAllByTestId('user-row');
+    const form = openAddForm();
+    const password = within(form).getByLabelText<HTMLInputElement>('パスワード', {
+      exact: false,
+    });
+    const toggle = within(form).getByRole('button', { name: '入力した文字を表示' });
+
+    expect(password.type).toBe('password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    expect(password.type).toBe('text');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    // 切替は、フォームを送信しない（必須のエラーも出さない）
+    expect(within(form).queryByText('ユーザーIDは必須です')).toBeNull();
+  });
+
+  it('修正（再設定）のダイアログのパスワード欄にも、表示切替と Caps Lock の注意がある', async () => {
+    renderApp('/settings/users', routes());
+    const rows = await screen.findAllByTestId('user-row');
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    const form = await screen.findByTestId('user-edit');
+    const password = within(form).getByLabelText<HTMLInputElement>('パスワード', {
+      exact: false,
+    });
+
+    fireEvent.keyDown(password, { key: 'A', modifierCapsLock: true });
+    fireEvent.click(within(form).getByRole('button', { name: '入力した文字を表示' }));
+
+    expect(password.type).toBe('text');
+    expect(within(form).getByTestId('caps-lock-notice').textContent).toContain('Caps Lock');
+  });
+});

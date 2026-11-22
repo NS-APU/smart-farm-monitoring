@@ -31,6 +31,11 @@ export const MESSAGES = {
     submitting: 'ログイン中…',
     failed: 'ユーザーIDまたはパスワードが正しくありません',
   },
+  passwordInput: {
+    // 名前に「パスワード」を含めない（欄のラベルでの検索が、欄とボタンの 2 件にならないように）。状態は aria-pressed で伝える
+    toggle: '入力した文字を表示',
+    capsLockOn: 'Caps Lock がオンです。大文字で入力されます',
+  },
   changePassword: {
     title: 'パスワードの変更',
     lead: '現在のパスワードを入力して、新しいパスワードを決めます。変更すると、ほかの端末のログインは、解除されます',
