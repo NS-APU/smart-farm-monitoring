@@ -5,7 +5,7 @@
  *   UC-12 Aが、設備ごとの取得間隔（ロボット15分・環境センサー5分）を設定 → UC-08・UC-09 定期の取り込み（JB-01）でロボット・センサーのデータが入る → UC-01 Bが、最新のデータで評価を確認
  *   → UC-01 取得間隔 × 3 を超えて新しいデータがないと、Bの画面に「データが古い」旨が出る → UC-09・UC-10 新しいセンサーのデータ（異常な温度）が、定期の取り込みで入る
  *   → UC-01・UC-22 古い旨が消え、異常の通知がBに届く（取得間隔が来ていないロボットは取り込まない） → UC-15 Aが、ロボットの取り込みを無効にする
- *   → UC-16 Bが、取り込みのログで、無効にしたロボットの取り込みがないことを確認 → UC-11 連携の結果（成功）を確認
+ *   → UC-16 Bが、取り込みのログで、無効にしたロボットの取り込みがないことを確認 → UC-11 連携の結果（送信済み）を確認
  *
  * 各ユースケースの値の同値分割は、UC-NN-*.ts が担う。ここでは、ユースケースの連なりと、利用者をまたぐ影響を確かめる。
  */
@@ -197,10 +197,10 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       sourceCard(b.page, 'robot').getByLabel('自動取り込みを有効にする'),
     ).not.toBeChecked();
 
-    // UC-11・UC-16: 連携のジョブで、取り込んだデータ・評価結果が送られ、連携の結果（成功）をBが確認する
+    // UC-11・UC-16: 連携のジョブで、取り込んだデータ・評価結果が送られ、連携の結果（送信済み）をBが確認する
     await runJob(request, 'JB-03');
     await b.page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('送信済み');
     await shot(b.page, testInfo, 'scenario-scheduled-b-status');
     await b.context.close();
   });
