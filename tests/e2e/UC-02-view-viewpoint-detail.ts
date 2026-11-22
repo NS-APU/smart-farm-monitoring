@@ -402,7 +402,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     // エラーの見た目（role=alert）ではなく、案内（role=status）。ハウスの評価である旨と、ハウスへの切り替えを示す（#156）
     await expect(page.getByTestId('not-applicable')).toHaveAttribute('role', 'status');
     await expect(page.getByTestId('not-applicable')).toContainText(
-      'この観点（収穫精度）は、ハウスの評価です',
+      'この観点（収穫精度）は、ロボットとハウスで評価します（センサーでは評価しません）',
     );
     await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
     await shot(page, testInfo, 'detail-not-applicable');

@@ -484,7 +484,7 @@ test.describe('対象の設備', () => {
     // エラーの見た目（role=alert）ではなく、案内（role=status）。ハウスの評価である旨を示す（#156）
     await expect(page.getByTestId('not-applicable')).toHaveAttribute('role', 'status');
     await expect(page.getByTestId('not-applicable')).toContainText(
-      'この観点（満足度）は、ハウスの評価です',
+      'この観点（満足度）は、ハウスの評価です（ロボットでは評価しません）',
     );
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
