@@ -47,6 +47,64 @@ textarea {
   font-size: 0.85rem;
 }
 
+/* パスワード欄（PasswordInput。Issue #157）: 入力欄の右に、表示切替のボタン。下に、Caps Lock の注意 */
+.password-field {
+  min-width: 0;
+}
+
+.password-input {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.password-input input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.password-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+}
+
+/* 注意の文字は、状態の色（正常・注意・異常）を使わず、本文の色と、アイコン・文字で示す（状態の色は、状態だけに使う） */
+.password-caps-notice {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* 中身がないときは、場所をとらない（領域は、読み上げのために残す。display: none にしない） */
+.password-caps-notice:not(:empty) {
+  margin-top: 4px;
+}
+
+.password-caps-notice > .icon {
+  flex: none;
+  margin-top: 0.3em;
+}
+
+@media (max-width: 900px) {
+  /* 指で押せる大きさ（44px） */
+  .password-input input,
+  .password-toggle {
+    min-height: 44px;
+  }
+
+  .password-toggle {
+    min-width: 44px;
+  }
+}
+
 .required-mark {
   color: var(--status-error-text);
 }
@@ -1164,4 +1222,15 @@ textarea {
   outline: 2px solid var(--status-error-main);
   outline-offset: 2px;
   border-radius: 8px;
+}
+
+/* 入力欄のラベルと、ヘルプヒント（「?」）を、1 行に並べる（Issue #154） */
+.field-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.field-label-row > label {
+  font-weight: 600;
 }

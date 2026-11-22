@@ -16,12 +16,48 @@ export interface PushStubOptions {
   readonly answer?: 'granted' | 'denied';
   /** 購読の宛先（endpoint）の識別。端末ごとに変える。 */
   readonly device?: string;
+  /** 端末の種類を、User-Agent などの差し替えで再現する（iPhone・iPad の案内の確認。#159 SC-15-8）。省略は、実際のブラウザのまま。 */
+  readonly navigatorOverride?: {
+    readonly userAgent: string;
+    readonly platform: string;
+    readonly maxTouchPoints: number;
+    /** ホーム画面から開いている（iOS の navigator.standalone）。 */
+    readonly standalone?: boolean;
+  };
 }
+
+/** iOS・iPadOS の User-Agent（実際の形。機種・OS のバージョンは、ダミー）。 */
+export const IOS_DEVICES = {
+  iphoneSafari: {
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+    platform: 'iPhone',
+    maxTouchPoints: 5,
+  },
+  /** iPadOS の Safari の既定（デスクトップ表示）。User-Agent は、Mac を名乗る。 */
+  ipadosSafari: {
+    userAgent:
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+    platform: 'MacIntel',
+    maxTouchPoints: 5,
+  },
+  androidChrome: {
+    userAgent:
+      'Mozilla/5.0 (Linux; Android 14; Dummy) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
+    platform: 'Linux armv8l',
+    maxTouchPoints: 5,
+  },
+} as const;
 
 /** ページの読み込み前に呼ぶ（`page.goto` の前）。 */
 export async function stubPush(page: Page, options: PushStubOptions = {}): Promise<void> {
   await page.addInitScript(
-    ({ supported, permission, answer, device }) => {
+    ({ supported, permission, answer, device, navigatorOverride }) => {
+      if (navigatorOverride !== undefined) {
+        for (const [name, value] of Object.entries(navigatorOverride)) {
+          Object.defineProperty(navigator, name, { get: () => value, configurable: true });
+        }
+      }
       let currentPermission = permission;
       const storageKey = 'e2e-push-endpoint';
       const endpoint = `https://push.example.invalid/e2e/${device}`;
@@ -73,6 +109,7 @@ export async function stubPush(page: Page, options: PushStubOptions = {}): Promi
       permission: options.permission ?? 'default',
       answer: options.answer ?? 'granted',
       device: options.device ?? 'device-1',
+      navigatorOverride: options.navigatorOverride,
     },
   );
 }
@@ -89,9 +126,24 @@ export async function deliveredPushes(
   return body.items;
 }
 
-/** ログイン中の利用者の、Web Push の購読の状態（API）。 */
-export async function pushStatus(
+/** Web Push のダミーが、テスト通知として送った内容（購読の識別子。通知の配信の記録には、含まれない。#159 SC-15-2）。 */
+export async function deliveredTestPushes(
   request: APIRequestContext,
-): Promise<{ isAvailable: boolean; publicKey: string | null; isSubscribed: boolean }> {
+): Promise<{ subscriptionId: string }[]> {
+  const body = await apiOk<{ items: { subscriptionId: string }[] }>(
+    request,
+    'GET',
+    '/dev/mocks/web-push/test-delivered',
+  );
+  return body.items;
+}
+
+/** ログイン中の利用者の、Web Push の購読の状態（API）。 */
+export async function pushStatus(request: APIRequestContext): Promise<{
+  isAvailable: boolean;
+  publicKey: string | null;
+  isSubscribed: boolean;
+  isInvalidated: boolean;
+}> {
   return apiOk(request, 'GET', '/push-subscription');
 }

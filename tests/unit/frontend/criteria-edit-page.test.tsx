@@ -43,6 +43,15 @@ const CHANGED = {
   updatedAt: '2026-10-09T02:00:00.000Z',
 };
 const PATH = '/viewpoints/environmentalAdaptability/criteria';
+const RESET_PATH = '/viewpoints/environmentalAdaptability/criteria/reset';
+
+/** 版（ETag）つきの GET の応答。 */
+function versioned(body: unknown, etag: string): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json', etag },
+  });
+}
 
 beforeEach(() => {
   window.history.pushState(null, '', '/');
@@ -294,6 +303,128 @@ describe('判断基準の編集（UC-19。SC-13）', () => {
       }),
     );
     expect((await screen.findByTestId('criteria-notice')).textContent).toBe('既定値へ戻しました');
+  });
+});
+
+describe('判断基準の編集: 版つき更新（SC-13-1。同時編集の検出）', () => {
+  /** 他の管理者が先に変更した、あとの判断基準（湿度の注意開始値が 70）。 */
+  const OTHER = {
+    ...CHANGED,
+    version: 'v3',
+    updatedBy: 'worker-2',
+    criteria: BASE.criteria.map((item) =>
+      item.indicator === 'humidityPercent'
+        ? { ...item, thresholds: { cautionFrom: 70, errorFrom: 90 } }
+        : item,
+    ),
+  };
+  const cautionFromOf = (): HTMLInputElement =>
+    within(criterion('humidityPercent')).getByLabelText<HTMLInputElement>(
+      '注意開始値（以上で注意）（%）',
+      { exact: false },
+    );
+
+  it('保存は、読み込んだときの ETag を If-Match に付けて送る', async () => {
+    const { calls } = renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => versioned(BASE, '"etag-1"'),
+      'PUT /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(CHANGED),
+    });
+    await screen.findByTestId('criteria-state');
+
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+    await screen.findByTestId('criteria-notice');
+    expect(callsOf(calls, 'PUT', PATH).map((call) => call.ifMatch)).toEqual(['"etag-1"']);
+  });
+
+  it('既定値へ戻す操作も、読み込んだときの ETag を If-Match に付けて送る', async () => {
+    const { calls } = renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => versioned(CHANGED, '"etag-2"'),
+      'POST /viewpoints/environmentalAdaptability/criteria/reset': () => jsonResponse(BASE),
+    });
+    await screen.findByTestId('criteria-state');
+
+    fireEvent.click(screen.getByRole('button', { name: '既定値へ戻す' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', {
+        name: '既定値へ戻す',
+      }),
+    );
+
+    await screen.findByTestId('criteria-notice');
+    expect(callsOf(calls, 'POST', RESET_PATH).map((call) => call.ifMatch)).toEqual(['"etag-2"']);
+  });
+
+  it('保存が 409（他の管理者が先に変更）なら、その旨と「読み込み直す」を示す。読み込み直すと、最新の内容と版で、保存できる', async () => {
+    let latest: 'mine' | 'other' = 'mine';
+    const { calls } = renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () =>
+        latest === 'mine' ? versioned(BASE, '"etag-1"') : versioned(OTHER, '"etag-3"'),
+      'PUT /viewpoints/environmentalAdaptability/criteria': (request) => {
+        if (request.ifMatch === '"etag-1"') {
+          latest = 'other';
+          return errorBody(409, 'CONFLICT', '他の管理者が変更しました。読み込み直してください');
+        }
+        return jsonResponse(OTHER);
+      },
+    });
+    await screen.findByTestId('criteria-state');
+    fireEvent.change(cautionFromOf(), { target: { value: '75' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+    const conflict = await screen.findByTestId('criteria-conflict');
+    expect(conflict.getAttribute('role')).toBe('alert');
+    expect(conflict.textContent).toContain('他の管理者が変更しました。読み込み直してください');
+    expect(screen.queryByTestId('criteria-notice')).toBeNull();
+
+    fireEvent.click(within(conflict).getByRole('button', { name: '読み込み直す' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('criteria-state').textContent).toContain('版: v3');
+    });
+    expect(screen.queryByTestId('criteria-conflict')).toBeNull();
+    expect(cautionFromOf().value).toBe('70');
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await screen.findByTestId('criteria-notice');
+    expect(callsOf(calls, 'PUT', PATH).map((call) => call.ifMatch)).toEqual([
+      '"etag-1"',
+      '"etag-3"',
+    ]);
+  });
+
+  it('既定値へ戻す操作が 409 でも、同じ案内を示す（確認のダイアログは閉じる）', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => versioned(CHANGED, '"etag-2"'),
+      'POST /viewpoints/environmentalAdaptability/criteria/reset': () =>
+        errorBody(409, 'CONFLICT', '他の管理者が変更しました。読み込み直してください'),
+    });
+    await screen.findByTestId('criteria-state');
+
+    fireEvent.click(screen.getByRole('button', { name: '既定値へ戻す' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', {
+        name: '既定値へ戻す',
+      }),
+    );
+
+    const conflict = await screen.findByTestId('criteria-conflict');
+    expect(within(conflict).getByRole('button', { name: '読み込み直す' })).toBeDefined();
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+  });
+
+  it('409 以外のエラーには、「読み込み直す」を示さない', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => versioned(BASE, '"etag-1"'),
+      'PUT /viewpoints/environmentalAdaptability/criteria': () =>
+        errorBody(500, 'INTERNAL_ERROR', '保存できませんでした'),
+    });
+    await screen.findByTestId('criteria-state');
+
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe('保存できませんでした');
+    expect(screen.queryByTestId('criteria-conflict')).toBeNull();
   });
 });
 

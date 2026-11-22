@@ -959,3 +959,34 @@ for (const viewport of OBSERVATION_VIEWPORTS) {
     });
   });
 }
+
+test.describe('データの状態の凡例（SC-09-2。Issue #154）', () => {
+  test('「データの状態の見かた」を開くと、有効・欠損・遅延・不正の意味と、評価での扱いが出る。はじめは閉じている', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 10, observedAt: hoursAgo(1) },
+      ],
+    });
+    await openMeasurements(page);
+    const toggle = page.getByRole('button', { name: 'データの状態の見かた' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('quality-legend-body')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const body = page.getByTestId('quality-legend-body');
+    await expect(body.getByTestId('quality-legend-VALID')).toContainText('評価に使います');
+    await expect(body.getByTestId('quality-legend-MISSING')).toContainText('評価に使いません');
+    await expect(body.getByTestId('quality-legend-LATE')).toContainText('評価に使います');
+    await expect(body.getByTestId('quality-legend-INVALID')).toContainText('評価に使いません');
+    await expectNoHorizontalScroll(page);
+
+    await toggle.click();
+    await expect(page.getByTestId('quality-legend-body')).toHaveCount(0);
+  });
+});

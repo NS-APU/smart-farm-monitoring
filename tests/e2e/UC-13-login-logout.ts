@@ -48,6 +48,25 @@ async function submitLogin(page: Page, userId: string, password: string): Promis
   await page.getByRole('button', { name: 'ログイン' }).click();
 }
 
+/** ページの読み込みごとに、`history.replaceState` で移った先（パス・クエリ）を記録する（ログイン後の遷移が、1 か所だけであることの確認。Issue #460）。 */
+async function trackHistoryReplacements(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const record: string[] = [];
+    Object.defineProperty(window, '__replacements', { value: record });
+    const original = window.history.replaceState.bind(window.history);
+    window.history.replaceState = (data: unknown, unused: string, url?: string | URL | null) => {
+      record.push(String(url));
+      original(data, unused, url);
+    };
+  });
+}
+
+async function historyReplacements(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    (window as unknown as { __replacements: string[] }).__replacements.slice(),
+  );
+}
+
 test.beforeEach(async ({ request }) => {
   await resetBackend(request, 'NONE');
 });
@@ -99,6 +118,38 @@ test.describe('基本フロー: ログインし、利用し、ログアウトす
     expect(page.url()).not.toContain(E2E_USER.password);
   });
 
+  test('ログイン画面を開くと、ユーザーIDの欄にフォーカスがある。パスワードは、既定で非表示で、表示切替で、表示・非表示を切り替えられる（Issue #157。SC-01-4）', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+
+    await expect(page.getByLabel('ユーザーID')).toBeFocused();
+    const password = page.getByLabel('パスワード');
+    const toggle = page.getByRole('button', { name: '入力した文字を表示' });
+    await expect(password).toHaveAttribute('type', 'password');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await password.fill(E2E_USER.password);
+
+    await toggle.click();
+
+    await expect(password).toHaveAttribute('type', 'text');
+    await expect(password).toHaveValue(E2E_USER.password);
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // 切替は、送信しない（ログイン画面のまま。パスワードも URL に出ない）
+    await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+    expect(page.url()).not.toContain(E2E_USER.password);
+
+    await toggle.click();
+
+    await expect(password).toHaveAttribute('type', 'password');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    // 表示にしたあとでも、そのまま、ログインできる
+    await toggle.click();
+    await page.getByLabel('ユーザーID').fill(E2E_USER.userId);
+    await page.getByRole('button', { name: 'ログイン' }).click();
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+  });
+
   test('ログイン済みで、ログイン画面を開くと、ダッシュボードへ移る', async ({ page }) => {
     await page.goto('/');
     await loginViaUi(page);
@@ -115,6 +166,23 @@ test.describe('基本フロー: ログインし、利用し、ログアウトす
     await loginViaUi(page);
 
     await expect(page.getByTestId('user-name')).toHaveText(E2E_USER.userName);
+  });
+
+  test('スマートフォン幅（375px）でも、パスワードの表示切替のボタンは、画面の幅に収まり、指で押せる大きさ（44px 以上）である（Issue #157）', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/login');
+
+    const toggle = await page.getByRole('button', { name: '入力した文字を表示' }).boundingBox();
+    const password = await page.getByLabel('パスワード').boundingBox();
+
+    expect(toggle).not.toBeNull();
+    expect(password).not.toBeNull();
+    expect((toggle?.x ?? 0) + (toggle?.width ?? 0)).toBeLessThanOrEqual(375);
+    expect(toggle?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(toggle?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(password?.height ?? 0).toBeGreaterThanOrEqual(44);
   });
 
   test('スマートフォン幅（375px）でも、ログイン画面は、横にはみ出さず、入力欄とボタンが画面の幅に収まり、ログインできる', async ({
@@ -313,11 +381,39 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
   });
 
+  test('保護された画面（クエリなし）へのアクセスは、ログイン後に、その画面へ戻り、ダッシュボードを経由しない（Issue #460）', async ({
+    page,
+  }) => {
+    await trackHistoryReplacements(page);
+    await page.goto('/notifications');
+    await expect(page).toHaveURL(/\/login\?next=%2Fnotifications$/);
+
+    await loginViaUi(page);
+
+    await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/notifications');
+    // ログイン画面からの移動は、戻り先への 1 回だけ（誘導のときの 1 回は、ログインの前）
+    expect(await historyReplacements(page)).toEqual([
+      '/login?next=%2Fnotifications',
+      '/notifications',
+    ]);
+  });
+
+  /** ブラウザの解釈で、別のオリジンや、ログイン画面になりうる値（Issue #460）。バックスラッシュは、1 文字。 */
+  const backslash = String.fromCharCode(92);
   const unsafe: readonly { name: string; next: string }[] = [
     { name: '別のサイト（https://…）', next: 'https://evil.example/phish' },
     { name: 'プロトコル相対（//…）', next: '//evil.example/phish' },
     { name: 'スキームなしの相対パス', next: 'evil' },
     { name: '空', next: '' },
+    { name: 'バックスラッシュ（/ + バックスラッシュ + …）', next: `/${backslash}evil.example` },
+    {
+      name: 'バックスラッシュ 2 つ',
+      next: `/${backslash}${backslash}evil.example`,
+    },
+    { name: 'タブを挟んだプロトコル相対（/ + タブ + /…）', next: '/\t/evil.example' },
+    { name: 'ログイン画面（/login）', next: '/login' },
+    { name: 'ログイン画面（クエリつき）', next: '/login?next=%2Fnotifications' },
   ];
 
   for (const item of unsafe) {
@@ -325,6 +421,7 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
       page,
       baseURL,
     }) => {
+      await trackHistoryReplacements(page);
       await page.goto(`/login?next=${encodeURIComponent(item.next)}`);
 
       await loginViaUi(page);
@@ -332,8 +429,42 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
       await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
       // 同じサイトにとどまっていること。サイトの origin は、設定（dev-ports.ts）から決まる baseURL を使う
       expect(new URL(page.url()).origin).toBe(baseURL);
+      expect(new URL(page.url()).pathname).toBe('/');
+      // ログイン済みなのに、エラーを表示しない
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      // ログイン後の移動は、ダッシュボードへの 1 回だけ（別のオリジンになりうる値で、移ろうとしない）
+      expect(await historyReplacements(page)).toEqual(['/']);
     });
   }
+
+  test('ログイン済みでログイン画面を開くと、ダッシュボードへ、1 回だけ移る（戻り先があれば、そこへ）（Issue #460）', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await loginViaUi(page);
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+
+    // 戻り先がなければ、ダッシュボードへ
+    await trackHistoryReplacements(page);
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
+    expect(await historyReplacements(page)).toEqual(['/']);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+
+    // 戻り先があれば、そこへ
+    await page.goto('/login?next=%2Fnotifications');
+    await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/notifications');
+    expect(await historyReplacements(page)).toEqual(['/notifications']);
+
+    // 戻り先が安全でなければ、ダッシュボードへ（エラーを表示しない）
+    await page.goto(`/login?next=${encodeURIComponent(`/${backslash}evil.example`)}`);
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
+    expect(await historyReplacements(page)).toEqual(['/']);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
 
   test('すべての保護された画面は、未認証だと、ログイン画面へ誘導する', async ({ page }) => {
     for (const path of [
@@ -519,6 +650,33 @@ test.describe('管理者が決めたパスワードは、一時のもの。本�
     await loginAsNewUser(page, OWN);
     await expect(page.getByRole('banner')).toBeVisible();
     await expect(heading(page)).toHaveCount(0);
+  });
+
+  test('パスワードの変更の画面の 3 つの欄（現在・新しい・確認）に、表示切替がある。既定は非表示で、欄ごとに切り替わる（Issue #157。SC-01-4）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUserWithTemporaryPassword(request, USER_B);
+    await loginAsNewUser(page);
+    await expect(heading(page)).toBeVisible();
+    const current = page.getByLabel('現在のパスワード');
+    const next = page.getByLabel('新しいパスワード', { exact: true });
+    const confirm = page.getByLabel('新しいパスワード（確認）');
+    const toggles = page.getByRole('button', { name: '入力した文字を表示' });
+    await expect(toggles).toHaveCount(3);
+    for (const field of [current, next, confirm]) {
+      await expect(field).toHaveAttribute('type', 'password');
+    }
+
+    await toggles.nth(1).click();
+
+    await expect(current).toHaveAttribute('type', 'password');
+    await expect(next).toHaveAttribute('type', 'text');
+    await expect(confirm).toHaveAttribute('type', 'password');
+    // 表示にしたままでも、変更できる
+    await changePasswordViaUi(page, TEMPORARY, OWN);
+    await expect(page.getByRole('banner')).toBeVisible();
   });
 
   test('変更が必要な間は、サーバーも、パスワードの変更・ログアウト以外の API を拒否する（403。PASSWORD_CHANGE_REQUIRED）。変更すると、使える', async ({

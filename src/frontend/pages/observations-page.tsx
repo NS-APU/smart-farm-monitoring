@@ -35,6 +35,7 @@ import {
   InputFilter,
   SelectFilter,
 } from '../components/filter-controls.tsx';
+import { QualityLegend } from '../components/legend.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { formatObservationValue } from '../components/source-data-section.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
@@ -343,6 +344,7 @@ export function ObservationsPage(): ReactNode {
       <p className="muted" data-testid="observations-mode-note">
         {measurementMode ? TEXT.measurementNote : TEXT.itemsNote}
       </p>
+      <QualityLegend />
       <section className="panel" aria-label={MESSAGES.form.search}>
         <FilterPanel
           activeCount={activeCount}

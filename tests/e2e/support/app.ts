@@ -84,11 +84,12 @@ export async function api(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
+  headers: Readonly<Record<string, string>> = {},
 ): Promise<APIResponse> {
   const send = async () =>
     request.fetch(`/api/v1${path}`, {
       method,
-      headers: { authorization: `Bearer ${await accessToken(request)}` },
+      headers: { authorization: `Bearer ${await accessToken(request)}`, ...headers },
       ...(body === undefined ? {} : { data: body }),
     });
   const response = await send();

@@ -121,6 +121,11 @@ export function subscribePush(api: ApiClient, subscription: PushSubscriptionDeta
   return api.command('/push-subscription', { method: 'PUT', body: subscription });
 }
 
+/** この端末（購読の宛先）へ、テスト通知を送る（通知の記録は作らない。1 分に 1 回まで。#159 SC-15-2）。 */
+export function sendTestPush(api: ApiClient, endpoint: string) {
+  return api.command('/push-subscription/test', { method: 'POST', body: { endpoint } });
+}
+
 export function unsubscribePush(api: ApiClient, endpoint?: string) {
   return api.command('/push-subscription', {
     method: 'DELETE',
@@ -226,23 +231,31 @@ export function deleteStatusCode(api: ApiClient, code: string) {
 }
 
 // 判断基準（SC-13）
+/** 判断基準と、その版（ETag）。版は、更新・既定値へ戻す操作の If-Match に付ける（同時編集の検出。SC-13-1）。 */
 export function getCriteria(api: ApiClient, viewpointId: string) {
-  return api.request(API_PATHS.viewpointCriteria(viewpointId), {
+  return api.requestWithEtag(API_PATHS.viewpointCriteria(viewpointId), {
     schema: CriteriaViewSchema,
   });
 }
 
-export function updateCriteria(api: ApiClient, viewpointId: string, input: CriteriaUpdateRequest) {
+export function updateCriteria(
+  api: ApiClient,
+  viewpointId: string,
+  input: CriteriaUpdateRequest,
+  etag: string | undefined,
+) {
   return api.request(API_PATHS.viewpointCriteria(viewpointId), {
     method: 'PUT',
     body: input,
+    ...(etag === undefined ? {} : { ifMatch: etag }),
     schema: CriteriaViewSchema,
   });
 }
 
-export function resetCriteria(api: ApiClient, viewpointId: string) {
+export function resetCriteria(api: ApiClient, viewpointId: string, etag: string | undefined) {
   return api.request(API_PATHS.viewpointCriteriaReset(viewpointId), {
     method: 'POST',
+    ...(etag === undefined ? {} : { ifMatch: etag }),
     schema: CriteriaViewSchema,
   });
 }

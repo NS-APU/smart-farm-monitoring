@@ -4,9 +4,10 @@
  */
 
 import type { ReactNode } from 'react';
-import { formatMetricValue, getMetricMeta } from '@smart-farm/shared/constants/metrics';
+import { formatMetricValue } from '@smart-farm/shared/constants/metrics';
 import type { ViewpointDetailResponse } from '@smart-farm/shared/schemas/evaluation';
 import { MESSAGES } from '../i18n/messages.ts';
+import { MetricLabel } from './metric-label.tsx';
 import { StatusBadge } from './status-badge.tsx';
 
 export function MetricsTable(props: { readonly detail: ViewpointDetailResponse }): ReactNode {
@@ -29,7 +30,7 @@ export function MetricsTable(props: { readonly detail: ViewpointDetailResponse }
           {detail.metrics.map((row) => (
             <tr key={row.metricId} data-testid={`metric-${row.metricId}`}>
               <th scope="row">
-                {getMetricMeta(row.metricId).label}
+                <MetricLabel metricId={row.metricId} />
                 {row.isPrimary ? (
                   <span className="tag">{MESSAGES.viewpoint.primaryMark}</span>
                 ) : null}

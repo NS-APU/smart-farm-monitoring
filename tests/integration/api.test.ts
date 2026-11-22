@@ -297,12 +297,13 @@ describe('認証・認可（全ルート）', () => {
   const fill = (path: string) => path.replace(/:[A-Za-z]+/g, 'x');
   const protectedRoutes = ROUTE_TABLE.filter((spec) => spec.access !== 'PUBLIC');
 
-  it('ルート一覧は、機能仕様書 4.1 の API（38件。取り込み元ごとの接続テスト POST /ingestion/{sourceId}/test は、設備ごとの接続に移して、廃止した）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更・ユーザー名の編集（POST /auth/password・PUT /auth/profile。Issue #245・#115）・閲覧の割り当て（GET・PUT /facility-access。Issue #330）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）・ハウス別の取り込み・連携のログ（GET /ingestion/facility-logs・GET /federation/facility-logs。Issue #332）・連携先の設定（GET・PUT /federation/settings・POST /federation/test。Issue #177）・計測単位の観測値の一覧（GET /observations/measurements。Issue #363）・設備ごとの接続の保存・削除・認証情報の登録・接続テスト（PUT・DELETE /ingestion/equipment/{equipmentId}/connection・PUT .../credentials・POST .../test。Issue #367）を網羅している（重複なし）', () => {
+  it('ルート一覧は、機能仕様書 4.1 の API（38件。取り込み元ごとの接続テスト POST /ingestion/{sourceId}/test は、設備ごとの接続に移して、廃止した）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・この端末へのテスト通知（POST /push-subscription/test。Issue #159）・本人のパスワード変更・ユーザー名の編集（POST /auth/password・PUT /auth/profile。Issue #245・#115）・閲覧の割り当て（GET・PUT /facility-access。Issue #330）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）・ハウス別の取り込み・連携のログ（GET /ingestion/facility-logs・GET /federation/facility-logs。Issue #332）・連携先の設定（GET・PUT /federation/settings・POST /federation/test。Issue #177）・計測単位の観測値の一覧（GET /observations/measurements。Issue #363）・設備ごとの接続の保存・削除・認証情報の登録・接続テスト（PUT・DELETE /ingestion/equipment/{equipmentId}/connection・PUT .../credentials・POST .../test。Issue #367）を網羅している（重複なし）', () => {
     const keys = ROUTE_TABLE.map(routeKey);
 
     expect(new Set(keys).size).toBe(keys.length);
-    expect(ROUTE_TABLE).toHaveLength(55);
+    expect(ROUTE_TABLE).toHaveLength(56);
     expect(keys).toContain('GET /push-subscription');
+    expect(keys).toContain('POST /push-subscription/test');
     expect(keys).toContain('GET /observations/measurements');
     expect(keys).toContain('POST /auth/password');
     expect(keys).toContain('PUT /auth/profile');

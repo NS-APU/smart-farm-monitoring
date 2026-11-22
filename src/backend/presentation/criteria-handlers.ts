@@ -8,6 +8,7 @@ import { VIEWPOINT_IDS, type ViewpointId } from '@smart-farm/shared/constants/vi
 import { AppError } from '@smart-farm/shared/errors';
 import { CriteriaUpdateRequestSchema } from '@smart-farm/shared/schemas/criteria';
 import type { ApiDeps, AppEnv } from './api-deps.ts';
+import { assertIfMatch, jsonWithEtag } from './etag.ts';
 import { actorOf } from './request-helpers.ts';
 import { parseJsonBody } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
@@ -23,15 +24,19 @@ function viewpointIdOf(c: Context<AppEnv>): ViewpointId {
 export function createCriteriaHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
   return {
     async 'GET /viewpoints/:viewpointId/criteria'(c) {
-      return c.json(await deps.criteriaAdminService.get(viewpointIdOf(c)));
+      // 版（ETag）は、更新・既定値へ戻す操作の If-Match に使う（同時編集の検出。SC-13-1）
+      return jsonWithEtag(c, await deps.criteriaAdminService.get(viewpointIdOf(c)));
     },
     async 'PUT /viewpoints/:viewpointId/criteria'(c) {
       const viewpointId = viewpointIdOf(c);
+      assertIfMatch(c, await deps.criteriaAdminService.get(viewpointId));
       const input = await parseJsonBody(c, CriteriaUpdateRequestSchema);
       return c.json(await deps.criteriaAdminService.update(viewpointId, input, actorOf(c)));
     },
     async 'POST /viewpoints/:viewpointId/criteria/reset'(c) {
-      return c.json(await deps.criteriaAdminService.reset(viewpointIdOf(c), actorOf(c)));
+      const viewpointId = viewpointIdOf(c);
+      assertIfMatch(c, await deps.criteriaAdminService.get(viewpointId));
+      return c.json(await deps.criteriaAdminService.reset(viewpointId, actorOf(c)));
     },
   };
 }

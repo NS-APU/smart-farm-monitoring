@@ -37,7 +37,10 @@ function setup(overrides: { expiryDays?: number; batchSize?: number } = {}) {
       repositories,
       policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
     }),
-    webPush: { deliver: () => Promise.resolve('DELIVERED') },
+    webPush: {
+      deliver: () => Promise.resolve('DELIVERED'),
+      deliverTest: () => Promise.resolve('DELIVERED'),
+    },
     clock,
     ids,
     settings: DEFAULT_APP_SETTINGS.notification,

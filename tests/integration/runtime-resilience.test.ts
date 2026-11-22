@@ -158,7 +158,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
         repositories,
         policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
       }),
-      webPush: { deliver: () => NEVER },
+      webPush: { deliver: () => NEVER, deliverTest: () => NEVER },
       clock,
       ids: createSequentialIdGenerator(),
       settings: { ...DEFAULT_APP_SETTINGS.notification, ioTimeoutMs: 20 },

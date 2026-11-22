@@ -808,3 +808,119 @@
     gap: 2px;
   }
 }
+
+/* ヘルプヒント（「?」。components/help-hint.tsx）と、折りたたみ式の凡例（components/legend.tsx。Issue #154） */
+.help-hint {
+  position: relative;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
+  font-weight: 400;
+}
+
+/* ボタンは、見えない（透明な）押す範囲。見える丸（.help-hint-mark）は 22px。狭い幅（900px 以下）は、押す範囲を 44px 四方にして、負の余白で、周りの並びを変えない（疑似要素で広げると、はみ出しの検査〔scrollWidth〕に掛かる） */
+.help-hint-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  min-height: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+@media (max-width: 900px) {
+  .help-hint-button {
+    width: 44px;
+    height: 44px;
+    margin: -11px;
+  }
+}
+
+.help-hint-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.help-hint-button[aria-expanded='true'] .help-hint-mark {
+  background: var(--color-primary-ink);
+  color: var(--color-surface);
+}
+
+.help-hint-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.help-hint-example {
+  color: var(--color-muted);
+}
+
+.legend {
+  margin: 0 0 var(--space);
+}
+
+.legend-body {
+  margin-top: 8px;
+  padding: 12px var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.legend-body p {
+  margin: 8px 0 0;
+}
+
+.legend-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.legend-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.legend-list dt {
+  flex: 0 0 6rem;
+}
+
+.legend-list dd {
+  flex: 1 1 14rem;
+  margin: 0;
+}

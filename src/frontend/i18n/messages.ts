@@ -31,6 +31,11 @@ export const MESSAGES = {
     submitting: 'ログイン中…',
     failed: 'ユーザーIDまたはパスワードが正しくありません',
   },
+  passwordInput: {
+    // 名前に「パスワード」を含めない（欄のラベルでの検索が、欄とボタンの 2 件にならないように）。状態は aria-pressed で伝える
+    toggle: '入力した文字を表示',
+    capsLockOn: 'Caps Lock がオンです。大文字で入力されます',
+  },
   changePassword: {
     title: 'パスワードの変更',
     lead: '現在のパスワードを入力して、新しいパスワードを決めます。変更すると、ほかの端末のログインは、解除されます',
@@ -141,6 +146,17 @@ export const MESSAGES = {
     goDataEntry: 'データ入力へ',
     goIngestion: '取り込みへ',
     shortWindow: '直近24時間',
+  },
+  /** ヘルプヒント（「?」）と、折りたたみ式の凡例（Issue #154）。 */
+  help: {
+    /** ヘルプヒントのボタンの名前（読み上げ）。対象の名前を含める。 */
+    hintLabel: (name: string) => `${name}の説明`,
+    example: '例',
+    statusLegendTitle: '状態の見かた',
+    qualityLegendTitle: 'データの状態の見かた',
+    usedInEvaluation: '評価に使います',
+    notUsedInEvaluation: '評価に使いません',
+    qualityLegendNote: '評価に使える値が足りないときは、観点の状態が「不明」になります',
   },
   viewpoint: {
     breadcrumb: 'パンくず',
