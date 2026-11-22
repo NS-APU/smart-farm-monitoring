@@ -11,6 +11,7 @@ import { findPasswordPolicyViolation } from '@smart-farm/shared/schemas/auth';
 import { useAuth } from '../auth/auth-context.tsx';
 import { Field, FormError } from '../components/form-controls.tsx';
 import { HouseAndStrawberry } from '../components/illustration.tsx';
+import { PasswordInput } from '../components/password-input.tsx';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
@@ -92,9 +93,8 @@ export function ChangePasswordPage(props: ChangePasswordPageProps): ReactNode {
       >
         <Field label={TEXT.current} name="currentPassword" error={errors.currentPassword}>
           {(control) => (
-            <input
+            <PasswordInput
               {...control}
-              type="password"
               autoComplete="current-password"
               value={current}
               onChange={(event) => {
@@ -110,9 +110,8 @@ export function ChangePasswordPage(props: ChangePasswordPageProps): ReactNode {
           hint={TEXT.policyHint}
         >
           {(control) => (
-            <input
+            <PasswordInput
               {...control}
-              type="password"
               autoComplete="new-password"
               value={next}
               onChange={(event) => {
@@ -123,9 +122,8 @@ export function ChangePasswordPage(props: ChangePasswordPageProps): ReactNode {
         </Field>
         <Field label={TEXT.confirm} name="confirmPassword" error={errors.confirmPassword}>
           {(control) => (
-            <input
+            <PasswordInput
               {...control}
-              type="password"
               autoComplete="new-password"
               value={confirm}
               onChange={(event) => {

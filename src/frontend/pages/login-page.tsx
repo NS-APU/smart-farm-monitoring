@@ -1,6 +1,6 @@
 /** SC-01 ログイン（FR-9.1, UC-13）。失敗時は、原因を特定できないメッセージを表示する。 */
 
-import { useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { LoginRequestSchema } from '@smart-farm/shared/schemas/auth';
 import { ApiError } from '../api/client.ts';
 import { useAuth } from '../auth/auth-context.tsx';
@@ -9,6 +9,7 @@ import { PATHS } from '../router/paths.ts';
 import { navigate, useLocation } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
 import { HouseAndStrawberry } from '../components/illustration.tsx';
+import { PasswordInput } from '../components/password-input.tsx';
 
 /** ログイン後に戻る場所。外部のサイトへ誘導されないよう、同じサイト内のパスだけを許す。 */
 export function safeNextPath(next: string | null): string {
@@ -29,6 +30,14 @@ export function LoginPage(): ReactNode {
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const userIdRef = useRef<HTMLInputElement>(null);
+  const passwordId = useId();
+
+  // 開いたとき、ユーザーIDの欄で、すぐ入力できるようにする（開いたときの 1 回だけ）。autoFocus 属性は、
+  // jsx-a11y の no-autofocus で禁じているため、使わない
+  useEffect(() => {
+    userIdRef.current?.focus();
+  }, []);
 
   async function handleSubmit(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
@@ -83,6 +92,7 @@ export function LoginPage(): ReactNode {
         <label>
           <span>{MESSAGES.login.userId}</span>
           <input
+            ref={userIdRef}
             name="userId"
             autoComplete="username"
             value={userId}
@@ -99,11 +109,13 @@ export function LoginPage(): ReactNode {
             {fieldErrors.userId}
           </p>
         )}
-        <label>
-          <span>{MESSAGES.login.password}</span>
-          <input
+        <div className="login-field">
+          <label htmlFor={passwordId}>
+            <span>{MESSAGES.login.password}</span>
+          </label>
+          <PasswordInput
+            id={passwordId}
             name="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             aria-invalid={fieldErrors.password !== undefined}
@@ -112,7 +124,7 @@ export function LoginPage(): ReactNode {
               setPassword(event.target.value);
             }}
           />
-        </label>
+        </div>
         {fieldErrors.password === undefined ? null : (
           <p id="password-error" className="field-error">
             <Icon name="status-error" size={14} />
