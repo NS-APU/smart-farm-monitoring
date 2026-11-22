@@ -56,6 +56,8 @@
 
 追記（2026-11-23。Issue #157 の PR 2）: パスワード欄の共通部品・ログインの初期フォーカス（76 章）で、単体（frontend）に 1 ファイル・26 件（`password-input.test.tsx` の 17 件、`app.test.tsx` の 4 件、`change-password.test.tsx` の 3 件、`users-page.test.tsx` の 2 件）、E2E に 4 件（`UC-13-login-logout.ts` の 3 件、`UC-14-manage-users.ts` の 1 件）を追加した（増分のみ。全体の合計は、マージ後にまとめて直す）。
 
+追記（2026-11-22。Issue #159 の PR 3）: Web Push の設定（iPhone・iPad の案内・購読が無効になったときの案内・テスト通知。77 章）で、単体・結合に 54 件（単体: backend/application に 1 ファイル 13 件〔`push-subscription-service.test.ts`〕と `push-payload.test.ts` の 1 件、backend/infrastructure に 7 件〔`web-push-notifier.test.ts` の 5 件、`adapters.test.ts` の 2 件〕、frontend に 22 件〔`push.test.tsx`〕。結合: 11 件〔`management-api.test.ts` の 8 件、`web-push-delivery.test.ts` の 3 件〕）、E2E に 9 件（`UC-23-configure-web-push.ts`）を追加した（+54 件・+9 件。ファイルの追加は、単体の 1 ファイル）。上の表の件数には含まない。
+
 追記（2026-11-22。Issue #163 の PR 1）: 親のハウスの付け替えの確認（79 章。SC-10-7）で、単体（frontend）に 8 件（`equipment-page.test.tsx`）、E2E に 2 件（`UC-12-manage-equipment.ts`）を追加した。ファイルの追加はない。上の表の件数には含まない。この PR の増分だけを書く（合計は、マージ後にまとめて直す）。
 
 追記（2026-11-22。Issue #164 の PR 1）: 連携の結果の語の統一・保留の説明（80 章）で、単体（frontend）に 2 件（`ingestion-page.test.tsx`）を追加した。ファイルの追加・E2E の件数の変更はない（E2E は、既存の 1 件〔UC-16 の E16-016〕に、連携の説明の検証を追加）。増分: 単体・結合 +2 件、E2E +0 件。上の表の件数には含まない。
@@ -217,6 +219,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 73 | 一覧の共通部品（絞り込みの枠・条件のクリア・ページ送りの表示範囲）・設備の選択肢の種別・ハウスの指定の配下（SC-07-3・SC-07-8・SC-06-8・SC-09-7 の代替）に伴う、テストの追加・変更 | #152（PR 1） |
 | 74 | 画面名の統一（取り込み・ステータスコード）・SC-09 の「計測データ」への改名・メニューの現在地の強調（パスの前方一致）（SC-COM-2・SC-09-1・SC-COM-4）に伴う、テストの追加・変更 | #155（PR 1） |
 | 76 | パスワード欄の共通部品（表示切替・Caps Lock の注意）とログインの初期フォーカス（SC-01-4）に伴う、テストの追加 | #157（PR 2） |
+| 77 | Web Push の設定（iPhone・iPad の Safari のタブでの案内・購読が無効になったときの案内・この端末へのテスト通知）（SC-15-8・SC-15-6・SC-15-2）に伴う、テストの追加・変更 | #159（PR 3） |
 | 79 | 親のハウスの付け替えの確認（影響の説明。キャンセルで修正に戻る。親を変えない修正は確認しない）（SC-10-7）に伴う、テストの追加・変更 | #163（PR 1） |
 | 80 | 連携の結果の語の統一（「成功」を「送信済み」に）と、連携の保留の説明（SC-11-4・SC-11-10）に伴う、テストの追加・変更 | #164（PR 1） |
 
@@ -13517,6 +13520,47 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - 負荷テスト（`pnpm test:stress`）: 手元では、実行していない（同時の負荷で測定が不安定になるため。CI の `ci:full` で確認する）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
 - **未確認**: 全件の E2E（CI で確認）、実ブラウザでの Caps Lock の状態の取得（`getModifierState`。単体テストは、キーイベントのモックで確認。E2E は、Caps Lock の状態を再現しにくいため、確認していない）、画面の目視（目のアイコン・注意の見た目・ライト・ダーク・スマートフォン幅のスクリーンショット）、スクリーンリーダーでの読み上げ（`aria-live` の注意・切替ボタンの名前）、フォーカス時点（クリック以外）での Caps Lock の確認（ブラウザの仕様上、キー入力まで状態を取得できない）、AWS・実機・スモークテスト（`tests/smoke`）、負荷テスト
+
+## 77. Web Push の設定（iPhone・iPad の Safari のタブでの案内・購読が無効になったときの案内・この端末へのテスト通知）（#159 の PR 3。SC-15-8・SC-15-6・SC-15-2）に伴う、テストの追加・変更
+
+この章は、1.2 節の追記のとおり、`vitest list` を +54 件、`playwright test --list` を +9 件にした。Issue #159 の方針（承認済み）: 設定画面（SC-15）で、(1) iOS・iPadOS の Safari のタブで開いているときは、「ホーム画面に追加して、アイコンから開き直してください」と案内する（SC-15-8。#154 の SC-15-4 と同一）、(2) 購読が無効になったとき、設定画面を開くと「無効になりました。もう一度有効にしてください」と示す（SC-15-6）、(3) 「テスト通知を送る」を設ける（宛先は、自分のこの端末だけ。1 分に 1 回まで。通知の記録には残さない。SC-15-2）。API を 1 つ追加した（`POST /push-subscription/test`）。
+
+### 77.1 追加したテスト（仮の ID）
+
+| ファイル | 内容 | 検証 |
+| -------- | ---- | ---- |
+| `tests/unit/backend/application/push-subscription-service.test.ts`（新規。13 件） | 購読のユースケース。無効になったことの判定（`isInvalidated`）4 件、テスト通知（`sendTest`）9 件 | 宛先を指定したときは、その端末の購読だけを見る／再度有効にすると消える／宛先を指定しないときは、有効な購読がなく無効な購読がある利用者だけ／購読がなければ false。テスト通知: この端末（購読）だけに送る（ほかの端末・利用者には送らない。TTL は 60 秒）／有効でなければ NOT_FOUND（ほかの利用者の購読の宛先も）／無効にされた購読は CONFLICT／1 分以内は RATE_LIMITED（あと何秒か）・1 分たてば送れる／端末ごと・利用者ごとの制限／制限の記録は購読の記録に残り、購読し直しても消えない／購読が無効と返ったら無効にして CONFLICT／配信の失敗・タイムアウトは SERVICE_UNAVAILABLE（内部の情報を含まない。失敗も 1 分の制限に数える） |
+| `tests/unit/backend/application/push-payload.test.ts`（1 件追加） | テスト通知の本文 | 見出し「テスト通知」・識別子は固定の `test`・共有のスキーマに適合 |
+| `tests/unit/backend/infrastructure/web-push-notifier.test.ts`（5 件追加） | 実配信のテスト通知（`deliverTest`） | テスト通知の本文・宛先・鍵・TTL・VAPID／鍵のない購読は本文なし／404・410 は購読が無効／503・例外・秘密鍵の未設定は配信の失敗（宛先・鍵・秘密鍵をメッセージに含めない） |
+| `tests/unit/backend/infrastructure/adapters.test.ts`（2 件追加） | Web Push のダミー | テスト通知は、通知の配信の記録（`delivered`）と別に記録する・リセットで消える／停止（DOWN）で失敗・拒否（REJECT）で購読が無効（記録しない） |
+| `tests/unit/frontend/push.test.tsx`（22 件追加） | `needsHomeScreen`（判定。13 件）と、設定画面（9 件） | 判定: iPhone・iPad（モバイル表示）・iPadOS（デスクトップ表示。Mac を名乗る。タッチの点数）の Safari のタブは true／Mac の Safari（タッチなし）・Android の Chrome・iPhone の Chrome・Firefox・Edge・User-Agent なしは false／ホーム画面から開いている（`navigator.standalone`・`display-mode: standalone`）・Web Push に対応しているときは false／`matchMedia` がなくても判定できる。画面: iOS のタブの案内（有効にできない）とそれ以外の未対応の文言／購読が無効になったときの案内（有効・ふつうの無効のときは出さない・もう一度有効にすると消える）／テスト通知のボタン（有効なときだけ・押すと宛先つきで API・429 のメッセージ・409 のあとに状態を取り直して「無効になりました」） |
+| `tests/integration/management-api.test.ts`（8 件追加） | `POST /push-subscription/test` と、状態の `isInvalidated` | 配信の結果で購読が無効にされると `isInvalidated` が true・再購読で false／テスト通知は、この端末だけに送り 204・通知の記録を作らず、通知の配信の記録にも含めない／1 分以内は 429（あと何秒か）・1 分後に 204／有効でなければ 404／停止は 503・購読が無効と返されたら 409 で無効にする／不正な入力（URL でない・宛先なし・内部のアドレス）は 400 |
+| `tests/integration/web-push-delivery.test.ts`（3 件追加） | 実配信（vapid）のテスト通知 | 宛先・鍵へ、テスト通知の本文を、TTL 60 秒で送る（通知の記録なし・ダミーには送らない）／410 は 409 で購読を無効に・503 は 503（内部の情報・宛先を含まない）／1 分以内の再送は、送らずに 429 |
+| `tests/e2e/UC-23-configure-web-push.ts`（9 件追加） | iPhone・iPad の Safari のタブでの案内（5 件）、テスト通知（4 件） | User-Agent・platform・タッチの点数・standalone の差し替え（`support/push.ts` の `navigatorOverride`）で、iPhone・iPadOS の Safari のタブは案内（有効にできない）／ホーム画面から開いている（対応）は案内なしで有効にできる／ホーム画面から開いていても未対応なら、これまでの文言／Android の未対応は、これまでの文言。テスト通知: 有効なときだけボタン・押すとこの端末の購読へ送り、通知の一覧に出ない／1 分以内の再送は拒否（あと何秒か）・1 分たてば送れる／端末ごとの制限／配信の停止はエラー・購読が無効と返されたら「無効になりました」 |
+
+既存のテストに足した確認: `tests/e2e/UC-23-configure-web-push.ts`（「購読が無効になっている…場合は、…画面の状態は「無効」になる」に、「無効になりました。もう一度有効にしてください」の確認を、「購読が自動で破棄された後も、もう一度有効にでき…」に、案内が消える確認を追加）。
+
+### 77.2 変更した既存のテスト（承認済みの仕様変更に伴う。緩和・削除・スキップなし）
+
+| ファイル | 変更 | 理由 |
+| -------- | ---- | ---- |
+| `tests/integration/management-api.test.ts`（購読の状態の 2 箇所） | 状態の応答の期待値に `isInvalidated: false` を追加 | 状態の応答に `isInvalidated` を追加した（期待値の追加。緩和なし） |
+| `tests/integration/api.test.ts`（ルート一覧） | ルートの数 55 → 56。`POST /push-subscription/test` を含むことを追加。テスト名に、追加したルートを追記 | API を 1 つ追加した |
+| `tests/unit/frontend/push.test.tsx`（補助） | 窓口の偽物（`fakePush`）に `needsHomeScreen` を追加。状態の応答の例（`AVAILABLE`・未対応のサーバーの例）に `isInvalidated: false` を追加 | 窓口（`PushBrowser`）・状態の応答に項目を追加した（既存のテストの期待値は変えていない） |
+| `tests/integration/federation-expiry.test.ts`・`tests/integration/runtime-resilience.test.ts`（配信の偽物） | `NotifierPort` の偽物に `deliverTest` を追加（既存の期待値は変えていない） | `NotifierPort` にテスト通知の送信を追加した（型の要請） |
+| `tests/e2e/support/push.ts` | `stubPush` に `navigatorOverride`（任意）を追加。`pushStatus` の型に `isInvalidated` を追加。`deliveredTestPushes` を追加 | 端末の種類の差し替えと、テスト通知の記録の確認のため（省略時は、これまでと同じ） |
+
+変えた語・構造（`対応していません`・`push-limitation`・`push-state`・`isSubscribed`・`NotifierPort`・`createDummyWebPush`・`PushBrowser`・ルートの数）で、単体・結合・E2E・負荷・スモーク・IaC のテストを検索した。負荷テスト（`stress-01`）は、通知の設定を、有効にする・解除するの 2 操作だけで使い（`push-state`・`push-done`・「有効にする」「解除する」）、変えていない。IaC・スモークには、該当がなかった。
+
+### 77.3 実測
+
+手元（Windows。2026-11-22。ほかの作業と同時に実行）:
+
+- 新しいテストは、実装の前に書いた。実装を外した状態（`git stash` で `src/` を戻した状態）で、単体の 4 ファイルを実行し、39 件が失敗することを確認してから、実装した。
+- 単体・結合・フロントエンド・IaC（`pnpm test:unit --maxWorkers=2`。DynamoDB Local あり）: 185 ファイル・4050 件のうち、4048 件が成功、2 件スキップ（Windows では実行しないファイル権限のテスト）。失敗 0 件。カバレッジ: Statements 99.05%・Branches 95.5%・Functions 99.15%・Lines 99.03%。
+- E2E（`E2E_PORT_OFFSET=10200`。1 インスタンス）: `UC-23-configure-web-push.ts` の 40 件のうち、38 件が成功、2 件が失敗した（`page.goto` の中断・ヘッダーの表示待ちの 30 秒のタイムアウト。同時の負荷による。操作の前の失敗）。失敗した 2 件を、単独で再実行して、2 件とも成功した。`scenario-outage-recovery.ts`（SC-15 を使うシナリオ）の 1 件も成功。
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
+- **未確認**: 手元の負荷テスト（`pnpm test:stress`。CI の `ci:full` で確認）、全件の E2E・CSP のテスト（CI で確認）、画面の目視（ライト・ダーク・スマートフォン幅の見た目。E2E のスクリーンショットは撮ったが、目視はしていない）、スクリーンリーダー、**実機（iPhone・Android）での、案内の表示・テスト通知の受信**、**実際の Web Push の配信（`WEB_PUSH_DELIVERY=vapid`）**、AWS（実機確認はユーザーの作業）
 
 ## 79. 親のハウスの付け替えの確認（影響の説明。キャンセルで修正に戻る。親を変えない修正は確認しない）（#163 の PR 1。SC-10-7）に伴う、テストの追加・変更
 

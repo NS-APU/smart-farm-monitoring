@@ -285,11 +285,11 @@ flowchart LR
 
 | 項目 | 内容 |
 |------|------|
-| 操作 | Web Push 通知の有効化（ブラウザの許可を求め、購読を登録）、解除 |
-| 状態 | 有効／無効を表示する。ブラウザが未対応・許可されていない場合は、その旨を表示し、画面内の通知のみとなることを示す |
+| 操作 | Web Push 通知の有効化（ブラウザの許可を求め、購読を登録）、解除、**テスト通知を送る**（有効なときだけ示す。宛先は、自分のこの端末〔この購読〕だけ。同じ端末へは、1 分に 1 回まで。1 分以内に押すと、「テスト通知は、1 分に 1 回までです。あと N 秒たってから、もう一度お試しください」と示す。通知の記録〔通知の一覧〕には、残さない。#159） |
+| 状態 | 有効／無効を表示する。ブラウザが未対応・許可されていない場合は、その旨を表示し、画面内の通知のみとなることを示す。**iPhone・iPad の Safari のタブで開いているとき**（Web Push に未対応で、ホーム画面に追加したアプリとして開いていない）は、「ホーム画面に追加して、アイコンから開き直してください」と案内する（それ以外の未対応は、これまでの文言。判定は、User-Agent と、iPadOS のためのタッチの点数。#159）。**購読が、配信の結果で無効にされたとき**（購読の解除・期限切れ）は、設定画面を開くと、「無効になりました。もう一度有効にしてください」と示す（自動の再購読は、扱わない。#159） |
 | 前提 | HTTPS が必要。無効になった購読（解除・期限切れ）は、自動で破棄する。有効にするとき、ブラウザの購読の暗号鍵（p256dh・auth）も、サーバーへ登録する（本文つきで配信するため。鍵のない以前の購読は、本文なしで配信される。実装済み。#241） |
 | 備考 | 通知手段は、画面内と Web Push（メールは見送り）。購読は、利用者 × 端末で、この端末の有効化・解除だけ。受け取る種類は、選べない。宛先は、その設備を閲覧できる利用者（#116 と一緒に実装）（決定。[ADR-0019](../adr/0019-notification-rules.md)）。通知手段・現場の端末は、ユーザーが判断（#234。Q-011）。Web Push は、iOS・iPadOS では 16.4 以降で、ホーム画面に追加したウェブアプリのときだけ使える（Safari のタブのままでは使えない。利用者が、対応する環境を使う前提とする（ユーザーが判断。#234）） |
-| 関連API | `GET /api/v1/push-subscription`（状態の確認。端末の宛先を指定すると、その端末の購読の有無）、`PUT /api/v1/push-subscription`（`{ endpoint, keys? }`）、`DELETE /api/v1/push-subscription` |
+| 関連API | `GET /api/v1/push-subscription`（状態の確認。端末の宛先を指定すると、その端末の購読の有無と、無効にされたか）、`PUT /api/v1/push-subscription`（`{ endpoint, keys? }`）、`DELETE /api/v1/push-subscription`、`POST /api/v1/push-subscription/test`（この端末へのテスト通知。`{ endpoint }`） |
 
 ## 4. API仕様
 
@@ -326,6 +326,7 @@ flowchart LR
 | | `GET /notifications/{id}/memos`、`POST /notifications/{id}/memos` | 通知のメモの一覧（入力の古い順）・追記（共有・追記のみ。編集・削除はない。#239） | 一覧は要ログイン。追記は、手動入力と同じ権限（`manual-entry:write`） | FR-7.6 |
 | | `POST /notifications/{id}/read`、`POST /notifications/read-all` | 既読にする（個別・一括。一括は、読み込んだ時点 `until` までの未読だけ。件数を返す。#240） | 要ログイン | FR-7.6 |
 | | `GET /push-subscription`、`PUT /push-subscription`、`DELETE /push-subscription` | Web Push の購読の状態・購読・解除 | 要ログイン | FR-7.2 |
+| | `POST /push-subscription/test` | この端末（自分の購読）へのテスト通知（1 分に 1 回まで。通知の記録は作らない。#159） | 要ログイン | FR-7.2 |
 | 取り込み | `GET /ingestion/settings`、`PUT /ingestion/settings` | 取り込み設定（取り込み元ごとの自動取り込みの有効／無効。更新は、取り込み元ごとに `{ sourceId, isEnabled }` だけ。取り込み元ごとの設備に、ファイルのパス・接続〔未設定なら省略〕・認証情報の状態・停止の基準〔分〕を含む。#367） | 管理者のみ（参照 `ingestion:read`、更新 `ingestion:configure`） | FR-1.4、1.5 |
 | | `PUT /ingestion/equipment/{equipmentId}/connection`、`DELETE /ingestion/equipment/{equipmentId}/connection` | 設備ごとの接続の保存・削除（ロボット・センサーだけ。削除すると、未設定に戻る。応答は、接続の状態） | 管理者のみ（`ingestion:configure`） | FR-1.4 |
 | | `PUT /ingestion/equipment/{equipmentId}/credentials` | 設備ごとの認証情報の登録・上書き（書き込み専用。設備ごとの接続の保存が先に必要。応答は、状態だけ） | 管理者のみ（`ingestion:configure`） | FR-1.4 |

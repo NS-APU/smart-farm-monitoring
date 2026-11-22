@@ -97,5 +97,7 @@ export const PushSubscriptionRecordSchema = z.object({
   keys: PushKeysSchema.optional(),
   isActive: z.boolean(),
   createdAt: IsoDateTimeSchema,
+  /** 直近のテスト通知を送った日時（1 分に 1 回までの制限に使う。#159 SC-15-2）。送ったことがなければ、持たない。 */
+  testSentAt: IsoDateTimeSchema.optional(),
 });
 export type PushSubscriptionRecord = z.infer<typeof PushSubscriptionRecordSchema>;
