@@ -117,7 +117,13 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
             />
           )}
         </Field>
-        <Field label={TEXT.category} name="category" error={errors.category} required>
+        <Field
+          label={TEXT.category}
+          name="category"
+          error={errors.category}
+          hint={definition === undefined ? undefined : TEXT.categoryChangeHint}
+          required
+        >
           {(control) => (
             <select
               {...control}
@@ -324,6 +330,11 @@ export function StatusCodesPage(): ReactNode {
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={TEXT.deleteMessage}
+          details={[
+            { label: TEXT.code, value: deleting.code },
+            { label: TEXT.name, value: deleting.name },
+          ]}
+          notes={TEXT.deleteNotes}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

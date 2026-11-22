@@ -41,21 +41,33 @@ const SORT_LABELS = {
   enteredBy: TEXT.sortEnteredBy,
 } as const;
 
+/** 入力項目の値の表示（値・単位）。 */
+function formatItemValue(itemKey: string, value: number | string): string {
+  return `${typeof value === 'number' ? formatThreshold(value) : value}${findItemDefinition(itemKey)?.unit ?? ''}`;
+}
+
 /** 入力項目と値の表示（項目の名称・値・単位）。 */
 export function EntryValues(props: { readonly entry: ManualEntry }): ReactNode {
   return (
     <ul className="entry-values">
-      {Object.entries(props.entry.items).map(([itemKey, value]) => {
-        const item = findItemDefinition(itemKey);
-        return (
-          <li key={itemKey}>
-            {item?.label ?? itemKey}:{' '}
-            <strong>{`${typeof value === 'number' ? formatThreshold(value) : value}${item?.unit ?? ''}`}</strong>
-          </li>
-        );
-      })}
+      {Object.entries(props.entry.items).map(([itemKey, value]) => (
+        <li key={itemKey}>
+          {findItemDefinition(itemKey)?.label ?? itemKey}:{' '}
+          <strong>{formatItemValue(itemKey, value)}</strong>
+        </li>
+      ))}
     </ul>
   );
+}
+
+/** 削除の確認で示す、入力項目と値（「項目名: 値単位」を、読点でつなぐ）。 */
+function entryItemsText(entry: ManualEntry): string {
+  return Object.entries(entry.items)
+    .map(
+      ([itemKey, value]) =>
+        `${findItemDefinition(itemKey)?.label ?? itemKey}: ${formatItemValue(itemKey, value)}`,
+    )
+    .join('、');
 }
 
 export function EntryListPage(): ReactNode {
@@ -322,6 +334,14 @@ export function EntryListPage(): ReactNode {
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={TEXT.deleteMessage}
+          details={[
+            { label: TEXT.observedAt, value: formatDateTimeJst(deleting.observedAt) },
+            {
+              label: TEXT.equipment,
+              value: equipmentNames.get(deleting.equipmentId) ?? deleting.equipmentId,
+            },
+            { label: TEXT.deleteItems, value: entryItemsText(deleting) },
+          ]}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

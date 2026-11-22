@@ -338,6 +338,10 @@ export function UsersPage(): ReactNode {
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={TEXT.deleteMessage}
+          details={[
+            { label: TEXT.userName, value: deleting.userName },
+            { label: TEXT.userId, value: deleting.userId },
+          ]}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

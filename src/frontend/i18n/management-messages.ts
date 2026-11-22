@@ -3,6 +3,9 @@
  * コードに直書きせず、ここにまとめる（coding-standards.md「フロントエンド」）。
  */
 
+/** ステータスコードを使う観点（機能仕様書 3.11）。ステータスコードの変更・削除の影響の説明に使う。 */
+const STATUS_CODE_VIEWPOINTS_NOTE = '影響する観点: 収穫速度・メンテナンス性・耐久性';
+
 export const MANAGEMENT_MESSAGES = {
   form: {
     errorSummary: (count: number) => `入力内容に誤りがあります（${String(count)}件）`,
@@ -132,7 +135,9 @@ export const MANAGEMENT_MESSAGES = {
     goHistory: '変更履歴を見る',
     goEntry: 'データ入力へ',
     deleteTitle: '入力データを削除しますか',
-    deleteMessage: '削除したデータは、一覧と集計の対象から外れます（変更履歴には残ります）',
+    deleteMessage:
+      '削除したデータは、一覧と集計の対象から外れます。元に戻す操作はありません（変更履歴には残ります）',
+    deleteItems: '項目',
     deleted: '削除しました',
     updated: '修正しました',
   },
@@ -338,6 +343,12 @@ export const MANAGEMENT_MESSAGES = {
     deleteTitle: 'ステータスコードを削除しますか',
     deleteMessage:
       '削除したコード値のデータは、評価で「不正な値」として扱われます。評価に影響するため、確認してください',
+    // 影響の説明（静的。最近の観測値の件数などは、示さない）。評価への反映は次の評価から、過去の評価は保持する（ADR-0017）
+    deleteNotes: [
+      '削除は、次の評価から反映されます。過去の評価は、そのまま保持します',
+      STATUS_CODE_VIEWPOINTS_NOTE,
+    ],
+    categoryChangeHint: `カテゴリを変えると、次の評価から反映されます。過去の評価は、そのまま保持します。${STATUS_CODE_VIEWPOINTS_NOTE}`,
     created: '登録しました',
     updated: '修正しました',
     deleted: '削除しました',
@@ -419,7 +430,8 @@ export const MANAGEMENT_MESSAGES = {
     openAdd: 'ユーザーの登録',
     addSubmit: '登録する',
     deleteTitle: 'ユーザーを削除しますか',
-    deleteMessage: '削除したユーザーは、ログインできなくなります',
+    deleteMessage:
+      '削除したユーザーは、ログインできなくなります。そのユーザーの Web Push 通知の購読と、ログイン中の状態（セッション）も削除します',
     created: '登録しました',
     updated: '修正しました',
     deleted: '削除しました',

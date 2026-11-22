@@ -6,6 +6,8 @@ import {
   READ_ONLY_LOGIN,
   at,
   callsOf,
+  confirmDetailsOf,
+  confirmNotesOf,
   errorBody,
   noContent,
   renderApp,
@@ -236,6 +238,39 @@ describe('ステータスコード管理（UC-17。SC-12）', () => {
 
     expect((await screen.findByTestId('status-codes-notice')).textContent).toBe('削除しました');
     expect(callsOf(calls, 'DELETE', '/status-codes/FALLEN')).toHaveLength(1);
+  });
+
+  it('削除の確認は、対象（コード値・名称）と、影響（次の評価から反映・過去の評価は保持・影響する観点）の静的な説明を示す（#153。SC-12-2・SC-12-3）', async () => {
+    renderApp('/settings/status-codes', { 'GET /status-codes': () => jsonResponse(CODES) });
+    const rows = await screen.findAllByTestId('status-code-row');
+
+    fireEvent.click(within(at(rows, 2)).getByRole('button', { name: '削除' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(confirmDetailsOf(dialog)).toEqual({ コード値: 'CHARGING', 名称: '充電中' });
+    expect(dialog.textContent).toContain('不正な値');
+    expect(confirmNotesOf(dialog)).toEqual([
+      '削除は、次の評価から反映されます。過去の評価は、そのまま保持します',
+      '影響する観点: 収穫速度・メンテナンス性・耐久性',
+    ]);
+  });
+
+  it('カテゴリの変更の影響（次の評価から反映・過去の評価は保持・影響する観点）を、修正のダイアログのカテゴリの欄に常に示す。登録のダイアログには、示さない（#153。SC-12-3）', async () => {
+    renderApp('/settings/status-codes', { 'GET /status-codes': () => jsonResponse(CODES) });
+    const rows = await screen.findAllByTestId('status-code-row');
+
+    fireEvent.click(within(at(rows, 0)).getByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('status-code-edit');
+    const category = within(edit).getByLabelText('カテゴリ', { exact: false });
+    const hint = within(edit).getByText(/次の評価から反映されます/);
+    expect(hint.textContent).toBe(
+      'カテゴリを変えると、次の評価から反映されます。過去の評価は、そのまま保持します。影響する観点: 収穫速度・メンテナンス性・耐久性',
+    );
+    expect(category.getAttribute('aria-describedby')).toBe(hint.id);
+    fireEvent.click(within(edit).getByRole('button', { name: 'キャンセル' }));
+
+    const add = openAddForm();
+    expect(within(add).queryByText(/次の評価から反映されます/)).toBeNull();
   });
 
   it('削除に失敗した場合は、エラーを表示する', async () => {

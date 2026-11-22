@@ -173,7 +173,5 @@ export function confirmDetailsOf(dialog: HTMLElement): Readonly<Record<string, s
 
 /** 確認のダイアログの「影響の説明」（注記）を、並びのまま読む。なければ、空。 */
 export function confirmNotesOf(dialog: HTMLElement): readonly string[] {
-  return Array.from(dialog.querySelectorAll('.dialog-notes > li')).map(
-    (item) => item.textContent ?? '',
-  );
+  return Array.from(dialog.querySelectorAll('.dialog-notes > li')).map((item) => item.textContent);
 }

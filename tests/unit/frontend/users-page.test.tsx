@@ -5,6 +5,7 @@ import {
   READ_ONLY_LOGIN,
   at,
   callsOf,
+  confirmDetailsOf,
   errorBody,
   noContent,
   renderApp,
@@ -278,6 +279,21 @@ describe('ユーザー管理（UC-14。SC-14）', () => {
         screen.getAllByRole('alert').some((node) => node.textContent === '削除できませんでした'),
       ).toBe(true);
     });
+  });
+});
+
+describe('ユーザーの削除の確認（#153。SC-14-2）', () => {
+  it('対象（ユーザー名・ユーザーID）を示し、Web Push 通知の購読とログイン中の状態（セッション）も削除される旨を示す。行ごとに、押した行の対象を示す', async () => {
+    renderApp('/settings/users', routes());
+    const rows = await screen.findAllByTestId('user-row');
+
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '削除' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(confirmDetailsOf(dialog)).toEqual({ ユーザー名: '閲覧者B', ユーザーID: 'viewer-1' });
+    expect(dialog.textContent).toContain('削除したユーザーは、ログインできなくなります');
+    expect(dialog.textContent).toContain('Web Push 通知の購読');
+    expect(dialog.textContent).toContain('ログイン中の状態（セッション）');
   });
 });
 
