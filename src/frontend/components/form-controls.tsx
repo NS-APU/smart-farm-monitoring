@@ -61,9 +61,19 @@ export function Field(props: FieldProps): ReactNode {
   );
 }
 
+/** 確認の対象の 1 項目（ラベルと値。例: 「コード値」と「CHARGING」）。 */
+export interface ConfirmDialogDetail {
+  readonly label: string;
+  readonly value: string;
+}
+
 export interface ConfirmDialogProps {
   readonly title: string;
   readonly message: string;
+  /** 対象の項目（ラベルと値の並び）。どのデータを操作するかを示す。渡した順に表示する。 */
+  readonly details?: readonly ConfirmDialogDetail[];
+  /** 影響の説明（1 件が 1 つの箇条書き）。操作の影響を、メッセージとは別に、補足する。 */
+  readonly notes?: readonly string[];
   readonly confirmLabel: string;
   readonly busy?: boolean;
   readonly onConfirm: () => void;
@@ -76,6 +86,9 @@ const FOCUSABLE_SELECTOR =
 
 /**
  * 取り消しにくい操作（削除など）の確認。キャンセルが先に選ばれる。
+ * 対象の項目（`details`）と影響の説明（`notes`）を、任意で示せる（Issue #153）。項目は、ラベルと値の並びで渡す
+ * （固定の文言に、対象の名前を埋め込まない）。名前を入力して確認する形など、確認の部品を足すときは、
+ * 任意の props（入力欄・確認の可否）を足し、`details`・`notes` と、既存の呼び出し側は、変えない。
  * キーボード・スクリーンリーダーの利用者が、背景の操作を誤らないよう、Tab をダイアログの中で循環させ、
  * Esc でキャンセルし、閉じたときは、開く前にフォーカスのあった要素へ戻す（V-149）。
  */
@@ -137,7 +150,24 @@ export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
         onKeyDown={handleKeyDown}
       >
         <h2 id={titleId}>{props.title}</h2>
+        {props.details === undefined || props.details.length === 0 ? null : (
+          <dl className="dialog-details">
+            {props.details.map((detail) => (
+              <div key={detail.label}>
+                <dt>{detail.label}</dt>
+                <dd>{detail.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
         <p>{props.message}</p>
+        {props.notes === undefined || props.notes.length === 0 ? null : (
+          <ul className="dialog-notes">
+            {props.notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        )}
         <div className="dialog-actions">
           <button
             type="button"
