@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { equipmentTree, jsonResponse } from '../../support/frontend.ts';
+import { equipmentTree, jsonResponse, twoFacilityTree } from '../../support/frontend.ts';
 import {
   READ_ONLY_LOGIN,
   at,
@@ -635,5 +635,174 @@ describe('設備管理: 登録・修正は、ダイアログで行う（Issue #3
 
     expect(screen.queryByRole('button', { name: 'ハウスの登録' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'ロボット・環境センサーの登録' })).toBeNull();
+  });
+});
+
+describe('設備管理: 親のハウスの付け替えは、確認を挟んで、影響を示す（Issue #163。SC-10-7）', () => {
+  /** ハウスが 2 つ（ハウス1・ハウス2）の階層で、ROBOT-01（ハウス1 の配下）の修正のダイアログを開く。 */
+  async function openRobotEdit(calls: ReturnType<typeof renderApp>['calls']): Promise<HTMLElement> {
+    const rows = await screen.findAllByTestId('equipment-row');
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+    return await screen.findByTestId('equipment-edit');
+  }
+
+  function render() {
+    return renderApp('/settings/equipment', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'PUT /equipment/ROBOT-01': () => jsonResponse(SAVED_EQUIPMENT),
+    });
+  }
+
+  function chooseFacility(form: HTMLElement, facilityId: string): void {
+    fireEvent.change(within(form).getByLabelText('親のハウス', { exact: false }), {
+      target: { value: facilityId },
+    });
+  }
+
+  it('親のハウスを変えて保存すると、保存の前に、確認を示す。対象の設備と、変更前・変更後のハウスの名称（ID でなく）と、影響を示す', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(within(dialog).getByRole('heading').textContent).toBe('親のハウスを変更しますか');
+    const details = Array.from(dialog.querySelectorAll('.dialog-details > div')).map(
+      (item) => item.textContent,
+    );
+    expect(details).toEqual([
+      '設備収穫ロボット1',
+      '変更前のハウスハウス1',
+      '変更後のハウスハウス2',
+    ]);
+    expect(dialog.textContent).toContain(
+      '親のハウスをハウス1からハウス2に変えます。閲覧できる利用者（割り当て）と、ハウスの評価が変わります',
+    );
+    const notes = Array.from(dialog.querySelectorAll('.dialog-notes li')).map(
+      (item) => item.textContent,
+    );
+    expect(notes).toEqual([
+      'この設備のデータは、新しいハウスの配下のものとして評価されます',
+      '通知と過去の評価は、元のハウスのまま残ります',
+    ]);
+    expect(dialog.textContent).not.toContain('HOUSE-0');
+    // 確認の前は、保存しない
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+    // 修正のダイアログは、背面に残る
+    expect(screen.getByTestId('equipment-edit')).toBeDefined();
+  });
+
+  it('確認でキャンセルすると、保存せず、修正のダイアログに戻る（入力は、そのまま）', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: '付け替えるロボット' },
+    });
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+    const back = screen.getByTestId('equipment-edit');
+    expect(within(back).getByLabelText<HTMLSelectElement>('親のハウス').value).toBe('HOUSE-02');
+    expect(within(back).getByLabelText<HTMLInputElement>('名称', { exact: false }).value).toBe(
+      '付け替えるロボット',
+    );
+    expect(screen.queryByTestId('equipment-notice')).toBeNull();
+  });
+
+  it('確認で Esc を押すと、確認だけを閉じる（保存せず、修正のダイアログは閉じない）', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.getByTestId('equipment-edit')).toBeDefined();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+  });
+
+  it('確認で確定すると、新しい親のハウスで保存して、ダイアログを閉じ、「修正しました」を示す', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '親のハウスを変更して保存' }));
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(1);
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')[0]?.body).toEqual({
+      name: '収穫ロボット1',
+      facilityId: 'HOUSE-02',
+    });
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.queryByTestId('equipment-edit')).toBeNull();
+  });
+
+  it('親のハウスを変えない修正（名称だけ）は、確認を出さず、そのまま保存する', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: '改名したロボット' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(1);
+  });
+
+  it('親のハウスを変えてから元に戻した修正は、確認を出さない', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    chooseFacility(form, 'HOUSE-01');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+  });
+
+  it('入力に誤りがあるとき（名称が空）は、確認より先に、エラーを示す', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: '' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    expect(within(form).getByText('名称は必須です')).toBeDefined();
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+  });
+
+  it('確定した保存が失敗したときは、確認を閉じ、修正のダイアログにエラーを示す', async () => {
+    const { calls } = renderApp('/settings/equipment', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'PUT /equipment/ROBOT-01': () => errorBody(500, 'INTERNAL_ERROR', '修正できませんでした'),
+    });
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', {
+        name: '親のハウスを変更して保存',
+      }),
+    );
+
+    expect((await within(form).findByRole('alert')).textContent).toBe('修正できませんでした');
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.getByTestId('equipment-edit')).toBeDefined();
   });
 });
