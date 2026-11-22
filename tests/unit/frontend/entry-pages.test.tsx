@@ -556,6 +556,19 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     expect(rows[1]?.querySelectorAll('td')[5]?.textContent).toBe('—');
   });
 
+  it('説明文は、「論理削除」という用語を使わず、削除したデータの扱い（一覧・集計から外れる。変更履歴には残る）を示す', async () => {
+    renderApp('/data-entry/list', listRoutes([manualEntry()]));
+
+    await screen.findAllByTestId('entry-row');
+
+    expect(
+      screen.getByText(
+        '手動で入力したデータの一覧です。誤りは、修正・削除できます。削除したデータは、一覧と集計の対象から外れます。変更履歴には残ります',
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain('論理削除');
+  });
+
   it('データがなければ、データ入力への案内を表示する。絞り込み中は、案内なしで「該当するデータがありません」', async () => {
     renderApp('/data-entry/list', listRoutes([]));
     expect((await screen.findByTestId('entries-empty')).textContent).toContain(
