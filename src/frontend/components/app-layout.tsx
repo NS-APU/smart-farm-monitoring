@@ -92,11 +92,22 @@ function NotificationLink(): ReactNode {
   );
 }
 
+/**
+ * メニューの項目が、現在の画面か。パスの前方一致（区切りの `/` の単位。入力データ一覧・変更履歴でも「データ入力」を強調する。Issue #155）。
+ * ダッシュボード（`/`）は、すべてのパスの前方になるため、完全一致のみ。
+ */
+function isCurrentPath(itemPath: string, pathname: string): boolean {
+  if (itemPath === PATHS.dashboard) {
+    return pathname === itemPath;
+  }
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+}
+
 function NavLinkItem(props: { readonly item: NavItem; readonly pathname: string }): ReactNode {
   const { item } = props;
   return (
     <li className="nav-item">
-      <Link to={item.to} aria-current={props.pathname === item.to ? 'page' : undefined}>
+      <Link to={item.to} aria-current={isCurrentPath(item.to, props.pathname) ? 'page' : undefined}>
         <Icon name={item.icon} size={19} />
         {item.label}
       </Link>

@@ -174,6 +174,45 @@ describe('共通のレイアウト', () => {
 
     expect(menu.querySelector('[aria-current="page"]')?.textContent).toBe('ダッシュボード');
   });
+
+  // 現在地の強調は、パスの前方一致（Issue #155 の SC-COM-4）。強調される項目は、常に 1 つだけ（ダッシュボード `/` は、完全一致のみ）
+  it.each([
+    ['/data-entry', 'データ入力'],
+    ['/data-entry/list', 'データ入力'],
+    ['/data-entry/history', 'データ入力'],
+    ['/observations', '取り込み済みデータ'],
+    ['/settings/equipment', 'ハウス・設備'],
+    ['/settings/ingestion', '取り込み'],
+    ['/settings/status-codes', 'ステータスコード'],
+    ['/settings/users', 'ユーザー'],
+    ['/', 'ダッシュボード'],
+  ])('%s では、メニューの「%s」だけを、現在の画面として強調する', async (path, label) => {
+    window.history.pushState(null, '', path);
+    renderApp();
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    const current = Array.from(menu.querySelectorAll('[aria-current="page"]'));
+    expect(current.map((item) => item.textContent)).toEqual([label]);
+  });
+
+  it.each(['/viewpoints/safety', '/satisfaction', '/settings/push', '/notifications'])(
+    'メニューにない画面（%s）では、ダッシュボードを含め、どの項目も強調しない（ダッシュボードは、完全一致のみ）',
+    async (path) => {
+      window.history.pushState(null, '', path);
+      renderApp();
+      const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+      expect(menu.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+    },
+  );
+
+  it('パスの前方一致は、区切り（/）の単位で行う（/data-entry-x は、データ入力にしない）', async () => {
+    window.history.pushState(null, '', '/data-entry-x');
+    renderApp();
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    expect(menu.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+  });
 });
 
 describe('狭い幅の、メニューの引き出し', () => {
