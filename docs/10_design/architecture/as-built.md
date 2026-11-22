@@ -1259,7 +1259,7 @@ sequenceDiagram
     API->>API: LoginResponseSchema で検証
     API-->>AC: LoginResponse
     AC->>AC: session.set で sessionStorage<br>に保存し setUser
-    LP->>LP: navigate(safeNextPath(next))
+    LP->>LP: ログイン済みになると useEffect が<br>navigate(safeNextPath(next)) を 1 回だけ実行
   end
 ```
 

@@ -225,6 +225,119 @@ describe('ログイン（UC-13。SC-01）', () => {
   });
 });
 
+describe('ログイン後の戻り先（Issue #460。SC-01）', () => {
+  const origin = window.location.origin;
+  // バックスラッシュ（1 文字）
+  const BACKSLASH = String.fromCharCode(92);
+
+  it.each<[string, string | null, string]>([
+    ['正常: 通知', '/notifications', '/notifications'],
+    ['正常: クエリ・ハッシュつき', '/notifications?x=1#a', '/notifications?x=1#a'],
+    [
+      '正常: 観点の詳細（期間・ハッシュつき）',
+      '/viewpoints/safety?period=7d#chart',
+      '/viewpoints/safety?period=7d#chart',
+    ],
+    ['正常: ダッシュボード', '/', '/'],
+    // パーセント符号は、デコードしない（パスの文字そのもの。別のオリジンには、ならない）
+    ['パーセント符号のバックスラッシュは、パスの文字として扱う', '/%5Cx', '/%5Cx'],
+    ['バックスラッシュ 1 つ', `/${BACKSLASH}example.invalid`, '/'],
+    ['バックスラッシュ 2 つ', `/${BACKSLASH}${BACKSLASH}example.invalid`, '/'],
+    ['タブを挟む', '/\t/example.invalid', '/'],
+    ['改行を挟む', '/\n/example.invalid', '/'],
+    ['バックスラッシュとタブ', `/${BACKSLASH}\t/example.invalid`, '/'],
+    ['プロトコル相対（//x）', '//example.invalid', '/'],
+    ['URL として解釈できない（//[）', '//[', '/'],
+    ['別のサイト（https://）', 'https://example.invalid/', '/'],
+    ['同じ origin の絶対 URL でも、スキームつきは許さない', `${origin}/notifications`, '/'],
+    ['javascript:', 'javascript:alert(1)', '/'],
+    ['data:', 'data:text/html,x', '/'],
+    ['スキームなしの相対パス', 'evil', '/'],
+    ['先頭が空白', ' /notifications', '/'],
+    ['ログイン画面（/login）', '/login', '/'],
+    ['ログイン画面（クエリつき）', '/login?next=/a', '/'],
+    ['ログイン画面（末尾のスラッシュ）', '/login/', '/'],
+    ['ログイン画面の下', '/login/x', '/'],
+    ['ログイン画面（. を含む）', '/a/../login', '/'],
+    ['ログイン画面（ハッシュつき）', '/login#a', '/'],
+    ['空', '', '/'],
+    ['null', null, '/'],
+  ])('safeNextPath: %s', (_name, next, expected) => {
+    expect(safeNextPath(next)).toBe(expected);
+  });
+
+  it('ログインに成功したら、戻り先へ、1 回だけ移動する（ダッシュボードへの移動と競合しない）', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    try {
+      const { session } = renderApp({
+        session: null,
+        path: '/login?next=%2Fnotifications%3Fx%3D1%23a',
+      });
+      replaceState.mockClear();
+
+      fillLogin('worker-1', 'Dummy-Passw0rd-1');
+      fireEvent.click(screen.getByRole('button', { name: 'ログイン' }));
+
+      expect(await screen.findByText('農作業者A')).toBeDefined();
+      expect(session.current?.accessToken).toBe('access-token-1');
+      expect(window.location.pathname).toBe('/notifications');
+      expect(window.location.search).toBe('?x=1');
+      expect(window.location.hash).toBe('#a');
+      expect(replaceState).toHaveBeenCalledTimes(1);
+    } finally {
+      replaceState.mockRestore();
+    }
+  });
+
+  it('戻り先がバックスラッシュを含むときは、ダッシュボードへ、1 回だけ移動する（エラーを表示しない）', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    try {
+      renderApp({ session: null, path: '/login?next=%2F%5Cexample.invalid' });
+      replaceState.mockClear();
+
+      fillLogin('worker-1', 'Dummy-Passw0rd-1');
+      fireEvent.click(screen.getByRole('button', { name: 'ログイン' }));
+
+      expect(await screen.findByRole('heading', { name: 'ダッシュボード' })).toBeDefined();
+      expect(window.location.pathname).toBe('/');
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(replaceState).toHaveBeenCalledTimes(1);
+    } finally {
+      replaceState.mockRestore();
+    }
+  });
+
+  it('ログイン済みでログイン画面を開くと、戻り先へ、1 回だけ移動する', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    try {
+      renderApp({ session: WORKER_LOGIN, path: '/login?next=%2Fnotifications' });
+
+      await waitFor(() => {
+        expect(window.location.pathname).toBe('/notifications');
+      });
+      expect(replaceState).toHaveBeenCalledTimes(1);
+    } finally {
+      replaceState.mockRestore();
+    }
+  });
+
+  it('ログイン済みでログイン画面を開き、戻り先がなければ、ダッシュボードへ移動する', async () => {
+    renderApp({ session: WORKER_LOGIN, path: '/login' });
+
+    expect(await screen.findByRole('heading', { name: 'ダッシュボード' })).toBeDefined();
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('');
+  });
+
+  it('ログイン済みでログイン画面を開き、戻り先が安全でなければ、ダッシュボードへ移動する', async () => {
+    renderApp({ session: WORKER_LOGIN, path: '/login?next=%2F%5Cexample.invalid' });
+
+    expect(await screen.findByRole('heading', { name: 'ダッシュボード' })).toBeDefined();
+    expect(window.location.pathname).toBe('/');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
 describe('共通のヘッダー・ナビゲーション', () => {
   it('ヘッダーは、未読の件数・メニュー・ユーザー名を表示する。対象のハウス・最終のデータ取得日時は、ダッシュボードの中に表示する（Issue #355）', async () => {
     renderApp();
