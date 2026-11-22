@@ -15,6 +15,11 @@ export interface PushSubscriptionDetails {
 export interface PushBrowser {
   /** このブラウザが、Web Push（サービスワーカー・Push API・通知）に対応しているか。 */
   isSupported(): boolean;
+  /**
+   * 未対応の理由が、「iPhone・iPad の Safari のタブで開いている（ホーム画面に追加したアプリではない）」ことか（#159 SC-15-8。ADR-0019 の D-41）。
+   * true なら、画面は、「ホーム画面に追加して、アイコンから開き直してください」と案内する。対応しているときは false。
+   */
+  needsHomeScreen(): boolean;
   /** 通知の許可の状態。未対応なら 'unsupported'。 */
   permission(): PushPermission;
   /** 通知の許可を求める（ブラウザの確認が表示される）。 */
@@ -33,6 +38,12 @@ export interface PushBrowser {
 /** ブラウザの機能の窓口。テストでは、同じ形のオブジェクトを渡す。 */
 export interface BrowserEnvironment {
   readonly navigator: {
+    /** 端末の判定（iPhone・iPad の Safari か）に使う。 */
+    readonly userAgent?: string;
+    readonly platform?: string;
+    readonly maxTouchPoints?: number;
+    /** iOS で、ホーム画面に追加したアプリとして開いているとき true（iOS だけの非標準のプロパティ）。 */
+    readonly standalone?: boolean;
     readonly serviceWorker?: {
       register(scriptUrl: string): Promise<unknown>;
       readonly ready: Promise<{
@@ -58,6 +69,31 @@ export interface BrowserEnvironment {
     requestPermission(): Promise<NotificationPermission>;
   };
   readonly PushManager?: unknown;
+  /** 表示モード（display-mode: standalone）の判定に使う。 */
+  matchMedia?(query: string): { readonly matches: boolean };
+}
+
+/** Safari 以外のブラウザ（iOS では、Safari と同じエンジンで動く）を示す、User-Agent の印。 */
+const NON_SAFARI_BROWSER = /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|DuckDuckGo|Chrome|Android/;
+
+/**
+ * iPhone・iPad の Safari か。iPadOS 13 以降の Safari は、既定で、User-Agent が Mac を名乗る（platform も MacIntel）ため、
+ * タッチの点数（Mac は 0、iPad は 5）でも見分ける。
+ */
+function isIosSafari(navigatorLike: BrowserEnvironment['navigator']): boolean {
+  const userAgent = navigatorLike.userAgent ?? '';
+  const isIosDevice =
+    /iPhone|iPad|iPod/.test(userAgent) ||
+    (navigatorLike.platform === 'MacIntel' && (navigatorLike.maxTouchPoints ?? 0) > 1);
+  return isIosDevice && userAgent.includes('Safari/') && !NON_SAFARI_BROWSER.test(userAgent);
+}
+
+/** ホーム画面に追加したアプリとして開いているか（iOS の navigator.standalone、または display-mode: standalone）。 */
+function isStandalone(env: BrowserEnvironment): boolean {
+  return (
+    env.navigator.standalone === true ||
+    env.matchMedia?.('(display-mode: standalone)').matches === true
+  );
 }
 
 const SERVICE_WORKER_URL = '/sw.js';
@@ -110,6 +146,10 @@ export function createBrowserPush(env: BrowserEnvironment): PushBrowser {
 
   return {
     isSupported: supported,
+
+    needsHomeScreen() {
+      return !supported() && isIosSafari(env.navigator) && !isStandalone(env);
+    },
 
     permission() {
       return supported() ? (env.Notification?.permission ?? 'unsupported') : 'unsupported';

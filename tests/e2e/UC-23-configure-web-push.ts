@@ -35,7 +35,14 @@ import {
   listNotifications,
   seedAbnormalEnvironment,
 } from './support/notifications.ts';
-import { deliveredPushes, pushStatus, stubPush, type PushStubOptions } from './support/push.ts';
+import {
+  IOS_DEVICES,
+  deliveredPushes,
+  deliveredTestPushes,
+  pushStatus,
+  stubPush,
+  type PushStubOptions,
+} from './support/push.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
 /** Web Push の購読の宛先（スタブ）の、固定の部分。端末の識別（device）を、この後ろに付ける。 */
@@ -292,6 +299,10 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     expect((await pushStatus(request)).isSubscribed).toBe(false);
     await page.reload();
     await expect(state(page)).toContainText('無効');
+    // 通知が止まったことを、設定画面を開いたときに伝える（#159 SC-15-6）
+    await expect(page.getByTestId('push-invalidated')).toContainText(
+      '無効になりました。もう一度有効にしてください',
+    );
   });
 
   test('購読が自動で破棄された後も、もう一度有効にでき、以降の通知が配信される', async ({
@@ -312,6 +323,8 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     await enable(page).click();
 
     await expect(state(page)).toContainText('有効');
+    // もう一度有効にすると、「無効になりました」の案内は消える
+    await expect(page.getByTestId('push-invalidated')).toHaveCount(0);
     await advanceMinutes(request, 61);
     await failIngestion(request, ['robot']);
     await runJob(request, 'JB-04');
@@ -373,6 +386,186 @@ test.describe('端末・利用者ごとの購読', () => {
     await b.page.reload();
     await expect(state(b.page)).toContainText('有効');
     await b.context.close();
+  });
+});
+
+test.describe('iPhone・iPad の Safari のタブでの案内（#159 SC-15-8。#154 の SC-15-4 と同一）', () => {
+  const GUIDANCE = 'ホーム画面に追加して、アイコンから開き直してください';
+  const GENERIC = 'このブラウザは、Web Push 通知に対応していません。画面内の通知のみ利用できます';
+
+  test('iPhone の Safari のタブ（Web Push に未対応）では、ホーム画面に追加して、アイコンから開き直すよう案内する。有効にできない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+
+    await openPushSettings(page, { supported: false, navigatorOverride: IOS_DEVICES.iphoneSafari });
+
+    await expect(page.getByTestId('push-limitation')).toContainText(GUIDANCE);
+    await expect(page.getByTestId('push-limitation')).not.toContainText(GENERIC);
+    await expect(enable(page)).toBeDisabled();
+    await expect(state(page)).toContainText('無効');
+    await shot(page, testInfo, 'uc23-ios-tab');
+  });
+
+  test('iPadOS の Safari（User-Agent は Mac を名乗る。タッチの点数で見分ける）でも、同じ案内', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+
+    await openPushSettings(page, { supported: false, navigatorOverride: IOS_DEVICES.ipadosSafari });
+
+    await expect(page.getByTestId('push-limitation')).toContainText(GUIDANCE);
+  });
+
+  test('ホーム画面から開いている（standalone。Web Push に対応）なら、案内せず、有効にできる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+
+    await openPushSettings(page, {
+      supported: true,
+      navigatorOverride: { ...IOS_DEVICES.iphoneSafari, standalone: true },
+    });
+    await enable(page).click();
+
+    await expect(page.getByTestId('push-limitation')).toHaveCount(0);
+    await expect(state(page)).toContainText('有効');
+  });
+
+  test('ホーム画面から開いていても、Web Push に未対応（古い iOS など）なら、これまでの文言', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+
+    await openPushSettings(page, {
+      supported: false,
+      navigatorOverride: { ...IOS_DEVICES.iphoneSafari, standalone: true },
+    });
+
+    await expect(page.getByTestId('push-limitation')).toHaveText(GENERIC);
+  });
+
+  test('iOS 以外の未対応（Android の Chrome など）は、これまでの文言', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+
+    await openPushSettings(page, {
+      supported: false,
+      navigatorOverride: IOS_DEVICES.androidChrome,
+    });
+
+    await expect(page.getByTestId('push-limitation')).toHaveText(GENERIC);
+  });
+});
+
+test.describe('テスト通知（#159 SC-15-2）: 自分のこの端末へだけ、1 分に 1 回まで', () => {
+  const sendTest = (page: Page) => page.getByRole('button', { name: 'テスト通知を送る' });
+
+  test('有効にすると、「テスト通知を送る」を押せる。この端末の購読へ送り、通知の一覧（通知の記録）には出ない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openPushSettings(page);
+    // 無効なときは、ボタンを示さない
+    await expect(sendTest(page)).toHaveCount(0);
+    await enable(page).click();
+    await expect(state(page)).toContainText('有効');
+
+    await sendTest(page).click();
+
+    await expect(page.getByTestId('push-done')).toHaveText(
+      'テスト通知を送りました。この端末に届いたか、確認してください',
+    );
+    expect(await deliveredTestPushes(request)).toHaveLength(1);
+    // 通知の出来事ではない: 通知の記録・通知の配信の記録に、含めない
+    expect(await listNotifications(request)).toHaveLength(0);
+    expect(await deliveredPushes(request)).toHaveLength(0);
+    await goToNotifications(page);
+    await expect(page.getByTestId('notification-row')).toHaveCount(0);
+    await shot(page, testInfo, 'uc23-test-notification-sent');
+  });
+
+  test('1 分以内の再送は、拒否し、あと何秒かを示す。送らない。1 分たてば、また送れる', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openPushSettings(page);
+    await enable(page).click();
+    await expect(state(page)).toContainText('有効');
+    await sendTest(page).click();
+    await expect(page.getByTestId('push-done')).toBeVisible();
+
+    await sendTest(page).click();
+
+    await expect(page.getByRole('alert')).toContainText('1 分に 1 回までです');
+    await expect(page.getByRole('alert')).toContainText('あと');
+    await expect(page.getByTestId('push-done')).toHaveCount(0);
+    expect(await deliveredTestPushes(request)).toHaveLength(1);
+    await shot(page, testInfo, 'uc23-test-notification-rate-limited');
+
+    await advanceMinutes(request, 1);
+    await sendTest(page).click();
+
+    await expect(page.getByTestId('push-done')).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(await deliveredTestPushes(request)).toHaveLength(2);
+  });
+
+  test('制限は、端末ごと（別の端末は、すぐに送れる）', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openPushSettings(page, { device: 'phone' });
+    await enable(page).click();
+    await expect(state(page)).toContainText('有効');
+    await sendTest(page).click();
+    await expect(page.getByTestId('push-done')).toBeVisible();
+    const tablet = await newUserSession(browser, testInfo, 'tablet');
+    await stubPush(tablet.page, { device: 'tablet' });
+    await openAs(tablet.page, '/settings/push');
+    await enable(tablet.page).click();
+    await expect(state(tablet.page)).toContainText('有効');
+
+    await sendTest(tablet.page).click();
+
+    await expect(tablet.page.getByTestId('push-done')).toBeVisible();
+    expect(await deliveredTestPushes(request)).toHaveLength(2);
+    await tablet.context.close();
+  });
+
+  test('配信の失敗（配信サービスの停止）は、エラーを示す。購読が無効と返されたときは、エラーを示し、「無効になりました」に変わる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openPushSettings(page);
+    await enable(page).click();
+    await expect(state(page)).toContainText('有効');
+
+    await setMock(request, 'web-push', 'DOWN');
+    await sendTest(page).click();
+    await expect(page.getByRole('alert')).toContainText('テスト通知を送れませんでした');
+    await expect(state(page)).toContainText('有効');
+
+    await setMock(request, 'web-push', 'REJECT');
+    await advanceMinutes(request, 1);
+    await sendTest(page).click();
+
+    await expect(page.getByRole('alert')).toContainText('もう一度有効にしてください');
+    await expect(page.getByTestId('push-invalidated')).toBeVisible();
+    await expect(state(page)).toContainText('無効');
+    await expect(sendTest(page)).toHaveCount(0);
+    expect(await deliveredTestPushes(request)).toHaveLength(0);
   });
 });
 
