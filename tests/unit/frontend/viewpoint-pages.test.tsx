@@ -600,6 +600,15 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(co2.textContent).toContain('判定なし');
     expect(co2.textContent).not.toContain('主要');
     expect(within(basis).queryByTestId('metric-status')).toBeNull();
+    // 画面での呼び方（用語集）: 「メトリクス」ではなく「指標」
+    expect(within(basis).getByRole('heading', { name: '根拠の指標' })).toBeDefined();
+    expect(
+      within(basis)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent)
+        .slice(0, 2),
+    ).toEqual(['指標', '値']);
+    expect(basis.textContent).not.toContain('メトリクス');
   });
 
   it('判断基準: 指標ごとの条件名と、正常・注意・異常の条件を表示し、既定値であることを示す。編集への導線がある', async () => {
@@ -1340,6 +1349,13 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     const radar = screen.getByTestId('radar');
     expect(radar.querySelector('svg.radar-chart')).not.toBeNull();
     expect(radar.querySelectorAll('circle.radar-dot')).toHaveLength(9);
+    // 画面での呼び方（用語集）: 表の列見出しは「指標」「値」（「メトリクス」と書かない）
+    expect(
+      within(radar)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['指標', '値']);
+    expect(radar.textContent).not.toContain('メトリクス');
     expect(within(radar).getByTestId('score-harvestAccuracy').textContent).toContain('★★★★★');
     expect(within(radar).getByTestId('score-environmentalAdaptability').textContent).toContain(
       '★★★☆☆',
