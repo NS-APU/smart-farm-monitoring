@@ -486,6 +486,26 @@ test.describe('基本フロー 3: カテゴリ・日時の期間・取得元・�
     await page.getByLabel('カテゴリ').selectOption('HARVEST');
     await expect(page).toHaveURL(/category=HARVEST/);
   });
+
+  test('適用中の条件の数を示し、条件のクリアで、絞り込み・並べ替えをすべて初期値（日時順）に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...NINE_CATEGORIES] });
+    await openMeasurements(page, '?category=ENVIRONMENT&source=MANUAL');
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 2 件');
+    await expect(measurementRows(page).first()).toBeVisible();
+    const filtered = await measurementRows(page).count();
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(page.getByLabel('カテゴリ')).toHaveValue('');
+    await expect(page.getByLabel('取得元')).toHaveValue('');
+    await expect.poll(() => measurementRows(page).count()).toBeGreaterThan(filtered);
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/category=|source=/);
+  });
 });
 
 test.describe('代替フロー: 並べ替え（値・カテゴリ）・キーワード検索は、期間（31 日以内）が必須（#91）', () => {
@@ -683,11 +703,13 @@ test.describe('基本フロー 3: 並べ替え（日時・カテゴリ・値）�
     await openMeasurements(page);
     await expect(measurementRows(page)).toHaveCount(20);
     await expect(page.getByRole('button', { name: '前へ' })).toBeDisabled();
+    await expect(page.getByTestId('pager-range')).toHaveText('1〜20 件目');
     await shot(page, testInfo, 'uc20-page-1');
 
     await page.getByRole('button', { name: '次へ' }).click();
     await expect(measurementRows(page)).toHaveCount(1);
     await expect(page.getByTestId('pager-page')).toHaveText('2');
+    await expect(page.getByTestId('pager-range')).toHaveText('21〜21 件目');
     await expect(page.getByRole('button', { name: '次へ' })).toBeDisabled();
     await expect(measurementRows(page).first()).toContainText('0個');
     await page.getByRole('button', { name: '前へ' }).click();
@@ -817,6 +839,11 @@ async function expectObservationTableNotCrushed(page: Page): Promise<void> {
 
 /** 絞り込みの欄が、ページの幅の中に収まる（長い設備名の選択肢で、欄がはみ出さない）。 */
 async function expectFiltersInside(page: Page): Promise<void> {
+  // 狭い幅では、絞り込みの項目が折りたたまれる。開いてから、項目が幅の中に収まることを確認する
+  const toggle = page.getByRole('button', { name: '絞り込みを開く' });
+  if (await toggle.isVisible()) {
+    await toggle.click();
+  }
   const frame = await page.locator('.filter-bar').boundingBox();
   const right = (frame?.x ?? 0) + (frame?.width ?? 0);
   const fields = await page

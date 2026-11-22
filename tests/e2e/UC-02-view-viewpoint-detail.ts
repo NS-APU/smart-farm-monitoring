@@ -394,7 +394,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await seed(request, environmentData());
 
     await openDetail(page, 'harvestAccuracy');
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
@@ -407,7 +407,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
     await shot(page, testInfo, 'detail-not-applicable');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
     await expect(page.getByTestId('diagnosis')).toBeVisible();
     await expect(
       page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
@@ -422,7 +422,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await seed(request, environmentData());
 
     await openDetail(page, 'harvestAccuracy');
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
     await expect(page.getByTestId('not-applicable')).toBeVisible();
 
     await page
@@ -445,7 +445,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await seed(request, environmentData({ temperature: 27 }));
 
     await openDetail(page, 'environmentalAdaptability');
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
     await expect(
       page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),

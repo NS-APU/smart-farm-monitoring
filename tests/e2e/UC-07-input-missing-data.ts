@@ -104,8 +104,8 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await expect(equipment.locator('option')).toHaveText([
       '選択してください',
       'ハウス1',
-      '　収穫ロボット1',
-      '　環境センサー1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
     ]);
     for (const id of [HOUSE_ID, ROBOT_ID, SENSOR_ID]) {
       await equipment.selectOption(id);
