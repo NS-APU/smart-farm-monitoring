@@ -238,6 +238,20 @@ export const MANAGEMENT_MESSAGES = {
       names.length === 0
         ? '（配下の設備はありません）'
         : `（対象: ${names.join('、')}の${String(names.length)}件）`,
+    /** 親のハウスの付け替えの確認（Issue #163。SC-10-7）。閲覧の割り当てはハウス単位（FR-9.8）、通知は作成時のハウスに固定（ADR-0019 D-41）、過去の評価は保持（ADR-0017 D-24）。 */
+    parentChange: {
+      title: '親のハウスを変更しますか',
+      message: (from: string, to: string) =>
+        `親のハウスを${from}から${to}に変えます。閲覧できる利用者（割り当て）と、ハウスの評価が変わります`,
+      notes: [
+        'この設備のデータは、新しいハウスの配下のものとして評価されます',
+        '通知と過去の評価は、元のハウスのまま残ります',
+      ],
+      targetLabel: '設備',
+      fromLabel: '変更前のハウス',
+      toLabel: '変更後のハウス',
+      confirm: '親のハウスを変更して保存',
+    },
     created: '登録しました',
     createdConnectionFailed:
       '設備は登録しました。取り込み元の接続は、保存できませんでした。内容を確認して、もう一度「登録する」を押してください',
