@@ -1304,6 +1304,26 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
   ];
   const URL = '/viewpoints/environmentalAdaptability/criteria';
 
+  /** 現在の版（GET の ETag）。更新・既定値へ戻す操作の If-Match に使う（SC-13-1）。 */
+  async function currentEtag(context: TestContext, url = URL): Promise<string> {
+    return (await send(context, 'GET', url)).headers.get('etag') ?? '';
+  }
+  /** 現在の版を If-Match に付けて、更新する。 */
+  async function put(context: TestContext, body: unknown, url = URL) {
+    return context.request(url, {
+      method: 'PUT',
+      body,
+      headers: { 'if-match': await currentEtag(context, url) },
+    });
+  }
+  /** 現在の版を If-Match に付けて、既定値へ戻す。 */
+  async function reset(context: TestContext) {
+    return context.request(`${URL}/reset`, {
+      method: 'POST',
+      headers: { 'if-match': await currentEtag(context) },
+    });
+  }
+
   it('既定値を返し、変更すると変更済み（版・変更者つき）になり、すべての利用者の評価に使われる', async () => {
     const context = await withEquipment();
     await context.container.repositories.observations.saveMany([
@@ -1313,7 +1333,7 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
     const initial = ViewpointCriteriaSchema.parse(await (await send(context, 'GET', URL)).json());
     expect(initial).toMatchObject({ isDefault: true, version: 'DEFAULT' });
 
-    const response = await send(context, 'PUT', URL, {
+    const response = await put(context, {
       criteria: environment({ normalUpper: 28 }),
     });
 
@@ -1331,16 +1351,16 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
     expect(detail.selected.isCustomCriteria).toBe(true);
     expect(detail.status).toBe('NORMAL');
     const again = ViewpointCriteriaSchema.parse(
-      await (await send(context, 'PUT', URL, { criteria: environment() })).json(),
+      await (await put(context, { criteria: environment() })).json(),
     );
     expect(again.version).toBe('CUSTOM-2');
   });
 
   it('既定値へ戻すと、既定値の判定に戻り、変更履歴に残る', async () => {
     const context = await withEquipment();
-    await send(context, 'PUT', URL, { criteria: environment({ normalUpper: 28 }) });
+    await put(context, { criteria: environment({ normalUpper: 28 }) });
 
-    const response = await send(context, 'POST', `${URL}/reset`);
+    const response = await reset(context);
 
     expect(response.status).toBe(200);
     expect(ViewpointCriteriaSchema.parse(await response.json())).toMatchObject({
@@ -1393,7 +1413,7 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
   ])('不正な入力（%s）は保存できない', async (_name, criteria, field) => {
     const context = await withEquipment();
 
-    const response = await send(context, 'PUT', URL, { criteria });
+    const response = await put(context, { criteria });
 
     expect(response.status).toBe(400);
     expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(field);
@@ -1415,10 +1435,13 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
       upper(60, 120, 'averageSecondsPerFruit'),
     ];
 
-    const reversed = await send(context, 'PUT', '/viewpoints/harvestSpeed/criteria', {
-      criteria: [upper(10, 10, 'travelStoppedRatePercent'), valid[1]],
-    });
-    const ok = await send(context, 'PUT', '/viewpoints/harvestSpeed/criteria', { criteria: valid });
+    const harvestSpeed = '/viewpoints/harvestSpeed/criteria';
+    const reversed = await put(
+      context,
+      { criteria: [upper(10, 10, 'travelStoppedRatePercent'), valid[1]] },
+      harvestSpeed,
+    );
+    const ok = await put(context, { criteria: valid }, harvestSpeed);
 
     expect(reversed.status).toBe(400);
     expect(ok.status).toBe(200);
@@ -1436,7 +1459,149 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
     const context = await withEquipment();
     context.container.evaluationService.evaluateAll = () => Promise.reject(new Error('評価の失敗'));
 
-    expect((await send(context, 'PUT', URL, { criteria: environment() })).status).toBe(200);
+    expect((await put(context, { criteria: environment() })).status).toBe(200);
+  });
+
+  describe('版つき更新（SC-13-1。ETag と If-Match）', () => {
+    const stored = async (context: TestContext) =>
+      ViewpointCriteriaSchema.parse(await (await send(context, 'GET', URL)).json());
+
+    it('GET は、判断基準の版を ETag に付ける。変わっていなければ、If-None-Match に 304 を返す', async () => {
+      const context = await withEquipment();
+
+      const first = await send(context, 'GET', URL);
+      const etag = first.headers.get('etag');
+      const again = await context.request(URL, { headers: { 'if-none-match': etag ?? '' } });
+
+      expect(etag).toMatch(/^"[0-9a-f]{32}"$/);
+      expect(again.status).toBe(304);
+    });
+
+    it('If-Match がない更新は 428（PRECONDITION_REQUIRED）。保存しない', async () => {
+      const context = await withEquipment();
+
+      const response = await send(context, 'PUT', URL, { criteria: environment() });
+
+      expect(response.status).toBe(428);
+      expect((await errorOf(response)).code).toBe('PRECONDITION_REQUIRED');
+      expect(await stored(context)).toMatchObject({ isDefault: true, version: 'DEFAULT' });
+    });
+
+    it('現在の版と一致しない If-Match の更新は 409（CONFLICT）。保存しない', async () => {
+      const context = await withEquipment();
+
+      const response = await context.request(URL, {
+        method: 'PUT',
+        body: { criteria: environment() },
+        headers: { 'if-match': '"00000000000000000000000000000000"' },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await errorOf(response)).code).toBe('CONFLICT');
+      expect(await stored(context)).toMatchObject({ isDefault: true, version: 'DEFAULT' });
+    });
+
+    it('現在の版と一致する If-Match の更新は成功する。弱い比較の接頭辞（W/）つきでも一致とみなす', async () => {
+      const context = await withEquipment();
+      const etag = await currentEtag(context);
+
+      const weak = await context.request(URL, {
+        method: 'PUT',
+        body: { criteria: environment() },
+        headers: { 'if-match': `W/${etag}` },
+      });
+
+      expect(weak.status).toBe(200);
+    });
+
+    it('ワイルドカード（*）は、条件として受け付けない（版を確かめない更新はできない）', async () => {
+      const context = await withEquipment();
+
+      const response = await context.request(URL, {
+        method: 'PUT',
+        body: { criteria: environment() },
+        headers: { 'if-match': '*' },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await stored(context)).isDefault).toBe(true);
+    });
+
+    it('更新すると、版（ETag）が変わる。同じ内容で更新し直しても、変わる', async () => {
+      const context = await withEquipment();
+      const initial = await currentEtag(context);
+
+      await put(context, { criteria: environment() });
+      const first = await currentEtag(context);
+      await put(context, { criteria: environment() });
+      const second = await currentEtag(context);
+
+      expect(new Set([initial, first, second]).size).toBe(3);
+    });
+
+    it('既定値へ戻しても、版（ETag）が変わる', async () => {
+      const context = await withEquipment();
+      await put(context, { criteria: environment() });
+      const changed = await currentEtag(context);
+
+      await reset(context);
+
+      expect(await currentEtag(context)).not.toBe(changed);
+    });
+
+    it('ほかの変更（保存済みの判断基準の書き換え）でも、版（ETag）が変わる', async () => {
+      const context = await withEquipment();
+      await put(context, { criteria: environment() });
+      const before = await currentEtag(context);
+      const base = await stored(context);
+
+      await context.container.repositories.criteria.save({
+        ...base,
+        version: 'CUSTOM-9',
+        updatedBy: toUserId('other-admin'),
+      });
+
+      expect(await currentEtag(context)).not.toBe(before);
+    });
+
+    it('2 人が同じ版を読み、先に保存すると、後の保存は 409。先の変更は、上書きされない', async () => {
+      const context = await withEquipment();
+      const shared = await currentEtag(context);
+      const saveWith = (etag: string, label: string) =>
+        context.request(URL, {
+          method: 'PUT',
+          body: { criteria: [{ ...environment()[0], label }, ...environment().slice(1)] },
+          headers: { 'if-match': etag },
+        });
+
+      const first = await saveWith(shared, '先に保存');
+      const second = await saveWith(shared, '後から保存');
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(409);
+      expect((await stored(context)).criteria[0]?.label).toBe('先に保存');
+      // 読み込み直した版なら、保存できる
+      expect((await saveWith(await currentEtag(context), '読み直して保存')).status).toBe(200);
+    });
+
+    it('既定値へ戻す操作も、同じ扱い: If-Match がなければ 428、一致しなければ 409、一致すれば成功', async () => {
+      const context = await withEquipment();
+      await put(context, { criteria: environment() });
+      const stale = await currentEtag(context);
+      await put(context, { criteria: environment({ normalUpper: 28 }) });
+
+      const missing = await send(context, 'POST', `${URL}/reset`);
+      const mismatch = await context.request(`${URL}/reset`, {
+        method: 'POST',
+        headers: { 'if-match': stale },
+      });
+
+      expect(missing.status).toBe(428);
+      expect(mismatch.status).toBe(409);
+      expect((await stored(context)).isDefault).toBe(false);
+      expect((await reset(context)).status).toBe(200);
+      expect((await stored(context)).isDefault).toBe(true);
+    });
   });
 });
 
