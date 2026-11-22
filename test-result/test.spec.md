@@ -56,6 +56,8 @@
 
 追記（2026-11-22。Issue #154 の PR 2）: ヘルプヒントと凡例（75 章。SC-02-7・SC-09-2・SC-06-9 の一般項目）で、単体: shared に 1 ファイル・16 件（`help-dictionary.test.ts`）、単体（frontend）に 2 ファイル・27 件（`help-hint.test.tsx` の 15 件、`help-hint-pages.test.tsx` の 12 件）、E2E に 6 件（UC-01 に 3 件・UC-20 に 1 件・UC-06 に 2 件）を追加した。この PR での増分は +43 件（単体）・+6 件（E2E）で、全体の合計は、ほかの PR のマージ後にまとめて直す。上の表の件数には含まない。
 
+追記（2026-11-22。Issue #165 の PR 1）: 判断基準の版つき更新（78 章）で、増分は、単体・結合が +19 件（結合 `management-api.test.ts` の +10 件、単体 frontend の `criteria-edit-page.test.tsx` の +5 件・`api-client.test.ts` の +4 件）、E2E が +2 件（`UC-19-edit-criteria.ts`）。ファイルの追加はない。上の表の件数には含まない。
+
 追記（2026-11-23。Issue #157 の PR 2）: パスワード欄の共通部品・ログインの初期フォーカス（76 章）で、単体（frontend）に 1 ファイル・26 件（`password-input.test.tsx` の 17 件、`app.test.tsx` の 4 件、`change-password.test.tsx` の 3 件、`users-page.test.tsx` の 2 件）、E2E に 4 件（`UC-13-login-logout.ts` の 3 件、`UC-14-manage-users.ts` の 1 件）を追加した（増分のみ。全体の合計は、マージ後にまとめて直す）。
 
 追記（2026-11-22。Issue #159 の PR 3）: Web Push の設定（iPhone・iPad の案内・購読が無効になったときの案内・テスト通知。77 章）で、単体・結合に 54 件（単体: backend/application に 1 ファイル 13 件〔`push-subscription-service.test.ts`〕と `push-payload.test.ts` の 1 件、backend/infrastructure に 7 件〔`web-push-notifier.test.ts` の 5 件、`adapters.test.ts` の 2 件〕、frontend に 22 件〔`push.test.tsx`〕。結合: 11 件〔`management-api.test.ts` の 8 件、`web-push-delivery.test.ts` の 3 件〕）、E2E に 9 件（`UC-23-configure-web-push.ts`）を追加した（+54 件・+9 件。ファイルの追加は、単体の 1 ファイル）。上の表の件数には含まない。
@@ -223,6 +225,7 @@ pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts
 | 75 | ヘルプヒント（「?」）と凡例（状態・データの状態）・用語辞書（指標・入力項目の説明）（SC-02-7・SC-09-2・SC-06-9 の一般項目）に伴う、テストの追加 | #154（PR 2） |
 | 76 | パスワード欄の共通部品（表示切替・Caps Lock の注意）とログインの初期フォーカス（SC-01-4）に伴う、テストの追加 | #157（PR 2） |
 | 77 | Web Push の設定（iPhone・iPad の Safari のタブでの案内・購読が無効になったときの案内・この端末へのテスト通知）（SC-15-8・SC-15-6・SC-15-2）に伴う、テストの追加・変更 | #159（PR 3） |
+| 78 | 判断基準の版つき更新（同時編集の検出。`If-Match`・`ETag`。409・428。SC-13-1）に伴う、テストの追加・変更 | #165（PR 1） |
 | 79 | 親のハウスの付け替えの確認（影響の説明。キャンセルで修正に戻る。親を変えない修正は確認しない）（SC-10-7）に伴う、テストの追加・変更 | #163（PR 1） |
 | 80 | 連携の結果の語の統一（「成功」を「送信済み」に）と、連携の保留の説明（SC-11-4・SC-11-10）に伴う、テストの追加・変更 | #164（PR 1） |
 
@@ -13593,6 +13596,58 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 - E2E（`E2E_PORT_OFFSET=10200`。1 インスタンス）: `UC-23-configure-web-push.ts` の 40 件のうち、38 件が成功、2 件が失敗した（`page.goto` の中断・ヘッダーの表示待ちの 30 秒のタイムアウト。同時の負荷による。操作の前の失敗）。失敗した 2 件を、単独で再実行して、2 件とも成功した。`scenario-outage-recovery.ts`（SC-15 を使うシナリオ）の 1 件も成功。
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
 - **未確認**: 手元の負荷テスト（`pnpm test:stress`。CI の `ci:full` で確認）、全件の E2E・CSP のテスト（CI で確認）、画面の目視（ライト・ダーク・スマートフォン幅の見た目。E2E のスクリーンショットは撮ったが、目視はしていない）、スクリーンリーダー、**実機（iPhone・Android）での、案内の表示・テスト通知の受信**、**実際の Web Push の配信（`WEB_PUSH_DELIVERY=vapid`）**、AWS（実機確認はユーザーの作業）
+
+## 78. 判断基準の版つき更新（同時編集の検出。`If-Match`・`ETag`。409・428。#165 の PR 1。SC-13-1）に伴う、テストの追加・変更
+
+この章は、1.2 節の追記のとおり、増分として、単体・結合を +19 件、E2E を +2 件にした。Issue #165 の方針 1（承認済み）: 判断基準の更新（`PUT /viewpoints/{viewpointId}/criteria`）と既定値へ戻す（`POST /viewpoints/{viewpointId}/criteria/reset`）を、`GET` の応答の `ETag`（内容のハッシュ。版・変更日時を含む）を `If-Match` に付ける条件付き更新にした。`If-Match` がなければ 428（`PRECONDITION_REQUIRED`）、現在の版と一致しなければ 409（`CONFLICT`。保存しない）。画面は、読み込んだ ETag を保持して送り、409 のときは「他の管理者が変更しました。読み込み直してください」と「読み込み直す」を示す。API の契約変更（リクエストヘッダー）で、DB の変更・費用の変化はない。
+
+### 78.1 追加したテスト（仮の ID）
+
+| ファイル | 内容 | 検証 |
+| -------- | ---- | ---- |
+| `tests/integration/management-api.test.ts`（10 件追加。「版つき更新（SC-13-1）」） | `GET` が ETag を付け、If-None-Match に 304 を返す | ETag が 32 桁の 16 進を引用符で囲んだ形であること。同じ ETag を If-None-Match に付けると 304 |
+| | If-Match がない更新は 428 | `code` が `PRECONDITION_REQUIRED`。保存されない（版 `DEFAULT` のまま） |
+| | 現在の版と一致しない If-Match の更新は 409 | `code` が `CONFLICT`。保存されない |
+| | 一致する If-Match の更新は成功。弱い比較の接頭辞（`W/`）つきでも一致 | 200 |
+| | ワイルドカード（`*`）は条件として受け付けない | 409。保存されない |
+| | 更新すると版（ETag）が変わる。同じ内容で更新し直しても変わる | 既定値・1 回目・2 回目の 3 つの ETag が、すべて異なる |
+| | 既定値へ戻しても、版（ETag）が変わる | 変更後の ETag と、既定値へ戻したあとの ETag が異なる |
+| | ほかの変更（リポジトリの保存済みの判断基準の書き換え）でも、版（ETag）が変わる | 書き換えの前後で ETag が異なる |
+| | 2 人が同じ版を読み、先に保存すると、後の保存は 409。先の変更は上書きされない | 先は 200・後は 409。保存済みの条件名が先のもの。読み込み直した版なら、保存できる（200） |
+| | 既定値へ戻す操作も同じ扱い | If-Match がなければ 428、古い版なら 409（戻らない）、一致すれば 200 |
+| `tests/unit/frontend/api-client.test.ts`（4 件追加。「版つき更新」） | `requestWithEtag` が、本文と応答の ETag を返す（なければ undefined） | 2 つの応答（ETag あり・なし） |
+| | 304 でも、現在の版（ETag）を返す | 前回の ETag で 304 になったときも、同じ ETag |
+| | `ifMatch` を指定すると If-Match ヘッダーに付ける。指定しなければ付けない | 付く（`"v1"`）・付かない（null） |
+| | 409 は `ApiError`（`CONFLICT`）にする | `status` 409・`code` `CONFLICT` |
+| `tests/unit/frontend/criteria-edit-page.test.tsx`（5 件追加。「版つき更新」） | 保存は、読み込んだ ETag を If-Match に付けて送る | PUT の If-Match が `"etag-1"` |
+| | 既定値へ戻す操作も、読み込んだ ETag を If-Match に付ける | POST の If-Match が `"etag-2"` |
+| | 保存が 409 なら、その旨と「読み込み直す」を示す。読み込み直すと、最新の内容・版で保存できる | `role="alert"`・文言・ボタン。読み込み直すと、版 v3・値 70・案内が消える。2 回目の PUT の If-Match が新しい ETag |
+| | 既定値へ戻す操作が 409 でも同じ案内（確認のダイアログは閉じる） | 案内・ボタンが出る。ダイアログがない |
+| | 409 以外のエラーには、「読み込み直す」を示さない | 500 のとき、メッセージだけ |
+| `tests/e2e/UC-19-edit-criteria.ts`（2 件追加。「事後条件」の中） | 同時編集の検出: 2 人の管理者（別のブラウザ）が同じ判断基準を開き、先に保存すると、後から保存した人に案内を示す。読み込み直せば保存できる。先の変更は上書きされない | 案内の文言・ボタン・保存済みの値（API）・読み込み直したあとの版 CUSTOM-1・もう一度の保存で CUSTOM-2 |
+| | 同時編集の検出: 既定値へ戻す操作も、先に変更されていれば、戻さず、案内を示す | 案内。API で版 CUSTOM-2 のまま |
+
+### 78.2 変更した既存のテスト（承認済みの API の契約変更〔If-Match 必須〕に伴う。緩和・削除・スキップなし）
+
+| ファイル | 変更 | 理由 |
+| -------- | ---- | ---- |
+| `tests/integration/management-api.test.ts`（「判断基準の編集」の既存の 6 件: 既定値を返し変更すると…・既定値へ戻す・不正な入力 9 件〔`it.each`〕・上限型・下限型の大小関係・評価が失敗しても保存は成功） | 更新・既定値へ戻す呼び出しを、現在の版（`GET` の ETag）を If-Match に付ける補助（`put`・`reset`）に変えた。期待値は変えていない | If-Match が必須になったため（付けないと 428）。存在しない観点の 404 の確認は、If-Match なしのまま（観点の確認が先） |
+| `tests/integration/federation-scope.test.ts`（1 件） | 判断基準の更新に、現在の ETag を If-Match に付けた。更新が 200 であることの確認を足した | 同上。更新が、静かに失敗して、確認の意味がなくならないようにするため |
+| `tests/e2e/UC-19-edit-criteria.ts`（`saveLongCriteria`。最大長の判断基準を API で保存する補助。幅の確認の 7 件が使う） | 読み込んだ応答の ETag を If-Match に付けて保存する | 同上 |
+| `tests/e2e/support/app.ts`（`api`） | 任意のヘッダーを渡せる引数を追加した（既存の呼び出しは変わらない） | If-Match を付けるため |
+| `tests/support/frontend.ts`（`FakeRequest`） | `ifMatch`（If-Match の値）を追加した | 画面の単体テストで、送った版を確かめるため |
+
+変えた語・API（`/criteria`・`criteria/reset`・`updateCriteria`・`resetCriteria`・`getCriteria`）で、単体・結合・E2E・負荷（`tests/stress`）・スモーク・IaC（`infra/test`）のテストを検索した。ほかのテストは、画面の操作（If-Match は、画面が付ける）か、サービスの直接の呼び出し（サービスの契約は変えていない）のため、変更は不要だった。権限のない利用者の 403 の確認（UC-19）は、If-Match の確認より前に権限を確かめるため、変更していない。
+
+### 78.3 実測
+
+手元（Windows。2026-11-22）:
+
+- 新しいテストのうち、結合・単体の 19 件は、実装の前に書き、失敗を確認してから実装した（結合 9 件が失敗〔428・409 の期待・ETag の付与・版の変化〕。画面・API クライアントの単体は、実装に着手した段階で、画面の呼び出しの型が変わり、既存の確認とともに失敗した）。E2E の 2 件は、実装のあとに書いて、成功を確認した。
+- 単体・結合・フロントエンド・IaC（`pnpm test:unit --maxWorkers=2`。DynamoDB Local あり。ほかの作業と同時に実行）: 1 回目（`develop` の取り込み前）は、184 ファイル・4012 件のうち、4009 件が成功、2 件スキップ（Windows では実行しないファイル権限のテスト）、1 件が失敗した（`infra/test/bundle-lambda.test.ts` の 1 件。esbuild のバンドルが、30 秒の許容を、負荷で超えた。単独で再実行して、4 件すべて成功した。許容は緩めていない）。最後に `develop` を取り込んだあとの再実行は、185 ファイル・4048 件のうち、4046 件が成功、2 件スキップ、失敗 0 件（カバレッジ: Statements 99.08%・Branches 95.48%・Lines 99.06%）。
+- E2E（`E2E_PORT_OFFSET=10300`。1 インスタンス）: 影響する 2 ファイル（`UC-19-edit-criteria.ts`・`scenario-criteria-change.ts`）の 54 件が、すべて成功（失敗 0・スキップ 0）。新しい 2 件を含む。`develop` を取り込んだあとにも、同じ 2 ファイルを再実行して、54 件が成功
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
+- **未確認**: 負荷テスト（手元では実行しない。CI の `ci:full` で確認）、全件の E2E（CI で確認）、画面の目視（競合の案内の見た目・ライト・ダーク・スマートフォン幅）、スクリーンリーダーでの読み上げ、AWS・実機（実際の配信経路で `ETag`・`If-Match` が、そのまま届くこと〔配信の途中で弱い ETag に変わっても一致する実装にしてある〕）、スモークテスト（`tests/smoke`）
 
 ## 79. 親のハウスの付け替えの確認（影響の説明。キャンセルで修正に戻る。親を変えない修正は確認しない）（#163 の PR 1。SC-10-7）に伴う、テストの追加・変更
 

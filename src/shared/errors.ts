@@ -12,6 +12,8 @@ export const ERROR_CODES = [
   'PASSWORD_CHANGE_REQUIRED',
   'NOT_FOUND',
   'CONFLICT',
+  /** 版の確認（If-Match）が必要な更新に、その指定がない（428。判断基準の更新など）。 */
+  'PRECONDITION_REQUIRED',
   'RATE_LIMITED',
   'NOT_IMPLEMENTED',
   'INTERNAL_ERROR',

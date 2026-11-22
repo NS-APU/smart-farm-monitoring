@@ -195,7 +195,7 @@
 - 本文は JSON で上限 1 MiB（超えると 413）。エラー応答は `{ error: { code, message, fields? } }` に統一（`errors.ts`。`AppError`・`ZodError`・想定外のエラーを変換し、想定外のエラーの詳細は応答に含めない）
 - 応答ヘッダーに `x-request-id`・`cache-control: no-store`・`x-content-type-options: nosniff` を付け、構造化ログ（本文・クエリ・認証情報は出さない）を出す（`requestContext`）
 - 一覧は、カーソル（オフセットを base64url にした不透明な文字列）でページ分割する（`limit` の既定 20・最大 100）
-- `GET /dashboard` のみ、内容のハッシュの `ETag` を付け、`If-None-Match` が一致すれば本文のない 304 を返す（`jsonWithEtag`）
+- `GET /dashboard` と `GET /viewpoints/:viewpointId/criteria` に、内容のハッシュの `ETag` を付け、`If-None-Match` が一致すれば本文のない 304 を返す（`jsonWithEtag`）。判断基準の `ETag` は、更新・既定値へ戻す操作の `If-Match` にも使う（版つき更新。`assertIfMatch`。#165）
 
 ### ジョブ（JB-01〜JB-04）
 
@@ -868,7 +868,7 @@ classDiagram
 | `ViewpointId`（10）                 | `harvestAccuracy`・`harvestSpeed`・`environmentalAdaptability`・`operability`・`maintainability`・`costEfficiency`・`safety`・`dataUtilization`・`durability`・`satisfaction`（表示順） | `shared/constants/viewpoints.ts`  |
 | `ViewpointTarget`                   | `ROBOT`・`HOUSE`・`OPERATION`（運用面はハウス単位で評価）                                                                                                                               | 同上                              |
 | `Permission`（8）                   | 上記                                                                                                                                                                                    | `shared/constants/permissions.ts` |
-| `ErrorCode`（10）                   | `VALIDATION_ERROR`・`UNAUTHENTICATED`・`FORBIDDEN`・`PASSWORD_CHANGE_REQUIRED`（403。D-45）・`NOT_FOUND`・`CONFLICT`・`RATE_LIMITED`・`NOT_IMPLEMENTED`・`INTERNAL_ERROR`・`SERVICE_UNAVAILABLE`                                 | `shared/errors.ts`                |
+| `ErrorCode`（11）                   | `VALIDATION_ERROR`・`UNAUTHENTICATED`・`FORBIDDEN`・`PASSWORD_CHANGE_REQUIRED`（403。D-45）・`NOT_FOUND`・`CONFLICT`・`PRECONDITION_REQUIRED`（428。`If-Match` がない。判断基準の更新・既定値へ戻す。#165）・`RATE_LIMITED`・`NOT_IMPLEMENTED`・`INTERNAL_ERROR`・`SERVICE_UNAVAILABLE`                                 | `shared/errors.ts`                |
 | `AuditOperation`                    | `CREATE`・`UPDATE`・`DELETE`                                                                                                                                                            | `shared/schemas/audit.ts`         |
 | `DeliveryChannel`・`DeliveryResult` | `IN_APP`・`WEB_PUSH`／`PENDING`・`SUCCESS`・`FAILURE`                                                                                                                                   | `shared/schemas/notification.ts`  |
 | `IngestionResult`                   | `SUCCESS`・`PARTIAL`・`FAILURE`                                                                                                                                                         | `shared/schemas/ingestion.ts`     |
@@ -1104,7 +1104,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 
 - `createApiClient`: Bearer トークンを付けて `/api/v1` を呼ぶ。応答は、Zod のスキーマで検証し、不一致は `INVALID_RESPONSE` にする。エラー応答は `ApiError`（`status`・`code`・`fields`）に変換し、通信失敗は `NETWORK_ERROR`
 - 401 のときは、リフレッシュトークンでセッションを更新して、**1 度だけ**再試行する。更新は、同時に 1 つだけ実行する（`refreshSessionOnce`。複数の読み込みが同時に 401 になっても、使用済みのトークンで失敗しない）。さらに、**更新が終わったあとに、遅れて届いた 401** のとき、現在のトークンが、その要求に使ったトークンと違えば（ほかの要求が、すでに更新した）、更新せず、現在のトークンで再試行する（更新を重ねると、サーバーが、直前に発行したトークンを無効にし、そのトークンで再試行している要求が 401 になるため。Issue #60）。更新に失敗すると、セッションを消し、`onSessionExpired`（`setUser(null)`）でログイン画面へ戻す
-- GET は、応答の `ETag` を、URL ごとに記憶し（同じアクセストークンのときだけ使う）、次の同じ GET に `If-None-Match` を付ける。304 なら前回の本文を使う（実際に `ETag` を返すのは `GET /dashboard` のみ）
+- GET は、応答の `ETag` を、URL ごとに記憶し（同じアクセストークンのときだけ使う）、次の同じ GET に `If-None-Match` を付ける。304 なら前回の本文を使う（`ETag` を返すのは `GET /dashboard` と `GET /viewpoints/:id/criteria`）。判断基準の編集（`criteria-edit-page.tsx`）は、`requestWithEtag` で読み込んだときの `ETag` を保持し、保存・既定値へ戻す操作の `If-Match`（`RequestOptions.ifMatch`）に付ける。409 なら、「他の管理者が変更しました。読み込み直してください」と「読み込み直す」を示す（`useSubmit` の `errorCode`）
 - `usePolling(fetcher, intervalMs = 10_000)`: 最初に 1 回取得し、その後は、タブが表示されているとき（`document.visibilityState === 'visible'`）だけ、10 秒ごとに取得する。取得関数が変わると、読み込み中に戻して取得し直す。ほとんどの画面（ダッシュボード・観点の詳細・一覧・通知・ユーザー・ヘッダーの未読件数など）がこれを使う。例外は、判断基準の編集（SC-13。間隔が 24 時間で、実質的に読み直さない）と、ステータスコードの名称の取得（計測データの表。60 秒）
 
 ## 認可・権限モデル
@@ -1510,6 +1510,7 @@ sequenceDiagram
     PG->>PG: CriteriaUpdateRequestSchema<br>で検証 閾値の大小関係と条件名
     PG->>APP: PUT /viewpoints/:id/criteria 権限<br>criteria:edit
     APP->>APP: viewpointIdOf で観点を確認<br>無ければ NOT_FOUND
+    APP->>CA: get で現在の版を求め<br>assertIfMatch で If-Match と比較<br>なければ 428 不一致は 409 で保存しない
     APP->>CA: update(viewpointId, input,<br>actor)
     CA->>CA: indicatorViolations<br>指標は既定値と同じ構成 重複と不足は<br>VALIDATION_ERROR
     CA->>CS: getEffective で before を取得
@@ -1519,6 +1520,7 @@ sequenceDiagram
     CA-->>PG: CriteriaView
   else 既定値へ戻す POST reset
     PG->>APP: POST<br>/viewpoints/:id/criteria/reset<br>権限 criteria:edit
+    APP->>CA: get で現在の版を求め<br>assertIfMatch で If-Match と比較<br>なければ 428 不一致は 409
     APP->>CA: reset(viewpointId, actor)
     CA->>REP: delete(viewpointId)
     CA->>AU: record UPDATE before と after<br>に既定値
@@ -2441,7 +2443,18 @@ if If-None-Match（カンマ区切り。弱い比較の W/ を除く。* を含�
 else: 200（本文 = text）
 ```
 
-認証・認可を通った後にだけ判定するため、304 で認証を回避できない。実際に使うルートは `GET /dashboard` のみ。
+認証・認可を通った後にだけ判定するため、304 で認証を回避できない。実際に使うルートは `GET /dashboard` と `GET /viewpoints/:viewpointId/criteria`。
+
+**版つき更新**（`assertIfMatch`。判断基準の `PUT`・`POST .../reset`。SC-13-1）:
+
+```text
+current = 現在の判断基準の応答（GET と同じ内容）
+if If-Match がない（空を含む）: 428（PRECONDITION_REQUIRED）
+if If-Match（カンマ区切り。弱い比較の W/ を除く）に、sha256(JSON.stringify(current)) の ETag が含まれない: 409（CONFLICT）。保存しない
+else: 更新する
+```
+
+`*` は一致とみなさない。判断基準の応答は、版（`version`）・変更日時（`updatedAt`）を含むため、更新・既定値へ戻す・ほかの変更で、ETag が変わる。確認と保存の間は、原子的ではない（行の条件付き書き込みにはしていない）。
 
 **クライアント**（`createApiClient`）: GET の応答の `ETag` を URL ごとに記憶し、次の同じ GET に `If-None-Match` を付ける（同じアクセストークンのときだけ）。304 なら記憶した本文を使い、200 なら記憶を更新する。`usePolling` が、タブが表示されているときに 10 秒ごとに取得し直すため、変化がなければ、小さな応答で済む。
 

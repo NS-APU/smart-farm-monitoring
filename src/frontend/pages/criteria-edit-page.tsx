@@ -3,6 +3,8 @@
  * 既定値へ戻す操作。変更はシステム全体（すべての利用者）に適用し、変更済みであることを識別できる（版・変更者・日時）。
  * 大小関係・数値・条件名（空欄・200文字超）を検証し、不正な組み合わせは保存できない。
  * ステータスコードで判定する指標は、ここでは編集できない（ステータスコード〔SC-12〕で設定する）。
+ * 同時編集の検出（SC-13-1）: 読み込んだときの版（ETag）を、保存・既定値へ戻す操作の If-Match に付ける。
+ * 他の管理者が先に変更していたら（409）、その旨と「読み込み直す」を示す。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
@@ -101,8 +103,12 @@ function savedThresholdOf(saved: Criterion, key: ThresholdKey): number {
 interface EditorProps {
   readonly viewpointId: string;
   readonly criteria: CriteriaView;
+  /** 読み込んだときの版（ETag）。保存・既定値へ戻す操作の If-Match に付ける。 */
+  readonly etag: string | undefined;
   readonly canEdit: boolean;
   readonly onChanged: (message: string) => void;
+  /** 最新の判断基準を読み込み直す（他の管理者の変更が見つかったとき）。 */
+  readonly onReload: () => void;
 }
 
 function CriteriaEditor(props: EditorProps): ReactNode {
@@ -134,14 +140,16 @@ function CriteriaEditor(props: EditorProps): ReactNode {
       return;
     }
     setClientErrors({});
-    const result = await submit.run(() => updateCriteria(api, props.viewpointId, parsed.data));
+    const result = await submit.run(() =>
+      updateCriteria(api, props.viewpointId, parsed.data, props.etag),
+    );
     if (result.ok) {
       props.onChanged(TEXT.saved);
     }
   }
 
   async function handleReset(): Promise<void> {
-    const result = await submit.run(() => resetCriteria(api, props.viewpointId));
+    const result = await submit.run(() => resetCriteria(api, props.viewpointId, props.etag));
     setConfirmingReset(false);
     if (result.ok) {
       props.onChanged(TEXT.resetDone);
@@ -272,7 +280,18 @@ function CriteriaEditor(props: EditorProps): ReactNode {
           {TEXT.statusNote}（<Link to={PATHS.settingsStatusCodes}>{TEXT.goStatusCodes}</Link>）
         </p>
       ) : null}
-      <FormError message={submit.formMessage} />
+      {submit.errorCode === 'CONFLICT' ? (
+        <div role="alert" className="state-view state-error" data-testid="criteria-conflict">
+          <Icon name="status-error" size={20} />
+          <p>{TEXT.conflict}</p>
+          <p>{TEXT.conflictNote}</p>
+          <button type="button" className="button-secondary" onClick={props.onReload}>
+            {TEXT.reload}
+          </button>
+        </div>
+      ) : (
+        <FormError message={submit.formMessage} />
+      )}
       {props.canEdit ? (
         <div className="form-actions">
           <button type="submit" disabled={submit.busy}>
@@ -318,7 +337,8 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
     async () => (meta === undefined ? undefined : getCriteria(api, viewpointId)),
     [api, viewpointId, meta],
   );
-  const { data, error, reload } = usePolling(fetchCriteria, NO_POLLING_MS);
+  const { data: loaded, error, reload } = usePolling(fetchCriteria, NO_POLLING_MS);
+  const data = loaded?.data;
 
   let body: ReactNode;
   if (meta === undefined) {
@@ -330,7 +350,7 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
     );
   } else if (error !== undefined) {
     body = <ErrorView error={error} onRetry={reload} />;
-  } else if (data === undefined) {
+  } else if (loaded === undefined || data === undefined) {
     body = <LoadingView />;
   } else {
     body = (
@@ -350,10 +370,15 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
           )}
         </p>
         <CriteriaEditor
-          key={`${data.version}|${data.updatedAt ?? ''}`}
+          key={loaded.etag ?? `${data.version}|${data.updatedAt ?? ''}`}
           viewpointId={viewpointId}
           criteria={data}
+          etag={loaded.etag}
           canEdit={canEdit}
+          onReload={() => {
+            setNotice(undefined);
+            reload();
+          }}
           onChanged={(message) => {
             setNotice(message);
             reload();
