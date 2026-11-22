@@ -33,16 +33,34 @@ export function safeNextPath(next: string | null): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-/** 未認証のアクセスを、ログイン画面へ誘導する URL（元のパスとクエリを、戻り先（next）に持つ）。 */
-export function loginRedirectPath(pathname: string, search: URLSearchParams): string {
+/** ログイン画面へ戻された理由（クエリ `reason`）。許可リストにある値だけを受け付ける（Issue #157。SC-01-1）。 */
+export type LoginReason = 'expired';
+const LOGIN_REASONS: readonly LoginReason[] = ['expired'];
+
+/** クエリの `reason` を、許可リストで検証する。許可しない値（空・大文字小文字違い・未知の値）は、undefined（無視する）。 */
+export function parseLoginReason(value: string | null): LoginReason | undefined {
+  return LOGIN_REASONS.find((reason) => reason === value);
+}
+
+/**
+ * 未認証のアクセスを、ログイン画面へ誘導する URL（元のパスとクエリを、戻り先（next）に持つ）。
+ * ログイン中にセッションが切れたときは、理由（reason=expired）も持つ（ログイン画面が、期限切れの旨を示す）。
+ */
+export function loginRedirectPath(
+  pathname: string,
+  search: URLSearchParams,
+  reason?: LoginReason,
+): string {
   const query = search.size > 0 ? `?${search.toString()}` : '';
-  return `${PATHS.login}?next=${encodeURIComponent(`${pathname}${query}`)}`;
+  const reasonQuery = reason === undefined ? '' : `&reason=${reason}`;
+  return `${PATHS.login}?next=${encodeURIComponent(`${pathname}${query}`)}${reasonQuery}`;
 }
 
 export function LoginPage(): ReactNode {
   const { user, login } = useAuth();
   const { search } = useLocation();
   const next = search.get('next');
+  const reason = parseLoginReason(search.get('reason'));
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
@@ -104,6 +122,7 @@ export function LoginPage(): ReactNode {
       <div className="login-brand">
         <HouseAndStrawberry />
         <h1>{MESSAGES.appName}</h1>
+        <p className="login-purpose">{MESSAGES.login.purpose}</p>
       </div>
       <form
         className="login-form"
@@ -113,6 +132,11 @@ export function LoginPage(): ReactNode {
         }}
       >
         <h2>{MESSAGES.login.title}</h2>
+        {reason === 'expired' ? (
+          <p role="status" className="notice notice-info" data-testid="login-session-expired">
+            {MESSAGES.login.sessionExpired}
+          </p>
+        ) : null}
         {formError === undefined ? null : (
           <p role="alert" className="form-error">
             <Icon name="status-error" size={16} />
@@ -164,6 +188,7 @@ export function LoginPage(): ReactNode {
         <button type="submit" disabled={isSubmitting}>
           {isSubmitting ? MESSAGES.login.submitting : MESSAGES.login.submit}
         </button>
+        <p className="field-hint">{MESSAGES.login.forgotPassword}</p>
       </form>
     </main>
   );

@@ -1,6 +1,7 @@
 /**
  * 認証の状態（セッション）と、API クライアントの提供。
- * 未認証のアクセスは、ログイン画面へ誘導する（FR-9.1）。セッションの有効期限が切れた場合は、再ログインを求める。
+ * 未認証のアクセスは、ログイン画面へ誘導する（FR-9.1）。セッションの有効期限が切れた場合は、再ログインを求める
+ * （ログイン画面は、期限切れの理由を示す。Issue #157。SC-01-1）。
  */
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
@@ -17,6 +18,8 @@ export interface AuthContextValue {
   readonly api: ApiClient;
   /** ログイン中の利用者。未ログインは null。 */
   readonly user: AuthenticatedUser | null;
+  /** ログイン中に、セッションを更新できず、未ログインに戻った（期限切れ）。ログイン・ログアウトで、false に戻る。 */
+  readonly sessionExpired: boolean;
   readonly login: (userId: string, password: string) => Promise<void>;
   readonly logout: () => Promise<void>;
   /** 本人によるパスワードの変更。成功すると、新しいセッションに替わる（変更が必要な旨も、外れる）。 */
@@ -36,6 +39,7 @@ export interface AuthProviderProps {
 export function AuthProvider(props: AuthProviderProps): ReactNode {
   const { session, fetchFn, children } = props;
   const [user, setUser] = useState<AuthenticatedUser | null>(() => session.get()?.user ?? null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const value = useMemo<AuthContextValue>(() => {
     // セッションを更新できず、期限切れになった場合は、未ログインの状態に戻す
@@ -43,6 +47,7 @@ export function AuthProvider(props: AuthProviderProps): ReactNode {
       fetchFn,
       session,
       onSessionExpired: () => {
+        setSessionExpired(true);
         setUser(null);
       },
       // セッションの更新で、サーバーの最新のロール・権限を受け取ったら、メニュー・ボタンの表示にも反映する
@@ -56,9 +61,11 @@ export function AuthProvider(props: AuthProviderProps): ReactNode {
     return {
       api,
       user,
+      sessionExpired,
       async login(userId, password) {
         const response = await loginRequest(api, userId, password);
         session.set(response);
+        setSessionExpired(false);
         setUser(response.user);
       },
       async changePassword(currentPassword, newPassword) {
@@ -83,10 +90,11 @@ export function AuthProvider(props: AuthProviderProps): ReactNode {
           // サーバーへ届かなくても、この端末のセッションは破棄する
         }
         session.clear();
+        setSessionExpired(false);
         setUser(null);
       },
     };
-  }, [fetchFn, session, user]);
+  }, [fetchFn, session, user, sessionExpired]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

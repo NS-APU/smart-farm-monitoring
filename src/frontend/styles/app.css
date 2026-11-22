@@ -1065,6 +1065,19 @@ input:not([type='radio']) {
   font-size: 1.5rem;
 }
 
+/* システムの目的の 1 行（Issue #157。SC-01-5）。狭い幅では、折り返して中央に置く */
+.login-purpose {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.login-form .notice {
+  margin: 0;
+}
+
 .login-brand-name {
   margin: 0;
   color: var(--color-text);

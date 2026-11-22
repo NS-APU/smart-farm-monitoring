@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import { App } from '../../../src/frontend/app.tsx';
-import { safeNextPath } from '../../../src/frontend/pages/login-page.tsx';
+import {
+  loginRedirectPath,
+  parseLoginReason,
+  safeNextPath,
+} from '../../../src/frontend/pages/login-page.tsx';
 import { withBaseRoutes } from '../../support/management-frontend.ts';
 import {
   VIEWER_LOGIN,
@@ -335,6 +339,134 @@ describe('ログイン後の戻り先（Issue #460。SC-01）', () => {
     expect(await screen.findByRole('heading', { name: 'ダッシュボード' })).toBeDefined();
     expect(window.location.pathname).toBe('/');
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('ログイン画面の文言（Issue #157。SC-01-1・01-2・01-5）', () => {
+  const EXPIRED = 'セッションの有効期限が切れました。もう一度ログインしてください';
+  const FORGOT = 'パスワードを忘れたときは、管理者に連絡してください';
+  const PURPOSE = 'ロボットとハウスの状態をデータで見える化し、早めの対応を支えるシステムです';
+
+  /** ログイン中に、セッションを更新できなくなる（アクセストークンも、リフレッシュトークンも、期限切れ）。 */
+  const expiredHandler: FakeHandler = (request) =>
+    request.path === '/dashboard' || request.path === '/auth/refresh'
+      ? errorResponse(401, 'UNAUTHENTICATED', '期限切れ')
+      : handlerOf()(request);
+
+  it('セッションが切れてログイン画面へ戻されたときは、期限切れの理由を示し、元の画面を戻り先に保つ（SC-01-1）', async () => {
+    renderApp({ handler: expiredHandler });
+
+    const notice = await screen.findByText(EXPIRED);
+
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(window.location.pathname).toBe('/login');
+    const query = new URLSearchParams(window.location.search);
+    expect(query.get('next')).toBe('/');
+    expect(query.get('reason')).toBe('expired');
+  });
+
+  it('期限切れで戻されたあと、ログインすると、元の画面へ戻り、理由の表示は消える。ログアウトでは、理由を示さない（SC-01-1）', async () => {
+    const state = { sessionBroken: true };
+    const handler: FakeHandler = (request) =>
+      state.sessionBroken && (request.path === '/dashboard' || request.path === '/auth/refresh')
+        ? errorResponse(401, 'UNAUTHENTICATED', '期限切れ')
+        : handlerOf()(request);
+    renderApp({ handler });
+    await screen.findByText(EXPIRED);
+    state.sessionBroken = false;
+
+    fillLogin('worker-1', 'Dummy-Passw0rd-1');
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }));
+    await screen.findByText('農作業者A');
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: /^ログイン中のユーザー/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'ログアウト' }));
+
+    expect(await screen.findByRole('heading', { name: 'ログイン', level: 2 })).toBeDefined();
+    expect(screen.queryByText(EXPIRED)).toBeNull();
+    expect(new URLSearchParams(window.location.search).has('reason')).toBe(false);
+  });
+
+  it('最初の訪問（未認証で、保護された画面を開く）では、期限切れの理由を示さない（SC-01-1）', async () => {
+    renderApp({ session: null, path: '/notifications' });
+
+    await screen.findByRole('heading', { name: 'ログイン', level: 2 });
+
+    expect(screen.queryByText(EXPIRED)).toBeNull();
+    expect(new URLSearchParams(window.location.search).has('reason')).toBe(false);
+  });
+
+  it('ログイン画面を直接開いたときも、期限切れの理由を示さない（SC-01-1）', async () => {
+    renderApp({ session: null, path: '/login' });
+
+    await screen.findByRole('heading', { name: 'ログイン', level: 2 });
+
+    expect(screen.queryByText(EXPIRED)).toBeNull();
+  });
+
+  it.each([
+    ['許可しない値', 'foo'],
+    ['空', ''],
+    ['大文字小文字違い', 'EXPIRED'],
+    ['値の前後に空白', ' expired'],
+  ])(
+    '理由の印が、%s のときは、無視する（期限切れの理由を示さない）（SC-01-1）',
+    async (_name, reason) => {
+      renderApp({ session: null, path: `/login?reason=${encodeURIComponent(reason)}` });
+
+      await screen.findByRole('heading', { name: 'ログイン', level: 2 });
+
+      expect(screen.queryByText(EXPIRED)).toBeNull();
+      expect(screen.queryByRole('status')).toBeNull();
+    },
+  );
+
+  it('理由の印 expired があるログイン画面は、期限切れの理由を示す（SC-01-1）', async () => {
+    renderApp({ session: null, path: '/login?next=%2Fnotifications&reason=expired' });
+
+    expect(await screen.findByText(EXPIRED)).toBeDefined();
+  });
+
+  it('parseLoginReason: 許可リスト（expired）にある値だけを返す。それ以外は undefined（SC-01-1）', () => {
+    expect(parseLoginReason('expired')).toBe('expired');
+    expect(parseLoginReason('Expired')).toBeUndefined();
+    expect(parseLoginReason('expired ')).toBeUndefined();
+    expect(parseLoginReason('constructor')).toBeUndefined();
+    expect(parseLoginReason('__proto__')).toBeUndefined();
+    expect(parseLoginReason('')).toBeUndefined();
+    expect(parseLoginReason(null)).toBeUndefined();
+  });
+
+  it('loginRedirectPath: 戻り先（next）を保ち、理由があれば、reason を足す（SC-01-1）', () => {
+    expect(loginRedirectPath('/notifications', new URLSearchParams('kind=A'))).toBe(
+      '/login?next=%2Fnotifications%3Fkind%3DA',
+    );
+    expect(loginRedirectPath('/notifications', new URLSearchParams('kind=A'), 'expired')).toBe(
+      '/login?next=%2Fnotifications%3Fkind%3DA&reason=expired',
+    );
+    expect(loginRedirectPath('/', new URLSearchParams(), 'expired')).toBe(
+      '/login?next=%2F&reason=expired',
+    );
+  });
+
+  it('パスワードを忘れたときは、管理者に連絡する旨を示す。連絡先の名前・メールアドレス・電話番号は書かない（SC-01-2）', async () => {
+    renderApp({ session: null, path: '/login' });
+
+    const guide = await screen.findByText(FORGOT);
+
+    expect(guide.closest('form')).not.toBeNull();
+    expect(screen.queryByRole('link', { name: /再設定|忘れ/ })).toBeNull();
+    expect(document.body.textContent).not.toMatch(/@|\d{2,4}-\d{2,4}-\d{3,4}/);
+  });
+
+  it('システムの目的を、1 行で示す（SC-01-5）。ログイン画面の見出し（アプリ名）の近くに置く', async () => {
+    renderApp({ session: null, path: '/login' });
+
+    const purpose = await screen.findByText(PURPOSE);
+
+    expect(purpose.closest('.login-brand')).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'Greenhouse Monitor', level: 1 })).toBeDefined();
   });
 });
 
