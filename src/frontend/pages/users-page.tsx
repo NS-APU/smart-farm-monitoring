@@ -14,6 +14,7 @@ import {
 import { createUser, deleteUser, listUsers, updateUser } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
+import { PasswordInput } from '../components/password-input.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
@@ -125,9 +126,8 @@ function UserForm(props: UserFormProps): ReactNode {
           required={user === undefined}
         >
           {(control) => (
-            <input
+            <PasswordInput
               {...control}
-              type="password"
               autoComplete="new-password"
               value={password}
               onChange={(event) => {

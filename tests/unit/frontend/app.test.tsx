@@ -589,3 +589,46 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(await screen.findByRole('heading', { name: '安全性' })).toBeDefined();
   });
 });
+
+describe('ログイン: パスワード欄・初期フォーカス（Issue #157。SC-01-4）', () => {
+  it('開いたとき、ユーザーIDの欄にフォーカスがある', async () => {
+    renderApp({ session: null, path: '/login' });
+
+    const userId = await screen.findByLabelText('ユーザーID');
+
+    expect(document.activeElement).toBe(userId);
+  });
+
+  it('パスワードは、既定で非表示（type=password）。表示切替で、表示（type=text）に切り替わり、ログインの送信に影響しない', async () => {
+    const { calls } = renderApp({ session: null, path: '/login' });
+    const password = await screen.findByLabelText<HTMLInputElement>('パスワード');
+    const toggle = screen.getByRole('button', { name: '入力した文字を表示' });
+    expect(password.type).toBe('password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    expect(password.type).toBe('text');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    // 切替は、フォームを送信しない（検証のエラーも出さない）
+    expect(calls).toHaveLength(0);
+    expect(screen.queryByText('パスワードを入力してください')).toBeNull();
+  });
+
+  it('パスワードの欄で、Caps Lock がオンのキー入力をすると、注意を示す', async () => {
+    renderApp({ session: null, path: '/login' });
+    const password = await screen.findByLabelText('パスワード');
+
+    fireEvent.keyDown(password, { key: 'A', modifierCapsLock: true });
+
+    expect(screen.getByTestId('caps-lock-notice').textContent).toContain('Caps Lock');
+  });
+
+  it('ユーザーIDの欄には、表示切替・Caps Lock の注意を付けない（パスワード欄だけ）', async () => {
+    renderApp({ session: null, path: '/login' });
+    await screen.findByLabelText('ユーザーID');
+
+    expect(screen.getAllByRole('button', { name: '入力した文字を表示' })).toHaveLength(1);
+    expect(screen.getAllByTestId('caps-lock-notice')).toHaveLength(1);
+  });
+});
