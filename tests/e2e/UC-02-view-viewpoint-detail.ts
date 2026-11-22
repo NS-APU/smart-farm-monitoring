@@ -399,7 +399,12 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
     );
-    await expect(page.getByTestId('not-applicable')).toContainText('設備を選び直してください');
+    // エラーの見た目（role=alert）ではなく、案内（role=status）。ハウスの評価である旨と、ハウスへの切り替えを示す（#156）
+    await expect(page.getByTestId('not-applicable')).toHaveAttribute('role', 'status');
+    await expect(page.getByTestId('not-applicable')).toContainText(
+      'この観点（収穫精度）は、ロボットとハウスで評価します（センサーでは評価しません）',
+    );
+    await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
     await shot(page, testInfo, 'detail-not-applicable');
 
     await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
@@ -407,6 +412,29 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await expect(
       page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
     ).toContainText('収穫ロボット1');
+  });
+
+  test('評価しない設備の案内の「ハウスを表示」で、親のハウスに切り替えて、観点の詳細を表示できる（#156）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData());
+
+    await openDetail(page, 'harvestAccuracy');
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await expect(page.getByTestId('not-applicable')).toBeVisible();
+
+    await page
+      .getByTestId('not-applicable')
+      .getByRole('button', { name: /^ハウス「.+」を表示$/ })
+      .click();
+
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
+    await expect(page.getByTestId('diagnosis')).toBeVisible();
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).not.toContainText('環境センサー1');
   });
 
   test('センサーを選んだ環境適応性は、そのセンサーの観測値だけで診断する', async ({
