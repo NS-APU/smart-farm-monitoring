@@ -147,6 +147,17 @@ export const MESSAGES = {
     goIngestion: '取り込みへ',
     shortWindow: '直近24時間',
   },
+  /** ヘルプヒント（「?」）と、折りたたみ式の凡例（Issue #154）。 */
+  help: {
+    /** ヘルプヒントのボタンの名前（読み上げ）。対象の名前を含める。 */
+    hintLabel: (name: string) => `${name}の説明`,
+    example: '例',
+    statusLegendTitle: '状態の見かた',
+    qualityLegendTitle: 'データの状態の見かた',
+    usedInEvaluation: '評価に使います',
+    notUsedInEvaluation: '評価に使いません',
+    qualityLegendNote: '評価に使える値が足りないときは、観点の状態が「不明」になります',
+  },
   viewpoint: {
     breadcrumb: 'パンくず',
     backToDashboard: 'ダッシュボード',

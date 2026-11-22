@@ -9,7 +9,8 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { formatMetricValue, getMetricMeta } from '@smart-farm/shared/constants/metrics';
+import { formatMetricValue } from '@smart-farm/shared/constants/metrics';
+import { STATUS_INDICATOR_ID } from '@smart-farm/shared/constants/metrics';
 import { defaultPeriodDays, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   EVALUATION_STATUSES,
@@ -30,6 +31,8 @@ import {
   readHorizonQuery,
 } from '../components/horizon-controls.tsx';
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
+import { StatusLegend } from '../components/legend.tsx';
+import { MetricLabel } from '../components/metric-label.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { ViewpointDrawer } from '../components/viewpoint-drawer.tsx';
@@ -136,7 +139,9 @@ function ViewpointCardView(props: {
         <dl className="metrics">
           {metrics.map(([metricId, value]) => (
             <div key={metricId}>
-              <dt>{getMetricMeta(metricId).label}</dt>
+              <dt>
+                <MetricLabel metricId={metricId} />
+              </dt>
               <dd
                 className={`metric-value metric-${card.metricStatuses[metricId]?.toLowerCase() ?? 'none'}`}
               >
@@ -147,7 +152,9 @@ function ViewpointCardView(props: {
           ))}
           {card.statusDetail === null ? null : (
             <div>
-              <dt>{getMetricMeta('status').label}</dt>
+              <dt>
+                <MetricLabel metricId={STATUS_INDICATOR_ID} />
+              </dt>
               <dd className={`metric-value metric-${card.statusDetail.category.toLowerCase()}`}>
                 <MetricMark status={card.statusDetail.category} />
                 {card.statusDetail.name}
@@ -437,6 +444,8 @@ function DashboardContent(props: {
           </p>
         </div>
       ) : null}
+
+      <StatusLegend />
 
       <h2>{MESSAGES.dashboard.summary}</h2>
       <ul className="summary" aria-label={MESSAGES.dashboard.summary}>

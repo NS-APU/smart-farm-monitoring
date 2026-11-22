@@ -114,6 +114,10 @@ export const MANAGEMENT_MESSAGES = {
     note: '備考（所感・補足情報）',
     selectPlaceholder: '選択してください',
     statusCodeHint: '登録済みのコードから選択',
+    // 入力欄のヘルプヒント（意味。data-dictionary.md の定義。Issue #154）
+    categoryHelp: '入力する情報の種類です。選べるのは、対象の設備に合うカテゴリだけです',
+    observedAtHelp: '値を計測した（出来事が起きた）日時です。日本時間で入力します',
+    noteHelp: '作業者の所感・補足情報です（任意）',
     statusCodeDeletedOption: '（登録なし・削除済み）',
     save: '保存する',
     savedTitle: '保存しました',
