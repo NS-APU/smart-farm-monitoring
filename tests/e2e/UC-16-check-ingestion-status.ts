@@ -4,12 +4,12 @@
  * ユースケースシナリオ（use-cases.md）:
  *   基本フロー  1. 農作業者が、取り込みのログを開く
  *               2. システムが、取り込みの日時、成功／失敗、取得件数、エラー内容を一覧で表示する
- *               3. 農作業者が、連携の結果（成功・失敗・保留）を確認する
+ *               3. 農作業者が、連携の結果（送信済み・失敗・保留）を確認する
  *   代替フロー  失敗や保留が続く場合は、農作業者が、設定の見直し（UC-15）や関係者への確認を行う（システム外）
  *   事後条件    農作業者が、取り込み・連携の状況を把握している
  *
  * 値の同値分割: 取り込みの結果（成功・一部成功・失敗（形式違い）・失敗（接続できない））、取り込み元の絞り込み（すべて・ロボット・環境センサー）、
- * 件数（0件・1ページ・複数ページ）、連携の結果（成功・保留・失敗）、連携キューの件数（待機・送信済み・保留・失敗）。
+ * 件数（0件・1ページ・複数ページ）、連携の結果（送信済み・保留・失敗）、連携キューの件数（待機・送信済み・保留・失敗）。
  * 関連するユースケース: UC-08・UC-09（取り込みの記録）、UC-11（連携の記録）、UC-15（設定の見直し）。
  */
 
@@ -208,7 +208,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(logRows(page)).toHaveCount(1);
     await expect(logRows(page).first().locator('.log-result')).toHaveText('成功');
     await expect(federationRows(page)).toHaveCount(1);
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(page.getByTestId('permission-notice')).toBeVisible();
     await expect(page.getByRole('button', { name: '即時取得' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /接続テスト/ })).toHaveCount(0);
@@ -483,7 +483,7 @@ test.describe('設備ごとの最終の実行（空振りは、ログに残さ�
   });
 });
 
-test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）を確認する', () => {
+test.describe('基本フロー 3: 連携の結果（送信済み・失敗・保留）を確認する', () => {
   /** 新しいデータのファイルを取り込んで、連携キューに積む（同じパスのファイルを、`value` の違う内容で、置き直す。HTTP は、1 設備 = 1 ファイル）。 */
   async function enqueueNewData(
     request: Parameters<typeof prepareApp>[0],
@@ -498,7 +498,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await runIngestionApi(request, 'robot');
   }
 
-  test('連携が成功すると、「成功」を記録し、連携キューの送信済みの件数が増える', async ({
+  test('連携が成功すると、「送信済み」を記録し、連携キューの送信済みの件数が増える', async ({
     page,
     request,
   }, testInfo) => {
@@ -509,7 +509,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await openStatus(page);
 
     await expect(federationRows(page)).toHaveCount(1);
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(queueCount(page, 'SENT')).not.toHaveText('0');
     await expect(queueCount(page, 'PENDING')).toHaveText('0');
     await expect(queueCount(page, 'HELD')).toHaveText('0');
@@ -534,6 +534,11 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await expect(queueCount(page, 'HELD')).not.toHaveText('0');
     await expect(queueCount(page, 'SENT')).toHaveText('0');
     await expect(logRows(page).first().locator('.log-result')).toHaveText('成功');
+    // 連携の説明に、保留になる場合（停止中・接続先が未設定・無効）と、復旧後に送ること・期限を示す（#164 SC-11-10）
+    await expect(page.getByTestId('federation-section')).toContainText(
+      '農業情報基盤が停止中、または接続先が未設定・無効のときも、保留になります',
+    );
+    await expect(page.getByTestId('federation-section')).toContainText('期限（既定 30 日）');
     await shot(page, testInfo, 'uc16-federation-held');
   });
 
@@ -554,7 +559,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
     await shot(page, testInfo, 'uc16-federation-failed');
   });
 
-  test('保留が続いた後、復旧すると、保留していた項目をすべて送り、「成功」を記録する（保留の件数は 0 になる）', async ({
+  test('保留が続いた後、復旧すると、保留していた項目をすべて送り、「送信済み」を記録する（保留の件数は 0 になる）', async ({
     page,
     request,
   }) => {
@@ -571,7 +576,7 @@ test.describe('基本フロー 3: 連携の結果（成功・失敗・保留）�
 
     await openStatus(page);
     await expect(federationRows(page)).toHaveCount(3);
-    await expect(federationRows(page).nth(0).locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).nth(0).locator('.log-result')).toHaveText('送信済み');
     await expect(federationRows(page).nth(1).locator('.log-result')).toHaveText('保留');
     await expect(federationRows(page).nth(2).locator('.log-result')).toHaveText('保留');
     await expect(queueCount(page, 'HELD')).toHaveText('0');

@@ -534,7 +534,7 @@ export const MANAGEMENT_MESSAGES = {
     logEmpty: '取り込みのログはありません',
     federation: '農業情報基盤への連携',
     federationLead:
-      '連携の結果（成功・失敗・保留・期限切れ）です。農業情報基盤が停止しているときは、保留になります。復旧後は、送信に成功したら、溜まった項目を、すぐ送ります。期限（既定 30 日）を過ぎても送れなかった項目は、破棄して、期限切れとして記録します',
+      '連携の結果（送信済み・失敗・保留・期限切れ）です。農業情報基盤が停止中、または接続先が未設定・無効のときも、保留になります。復旧後（接続先を設定して有効にしたあとを含む）は、送信に成功したら、溜まった項目を、すぐ送ります。期限（既定 30 日）を過ぎても送れなかった項目は、破棄して、期限切れとして記録します',
     federationSettings: {
       heading: '連携先の設定',
       lead: '農業情報基盤の接続先・テナント・context を設定します。接続先は書き込み専用で、設定後は、画面に表示しません',
@@ -569,7 +569,7 @@ export const MANAGEMENT_MESSAGES = {
       HELD: '保留',
       EXPIRED: '期限切れ',
     },
-    federationResultLabels: { SENT: '成功', FAILED: '失敗', HELD: '保留', EXPIRED: '期限切れ' },
+    federationResultLabels: { SENT: '送信済み', FAILED: '失敗', HELD: '保留', EXPIRED: '期限切れ' },
     federationOccurred: '日時',
     federationResult: '結果',
     federationCount: '件数',
@@ -584,7 +584,7 @@ export const MANAGEMENT_MESSAGES = {
       ingestion: '取り込みの記録',
       federation: '農業情報基盤への連携の記録',
       federationLead:
-        '連携の結果（成功・失敗・保留・期限切れ）と、ハウスごとの項目数です。保留・失敗は、自動でやり直します',
+        '連携の結果（送信済み・失敗・保留・期限切れ）と、ハウスごとの項目数です。保留・失敗は、自動でやり直します',
       facility: 'ハウス',
       resultLabels: { SUCCESS: '成功', FAILURE: '失敗' },
       ingestionEmpty: '閲覧できるハウスの取り込みの記録はありません',

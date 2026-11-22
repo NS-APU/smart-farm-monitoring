@@ -111,6 +111,33 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await shot(page, testInfo, 'uc14-list');
   });
 
+  test('登録のダイアログのパスワード欄は、既定で非表示で、表示切替で、表示・非表示を切り替えられる（Issue #157。SC-01-4）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openUsers(page);
+    await openAddUser(page);
+    const password = addForm(page).getByLabel('パスワード');
+    const toggle = addForm(page).getByRole('button', { name: '入力した文字を表示' });
+    await expect(password).toHaveAttribute('type', 'password');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await password.fill('Abcdef12');
+    await toggle.click();
+
+    await expect(password).toHaveAttribute('type', 'text');
+    await expect(password).toHaveValue('Abcdef12');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // 切替は、登録しない（ダイアログのまま。必須の項目のエラーも出ない）
+    await expect(addForm(page)).toBeVisible();
+    await expect(addForm(page).locator('.field-error')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(password).toHaveAttribute('type', 'password');
+  });
+
   test('登録: ユーザーID・ユーザー名・パスワード・ロールを入力して登録すると、一覧に追加され、登録したユーザーが、そのパスワードでログインできる', async ({
     page,
     request,

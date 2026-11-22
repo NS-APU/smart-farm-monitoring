@@ -96,7 +96,7 @@ const queueCount = (page: Page, status: string) =>
   page.getByTestId(`queue-${status}`).locator('strong');
 
 test.describe('基本フロー: 連携対象のデータ（生データ・派生データ）を農業情報基盤へ送り、結果を記録する', () => {
-  test('ロボットデータ・環境センサーデータ・人手入力の生データと、評価結果の派生データを、連携キューに積み、連携ジョブ（JB-03）で送信すると、農業情報基盤が受け取り、成功を記録する', async ({
+  test('ロボットデータ・環境センサーデータ・人手入力の生データと、評価結果の派生データを、連携キューに積み、連携ジョブ（JB-03）で送信すると、農業情報基盤が受け取り、送信済みを記録する', async ({
     page,
     request,
   }, testInfo) => {
@@ -114,7 +114,7 @@ test.describe('基本フロー: 連携対象のデータ（生データ・派生
     expect(items.filter((item) => item.targetType === 'EVALUATION').length).toBeGreaterThan(0);
     await openStatus(page);
     await expect(federationRows(page)).toHaveCount(1);
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(federationRows(page).first().locator('td').nth(2)).toHaveText(
       String(pending.PENDING),
     );
@@ -530,7 +530,7 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
     await runJob(request, 'JB-03');
     await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
 
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(queueCount(page, 'HELD')).toHaveText('0');
     const items = await received(request);
     expect(items.some((item) => item.targetType === 'EVALUATION')).toBe(true);
