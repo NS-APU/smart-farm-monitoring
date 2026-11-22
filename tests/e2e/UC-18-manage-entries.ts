@@ -328,6 +328,75 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
       .toEqual(['e2e-user-b', 'e2e-user-b', 'e2e-user']);
   });
 
+  test('設備の絞り込みは、ハウスの下にロボット・センサーを字下げし、種別を付ける。ハウスを選ぶと、配下のロボット・センサーの入力も含める（SC-07-8）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await prepareThree(request);
+    await openList(page);
+
+    await expect(page.getByLabel('設備', { exact: true }).locator('option')).toHaveText([
+      'すべて',
+      'ハウス1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
+    ]);
+    await page.getByLabel('設備', { exact: true }).selectOption(ROBOT_ID);
+    await expect.poll(() => column(rows(page), 1)).toEqual(['収穫ロボット1']);
+    // ハウスを選ぶと、ハウス自身と、配下のロボット・センサーの入力を、まとめて表示する（取り込み済みデータ〔SC-09〕と同じ）
+    await page.getByLabel('設備', { exact: true }).selectOption(HOUSE_ID);
+    await expect(rows(page)).toHaveCount(3);
+    await expect
+      .poll(() => column(rows(page), 1))
+      .toEqual(['ハウス1', '環境センサー1', '収穫ロボット1']);
+  });
+
+  test('キーワードが一致する項目（設備名・カテゴリ・入力者・備考・入力項目の名称と値）を、説明文に示す（SC-07-8）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openList(page);
+
+    await expect(page.getByTestId('entries-keyword-note')).toHaveText(
+      'キーワードは、設備名・カテゴリ・入力者・備考・入力項目の名称と値から探します',
+    );
+  });
+
+  test('適用中の条件の数を示し、条件のクリアで、絞り込み・並べ替えをすべて初期値に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await prepareThree(request);
+    await openList(page);
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '条件のクリア' })).toBeDisabled();
+
+    await page.getByLabel('キーワード').fill('ケーブル');
+    await page.getByLabel('カテゴリ').selectOption('FAILURE');
+    await page.getByLabel('並べ替えの向き').selectOption('asc');
+
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 3 件');
+    await expect(rows(page)).toHaveCount(1);
+    await expect(page).toHaveURL(/q=/);
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(rows(page)).toHaveCount(3);
+    await expect(page.getByLabel('キーワード')).toHaveValue('');
+    await expect(page.getByLabel('カテゴリ')).toHaveValue('');
+    await expect(page.getByLabel('並べ替えの向き')).toHaveValue('desc');
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '条件のクリア' })).toBeDisabled();
+    await expect(page).not.toHaveURL(/q=|category=|direction=/);
+    // 計測日時の新しい順（初期値）に戻っている
+    await expect
+      .poll(() => column(rows(page), 1))
+      .toEqual(['ハウス1', '環境センサー1', '収穫ロボット1']);
+  });
+
   test('絞り込み・並べ替えの条件は URL に反映され、再読み込みしても保持される', async ({
     page,
     request,
@@ -366,9 +435,12 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     await expect(rows(page)).toHaveCount(20);
     await expect(page.getByRole('button', { name: '前へ' })).toBeDisabled();
 
+    await expect(page.getByTestId('pager-range')).toHaveText('1〜20 件目');
+
     await page.getByRole('button', { name: '次へ' }).click();
     await expect(rows(page)).toHaveCount(1);
     await expect(page.getByTestId('pager-page')).toHaveText('2');
+    await expect(page.getByTestId('pager-range')).toHaveText('21〜21 件目');
     await expect(rows(page).first()).toContainText('緊急停止回数: 0回');
     await page.getByLabel('並べ替えの向き').selectOption('asc');
 
@@ -714,6 +786,28 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
     await expect(auditRows(page)).toHaveCount(1);
   });
 
+  test('適用中の条件の数を示し、条件のクリアで、絞り込み・並べ替えをすべて初期値に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await prepareHistory(request);
+    await openHistory(page, '?targetType=manual-entry&operation=DELETE&direction=asc');
+
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 3 件');
+    await expect(auditRows(page)).toHaveCount(1);
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(page.getByLabel('操作種別')).toHaveValue('');
+    await expect(page.getByLabel('対象', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('並べ替え', { exact: true })).toHaveValue('desc');
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/targetType=|operation=|direction=/);
+    // 手動入力以外の履歴（ユーザーの登録など）も、一覧に戻る
+    await expect(auditRows(page)).not.toHaveCount(1);
+  });
+
   test('21件の履歴は、1ページ目に20件、2ページ目に1件を表示する', async ({ page, request }) => {
     await prepareApp(request);
     for (let index = 0; index < 21; index += 1) {
@@ -725,11 +819,13 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
     }
     await openHistory(page);
     await expect(auditRows(page)).toHaveCount(20);
+    await expect(page.getByTestId('pager-range')).toHaveText('1〜20 件目');
 
     await page.getByRole('button', { name: '次へ' }).click();
 
     await expect(auditRows(page)).toHaveCount(1);
     await expect(page.getByTestId('pager-page')).toHaveText('2');
+    await expect(page.getByTestId('pager-range')).toHaveText('21〜21 件目');
   });
 
   test('手動入力以外の変更（設備・ステータスコード）の履歴は、内容を開いて確認できる（対象の種類で絞り込める）', async ({

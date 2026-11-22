@@ -82,6 +82,38 @@ for (const viewport of [
       }
     });
 
+    test('一覧の絞り込みは、折りたたまれ、条件の数と条件のクリアは見える。開閉のボタンで、項目を開閉できる（Issue #152。SC-07-3）', async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await alignBrowserClock(page);
+      await openAs(page, '/data-entry/list?category=FAILURE');
+      await expect(page.getByRole('heading', { level: 1 }).first()).toContainText('入力済みデータ');
+
+      const toggle = page.getByRole('button', { name: '絞り込みを開く' });
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByLabel('キーワード')).toBeHidden();
+      await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 1 件');
+      await expect(page.getByRole('button', { name: '条件のクリア' })).toBeVisible();
+      await shot(page, testInfo, `responsive-${viewport.label}-filter-closed`);
+
+      await toggle.click();
+
+      await expect(page.getByRole('button', { name: '絞り込みを閉じる' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      await expect(page.getByLabel('キーワード')).toBeVisible();
+      await expect(page.getByLabel('カテゴリ')).toBeVisible();
+      await shot(page, testInfo, `responsive-${viewport.label}-filter-open`);
+
+      await page.getByRole('button', { name: '絞り込みを閉じる' }).click();
+      await expect(page.getByLabel('キーワード')).toBeHidden();
+    });
+
     test('観点の詳細の元データの表は、長い設備名・桁の多い値でも、列が潰れず、表の枠の中で横にスクロールできる', async ({
       page,
       request,
@@ -104,3 +136,23 @@ for (const viewport of [
     });
   });
 }
+
+test('デスクトップ幅（1280px）: 絞り込みの項目は、常に開いていて、開閉のボタンは出ない。条件のクリアは使える（Issue #152。SC-07-3）', async ({
+  page,
+  request,
+}) => {
+  await prepareApp(request);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await alignBrowserClock(page);
+  await openAs(page, '/data-entry/list?category=FAILURE');
+  await expect(page.getByRole('heading', { level: 1 }).first()).toContainText('入力済みデータ');
+
+  await expect(page.getByRole('button', { name: '絞り込みを開く' })).toBeHidden();
+  await expect(page.getByLabel('キーワード')).toBeVisible();
+  await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 1 件');
+
+  await page.getByRole('button', { name: '条件のクリア' }).click();
+
+  await expect(page.getByLabel('カテゴリ')).toHaveValue('');
+  await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+});

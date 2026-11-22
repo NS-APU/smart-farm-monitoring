@@ -176,11 +176,11 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
     await gotoAuthenticated(page, '/viewpoints/harvestSpeed');
     await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
     await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toContainText('注意');
     await shot(page, testInfo, 'detail-robot');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
     await expect(page.getByTestId('not-applicable')).toBeVisible();
   });
 
@@ -192,7 +192,7 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
     await seed(request, mixedScenario());
     await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
     await expect(page.getByRole('heading', { name: /環境適応性/, level: 1 })).toContainText('異常');
     await shot(page, testInfo, 'detail-sensor');
@@ -206,7 +206,7 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
     await seed(request, environmentData({ temperature: 20 }));
     await gotoAuthenticated(page, '/viewpoints/harvestAccuracy');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
 
     await expect(page.getByRole('heading', { name: /収穫精度/, level: 1 })).toContainText('不明');
   });
@@ -218,7 +218,7 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
     await prepare(request);
     await seed(request, mixedScenario());
     await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
     await page
       .getByRole('navigation', { name: 'パンくず' })

@@ -189,7 +189,10 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
     await page.goto('/viewpoints/harvestSpeed');
     const equipmentSelect = page.getByRole('main').getByLabel('対象の設備');
-    await expect(equipmentSelect.locator('option')).toHaveText(['Aハウス', '　A収穫ロボット']);
+    await expect(equipmentSelect.locator('option')).toHaveText([
+      'Aハウス',
+      '　A収穫ロボット（ロボット）',
+    ]);
     await equipmentSelect.selectOption('ROBOT-A');
     await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
     await expect(page.getByTestId('not-applicable')).toHaveCount(0);
@@ -197,7 +200,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     await expect(page.getByRole('main').getByLabel('対象の設備').locator('option')).toHaveText([
       '選択してください',
       'Aハウス',
-      '　A収穫ロボット',
+      '　A収穫ロボット（ロボット）',
     ]);
   });
 

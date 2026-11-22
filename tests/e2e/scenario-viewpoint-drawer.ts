@@ -258,7 +258,7 @@ test.describe('ドロワーの中の操作とフォーカス', () => {
     const dialog = drawer(page, '収穫速度の詳細');
     await expect(dialog.getByTestId('diagnosis')).toBeVisible();
 
-    await dialog.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
+    await dialog.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
 
     await expect(dialog.getByRole('heading', { name: /収穫速度/, level: 2 })).toContainText('注意');
     await page.waitForTimeout(500); // 背面のダッシュボードの動き（選択をそろえる）が、ドロワーを開いている間は、止まっていること

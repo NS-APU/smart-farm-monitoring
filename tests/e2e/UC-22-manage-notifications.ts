@@ -195,6 +195,24 @@ test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
     await shot(page, testInfo, 'uc22-filtered-empty');
   });
 
+  test('適用中の条件の数を示し、条件のクリアで、種別・既読状態を初期値（すべて）に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareFiveNotifications(request);
+    await openNotifications(page, '?kind=STATUS_CHANGE&readState=UNREAD');
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 2 件');
+    await expect(rows(page)).toHaveCount(3);
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(kindFilter(page)).toHaveValue('');
+    await expect(stateFilter(page)).toHaveValue('');
+    await expect(rows(page)).toHaveCount(5);
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/kind=|readState=/);
+  });
+
   test('不正なクエリの値（種別・既読状態）は、無視して、すべてを表示する', async ({
     page,
     request,
@@ -387,6 +405,7 @@ test.describe('ページ分割（20件ごと）', () => {
     await openNotifications(page);
     await expect(rows(page)).toHaveCount(20);
     await expect(page.getByTestId('pager-page')).toHaveText('1');
+    await expect(page.getByTestId('pager-range')).toHaveText('1〜20 件目');
     await expect(page.getByRole('button', { name: '前へ' })).toBeDisabled();
     await shot(page, testInfo, 'uc22-page-1');
 
@@ -394,6 +413,7 @@ test.describe('ページ分割（20件ごと）', () => {
 
     await expect(rows(page)).toHaveCount(1);
     await expect(page.getByTestId('pager-page')).toHaveText('2');
+    await expect(page.getByTestId('pager-range')).toHaveText('21〜21 件目');
     await expect(page.getByRole('button', { name: '次へ' })).toBeDisabled();
     await page.getByRole('button', { name: '前へ' }).click();
     await expect(rows(page)).toHaveCount(20);
@@ -543,6 +563,11 @@ async function expectUnreadBadgeIntact(page: Page, expectedText: string): Promis
 
 /** 絞り込みの欄・ボタンが、ページの幅の中に収まり、重ならない。 */
 async function expectFilterBarIntact(page: Page): Promise<void> {
+  // 狭い幅では、絞り込みの項目が折りたたまれる。開いてから、項目・ボタンが幅の中に収まり、重ならないことを確認する
+  const toggle = page.getByRole('button', { name: '絞り込みを開く' });
+  if (await toggle.isVisible()) {
+    await toggle.click();
+  }
   const width = page.viewportSize()?.width ?? 0;
   const rects = await page
     .locator('.filter-bar .field, .filter-actions button')

@@ -25,13 +25,13 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
-import { SelectFilter } from '../components/filter-controls.tsx';
+import { FilterPanel, SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { useQueryParams } from '../hooks/use-query-params.ts';
+import { countActiveConditions, useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
@@ -40,6 +40,8 @@ import { ResultNotice } from '../components/result-notice.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.notifications;
+/** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
+const CONDITION_NAMES = ['kind', 'readState'];
 
 /**
  * 通知の「対象」と「設備」の表示（Issue #362）。
@@ -169,6 +171,7 @@ export function NotificationsPage(): ReactNode {
   }
 
   const hasFilter = kind !== '' || readState !== '';
+  const activeCount = countActiveConditions([kind !== '', readState !== '']);
   let body: ReactNode;
   if (error !== undefined) {
     body = <ErrorView error={error} onRetry={reload} />;
@@ -283,6 +286,8 @@ export function NotificationsPage(): ReactNode {
               paging.goNext(data.nextCursor);
             }
           }}
+          pageSize={PAGE_SIZE}
+          itemCount={data.items.length}
         />
       </>
     );
@@ -295,7 +300,12 @@ export function NotificationsPage(): ReactNode {
       </div>
       <p className="muted">{TEXT.lead}</p>
       <section className="panel" aria-label={MESSAGES.form.filter}>
-        <div className="filter-bar">
+        <FilterPanel
+          activeCount={activeCount}
+          onClear={() => {
+            query.clear(CONDITION_NAMES);
+          }}
+        >
           <SelectFilter
             label={TEXT.kind}
             value={kind}
@@ -317,30 +327,31 @@ export function NotificationsPage(): ReactNode {
               query.set({ readState: value });
             }}
           />
-          <div className="filter-actions">
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={submit.busy || data === undefined || !hasFilter}
-              onClick={() => {
-                void requestMarkMany({
-                  ...(kind === '' ? {} : { kind }),
-                  ...(readState === '' ? {} : { readState }),
-                });
-              }}
-            >
-              {TEXT.markFilteredRead}
-            </button>
-            <button
-              type="button"
-              disabled={submit.busy || data === undefined}
-              onClick={() => {
-                void requestMarkMany({});
-              }}
-            >
-              {TEXT.markAllRead}
-            </button>
-          </div>
+        </FilterPanel>
+        {/* 既読にする操作は、絞り込みではなく操作のため、狭い幅で項目を折りたたんでも、隠さない */}
+        <div className="filter-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={submit.busy || data === undefined || !hasFilter}
+            onClick={() => {
+              void requestMarkMany({
+                ...(kind === '' ? {} : { kind }),
+                ...(readState === '' ? {} : { readState }),
+              });
+            }}
+          >
+            {TEXT.markFilteredRead}
+          </button>
+          <button
+            type="button"
+            disabled={submit.busy || data === undefined}
+            onClick={() => {
+              void requestMarkMany({});
+            }}
+          >
+            {TEXT.markAllRead}
+          </button>
         </div>
         <FormError message={submit.formMessage} />
         <ResultNotice message={notice} testId="notifications-notice" />

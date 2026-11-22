@@ -200,11 +200,22 @@ export interface PagerProps {
   readonly onNext: () => void;
   /** ページ番号の要素のテスト ID（同じ画面に複数あるときや、既存の識別子を保つときに指定する）。 */
   readonly pageTestId?: string;
+  /** 1 ページの件数。`itemCount` とあわせて渡すと、「21〜40 件目」の形で、表示範囲を示す（総件数・総ページは、カーソル方式のため示さない）。 */
+  readonly pageSize?: number;
+  /** このページの件数（0 件のときは、範囲を示さない）。 */
+  readonly itemCount?: number;
 }
 
 export function Pager(props: PagerProps): ReactNode {
+  const { pageSize, itemCount } = props;
+  const first = pageSize === undefined ? 0 : (props.pageNumber - 1) * pageSize + 1;
   return (
     <div className="pager">
+      {itemCount === undefined || itemCount === 0 || pageSize === undefined ? null : (
+        <span className="muted pager-range" data-testid="pager-range">
+          {MESSAGES.form.pagerRange(first, first + itemCount - 1)}
+        </span>
+      )}
       <button
         type="button"
         className="button-secondary"

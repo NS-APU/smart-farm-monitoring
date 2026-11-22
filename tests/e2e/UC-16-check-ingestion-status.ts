@@ -370,6 +370,37 @@ test.describe('ログの絞り込み（設備・結果・期間）と、ペー�
     await expect(page).toHaveURL(/to=2026-10-08/);
   });
 
+  test('適用中の条件の数を示し、条件のクリアで、ログの条件（設備・結果・期間）をすべて初期値に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await placeNewData(request, 'robot', 1);
+    await runIngestionApi(request, 'robot');
+    await placeNewData(request, 'environment-sensor', 1);
+    await runIngestionApi(request, 'environment-sensor');
+    await openStatus(page);
+    const logs = page.getByTestId('ingestion-logs');
+    await expect(logRows(page)).toHaveCount(2);
+    await expect(logs.getByTestId('filter-active-count')).toHaveCount(0);
+
+    await logs.getByLabel('設備', { exact: true }).selectOption({ label: '環境センサー1' });
+    await logs.getByLabel('結果', { exact: true }).selectOption('SUCCESS');
+    await logs.getByLabel('期間（開始日）').fill('2026-10-09');
+
+    await expect(logs.getByTestId('filter-active-count')).toHaveText('適用中の条件 3 件');
+    await expect(logRows(page)).toHaveCount(1);
+
+    await logs.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(logRows(page)).toHaveCount(2);
+    await expect(logs.getByLabel('設備', { exact: true })).toHaveValue('');
+    await expect(logs.getByLabel('結果', { exact: true })).toHaveValue('');
+    await expect(logs.getByLabel('期間（開始日）')).toHaveValue('');
+    await expect(logs.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/equipment=|result=|from=/);
+  });
+
   test('21件のログは、1ページ目に20件、2ページ目に1件を表示し、前後のページへ移動できる', async ({
     page,
     request,
@@ -383,12 +414,14 @@ test.describe('ログの絞り込み（設備・結果・期間）と、ペー�
     const logs = page.getByTestId('ingestion-logs');
     await expect(logRows(page)).toHaveCount(20);
     await expect(logs.getByRole('button', { name: '前へ' })).toBeDisabled();
+    await expect(logs.getByTestId('pager-range')).toHaveText('1〜20 件目');
     await shot(page, testInfo, 'uc16-page-1');
 
     await logs.getByRole('button', { name: '次へ' }).click();
 
     await expect(logRows(page)).toHaveCount(1);
     await expect(logs.getByTestId('pager-page')).toHaveText('2');
+    await expect(logs.getByTestId('pager-range')).toHaveText('21〜21 件目');
     await expect(logs.getByRole('button', { name: '次へ' })).toBeDisabled();
     await logs.getByRole('button', { name: '前へ' }).click();
     await expect(logRows(page)).toHaveCount(20);

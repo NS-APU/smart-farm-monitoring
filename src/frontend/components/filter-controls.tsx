@@ -1,6 +1,6 @@
-/** 一覧の絞り込み・並べ替えの入力欄（ラベルつき）。条件の変更は、呼び出し側が URL のクエリに反映する。 */
+/** 一覧の絞り込み・並べ替えの入力欄（ラベルつき）と、絞り込みの枠（条件の数・クリア・折りたたみ）。条件の変更は、呼び出し側が URL のクエリに反映する。 */
 
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { MESSAGES } from '../i18n/messages.ts';
 
 export interface FilterOption {
@@ -65,3 +65,52 @@ export const DIRECTION_OPTIONS: readonly FilterOption[] = [
   { value: 'desc', label: MESSAGES.form.directionDesc },
   { value: 'asc', label: MESSAGES.form.directionAsc },
 ];
+
+/**
+ * 絞り込みの枠（Issue #152 の PR1）。項目（`children`）を、絞り込みの並び（filter-bar）に置き、枠の上に、適用中の条件の数と、
+ * 条件のクリア（初期値に戻す）を示す。狭い幅（900px 以下）では、項目を折りたたみ、開閉のボタンで開く
+ * （折りたたんでも、条件の数とクリアは見える。広い幅では、開閉のボタンを出さず、常に開く。CSS）。
+ * 条件の数・クリアの中身（どの条件が初期値でないか・何を戻すか）は、呼び出し側が決める（条件は URL のクエリに反映する）。
+ */
+export function FilterPanel(props: {
+  /** 適用中の条件の数（初期値と違う条件）。 */
+  readonly activeCount: number;
+  readonly onClear: () => void;
+  readonly children: ReactNode;
+}): ReactNode {
+  const bodyId = useId();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="filter-panel" data-open={open ? 'true' : 'false'}>
+      <div className="filter-panel-head">
+        <button
+          type="button"
+          className="button-secondary filter-toggle"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => {
+            setOpen((current) => !current);
+          }}
+        >
+          {open ? MESSAGES.form.filterClose : MESSAGES.form.filterOpen}
+        </button>
+        {props.activeCount === 0 ? null : (
+          <span className="filter-count" data-testid="filter-active-count" aria-live="polite">
+            {MESSAGES.form.activeConditions(props.activeCount)}
+          </span>
+        )}
+        <button
+          type="button"
+          className="button-secondary filter-clear"
+          disabled={props.activeCount === 0}
+          onClick={props.onClear}
+        >
+          {MESSAGES.form.clearConditions}
+        </button>
+      </div>
+      <div id={bodyId} className="filter-bar filter-body">
+        {props.children}
+      </div>
+    </div>
+  );
+}

@@ -29,12 +29,21 @@ import { useAppState } from '../components/app-state.tsx';
 import { Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
-import { DIRECTION_OPTIONS, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import {
+  DIRECTION_OPTIONS,
+  FilterPanel,
+  InputFilter,
+  SelectFilter,
+} from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { formatObservationValue } from '../components/source-data-section.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { readSortParams, useQueryParams } from '../hooks/use-query-params.ts';
+import {
+  countActiveConditions,
+  readSortParams,
+  useQueryParams,
+} from '../hooks/use-query-params.ts';
 import { useStatusNames } from '../hooks/use-status-names.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
@@ -47,6 +56,17 @@ const SORT_LABELS = {
   category: TEXT.sortCategory,
   value: TEXT.sortValue,
 } as const;
+/** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
+const CONDITION_NAMES = [
+  'q',
+  'category',
+  'source',
+  'equipmentId',
+  'from',
+  'to',
+  'sort',
+  'direction',
+];
 
 /** 一覧の取得結果。日時順は、1 回の計測ごと、それ以外（カテゴリ・値の順）は、項目ごと。 */
 type ListResult =
@@ -101,6 +121,17 @@ export function ObservationsPage(): ReactNode {
   const paging = useCursorPaging(
     [keyword, category, source, equipmentId, from, to, sort, direction].join('|'),
   );
+
+  const activeCount = countActiveConditions([
+    keyword !== '',
+    category !== '',
+    source !== '',
+    equipmentId !== '',
+    from !== '',
+    to !== '',
+    sort !== 'observedAt',
+    direction !== 'desc',
+  ]);
 
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
@@ -296,6 +327,8 @@ export function ObservationsPage(): ReactNode {
               paging.goNext(data.nextCursor);
             }
           }}
+          pageSize={PAGE_SIZE}
+          itemCount={data.items.length}
         />
       </>
     );
@@ -311,7 +344,12 @@ export function ObservationsPage(): ReactNode {
         {measurementMode ? TEXT.measurementNote : TEXT.itemsNote}
       </p>
       <section className="panel" aria-label={MESSAGES.form.search}>
-        <div className="filter-bar">
+        <FilterPanel
+          activeCount={activeCount}
+          onClear={() => {
+            query.clear(CONDITION_NAMES);
+          }}
+        >
           <InputFilter
             label={MESSAGES.form.keyword}
             type="search"
@@ -385,7 +423,7 @@ export function ObservationsPage(): ReactNode {
               query.set({ direction: value });
             }}
           />
-        </div>
+        </FilterPanel>
       </section>
       <section className="panel" aria-label={TEXT.title}>
         {body}

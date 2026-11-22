@@ -276,8 +276,8 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(options).toHaveText([
       '選択してください',
       'ハウス1',
-      '　収穫ロボット1',
-      '　環境センサー1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
     ]);
     await mainArea(page).getByLabel('対象の設備').selectOption(SENSOR_ID);
     await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(SENSOR_ID);
