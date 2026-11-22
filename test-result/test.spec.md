@@ -13286,5 +13286,5 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 - 単体・結合・フロントエンド・IaC（`pnpm test:unit --maxWorkers=3`。DynamoDB Local あり）: 178 ファイル・3923 件が成功、2 件スキップ（Windows では実行しないファイル権限のテスト）。失敗 0 件。カバレッジ: Statements 99.06%・Branches 95.5%・Functions 99.17%・Lines 99.04%
 - E2E: 影響するファイル（UC-02・UC-21・UC-01・UC-12・`scenario-user-onboarding`）の 195 件が、すべて成功（7.8 分。ポートは `E2E_PORT_OFFSET=20000`）。案内の文を設備の種類に合わせた修正のあと、UC-02・UC-21 の 113 件を再実行し、すべて成功（2.4 分）。**E2E の全体（945 件）の手元の実行は、していない**。CI（`ci:full`）で確認する
-- 負荷テスト（`pnpm test:stress`）: 4 件が成功（3.2 分。許容は緩めていない）
+- 負荷テスト（`pnpm test:stress`）: 4 件が成功（3.2 分。許容は緩めていない。案内の文の修正の前の実行。文言だけの変更のため、修正のあとは、再実行していない）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
