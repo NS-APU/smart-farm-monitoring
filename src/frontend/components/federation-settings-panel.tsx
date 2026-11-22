@@ -25,6 +25,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { Field, FormError } from './form-controls.tsx';
 import { formatDateTimeJst } from './format.ts';
 import { ErrorView, LoadingView } from './state-views.tsx';
+import { ResultNotice } from './result-notice.tsx';
 
 const TEXT = MESSAGES.ingestion.federationSettings;
 /** 設定の読み直しの間隔（ミリ秒）。設定は、まれにしか変わらないため、画面の更新（約 10 秒）より、長くする。 */
@@ -224,20 +225,8 @@ function SettingsForm(props: {
           ) : null}
         </div>
       ) : null}
-      {props.saved === undefined ? null : (
-        <p role="status" className="form-success" data-testid="federation-settings-result">
-          {props.saved.text}
-        </p>
-      )}
-      {tested === undefined ? null : (
-        <p
-          role="status"
-          className={tested.ok ? 'form-success' : 'form-error'}
-          data-testid="federation-test-result"
-        >
-          {tested.text}
-        </p>
-      )}
+      <ResultNotice message={props.saved?.text} testId="federation-settings-result" />
+      <ResultNotice message={tested?.text} ok={tested?.ok} testId="federation-test-result" />
     </form>
   );
 }

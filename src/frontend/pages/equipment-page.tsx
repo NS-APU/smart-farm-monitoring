@@ -54,6 +54,7 @@ import { Link } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
 import { Modal } from '../components/modal.tsx';
 import { FacilityAccessPanel } from './facility-access-panel.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
@@ -843,12 +844,7 @@ export function EquipmentPage(): ReactNode {
       </div>
       <p className="muted">{TEXT.lead}</p>
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="equipment-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
-      )}
+      <ResultNotice message={notice} testId="equipment-notice" />
       {nextStep === 'registerChild' && canManage ? (
         <div className="notice notice-info" data-testid="equipment-next-step">
           <Icon name="info" size={18} />

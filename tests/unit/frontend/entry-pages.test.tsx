@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '../../../src/shared/constants/items.ts';
 import { PERMISSIONS } from '../../../src/shared/constants/permissions.ts';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '../../../src/shared/constants/viewpoints.ts';
@@ -20,6 +20,7 @@ import {
   type Routes,
 } from '../../support/management-frontend.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
+import { restoreScrollIntoView, stubScrollIntoView } from '../../support/scroll-into-view.ts';
 
 const SAVED = {
   entry: manualEntry(),
@@ -67,6 +68,10 @@ const SATISFACTION_LABELS = [
   '満足度（データ活用度合い）',
   '満足度（耐久性）',
 ];
+
+afterEach(() => {
+  restoreScrollIntoView();
+});
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -321,6 +326,40 @@ describe('データ入力（UC-06。SC-06）', () => {
       equipmentId: 'ROBOT-01',
       category: 'FAILURE',
     });
+  });
+
+  it('SC-06-3: 保存結果のパネルは、role="status" で、保存後に画面内へスクロールする（保存のたびに）。フォーカスは、結果へ移さない', async () => {
+    const scroll = stubScrollIntoView();
+    renderApp('/data-entry', {
+      'POST /manual-entries': () => jsonResponse(SAVED, 201),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    expect(screen.queryByTestId('entry-result')).toBeNull();
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '2' } });
+    const save = screen.getByRole('button', { name: '保存する' });
+    save.focus();
+    fireEvent.click(save);
+
+    const result = await screen.findByTestId('entry-result');
+
+    expect(result.getAttribute('role')).toBe('status');
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(result);
+    expect(scroll.mock.calls[0]?.[0]).toMatchObject({ block: 'nearest' });
+    // フォーカスを、結果へ移さない（保存中は、保存ボタンが無効になり、実際のブラウザでは、フォーカスがボタンから外れる）
+    expect(result.contains(document.activeElement)).toBe(false);
+
+    // 2 回目の保存でも、もう一度スクロールする（新しい結果が現れたとき）
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T12:00' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await waitFor(() => {
+      expect(scroll).toHaveBeenCalledTimes(2);
+    });
+    expect(scroll.mock.contexts[1]).toBe(screen.getByTestId('entry-result'));
   });
 
   describe('ステータスコード（文字列の項目）は、登録済みのコードから選ぶ（#192 の PR 2）', () => {
@@ -755,6 +794,36 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
 
     expect((await screen.findByTestId('entries-notice')).textContent).toBe('削除しました');
     expect(callsOf(calls, 'DELETE', '/manual-entries/e-1')).toHaveLength(1);
+  });
+
+  it('SC-07 の修正・削除の通知（entries-notice）は、結果の通知の部品で、role="status"・表示されたときに画面内へスクロールする（Issue #150）', async () => {
+    const scroll = stubScrollIntoView();
+    renderApp('/data-entry/list', {
+      'GET /manual-entries': () => jsonResponse({ items: [manualEntry()], nextCursor: null }),
+      'PUT /manual-entries/e-1': () => jsonResponse(SAVED),
+      'DELETE /manual-entries/e-1': () => noContent(),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('entry-edit');
+    fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+    const updated = await screen.findByTestId('entries-notice');
+
+    expect(updated.getAttribute('role')).toBe('status');
+    expect(updated.textContent).toBe('修正しました');
+    expect(scroll.mock.contexts).toContain(updated);
+    const afterUpdate = scroll.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('entries-notice').textContent).toBe('削除しました');
+    });
+    expect(scroll.mock.calls.length).toBeGreaterThan(afterUpdate);
+    expect(scroll.mock.contexts.at(-1)).toBe(screen.getByTestId('entries-notice'));
   });
 
   it('削除の確認は、対象（計測日時・設備名・項目と値）を示し、元に戻す操作がないこと（変更履歴には残ること）を明記する（#153。SC-07-5）', async () => {

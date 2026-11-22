@@ -32,6 +32,7 @@ import { Icon } from '../components/icon.tsx';
 import { CriterionZoneBar } from '../components/criterion-zone-bar.tsx';
 import { ThresholdInput } from '../components/threshold-input.tsx';
 import { thresholdSliderRange } from '../components/threshold-slider.ts';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.criteria;
 /** 1時間ごとの再取得は不要（編集中の入力を、更新で壊さないため、読み込みは保存・リセットのときだけ行う）。 */
@@ -386,12 +387,7 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
       </div>
       <p className="muted">{TEXT.lead}</p>
       {canEdit ? null : <PermissionNotice message={TEXT.readOnly} />}
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="criteria-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
-      )}
+      <ResultNotice message={notice} testId="criteria-notice" />
       <section className="panel" aria-label={TEXT.title}>
         {body}
       </section>

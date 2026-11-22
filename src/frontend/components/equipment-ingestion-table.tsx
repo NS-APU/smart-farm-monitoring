@@ -15,6 +15,7 @@ import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { judgeStopped } from './equipment-connection.ts';
 import { formatDateTimeJst } from './format.ts';
+import { ResultNotice } from './result-notice.tsx';
 
 const TEXT = MESSAGES.ingestion;
 const CONNECTION_TEXT = MESSAGES.equipment.connection;
@@ -171,15 +172,11 @@ export function EquipmentIngestionTable(props: EquipmentIngestionTableProps): Re
                       </Link>
                     ) : null}
                   </div>
-                  {result === undefined ? null : (
-                    <p
-                      role="status"
-                      className={result.ok ? 'form-success' : 'form-error'}
-                      data-testid={`equipment-test-result-${item.equipmentId}`}
-                    >
-                      {result.text}
-                    </p>
-                  )}
+                  <ResultNotice
+                    message={result?.text}
+                    ok={result?.ok}
+                    testId={`equipment-test-result-${item.equipmentId}`}
+                  />
                 </td>
               </tr>
             );

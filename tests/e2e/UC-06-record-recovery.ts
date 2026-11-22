@@ -104,6 +104,36 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(maintainability).toContainText('1.50時間');
   });
 
+  test('保存結果のパネルは、role="status" で、スマートフォン幅でも、保存した直後に画面内で見え、フォーカスを奪わない（SC-06-3）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seedStatusCode(request);
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openEntry(page);
+    await fillEntryForm(page, {
+      equipment: ROBOT_ID,
+      category: 'FAILURE',
+      observedAt: RECOVERY_AT,
+      items: { 故障回数: '1', 復旧に要した時間: '30' },
+    });
+    const save = mainArea(page).getByRole('button', { name: '保存する' });
+    await save.scrollIntoViewIfNeeded();
+
+    await save.click();
+
+    // 読み上げの対象（role="status"）で、フォームの上に出ても、画面内にスクロールされる
+    const result = mainArea(page).getByRole('status', { name: '保存しました' });
+    await expect(result).toHaveAttribute('data-testid', 'entry-result');
+    await expect(result).toContainText('保存しました');
+    await expect(result).toBeInViewport();
+    // 結果の通知は、フォーカスを受けない（保存中は、保存ボタンが無効になり、フォーカスはボタンから外れる。結果へは、移さない）
+    await expect(result).not.toBeFocused();
+    expect(await result.evaluate((node) => node.contains(document.activeElement))).toBe(false);
+    await shot(page, testInfo, 'uc06-saved-375');
+  });
+
   test('保存した記録（対象・回数・復旧に要した時間・所感・入力者）は、入力済みデータの一覧に残る', async ({
     page,
     request,
