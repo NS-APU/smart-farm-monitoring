@@ -18,6 +18,7 @@ import {
   EquipmentUpdateRequestSchema,
   effectiveIntervalMinutes,
   type Equipment,
+  type EquipmentUpdateRequest,
 } from '@smart-farm/shared/schemas/equipment';
 import type { IngestionSourceStatus } from '@smart-farm/shared/schemas/ingestion';
 import {
@@ -42,6 +43,7 @@ import {
   serverStateOf,
   useEquipmentConnection,
   type EquipmentConnectionController,
+  type PrepareResult,
 } from '../components/use-equipment-connection.ts';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
@@ -465,7 +467,16 @@ function ChildForm(props: FormProps & { readonly onCancel: () => void }): ReactN
   );
 }
 
-/** 設備の修正（名称・データ上の識別子・親のハウス）。設備IDと種別は変更できない。保存は、設備を保存してから、接続（変更があれば）を保存する。 */
+/** 親のハウスの付け替えの確認を待っている保存（確定したら、この内容で保存する）。 */
+interface PendingSave {
+  readonly data: EquipmentUpdateRequest;
+  readonly connection: Extract<PrepareResult, { readonly ok: true }>['connection'];
+}
+
+/**
+ * 設備の修正（名称・データ上の識別子・親のハウス）。設備IDと種別は変更できない。保存は、設備を保存してから、接続（変更があれば）を保存する。
+ * 親のハウスを変えるときは、保存の前に、影響を示す確認を挟む（Issue #163。SC-10-7）。キャンセルは、保存せず、修正に戻る。
+ */
 function EditForm(
   props: FormProps & { readonly equipment: Equipment; readonly onCancel: () => void },
 ): ReactNode {
@@ -482,6 +493,9 @@ function EditForm(
   );
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const [partialMessage, setPartialMessage] = useState<string | undefined>(undefined);
+  const [pendingParentChange, setPendingParentChange] = useState<PendingSave | undefined>(
+    undefined,
+  );
   const errors = { ...clientErrors, ...submit.fieldErrors };
   const isFacility = equipment.equipmentType === 'FACILITY';
   const { controller, copyCandidates } = useConnectionOf(
@@ -513,19 +527,35 @@ function EditForm(
       return;
     }
     setClientErrors({});
-    const result = await submit.run(() => updateEquipment(api, equipment.equipmentId, parsed.data));
+    const input = { data: parsed.data, connection: prepared.connection };
+    // 親のハウスを変えるときは、保存の前に、影響を示して確認する（親を変えない修正は、確認しない）
+    if (!isFacility && facilityId !== '' && facilityId !== (equipment.facilityId ?? '')) {
+      setPendingParentChange(input);
+      return;
+    }
+    await save(input);
+  }
+
+  /** 設備を保存してから、接続（変更があれば）を保存する。 */
+  async function save(input: PendingSave): Promise<void> {
+    const result = await submit.run(() => updateEquipment(api, equipment.equipmentId, input.data));
     if (!result.ok) {
       return;
     }
     reloadEquipment();
-    if (prepared.connection !== undefined) {
-      const saved = await controller.commit(equipment.equipmentId, prepared.connection);
+    if (input.connection !== undefined) {
+      const saved = await controller.commit(equipment.equipmentId, input.connection);
       if (!saved) {
         setPartialMessage(TEXT.updatedConnectionFailed);
         return;
       }
     }
     props.onDone(TEXT.updated);
+  }
+
+  /** ハウスの名称（確認で、ID でなく名称を示す。分からなければ ID）。 */
+  function facilityNameOf(id: string): string {
+    return props.facilities.find((facility) => facility.equipmentId === id)?.name ?? id;
   }
 
   const busy = submit.busy || controller.busy;
@@ -635,6 +665,33 @@ function EditForm(
           {MESSAGES.form.cancel}
         </button>
       </div>
+      {pendingParentChange === undefined ? null : (
+        <ConfirmDialog
+          title={TEXT.parentChange.title}
+          message={TEXT.parentChange.message(
+            facilityNameOf(equipment.facilityId ?? ''),
+            facilityNameOf(facilityId),
+          )}
+          details={[
+            { label: TEXT.parentChange.targetLabel, value: equipment.name },
+            {
+              label: TEXT.parentChange.fromLabel,
+              value: facilityNameOf(equipment.facilityId ?? ''),
+            },
+            { label: TEXT.parentChange.toLabel, value: facilityNameOf(facilityId) },
+          ]}
+          notes={TEXT.parentChange.notes}
+          confirmLabel={TEXT.parentChange.confirm}
+          busy={busy}
+          onConfirm={() => {
+            setPendingParentChange(undefined);
+            void save(pendingParentChange);
+          }}
+          onCancel={() => {
+            setPendingParentChange(undefined);
+          }}
+        />
+      )}
     </form>
   );
 }
