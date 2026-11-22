@@ -959,3 +959,85 @@ for (const viewport of [
     await shot(page, testInfo, `dashboard-long-name-${String(viewport.width)}`);
   });
 }
+
+test.describe('ヘルプヒントと凡例（SC-02-7。Issue #154）', () => {
+  test('「状態の見かた」の凡例を開くと、正常・注意・異常・不明の意味が出る。はじめは閉じていて、もう一度押すと閉じる', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await openDashboard(page);
+    const toggle = page.getByRole('button', { name: '状態の見かた' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('status-legend-body')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const body = page.getByTestId('status-legend-body');
+    await expect(body.getByTestId('status-legend-NORMAL')).toContainText(
+      '判断基準を満たしています',
+    );
+    await expect(body.getByTestId('status-legend-CAUTION')).toContainText(
+      '農作業者の確認が望ましい',
+    );
+    await expect(body.getByTestId('status-legend-ERROR')).toContainText('農作業者の対応が必要');
+    await expect(body.getByTestId('status-legend-UNKNOWN')).toContainText(
+      '評価に必要なデータが足りず、評価できません',
+    );
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('status-legend-body')).toHaveCount(0);
+  });
+
+  test('指標名の「?」を押すと説明が開き、Esc・外側のクリックで閉じる。キーボード（Enter）でも開ける', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await openDashboard(page);
+    const speed = card(page, 'harvestSpeed');
+    const hint = speed.getByRole('button', { name: '走行停止率の説明' });
+    await expect(hint).toHaveAttribute('aria-expanded', 'false');
+
+    await hint.click();
+
+    await expect(hint).toHaveAttribute('aria-expanded', 'true');
+    await expect(speed.getByRole('note')).toContainText('走行が止まっていた時間の割合');
+
+    await page.keyboard.press('Escape');
+    await expect(hint).toHaveAttribute('aria-expanded', 'false');
+    await expect(hint).toBeFocused();
+
+    // キーボードだけで開く（Enter）
+    await page.keyboard.press('Enter');
+    await expect(hint).toHaveAttribute('aria-expanded', 'true');
+
+    // 外側を押すと閉じる
+    await page.getByRole('heading', { name: 'ダッシュボード', level: 1 }).click();
+    await expect(hint).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('スマートフォン幅（375px）でも、説明が画面の幅に収まり、横にスクロールしない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openDashboard(page);
+
+    await card(page, 'harvestSpeed').getByRole('button', { name: '走行停止率の説明' }).click();
+
+    const panel = card(page, 'harvestSpeed').getByRole('note');
+    await expect(panel).toBeVisible();
+    const rect = await panel.evaluate((node) => node.getBoundingClientRect());
+    expect(rect.left).toBeGreaterThanOrEqual(0);
+    expect(rect.right).toBeLessThanOrEqual(375);
+    await expectNoHorizontalScroll(page);
+    await shot(page, testInfo, 'dashboard-help-hint-375');
+  });
+});

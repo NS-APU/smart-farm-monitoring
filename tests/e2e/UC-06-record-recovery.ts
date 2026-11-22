@@ -602,3 +602,57 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     ).toHaveAttribute('href', '/settings/equipment');
   });
 });
+
+test.describe('入力欄のヘルプヒント（SC-06-9。Issue #154）', () => {
+  test('安全情報の項目・カテゴリ・計測日時・備考に「?」があり、押すと意味が出る。Esc で閉じる。入力欄のラベルを使う操作は、そのまま使える', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'SAFETY' });
+    const form = mainArea(page);
+
+    const category = form.getByRole('button', { name: 'カテゴリの説明' });
+    await category.click();
+    await expect(form.getByRole('note')).toContainText('緊急停止・ヒヤリハット');
+    await page.keyboard.press('Escape');
+    await expect(category).toHaveAttribute('aria-expanded', 'false');
+
+    const nearMiss = form.getByRole('button', { name: 'ヒヤリハット件数（件）の説明' });
+    await nearMiss.click();
+    await expect(nearMiss).toHaveAttribute('aria-expanded', 'true');
+    await expect(form.getByRole('note')).toContainText('緊急停止を伴う出来事');
+    await shot(page, testInfo, 'uc06-help-hint');
+    // 別のヒントを開くと、先のものは閉じる（同時に開くのは 1 つ）
+    await form.getByRole('button', { name: '計測日時（日本時間）の説明' }).click();
+    await expect(nearMiss).toHaveAttribute('aria-expanded', 'false');
+    await expect(form.getByRole('note')).toHaveCount(1);
+    await expect(form.getByRole('button', { name: '備考（所感・補足情報）の説明' })).toBeVisible();
+
+    // ヒントがあっても、ラベルで入力欄を取れる（1 つだけ）
+    await expect(form.getByLabel('計測日時（日本時間）')).toHaveCount(1);
+  });
+
+  test('1 果実あたりの収穫時間: 意味と入力例が出る。コスト・故障・操作の項目には、まだ「?」を付けない（別の Issue で説明を付ける）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'HARVEST' });
+
+    await mainArea(page)
+      .getByRole('button', { name: '1果実あたりの収穫時間（秒/果実）の説明' })
+      .click();
+    await expect(mainArea(page).getByRole('note')).toContainText('例: 45');
+
+    for (const category of ['COST', 'FAILURE', 'OPERABILITY']) {
+      await fillEntryForm(page, { category });
+      await expect(
+        mainArea(page).getByTestId('entry-items').getByRole('button'),
+        category,
+      ).toHaveCount(0);
+    }
+  });
+});
