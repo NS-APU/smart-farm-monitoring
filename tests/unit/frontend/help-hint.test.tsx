@@ -168,31 +168,33 @@ describe('ヘルプヒント（HelpHint）', () => {
     expect(screen.getAllByRole('note')).toHaveLength(1);
   });
 
-  it('開いたとき、説明が画面の幅（余白 8px）からはみ出すなら、はみ出す分だけ、横にずらす（右・左）', () => {
-    const original = HTMLElement.prototype.getBoundingClientRect;
-    const rects = [
-      // 右にはみ出す（右端 390、画面の幅 375 → 余白 8px を引いて、23 左へ）
-      { left: 200, right: 390, width: 190 },
-      // 左にはみ出す（左端 -10 → 余白 8px まで、18 右へ）
-      { left: -10, right: 150, width: 160 },
-    ];
-    for (const [index, rect] of rects.entries()) {
-      HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-        return this.getAttribute('role') === 'note'
-          ? ({ ...rect, top: 0, bottom: 0, x: rect.left, y: 0, height: 0 } as DOMRect)
-          : original.call(this);
-      };
+  it.each([
+    // 右にはみ出す（右端 390、画面の幅 375 → 余白 8px を引いて、23 左へ）
+    { name: '右', left: 200, right: 390, width: 190, expected: '-23px' },
+    // 左にはみ出す（左端 -10 → 余白 8px まで、18 右へ）
+    { name: '左', left: -10, right: 150, width: 160, expected: '18px' },
+  ])(
+    '開いたとき、説明が画面の幅（余白 8px）から$name にはみ出すなら、はみ出す分だけ、横にずらす',
+    ({ left, right, width, expected }) => {
+      const spy = vi
+        .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+        .mockImplementation(function (this: HTMLElement) {
+          const inside = this.getAttribute('role') === 'note';
+          return (
+            inside
+              ? { left, right, width, top: 0, bottom: 0, x: left, y: 0, height: 0 }
+              : { left: 0, right: 0, width: 0, top: 0, bottom: 0, x: 0, y: 0, height: 0 }
+          ) as DOMRect;
+        });
       Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true });
-      const { unmount } = render(<HelpHint name="走行停止率" help="説明" />);
+      render(<HelpHint name="走行停止率" help="説明" />);
 
       fireEvent.click(hintButton('走行停止率の説明'));
 
-      const note = screen.getByRole('note');
-      expect(note.style.left).toBe(index === 0 ? '-23px' : '18px');
-      unmount();
-    }
-    HTMLElement.prototype.getBoundingClientRect = original;
-  });
+      expect(screen.getByRole('note').style.left).toBe(expected);
+      spy.mockRestore();
+    },
+  );
 
   it('ダイアログの中で、Esc を押すと、ヒントだけを閉じ、ダイアログは開いたまま。もう一度押すと、ダイアログが閉じる', () => {
     function Harness(): ReactNode {
