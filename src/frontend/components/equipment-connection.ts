@@ -1,6 +1,6 @@
 /**
  * 設備ごとのファイルサーバーの接続（Issue #367。ADR-0026）の入力の、純粋な処理: 入力（文字列）と接続（FileServerConnection）の変換・検証・比較、
- * 同じ種別の設備からのコピー、SC-11 の停止中の判定。設備のダイアログ（SC-10）と取り込み設定・状況（SC-11）が使う。
+ * 同じ種別の設備からのコピー、SC-11 の停止中の判定。設備のダイアログ（SC-10）と取り込み（SC-11）が使う。
  */
 
 import type { EquipmentType } from '@smart-farm/shared/constants/status';
@@ -121,7 +121,7 @@ export function copyCandidatesOf(
     );
 }
 
-/** 取り込み設定・状況の応答から、設備 1 件の状況を探す。 */
+/** 取り込み（SC-11）の応答から、設備 1 件の状況を探す。 */
 export function findEquipmentStatus(
   sources: readonly IngestionSourceStatus[],
   equipmentId: string,

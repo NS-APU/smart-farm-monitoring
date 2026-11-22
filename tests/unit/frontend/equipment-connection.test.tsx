@@ -74,7 +74,7 @@ function sourceOf(
   };
 }
 
-/** 取り込み設定・状況の応答。既定: ロボット（ROBOT-01）・センサー（SENSOR-01）。 */
+/** 取り込みの応答。既定: ロボット（ROBOT-01）・センサー（SENSOR-01）。 */
 function settings(
   robots: readonly unknown[] = [status()],
   sensors: readonly unknown[] = [
@@ -1108,7 +1108,7 @@ describe('認証情報の登録（D-47。書き込み専用。設備ごと）', 
       within(section).getByLabelText<HTMLInputElement>('ユーザー名', { exact: false }).value,
     ).toBe('');
     expect(document.body.innerHTML).not.toContain(DUMMY_PASSWORD);
-    // 取り込み設定・状況を読み直す
+    // 取り込みを読み直す
     await waitFor(() => {
       expect(callsOf(calls, 'GET', '/ingestion/settings').length).toBeGreaterThan(settingsCalls);
     });
@@ -1388,7 +1388,7 @@ describe('設備のダイアログの案内（SC-10-5・SC-10-9・取り込み�
     expect(screen.queryByTestId('equipment-next-step')).toBeNull();
   });
 
-  it('取り込み設定・状況からのリンク（?edit=設備 ID）で、その設備の修正のダイアログを開く。閉じると、URL の指定を外す', async () => {
+  it('取り込みからのリンク（?edit=設備 ID）で、その設備の修正のダイアログを開く。閉じると、URL の指定を外す', async () => {
     renderApp('/settings/equipment?edit=ROBOT-01', routes());
 
     const form = await screen.findByTestId('equipment-edit');

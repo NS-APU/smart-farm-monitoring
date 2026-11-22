@@ -94,7 +94,7 @@ test.beforeEach(() => {
   requests.length = 0;
 });
 
-/** 設備の修正のダイアログを開く（取り込み設定・状況の「接続を設定・修正」のリンクと同じ URL）。接続の読み込みを待つ。 */
+/** 設備の修正のダイアログを開く（取り込みの「接続を設定・修正」のリンクと同じ URL）。接続の読み込みを待つ。 */
 async function openEquipmentDialog(
   page: Page,
   equipmentId: string = ROBOT_ID,
@@ -233,7 +233,7 @@ test.describe('基本フロー: 設備のダイアログで接続設定を入力
 
     await expect(unsetNote(page)).toBeVisible();
     await expect(host(page)).toHaveValue('');
-    // 取り込み設定・状況の、設備ごとの表の接続先
+    // 取り込みの、設備ごとの表の接続先
     await page.goto('/settings/ingestion');
     await expect(page.getByTestId(`equipment-target-${ROBOT_ID}`)).toHaveText(
       `http://127.0.0.1:${String(port)}`,
@@ -421,7 +421,7 @@ test.describe('代替フロー: 入力が不正なとき、保存しない。接
     await testButton(page).click();
     await expect(connectionResult(page)).toHaveText('接続できました');
     expect(requests).toEqual([`HEAD ${SECURE_PATH}`]);
-    // 取り込み設定・状況の、設備ごとの表にも、認証情報の状態を示す（値は示さない）
+    // 取り込みの、設備ごとの表にも、認証情報の状態を示す（値は示さない）
     await page.goto('/settings/ingestion');
     await expect(page.getByTestId(`equipment-credentials-${ROBOT_ID}`)).toContainText(
       '設定済み（更新:',

@@ -48,7 +48,7 @@ async function openIngestion(page: Page, user?: Parameters<typeof openAs>[2]): P
   await alignBrowserClock(page);
   await openAs(page, '/', user);
   await goToMenu(page, '取り込み');
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
 }
 
 const enabledBox = (page: Page, sourceId: SourceId) =>

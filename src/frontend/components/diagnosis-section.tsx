@@ -35,7 +35,7 @@ function Period(props: { readonly diagnosis: HorizonDiagnosis }): ReactNode {
   );
 }
 
-/** データ不足（不明）のときの導線: データ入力・取り込み設定・状況へ。 */
+/** データ不足（不明）のときの導線: データ入力・取り込みへ。 */
 function UnknownGuide(): ReactNode {
   return (
     <div className="unknown-guide" data-testid="unknown-guide">

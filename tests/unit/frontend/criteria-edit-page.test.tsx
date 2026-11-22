@@ -81,7 +81,7 @@ describe('判断基準の編集（UC-19。SC-13）', () => {
     );
   });
 
-  it('変更済みなら、版・変更者・変更日時を示す。ステータスコードでも判定する観点には、その旨と、ステータスコード管理への案内を示す', async () => {
+  it('変更済みなら、版・変更者・変更日時を示す。ステータスコードでも判定する観点には、その旨と、ステータスコードへの案内を示す', async () => {
     renderApp(PATH, {
       'GET /viewpoints/environmentalAdaptability/criteria': () =>
         jsonResponse({ ...CHANGED, usesStatusIndicator: true }),

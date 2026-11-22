@@ -115,6 +115,10 @@ test.describe('基本フロー: 入力済みデータの一覧を開く', () => 
 
     await openList(page);
 
+    // メニューの現在地: 入力データ一覧（/data-entry/list）でも、「データ入力」を強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['データ入力']);
     await expect(rows(page)).toHaveCount(3);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '計測日時',
@@ -344,7 +348,7 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     ]);
     await page.getByLabel('設備', { exact: true }).selectOption(ROBOT_ID);
     await expect.poll(() => column(rows(page), 1)).toEqual(['収穫ロボット1']);
-    // ハウスを選ぶと、ハウス自身と、配下のロボット・センサーの入力を、まとめて表示する（取り込み済みデータ〔SC-09〕と同じ）
+    // ハウスを選ぶと、ハウス自身と、配下のロボット・センサーの入力を、まとめて表示する（計測データ〔SC-09〕と同じ）
     await page.getByLabel('設備', { exact: true }).selectOption(HOUSE_ID);
     await expect(rows(page)).toHaveCount(3);
     await expect
@@ -584,7 +588,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await expect(notice(page)).toHaveCount(0);
   });
 
-  test('削除: 確認を求め（取り消せる）、削除すると、論理削除として、一覧・取り込み済みデータから除外される。変更履歴には、削除前の内容が残る', async ({
+  test('削除: 確認を求め（取り消せる）、削除すると、論理削除として、一覧・計測データから除外される。変更履歴には、削除前の内容が残る', async ({
     page,
     request,
   }, testInfo) => {
@@ -693,6 +697,10 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
 
     await openHistory(page, '?targetType=manual-entry');
 
+    // メニューの現在地: 変更履歴（/data-entry/history）でも、「データ入力」を強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['データ入力']);
     await expect(auditRows(page)).toHaveCount(4);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '日時',

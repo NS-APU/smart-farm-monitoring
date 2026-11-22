@@ -407,9 +407,9 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
     expect(within(notice).getByRole('link', { name: 'データ入力へ' }).getAttribute('href')).toBe(
       '/data-entry',
     );
-    expect(
-      within(notice).getByRole('link', { name: '取り込み設定・状況へ' }).getAttribute('href'),
-    ).toBe('/settings/ingestion');
+    expect(within(notice).getByRole('link', { name: '取り込みへ' }).getAttribute('href')).toBe(
+      '/settings/ingestion',
+    );
     expect(within(screen.getByTestId('dashboard-meta')).getByText('未取得')).toBeDefined();
     none.unmount();
 
@@ -638,7 +638,7 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
 
     expect(within(criteria).getByTestId('criteria-state').textContent).toBe('変更済み（版: V2）');
     expect(within(criteria).getByTestId('criteria-status-note').textContent).toContain(
-      'ステータスコード管理',
+      'メニューの「ステータスコード」',
     );
     expect(within(basis).getByTestId('metric-status').textContent).toContain('収穫中');
     expect(within(basis).getByTestId('metric-status').textContent).toContain('正常');
@@ -682,7 +682,7 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(within(guide).getByRole('link', { name: 'データ入力へ' }).getAttribute('href')).toBe(
       '/data-entry',
     );
-    expect(within(guide).getByRole('link', { name: '取り込み設定・状況へ' })).toBeDefined();
+    expect(within(guide).getByRole('link', { name: '取り込みへ' })).toBeDefined();
     expect(screen.getByTestId('recommended-action').textContent).toContain(
       'データの取得・入力を確認',
     );
@@ -740,9 +740,9 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(within(guide).getByRole('link', { name: 'データ入力へ' }).getAttribute('href')).toBe(
       '/data-entry',
     );
-    expect(
-      within(guide).getByRole('link', { name: '取り込み設定・状況へ' }).getAttribute('href'),
-    ).toBe('/settings/ingestion');
+    expect(within(guide).getByRole('link', { name: '取り込みへ' }).getAttribute('href')).toBe(
+      '/settings/ingestion',
+    );
   });
 
   it('短期評価を持たない観点: 短期の判定は「短期評価はありません」。短期を指定すると、長期を表示している旨を示す', async () => {
@@ -1095,7 +1095,7 @@ describe('観点の詳細: 元データ（UC-02）', () => {
     expect(request?.query.get('limit')).toBe('10');
     expect(request?.query.has('q')).toBe(false);
     expect(
-      within(source).getByRole('link', { name: '取り込み済みデータ一覧へ' }).getAttribute('href'),
+      within(source).getByRole('link', { name: '計測データ一覧へ' }).getAttribute('href'),
     ).toBe('/observations');
   });
 

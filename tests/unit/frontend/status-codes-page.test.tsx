@@ -38,7 +38,7 @@ function openAddForm(): HTMLElement {
   return screen.getByTestId('status-code-add');
 }
 
-describe('ステータスコード管理（UC-17。SC-12）', () => {
+describe('ステータスコード（UC-17。SC-12）', () => {
   it('定義を、コード値・名称・カテゴリ・説明で表示する。説明がなければ「—」', async () => {
     renderApp('/settings/status-codes', { 'GET /status-codes': () => jsonResponse(CODES) });
     const rows = await screen.findAllByTestId('status-code-row');
@@ -299,7 +299,7 @@ describe('ステータスコードの表の、狭い幅のカード（#151。SC-
   });
 });
 
-describe('ステータスコード管理: 登録・修正は、ダイアログで行う（Issue #366）', () => {
+describe('ステータスコード: 登録・修正は、ダイアログで行う（Issue #366）', () => {
   it('表の上に、「ステータスコードの登録」のボタンがあり、押すまで、登録のフォームは出ない。キャンセル・Esc で閉じる', async () => {
     renderApp('/settings/status-codes');
     await screen.findAllByTestId('status-code-row');

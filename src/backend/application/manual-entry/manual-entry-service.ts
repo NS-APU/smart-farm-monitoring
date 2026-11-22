@@ -401,7 +401,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       const equipmentNames = new Map(
         allEquipment.map((equipment) => [equipment.equipmentId, equipment.name]),
       );
-      // ハウスを指定したときは、配下のロボット・センサーの入力も含める（取り込み済みデータ〔SC-09〕と同じ。Issue #152）。
+      // ハウスを指定したときは、配下のロボット・センサーの入力も含める（計測データ〔SC-09〕と同じ。Issue #152）。
       // 指定した設備が見つからないときは、その設備の識別子だけで絞る（従来のまま）
       const target =
         query.equipmentId === undefined

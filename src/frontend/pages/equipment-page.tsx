@@ -58,7 +58,7 @@ import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
-/** 取り込み設定・状況（設備ごとの接続）を読み直す間隔。ダイアログを開いている間だけ読む。 */
+/** 取り込み（SC-11。設備ごとの接続）を読み直す間隔。ダイアログを開いている間だけ読む。 */
 const INGESTION_REFRESH_MS = 60_000;
 
 /** 取得間隔の選択（設備ごと。Issue #197）。空は、種別ごとの既定。 */
@@ -110,12 +110,12 @@ type NextStep = 'registerChild' | 'dataEntry';
 
 /** ダイアログに出す「取り込み元の接続」の欄の前提（取り込みの参照権限がない利用者には、欄を出さないため、undefined）。 */
 interface ConnectionContext {
-  /** 取り込み設定・状況（設備ごとの接続を含む）。読み込み中・失敗は undefined。 */
+  /** 取り込み（SC-11。設備ごとの接続を含む）。読み込み中・失敗は undefined。 */
   readonly sources: readonly IngestionSourceStatus[] | undefined;
   readonly loadFailed: boolean;
   readonly canConfigure: boolean;
   readonly canRun: boolean;
-  /** 接続を変更したあとに、取り込み設定・状況を読み直す。 */
+  /** 接続を変更したあとに、取り込み（SC-11）を読み直す。 */
   readonly reload: () => void;
 }
 
@@ -135,7 +135,7 @@ function useConnectionOf(
   readonly copyCandidates: readonly CopyCandidate[];
 } {
   const sources = context?.sources;
-  // 新規の登録は、接続がない状態から始める。修正は、取り込み設定・状況の、その設備の状況から始める（読み込めるまで待つ）
+  // 新規の登録は、接続がない状態から始める。修正は、取り込み（SC-11）の、その設備の状況から始める（読み込めるまで待つ）
   const initial =
     equipmentId === undefined
       ? NO_CONNECTION_STATE
@@ -659,7 +659,7 @@ export function EquipmentPage(): ReactNode {
   const [deleting, setDeleting] = useState<Equipment | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const [nextStep, setNextStep] = useState<NextStep | undefined>(undefined);
-  // 取り込み設定・状況の画面から、設備の修正のダイアログを開くリンク（?edit=設備ID。取り込み元の接続を設定・修正する。Issue #367）
+  // 取り込み（SC-11）の画面から、設備の修正のダイアログを開くリンク（?edit=設備ID。取り込み元の接続を設定・修正する。Issue #367）
   const editParam = query.get('edit');
   const editing =
     editingChosen ??

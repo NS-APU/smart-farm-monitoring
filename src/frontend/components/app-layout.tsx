@@ -1,7 +1,8 @@
 /**
  * 共通のレイアウト（functional-specification.md 2.3。ui-design-guidelines.md 8 章）。
  * 左のサイドメニュー（アイコン + 文字）と、上部のバー（☰・タイトル・通知のアイコンと未読の件数のバッジ・ユーザーメニュー）。
- * 対象の設備の選択・最終のデータ取得日時は、ダッシュボードなどの画面の中へ移した（Issue #355）。
+ * 対象の設備の選択・最終のデータ取得日時は、ヘッダーに置かず、各画面の中に置く（設備の選択は、ダッシュボード・観点の詳細・満足度の詳細。
+ * 最終のデータ取得日時は、ダッシュボード。Issue #355）。
  * 狭い幅（900px 以下）では、メニューを、☰ で開閉する引き出しにする。メニューの項目・名前・遷移先は、変えない。
  */
 
@@ -92,11 +93,22 @@ function NotificationLink(): ReactNode {
   );
 }
 
+/**
+ * メニューの項目が、現在の画面か。パスの前方一致（区切りの `/` の単位。入力データ一覧・変更履歴でも「データ入力」を強調する。Issue #155）。
+ * ダッシュボード（`/`）は、すべてのパスの前方になるため、完全一致のみ。
+ */
+function isCurrentPath(itemPath: string, pathname: string): boolean {
+  if (itemPath === PATHS.dashboard) {
+    return pathname === itemPath;
+  }
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+}
+
 function NavLinkItem(props: { readonly item: NavItem; readonly pathname: string }): ReactNode {
   const { item } = props;
   return (
     <li className="nav-item">
-      <Link to={item.to} aria-current={props.pathname === item.to ? 'page' : undefined}>
+      <Link to={item.to} aria-current={isCurrentPath(item.to, props.pathname) ? 'page' : undefined}>
         <Icon name={item.icon} size={19} />
         {item.label}
       </Link>

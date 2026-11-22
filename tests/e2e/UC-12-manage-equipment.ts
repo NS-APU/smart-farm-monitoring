@@ -710,7 +710,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(page.getByRole('main').getByLabel('対象の設備')).not.toContainText(
       '収穫ロボット1',
     );
-    // 過去のデータは、残る（取り込み済みデータの一覧に、設備IDで表示される）
+    // 過去のデータは、残る（計測データの一覧に、設備IDで表示される）
     await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       1,

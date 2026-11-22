@@ -39,20 +39,20 @@ const rows = locatorOf('observation-row');
 const measurementRows = locatorOf('measurement-row');
 
 /**
- * 取り込み済みデータの画面を、**項目ごとの一覧**（並べ替え「カテゴリ」）で開く。日時順（既定）は、1 回の計測ごとの一覧になるため（#363）、
+ * 計測データの画面を、**項目ごとの一覧**（並べ替え「カテゴリ」）で開く。日時順（既定）は、1 回の計測ごとの一覧になるため（#363）、
  * 項目ごとの内容を確認するテストは、この指定で開く（並べ替え・期間は、条件になければ足す）。
  */
 async function openObservations(page: Page, query = ''): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, `/observations${itemListQuery(query)}`);
-  await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
 }
 
-/** 取り込み済みデータの画面を、1 回の計測ごとの一覧（日時順。既定）で開く。 */
+/** 計測データの画面を、1 回の計測ごとの一覧（日時順。既定）で開く。 */
 async function openMeasurements(page: Page, query = ''): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, `/observations${query}`);
-  await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
 }
 
 /** 計測ごとの一覧の、各行の、項目の名称（行ごとに、項目の名称の配列）。 */
@@ -139,7 +139,7 @@ const NINE_CATEGORIES: readonly SeededObservation[] = [
 ];
 
 test.describe('基本フロー: データの一覧を開き、日時・設備・カテゴリ・項目・値・取得元・状態を確認する', () => {
-  test('メニューの「取り込み済みデータ」から一覧を開くと、日時の新しい順に、1 回の計測ごとに、日時・設備・カテゴリ・項目と値（単位つき）・取得元・状態を表示する（#363）', async ({
+  test('メニューの「計測データ」から一覧を開くと、日時の新しい順に、1 回の計測ごとに、日時・設備・カテゴリ・項目と値（単位つき）・取得元・状態を表示する（#363）', async ({
     page,
     request,
   }, testInfo) => {
@@ -150,10 +150,14 @@ test.describe('基本フロー: データの一覧を開き、日時・設備・
 
     await page
       .getByRole('navigation', { name: 'メニュー' })
-      .getByRole('link', { name: '取り込み済みデータ' })
+      .getByRole('link', { name: '計測データ' })
       .click();
 
-    await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
+    // メニューの現在地: 「計測データ」だけを強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['計測データ']);
     await expect(page.getByTestId('observations-mode-note')).toContainText('1 行にまとめて');
     // この例は、どの計測も 1 項目（計測の日時がすべて違う）。項目ごとの行（observation-row）は、出さない
     await expect(measurementRows(page)).toHaveCount(10);

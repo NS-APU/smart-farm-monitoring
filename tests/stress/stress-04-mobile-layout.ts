@@ -12,7 +12,7 @@ const SCREENS = [
   { name: 'dashboard', path: '/', heading: 'ダッシュボード' },
   { name: 'viewpoint', path: '/viewpoints/environmentalAdaptability', heading: '環境適応性' },
   { name: 'satisfaction', path: '/satisfaction', heading: '満足度の詳細' },
-  { name: 'observations', path: '/observations', heading: '取り込み済みデータ' },
+  { name: 'observations', path: '/observations', heading: '計測データ' },
   { name: 'notifications', path: '/notifications', heading: '通知' },
   { name: 'entry-list', path: '/data-entry/list', heading: '入力済みデータ' },
   { name: 'equipment', path: '/settings/equipment', heading: 'ハウス・設備' },

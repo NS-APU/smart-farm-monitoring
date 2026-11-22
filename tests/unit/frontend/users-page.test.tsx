@@ -45,7 +45,7 @@ function openAddForm(): HTMLElement {
   return screen.getByTestId('user-add');
 }
 
-describe('ユーザー管理（UC-14。SC-14）', () => {
+describe('ユーザー（UC-14。SC-14）', () => {
   it('権限（user:manage）がなければ、その旨を示し、一覧を取得しない', async () => {
     const { calls } = renderApp('/settings/users', {}, { login: READ_ONLY_LOGIN });
     expect((await screen.findByTestId('permission-notice')).textContent).toBe(
@@ -297,7 +297,7 @@ describe('ユーザーの削除の確認（#153。SC-14-2）', () => {
   });
 });
 
-describe('ユーザー管理の表の、狭い幅のカード（#151。SC-14）', () => {
+describe('ユーザーの表の、狭い幅のカード（#151。SC-14）', () => {
   it('各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
     renderApp('/settings/users', routes());
     await screen.findAllByTestId('user-row');
@@ -306,7 +306,7 @@ describe('ユーザー管理の表の、狭い幅のカード（#151。SC-14）'
   });
 });
 
-describe('ユーザー管理: 登録・修正は、ダイアログで行う（Issue #366）', () => {
+describe('ユーザー: 登録・修正は、ダイアログで行う（Issue #366）', () => {
   it('表の上に、「ユーザーの登録」のボタンがあり、押すまで、登録のフォームは出ない。キャンセル・Esc で閉じる', async () => {
     renderApp('/settings/users', routes());
     await screen.findAllByTestId('user-row');

@@ -2,7 +2,7 @@
  * シナリオ: 手動入力のデータが、別の利用者に共有され、修正・削除が、全員の画面に反映される（複数の利用者。利用者A・Bのブラウザを切り替える）。
  *
  * 通るユースケース（use-cases.md）:
- *   UC-07 Aが、センサーの値を手動で補完（異常な温度） → UC-10 異常の通知 → UC-22 Bが、通知を確認 → UC-20 Bが、取り込み済みデータの一覧で、手動入力として閲覧
+ *   UC-07 Aが、センサーの値を手動で補完（異常な温度） → UC-10 異常の通知 → UC-22 Bが、通知を確認 → UC-20 Bが、計測データの一覧で、手動入力として閲覧
  *   → UC-02・UC-04 Bが、診断・根拠（手動入力のデータ）・推奨アクションを確認 → UC-18 Bが、Aの入力を修正（正しい値へ）
  *   → UC-01 Aが、ダッシュボードで改善を確認 → UC-20 Aが、一覧で修正後の値を確認 → UC-18 Aが、変更履歴で、登録（A）・編集（B）を確認
  *   → UC-18 Aが、入力を削除 → UC-20・UC-01 Bの一覧・ダッシュボードから消え、観点は不明になる → UC-18 Bが、履歴で削除を確認
@@ -74,9 +74,9 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await expect(alert).toContainText('異常');
     await expect(alert).toHaveAttribute('data-read-state', 'UNREAD');
 
-    // UC-20: Bが、取り込み済みデータの一覧で、Aの入力を、手動入力として閲覧する
+    // UC-20: Bが、計測データの一覧で、Aの入力を、手動入力として閲覧する
     // Aの 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す
-    await goToMenu(b.page, '取り込み済みデータ');
+    await goToMenu(b.page, '計測データ');
     await expect(measurementRows(b.page)).toHaveCount(1);
     const measurement = measurementRows(b.page);
     await expect(measurement.getByTestId('measurement-item')).toHaveCount(4);
@@ -122,7 +122,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     );
 
     // UC-20: Aが、一覧で、修正後の値を確認する（値は1件のまま。元の値は残らない）
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     await expect(measurementRows(page)).toHaveCount(1);
     await expect(measurementRows(page).getByTestId('measurement-item')).toHaveCount(4);
     const temperatureItem = measurementRows(page)

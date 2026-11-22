@@ -83,7 +83,7 @@ test.describe('広い幅（1280px）: サイドメニューの開閉', () => {
     page,
   }) => {
     await page.goto('/observations');
-    await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
     await expect(title(page)).toHaveAttribute('href', '/');
     await expect(page.locator('#app-sidebar').getByText('Greenhouse Monitor')).toHaveCount(0);
 
@@ -92,6 +92,33 @@ test.describe('広い幅（1280px）: サイドメニューの開閉', () => {
     await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
     await expect(sidebar(page)).toBeVisible();
     await expect(page).toHaveTitle('ダッシュボード - Greenhouse Monitor');
+  });
+
+  test('現在地の強調（aria-current）は、パスの前方一致で、メニューの 1 項目だけ。ダッシュボードは、完全一致のみ（Issue #155 の SC-COM-4）', async ({
+    page,
+  }) => {
+    const current = sidebar(page).locator('[aria-current="page"]');
+    // ダッシュボード（/）で、ダッシュボードだけ
+    await expect(current).toHaveText(['ダッシュボード']);
+
+    for (const [path, label] of [
+      ['/data-entry', 'データ入力'],
+      ['/data-entry/list', 'データ入力'],
+      ['/data-entry/history', 'データ入力'],
+      ['/observations', '計測データ'],
+      ['/settings/equipment', 'ハウス・設備'],
+      ['/settings/ingestion', '取り込み'],
+      ['/settings/status-codes', 'ステータスコード'],
+      ['/settings/users', 'ユーザー'],
+    ] as const) {
+      await page.goto(path);
+      await expect(current, `${path} で強調する項目`).toHaveText([label]);
+    }
+
+    // メニューにない画面（観点の詳細）では、ダッシュボードを含め、どの項目も強調しない
+    await page.goto('/viewpoints/safety');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(current).toHaveCount(0);
   });
 
   test('サイドメニューの「設定」のアイコンは、歯車（太陽に似た絵柄ではない）', async ({ page }) => {

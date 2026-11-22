@@ -301,7 +301,7 @@ export function testFederation(api: ApiClient) {
   });
 }
 
-// 取り込み設定・状況（SC-11）
+// 取り込み（SC-11）
 export function getIngestionSettings(api: ApiClient) {
   return api.request('/ingestion/settings', { schema: IngestionSettingsResponseSchema });
 }

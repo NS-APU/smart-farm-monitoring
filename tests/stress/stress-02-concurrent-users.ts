@@ -179,11 +179,11 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
       await expect(page.getByRole('dialog')).toHaveCount(0);
       await m(
         'UC-20',
-        '取り込み済みデータの一覧を開く（全員が同時。約60万件）',
-        '取り込み済みデータ（SC-09）',
+        '計測データの一覧を開く（全員が同時。約60万件）',
+        '計測データ（SC-09）',
         'screen',
         {
-          act: () => menu('取り込み済みデータ').click(),
+          act: () => menu('計測データ').click(),
           respond: async () => {
             await expect(loadingView(page)).toHaveCount(0);
             await expect(page.getByTestId('measurement-row').first()).toBeVisible();
@@ -192,8 +192,8 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
       );
       await m(
         'UC-20',
-        '取り込み済みデータを、値の昇順に並べ替える（全員が同時）',
-        '取り込み済みデータ（SC-09）',
+        '計測データを、値の昇順に並べ替える（全員が同時）',
+        '計測データ（SC-09）',
         'screen',
         {
           act: async () => {

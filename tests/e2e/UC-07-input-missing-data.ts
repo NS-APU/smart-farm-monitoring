@@ -3,7 +3,7 @@
  *
  * ユースケースシナリオ（use-cases.md）:
  *   基本フロー  1. 農作業者が、入力画面を開き、対象のハウス・ロボット・センサーと、補完する項目を選ぶ
- *               2. 農作業者が、値と対象の期間・時刻を入力する
+ *               2. 農作業者が、値と対象の時刻を入力する
  *               3. システムが、入力内容を検証して保存する
  *               4. システムが、手動入力であることを区別できる形でデータを保持する
  *               5. システムが、評価を更新し、「注意」「異常」があれば通知につなげる（UC-10）
@@ -79,9 +79,9 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await expectRelatedStatus(page, 'environmentalAdaptability', '注意');
     await shot(page, testInfo, 'uc07-saved');
 
-    // 4. 手動入力であることを区別できる形で保持する（取り込み済みデータの一覧の取得元）
+    // 4. 手動入力であることを区別できる形で保持する（計測データの一覧の取得元）
     // 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows).toContainText('手動入力');
@@ -561,7 +561,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
     // 1 回の入力（稼働情報の 4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows).toContainText('手動入力');
@@ -588,7 +588,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText('手動入力');

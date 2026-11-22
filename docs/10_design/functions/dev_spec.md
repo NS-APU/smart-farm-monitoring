@@ -130,7 +130,7 @@ smart-farm-monitoring/
 | 評価 | `evaluation/evaluation-service.ts`、`criteria-service.ts`、`criteria-admin-service.ts`（判断基準の編集・既定値へ戻す）、`scope.ts` | 観測値の読み出し → 純粋関数の評価 → 保存 → 状態変化の検知 → 通知・連携キューへ | UC-01〜04, 19, 21 |
 | 通知 | `notification/notification-service.ts`、`push-subscription-service.ts` | 作成（状態変化は出来事で判定。取り込み系は 60 分の抑制）、一覧（経過・回復日時・メモの件数・読み込み時点）、既読（個別・一括〔`until` まで。件数つきの確認〕）、メモの追記・一覧、Web Push の購読の登録（暗号鍵つき）・解除・状態、配信（実配信・ダミー）と再送 | UC-05, 10, 22, 23, 24 |
 | 連携 | `federation/federation-service.ts` | 連携キューへの追加、非同期の送信、保留・再試行、結果の記録 | UC-11 |
-| 参照 | `query/dashboard-query.ts`、`viewpoint-query.ts`、`observation-query.ts` | ダッシュボード・観点の詳細・推移・満足度・取り込み済みデータの一覧（保存済みの評価結果・観測値を読むだけ） | UC-01〜03, 20, 21 |
+| 参照 | `query/dashboard-query.ts`、`viewpoint-query.ts`、`observation-query.ts` | ダッシュボード・観点の詳細・推移・満足度・計測データの一覧（保存済みの評価結果・観測値を読むだけ） | UC-01〜03, 20, 21 |
 | 認証 | `auth/access-policy.ts`、`auth/auth-service.ts`、`auth/user-service.ts` | ロール → 権限の方針、ログイン・更新・ログアウト、認証済みの利用者（権限つき）、ユーザーの登録・編集・削除（一覧は最終ログイン日時つき） | UC-13, 14 |
 | （横断）ジョブ | `jobs/job-runner.ts`、`jobs/scheduler.ts` | JB-01〜JB-04 の実行、時計に基づくスケジューラ | UC-08〜11, 24 |
 

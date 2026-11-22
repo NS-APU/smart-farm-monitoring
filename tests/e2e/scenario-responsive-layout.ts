@@ -1,7 +1,7 @@
 /**
  * シナリオ: スマートフォン幅（375px）・タブレット幅（768px）で、主要な画面が、横にはみ出さず、重ならず、操作できる
  * （NFR-7.1・NFR-7.3。レビュー V-103・V-158）。デスクトップ幅（1280px）だけでは、モバイルの表示崩れを見つけられないため、
- * 現場で最もよく使う画面（ダッシュボード・観点の詳細・データ入力・通知・取り込み済みデータ・設備・取り込み設定）を、両方の幅で開く。
+ * 現場で最もよく使う画面（ダッシュボード・観点の詳細・データ入力・通知・計測データ・設備・取り込み）を、両方の幅で開く。
  * 各画面は、`shot`（横スクロール・重なり・はみ出しの検査つきのスクリーンショット）で確認する。
  * 観点の詳細の元データの表は、長い設備名（200文字）でも、列が1文字ずつ折り返すほど潰れないことを確認する（V-158）。
  */
@@ -23,9 +23,9 @@ const SCREENS: readonly { name: string; path: string; heading: string }[] = [
   { name: 'viewpoint', path: '/viewpoints/environmentalAdaptability', heading: '環境適応性' },
   { name: 'data-entry', path: '/data-entry', heading: 'データ入力' },
   { name: 'notifications', path: '/notifications', heading: '通知' },
-  { name: 'observations', path: '/observations', heading: '取り込み済みデータ' },
+  { name: 'observations', path: '/observations', heading: '計測データ' },
   { name: 'equipment', path: '/settings/equipment', heading: 'ハウス・設備' },
-  { name: 'ingestion', path: '/settings/ingestion', heading: '取り込み設定' },
+  { name: 'ingestion', path: '/settings/ingestion', heading: '取り込み' },
   { name: 'entry-list', path: '/data-entry/list', heading: '入力済みデータ' },
   { name: 'entry-history', path: '/data-entry/history', heading: '変更履歴' },
   { name: 'status-codes', path: '/settings/status-codes', heading: 'ステータスコード' },

@@ -55,7 +55,7 @@ test.describe('数値の項目の、スライダー', () => {
 
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
-    // 保存した値（取り込み済みデータの 1 回の計測として、項目と値が並ぶ）
+    // 保存した値（計測データの 1 回の計測として、項目と値が並ぶ）
     await page.goto('/observations?source=MANUAL');
     const row = page.getByTestId('measurement-row').first();
     await expect(row).toContainText('故障回数');

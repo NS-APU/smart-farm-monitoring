@@ -53,7 +53,7 @@ beforeEach(() => {
   window.history.pushState(null, '', '/');
 });
 
-describe('取り込み済みデータ一覧: 項目ごと（日時以外の並べ替え。UC-20。SC-09）', () => {
+describe('計測データ一覧: 項目ごと（日時以外の並べ替え。UC-20。SC-09）', () => {
   it('データを、日時・設備・カテゴリ・項目・値・取得元・状態で表示する。値は、単位つきの数値・ステータスコードの名称・欠損は「—」', async () => {
     renderApp('/observations?sort=category&from=2026-10-01&to=2026-10-09', {
       'GET /observations': () =>
@@ -278,7 +278,7 @@ describe('並べ替え（値・カテゴリ）・キーワード検索は、期�
   });
 });
 
-describe('取り込み済みデータの表の、狭い幅のカード（#151。SC-09）', () => {
+describe('計測データの表の、狭い幅のカード（#151。SC-09）', () => {
   it('項目ごとの表: 各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
     renderApp('/observations?sort=category&from=2026-10-01&to=2026-10-09', {
       'GET /observations': () => jsonResponse({ items: [observation()], nextCursor: null }),
@@ -296,7 +296,7 @@ describe('取り込み済みデータの表の、狭い幅のカード（#151。
   });
 });
 
-describe('取り込み済みデータ一覧: 1 回の計測ごとにまとめる（日時順。Issue #363）', () => {
+describe('計測データ一覧: 1 回の計測ごとにまとめる（日時順。Issue #363）', () => {
   it('1 回の計測を 1 行にし、項目と値（単位つき）を、行の中に並べる。計測の日時・設備・カテゴリ・取得元・状態を示す', async () => {
     renderApp('/observations', measurementsRoute());
 

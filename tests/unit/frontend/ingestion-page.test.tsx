@@ -152,7 +152,7 @@ function card(sourceId: string): HTMLElement {
   return screen.getByTestId(`source-${sourceId}`);
 }
 
-describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
+describe('取り込み（UC-15・UC-16。SC-11）', () => {
   it('取り込み元ごとに、有効の設定と、解釈に使う仕様の版・状態、最終の実行を表示する。共通の接続の入力（接続先の参照名・接続設定・認証情報・接続テスト）と、最終の成功は、ない（#367）', async () => {
     renderApp('/settings/ingestion', baseRoutes());
 
@@ -275,7 +275,7 @@ describe('取り込み設定・状況（UC-15・UC-16。SC-11）', () => {
     expect(labelsOf(federationRow).every((label) => label !== null && label !== '')).toBe(true);
   });
 
-  it('取り込みのログから、取得したデータ（取り込み済みデータの一覧）へ移れる。設備・自動取り込み・実行の日付（日本時間）で絞る。取得件数が 0 の実行は、リンクを出さない（Issue #363）', async () => {
+  it('取り込みのログから、取得したデータ（計測データの一覧）へ移れる。設備・自動取り込み・実行の日付（日本時間）で絞る。取得件数が 0 の実行は、リンクを出さない（Issue #363）', async () => {
     renderApp(
       '/settings/ingestion',
       baseRoutes({
