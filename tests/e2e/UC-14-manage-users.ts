@@ -248,6 +248,13 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
 
     await rowOf(page, USER_B.userId).getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('ユーザーを削除しますか');
+    // 対象（ユーザー名・ユーザーID）と、購読・セッションも削除される旨を示す（#153）
+    await expect(page.getByTestId('confirm-dialog')).toContainText(USER_B.userName);
+    await expect(page.getByTestId('confirm-dialog')).toContainText(USER_B.userId);
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Web Push 通知の購読');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      'ログイン中の状態（セッション）',
+    );
     await shot(page, testInfo, 'uc14-confirm');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'キャンセル' }).click();
     await expect(rowOf(page, USER_B.userId)).toHaveCount(1);
