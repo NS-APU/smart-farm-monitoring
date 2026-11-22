@@ -20,6 +20,7 @@ import {
   type Category,
   type ItemDefinition,
 } from '@smart-farm/shared/constants/items';
+import { CATEGORY_HELP, findItemHelp } from '@smart-farm/shared/constants/item-help';
 import {
   ManualEntryInputSchema,
   describeRange,
@@ -121,6 +122,7 @@ function StatusCodeField(props: {
       name={`items.${props.item.itemKey}`}
       error={props.error}
       hint={TEXT.statusCodeHint}
+      help={findItemHelp(props.item.itemKey)}
     >
       {(control) => (
         <select
@@ -315,6 +317,13 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
                 ? TEXT.categoryCleared
                 : undefined
           }
+          help={{
+            help: TEXT.categoryHelp,
+            terms: (selectableCategories ?? []).map((value) => ({
+              term: CATEGORY_LABELS[value],
+              description: CATEGORY_HELP[value],
+            })),
+          }}
           required
         >
           {(control) => (
@@ -337,7 +346,13 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
             </select>
           )}
         </Field>
-        <Field label={TEXT.observedAt} name="observedAt" error={errors.observedAt} required>
+        <Field
+          label={TEXT.observedAt}
+          name="observedAt"
+          error={errors.observedAt}
+          help={{ help: TEXT.observedAtHelp }}
+          required
+        >
           {(control) => (
             <input
               {...control}
@@ -403,6 +418,7 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
                     name={`items.${item.itemKey}`}
                     error={errors[`items.${item.itemKey}`]}
                     hint={describeRange(item)}
+                    help={findItemHelp(item.itemKey)}
                   >
                     {(control) => (
                       <EntryValueInput
@@ -422,7 +438,7 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
         </fieldset>
       )}
 
-      <Field label={TEXT.note} name="note" error={errors.note}>
+      <Field label={TEXT.note} name="note" error={errors.note} help={{ help: TEXT.noteHelp }}>
         {(control) => (
           <textarea
             {...control}

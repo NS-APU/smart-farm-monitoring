@@ -5,6 +5,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { MESSAGES } from '../i18n/messages.ts';
+import { HelpHint, type HelpHintProps } from './help-hint.tsx';
 import { Icon } from './icon.tsx';
 
 export interface FieldControlProps {
@@ -20,6 +21,8 @@ export interface FieldProps {
   readonly error?: string | undefined;
   readonly hint?: string | undefined;
   readonly required?: boolean;
+  /** ラベルの横に置く、ヘルプヒント（意味・入力例。対象の名前は、ラベル）。 */
+  readonly help?: Omit<HelpHintProps, 'name'> | undefined;
   readonly children: (control: FieldControlProps) => ReactNode;
 }
 
@@ -27,20 +30,30 @@ export function Field(props: FieldProps): ReactNode {
   const id = useId();
   const messageId = `${id}-message`;
   const hasMessage = props.error !== undefined || props.hint !== undefined;
+  const label = (
+    <label htmlFor={id}>
+      {props.label}
+      {props.required === true ? (
+        <span className="required-mark" aria-hidden="true">
+          {' '}
+          *
+        </span>
+      ) : null}
+    </label>
+  );
   return (
     <div
       className={`field${props.error === undefined ? '' : ' field-invalid'}`}
       data-field={props.name}
     >
-      <label htmlFor={id}>
-        {props.label}
-        {props.required === true ? (
-          <span className="required-mark" aria-hidden="true">
-            {' '}
-            *
-          </span>
-        ) : null}
-      </label>
+      {props.help === undefined ? (
+        label
+      ) : (
+        <div className="field-label-row">
+          {label}
+          <HelpHint name={props.label} {...props.help} />
+        </div>
+      )}
       {props.children({
         id,
         'aria-invalid': props.error !== undefined,
