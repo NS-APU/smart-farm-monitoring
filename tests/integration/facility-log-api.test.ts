@@ -6,7 +6,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { toUserId } from '@smart-farm/shared/schemas/common';
-import { FACILITY_2_ID, FACILITY_ID, secondHouseSet } from '../support/builders.ts';
+import {
+  FACILITY_2_ID,
+  FACILITY_ID,
+  ROBOT_ID,
+  equipmentSet,
+  secondHouseSet,
+} from '../support/builders.ts';
 import {
   addUserAndLogin,
   errorOf,
@@ -205,6 +211,79 @@ describe('GET /federation/facility-logs（ハウス別の連携の記録）', ()
         (item) => item.facilityId,
       ),
     ).toHaveLength(2);
+  });
+});
+
+/** 失敗のログの設備と、その設備のファイルのパス（Issue #164。SC-11-6 の残り）。ファイルのパスは、管理者の画面だけに示す。 */
+const SECRET_PATH = '/robot/secret-path.json';
+
+async function setupFailureWithFilePath() {
+  const { context, assigned } = await setup();
+  const { equipment, ingestion } = context.container.repositories;
+  const robot = equipmentSet().find((item) => item.equipmentId === ROBOT_ID);
+  if (robot === undefined) {
+    throw new Error('テストの前提: ロボットがある');
+  }
+  await equipment.save({ ...robot, sourceFilePath: SECRET_PATH });
+  await ingestion.addLog({
+    logId: 'i-path',
+    sourceId: 'robot',
+    equipmentId: ROBOT_ID,
+    startedAt: at(3),
+    finishedAt: at(3),
+    result: 'FAILURE',
+    filesProcessed: 0,
+    recordCount: 0,
+    rejectedCount: 0,
+    attempts: 1,
+    errorMessage: 'ファイルサーバーに接続できませんでした',
+    facilities: [{ facilityId: FACILITY_ID, result: 'FAILURE', recordCount: 0 }],
+  });
+  return { context, assigned };
+}
+
+describe('失敗の行の設備とファイルのパス（Issue #164。SC-11-6 の残り）', () => {
+  it('一般ユーザーには、失敗の記録に、設備・ファイルのパス・失敗の理由を返さない（ハウスと結果だけ）', async () => {
+    const { context, assigned } = await setupFailureWithFilePath();
+
+    const response = await get(context, '/ingestion/facility-logs', assigned);
+    const body = await response.clone().text();
+    const items = ((await response.json()) as { items: Entry[] }).items;
+
+    const failure = items.find((item) => item.logId === 'i-path');
+    expect(failure).toEqual({
+      logId: 'i-path',
+      facilityId: FACILITY_ID,
+      sourceId: 'robot',
+      occurredAt: at(3),
+      result: 'FAILURE',
+      recordCount: 0,
+    });
+    for (const hidden of [SECRET_PATH, 'secret-path', ROBOT_ID, 'equipmentId', 'sourceFilePath']) {
+      expect(body).not.toContain(hidden);
+    }
+  });
+
+  it('管理者には、失敗のログの設備の識別子と、その設備のファイルのパス（取り込みの設定の応答）を返す。接続先のホスト名・認証情報は、ログに含めない', async () => {
+    const { context } = await setupFailureWithFilePath();
+
+    const logs = (await (await get(context, '/ingestion/logs')).json()) as {
+      items: { logId: string; equipmentId?: string }[];
+    };
+    const settingsResponse = await get(context, '/ingestion/settings');
+    const settings = (await settingsResponse.json()) as {
+      sources: { equipment: { equipmentId: string; sourceFilePath?: string }[] }[];
+    };
+
+    const failure = logs.items.find((item) => item.logId === 'i-path');
+    expect(failure?.equipmentId).toBe(ROBOT_ID);
+    const paths = new Map(
+      settings.sources.flatMap((source) =>
+        source.equipment.map((item) => [item.equipmentId, item.sourceFilePath] as const),
+      ),
+    );
+    expect(paths.get(ROBOT_ID)).toBe(SECRET_PATH);
+    expect(JSON.stringify(logs)).not.toContain(SECRET_PATH);
   });
 });
 

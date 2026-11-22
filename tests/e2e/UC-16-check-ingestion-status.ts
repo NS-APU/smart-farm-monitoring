@@ -317,6 +317,85 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
   });
 });
 
+test.describe('失敗の行に、設備名と、その設備のファイルのパスを示す（管理者のみ。Issue #164。SC-11-6 の残り）', () => {
+  const BROKEN_PATH = '/robot/robot-sample-003-broken.json';
+
+  test('失敗の行に、設備名と、設備のファイルのパス（現在の設定）を示す。接続先のホスト名は示さない。成功の行には、ファイルのパスを示さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await placeNewData(request, 'robot', 1);
+    await runIngestionApi(request, 'robot');
+    await placeFixture(request, 'robot', 'robot/robot-sample-003-broken.json', { reassign: true });
+    await advanceMinutes(request, 15);
+    await runIngestionApi(request, 'robot');
+
+    await openStatus(page);
+
+    const failure = logRows(page).filter({ has: page.locator('.log-result-failure') });
+    await expect(failure).toHaveCount(1);
+    const equipmentCell = failure.locator('td').nth(2);
+    await expect(equipmentCell).toContainText('収穫ロボット1');
+    await expect(failure.getByTestId('ingestion-log-path')).toHaveText(
+      `ファイルのパス（現在の設定）: ${BROKEN_PATH}`,
+    );
+    await expect(failure).not.toContainText('127.0.0.1');
+    // 成功の行は、設備名だけ
+    const success = logRows(page).filter({ has: page.locator('.log-result-success') });
+    await expect(success.locator('td').nth(2)).toHaveText('収穫ロボット1');
+    await expect(success.getByTestId('ingestion-log-path')).toHaveCount(0);
+    await shot(page, testInfo, 'uc16-failure-file-path');
+  });
+
+  test('設備のファイルのパスを変えると、失敗の行は、現在のファイルのパスを示す。設備を削除すると、「（削除済みの設備）」と示す（識別子・ファイルのパスは示さない）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await placeFixture(request, 'robot', 'robot/robot-sample-003-broken.json');
+    await runIngestionApi(request, 'robot');
+    await openStatus(page);
+    const failure = logRows(page).first();
+    await expect(failure.getByTestId('ingestion-log-path')).toHaveText(
+      `ファイルのパス（現在の設定）: ${BROKEN_PATH}`,
+    );
+
+    await assignFilePath(request, ROBOT_ID, '/robot/moved.json');
+    await page.reload();
+    await expect(logRows(page).first().getByTestId('ingestion-log-path')).toHaveText(
+      'ファイルのパス（現在の設定）: /robot/moved.json',
+    );
+
+    await apiOk(request, 'DELETE', `/equipment/${ROBOT_ID}`);
+    await page.reload();
+    const deleted = logRows(page).first().locator('td').nth(2);
+    await expect(deleted).toHaveText('（削除済みの設備）');
+    await expect(logRows(page).first()).not.toContainText(ROBOT_ID);
+    await expect(page.getByTestId('ingestion-log-path')).toHaveCount(0);
+  });
+
+  test('一般ユーザーには、失敗の行にも、設備のファイルのパス・失敗の理由は示さない（閲覧できるハウスの名前・結果だけ）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await placeFixture(request, 'robot', 'robot/robot-sample-003-broken.json');
+    await runIngestionApi(request, 'robot');
+    await addUser(request, GENERAL);
+    await apiOk(request, 'PUT', '/facility-access/HOUSE-01', { userIds: [GENERAL.userId] });
+    await alignBrowserClock(page);
+    await openAs(page, '/settings/ingestion', GENERAL);
+
+    const failure = page.getByTestId('facility-ingestion-row').first();
+    await expect(failure).toContainText('ハウス1');
+    await expect(failure).toContainText('失敗');
+    await expect(page.getByTestId('facility-ingestion')).not.toContainText(BROKEN_PATH);
+    await expect(page.getByTestId('facility-ingestion')).not.toContainText('ファイルのパス');
+    await expect(page.getByTestId('ingestion-log-path')).toHaveCount(0);
+  });
+});
+
 test.describe('ログの絞り込み（設備・結果・期間）と、ページ分割（20件ごと）', () => {
   test('設備・結果・期間（日本時間の日付）で絞り込める。条件は URL に反映され、再読み込みで保持される。設備を選ぶと、その設備の取り込み元の、設備に結びつかない失敗（接続できない）も示す', async ({
     page,

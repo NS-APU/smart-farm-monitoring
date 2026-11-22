@@ -84,6 +84,19 @@ describe('取り込み・連携のハウス別の記録（一般ユーザー向�
     expect(federationRows[1]?.textContent).toContain('保留');
   });
 
+  it('失敗の行にも、設備のファイルのパス・設備の識別子・失敗の理由は、示さない（ハウス名・取り込み元・結果だけ。#164）', async () => {
+    renderApp('/settings/ingestion', facilityRoutes(), { login: READ_ONLY_LOGIN });
+
+    const rows = await screen.findAllByTestId('facility-ingestion-row');
+
+    const failure = rows[1];
+    expect(failure?.getAttribute('data-result')).toBe('FAILURE');
+    expect(failure?.textContent).toContain('ハウス1');
+    expect(failure?.textContent).not.toContain('ファイルのパス');
+    expect(failure?.textContent).not.toContain('削除済みの設備');
+    expect(screen.queryByTestId('ingestion-log-path')).toBeNull();
+  });
+
   it('管理用の取り込みの設定・ログ・連携のログ・認証情報・連携キューの件数は、取得も表示もしない', async () => {
     const { calls } = renderApp('/settings/ingestion', facilityRoutes(), {
       login: READ_ONLY_LOGIN,

@@ -971,6 +971,12 @@ textarea {
   gap: 4px;
 }
 
+/* 取り込みのログの失敗の行の、設備のファイルのパス（長いことがある）は、折り返す */
+.log-file-path {
+  overflow-wrap: anywhere;
+  font-size: 0.85em;
+}
+
 /* 設備の表: 狭い幅でも、列が 1 文字ずつ折り返すほど押しつぶされないよう、最小の幅を保つ（表の枠の中で横にスクロールする） */
 .equipment-table {
   min-width: 760px;

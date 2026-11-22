@@ -252,6 +252,126 @@ describe('取り込み（UC-15・UC-16。SC-11）', () => {
     expect(screen.getByTestId('queue-HELD').textContent).toContain('4');
   });
 
+  describe('失敗の行の設備とファイルのパス（#164 SC-11-6 の残り）', () => {
+    function failureRoutes(items: Record<string, unknown>[]): Routes {
+      return baseRoutes({
+        'GET /ingestion/logs': () => jsonResponse({ items, nextCursor: null }),
+      });
+    }
+
+    const equipmentCellOf = (row: HTMLElement | undefined) => row?.querySelectorAll('td')[2];
+
+    it('失敗の行に、設備名と、その設備のファイルのパスを示す（接続先のホスト名・認証情報は示さない）', async () => {
+      renderApp(
+        '/settings/ingestion',
+        failureRoutes([
+          ingestionLog({
+            logId: 'l-f',
+            result: 'FAILURE',
+            errorMessage: '1件のファイルを取り込めませんでした',
+          }),
+        ]),
+      );
+
+      const row = at(await screen.findAllByTestId('ingestion-log-row'), 0);
+
+      const path = await within(row).findByTestId('ingestion-log-path');
+      expect(path.textContent).toBe('ファイルのパス（現在の設定）: /data/robot-1.json');
+      expect(equipmentCellOf(row)?.textContent).toContain('収穫ロボット1');
+      expect(row.textContent).not.toContain('fileserver.example.ac.jp');
+      expect(row.textContent).not.toContain('8443');
+    });
+
+    it('成功・一部成功の行には、ファイルのパスを示さない（設備名だけ）', async () => {
+      renderApp(
+        '/settings/ingestion',
+        failureRoutes([
+          ingestionLog({ logId: 'l-s' }),
+          ingestionLog({ logId: 'l-p', result: 'PARTIAL' }),
+        ]),
+      );
+
+      const rows = await screen.findAllByTestId('ingestion-log-row');
+
+      await waitFor(() => {
+        expect(equipmentCellOf(rows[0])?.textContent).toBe('収穫ロボット1');
+      });
+      expect(equipmentCellOf(rows[1])?.textContent).toBe('収穫ロボット1');
+      expect(screen.queryByTestId('ingestion-log-path')).toBeNull();
+    });
+
+    it('設備にファイルのパスがなければ、その旨を示す', async () => {
+      renderApp(
+        '/settings/ingestion',
+        failureRoutes([ingestionLog({ logId: 'l-n', equipmentId: 'ROBOT-2', result: 'FAILURE' })]),
+      );
+
+      const row = at(await screen.findAllByTestId('ingestion-log-row'), 0);
+
+      const path = await within(row).findByTestId('ingestion-log-path');
+      expect(path.textContent).toBe('ファイルのパスは未設定です');
+      expect(equipmentCellOf(row)?.textContent).toContain('収穫ロボット2');
+    });
+
+    it('削除済みの設備の失敗は、「（削除済みの設備）」と示し、識別子・ファイルのパスは示さない', async () => {
+      renderApp(
+        '/settings/ingestion',
+        failureRoutes([ingestionLog({ logId: 'l-d', equipmentId: 'ROBOT-9', result: 'FAILURE' })]),
+      );
+
+      const row = at(await screen.findAllByTestId('ingestion-log-row'), 0);
+
+      await waitFor(() => {
+        expect(equipmentCellOf(row)?.textContent).toBe('（削除済みの設備）');
+      });
+      expect(within(row).queryByTestId('ingestion-log-path')).toBeNull();
+      expect(row.textContent).not.toContain('ROBOT-9');
+    });
+
+    it('設備に結びつかない失敗（取り込み元単位）は、設備を「—」にし、ファイルのパスを示さない', async () => {
+      renderApp(
+        '/settings/ingestion',
+        failureRoutes([
+          ingestionLog({
+            logId: 'l-u',
+            equipmentId: undefined,
+            result: 'FAILURE',
+            errorMessage: 'ファイルサーバーに接続できませんでした',
+          }),
+        ]),
+      );
+
+      const row = at(await screen.findAllByTestId('ingestion-log-row'), 0);
+
+      expect(equipmentCellOf(row)?.textContent).toBe('—');
+      // 設備の状況の応答が届いても、設備に結びつかない失敗には、ファイルのパスを示さない
+      await screen.findByTestId('source-robot');
+      expect(screen.queryByTestId('ingestion-log-path')).toBeNull();
+    });
+
+    it('設備の状況の応答を取得できるまでは、設備を削除済みと示さない', async () => {
+      let release: (() => void) | undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      renderApp('/settings/ingestion', {
+        ...failureRoutes([ingestionLog({ logId: 'l-w', result: 'FAILURE' })]),
+        'GET /ingestion/settings': async () => {
+          await gate;
+          return jsonResponse(SETTINGS);
+        },
+      });
+
+      const row = at(await screen.findAllByTestId('ingestion-log-row'), 0);
+      expect(equipmentCellOf(row)?.textContent).not.toContain('削除済み');
+
+      release?.();
+      await waitFor(() => {
+        expect(equipmentCellOf(row)?.textContent).toContain('収穫ロボット1');
+      });
+    });
+  });
+
   it('連携の結果の語は、連携キューの状態の語と同じ（送信済み・失敗・保留・期限切れ。#164 SC-11-4）', async () => {
     renderApp(
       '/settings/ingestion',

@@ -232,13 +232,57 @@ function SourceCard(props: SourceCardProps): ReactNode {
   );
 }
 
+/** ログの設備の表示用の情報（名前・ファイルのパス）。 */
+interface LogEquipment {
+  readonly name: string;
+  readonly sourceFilePath: string | undefined;
+}
+
+/**
+ * ログの設備の列。設備に結びつかないログは「—」。失敗の行には、設備名の下に、その設備のファイルのパスを示す
+ * （管理者の画面だけ。接続先のホスト名・認証情報は示さない。ログにはパスの記録がないため、設備の現在の設定を示す）。
+ * 設備の一覧にない設備は「（削除済みの設備）」（識別子・パスは示さない）。一覧を取得するまでは、識別子のまま。
+ */
+function EquipmentCell(props: {
+  readonly log: IngestionLog;
+  readonly equipment: ReadonlyMap<string, LogEquipment> | undefined;
+}): ReactNode {
+  const { log, equipment } = props;
+  if (log.equipmentId === undefined) {
+    return MESSAGES.common.missingValue;
+  }
+  if (equipment === undefined) {
+    return log.equipmentId;
+  }
+  const found = equipment.get(log.equipmentId);
+  if (found === undefined) {
+    return TEXT.logEquipmentDeleted;
+  }
+  if (log.result !== 'FAILURE') {
+    return found.name;
+  }
+  return (
+    <div className="cell-stack">
+      <span>{found.name}</span>
+      <span className="muted log-file-path" data-testid="ingestion-log-path">
+        {found.sourceFilePath === undefined
+          ? TEXT.logFilePathNone
+          : TEXT.logFilePath(found.sourceFilePath)}
+      </span>
+    </div>
+  );
+}
+
 function LogTable(props: {
   readonly data: IngestionLogListResponse;
   readonly paging: CursorPaging;
-  /** 設備の識別子 → 名前（設備ごとのログの表示。登録にない設備は、識別子のまま）。 */
-  readonly equipmentNames: ReadonlyMap<string, string>;
+  /**
+   * 設備の識別子 → 名前・ファイルのパス（設備の状況の応答から。現在の設定）。応答を取得するまでは、undefined。
+   * 一覧にない設備は、削除済みの設備として示す（Issue #164）。
+   */
+  readonly equipment: ReadonlyMap<string, LogEquipment> | undefined;
 }): ReactNode {
-  const { data, paging, equipmentNames } = props;
+  const { data, paging, equipment } = props;
   if (data.items.length === 0) {
     return (
       <p className="state-view" data-testid="ingestion-logs-empty">
@@ -280,9 +324,7 @@ function LogTable(props: {
                 </td>
                 <td data-label={TEXT.logSource}>{sourceName(log.sourceId)}</td>
                 <td data-label={TEXT.logEquipment}>
-                  {log.equipmentId === undefined
-                    ? MESSAGES.common.missingValue
-                    : (equipmentNames.get(log.equipmentId) ?? log.equipmentId)}
+                  <EquipmentCell log={log} equipment={equipment} />
                 </td>
                 <td data-label={TEXT.logResult}>
                   <span className={`log-result log-result-${log.result.toLowerCase()}`}>
@@ -495,13 +537,25 @@ function IngestionContent(): ReactNode {
     reloadFederation();
   }, [reloadSettings, reloadLogs, reloadFederation]);
 
-  // 設備の選択肢・名前は、取り込み元ごとの設備（設定・状況の応答）から作る
-  const equipmentNames = new Map(
-    (settings.data?.sources ?? []).flatMap((source) =>
-      source.equipment.map((item) => [item.equipmentId, item.name] as const),
-    ),
-  );
-  const equipmentOptions = [...equipmentNames].map(([value, label]) => ({ value, label }));
+  // 設備の選択肢・名前・ファイルのパスは、取り込み元ごとの設備（設定・状況の応答）から作る
+  const equipmentInfo =
+    settings.data === undefined
+      ? undefined
+      : new Map<string, LogEquipment>(
+          settings.data.sources.flatMap((source) =>
+            source.equipment.map(
+              (item) =>
+                [
+                  item.equipmentId,
+                  { name: item.name, sourceFilePath: item.sourceFilePath },
+                ] as const,
+            ),
+          ),
+        );
+  const equipmentOptions = [...(equipmentInfo ?? [])].map(([value, item]) => ({
+    value,
+    label: item.name,
+  }));
 
   return (
     <div className="ingestion-page">
@@ -598,7 +652,7 @@ function IngestionContent(): ReactNode {
         ) : logs.data === undefined ? (
           <LoadingView />
         ) : (
-          <LogTable data={logs.data} paging={logPaging} equipmentNames={equipmentNames} />
+          <LogTable data={logs.data} paging={logPaging} equipment={equipmentInfo} />
         )}
       </section>
 
