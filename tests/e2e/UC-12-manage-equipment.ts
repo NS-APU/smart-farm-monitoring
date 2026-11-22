@@ -647,7 +647,40 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(page.getByRole('main').getByLabel('対象の設備')).toContainText('改名したロボット');
   });
 
-  test('ロボットを別のハウスへ移せる（親のハウスの変更）', async ({ page, request }) => {
+  test('ロボットを別のハウスへ移せる（親のハウスの変更。確認のダイアログで確定する。Issue #163）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEquipment(page);
+    await addFacility(page, 'HOUSE-B', 'Bハウス');
+    await expect(notice(page)).toHaveText('登録しました');
+
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    const edit = page.getByTestId('equipment-edit');
+    await edit.getByLabel('親のハウス').selectOption('HOUSE-B');
+    await edit.getByRole('button', { name: '保存' }).click();
+    // 保存の前に、影響を示す確認を挟む（修正のダイアログの前面に出る）
+    const confirm = page.getByTestId('confirm-dialog');
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText('親のハウスをハウス1からBハウスに変えます');
+    await shot(page, testInfo, 'uc12-parent-change-confirm');
+    await confirmDialog(page, '親のハウスを変更して保存');
+
+    await expect(notice(page)).toHaveText('修正しました');
+    // 階層: ハウス1 の直下にセンサー、Bハウス の直下にロボット（ハウスの並びは、登録の順）
+    const order = await rows(page).evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-equipment-id')),
+    );
+    expect(order).toHaveLength(4);
+    expect(order.indexOf('SENSOR-01')).toBe(order.indexOf('HOUSE-01') + 1);
+    expect(order.indexOf('ROBOT-01')).toBe(order.indexOf('HOUSE-B') + 1);
+  });
+
+  test('親のハウスを変えるときの確認（SC-10-7）: 変更前・変更後のハウスの名称と、影響（割り当て・評価・通知・過去の評価）を示す。キャンセルすると、保存せず、修正のダイアログに戻る', async ({
+    page,
+    request,
+  }) => {
     await prepareApp(request);
     await openEquipment(page);
     await addFacility(page, 'HOUSE-B', 'Bハウス');
@@ -658,14 +691,47 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await edit.getByLabel('親のハウス').selectOption('HOUSE-B');
     await edit.getByRole('button', { name: '保存' }).click();
 
-    await expect(notice(page)).toHaveText('修正しました');
-    // 階層: ハウス1 の直下にセンサー、Bハウス の直下にロボット（ハウスの並びは、登録の順）
+    const confirm = page.getByTestId('confirm-dialog');
+    await expect(confirm.getByRole('heading')).toHaveText('親のハウスを変更しますか');
+    await expect(confirm.locator('.dialog-details')).toContainText('収穫ロボット1');
+    await expect(confirm.locator('.dialog-details')).toContainText('ハウス1');
+    await expect(confirm.locator('.dialog-details')).toContainText('Bハウス');
+    await expect(confirm).toContainText('閲覧できる利用者（割り当て）と、ハウスの評価が変わります');
+    await expect(confirm.locator('.dialog-notes li')).toHaveText([
+      'この設備のデータは、新しいハウスの配下のものとして評価されます',
+      '通知と過去の評価は、元のハウスのまま残ります',
+    ]);
+    await expect(confirm).not.toContainText('HOUSE-B');
+    await confirm.getByRole('button', { name: 'キャンセル' }).click();
+
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    await expect(edit.getByLabel('親のハウス')).toHaveValue('HOUSE-B');
+    await expect(notice(page)).toHaveCount(0);
+    // 保存していない: 階層は、そのまま（ハウス1 の直下に、ロボットとセンサー）
+    await edit.getByRole('button', { name: 'キャンセル' }).click();
     const order = await rows(page).evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute('data-equipment-id')),
     );
-    expect(order).toHaveLength(4);
-    expect(order.indexOf('SENSOR-01')).toBe(order.indexOf('HOUSE-01') + 1);
-    expect(order.indexOf('ROBOT-01')).toBe(order.indexOf('HOUSE-B') + 1);
+    expect(order.indexOf('ROBOT-01')).toBe(order.indexOf('HOUSE-01') + 1);
+    expect(order.indexOf('SENSOR-01')).toBe(order.indexOf('HOUSE-01') + 2);
+  });
+
+  test('親のハウスを変えない修正（名称だけ）は、確認を出さずに保存する（SC-10-7）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEquipment(page);
+
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    const edit = page.getByTestId('equipment-edit');
+    await edit.getByLabel('名称').fill('名称だけ変えたロボット');
+    await edit.getByRole('button', { name: '保存' }).click();
+
+    await expect(notice(page)).toHaveText('修正しました');
+    await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+    await expect(rowOf(page, 'ROBOT-01')).toContainText('名称だけ変えたロボット');
   });
 
   test('修正の入力が不正なら（名称が空）、エラーを表示する。キャンセルで、修正をやめられる', async ({
