@@ -151,12 +151,12 @@
 | SC-06 | データ入力（手動入力）                                   | `/data-entry`                       | `data-entry-page.tsx`・`manual-entry-form.tsx` | 入力は `manual-entry:write`                                                            |
 | SC-07 | 入力データ一覧（検索・修正・削除）                       | `/data-entry/list`                  | `entry-list-page.tsx`                          | 参照は要ログイン、修正・削除は `manual-entry:write`                                    |
 | SC-08 | 変更履歴                                                 | `/data-entry/history`               | `entry-history-page.tsx`                       | `audit:read`                                                                           |
-| SC-09 | 取り込み済みデータ一覧                                   | `/observations`                     | `observations-page.tsx`                        | 要ログイン                                                                             |
+| SC-09 | 計測データ                                               | `/observations`                     | `observations-page.tsx`                        | 要ログイン                                                                             |
 | SC-10 | ハウス・設備                                             | `/settings/equipment`               | `equipment-page.tsx`・`facility-access-panel.tsx`・`components/equipment-connection-section.tsx` | 参照は要ログイン、変更は `equipment:manage`。ハウスの行の閲覧の割り当て（#330）は `user:manage`。ロボット・センサーのダイアログの「取り込み元の接続」（#367。ADR-0026）は、`ingestion:read` で表示、保存・認証情報は `ingestion:configure`、接続テストは `ingestion:run` |
-| SC-11 | 取り込み設定・状況                                       | `/settings/ingestion`               | `ingestion-page.tsx`・`components/equipment-ingestion-table.tsx`（設備ごとの接続と状況の表。#367） | 閲覧は `ingestion:read`（ないと、`facility-ingestion-view.tsx` が、閲覧できるハウスの取り込み・連携の記録だけを示す。メニューは全員に表示。#332）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
-| SC-12 | ステータスコード管理                                     | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
+| SC-11 | 取り込み                                                 | `/settings/ingestion`               | `ingestion-page.tsx`・`components/equipment-ingestion-table.tsx`（設備ごとの接続と状況の表。#367） | 閲覧は `ingestion:read`（ないと、`facility-ingestion-view.tsx` が、閲覧できるハウスの取り込み・連携の記録だけを示す。メニューは全員に表示。#332）、設定は `ingestion:configure`、接続テスト・即時取得は `ingestion:run` |
+| SC-12 | ステータスコード                                         | `/settings/status-codes`            | `status-codes-page.tsx`                        | 参照は要ログイン、変更は `status-code:manage`                                          |
 | SC-13 | 判断基準の編集                                           | `/viewpoints/:viewpointId/criteria` | `criteria-edit-page.tsx`                       | 参照は要ログイン、編集は `criteria:edit`                                               |
-| SC-14 | ユーザー管理                                             | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
+| SC-14 | ユーザー                                                 | `/settings/users`                   | `users-page.tsx`                               | `user:manage`（権限がないとメニューにも出ない）                                        |
 | SC-15 | 通知の設定（Web Push）                                   | `/settings/push`                    | `push-settings-page.tsx`                       | 要ログイン                                                                             |
 
 観点の詳細は、全画面のページ（`/viewpoints/:viewpointId`・`/satisfaction`）と、ダッシュボードの上の右からのドロワー（`components/viewpoint-drawer.tsx`。URL は `/?viewpoint=…`。中身は、`ViewpointDetailView`・`SatisfactionView` を共用。#357）の両方で開ける。共通のヘッダー（`components/app-layout.tsx`）に、☰（サイドメニューの開閉。広い幅も、閉じられる）・タイトル（ダッシュボードへのリンク）・設備の選択・通知のアイコンと未読の件数のバッジ・ユーザーメニュー（`components/user-menu.tsx`。ユーザー名の変更・パスワードの変更・通知の設定・テーマ〔`hooks/use-theme-preference.ts`・`lib/theme.ts`〕・ログアウト。開閉・キーボードは、`hooks/use-popup-menu.ts`）がある。
@@ -1105,7 +1105,7 @@ React 19 と Vite の SPA。外部の UI ライブラリ・ルーター・状態
 - `createApiClient`: Bearer トークンを付けて `/api/v1` を呼ぶ。応答は、Zod のスキーマで検証し、不一致は `INVALID_RESPONSE` にする。エラー応答は `ApiError`（`status`・`code`・`fields`）に変換し、通信失敗は `NETWORK_ERROR`
 - 401 のときは、リフレッシュトークンでセッションを更新して、**1 度だけ**再試行する。更新は、同時に 1 つだけ実行する（`refreshSessionOnce`。複数の読み込みが同時に 401 になっても、使用済みのトークンで失敗しない）。さらに、**更新が終わったあとに、遅れて届いた 401** のとき、現在のトークンが、その要求に使ったトークンと違えば（ほかの要求が、すでに更新した）、更新せず、現在のトークンで再試行する（更新を重ねると、サーバーが、直前に発行したトークンを無効にし、そのトークンで再試行している要求が 401 になるため。Issue #60）。更新に失敗すると、セッションを消し、`onSessionExpired`（`setUser(null)`）でログイン画面へ戻す
 - GET は、応答の `ETag` を、URL ごとに記憶し（同じアクセストークンのときだけ使う）、次の同じ GET に `If-None-Match` を付ける。304 なら前回の本文を使う（実際に `ETag` を返すのは `GET /dashboard` のみ）
-- `usePolling(fetcher, intervalMs = 10_000)`: 最初に 1 回取得し、その後は、タブが表示されているとき（`document.visibilityState === 'visible'`）だけ、10 秒ごとに取得する。取得関数が変わると、読み込み中に戻して取得し直す。ほとんどの画面（ダッシュボード・観点の詳細・一覧・通知・ユーザー管理・ヘッダーの未読件数など）がこれを使う。例外は、判断基準の編集（SC-13。間隔が 24 時間で、実質的に読み直さない）と、ステータスコードの名称の取得（取り込み済みデータの表。60 秒）
+- `usePolling(fetcher, intervalMs = 10_000)`: 最初に 1 回取得し、その後は、タブが表示されているとき（`document.visibilityState === 'visible'`）だけ、10 秒ごとに取得する。取得関数が変わると、読み込み中に戻して取得し直す。ほとんどの画面（ダッシュボード・観点の詳細・一覧・通知・ユーザー・ヘッダーの未読件数など）がこれを使う。例外は、判断基準の編集（SC-13。間隔が 24 時間で、実質的に読み直さない）と、ステータスコードの名称の取得（計測データの表。60 秒）
 
 ## 認可・権限モデル
 
@@ -1914,7 +1914,7 @@ stateDiagram-v2
 - 取り込みの観測値は、`classifyValue`（`domain/observation-quality.ts`）が品質を決める。**評価に使うのは `VALID` と `LATE`** のみ（値があり、論理削除でないもの）。`MISSING`・`INVALID` は保存するが、評価・集計に使わない。取り込み結果の `rejectedCount` には、`MISSING`・`INVALID` を数える
 - 一意キーは `設備ID#項目#計測日時#取得元`。同じキーを保存すると上書きされる（内容が変わったファイルの取り込み、手動入力の修正）
 - 手動入力の観測値は、手動入力と一体で管理する（修正で、修正前の観測値を `isDeleted: true` にしてから、修正後を保存する。削除で、観測値も `isDeleted: true`）。取り込みの観測値には、修正・削除の操作がない
-- 取り込み済みデータ一覧（`GET /observations`）は、論理削除でない観測値を、`INVALID`・`MISSING` も含めて表示する
+- 計測データ（SC-09。`GET /observations`）は、論理削除でない観測値を、`INVALID`・`MISSING` も含めて表示する
 - `GET /observations` は、`sort` が `category`・`value`、または、`q`（空白だけは除く）の指定があるとき、`from`・`to` が必須で、`to − from` は 31 日以内でなければならない（`viewpoint-handlers.ts` のクエリのスキーマ。判定は `@smart-farm/shared/observation-list-period`。ローカル・DynamoDB の実装に共通。違反は `VALIDATION_ERROR`（400）で、`from`・`to` の項目ごとのエラー）。SC-09 は、足りないとき案内を示し、API を呼ばない。SC-02 の元データは、診断期間が 31 日を超えるとき、並べ替え・検索の間だけ、終了日時から 31 日分に絞る（診断期間がないときは、使えない）（#91）
 
 ## 手動入力（ManualEntry）

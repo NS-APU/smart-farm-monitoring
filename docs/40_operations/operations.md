@@ -149,7 +149,7 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
 - `SfmData` の出力（`UserPoolId`・`UserPoolClientId`・`ObservationsTableName`・`MainTableName`）を、環境変数に入れ、`pnpm initial-user` を実行する
 - ユーザーが 1 人でもいれば、何もしない（既存のユーザーを上書きしない）
 - 実行したら、`INITIAL_USER_*`（特にパスワード）を、すべて消す。初回のログイン後に、ヘッダーの「パスワードの変更」から、パスワードを変更する（最初のユーザーは、変更を強制しない）
-- 2 人目以降は、画面の「ユーザー管理」で作る。**管理者は、2 名以上にする**（管理者が 1 人だけで、パスワードを忘れると、アプリからは復旧できず、AWS の管理者の操作が要る。決定。[ADR-0020](../10_design/adr/0020-authentication-rules.md)）。忘れたときは、管理者が再設定する
+- 2 人目以降は、画面の「ユーザー」で作る。**管理者は、2 名以上にする**（管理者が 1 人だけで、パスワードを忘れると、アプリからは復旧できず、AWS の管理者の操作が要る。決定。[ADR-0020](../10_design/adr/0020-authentication-rules.md)）。忘れたときは、管理者が再設定する
 
 ### 7.5 データの初期化
 
@@ -532,7 +532,7 @@ pnpm initial-user
 Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:COGNITO_CLIENT_ID, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:INITIAL_USER_ID, Env:INITIAL_USER_NAME, Env:INITIAL_USER_PASSWORD, Env:INITIAL_USER_ROLE -ErrorAction SilentlyContinue
 ```
 
-- 最初のユーザーのロールは、ロール定義の最初の、ユーザー管理の権限を持つロール（既定のロールでは、管理者 `admin`）。2 人目以降は、管理者が、画面（ユーザー管理）で作る
+- 最初のユーザーのロールは、ロール定義の最初の、ユーザー管理の権限を持つロール（既定のロールでは、管理者 `admin`）。2 人目以降は、管理者が、画面（ユーザー）で作る
 
 ### 9.6 バックアップ・復元
 
