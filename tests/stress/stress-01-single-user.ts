@@ -805,7 +805,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const result = (id: 'robot' | 'environment-sensor') => page.getByTestId(`result-${id}`);
   const logRows = rowsOf(page, 'ingestion-log-row');
   const ingestionShown = async (): Promise<void> => {
-    await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
     await expect(sourceCard('robot')).toBeVisible();
     await expect(sourceCard('environment-sensor')).toBeVisible();
     await expectListShown(page, 'ingestion-log-row');
@@ -824,7 +824,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-16',
     'メニューから「取り込み」を開く（取り込みのログ・連携の状況を表示）',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'screen',
     {
       act: () => menu('取り込み').click(),
@@ -837,7 +837,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['environment-sensor', '環境センサーデータ'],
   ] as const) {
     // 取得間隔・接続は、設備ごとの設定（Issue #197・#367）。この画面では、自動取り込みの有効／無効（変えずに）の保存を押す
-    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み設定・状況（SC-11）', 'operation', {
+    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み（SC-11）', 'operation', {
       act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
       respond: () => expect(result(id)).toHaveText('設定を保存しました'),
     });
@@ -847,7 +847,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-15',
     'ロボット 1 台の「接続テスト」を押す（設備ごとの表）',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'operation',
     {
       act: () => page.getByTestId(`equipment-test-${firstRobotId}`).click(),
@@ -860,7 +860,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-08',
     `ロボットのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 記録）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
@@ -870,7 +870,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-09',
     `環境センサーのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 行）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('environment-sensor').getByRole('button', { name: '即時取得' }).click(),
@@ -916,7 +916,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-08',
     '定期取り込み（JB-01）を起動し、取り込みのログで結果を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-01 の実行 ${String(await runJob(request, USER, 'JB-01'))} ms`,
@@ -929,33 +929,27 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
 
   // UC-16 取り込みのログ・連携の状況の絞り込み・ページ送り
   const logs = page.getByTestId('ingestion-logs');
-  await m(
-    'UC-16',
-    '取り込みのログを、設備（ロボット）で絞り込む',
-    '取り込み設定・状況（SC-11）',
-    'screen',
-    {
-      // 取り込み元の選択は、設備の選択に変わった（Issue #201）。設備の絞り込みは、その設備の取り込み元の失敗も含む
-      act: () => logs.getByLabel('設備', { exact: true }).selectOption('ROBOT-01'),
-      respond: async () => {
-        await expect(loadingView(page)).toHaveCount(0);
-        await expectEveryRowContains(logRows, 'ロボット');
-      },
+  await m('UC-16', '取り込みのログを、設備（ロボット）で絞り込む', '取り込み（SC-11）', 'screen', {
+    // 取り込み元の選択は、設備の選択に変わった（Issue #201）。設備の絞り込みは、その設備の取り込み元の失敗も含む
+    act: () => logs.getByLabel('設備', { exact: true }).selectOption('ROBOT-01'),
+    respond: async () => {
+      await expect(loadingView(page)).toHaveCount(0);
+      await expectEveryRowContains(logRows, 'ロボット');
     },
-  );
-  await m('UC-16', '取り込みのログの、次のページを開く', '取り込み設定・状況（SC-11）', 'screen', {
+  });
+  await m('UC-16', '取り込みのログの、次のページを開く', '取り込み（SC-11）', 'screen', {
     act: () => logs.getByRole('button', { name: '次へ' }).click(),
     respond: async () => {
       await expect(logs.getByTestId('pager-page')).toHaveText('2');
       await expect(loadingView(page)).toHaveCount(0);
     },
   });
-  await m('UC-16', '取り込みのログの絞り込みを解除する', '取り込み設定・状況（SC-11）', 'screen', {
+  await m('UC-16', '取り込みのログの絞り込みを解除する', '取り込み（SC-11）', 'screen', {
     act: () => logs.getByLabel('設備', { exact: true }).selectOption(''),
     respond: () => expectListShown(page, 'ingestion-log-row'),
   });
   const federation = page.getByTestId('federation-section');
-  await m('UC-16', '連携の結果の、次のページを開く', '取り込み設定・状況（SC-11）', 'screen', {
+  await m('UC-16', '連携の結果の、次のページを開く', '取り込み（SC-11）', 'screen', {
     act: () => federation.getByRole('button', { name: '次へ' }).click(),
     respond: async () => {
       await expect(federation.getByTestId('pager-page')).toHaveText('2');
@@ -967,7 +961,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-11',
     '連携（JB-03）を起動し、連携の状況で結果を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -982,7 +976,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-11',
     '農業情報基盤の停止中に連携（JB-03）を起動し、保留を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -997,7 +991,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-11',
     '農業情報基盤の復旧後に連携（JB-03）を起動し、保留分の送信を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -1014,7 +1008,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-24',
     'ファイルサーバーの停止中に「即時取得」を押す（再試行のあと失敗）',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
@@ -1063,7 +1057,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-05',
     '通知の「取り込みの状況を確認」を押し、取り込みの状況を開く',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'screen',
     {
       act: () =>
@@ -1182,7 +1176,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         .filter({ hasText: 'ROBOT-ADDED' })
         .getByRole('button', { name: '修正' })
         .click(),
-    // 設備のダイアログは、「取り込み元の接続」の欄の読み込み（取り込み設定・状況の取得）まで含めて、表示できたとする（Issue #367）
+    // 設備のダイアログは、「取り込み元の接続」の欄の読み込み（取り込みの取得）まで含めて、表示できたとする（Issue #367）
     respond: async () => {
       await expect(page.getByTestId('equipment-edit')).toBeVisible();
       await expect(page.getByTestId('equipment-connection')).toBeVisible();

@@ -414,8 +414,8 @@ export const MANAGEMENT_MESSAGES = {
     saved: '保存しました。現在の評価を更新しました',
     resetDone: '既定値へ戻しました',
     statusNote:
-      'この観点は、ステータスコードのカテゴリ（正常・注意・異常）でも判定します。ステータスコードの設定は、ステータスコード管理で行います',
-    goStatusCodes: 'ステータスコード管理へ',
+      'この観点は、ステータスコードのカテゴリ（正常・注意・異常）でも判定します。ステータスコードの設定は、メニューの「ステータスコード」で行います',
+    goStatusCodes: 'ステータスコードへ',
     readOnly: '判断基準を編集する権限がありません。参照のみできます',
     unknownViewpoint: '観点が見つかりません',
   },
@@ -446,7 +446,7 @@ export const MANAGEMENT_MESSAGES = {
     forbidden: 'ユーザーを管理する権限がありません',
   },
   ingestion: {
-    title: '取り込み設定・状況',
+    title: '取り込み',
     lead: 'ファイルサーバーからの取り込みと、農業情報基盤への連携の設定・状況です。認証情報は、画面に表示しません',
     sources: '取り込み元',
     sourceNames: { robot: 'ロボットデータ', 'environment-sensor': '環境センサーデータ' },

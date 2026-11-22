@@ -50,7 +50,7 @@ import { NOW, shot } from './support/viewpoint-scenarios.ts';
 async function openStatus(page: Page, query = ''): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, `/settings/ingestion${query}`);
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
 }
 
 async function runIngestionApi(
@@ -204,7 +204,7 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
 
     await openAs(page, '/settings/ingestion', VIEWER);
 
-    await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
     await expect(logRows(page)).toHaveCount(1);
     await expect(logRows(page).first().locator('.log-result')).toHaveText('成功');
     await expect(federationRows(page)).toHaveCount(1);

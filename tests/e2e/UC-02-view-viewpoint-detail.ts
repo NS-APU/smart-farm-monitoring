@@ -286,14 +286,11 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     }
     await shot(page, testInfo, 'detail-unknown-missing');
 
-    // 導線: データ入力・取り込み設定・状況
+    // 導線: データ入力・取り込み
     await page.getByTestId('unknown-guide').getByRole('link', { name: 'データ入力へ' }).click();
     await expect(page).toHaveURL(/\/data-entry$/);
     await page.goBack();
-    await page
-      .getByTestId('unknown-guide')
-      .getByRole('link', { name: '取り込み設定・状況へ' })
-      .click();
+    await page.getByTestId('unknown-guide').getByRole('link', { name: '取り込みへ' }).click();
     await expect(page).toHaveURL(/\/settings\/ingestion$/);
   });
 
@@ -769,7 +766,9 @@ test.describe('ステータスコードで判定する観点: カテゴリ名で
       await expect(page.getByTestId('diagnostic-message')).toContainText(
         `ステータス ${item.name}（${item.status}）`,
       );
-      await expect(page.getByTestId('criteria-status-note')).toContainText('ステータスコード管理');
+      await expect(page.getByTestId('criteria-status-note')).toContainText(
+        'メニューの「ステータスコード」',
+      );
       if (item.code === 'HARVEST_ERROR') {
         await shot(page, testInfo, 'detail-status-code');
       }

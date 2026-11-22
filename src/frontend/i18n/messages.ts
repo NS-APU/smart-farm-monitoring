@@ -139,7 +139,7 @@ export const MESSAGES = {
     notEvaluated: '評価がまだ行われていません',
     evaluatedAt: '最終の評価',
     goDataEntry: 'データ入力へ',
-    goIngestion: '取り込み設定・状況へ',
+    goIngestion: '取り込みへ',
     shortWindow: '直近24時間',
   },
   viewpoint: {
@@ -197,9 +197,9 @@ export const MESSAGES = {
     criteriaDefault: '既定値',
     criteriaVersion: '版',
     criteriaStatusNote:
-      'ステータスコードのカテゴリ（正常・注意・異常）でも判定します。設定はステータスコード管理で行います',
+      'ステータスコードのカテゴリ（正常・注意・異常）でも判定します。設定は、メニューの「ステータスコード」で行います',
     editCriteria: '判断基準を編集',
-    statusCodeSettings: 'ステータスコード管理',
+    statusCodeSettings: 'ステータスコード',
     trend: '推移',
     trendPeriod: '推移の期間',
     trendAverage: '期間の平均値',

@@ -1121,7 +1121,7 @@ describe('設備管理（UC-12。POST・PUT・DELETE /equipment）', () => {
   });
 });
 
-describe('ステータスコード管理（UC-17。POST・PUT・DELETE /status-codes）', () => {
+describe('ステータスコード（UC-17。POST・PUT・DELETE /status-codes）', () => {
   const NEW_CODE = {
     code: 'CHARGING',
     name: '充電中',
@@ -1648,7 +1648,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
   });
 });
 
-describe('取り込み設定・状況（UC-15、UC-16）', () => {
+describe('取り込み（UC-15、UC-16）', () => {
   async function settings(context: TestContext) {
     return IngestionSettingsResponseSchema.parse(
       await (await send(context, 'GET', '/ingestion/settings')).json(),
@@ -2048,7 +2048,7 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
       }
     });
 
-    it('取り込み設定・状況に、設備ごとの最終の実行（開始・結果・最後の成功・最後にデータが取れた日時）を含める。一度も実行していない設備は、なし', async () => {
+    it('取り込みに、設備ごとの最終の実行（開始・結果・最後の成功・最後にデータが取れた日時）を含める。一度も実行していない設備は、なし', async () => {
       const context = await seedLogs();
 
       const [robot, sensor] = (await settings(context)).sources;

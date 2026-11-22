@@ -265,7 +265,7 @@ describe('共通のヘッダー・ナビゲーション', () => {
     expect(screen.getByRole('link', { name: '本文へ移動' }).getAttribute('href')).toBe('#main');
   });
 
-  it('権限のないロールには、ユーザー管理のメニューを表示しない（サーバー側でも拒否する）', async () => {
+  it('権限のないロールには、メニューの「ユーザー」を表示しない（サーバー側でも拒否する）', async () => {
     renderApp({ session: VIEWER_LOGIN });
 
     await screen.findByText('閲覧者B');

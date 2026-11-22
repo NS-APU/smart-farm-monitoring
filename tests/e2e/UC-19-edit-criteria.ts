@@ -478,7 +478,7 @@ test.describe('代替フロー: 不正な組み合わせは、保存できない
 });
 
 test.describe('ステータスコードで判定する指標・存在しない観点', () => {
-  test('ステータスコードでも判定する観点（収穫速度・メンテナンス性・耐久性）では、ステータスの判定は、ここでは編集できない旨と、ステータスコード管理への導線を示す', async ({
+  test('ステータスコードでも判定する観点（収穫速度・メンテナンス性・耐久性）では、ステータスの判定は、ここでは編集できない旨と、ステータスコードへの導線を示す', async ({
     page,
     request,
   }) => {
@@ -495,9 +495,7 @@ test.describe('ステータスコードで判定する指標・存在しない�
         'ステータスコードのカテゴリ（正常・注意・異常）でも判定します',
       );
       await expect(
-        page
-          .getByTestId('criteria-status-note')
-          .getByRole('link', { name: 'ステータスコード管理へ' }),
+        page.getByTestId('criteria-status-note').getByRole('link', { name: 'ステータスコードへ' }),
       ).toHaveAttribute('href', '/settings/status-codes');
     }
     // ステータスを使わない観点では、表示しない

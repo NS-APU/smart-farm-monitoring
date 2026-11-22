@@ -66,7 +66,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await page.getByRole('button', { name: 'ログイン' }).click();
   await expectDashboardShown(page);
   await menu('取り込み').click();
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
   await expect(logRows.first()).toBeVisible();
 
   // 1. 即時取得（画面の操作）: ロボット・センサー、それぞれ数百ファイル
@@ -79,7 +79,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await m(
     'UC-08',
     `ロボットのデータ（${ROBOT_LABEL}。形式違い ${String(BROKEN)} ファイルを含む）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
@@ -95,7 +95,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await m(
     'UC-09',
     `環境センサーのデータ（${SENSOR_LABEL}。形式違い ${String(BROKEN)} ファイルを含む）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('environment-sensor').getByRole('button', { name: '即時取得' }).click(),
@@ -109,7 +109,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await m(
     'UC-08',
     `取り込み済みの ${String(robots)} ファイルがある状態で、もう一度「即時取得」する（新しいファイルなし）`,
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
@@ -134,7 +134,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await m(
     'UC-08',
     `定期取り込み（JB-01）で、ロボット・センサー合わせて ${String(robots + sensors)} ファイル（さらに ${String(robots + sensors)}）を処理し、取り込みのログで確認する`,
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-01 の実行 ${String(await runJob(request, USER, 'JB-01'))} ms`,
@@ -149,7 +149,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await m(
     'UC-11',
     '大量の取り込みのあとに、連携（JB-03）を起動し、連携の状況で結果を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -178,15 +178,13 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   const equipmentRunRows = page.locator('[data-testid^="equipment-run-"]');
   await m(
     'UC-16',
-    `大量の取り込みのあとに、取り込み設定・状況（設備ごとの接続と状況の表。ロボット・センサー合わせて ${String(robots + sensors)} 台以上）を開く`,
-    '取り込み設定・状況（SC-11）',
+    `大量の取り込みのあとに、取り込み（設備ごとの接続と状況の表。ロボット・センサー合わせて ${String(robots + sensors)} 台以上）を開く`,
+    '取り込み（SC-11）',
     'screen',
     {
       act: () => menu('取り込み').click(),
       respond: async () => {
-        await expect(
-          page.getByRole('heading', { name: '取り込み設定・状況', level: 1 }),
-        ).toBeVisible();
+        await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
         await expect(equipmentRunRows.first()).toBeVisible();
         await expect(loadingView(page)).toHaveCount(0);
         expect(await equipmentRunRows.count()).toBeGreaterThanOrEqual(robots + sensors);

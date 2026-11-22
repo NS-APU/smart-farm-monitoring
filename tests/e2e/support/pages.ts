@@ -28,14 +28,14 @@ export async function openDashboard(page: Page, query = ''): Promise<void> {
   await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
 }
 
-/** 取り込み設定・状況の画面を開く（ブラウザの時計を揃える。ユーザーを指定すれば、そのユーザーで開く）。 */
+/** 取り込みの画面を開く（ブラウザの時計を揃える。ユーザーを指定すれば、そのユーザーで開く）。 */
 export async function openIngestion(
   page: Page,
   user?: Parameters<typeof openAs>[2],
 ): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, '/settings/ingestion', user);
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
 }
 
 /**

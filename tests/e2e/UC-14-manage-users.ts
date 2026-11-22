@@ -149,7 +149,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await other.context.close();
   });
 
-  test('ロール「閲覧者」で登録したユーザーは、権限のない操作ができない（メニューのユーザー管理を表示しない）', async ({
+  test('ロール「閲覧者」で登録したユーザーは、権限のない操作ができない（メニューの「ユーザー」を表示しない）', async ({
     page,
     request,
     browser,
@@ -486,7 +486,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
 });
 
 test.describe('権限: ユーザーを管理する権限のない利用者（閲覧者）は、管理できない', () => {
-  test('閲覧者には、メニューにユーザー管理を表示せず、直接開いても、権限がない旨を表示する。サーバー側でも拒否する', async ({
+  test('閲覧者には、メニューに「ユーザー」を表示せず、直接開いても、権限がない旨を表示する。サーバー側でも拒否する', async ({
     page,
     request,
   }, testInfo) => {
@@ -557,7 +557,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await expect(page.getByTestId('permission-notice')).toHaveCount(0);
   });
 
-  test('一般も、ヘッダーの「ユーザー名の変更」から、自分のユーザー名を変えられる。ロール・ユーザー ID は、変わらず、ユーザー管理の一覧にも反映される', async ({
+  test('一般も、ヘッダーの「ユーザー名の変更」から、自分のユーザー名を変えられる。ロール・ユーザー ID は、変わらず、ユーザーの一覧にも反映される', async ({
     page,
     request,
   }, testInfo) => {
@@ -580,7 +580,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     // 画面を読み直しても、変更が残る（サーバーに保存されている）
     await page.reload();
     await expect(page.getByTestId('user-name')).toHaveText('E2E一般ユーザー（改）');
-    // 管理者のユーザー管理の一覧にも反映され、ロールは、一般のまま（管理者の API で確認する）
+    // 管理者のユーザーの一覧にも反映され、ロールは、一般のまま（管理者の API で確認する）
     const list = await apiOk<{ items: { userId: string; userName: string; role: string }[] }>(
       request,
       'GET',
@@ -723,7 +723,7 @@ test.describe('事後条件: ユーザーの情報が保存されている（画
   });
 });
 
-test.describe('スマートフォン幅（375px）でも、ユーザー管理は、横にはみ出さず、操作できる', () => {
+test.describe('スマートフォン幅（375px）でも、ユーザーの画面は、横にはみ出さず、操作できる', () => {
   test('一覧・登録の画面が、画面の幅に収まり、登録できる', async ({ page, request }, testInfo) => {
     await prepareApp(request);
     await addUser(request, USER_B);
@@ -790,7 +790,7 @@ test.describe('境界値: 長いユーザー名・ユーザーID（上限ちょ�
   });
 });
 
-test.describe('タブレット幅（768px。NFR-7.3）でも、ユーザー管理の表は、全列・操作のボタンが、横にスクロールせずに見える', () => {
+test.describe('タブレット幅（768px。NFR-7.3）でも、ユーザーの表は、全列・操作のボタンが、横にスクロールせずに見える', () => {
   test('一覧が、表の枠の中に収まる', async ({ page, request }, testInfo) => {
     await prepareApp(request);
     await addUser(request, USER_B);

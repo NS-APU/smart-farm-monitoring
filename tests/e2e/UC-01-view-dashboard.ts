@@ -491,7 +491,7 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     await page.locator('.notice').getByRole('link', { name: 'データ入力へ' }).click();
     await expect(page).toHaveURL(/\/data-entry$/);
     await page.goBack();
-    await page.locator('.notice').getByRole('link', { name: '取り込み設定・状況へ' }).click();
+    await page.locator('.notice').getByRole('link', { name: '取り込みへ' }).click();
     await expect(page).toHaveURL(/\/settings\/ingestion$/);
   });
 

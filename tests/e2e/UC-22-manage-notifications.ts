@@ -373,7 +373,7 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
       .click();
 
     await expect(page).toHaveURL(/\/settings\/ingestion/);
-    await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
     await expect(unreadBadge(page)).toHaveText('4');
   });
 

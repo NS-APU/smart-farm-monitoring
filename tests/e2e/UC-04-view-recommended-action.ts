@@ -155,7 +155,7 @@ test.describe('ステータスの同値分割: 推奨アクションは診断結
       'href',
       '/data-entry',
     );
-    await expect(guide.getByRole('link', { name: '取り込み設定・状況へ' })).toHaveAttribute(
+    await expect(guide.getByRole('link', { name: '取り込みへ' })).toHaveAttribute(
       'href',
       '/settings/ingestion',
     );
@@ -236,7 +236,7 @@ test.describe('評価が行われていない（評価前）の観点', () => {
       'href',
       '/data-entry',
     );
-    await expect(guide.getByRole('link', { name: '取り込み設定・状況へ' })).toHaveAttribute(
+    await expect(guide.getByRole('link', { name: '取り込みへ' })).toHaveAttribute(
       'href',
       '/settings/ingestion',
     );
