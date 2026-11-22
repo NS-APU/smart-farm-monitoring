@@ -79,9 +79,9 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await expectRelatedStatus(page, 'environmentalAdaptability', '注意');
     await shot(page, testInfo, 'uc07-saved');
 
-    // 4. 手動入力であることを区別できる形で保持する（取り込み済みデータの一覧の取得元）
+    // 4. 手動入力であることを区別できる形で保持する（計測データの一覧の取得元）
     // 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows).toContainText('手動入力');
@@ -561,7 +561,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
     // 1 回の入力（稼働情報の 4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows).toContainText('手動入力');
@@ -588,7 +588,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
-    await goToMenu(page, '取り込み済みデータ');
+    await goToMenu(page, '計測データ');
     const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText('手動入力');

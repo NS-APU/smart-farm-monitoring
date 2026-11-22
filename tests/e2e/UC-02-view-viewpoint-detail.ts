@@ -1223,7 +1223,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     ).toContainText('収穫中');
   });
 
-  test('元データがなければ、その旨を示す。取り込み済みデータの一覧（SC-09）への導線がある', async ({
+  test('元データがなければ、その旨を示す。計測データの一覧（SC-09）への導線がある', async ({
     page,
     request,
   }) => {
@@ -1236,7 +1236,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await expect(source.getByTestId('source-data-empty')).toContainText(
       '該当するデータがありません',
     );
-    await source.getByRole('link', { name: '取り込み済みデータ一覧へ' }).click();
+    await source.getByRole('link', { name: '計測データ一覧へ' }).click();
     await expect(page).toHaveURL(/\/observations$/);
   });
 

@@ -91,8 +91,8 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await expect(speedCard(b.page)).toContainText('推奨アクション: 確認が望ましい状態です');
     await shot(b.page, testInfo, 'scenario-config-b-caution');
 
-    // UC-20: Bが、取り込み済みデータの一覧で、ステータスコードを名称で確認する
-    await goToMenu(b.page, '取り込み済みデータ');
+    // UC-20: Bが、計測データの一覧で、ステータスコードを名称で確認する
+    await goToMenu(b.page, '計測データ');
     const statusRows = measurementRows(b.page).filter({ hasText: 'ステータスコード' });
     await expect(statusRows).toHaveCount(2);
     await expect(statusRows.first()).toContainText('充電待ち');

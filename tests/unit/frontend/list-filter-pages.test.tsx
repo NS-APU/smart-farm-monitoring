@@ -163,7 +163,7 @@ const OBSERVATION = {
   isDeleted: false,
 };
 
-describe('取り込み済みデータ（SC-09）への適用', () => {
+describe('計測データ（SC-09）への適用', () => {
   const routes: Routes = {
     'GET /observations': () => jsonResponse({ items: [OBSERVATION], nextCursor: 'c-2' }),
     'GET /observations/measurements': () => jsonResponse({ items: [], nextCursor: null }),

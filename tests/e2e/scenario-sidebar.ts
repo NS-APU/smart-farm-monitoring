@@ -83,7 +83,7 @@ test.describe('広い幅（1280px）: サイドメニューの開閉', () => {
     page,
   }) => {
     await page.goto('/observations');
-    await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
     await expect(title(page)).toHaveAttribute('href', '/');
     await expect(page.locator('#app-sidebar').getByText('Greenhouse Monitor')).toHaveCount(0);
 

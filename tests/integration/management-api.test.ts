@@ -559,7 +559,7 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
 
   it.each([
     ['カテゴリ', '?category=FAILURE', ['FAILURE']],
-    // ハウスを指定すると、配下のロボット・センサーの入力も含める（Issue #152 の PR1。取り込み済みデータと同じ）
+    // ハウスを指定すると、配下のロボット・センサーの入力も含める（Issue #152 の PR1。計測データと同じ）
     [
       '設備（ハウス。配下も含める）',
       `?equipmentId=${FACILITY_ID}`,

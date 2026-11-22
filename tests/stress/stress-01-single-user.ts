@@ -354,82 +354,68 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
 
   // ---------------------------------------------------------------------------------------------
-  // UC-20 取り込み済みデータ（約60万件）の一覧
+  // UC-20 計測データ（約60万件）の一覧
   // ---------------------------------------------------------------------------------------------
   // 日時順（既定）は、1 回の計測ごとの行（measurement-row）。値・カテゴリの順は、項目ごとの行（observation-row。#363）
   const measurementRows = rowsOf(page, 'measurement-row');
-  await m(
-    'UC-20',
-    'メニューから「取り込み済みデータ」を開く',
-    '取り込み済みデータ（SC-09）',
-    'screen',
-    {
-      act: () => menu('取り込み済みデータ').click(),
-      respond: async () => {
-        await expect(
-          page.getByRole('heading', { name: '取り込み済みデータ', level: 1 }),
-        ).toBeVisible();
-        await expectListShown(page, 'measurement-row');
-      },
+  await m('UC-20', 'メニューから「計測データ」を開く', '計測データ（SC-09）', 'screen', {
+    act: () => menu('計測データ').click(),
+    respond: async () => {
+      await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
+      await expectListShown(page, 'measurement-row');
     },
-  );
+  });
   await screenshot(page, '07-observations');
-  await m('UC-20', 'カテゴリ「環境情報」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'カテゴリ「環境情報」で絞り込む', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('カテゴリ').selectOption('ENVIRONMENT'),
     respond: () => expectEveryRowContains(measurementRows, CATEGORY_LABELS.ENVIRONMENT),
   });
-  await m('UC-20', '取得元「手動入力」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '取得元「手動入力」で絞り込む', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('取得元').selectOption('MANUAL'),
     respond: () => expectEveryRowContains(measurementRows, '手動入力'),
   });
-  await m(
-    'UC-20',
-    '取得元・カテゴリの絞り込みを解除する',
-    '取り込み済みデータ（SC-09）',
-    'screen',
-    {
-      act: async () => {
-        await page.getByLabel('取得元').selectOption('');
-        await page.getByLabel('カテゴリ').selectOption('');
-      },
-      respond: () => expectListShown(page, 'measurement-row'),
+  await m('UC-20', '取得元・カテゴリの絞り込みを解除する', '計測データ（SC-09）', 'screen', {
+    act: async () => {
+      await page.getByLabel('取得元').selectOption('');
+      await page.getByLabel('カテゴリ').selectOption('');
     },
-  );
-  await m('UC-20', '設備「ハウス2」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+    respond: () => expectListShown(page, 'measurement-row'),
+  });
+  await m('UC-20', '設備「ハウス2」で絞り込む', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('設備', { exact: true }).selectOption('ROBOT-02-1'),
     respond: () => expectEveryRowContains(measurementRows, '負荷試験ロボット2-1'),
   });
-  await m('UC-20', '設備の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '設備の絞り込みを解除する', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('設備', { exact: true }).selectOption(''),
     respond: () => expectListShown(page, 'measurement-row'),
   });
-  await m('UC-20', '期間（直近30日）で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '期間（直近30日）で絞り込む', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('期間（開始日）').fill(dateInput(30));
       await page.getByLabel('期間（終了日）').fill(dateInput(0));
     },
     respond: () => expectListShown(page, 'measurement-row'),
   });
-  await m('UC-20', 'キーワード「温度」で検索する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'キーワード「温度」で検索する', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill('温度'),
     respond: () => expectEveryRowContains(measurementRows, '温度'),
   });
-  await m('UC-20', 'キーワードを消して、検索を解除する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'キーワードを消して、検索を解除する', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill(''),
     respond: () => expectListShown(page, 'measurement-row'),
   });
-  await m('UC-20', '値の昇順で並べ替える', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '値の昇順で並べ替える', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('並べ替え', { exact: true }).selectOption('value');
       await page.getByLabel('並べ替えの向き').selectOption('asc');
     },
     respond: () => expectListShown(page, 'observation-row'),
   });
-  await m('UC-20', 'カテゴリ順に並べ替える', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'カテゴリ順に並べ替える', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('並べ替え', { exact: true }).selectOption('category'),
     respond: () => expectListShown(page, 'observation-row'),
   });
-  await m('UC-20', '日時の新しい順に戻す', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '日時の新しい順に戻す', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('並べ替え', { exact: true }).selectOption('observedAt');
       await page.getByLabel('並べ替えの向き').selectOption('desc');
@@ -437,7 +423,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     respond: () => expectListShown(page, 'measurement-row'),
   });
   // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（#91）のため、ここまで、直近 30 日の期間を指定したまま計測した
-  await m('UC-20', '期間の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '期間の絞り込みを解除する', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('期間（開始日）').fill('');
       await page.getByLabel('期間（終了日）').fill('');
@@ -449,7 +435,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['次のページを開く（3ページ目）', '次へ', '3'],
     ['前のページへ戻る', '前へ', '2'],
   ] as const) {
-    await m('UC-20', action, '取り込み済みデータ（SC-09）', 'screen', {
+    await m('UC-20', action, '計測データ（SC-09）', 'screen', {
       act: () => page.getByRole('button', { name: button }).click(),
       respond: async () => {
         await expect(page.getByTestId('pager-page')).toHaveText(expected);
@@ -878,16 +864,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         expect(result('environment-sensor')).toContainText(`ファイル ${String(FILES.count)} 件`),
     },
   );
-  await m(
-    'UC-08',
-    '取り込んだデータを「取り込み済みデータ」で確認する',
-    '取り込み済みデータ（SC-09）',
-    'screen',
-    {
-      act: () => menu('取り込み済みデータ').click(),
-      respond: () => expectListShown(page, 'measurement-row'),
-    },
-  );
+  await m('UC-08', '取り込んだデータを「計測データ」で確認する', '計測データ（SC-09）', 'screen', {
+    act: () => menu('計測データ').click(),
+    respond: () => expectListShown(page, 'measurement-row'),
+  });
   await m(
     'UC-08',
     '取り込みの結果が、ダッシュボードの評価に反映されている',

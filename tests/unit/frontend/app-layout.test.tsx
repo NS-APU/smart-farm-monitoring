@@ -180,7 +180,7 @@ describe('共通のレイアウト', () => {
     ['/data-entry', 'データ入力'],
     ['/data-entry/list', 'データ入力'],
     ['/data-entry/history', 'データ入力'],
-    ['/observations', '取り込み済みデータ'],
+    ['/observations', '計測データ'],
     ['/settings/equipment', 'ハウス・設備'],
     ['/settings/ingestion', '取り込み'],
     ['/settings/status-codes', 'ステータスコード'],
@@ -289,7 +289,7 @@ describe('狭い幅の、メニューの引き出し', () => {
 
     fireEvent.click(
       within(screen.getByRole('navigation', { name: 'メニュー' })).getByRole('link', {
-        name: '取り込み済みデータ',
+        name: '計測データ',
       }),
     );
 

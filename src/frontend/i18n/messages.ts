@@ -90,7 +90,7 @@ export const MESSAGES = {
   nav: {
     dashboard: 'ダッシュボード',
     dataEntry: 'データ入力',
-    observations: '取り込み済みデータ',
+    observations: '計測データ',
     settings: '設定',
     equipment: 'ハウス・設備',
     ingestion: '取り込み',
@@ -230,7 +230,7 @@ export const MESSAGES = {
     item: '項目',
     source: '取得元',
     quality: '状態',
-    toObservations: '取り込み済みデータ一覧へ',
+    toObservations: '計測データ一覧へ',
   },
   satisfaction: {
     title: '満足度の詳細',

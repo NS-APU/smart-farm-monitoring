@@ -39,7 +39,7 @@ export async function openIngestion(
 }
 
 /**
- * 取り込み済みデータの一覧の条件に、「項目ごと」の一覧にする指定を足す（並べ替えを「カテゴリ」にする）。
+ * 計測データの一覧の条件に、「項目ごと」の一覧にする指定を足す（並べ替えを「カテゴリ」にする）。
  * 一覧は、日時順（既定）だと、1 回の計測ごとにまとめる（Issue #363）。項目ごとの内容を確認するテストは、この指定で、項目ごとの一覧にする。
  * 並べ替え・期間（31 日以内。日本時間の日付）の指定がなければ、足す（期間は、固定の現在時刻〔2026-10-09〕までの 30 日）。
  */
@@ -58,18 +58,18 @@ export function itemListQuery(query = ''): string {
 }
 
 /**
- * 取り込み済みデータの画面を、項目ごとの一覧（並べ替え「カテゴリ」）で開く（クエリは、`?category=...` のように、先頭の `?` つきで指定する）。
+ * 計測データの画面を、項目ごとの一覧（並べ替え「カテゴリ」）で開く（クエリは、`?category=...` のように、先頭の `?` つきで指定する）。
  * 1 回の計測ごとの一覧（既定）は、`openMeasurementsPage` で開く。
  */
 export async function openObservationsPage(page: Page, query = ''): Promise<void> {
   await page.goto(`/observations${itemListQuery(query)}`);
-  await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
 }
 
-/** 取り込み済みデータの画面を、1 回の計測ごとの一覧（日時順。既定）で開く。 */
+/** 計測データの画面を、1 回の計測ごとの一覧（日時順。既定）で開く。 */
 export async function openMeasurementsPage(page: Page, query = ''): Promise<void> {
   await page.goto(`/observations${query}`);
-  await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
 }
 
 /** ページが横にはみ出していない（横スクロールが出ない）。 */

@@ -177,8 +177,8 @@ export const MANAGEMENT_MESSAGES = {
     noPermission: '変更履歴を参照する権限がありません',
   },
   observations: {
-    title: '取り込み済みデータ',
-    lead: '評価の根拠となる、取り込み済みのデータ（自動取り込み・手動入力）の一覧です',
+    title: '計測データ',
+    lead: '評価の根拠となる、計測データ（自動取り込み・手動入力）の一覧です',
     category: 'カテゴリ',
     equipment: '設備',
     source: '取得元',

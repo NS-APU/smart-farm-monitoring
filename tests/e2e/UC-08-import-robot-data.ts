@@ -1,7 +1,7 @@
 /**
  * UC-08 ロボットデータを自動で取り込む（SC-11 の即時取得、確認は SC-09・SC-02・SC-11。FR-1.1、FR-1.3、FR-1.6、FR-1.9〜FR-1.12）。
  * UI を持たないユースケースのため、画面（SC-11 の即時取得）と、開発用 API（ジョブの起動・時計・モックの停止）で、
- * 取り込みを起動し、結果を、SC-09（取り込み済みデータ）・SC-02（評価の更新）・SC-11（取り込みのログ）で確認する（dev_spec.md 5.1）。
+ * 取り込みを起動し、結果を、SC-09（計測データ）・SC-02（評価の更新）・SC-11（取り込みのログ）で確認する（dev_spec.md 5.1）。
  *
  * ユースケースシナリオ（use-cases.md）:
  *   基本フロー  1. システムが、ファイルサーバー上の新しいロボットデータを検知する
@@ -97,7 +97,7 @@ async function addRobot(
 }
 
 test.describe('基本フロー: 新しいロボットデータを検知し、検証して、ロボットとハウスに対応づけて保存し、評価を更新する', () => {
-  test('ファイルサーバーに置いたロボットデータを取り込むと、取り込み済みデータ（自動取り込み・有効）に保存され、ログに記録され、評価（収穫速度）が更新される', async ({
+  test('ファイルサーバーに置いたロボットデータを取り込むと、計測データ（自動取り込み・有効）に保存され、ログに記録され、評価（収穫速度）が更新される', async ({
     page,
     request,
   }, testInfo) => {
@@ -130,7 +130,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc08-ingestion');
 
-    // ログから、取得したデータ（取り込み済みデータの一覧）へ移れる（Issue #363）。自動取り込み・実行の日付で絞られ、1 回の計測ごとに示す
+    // ログから、取得したデータ（計測データの一覧）へ移れる（Issue #363）。自動取り込み・実行の日付で絞られ、1 回の計測ごとに示す
     await log.getByRole('link', { name: '一覧で見る' }).click();
     await expect(page).toHaveURL(
       /\/observations\?source=AUTO_IMPORT&equipmentId=[A-Za-z0-9-]+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}/,
@@ -301,7 +301,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     expect(second.executed).toContain('JB-01');
     await openIngestion(page);
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(1);
-    // 取り込まれたデータが、取り込み済みデータに現れる
+    // 取り込まれたデータが、計測データに現れる
     await openObservations(page);
     await expect(observationRows(page)).toHaveCount(14);
   });
@@ -663,7 +663,7 @@ test.describe('遅延したデータ（計測から受信まで60分を超える
 });
 
 test.describe('API でも確認する（取り込みの結果）', () => {
-  test('即時取得の応答は、実行を待って、結果の概要（成功・ファイル数・取り込み件数）を返し、取り込み済みデータの API に反映される', async ({
+  test('即時取得の応答は、実行を待って、結果の概要（成功・ファイル数・取り込み件数）を返し、計測データの API に反映される', async ({
     request,
   }) => {
     await prepareApp(request);

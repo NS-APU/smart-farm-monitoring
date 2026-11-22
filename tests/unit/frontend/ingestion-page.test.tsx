@@ -275,7 +275,7 @@ describe('取り込み（UC-15・UC-16。SC-11）', () => {
     expect(labelsOf(federationRow).every((label) => label !== null && label !== '')).toBe(true);
   });
 
-  it('取り込みのログから、取得したデータ（取り込み済みデータの一覧）へ移れる。設備・自動取り込み・実行の日付（日本時間）で絞る。取得件数が 0 の実行は、リンクを出さない（Issue #363）', async () => {
+  it('取り込みのログから、取得したデータ（計測データの一覧）へ移れる。設備・自動取り込み・実行の日付（日本時間）で絞る。取得件数が 0 の実行は、リンクを出さない（Issue #363）', async () => {
     renderApp(
       '/settings/ingestion',
       baseRoutes({

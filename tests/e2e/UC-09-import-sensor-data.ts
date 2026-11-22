@@ -69,7 +69,7 @@ async function addSensor(
 }
 
 test.describe('基本フロー: 新しいセンサーデータを検知し、検証して、センサーとハウスに対応づけて保存し、評価を更新する', () => {
-  test('ファイルサーバーに置いたセンサーデータ（JSON）を取り込むと、取り込み済みデータ（自動取り込み・有効）に保存され、ログに記録され、環境適応性が更新される', async ({
+  test('ファイルサーバーに置いたセンサーデータ（JSON）を取り込むと、計測データ（自動取り込み・有効）に保存され、ログに記録され、環境適応性が更新される', async ({
     page,
     request,
   }, testInfo) => {
@@ -479,7 +479,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     const result = await runNow(page, 'environment-sensor');
 
     await expect(result).toContainText('取り込み 0 件、読み取れなかった記録 2 件');
-    // 保存しない（取り込み済みデータに現れない）
+    // 保存しない（計測データに現れない）
     await openObservations(page);
     await expect(observationRows(page)).toHaveCount(0);
   });

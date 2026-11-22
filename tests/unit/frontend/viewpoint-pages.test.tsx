@@ -1095,7 +1095,7 @@ describe('観点の詳細: 元データ（UC-02）', () => {
     expect(request?.query.get('limit')).toBe('10');
     expect(request?.query.has('q')).toBe(false);
     expect(
-      within(source).getByRole('link', { name: '取り込み済みデータ一覧へ' }).getAttribute('href'),
+      within(source).getByRole('link', { name: '計測データ一覧へ' }).getAttribute('href'),
     ).toBe('/observations');
   });
 

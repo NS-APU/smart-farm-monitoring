@@ -196,11 +196,11 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   // 5. 大量の取り込みのあとの、画面の表示・保存
   await m(
     'UC-20',
-    '大量の取り込みのあとに、取り込み済みデータの一覧を開く',
-    '取り込み済みデータ（SC-09）',
+    '大量の取り込みのあとに、計測データの一覧を開く',
+    '計測データ（SC-09）',
     'screen',
     {
-      act: () => menu('取り込み済みデータ').click(),
+      act: () => menu('計測データ').click(),
       respond: async () => {
         await expect(loadingView(page)).toHaveCount(0);
         await expect(page.getByTestId('measurement-row').first()).toBeVisible();
