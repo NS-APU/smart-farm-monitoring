@@ -115,6 +115,10 @@ test.describe('基本フロー: 入力済みデータの一覧を開く', () => 
 
     await openList(page);
 
+    // メニューの現在地: 入力データ一覧（/data-entry/list）でも、「データ入力」を強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['データ入力']);
     await expect(rows(page)).toHaveCount(3);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '計測日時',
@@ -693,6 +697,10 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
 
     await openHistory(page, '?targetType=manual-entry');
 
+    // メニューの現在地: 変更履歴（/data-entry/history）でも、「データ入力」を強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['データ入力']);
     await expect(auditRows(page)).toHaveCount(4);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '日時',

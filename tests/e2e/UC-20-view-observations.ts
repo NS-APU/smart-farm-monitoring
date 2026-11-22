@@ -154,6 +154,10 @@ test.describe('基本フロー: データの一覧を開き、日時・設備・
       .click();
 
     await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
+    // メニューの現在地: 「計測データ」だけを強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['計測データ']);
     await expect(page.getByTestId('observations-mode-note')).toContainText('1 行にまとめて');
     // この例は、どの計測も 1 項目（計測の日時がすべて違う）。項目ごとの行（observation-row）は、出さない
     await expect(measurementRows(page)).toHaveCount(10);
