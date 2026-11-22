@@ -17,6 +17,14 @@ export const STATUS_LABELS: Readonly<Record<EvaluationStatus, string>> = {
   UNKNOWN: '不明',
 };
 
+/** ステータスの意味（画面の凡例。evaluation.md 2章の定義）。画面の文言として、そのまま表示する。 */
+export const STATUS_MEANINGS: Readonly<Record<EvaluationStatus, string>> = {
+  NORMAL: '判断基準を満たしています',
+  CAUTION: '正常ではありませんが、異常ほどではありません。農作業者の確認が望ましい状態です',
+  ERROR: '判断基準を満たしていません。農作業者の対応が必要です',
+  UNKNOWN: '評価に必要なデータが足りず、評価できません',
+};
+
 /**
  * 「不明」（判定に必要なデータが足りない、または評価前）のときの推奨アクション（FR-5.5。文言は暫定。Q-010）。
  * 評価の結果（バックエンド）と、評価前の観点の表示（フロントエンド）で、同じ文言を使う。
