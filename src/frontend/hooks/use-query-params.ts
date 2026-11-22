@@ -12,6 +12,8 @@ export interface QueryParams {
   readonly get: (name: string, fallback?: string) => string;
   /** 条件を変更する。undefined・空の文字列は、その条件を外す。 */
   readonly set: (patch: Readonly<Record<string, string | undefined>>) => void;
+  /** 指定した条件を、すべて外す（初期値に戻す。条件のクリア）。ほかのクエリは、そのまま残す。 */
+  readonly clear: (names: readonly string[]) => void;
 }
 
 export function useQueryParams(): QueryParams {
@@ -37,7 +39,18 @@ export function useQueryParams(): QueryParams {
     },
     [pathname, searchText],
   );
-  return { get, set };
+  const clear = useCallback(
+    (names: readonly string[]) => {
+      set(Object.fromEntries(names.map((name) => [name, undefined])));
+    },
+    [set],
+  );
+  return { get, set, clear };
+}
+
+/** 適用中の条件の数（初期値と違う条件。絞り込みの値があるもの・並べ替えが既定と違うもの）。 */
+export function countActiveConditions(conditions: readonly boolean[]): number {
+  return conditions.filter(Boolean).length;
 }
 
 /** 並べ替えの向き。URL のクエリが asc のときだけ昇順、それ以外（未指定・未知の値）は降順。 */

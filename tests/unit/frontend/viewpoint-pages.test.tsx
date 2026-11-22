@@ -557,8 +557,8 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
 
     expect([...select.options].map((option) => option.textContent)).toEqual([
       'ハウス1',
-      '　収穫ロボット1',
-      '　環境センサー1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
     ]);
     expect(within(screen.getByRole('banner')).queryByLabelText('対象の設備')).toBeNull();
 

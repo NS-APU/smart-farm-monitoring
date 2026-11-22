@@ -229,6 +229,49 @@ textarea {
   margin-left: auto;
 }
 
+/* 絞り込みの枠の下に置く操作（通知の「既読にする」）は、右に寄せる */
+.filter-panel + .filter-actions {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+/* 絞り込みの枠: 適用中の条件の数と、条件のクリアを、項目の上に示す。狭い幅では、項目を折りたたむ（条件の数とクリアは見える） */
+.filter-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.filter-panel-head .filter-clear {
+  margin-left: auto;
+}
+
+.filter-count {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* 開閉のボタンは、狭い幅だけ（広い幅では、項目を常に開く） */
+.filter-panel-head .filter-toggle {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .filter-panel-head .filter-toggle {
+    display: inline-flex;
+  }
+
+  .filter-panel[data-open='false'] .filter-body {
+    display: none;
+  }
+
+  .filter-panel[data-open='false'] .filter-panel-head {
+    margin-bottom: 0;
+  }
+}
+
 /* 確認のダイアログ */
 .dialog-backdrop {
   position: fixed;

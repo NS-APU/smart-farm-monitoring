@@ -686,6 +686,11 @@
   margin-top: 12px;
 }
 
+/* 表示範囲（「21〜40 件目」）は、行の左端に置く */
+.pager-range {
+  margin-right: auto;
+}
+
 /* 満足度 */
 .overall {
   display: flex;
