@@ -328,7 +328,7 @@ describe('データ入力（UC-06。SC-06）', () => {
     });
   });
 
-  it('SC-06-3: 保存結果のパネルは、role="status" で、保存後に画面内へスクロールする（保存のたびに）。フォーカスは、押した保存ボタンのまま', async () => {
+  it('SC-06-3: 保存結果のパネルは、role="status" で、保存後に画面内へスクロールする（保存のたびに）。フォーカスは、結果へ移さない', async () => {
     const scroll = stubScrollIntoView();
     renderApp('/data-entry', {
       'POST /manual-entries': () => jsonResponse(SAVED, 201),
@@ -349,7 +349,8 @@ describe('データ入力（UC-06。SC-06）', () => {
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll.mock.contexts[0]).toBe(result);
     expect(scroll.mock.calls[0]?.[0]).toMatchObject({ block: 'nearest' });
-    expect(document.activeElement).toBe(save);
+    // フォーカスを、結果へ移さない（保存中は、保存ボタンが無効になり、実際のブラウザでは、フォーカスがボタンから外れる）
+    expect(result.contains(document.activeElement)).toBe(false);
 
     // 2 回目の保存でも、もう一度スクロールする（新しい結果が現れたとき）
     fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T12:00' } });
