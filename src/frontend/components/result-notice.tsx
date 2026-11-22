@@ -14,7 +14,7 @@ export function ResultNotice(props: {
   readonly message: string | undefined;
   readonly testId: string;
   /** false なら、失敗の見た目（既定: 成功）。 */
-  readonly ok?: boolean;
+  readonly ok?: boolean | undefined;
 }): ReactNode {
   const ref = useRevealOnChange<HTMLParagraphElement>(props.message);
   if (props.message === undefined) {

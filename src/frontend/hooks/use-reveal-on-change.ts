@@ -7,7 +7,7 @@
  * 戻り値の ref を、通知の要素に付ける。`signal` が変わるたび（最初の表示を含む）にスクロールする（同じ値のままの描き直しでは、しない）。
  */
 
-import { useEffect, useRef, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -17,7 +17,8 @@ function prefersReducedMotion(): boolean {
 
 export function useRevealOnChange<T extends HTMLElement>(signal: unknown): RefObject<T | null> {
   const ref = useRef<T | null>(null);
-  useEffect(() => {
+  // 描画の直後（画面に出る前）に実行する。表示と同時にスクロールが決まり、通知が現れた直後に、位置を確かめられる
+  useLayoutEffect(() => {
     const element = ref.current;
     if (element === null || typeof element.scrollIntoView !== 'function') {
       return;
