@@ -17,6 +17,8 @@ export interface SubmitState {
   readonly fieldErrors: Readonly<Record<string, string>>;
   /** 画面全体のエラーのメッセージ。エラーがなければ undefined。 */
   readonly formMessage: string | undefined;
+  /** サーバーが返したエラーの種類（CONFLICT など）。エラーがない・サーバーのエラーでなければ undefined。 */
+  readonly errorCode: ApiError['code'] | undefined;
   readonly clearError: () => void;
 }
 
@@ -56,5 +58,7 @@ export function useSubmit(): SubmitState {
         ? error.message
         : MESSAGES.common.unexpectedError;
 
-  return { busy, run, fieldErrors, formMessage, clearError };
+  const errorCode = error instanceof ApiError ? error.code : undefined;
+
+  return { busy, run, fieldErrors, formMessage, errorCode, clearError };
 }

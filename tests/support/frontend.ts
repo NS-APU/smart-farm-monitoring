@@ -15,6 +15,8 @@ export interface FakeRequest {
   readonly authorization: string | null;
   /** 条件つきの GET（前回の ETag）。 */
   readonly ifNoneMatch: string | null;
+  /** 版つき更新の条件（読み込んだ時点の ETag）。 */
+  readonly ifMatch: string | null;
 }
 
 export type FakeHandler = (request: FakeRequest) => Response | Promise<Response> | undefined;
@@ -45,6 +47,7 @@ export function createFakeFetch(handler: FakeHandler) {
       body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined,
       authorization: headers.get('authorization'),
       ifNoneMatch: headers.get('if-none-match'),
+      ifMatch: headers.get('if-match'),
     };
     calls.push(request);
     return Promise.resolve(handler(request) ?? errorResponse(404, 'NOT_FOUND', '見つかりません'));

@@ -549,6 +549,94 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await b.context.close();
   });
 
+  test('同時編集の検出（SC-13-1）: 2 人の管理者が同じ判断基準を開き、先に保存すると、後から保存した人には、「他の管理者が変更しました」と示す。読み込み直せば、保存できる。先の変更は、上書きされない', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await seed(request, {});
+    const b = await newUserSession(browser, testInfo, 'user-b');
+    // 2 人とも、既定値の判断基準を開く
+    await openCriteria(page, 'environmentalAdaptability');
+    await openCriteria(b.page, 'environmentalAdaptability', USER_B);
+    await expect(state(b.page)).toContainText('既定値');
+
+    // 先に、利用者Aが保存する
+    await card(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）').fill('30');
+    await save(page).click();
+    await expect(state(page)).toContainText('版: CUSTOM-1');
+
+    // 後から、利用者Bが（古い画面から）保存する: 競合の案内。保存されない
+    await card(b.page, 'humidityPercent').getByLabel('正常上限（未満で正常）').fill('75');
+    await save(b.page).click();
+    const conflict = b.page.getByTestId('criteria-conflict');
+    await expect(conflict).toContainText('他の管理者が変更しました。読み込み直してください');
+    await expect(conflict.getByRole('button', { name: '読み込み直す' })).toBeVisible();
+    await expect(notice(b.page)).toHaveCount(0);
+    await shot(b.page, testInfo, 'uc19-conflict');
+    const stored = (await (
+      await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria')
+    ).json()) as {
+      version: string;
+      criteria: { indicator: string; thresholds: Record<string, number> }[];
+    };
+    expect(stored.version).toBe('CUSTOM-1');
+    expect(
+      stored.criteria.find((item) => item.indicator === 'temperatureCelsius')?.thresholds
+        .normalUpper,
+    ).toBe(30);
+    expect(
+      stored.criteria.find((item) => item.indicator === 'humidityPercent')?.thresholds.normalUpper,
+    ).not.toBe(75);
+
+    // 読み込み直すと、利用者Aの変更（版 CUSTOM-1）が表示され、案内は消える。もう一度保存できる
+    await conflict.getByRole('button', { name: '読み込み直す' }).click();
+    await expect(state(b.page)).toContainText('版: CUSTOM-1');
+    await expect(conflict).toHaveCount(0);
+    await expect(
+      card(b.page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）'),
+    ).toHaveValue('30');
+    await card(b.page, 'humidityPercent').getByLabel('正常上限（未満で正常）').fill('75');
+    await save(b.page).click();
+    await expect(notice(b.page)).toBeVisible();
+    await expect(state(b.page)).toContainText('版: CUSTOM-2');
+    await b.context.close();
+  });
+
+  test('同時編集の検出（SC-13-1）: 既定値へ戻す操作も、他の管理者が先に変更していれば、戻さず、案内を示す', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await seed(request, {});
+    const first = await newUserSession(browser, testInfo, 'user-b');
+    await openCriteria(page, 'harvestAccuracy');
+    await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('92');
+    await save(page).click();
+    await expect(state(page)).toContainText('版: CUSTOM-1');
+    // 利用者B: 変更済みの画面を開いたあと、利用者Aがさらに変更する
+    await openCriteria(first.page, 'harvestAccuracy', USER_B);
+    await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('93');
+    await save(page).click();
+    await expect(state(page)).toContainText('版: CUSTOM-2');
+
+    await first.page.getByRole('button', { name: '既定値へ戻す' }).click();
+    await confirmDialog(first.page, '既定値へ戻す');
+
+    await expect(first.page.getByTestId('criteria-conflict')).toContainText(
+      '他の管理者が変更しました',
+    );
+    const stored = (await (
+      await api(request, 'GET', '/viewpoints/harvestAccuracy/criteria')
+    ).json()) as { version: string; isDefault: boolean };
+    expect(stored).toMatchObject({ version: 'CUSTOM-2', isDefault: false });
+    await first.context.close();
+  });
+
   test('変更・既定値へ戻す操作は、変更履歴に、変更者・変更前後とともに残る（UC-18）', async ({
     page,
     request,
@@ -695,9 +783,10 @@ function minCardWidth(viewportWidth: number): number {
 
 /** 環境適応性のすべての指標の条件名を最大長にし、温度の異常下限を桁の多い値にして、API で保存する（温度 40℃は異常のまま）。 */
 async function saveLongCriteria(request: Parameters<typeof api>[0], label: string): Promise<void> {
-  const current = (await (
-    await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria')
-  ).json()) as {
+  const read = await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria');
+  // 判断基準の更新は、読み込んだ時点の版（ETag）を If-Match に付ける（SC-13-1）
+  const etag = read.headers().etag ?? '';
+  const current = (await read.json()) as {
     criteria: {
       indicator: string;
       kind: string;
@@ -713,9 +802,13 @@ async function saveLongCriteria(request: Parameters<typeof api>[0], label: strin
         ? { ...criterion.thresholds, errorLower: HUGE_THRESHOLD }
         : criterion.thresholds,
   }));
-  const saved = await api(request, 'PUT', '/viewpoints/environmentalAdaptability/criteria', {
-    criteria,
-  });
+  const saved = await api(
+    request,
+    'PUT',
+    '/viewpoints/environmentalAdaptability/criteria',
+    { criteria },
+    { 'if-match': etag },
+  );
   expect(saved.status(), '最大長の判断基準の保存').toBe(200);
 }
 
