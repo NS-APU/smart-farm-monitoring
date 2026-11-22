@@ -100,7 +100,7 @@ describe('結果の通知（ResultNotice）', () => {
   });
 
   it('scrollIntoView のない環境（jsdom など）でも、落ちずに表示する', () => {
-    expect(Element.prototype.scrollIntoView).toBeUndefined();
+    expect('scrollIntoView' in Element.prototype).toBe(false);
 
     render(<ResultNotice message="保存しました" testId="saved-notice" />);
 
