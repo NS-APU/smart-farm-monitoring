@@ -5,10 +5,7 @@
 
 import { useCallback, type ReactNode } from 'react';
 import { SATISFACTION_MAX_STARS } from '@smart-farm/shared/constants/items';
-import {
-  SATISFACTION_DEFAULT_PERIOD_DAYS,
-  findViewpointMeta,
-} from '@smart-farm/shared/constants/viewpoints';
+import { SATISFACTION_DEFAULT_PERIOD_DAYS } from '@smart-farm/shared/constants/viewpoints';
 import {
   OVERALL_SATISFACTION_METRIC_ID,
   formatMetricValue,
@@ -181,12 +178,7 @@ export function SatisfactionView(props: { readonly variant?: 'page' | 'drawer' }
   if (equipmentError !== undefined) {
     content = <ErrorView error={equipmentError} />;
   } else if (error instanceof ApiError && error.code === 'NOT_FOUND') {
-    content = (
-      <NotApplicableNotice
-        message={error.message}
-        viewpointName={findViewpointMeta('satisfaction')?.name}
-      />
-    );
+    content = <NotApplicableNotice message={error.message} viewpointId="satisfaction" />;
   } else if (error !== undefined) {
     content = <ErrorView error={error} onRetry={reload} />;
   } else if (data === undefined) {

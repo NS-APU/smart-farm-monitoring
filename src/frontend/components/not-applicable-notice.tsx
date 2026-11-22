@@ -6,16 +6,27 @@
  */
 
 import type { ReactNode } from 'react';
-import { EQUIPMENT_TYPE_LABELS } from '@smart-farm/shared/constants/status';
+import { EQUIPMENT_TYPES, type EquipmentType } from '@smart-farm/shared/constants/status';
+import {
+  findViewpointMeta,
+  viewpointsForEquipmentType,
+} from '@smart-farm/shared/constants/viewpoints';
 import { MESSAGES } from '../i18n/messages.ts';
 import { useAppState } from './app-state.tsx';
 import { Icon } from './icon.tsx';
 
+/** その観点を評価する設備の種類（共通の定義 `viewpointsForEquipmentType` から導く。観点が存在しなければ、空）。 */
+function evaluatingTypes(viewpointId: string): readonly EquipmentType[] {
+  return EQUIPMENT_TYPES.filter((type) =>
+    viewpointsForEquipmentType(type).some((viewpoint) => viewpoint.id === viewpointId),
+  );
+}
+
 export function NotApplicableNotice(props: {
   /** サーバーが返した、評価しない旨のメッセージ。 */
   readonly message: string;
-  /** 開いた観点の名称（分かるとき）。 */
-  readonly viewpointName?: string | undefined;
+  /** 開いた観点（URL の観点。存在しない観点のこともある）。 */
+  readonly viewpointId: string;
 }): ReactNode {
   const {
     equipmentList,
@@ -27,8 +38,12 @@ export function NotApplicableNotice(props: {
   const selected = equipmentList.find((item) => item.equipmentId === selectedEquipmentId);
   const facilityName =
     selectedFacilityId === undefined ? undefined : equipmentNames.get(selectedFacilityId);
+  // 観点が存在しなければ（URL の誤りなど）、ハウスに切り替えても表示できないため、切り替えない
+  const evaluatedBy = evaluatingTypes(props.viewpointId);
+  const viewpointName = findViewpointMeta(props.viewpointId)?.name;
   const canSwitch =
     selected !== undefined &&
+    evaluatedBy.includes('FACILITY') &&
     selected.equipmentType !== 'FACILITY' &&
     selectedFacilityId !== undefined &&
     facilityName !== undefined;
@@ -40,9 +55,12 @@ export function NotApplicableNotice(props: {
       {canSwitch ? (
         <>
           <p>
-            {MESSAGES.viewpoint.notApplicableFacilityOnly(
-              props.viewpointName,
-              EQUIPMENT_TYPE_LABELS[selected.equipmentType],
+            {MESSAGES.viewpoint.notApplicableEvaluatedBy(
+              viewpointName,
+              evaluatedBy
+                .filter((type) => type !== 'FACILITY')
+                .map((type) => MESSAGES.viewpoint.equipmentTypeShort[type]),
+              MESSAGES.viewpoint.equipmentTypeShort[selected.equipmentType],
             )}
           </p>
           <p className="notice-links">

@@ -90,8 +90,9 @@ describe('評価しない設備の案内: 満足度の詳細（SC-04-6）', () =
     expect(notice.getAttribute('role')).toBe('status');
     expect(notice.className).not.toContain('state-error');
     expect(notice.textContent).toContain(NOT_APPLICABLE_MESSAGE);
-    expect(notice.textContent).toContain('この観点（満足度）は、ハウスの評価です');
-    expect(notice.textContent).toContain('ロボットでは評価しません');
+    expect(notice.textContent).toContain(
+      'この観点（満足度）は、ハウスの評価です（ロボットでは評価しません）',
+    );
     // 案内は、警告ではない（読み上げの割り込みをしない）
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -137,13 +138,43 @@ describe('評価しない設備の案内: 観点の詳細（SC-03-1）', () => {
     const notice = await screen.findByTestId('not-applicable');
     expect(notice.getAttribute('role')).toBe('status');
     expect(notice.textContent).toContain(NOT_APPLICABLE_MESSAGE);
-    expect(notice.textContent).toContain('この観点（収穫精度）は、ハウスの評価です');
+    // ロボットとハウスで評価する観点を、センサーで開いた（「ハウスの評価」とは言わない）
+    expect(notice.textContent).toContain(
+      'この観点（収穫精度）は、ロボットとハウスで評価します（センサーでは評価しません）',
+    );
+    expect(notice.textContent).not.toContain('ハウスの評価です');
     expect(screen.queryByRole('alert')).toBeNull();
 
     fireEvent.click(within(notice).getByRole('button', { name: 'ハウス「ハウス1」を表示' }));
 
     await screen.findByTestId('diagnosis');
     expect(screen.queryByTestId('not-applicable')).toBeNull();
+  });
+
+  it('ロボットにセンサーの観点（環境適応性）を開くと、センサーとハウスで評価する旨と、ハウスへの切り替えを示す', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+    await screen.findByTestId('diagnosis');
+
+    await selectEquipment(screen.getByRole('main'), 'ROBOT-01');
+
+    const notice = await screen.findByTestId('not-applicable');
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.textContent).toContain(
+      'この観点（環境適応性）は、センサーとハウスで評価します（ロボットでは評価しません）',
+    );
+    expect(within(notice).getByRole('button', { name: 'ハウス「ハウス1」を表示' })).toBeDefined();
+  });
+
+  it('存在しない観点を、ロボットを選んで開いたときは、ハウスで評価するとは言わず、ボタンも出さない（切り替えても表示できない）', async () => {
+    renderPath('/viewpoints/unknownViewpoint');
+    await selectEquipment(await screen.findByRole('main'), 'ROBOT-01');
+
+    const notice = await screen.findByTestId('not-applicable');
+
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.textContent).not.toContain('評価します');
+    expect(notice.textContent).toContain('ハウスまたは対象の設備を選び直してください');
+    expect(within(notice).queryByRole('button')).toBeNull();
   });
 
   it('ハウスを選んでいて、観点が見つからないとき（切り替え先がない）は、ボタンを出さず、設備の選び直しを案内する', async () => {
@@ -168,7 +199,9 @@ describe('評価しない設備の案内: ダッシュボードのドロワー',
 
     const notice = await within(dialog).findByTestId('not-applicable');
     expect(notice.getAttribute('role')).toBe('status');
-    expect(notice.textContent).toContain('この観点（満足度）は、ハウスの評価です');
+    expect(notice.textContent).toContain(
+      'この観点（満足度）は、ハウスの評価です（ロボットでは評価しません）',
+    );
     fireEvent.click(within(notice).getByRole('button', { name: 'ハウス「ハウス1」を表示' }));
 
     await within(dialog).findByTestId('overall-score');

@@ -94,9 +94,7 @@ export function ViewpointDetailView(props: {
     content = <ErrorView error={equipmentError} />;
   } else if (detail.error instanceof ApiError && detail.error.code === 'NOT_FOUND') {
     // 選んだ設備では評価しない観点（例: センサーでは環境適応性のみ）
-    content = (
-      <NotApplicableNotice message={detail.error.message} viewpointName={viewpointMeta?.name} />
-    );
+    content = <NotApplicableNotice message={detail.error.message} viewpointId={viewpointId} />;
   } else if (detail.error !== undefined) {
     content = <ErrorView error={detail.error} onRetry={detail.reload} />;
   } else if (detail.data === undefined) {
