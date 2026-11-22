@@ -26,8 +26,8 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
-import { Icon } from '../components/icon.tsx';
 import { Modal } from '../components/modal.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.statusCodes;
 
@@ -269,12 +269,7 @@ export function StatusCodesPage(): ReactNode {
       <p className="muted">{TEXT.lead}</p>
       <p className="muted">{TEXT.impact}</p>
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="status-codes-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
-      )}
+      <ResultNotice message={notice} testId="status-codes-notice" />
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
         {canManage ? (

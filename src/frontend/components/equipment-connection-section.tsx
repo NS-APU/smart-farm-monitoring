@@ -18,6 +18,7 @@ import { fieldErrorsOfZod } from './zod-errors.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import type { CopyCandidate } from './equipment-connection.ts';
 import type { EquipmentConnectionController } from './use-equipment-connection.ts';
+import { ResultNotice } from './result-notice.tsx';
 
 const TEXT = MESSAGES.equipment.connection;
 
@@ -450,15 +451,11 @@ export function EquipmentConnectionSection(props: EquipmentConnectionSectionProp
           </div>
         </div>
       ) : null}
-      {controller.notice === undefined ? null : (
-        <p
-          role="status"
-          className={controller.notice.ok ? 'form-success' : 'form-error'}
-          data-testid="equipment-connection-result"
-        >
-          {controller.notice.text}
-        </p>
-      )}
+      <ResultNotice
+        message={controller.notice?.text}
+        ok={controller.notice?.ok}
+        testId="equipment-connection-result"
+      />
     </fieldset>
   );
 }

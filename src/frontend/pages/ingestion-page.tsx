@@ -42,6 +42,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { FacilityIngestionView } from './facility-ingestion-view.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.ingestion;
 /** 一覧の 1 ページの件数（共通の一覧のルール。ADR-0016 の D-48）。 */
@@ -223,15 +224,7 @@ function SourceCard(props: SourceCardProps): ReactNode {
             ) : null}
           </div>
         ) : null}
-        {result === undefined ? null : (
-          <p
-            role="status"
-            className={result.ok ? 'form-success' : 'form-error'}
-            data-testid={`result-${source.sourceId}`}
-          >
-            {result.text}
-          </p>
-        )}
+        <ResultNotice message={result?.text} ok={result?.ok} testId={`result-${source.sourceId}`} />
       </form>
     </section>
   );

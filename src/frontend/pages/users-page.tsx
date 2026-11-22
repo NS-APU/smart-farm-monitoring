@@ -21,8 +21,8 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
-import { Icon } from '../components/icon.tsx';
 import { Modal } from '../components/modal.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -275,12 +275,7 @@ export function UsersPage(): ReactNode {
         <h1>{TEXT.title}</h1>
       </div>
       <p className="muted">{TEXT.lead}</p>
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="users-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
-      )}
+      <ResultNotice message={notice} testId="users-notice" />
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
         {canManage && data !== undefined ? (

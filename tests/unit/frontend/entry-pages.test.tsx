@@ -795,6 +795,36 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     expect(callsOf(calls, 'DELETE', '/manual-entries/e-1')).toHaveLength(1);
   });
 
+  it('SC-07 の修正・削除の通知（entries-notice）は、結果の通知の部品で、role="status"・表示されたときに画面内へスクロールする（Issue #150）', async () => {
+    const scroll = stubScrollIntoView();
+    renderApp('/data-entry/list', {
+      'GET /manual-entries': () => jsonResponse({ items: [manualEntry()], nextCursor: null }),
+      'PUT /manual-entries/e-1': () => jsonResponse(SAVED),
+      'DELETE /manual-entries/e-1': () => noContent(),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('entry-edit');
+    fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+    const updated = await screen.findByTestId('entries-notice');
+
+    expect(updated.getAttribute('role')).toBe('status');
+    expect(updated.textContent).toBe('修正しました');
+    expect(scroll.mock.contexts).toContain(updated);
+    const afterUpdate = scroll.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('entries-notice').textContent).toBe('削除しました');
+    });
+    expect(scroll.mock.calls.length).toBeGreaterThan(afterUpdate);
+    expect(scroll.mock.contexts.at(-1)).toBe(screen.getByTestId('entries-notice'));
+  });
+
   it('削除の確認は、対象（計測日時・設備名・項目と値）を示し、元に戻す操作がないこと（変更履歴には残ること）を明記する（#153。SC-07-5）', async () => {
     renderApp('/data-entry/list', listRoutes([manualEntry()]));
 

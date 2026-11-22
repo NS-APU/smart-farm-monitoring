@@ -16,6 +16,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { usePushBrowser } from '../push/push-context.tsx';
 import type { PushPermission } from '../push/browser-push.ts';
 import { Icon } from '../components/icon.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.push;
 
@@ -124,12 +125,7 @@ export function PushSettingsPage(): ReactNode {
           )}
         </div>
         <FormError message={submit.formMessage} />
-        {done === undefined ? null : (
-          <p role="status" className="form-success" data-testid="push-done">
-            <Icon name="status-normal" size={16} />
-            {done}
-          </p>
-        )}
+        <ResultNotice message={done} testId="push-done" />
       </>
     );
   }

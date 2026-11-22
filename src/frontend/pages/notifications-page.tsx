@@ -24,7 +24,6 @@ import {
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx';
-import { Icon } from '../components/icon.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -37,6 +36,7 @@ import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.notifications;
@@ -343,12 +343,7 @@ export function NotificationsPage(): ReactNode {
           </div>
         </div>
         <FormError message={submit.formMessage} />
-        {notice === undefined ? null : (
-          <p role="status" className="form-success" data-testid="notifications-notice">
-            <Icon name="status-normal" size={16} />
-            {notice}
-          </p>
-        )}
+        <ResultNotice message={notice} testId="notifications-notice" />
       </section>
       <section className="panel" aria-label={TEXT.title}>
         {body}
