@@ -45,6 +45,7 @@ import {
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
+import { resolveEvaluationScope } from '../evaluation/scope.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
@@ -396,26 +397,35 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       if (query.equipmentId !== undefined) {
         assertInScope(scope, query.equipmentId);
       }
+      const allEquipment = await repositories.equipment.list({ includeDeleted: true });
       const equipmentNames = new Map(
-        (await repositories.equipment.list({ includeDeleted: true })).map((equipment) => [
-          equipment.equipmentId,
-          equipment.name,
-        ]),
+        allEquipment.map((equipment) => [equipment.equipmentId, equipment.name]),
       );
+      // ハウスを指定したときは、配下のロボット・センサーの入力も含める（取り込み済みデータ〔SC-09〕と同じ。Issue #152）。
+      // 指定した設備が見つからないときは、その設備の識別子だけで絞る（従来のまま）
+      const target =
+        query.equipmentId === undefined
+          ? undefined
+          : allEquipment.find((equipment) => equipment.equipmentId === query.equipmentId);
+      const targetIds =
+        target === undefined
+          ? undefined
+          : new Set(resolveEvaluationScope(target, allEquipment).equipmentIds);
       const keyword = query.keyword?.trim().toLowerCase() ?? '';
       const page = await repositories.manualEntries.list(
         {
           ...omitUndefined({
             category: query.category,
-            equipmentId: query.equipmentId,
+            equipmentId: targetIds === undefined ? query.equipmentId : undefined,
             from: query.from,
             to: query.to,
           }),
-          ...(keyword === '' && scope.kind === 'all'
+          ...(keyword === '' && scope.kind === 'all' && targetIds === undefined
             ? {}
             : {
                 matches: (entry: ManualEntry) =>
                   canViewEquipment(scope, entry.equipmentId) &&
+                  (targetIds === undefined || targetIds.has(entry.equipmentId)) &&
                   (keyword === '' || entryMatchesKeyword(entry, keyword, equipmentNames)),
               }),
         },

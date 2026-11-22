@@ -559,7 +559,13 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
 
   it.each([
     ['カテゴリ', '?category=FAILURE', ['FAILURE']],
-    ['設備', `?equipmentId=${FACILITY_ID}`, ['SATISFACTION']],
+    // ハウスを指定すると、配下のロボット・センサーの入力も含める（Issue #152 の PR1。取り込み済みデータと同じ）
+    [
+      '設備（ハウス。配下も含める）',
+      `?equipmentId=${FACILITY_ID}`,
+      ['SATISFACTION', 'FAILURE', 'OPERABILITY'],
+    ],
+    ['設備（ロボット）', `?equipmentId=${ROBOT_ID}`, ['FAILURE', 'OPERABILITY']],
     ['期間（開始）', '?from=2026-10-09T02:00:00.000Z', ['SATISFACTION', 'FAILURE']],
     ['期間（終了）', '?to=2026-10-09T01:30:00.000Z', ['OPERABILITY']],
     [
