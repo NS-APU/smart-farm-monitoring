@@ -26,7 +26,7 @@ import {
   EquipmentIngestionTable,
   type EquipmentTestResult,
 } from '../components/equipment-ingestion-table.tsx';
-import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import { FilterPanel, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { FederationSettingsPanel } from '../components/federation-settings-panel.tsx';
 import { FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
@@ -36,7 +36,7 @@ import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { useCursorPaging, type CursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { useQueryParams } from '../hooks/use-query-params.ts';
+import { countActiveConditions, useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
@@ -47,6 +47,8 @@ import { ResultNotice } from '../components/result-notice.tsx';
 const TEXT = MESSAGES.ingestion;
 /** 一覧の 1 ページの件数（共通の一覧のルール。ADR-0016 の D-48）。 */
 const LOG_PAGE_SIZE = 20;
+/** ログの条件のクリアで、初期値に戻す条件（URL のクエリ。ほかのクエリは残す）。 */
+const LOG_CONDITION_NAMES = ['equipment', 'result', 'from', 'to'];
 
 function sourceName(sourceId: string): string {
   const names: Readonly<Record<string, string>> = TEXT.sourceNames;
@@ -324,6 +326,8 @@ function LogTable(props: {
             paging.goNext(data.nextCursor);
           }
         }}
+        pageSize={LOG_PAGE_SIZE}
+        itemCount={data.items.length}
       />
     </>
   );
@@ -394,6 +398,8 @@ function FederationTable(props: {
                 paging.goNext(data.nextCursor);
               }
             }}
+            pageSize={LOG_PAGE_SIZE}
+            itemCount={data.items.length}
           />
         </>
       )}
@@ -446,6 +452,12 @@ function IngestionContent(): ReactNode {
   const { cursor: logCursor } = logPaging;
   const logFromIso = jstDateToIso(logFrom, 'start');
   const logToIso = jstDateToIso(logTo, 'end');
+  const logActiveCount = countActiveConditions([
+    logEquipment !== '',
+    logResultFilter !== '',
+    logFrom !== '',
+    logTo !== '',
+  ]);
   const fetchLogs = useCallback(
     () =>
       listIngestionLogs(api, {
@@ -537,7 +549,12 @@ function IngestionContent(): ReactNode {
         <div className="panel-head">
           <h2 id="ingestion-logs-heading">{TEXT.logs}</h2>
         </div>
-        <div className="filter-bar">
+        <FilterPanel
+          activeCount={logActiveCount}
+          onClear={() => {
+            query.clear(LOG_CONDITION_NAMES);
+          }}
+        >
           <SelectFilter
             label={TEXT.logEquipment}
             value={logEquipment}
@@ -575,7 +592,7 @@ function IngestionContent(): ReactNode {
               query.set({ to: value });
             }}
           />
-        </div>
+        </FilterPanel>
         {logs.error !== undefined ? (
           <ErrorView error={logs.error} onRetry={logs.reload} />
         ) : logs.data === undefined ? (

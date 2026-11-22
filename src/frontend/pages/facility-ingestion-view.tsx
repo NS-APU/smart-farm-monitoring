@@ -41,6 +41,8 @@ function ResultLabel(props: { readonly result: string; readonly label: string })
 function PagerOf(props: {
   readonly paging: CursorPaging;
   readonly nextCursor: string | null;
+  /** このページの件数（表示範囲「21〜30 件目」に使う）。 */
+  readonly itemCount: number;
 }): ReactNode {
   const { paging, nextCursor } = props;
   return (
@@ -54,6 +56,8 @@ function PagerOf(props: {
           paging.goNext(nextCursor);
         }
       }}
+      pageSize={LOG_PAGE_SIZE}
+      itemCount={props.itemCount}
     />
   );
 }
@@ -109,7 +113,7 @@ function IngestionTable(props: {
           </tbody>
         </table>
       </div>
-      <PagerOf paging={paging} nextCursor={data.nextCursor} />
+      <PagerOf paging={paging} nextCursor={data.nextCursor} itemCount={data.items.length} />
     </>
   );
 }
@@ -166,7 +170,7 @@ function FederationTable(props: {
           </tbody>
         </table>
       </div>
-      <PagerOf paging={paging} nextCursor={data.nextCursor} />
+      <PagerOf paging={paging} nextCursor={data.nextCursor} itemCount={data.items.length} />
     </>
   );
 }

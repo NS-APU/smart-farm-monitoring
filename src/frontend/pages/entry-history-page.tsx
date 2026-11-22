@@ -18,18 +18,24 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
-import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import { FilterPanel, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { readSortDirection, useQueryParams } from '../hooks/use-query-params.ts';
+import {
+  countActiveConditions,
+  readSortDirection,
+  useQueryParams,
+} from '../hooks/use-query-params.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.history;
+/** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
+const CONDITION_NAMES = ['operation', 'targetType', 'actor', 'from', 'to', 'direction'];
 
 /** 対象の種類の表示名。未知の種類は、そのまま表示する。 */
 function targetTypeLabel(targetType: string): string {
@@ -124,6 +130,15 @@ export function EntryHistoryPage(): ReactNode {
   const direction = readSortDirection(query);
   const paging = useCursorPaging([operation, targetType, actor, from, to, direction].join('|'));
 
+  const activeCount = countActiveConditions([
+    operation !== '',
+    targetType !== '',
+    actor !== '',
+    from !== '',
+    to !== '',
+    direction !== 'desc',
+  ]);
+
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
   const toIso = jstDateToIso(to, 'end');
@@ -207,6 +222,8 @@ export function EntryHistoryPage(): ReactNode {
               paging.goNext(data.nextCursor);
             }
           }}
+          pageSize={PAGE_SIZE}
+          itemCount={data.items.length}
         />
       </>
     );
@@ -223,7 +240,12 @@ export function EntryHistoryPage(): ReactNode {
       <p className="muted">{TEXT.lead}</p>
       {canRead ? (
         <section className="panel" aria-label={MESSAGES.form.search}>
-          <div className="filter-bar">
+          <FilterPanel
+            activeCount={activeCount}
+            onClear={() => {
+              query.clear(CONDITION_NAMES);
+            }}
+          >
             <SelectFilter
               label={TEXT.operation}
               value={operation}
@@ -282,7 +304,7 @@ export function EntryHistoryPage(): ReactNode {
                 query.set({ direction: value });
               }}
             />
-          </div>
+          </FilterPanel>
         </section>
       ) : null}
       <section className="panel" aria-label={TEXT.title}>

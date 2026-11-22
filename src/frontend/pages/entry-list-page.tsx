@@ -21,12 +21,22 @@ import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { ManualEntryForm } from '../components/manual-entry-form.tsx';
-import { DIRECTION_OPTIONS, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import {
+  DIRECTION_OPTIONS,
+  FilterPanel,
+  InputFilter,
+  SelectFilter,
+} from '../components/filter-controls.tsx';
+import { equipmentOptionLabel } from '../components/equipment-options.ts';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { readSortParams, useQueryParams } from '../hooks/use-query-params.ts';
+import {
+  countActiveConditions,
+  readSortParams,
+  useQueryParams,
+} from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
@@ -40,6 +50,8 @@ const SORT_LABELS = {
   category: TEXT.sortCategory,
   enteredBy: TEXT.sortEnteredBy,
 } as const;
+/** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
+const CONDITION_NAMES = ['q', 'category', 'equipmentId', 'from', 'to', 'sort', 'direction'];
 
 /** 入力項目の値の表示（値・単位）。 */
 function formatItemValue(itemKey: string, value: number | string): string {
@@ -90,6 +102,16 @@ export function EntryListPage(): ReactNode {
   const paging = useCursorPaging(
     [keyword, category, equipmentId, from, to, sort, direction].join('|'),
   );
+
+  const activeCount = countActiveConditions([
+    keyword !== '',
+    category !== '',
+    equipmentId !== '',
+    from !== '',
+    to !== '',
+    sort !== 'observedAt',
+    direction !== 'desc',
+  ]);
 
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
@@ -211,6 +233,8 @@ export function EntryListPage(): ReactNode {
               paging.goNext(data.nextCursor);
             }
           }}
+          pageSize={PAGE_SIZE}
+          itemCount={data.items.length}
         />
       </>
     );
@@ -231,9 +255,17 @@ export function EntryListPage(): ReactNode {
         </p>
       </div>
       <p className="muted">{TEXT.lead}</p>
+      <p className="muted" data-testid="entries-keyword-note">
+        {TEXT.keywordNote}
+      </p>
 
       <section className="panel" aria-label={MESSAGES.form.search}>
-        <div className="filter-bar">
+        <FilterPanel
+          activeCount={activeCount}
+          onClear={() => {
+            query.clear(CONDITION_NAMES);
+          }}
+        >
           <InputFilter
             label={MESSAGES.form.keyword}
             type="search"
@@ -260,7 +292,7 @@ export function EntryListPage(): ReactNode {
             withAll
             options={equipmentList.map((item) => ({
               value: item.equipmentId,
-              label: item.name,
+              label: equipmentOptionLabel(item),
             }))}
             onChange={(value) => {
               query.set({ equipmentId: value });
@@ -298,7 +330,7 @@ export function EntryListPage(): ReactNode {
               query.set({ direction: value });
             }}
           />
-        </div>
+        </FilterPanel>
       </section>
 
       <ResultNotice message={notice} testId="entries-notice" />
