@@ -190,6 +190,10 @@ export const PushSubscriptionRequestSchema = z.object({
 });
 export type PushSubscriptionRequest = z.infer<typeof PushSubscriptionRequestSchema>;
 
+/** POST /push-subscription/test の入力（この端末の購読の宛先。#159 SC-15-2）。 */
+export const PushTestRequestSchema = z.object({ endpoint: PushEndpointSchema });
+export type PushTestRequest = z.infer<typeof PushTestRequestSchema>;
+
 /** GET /push-subscription の応答。 */
 export const PushStatusResponseSchema = z.object({
   /** サーバーが Web Push の配信を使える（公開鍵の設定がある）か。 */
@@ -198,6 +202,11 @@ export const PushStatusResponseSchema = z.object({
   publicKey: z.string().nullable(),
   /** ログイン中の利用者が、有効な購読を持つか。 */
   isSubscribed: z.boolean(),
+  /**
+   * 購読が、配信の結果（購読の解除・期限切れ）で、サーバーに無効にされたか（#159 SC-15-6）。画面は、「無効になりました。もう一度有効にしてください」と示す。
+   * 宛先を指定したときは、その端末の購読。指定しないときは、有効な購読がなく、無効にされた購読がある利用者。有効な購読があれば false。
+   */
+  isInvalidated: z.boolean(),
 });
 export type PushStatusResponse = z.infer<typeof PushStatusResponseSchema>;
 

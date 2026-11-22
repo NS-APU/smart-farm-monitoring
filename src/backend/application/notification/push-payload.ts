@@ -15,6 +15,15 @@ const TITLES: Readonly<Record<Notification['kind'], string>> = {
   FEDERATION_EXPIRED: '連携の期限切れ',
 };
 
+/** テスト通知（設定画面から、この端末へ送る）の本文。通知の識別子は、固定の `test`（通知の記録に結び付かない）。 */
+export function buildTestPushPayload(): PushPayload {
+  return {
+    title: 'テスト通知',
+    message: 'これは、通知の設定の確認のための、テスト通知です。この端末に届いています',
+    notificationId: 'test',
+  };
+}
+
 export function buildPushPayload(notification: Notification): PushPayload {
   const { message } = notification;
   return {

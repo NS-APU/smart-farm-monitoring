@@ -601,6 +601,8 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     subscriptions: repositories.pushSubscriptions,
     clock,
     publicKey: config.webPushPublicKey,
+    webPush,
+    ioTimeoutMs: settings.notification.ioTimeoutMs,
   });
   const jobRunner = createJobRunner({
     ingestion: ingestionService,

@@ -609,6 +609,31 @@ describe('Web Push のダミー', () => {
     );
     expect(push.delivered()).toEqual([]);
   });
+
+  it('テスト通知（#159 SC-15-2）: 通知の配信とは別に記録する（配信の記録には、含めない）。リセットで消える', async () => {
+    const push = createDummyWebPush({ faults: createFaultController() });
+
+    expect(await push.deliverTest(subscription, { ttlSeconds: 60 })).toBe('DELIVERED');
+
+    expect(push.testDelivered()).toEqual([{ subscriptionId: 's-1' }]);
+    expect(push.delivered()).toEqual([]);
+    push.reset();
+    expect(push.testDelivered()).toEqual([]);
+  });
+
+  it('テスト通知も、停止中は配信に失敗し、拒否中は購読が無効として扱う（記録しない）', async () => {
+    const faults = createFaultController();
+    const push = createDummyWebPush({ faults });
+
+    faults.set({ mode: 'DOWN' });
+    await expect(push.deliverTest(subscription, { ttlSeconds: 60 })).rejects.toBeInstanceOf(
+      NotificationDeliveryError,
+    );
+    faults.set({ mode: 'REJECT' });
+
+    expect(await push.deliverTest(subscription, { ttlSeconds: 60 })).toBe('SUBSCRIPTION_GONE');
+    expect(push.testDelivered()).toEqual([]);
+  });
 });
 
 describe('FormatProfile（仮決めのロボット JSON・環境センサー JSON。1 つのファイルを随時更新する方式）', () => {

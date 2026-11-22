@@ -22,6 +22,12 @@ export interface DeliveryOptions {
   readonly ttlSeconds: number;
 }
 
+/** テスト通知の指定（#159 SC-15-2）。 */
+export interface TestDeliveryOptions {
+  /** Web Push の有効期限（秒）。テスト通知は、すぐに見るもの（古いものを、あとから届けない）ため、短くする。 */
+  readonly ttlSeconds: number;
+}
+
 export interface NotifierPort {
   /**
    * 1つの購読へ配信する。購読が無効（解除・期限切れ）の場合は SUBSCRIPTION_GONE を返す
@@ -31,5 +37,13 @@ export interface NotifierPort {
     notification: Notification,
     subscription: PushSubscriptionRecord,
     options: DeliveryOptions,
+  ): Promise<DeliveryOutcome>;
+  /**
+   * 1つの購読へ、テスト通知を送る（設定画面の「テスト通知を送る」。#159 SC-15-2）。通知の記録に結び付かない。
+   * 結果の扱いは、`deliver` と同じ（購読が無効なら SUBSCRIPTION_GONE。一時的な失敗は NotificationDeliveryError）。
+   */
+  deliverTest(
+    subscription: PushSubscriptionRecord,
+    options: TestDeliveryOptions,
   ): Promise<DeliveryOutcome>;
 }

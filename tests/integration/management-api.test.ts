@@ -2116,11 +2116,13 @@ describe('Web Push の購読（UC-23。GET・PUT・DELETE /push-subscription）'
         isAvailable: boolean;
         publicKey: string | null;
         isSubscribed: boolean;
+        isInvalidated: boolean;
       };
     expect(await status()).toEqual({
       isAvailable: true,
       publicKey: 'dummy-web-push-public-key',
       isSubscribed: false,
+      isInvalidated: false,
     });
 
     const subscribed = await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
@@ -2187,7 +2189,12 @@ describe('Web Push の購読（UC-23。GET・PUT・DELETE /push-subscription）'
     const status = await (await send(context, 'GET', '/push-subscription')).json();
     const response = await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
 
-    expect(status).toEqual({ isAvailable: false, publicKey: null, isSubscribed: false });
+    expect(status).toEqual({
+      isAvailable: false,
+      publicKey: null,
+      isSubscribed: false,
+      isInvalidated: false,
+    });
     expect(response.status).toBe(503);
   });
 
@@ -2198,5 +2205,109 @@ describe('Web Push の購読（UC-23。GET・PUT・DELETE /push-subscription）'
     const context = await withEquipment({ env: PUBLIC_KEY_ENV });
 
     expect((await send(context, 'PUT', '/push-subscription', body)).status).toBe(400);
+  });
+
+  it('購読が配信の結果で無効にされると、状態の応答の isInvalidated が true になる。もう一度購読すると false に戻る（#159 SC-15-6）', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    const statusOf = async () =>
+      (await (
+        await send(context, 'GET', `/push-subscription?endpoint=${encodeURIComponent(ENDPOINT)}`)
+      ).json()) as { isSubscribed: boolean; isInvalidated: boolean };
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    expect(await statusOf()).toMatchObject({ isSubscribed: true, isInvalidated: false });
+
+    context.container.dev?.faults.webPush.set({ mode: 'REJECT' });
+    await createEntry(
+      context,
+      entryBody({
+        items: { operationStepCount: 12, operationMinutes: 35, operationErrorCount: 2 },
+      }),
+    );
+    await context.container.jobRunner.run('JB-04');
+
+    expect(await statusOf()).toMatchObject({ isSubscribed: false, isInvalidated: true });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    expect(await statusOf()).toMatchObject({ isSubscribed: true, isInvalidated: false });
+  });
+});
+
+describe('Web Push のテスト通知（UC-23。POST /push-subscription/test。#159 SC-15-2）', () => {
+  const ENDPOINT = 'https://push.example.invalid/endpoint-1';
+  const PUBLIC_KEY_ENV = { WEB_PUSH_PUBLIC_KEY: 'dummy-web-push-public-key' };
+  const sendTest = (context: TestContext, endpoint = ENDPOINT) =>
+    send(context, 'POST', '/push-subscription/test', { endpoint });
+
+  it('この端末（購読）へだけ送り、204 を返す。通知の記録は作らず、通知の配信の記録にも含めない', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    await send(context, 'PUT', '/push-subscription', { endpoint: `${ENDPOINT}-2` });
+
+    const response = await sendTest(context);
+
+    expect(response.status).toBe(204);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(1);
+    expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(0);
+    const notifications = NotificationListResponseSchema.parse(
+      await (await send(context, 'GET', '/notifications')).json(),
+    );
+    expect(notifications.items).toHaveLength(0);
+  });
+
+  it('1 分に 1 回まで: 1 分以内の再送は 429（RATE_LIMITED。あと何秒かを示す）。1 分たてば、また送れる', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    expect((await sendTest(context)).status).toBe(204);
+
+    context.clock.advance(30_000);
+    const limited = await sendTest(context);
+    context.clock.advance(30_000);
+    const again = await sendTest(context);
+
+    expect(limited.status).toBe(429);
+    const error = await errorOf(limited);
+    expect(error.code).toBe('RATE_LIMITED');
+    expect(error.message).toContain('あと 30 秒');
+    expect(again.status).toBe(204);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(2);
+  });
+
+  it('この端末が有効でなければ 404。送らない', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+
+    const response = await sendTest(context);
+
+    expect(response.status).toBe(404);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(0);
+  });
+
+  it('配信サービスの停止は 503。購読が無効と返されたら 409（購読は無効になり、状態の isInvalidated が true）', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    await send(context, 'PUT', '/push-subscription', { endpoint: `${ENDPOINT}-2` });
+    context.container.dev?.faults.webPush.set({ mode: 'DOWN' });
+
+    const down = await sendTest(context, `${ENDPOINT}-2`);
+    context.container.dev?.faults.webPush.set({ mode: 'REJECT' });
+    const gone = await sendTest(context);
+
+    expect(down.status).toBe(503);
+    expect(gone.status).toBe(409);
+    expect((await errorOf(gone)).message).toContain('もう一度有効にしてください');
+    const status = (await (
+      await send(context, 'GET', `/push-subscription?endpoint=${encodeURIComponent(ENDPOINT)}`)
+    ).json()) as { isSubscribed: boolean; isInvalidated: boolean };
+    expect(status).toMatchObject({ isSubscribed: false, isInvalidated: true });
+  });
+
+  it.each([
+    ['endpoint が URL でない', { endpoint: 'not a url' }],
+    ['endpoint がない', {}],
+    ['内部のアドレス', { endpoint: 'https://169.254.169.254/' }],
+  ])('不正な入力（%s）は 400', async (_name, body) => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+
+    const response = await send(context, 'POST', '/push-subscription/test', body);
+
+    expect(response.status).toBe(400);
   });
 });

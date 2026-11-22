@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { PushPayloadSchema, type Notification } from '@smart-farm/shared/schemas/notification';
 import {
   buildPushPayload,
+  buildTestPushPayload,
   PUSH_MESSAGE_MAX_LENGTH,
 } from '../../../../src/backend/application/notification/push-payload.ts';
 
@@ -40,5 +41,18 @@ describe('buildPushPayload', () => {
     expect(exact.message).toBe('あ'.repeat(PUSH_MESSAGE_MAX_LENGTH));
     expect(over.message).toBe(`${'あ'.repeat(PUSH_MESSAGE_MAX_LENGTH - 1)}…`);
     expect(over.message).toHaveLength(PUSH_MESSAGE_MAX_LENGTH);
+  });
+});
+
+describe('buildTestPushPayload（テスト通知の本文。#159 SC-15-2）', () => {
+  it('見出しは「テスト通知」。通知の識別子は、固定の `test`（通知の記録に結び付かない）。共有のスキーマ（PushPayloadSchema）に適合する', () => {
+    const payload = buildTestPushPayload();
+
+    expect(payload).toEqual({
+      title: 'テスト通知',
+      message: 'これは、通知の設定の確認のための、テスト通知です。この端末に届いています',
+      notificationId: 'test',
+    });
+    expect(PushPayloadSchema.safeParse(payload).success).toBe(true);
   });
 });

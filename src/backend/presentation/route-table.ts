@@ -139,6 +139,7 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'GET', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'PUT', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'DELETE', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
+  { method: 'POST', path: '/push-subscription/test', access: 'LOGIN', useCases: ['UC-23'] },
   // 取り込み・連携（SC-11）
   { method: 'GET', path: '/ingestion/settings', access: 'ingestion:read', useCases: ['UC-15'] },
   {
