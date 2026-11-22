@@ -19,6 +19,7 @@ import { useAppState } from '../components/app-state.tsx';
 import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { HorizonControls } from '../components/horizon-controls.tsx';
 import { Icon, ViewpointIcon } from '../components/icon.tsx';
+import { NotApplicableNotice } from '../components/not-applicable-notice.tsx';
 import { RadarChart } from '../components/radar-chart.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
@@ -177,13 +178,7 @@ export function SatisfactionView(props: { readonly variant?: 'page' | 'drawer' }
   if (equipmentError !== undefined) {
     content = <ErrorView error={equipmentError} />;
   } else if (error instanceof ApiError && error.code === 'NOT_FOUND') {
-    content = (
-      <div role="alert" className="state-view state-error" data-testid="not-applicable">
-        <Icon name="status-error" size={20} />
-        <p>{error.message}</p>
-        <p>{MESSAGES.viewpoint.notApplicable}</p>
-      </div>
-    );
+    content = <NotApplicableNotice message={error.message} viewpointId="satisfaction" />;
   } else if (error !== undefined) {
     content = <ErrorView error={error} onRetry={reload} />;
   } else if (data === undefined) {

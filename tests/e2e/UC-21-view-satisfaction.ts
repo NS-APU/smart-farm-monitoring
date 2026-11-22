@@ -481,14 +481,37 @@ test.describe('対象の設備', () => {
 
     await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
 
+    // エラーの見た目（role=alert）ではなく、案内（role=status）。ハウスの評価である旨を示す（#156）
+    await expect(page.getByTestId('not-applicable')).toHaveAttribute('role', 'status');
     await expect(page.getByTestId('not-applicable')).toContainText(
-      'ハウスまたは対象の設備を選び直してください',
+      'この観点（満足度）は、ハウスの評価です（ロボットでは評価しません）',
     );
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
     );
+    await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
     await page.getByRole('main').getByLabel('対象の設備').selectOption(HOUSE_ID);
     await expect(overallScore(page)).toHaveText('4.0');
+  });
+
+  test('評価しない設備の案内の「ハウスを表示」で、親のハウスに切り替えて、満足度を表示できる（#156）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [4, 4, 4, 4, 4, 4, 4, 4, 4]);
+    await openSatisfaction(page);
+    await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
+    await expect(page.getByTestId('not-applicable')).toBeVisible();
+
+    await page
+      .getByTestId('not-applicable')
+      .getByRole('button', { name: /^ハウス「.+」を表示$/ })
+      .click();
+
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
+    await expect(overallScore(page)).toHaveText('4.0');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).toHaveValue(HOUSE_ID);
   });
 });
 

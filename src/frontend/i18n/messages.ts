@@ -163,6 +163,25 @@ export const MESSAGES = {
     unknownGuide:
       'データ不足のため評価できません。次の画面で、データの取得・入力を確認してください',
     notApplicable: 'ハウスまたは対象の設備を選び直してください',
+    /**
+     * 評価しない設備を選んでいるときの案内（Issue #156）。観点の名称が分かるときは、名称を添える。
+     * evaluatedBy: その観点を評価する設備の種類の表示名（ハウスを除く。ロボット・センサー）。空なら、ハウスだけで評価する。
+     */
+    notApplicableEvaluatedBy: (
+      viewpointName: string | undefined,
+      evaluatedBy: readonly string[],
+      selectedTypeLabel: string,
+    ) => {
+      const subject = `この観点${viewpointName === undefined ? '' : `（${viewpointName}）`}`;
+      const where =
+        evaluatedBy.length === 0
+          ? 'ハウスの評価です'
+          : `${[...evaluatedBy, 'ハウス'].join('と')}で評価します`;
+      return `${subject}は、${where}（${selectedTypeLabel}では評価しません）`;
+    },
+    /** 設備の種類の短い表示名（案内の文中用）。 */
+    equipmentTypeShort: { FACILITY: 'ハウス', ROBOT: 'ロボット', SENSOR: 'センサー' },
+    showFacility: (facilityName: string) => `ハウス「${facilityName}」を表示`,
     horizonUsedLong: 'この観点は短期評価を持たないため、長期の結果を表示しています',
     basis: '根拠の指標',
     metric: '指標',
