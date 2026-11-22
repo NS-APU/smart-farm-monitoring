@@ -180,7 +180,7 @@
 | ステータスコード               | `GET /status-codes`                                                                                                                 | LOGIN                                 |
 |                                | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`                                                                           | `status-code:manage`                  |
 | 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET /notifications/:notificationId/memos`・`POST /notifications/:notificationId/read` | LOGIN。メモの追記 `POST /notifications/:notificationId/memos`（#239）は `manual-entry:write`                                 |
-| Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`                                                                                           | LOGIN                                 |
+| Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`、`POST /push-subscription/test`（テスト通知。#159）                                      | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
 |                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings`                                                            | `ingestion:read`                      |
 |                                | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`（#367） | `ingestion:configure`                 |
@@ -1745,7 +1745,7 @@ sequenceDiagram
   PG->>PB: currentEndpoint<br>この端末の購読の宛先
   PG->>APP: GET /push-subscription に<br>endpoint を付ける LOGIN
   APP->>PS: status(userId, endpoint)
-  PS-->>PG: isAvailable と publicKey と<br>isSubscribed
+  PS-->>PG: isAvailable と publicKey と<br>isSubscribed と isInvalidated
   alt 有効にする
     PG->>PB: requestPermission ブラウザの確認
     PG->>PB: subscribe(publicKey)
@@ -1760,6 +1760,13 @@ sequenceDiagram
     PG->>APP: DELETE /push-subscription に<br>endpoint を送る
     APP->>PS: unsubscribe(userId, endpoint)
     PS->>PR: delete(subscriptionId)
+  else テスト通知を送る（#159）
+    PG->>APP: POST /push-subscription/test に<br>endpoint を送る
+    APP->>PS: sendTest(userId, endpoint)
+    Note over PS: 購読がなければ NOT_FOUND 404<br>無効なら CONFLICT 409<br>1 分以内は RATE_LIMITED 429
+    PS->>PR: save testSentAt 送る前に書く
+    PS->>PS: NotifierPort.deliverTest<br>通知の記録は作らない
+    Note over PS: 購読が無効と返ったら deactivate して CONFLICT 409<br>失敗は SERVICE_UNAVAILABLE 503
   end
 ```
 
@@ -2132,7 +2139,7 @@ stateDiagram-v2
   Deleted --> [*]
 ```
 
-- 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）。登録の入力は `{ endpoint, keys? }`（`keys` は p256dh・auth。本文つきの配信に使う。#241）
+- 購読の識別子は、利用者と宛先から決まる（`sub-` ＋ SHA-256 の先頭 24 桁）。購読の記録は、直近のテスト通知の日時（`testSentAt`。任意。1 分に 1 回までの制限に使う。再登録しても残す。#159）を持つ。状態の応答の `isInvalidated` は、無効（Inactive）の記録が残っていて、有効なものがないこと（#159）。公開鍵（`WEB_PUSH_PUBLIC_KEY`）が未設定の環境では、登録できない（503）。登録の入力は `{ endpoint, keys? }`（`keys` は p256dh・auth。本文つきの配信に使う。#241）
 - ユーザーを削除すると、その購読も削除される（`UserService.delete` が `deleteByUser` を呼ぶ。課題 I-02 は解消）
 
 ## 変更履歴（AuditLogEntry）

@@ -121,6 +121,11 @@ export function subscribePush(api: ApiClient, subscription: PushSubscriptionDeta
   return api.command('/push-subscription', { method: 'PUT', body: subscription });
 }
 
+/** この端末（購読の宛先）へ、テスト通知を送る（通知の記録は作らない。1 分に 1 回まで。#159 SC-15-2）。 */
+export function sendTestPush(api: ApiClient, endpoint: string) {
+  return api.command('/push-subscription/test', { method: 'POST', body: { endpoint } });
+}
+
 export function unsubscribePush(api: ApiClient, endpoint?: string) {
   return api.command('/push-subscription', {
     method: 'DELETE',

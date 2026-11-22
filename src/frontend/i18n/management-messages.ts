@@ -81,12 +81,19 @@ export const MANAGEMENT_MESSAGES = {
     disable: '解除する',
     enabling: '設定中…',
     unsupported: 'このブラウザは、Web Push 通知に対応していません。画面内の通知のみ利用できます',
+    // iPhone・iPad の Safari のタブ（Web Push は、ホーム画面に追加したアプリとして開いたときだけ使える。#159 SC-15-8）
+    unsupportedHomeScreen:
+      'Safari のタブでは、Web Push 通知を利用できません。ホーム画面に追加して、アイコンから開き直してください。それまでは、画面内の通知のみ利用できます',
+    invalidated: '無効になりました。もう一度有効にしてください',
     unavailable: 'このサーバーでは、Web Push 通知を利用できません。画面内の通知のみ利用できます',
     denied:
       'ブラウザで、通知が許可されていません。ブラウザの設定で許可すると、有効にできます。それまでは、画面内の通知のみです',
     permissionRequest: '有効にすると、ブラウザが通知の許可を求めます',
     enabledDone: 'Web Push 通知を有効にしました',
     disabledDone: 'Web Push 通知を解除しました',
+    sendTest: 'テスト通知を送る',
+    sendingTest: '送信中…',
+    testSent: 'テスト通知を送りました。この端末に届いたか、確認してください',
     failed: 'Web Push 通知を設定できませんでした。ブラウザの設定を確認してください',
     scopeNote: '設定は、ログイン中の利用者の、この端末が対象です',
   },
@@ -107,6 +114,10 @@ export const MANAGEMENT_MESSAGES = {
     note: '備考（所感・補足情報）',
     selectPlaceholder: '選択してください',
     statusCodeHint: '登録済みのコードから選択',
+    // 入力欄のヘルプヒント（意味。data-dictionary.md の定義。Issue #154）
+    categoryHelp: '入力する情報の種類です。選べるのは、対象の設備に合うカテゴリだけです',
+    observedAtHelp: '値を計測した（出来事が起きた）日時です。日本時間で入力します',
+    noteHelp: '作業者の所感・補足情報です（任意）',
     statusCodeDeletedOption: '（登録なし・削除済み）',
     save: '保存する',
     savedTitle: '保存しました',

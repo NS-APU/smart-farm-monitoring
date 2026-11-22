@@ -20,6 +20,8 @@
 | 平均故障間隔 | MTBF | 故障から次の故障までの平均時間。ロボット運用の信頼性を示す指標 | [project-overview.md](./project-overview.md) |
 | 平均修復時間 | MTTR | 故障から復旧までにかかる平均時間。復旧のしやすさを示す指標 | [project-overview.md](./project-overview.md) |
 | 経済生産性 | EconomicProductivity | 運用コストに対する収穫の成果の比（無次元）。（収穫成功率 × 収穫速度 × 可用率）÷ 運用コスト。コスト効率の観点の判定に使う | [robot-health.md](../10_design/viewpoint/robot-health.md) |
+| ヘルプヒント | - | 画面の指標名・入力欄のラベルの横に置く「?」のボタン。押すと、意味（と入力例）の説明が開く。タップ・キーボードで操作できる。説明は、指標の定義（`metrics.ts`）・入力項目の説明（`item-help.ts`）から表示する（Issue #154） | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) |
+| 凡例 | - | 状態（正常・注意・異常・不明。有効・欠損・遅延・不正）の意味を示す、折りたたみ式の説明。ダッシュボードと計測データに置く（Issue #154） | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) |
 | デザイントークン | - | 色・文字の大きさ・余白・角丸などのデザインの値に、役割で付けた名前（実装は、CSS のカスタムプロパティ）。ライト・ダークで値を切り替える | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) |
 | カラーユニバーサルデザイン | CUD | 色の見え方が異なる人（色覚の違い）にも、情報が正しく伝わるようにする設計。本システムでは、状態を、色・形・塗り方・文字で示す | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) |
 | 設計判断の記録 | ADR | 重要な技術選定・設計判断と、その理由を残した記録 | [documentation-guidelines.md](./documentation-guidelines.md) |

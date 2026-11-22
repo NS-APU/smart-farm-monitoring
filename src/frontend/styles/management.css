@@ -1217,3 +1217,14 @@ textarea {
   outline-offset: 2px;
   border-radius: 8px;
 }
+
+/* 入力欄のラベルと、ヘルプヒント（「?」）を、1 行に並べる（Issue #154） */
+.field-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.field-label-row > label {
+  font-weight: 600;
+}

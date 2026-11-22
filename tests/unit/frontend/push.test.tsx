@@ -167,6 +167,136 @@ describe('createBrowserPush（ブラウザの Web Push の窓口）', () => {
   });
 });
 
+/** iOS・iPadOS の判定に使う、実際の User-Agent の形（機種・OS のバージョンは、ダミー）。 */
+const USER_AGENTS = {
+  iphoneSafari:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+  ipadSafari:
+    'Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+  // iPadOS 13 以降の Safari は、既定で、Mac を名乗る（platform も MacIntel）。タッチの点数で見分ける
+  ipadosDesktopSafari:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+  iphoneChrome:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/123.0.0.0 Mobile/15E148 Safari/604.1',
+  iphoneFirefox:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/124.0 Mobile/15E148 Safari/605.1.15',
+  iphoneEdge:
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/123.0.0.0 Mobile/15E148 Safari/605.1.15',
+  macSafari:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
+  androidChrome:
+    'Mozilla/5.0 (Linux; Android 14; Dummy) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
+} as const;
+
+describe('createBrowserPush: ホーム画面に追加する案内が要るか（needsHomeScreen。#159 SC-15-8）', () => {
+  /** Push API を持たない（Safari のタブ）環境。ホーム画面から開いている環境は、withPushManager で作る。 */
+  function iosEnvironment(
+    navigatorFields: {
+      userAgent?: string;
+      platform?: string;
+      maxTouchPoints?: number;
+      standalone?: boolean;
+    },
+    options: { withPushManager?: boolean; displayModeStandalone?: boolean } = {},
+  ): BrowserEnvironment {
+    const base = fakeEnvironment({ withPushManager: options.withPushManager ?? false }).env;
+    return {
+      ...base,
+      navigator: { ...base.navigator, ...navigatorFields },
+      matchMedia: (query: string) => ({
+        matches: query === '(display-mode: standalone)' && options.displayModeStandalone === true,
+      }),
+    };
+  }
+
+  it.each([
+    [
+      'iPhone の Safari',
+      { userAgent: USER_AGENTS.iphoneSafari, platform: 'iPhone', maxTouchPoints: 5 },
+    ],
+    [
+      'iPad の Safari（モバイル表示）',
+      { userAgent: USER_AGENTS.ipadSafari, platform: 'iPad', maxTouchPoints: 5 },
+    ],
+    [
+      'iPadOS の Safari（デスクトップ表示。User-Agent は Mac を名乗る）',
+      { userAgent: USER_AGENTS.ipadosDesktopSafari, platform: 'MacIntel', maxTouchPoints: 5 },
+    ],
+  ])('%s のタブで開いている（Web Push に未対応）: true', (_name, fields) => {
+    const push = createBrowserPush(iosEnvironment(fields));
+
+    expect(push.isSupported()).toBe(false);
+    expect(push.needsHomeScreen()).toBe(true);
+  });
+
+  it.each([
+    [
+      'Mac の Safari（タッチなし）',
+      { userAgent: USER_AGENTS.macSafari, platform: 'MacIntel', maxTouchPoints: 0 },
+    ],
+    [
+      'Android の Chrome',
+      { userAgent: USER_AGENTS.androidChrome, platform: 'Linux armv8l', maxTouchPoints: 5 },
+    ],
+    [
+      'iPhone の Chrome（Safari ではない）',
+      { userAgent: USER_AGENTS.iphoneChrome, platform: 'iPhone', maxTouchPoints: 5 },
+    ],
+    [
+      'iPhone の Firefox（Safari ではない）',
+      { userAgent: USER_AGENTS.iphoneFirefox, platform: 'iPhone', maxTouchPoints: 5 },
+    ],
+    [
+      'iPhone の Edge（Safari ではない）',
+      { userAgent: USER_AGENTS.iphoneEdge, platform: 'iPhone', maxTouchPoints: 5 },
+    ],
+    ['User-Agent がない環境', {}],
+  ])('%s: false（これまでの「対応していません」の文言）', (_name, fields) => {
+    expect(createBrowserPush(iosEnvironment(fields)).needsHomeScreen()).toBe(false);
+  });
+
+  it('ホーム画面から開いている（navigator.standalone が true）なら、案内しない', () => {
+    const push = createBrowserPush(
+      iosEnvironment({ userAgent: USER_AGENTS.iphoneSafari, platform: 'iPhone', standalone: true }),
+    );
+
+    expect(push.needsHomeScreen()).toBe(false);
+  });
+
+  it('ホーム画面から開いている（display-mode: standalone）なら、案内しない', () => {
+    const push = createBrowserPush(
+      iosEnvironment(
+        { userAgent: USER_AGENTS.iphoneSafari, platform: 'iPhone' },
+        { displayModeStandalone: true },
+      ),
+    );
+
+    expect(push.needsHomeScreen()).toBe(false);
+  });
+
+  it('Web Push に対応している（ホーム画面のアプリで、Push API が使える）なら、案内しない', () => {
+    const push = createBrowserPush(
+      iosEnvironment(
+        { userAgent: USER_AGENTS.iphoneSafari, platform: 'iPhone', maxTouchPoints: 5 },
+        { withPushManager: true },
+      ),
+    );
+
+    expect(push.isSupported()).toBe(true);
+    expect(push.needsHomeScreen()).toBe(false);
+  });
+
+  it('matchMedia がない環境でも、判定できる（タブの iPhone なら true）', () => {
+    const base = fakeEnvironment({ withPushManager: false }).env;
+    const env: BrowserEnvironment = {
+      ...base,
+      navigator: { ...base.navigator, userAgent: USER_AGENTS.iphoneSafari, platform: 'iPhone' },
+    };
+
+    expect(createBrowserPush(env).needsHomeScreen()).toBe(true);
+  });
+});
+
 describe('usePushBrowser', () => {
   it('PushBrowserProvider の外では、エラーになる', () => {
     expect(() => renderHook(() => usePushBrowser())).toThrow('PushBrowserProvider の外');
@@ -182,6 +312,8 @@ interface FakePushOptions {
   subscribeFails?: boolean;
   /** 購読が暗号鍵を返さない。 */
   withoutKeys?: boolean;
+  /** iOS・iPadOS の Safari のタブで開いている（ホーム画面に追加して開き直す必要がある。#159 SC-15-8）。 */
+  needsHomeScreen?: boolean;
 }
 
 function fakePush(options: FakePushOptions = {}) {
@@ -189,6 +321,7 @@ function fakePush(options: FakePushOptions = {}) {
   const push: PushBrowser & { subscribeCalls: string[] } = {
     subscribeCalls: [],
     isSupported: () => options.supported ?? true,
+    needsHomeScreen: () => options.needsHomeScreen ?? false,
     permission: () => options.permission ?? 'default',
     requestPermission: () => Promise.resolve(options.requested ?? 'granted'),
     currentEndpoint: () =>
@@ -215,7 +348,12 @@ function fakePush(options: FakePushOptions = {}) {
   return push;
 }
 
-const AVAILABLE = { isAvailable: true, publicKey: PUBLIC_KEY, isSubscribed: false };
+const AVAILABLE = {
+  isAvailable: true,
+  publicKey: PUBLIC_KEY,
+  isSubscribed: false,
+  isInvalidated: false,
+};
 
 beforeEach(() => {
   window.history.pushState(null, '', '/');
@@ -407,7 +545,12 @@ describe('通知の設定（UC-23。SC-15）', () => {
       '/settings/push',
       {
         'GET /push-subscription': () =>
-          jsonResponse({ isAvailable: false, publicKey: null, isSubscribed: false }),
+          jsonResponse({
+            isAvailable: false,
+            publicKey: null,
+            isSubscribed: false,
+            isInvalidated: false,
+          }),
       },
       { pushBrowser: fakePush() },
     );
@@ -445,5 +588,197 @@ describe('通知の設定（UC-23。SC-15）', () => {
     expect((await screen.findByTestId('push-limitation')).textContent).toContain(
       '対応していません',
     );
+  });
+});
+
+describe('通知の設定: iPhone・iPad のタブでの案内（#159 SC-15-8）', () => {
+  it('iOS・iPadOS の Safari のタブで開いているときは、「ホーム画面に追加して、アイコンから開き直してください」と案内する。有効にできない', async () => {
+    renderApp(
+      '/settings/push',
+      { 'GET /push-subscription': () => jsonResponse(AVAILABLE) },
+      { pushBrowser: fakePush({ supported: false, needsHomeScreen: true }) },
+    );
+
+    const limitation = await screen.findByTestId('push-limitation');
+
+    expect(limitation.textContent).toContain(
+      'ホーム画面に追加して、アイコンから開き直してください',
+    );
+    expect(limitation.textContent).not.toContain('このブラウザは、Web Push 通知に対応していません');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '有効にする' }).disabled).toBe(
+      true,
+    );
+  });
+
+  it('それ以外の未対応（Web Push 非対応のブラウザなど）は、これまでの文言', async () => {
+    renderApp(
+      '/settings/push',
+      { 'GET /push-subscription': () => jsonResponse(AVAILABLE) },
+      { pushBrowser: fakePush({ supported: false, needsHomeScreen: false }) },
+    );
+
+    const limitation = await screen.findByTestId('push-limitation');
+
+    expect(limitation.textContent).toBe(
+      'このブラウザは、Web Push 通知に対応していません。画面内の通知のみ利用できます',
+    );
+  });
+});
+
+describe('通知の設定: 購読が無効になったときの案内（#159 SC-15-6）', () => {
+  it('購読が無効になっている（isInvalidated）ときは、「無効になりました。もう一度有効にしてください」と示す。状態は「無効」で、有効にできる', async () => {
+    renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () =>
+          jsonResponse({ ...AVAILABLE, isSubscribed: false, isInvalidated: true }),
+      },
+      { pushBrowser: fakePush({ endpoint: 'https://push.example.invalid/mine' }) },
+    );
+
+    const notice = await screen.findByTestId('push-invalidated');
+
+    expect(notice.textContent).toContain('無効になりました。もう一度有効にしてください');
+    expect(screen.getByTestId('push-state').textContent).toContain('無効');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '有効にする' }).disabled).toBe(
+      false,
+    );
+  });
+
+  it('無効になっていない（ふつうの「無効」）ときは、示さない。有効なときも、示さない', async () => {
+    const { unmount } = renderApp(
+      '/settings/push',
+      { 'GET /push-subscription': () => jsonResponse(AVAILABLE) },
+      { pushBrowser: fakePush() },
+    );
+    await screen.findByTestId('push-state');
+    expect(screen.queryByTestId('push-invalidated')).toBeNull();
+    unmount();
+
+    renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () =>
+          jsonResponse({ ...AVAILABLE, isSubscribed: true, isInvalidated: true }),
+      },
+      { pushBrowser: fakePush({ endpoint: 'https://push.example.invalid/mine' }) },
+    );
+    await screen.findByTestId('push-state');
+    expect(screen.queryByTestId('push-invalidated')).toBeNull();
+  });
+
+  it('もう一度有効にすると、案内は消える', async () => {
+    let subscribed = false;
+    renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () =>
+          jsonResponse({ ...AVAILABLE, isSubscribed: subscribed, isInvalidated: !subscribed }),
+        'PUT /push-subscription': () => {
+          subscribed = true;
+          return noContent();
+        },
+      },
+      { pushBrowser: fakePush() },
+    );
+    await screen.findByTestId('push-invalidated');
+
+    fireEvent.click(screen.getByRole('button', { name: '有効にする' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('push-invalidated')).toBeNull();
+    });
+    expect(screen.getByTestId('push-state').textContent).toContain('有効');
+  });
+});
+
+describe('通知の設定: テスト通知（#159 SC-15-2）', () => {
+  const MINE = 'https://push.example.invalid/mine';
+  const SUBSCRIBED = { ...AVAILABLE, isSubscribed: true };
+
+  it('有効なときだけ、「テスト通知を送る」を示す。無効なときは、示さない', async () => {
+    const { unmount } = renderApp(
+      '/settings/push',
+      { 'GET /push-subscription': () => jsonResponse(AVAILABLE) },
+      { pushBrowser: fakePush() },
+    );
+    await screen.findByTestId('push-state');
+    expect(screen.queryByRole('button', { name: 'テスト通知を送る' })).toBeNull();
+    unmount();
+
+    renderApp(
+      '/settings/push',
+      { 'GET /push-subscription': () => jsonResponse(SUBSCRIBED) },
+      { pushBrowser: fakePush({ endpoint: MINE }) },
+    );
+    expect(await screen.findByRole('button', { name: 'テスト通知を送る' })).toBeDefined();
+  });
+
+  it('押すと、この端末の宛先で API を呼び、送ったことを示す（届くか確認するよう促す）', async () => {
+    const { calls } = renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () => jsonResponse(SUBSCRIBED),
+        'POST /push-subscription/test': () => noContent(),
+      },
+      { pushBrowser: fakePush({ endpoint: MINE }) },
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'テスト通知を送る' }));
+
+    expect((await screen.findByTestId('push-done')).textContent).toBe(
+      'テスト通知を送りました。この端末に届いたか、確認してください',
+    );
+    expect(callsOf(calls, 'POST', '/push-subscription/test')).toHaveLength(1);
+    expect(callsOf(calls, 'POST', '/push-subscription/test')[0]?.body).toEqual({ endpoint: MINE });
+  });
+
+  it('1 分以内の再送（429）は、サーバーのメッセージ（あと何秒か）を示す。成功の表示は出さない', async () => {
+    renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () => jsonResponse(SUBSCRIBED),
+        'POST /push-subscription/test': () =>
+          errorBody(
+            429,
+            'RATE_LIMITED',
+            'テスト通知は、1 分に 1 回までです。あと 40 秒たってから、もう一度お試しください',
+          ),
+      },
+      { pushBrowser: fakePush({ endpoint: MINE }) },
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'テスト通知を送る' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('あと 40 秒');
+    expect(screen.queryByTestId('push-done')).toBeNull();
+  });
+
+  it('購読が無効になっていた（409）ときは、エラーを示し、状態を取り直して、「無効になりました」を示す', async () => {
+    let invalidated = false;
+    renderApp(
+      '/settings/push',
+      {
+        'GET /push-subscription': () =>
+          jsonResponse(
+            invalidated ? { ...AVAILABLE, isSubscribed: false, isInvalidated: true } : SUBSCRIBED,
+          ),
+        'POST /push-subscription/test': () => {
+          invalidated = true;
+          return errorBody(
+            409,
+            'CONFLICT',
+            'この端末の Web Push 通知は、無効になりました。もう一度有効にしてください',
+          );
+        },
+      },
+      { pushBrowser: fakePush({ endpoint: MINE }) },
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'テスト通知を送る' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('もう一度有効にしてください');
+    expect(await screen.findByTestId('push-invalidated')).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'テスト通知を送る' })).toBeNull();
   });
 });
