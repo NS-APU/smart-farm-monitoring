@@ -257,6 +257,41 @@ textarea {
   margin: 0 0 var(--space);
 }
 
+/* 確認の対象の項目（ラベルと値）と、影響の説明（#153） */
+.dialog-details {
+  margin: 0 0 var(--space);
+  padding: 12px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.dialog-details > div {
+  display: grid;
+  grid-template-columns: 8em 1fr;
+  gap: 8px;
+}
+
+.dialog-details > div + div {
+  margin-top: 4px;
+}
+
+.dialog-details dt {
+  color: var(--color-muted);
+}
+
+.dialog-details dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dialog-notes {
+  margin: 0 0 var(--space);
+  padding-left: 1.4em;
+  color: var(--color-muted);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

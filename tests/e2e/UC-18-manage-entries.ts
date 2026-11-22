@@ -527,6 +527,12 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await rows(page).first().getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('入力データを削除しますか');
     await expect(page.getByTestId('confirm-dialog')).toContainText('一覧と集計の対象から外れます');
+    // 対象（計測日時・設備名・項目と値）を示し、元に戻す操作がないことを明記する（#153）
+    await expect(page.getByTestId('confirm-dialog')).toContainText('収穫ロボット1');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('緊急停止回数: 1回');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '元に戻す操作はありません（変更履歴には残ります）',
+    );
     await shot(page, testInfo, 'uc18-confirm');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'キャンセル' }).click();
     await expect(rows(page)).toHaveCount(1);

@@ -151,6 +151,10 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await rowOf(page, 'LOW_BATTERY').getByRole('button', { name: '修正' }).click();
     const edit = page.getByTestId('status-code-edit');
     await expect(edit.getByLabel('コード値')).toHaveCount(0);
+    // カテゴリの変更の影響（次の評価から反映・過去の評価は保持・影響する観点）を、カテゴリの欄に示す（#153）
+    await expect(edit.locator('[data-field="category"]')).toContainText(
+      'カテゴリを変えると、次の評価から反映されます。過去の評価は、そのまま保持します。影響する観点: 収穫速度・メンテナンス性・耐久性',
+    );
     await shot(page, testInfo, 'uc17-edit');
     await edit.getByLabel('名称').fill('電池残量わずか');
     await edit.getByLabel('カテゴリ').selectOption('ERROR');
@@ -204,6 +208,16 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await rowOf(page, 'STOPPED').getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText(
       'ステータスコードを削除しますか',
+    );
+    // 対象（コード値・名称）と、影響の静的な説明（次の評価から反映・過去の評価は保持・影響する観点）を示す（#153）
+    await expect(page.getByTestId('confirm-dialog')).toContainText('STOPPED');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('停止中');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('次の評価から反映されます');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '過去の評価は、そのまま保持します',
+    );
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '影響する観点: 収穫速度・メンテナンス性・耐久性',
     );
     await shot(page, testInfo, 'uc17-confirm');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'キャンセル' }).click();

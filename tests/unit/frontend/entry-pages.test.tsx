@@ -8,7 +8,10 @@ import { jsonResponse } from '../../support/frontend.ts';
 import {
   FULL_LOGIN,
   READ_ONLY_LOGIN,
+  at,
   callsOf,
+  confirmDetailsOf,
+  confirmNotesOf,
   errorBody,
   loginWith,
   manualEntry,
@@ -752,6 +755,46 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
 
     expect((await screen.findByTestId('entries-notice')).textContent).toBe('削除しました');
     expect(callsOf(calls, 'DELETE', '/manual-entries/e-1')).toHaveLength(1);
+  });
+
+  it('削除の確認は、対象（計測日時・設備名・項目と値）を示し、元に戻す操作がないこと（変更履歴には残ること）を明記する（#153。SC-07-5）', async () => {
+    renderApp('/data-entry/list', listRoutes([manualEntry()]));
+
+    fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(confirmDetailsOf(dialog)).toEqual({
+      計測日時: '2026/10/09 11:00:00',
+      設備: '収穫ロボット1',
+      項目: '故障回数: 2回、復旧に要した時間: 90分',
+    });
+    expect(dialog.textContent).toContain('一覧と集計の対象から外れます');
+    expect(dialog.textContent).toContain('元に戻す操作はありません（変更履歴には残ります）');
+    expect(dialog.textContent).not.toContain('論理削除');
+    expect(confirmNotesOf(dialog)).toEqual([]);
+  });
+
+  it('削除の確認の設備は、設備の階層にないときは、設備IDで示す。複数の行から開いても、押した行の対象を示す', async () => {
+    renderApp(
+      '/data-entry/list',
+      listRoutes([
+        manualEntry(),
+        manualEntry({
+          entryId: 'e-2',
+          equipmentId: 'ROBOT-99' as never,
+          observedAt: '2026-10-10T03:30:00.000Z',
+          items: { unknownItem: 5 },
+        }),
+      ]),
+    );
+
+    fireEvent.click(at(await screen.findAllByRole('button', { name: '削除' }), 1));
+
+    expect(confirmDetailsOf(await screen.findByTestId('confirm-dialog'))).toEqual({
+      計測日時: '2026/10/10 12:30:00',
+      設備: 'ROBOT-99',
+      項目: 'unknownItem: 5',
+    });
   });
 
   it('削除に失敗した場合は、エラーを表示し、ダイアログを閉じる', async () => {

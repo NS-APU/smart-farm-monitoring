@@ -160,3 +160,18 @@ export function at<Item>(items: readonly Item[], index: number): Item {
   }
   return item;
 }
+
+/** 確認のダイアログの「対象の項目」（ラベル → 値）を読む。対象の項目がなければ、空。 */
+export function confirmDetailsOf(dialog: HTMLElement): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Array.from(dialog.querySelectorAll('.dialog-details > div')).map((row) => [
+      row.querySelector('dt')?.textContent ?? '',
+      row.querySelector('dd')?.textContent ?? '',
+    ]),
+  );
+}
+
+/** 確認のダイアログの「影響の説明」（注記）を、並びのまま読む。なければ、空。 */
+export function confirmNotesOf(dialog: HTMLElement): readonly string[] {
+  return Array.from(dialog.querySelectorAll('.dialog-notes > li')).map((item) => item.textContent);
+}
