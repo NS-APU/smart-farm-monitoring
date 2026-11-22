@@ -102,7 +102,8 @@ function AppRoutes(): ReactNode {
     return <ChangePasswordPage forced />;
   }
   if (pathname === PATHS.login) {
-    return <Redirect to={PATHS.dashboard} />;
+    // ログイン済みでログイン画面を開いた（ログインの直後・ブックマークなど）。戻り先への遷移は、LoginPage の 1 か所だけで行う
+    return <LoginPage />;
   }
   return (
     <AppLayout>

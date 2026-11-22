@@ -48,6 +48,25 @@ async function submitLogin(page: Page, userId: string, password: string): Promis
   await page.getByRole('button', { name: 'ログイン' }).click();
 }
 
+/** ページの読み込みごとに、`history.replaceState` で移った先（パス・クエリ）を記録する（ログイン後の遷移が、1 か所だけであることの確認。Issue #460）。 */
+async function trackHistoryReplacements(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const record: string[] = [];
+    Object.defineProperty(window, '__replacements', { value: record });
+    const original = window.history.replaceState.bind(window.history);
+    window.history.replaceState = (data: unknown, unused: string, url?: string | URL | null) => {
+      record.push(String(url));
+      original(data, unused, url);
+    };
+  });
+}
+
+async function historyReplacements(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    (window as unknown as { __replacements: string[] }).__replacements.slice(),
+  );
+}
+
 test.beforeEach(async ({ request }) => {
   await resetBackend(request, 'NONE');
 });
@@ -362,11 +381,39 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
   });
 
+  test('保護された画面（クエリなし）へのアクセスは、ログイン後に、その画面へ戻り、ダッシュボードを経由しない（Issue #460）', async ({
+    page,
+  }) => {
+    await trackHistoryReplacements(page);
+    await page.goto('/notifications');
+    await expect(page).toHaveURL(/\/login\?next=%2Fnotifications$/);
+
+    await loginViaUi(page);
+
+    await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/notifications');
+    // ログイン画面からの移動は、戻り先への 1 回だけ（誘導のときの 1 回は、ログインの前）
+    expect(await historyReplacements(page)).toEqual([
+      '/login?next=%2Fnotifications',
+      '/notifications',
+    ]);
+  });
+
+  /** ブラウザの解釈で、別のオリジンや、ログイン画面になりうる値（Issue #460）。バックスラッシュは、1 文字。 */
+  const backslash = String.fromCharCode(92);
   const unsafe: readonly { name: string; next: string }[] = [
     { name: '別のサイト（https://…）', next: 'https://evil.example/phish' },
     { name: 'プロトコル相対（//…）', next: '//evil.example/phish' },
     { name: 'スキームなしの相対パス', next: 'evil' },
     { name: '空', next: '' },
+    { name: 'バックスラッシュ（/ + バックスラッシュ + …）', next: `/${backslash}evil.example` },
+    {
+      name: 'バックスラッシュ 2 つ',
+      next: `/${backslash}${backslash}evil.example`,
+    },
+    { name: 'タブを挟んだプロトコル相対（/ + タブ + /…）', next: '/\t/evil.example' },
+    { name: 'ログイン画面（/login）', next: '/login' },
+    { name: 'ログイン画面（クエリつき）', next: '/login?next=%2Fnotifications' },
   ];
 
   for (const item of unsafe) {
@@ -374,6 +421,7 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
       page,
       baseURL,
     }) => {
+      await trackHistoryReplacements(page);
       await page.goto(`/login?next=${encodeURIComponent(item.next)}`);
 
       await loginViaUi(page);
@@ -381,8 +429,42 @@ test.describe('代替フロー: 未認証でアクセスした場合は、ログ
       await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
       // 同じサイトにとどまっていること。サイトの origin は、設定（dev-ports.ts）から決まる baseURL を使う
       expect(new URL(page.url()).origin).toBe(baseURL);
+      expect(new URL(page.url()).pathname).toBe('/');
+      // ログイン済みなのに、エラーを表示しない
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      // ログイン後の移動は、ダッシュボードへの 1 回だけ（別のオリジンになりうる値で、移ろうとしない）
+      expect(await historyReplacements(page)).toEqual(['/']);
     });
   }
+
+  test('ログイン済みでログイン画面を開くと、ダッシュボードへ、1 回だけ移る（戻り先があれば、そこへ）（Issue #460）', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+    await loginViaUi(page);
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+
+    // 戻り先がなければ、ダッシュボードへ
+    await trackHistoryReplacements(page);
+    await page.goto('/login');
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
+    expect(await historyReplacements(page)).toEqual(['/']);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+
+    // 戻り先があれば、そこへ
+    await page.goto('/login?next=%2Fnotifications');
+    await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/notifications');
+    expect(await historyReplacements(page)).toEqual(['/notifications']);
+
+    // 戻り先が安全でなければ、ダッシュボードへ（エラーを表示しない）
+    await page.goto(`/login?next=${encodeURIComponent(`/${backslash}evil.example`)}`);
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe('/');
+    expect(await historyReplacements(page)).toEqual(['/']);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
 
   test('すべての保護された画面は、未認証だと、ログイン画面へ誘導する', async ({ page }) => {
     for (const path of [
