@@ -16,8 +16,9 @@ import { CriteriaTable } from '../components/criteria-table.tsx';
 import { DiagnosisSection } from '../components/diagnosis-section.tsx';
 import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { HorizonControls } from '../components/horizon-controls.tsx';
-import { Icon, ViewpointIcon } from '../components/icon.tsx';
+import { ViewpointIcon } from '../components/icon.tsx';
 import { MetricsTable } from '../components/metrics-table.tsx';
+import { NotApplicableNotice } from '../components/not-applicable-notice.tsx';
 import { SourceDataSection } from '../components/source-data-section.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
@@ -87,17 +88,14 @@ export function ViewpointDetailView(props: {
       ? PATHS.dashboard
       : `${PATHS.dashboard}?${new URLSearchParams({ periodDays: String(selectedPeriodDays) }).toString()}`;
 
+  const viewpointMeta = findViewpointMeta(viewpointId);
   let content: ReactNode;
   if (equipmentError !== undefined) {
     content = <ErrorView error={equipmentError} />;
   } else if (detail.error instanceof ApiError && detail.error.code === 'NOT_FOUND') {
     // 選んだ設備では評価しない観点（例: センサーでは環境適応性のみ）
     content = (
-      <div role="alert" className="state-view state-error" data-testid="not-applicable">
-        <Icon name="status-error" size={20} />
-        <p>{detail.error.message}</p>
-        <p>{MESSAGES.viewpoint.notApplicable}</p>
-      </div>
+      <NotApplicableNotice message={detail.error.message} viewpointName={viewpointMeta?.name} />
     );
   } else if (detail.error !== undefined) {
     content = <ErrorView error={detail.error} onRetry={detail.reload} />;
@@ -137,7 +135,6 @@ export function ViewpointDetailView(props: {
   // 選んだ設備で評価しない観点（NOT_FOUND）は、観点の名称を見出しにする（どの観点を開いたか分かるように。V-173）。
   // 読み込み中は、従来どおり
   const isNotApplicable = detail.error instanceof ApiError && detail.error.code === 'NOT_FOUND';
-  const viewpointMeta = findViewpointMeta(viewpointId);
   const heading =
     detail.data?.name ??
     (isNotApplicable ? viewpointMeta?.name : undefined) ??
