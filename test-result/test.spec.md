@@ -13509,6 +13509,7 @@ E2E の設定（`playwright.config.ts`）に、環境変数 `HTTP_FILE_SOURCE_AL
 
 - 新しいテスト（単体）は、実装の前に書き、失敗を確認してから実装した（部品がなく、`password-input.test.tsx` は読み込みに失敗。ほかの 3 ファイルは、追加した 9 件が失敗し、既存の 53 件は成功）
 - 単体・結合・フロントエンド・IaC（`pnpm test:unit --maxWorkers=2`。DynamoDB Local あり。develop の取り込み前の状態）: 185 ファイル・4019 件のうち、4017 件が成功、2 件スキップ（Windows では実行しないファイル権限のテスト）。失敗 0 件。カバレッジ: Statements 99.07%・Branches 95.52%・Functions 99.18%・Lines 99.05%
+- develop（#163 の PR 1 まで）を取り込んだ後: フロントエンドの単体（`--project frontend`）は 48 ファイル・894 件がすべて成功。`pnpm lint`・`pnpm typecheck`・`pnpm format:check` は、終了コード 0。追加した E2E 4 件（UC-13 の 3 件・UC-14 の 1 件）は、すべて成功
 - E2E（`E2E_PORT_OFFSET=10100`。1 インスタンス）: 影響する 6 ファイル（UC-13・UC-14・scenario-user-onboarding・scenario-user-menu・scenario-theme・UC-12）の 135 件のうち、1 回目は 131 件が成功し、4 件が失敗した。1 件（UC-13 の新しいテスト）は、テストの誤り（ログインの前に、ユーザーIDを入力していなかった）で、直して成功した。残りの 3 件（scenario-theme の別のコンテキスト・scenario-user-menu の項目の選択・scenario-user-onboarding の設備の行の数）は、30 秒のタイムアウト、または設備の行が 0 件（5 秒の待ち）で、ほかのセッションとの同時実行の負荷によるものと見られる。3 ファイルを、単独で再実行して、22 件すべてが成功した（期待値・許容は、緩めていない）。直した UC-13 の 1 件は、単独で成功した
 - 負荷テスト（`pnpm test:stress`）: 手元では、実行していない（同時の負荷で測定が不安定になるため。CI の `ci:full` で確認する）
 - `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
