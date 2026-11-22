@@ -112,6 +112,67 @@ describe('Cognito の実装（ログイン）', () => {
     expect(recorded).toEqual([]);
   });
 
+  it('接続元ごとのロック: 待ち時間（設定の時間。指定がなければ 15 分）と、管理者に連絡する旨を示す（Issue #157。SC-01-3）', async () => {
+    const locked: LoginThrottlePort = {
+      isLocked: () => Promise.resolve(true),
+      recordFailure: () => Promise.resolve(),
+      reset: () => Promise.resolve(),
+    };
+    const { identity } = await seeded(locked);
+
+    await expect(
+      identity.auth.login({ userId: USER.userId, password: USER.password }, 'client-a'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインに失敗した回数が上限に達しました。15 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
+  it('接続元ごとのロックの待ち時間は、設定の時間から作る（45 分に変えたら、45 分）（Issue #157。SC-01-3）', async () => {
+    const clock = createControllableClock(NOW);
+    const fake = createFakeCognito({
+      userPoolId: 'pool-1',
+      clientId: 'client-1',
+      now: () => clock.now(),
+    });
+    const { repositories } = createLocalRepositories();
+    const identity = createCognitoIdentity({
+      client: fake,
+      userPoolId: 'pool-1',
+      clientId: 'client-1',
+      users: repositories.users,
+      clock,
+      throttle: {
+        isLocked: () => Promise.resolve(true),
+        recordFailure: () => Promise.resolve(),
+        reset: () => Promise.resolve(),
+      },
+      loginFailurePolicy: { limit: 3, windowMinutes: 45 },
+    });
+
+    await expect(
+      identity.auth.login({ userId: USER.userId, password: USER.password }, 'client-a'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインに失敗した回数が上限に達しました。45 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
+  it('Cognito の呼び出しの上限のメッセージは、待ち時間を示さない（設定の時間とは、無関係）。管理者に連絡する旨を示す（Issue #157。SC-01-3）', async () => {
+    const { fake, identity } = await seeded();
+    fake.failNext('AdminInitiateAuthCommand', cognitoError('TooManyRequestsException'));
+
+    await expect(
+      identity.auth.login({ userId: USER.userId, password: USER.password }, 'client-a'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインの試行回数が上限を超えました。しばらくしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
   it('想定外の Cognito のエラー（障害など）は、そのまま投げる（ログインの失敗として、数えない）', async () => {
     const { fake, identity, recorded } = await seeded();
     fake.failNext('AdminInitiateAuthCommand', cognitoError('InternalErrorException'));

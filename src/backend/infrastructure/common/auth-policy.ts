@@ -31,5 +31,17 @@ export const DEFAULT_LOGIN_FAILURE_POLICY: LoginFailurePolicy = {
 /** ログインの失敗の理由は、利用者に特定させない（ユーザーIDの存在を推測させない）。 */
 export const LOGIN_FAILED_MESSAGE = 'ユーザーIDまたはパスワードが正しくありません';
 export const SESSION_INVALID_MESSAGE = 'セッションが無効です。もう一度ログインしてください';
-export const LOGIN_LOCKED_MESSAGE =
-  'ログインの試行回数が上限を超えました。しばらくしてからやり直してください';
+/**
+ * 接続元ごとのロック（失敗の回数が、上限に達した）の文言。待ち時間は、設定の時間（LOGIN_FAILURE_WINDOW_MINUTES）から作る
+ * （Issue #157。SC-01-3。FR-9.2）。連絡先は、具体的な名前を書かず、「管理者」とする。
+ */
+export function loginLockedMessage(
+  policy: LoginFailurePolicy = DEFAULT_LOGIN_FAILURE_POLICY,
+): string {
+  return `ログインに失敗した回数が上限に達しました。${String(policy.windowMinutes)} 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください`;
+}
+/**
+ * Cognito の呼び出しの上限（TooManyRequests など）の文言。待ち時間は、設定の時間とは、無関係のため、示さない。
+ */
+export const LOGIN_THROTTLED_MESSAGE =
+  'ログインの試行回数が上限を超えました。しばらくしてから、やり直してください。解除できないときは、管理者に連絡してください';

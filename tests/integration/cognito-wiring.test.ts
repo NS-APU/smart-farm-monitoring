@@ -246,6 +246,34 @@ describe('Cognito の認証の組み立てと、最初のユーザーを作る�
     }
   });
 
+  it('接続元ごとのロック時のメッセージの待ち時間は、環境変数 LOGIN_FAILURE_WINDOW_MINUTES から作る（失敗 2 回 / 30 分）（Issue #157。SC-01-3）', async () => {
+    const { env, ready } = environment({
+      LOGIN_FAILURE_LIMIT: '2',
+      LOGIN_FAILURE_WINDOW_MINUTES: '30',
+    });
+    await ready;
+    const fake = fakeCognito();
+    await runInitialUserCli({ ...env, ...initialUserEnv() }, output(), { cognitoClient: fake });
+    const container = createContainer(parseConfig(env), { cognitoClient: fake });
+    try {
+      for (let count = 0; count < 2; count += 1) {
+        await container.authService
+          .login('first-user', 'Wrong-Passw0rd-1', 'client-lock')
+          .catch(() => undefined);
+      }
+
+      await expect(
+        container.authService.login('first-user', PASSWORD, 'client-lock'),
+      ).rejects.toMatchObject({
+        code: 'RATE_LIMITED',
+        message:
+          'ログインに失敗した回数が上限に達しました。30 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+      });
+    } finally {
+      container.close();
+    }
+  });
+
   it('ユーザーが 1 人でもいれば、何もしない（何度実行しても、既存のユーザーを上書きしない）', async () => {
     const { env, ready } = environment();
     await ready;

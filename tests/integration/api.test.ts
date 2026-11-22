@@ -186,6 +186,42 @@ describe('認証（UC-13）', () => {
     expect(otherClient.status).toBe(200);
   });
 
+  it('ロック時（429）のメッセージは、待ち時間（設定の時間。既定は 15 分）と、管理者に連絡する旨を示す。応答の形・エラーコードは変えない（Issue #157。SC-01-3）', async () => {
+    const context = await createTestContext();
+    const attempt = (password: string) =>
+      context.app.request('/api/v1/auth/login', json({ userId: TEST_USER.userId, password }));
+    for (let count = 0; count < LOGIN_FAILURE_LIMIT; count += 1) {
+      await attempt('wrong');
+    }
+
+    const blocked = await attempt(TEST_USER.password);
+
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toEqual({
+      error: {
+        code: 'RATE_LIMITED',
+        message:
+          'ログインに失敗した回数が上限に達しました。15 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+      },
+    });
+  });
+
+  it('ロック時のメッセージの待ち時間は、環境変数 LOGIN_FAILURE_WINDOW_MINUTES から作る（失敗 2 回 / 30 分）（Issue #157。SC-01-3）', async () => {
+    const context = await createTestContext({
+      env: { LOGIN_FAILURE_LIMIT: '2', LOGIN_FAILURE_WINDOW_MINUTES: '30' },
+    });
+    const attempt = (password: string) =>
+      context.app.request('/api/v1/auth/login', json({ userId: TEST_USER.userId, password }));
+    await attempt('wrong');
+    await attempt('wrong');
+
+    const blocked = await attempt(TEST_USER.password);
+
+    expect(blocked.status).toBe(429);
+    const body = (await blocked.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('30 分ほどしてから');
+  });
+
   it('リフレッシュトークンでセッションを更新でき、ログアウトでトークンが無効になる', async () => {
     const context = await createTestContext();
     const login = LoginResponseSchema.parse(
