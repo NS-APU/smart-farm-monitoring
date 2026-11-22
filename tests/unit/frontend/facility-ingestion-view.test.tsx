@@ -79,7 +79,8 @@ describe('取り込み・連携のハウス別の記録（一般ユーザー向�
     const federationRows = await screen.findAllByTestId('facility-federation-row');
     expect(federationRows).toHaveLength(2);
     expect(federationRows[0]?.textContent).toContain('ハウス1');
-    expect(federationRows[0]?.textContent).toContain('成功');
+    expect(federationRows[0]?.textContent).toContain('送信済み');
+    expect(federationRows[0]?.textContent).not.toContain('成功');
     expect(federationRows[1]?.textContent).toContain('保留');
   });
 

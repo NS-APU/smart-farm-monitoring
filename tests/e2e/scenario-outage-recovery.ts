@@ -138,7 +138,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-03');
     await b.page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(queueCount(b.page, 'HELD')).toHaveText('0');
     await expect(queueCount(b.page, 'PENDING')).toHaveText('0');
     const received = await apiOk<{ items: { targetType: string }[] }>(

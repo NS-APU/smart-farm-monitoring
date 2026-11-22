@@ -1133,12 +1133,12 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await page.getByRole('link', { name: '変更履歴を見る' }).click();
     await expect(page.getByTestId('audit-row').filter({ hasText: '手動入力' })).toHaveCount(2);
 
-    // UC-11・UC-16: 連携を実行し、連携の状況（成功・キューの件数）を確認する
+    // UC-11・UC-16: 連携を実行し、連携の状況（送信済み・キューの件数）を確認する
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-03');
     await goToMenu(page, '取り込み');
     await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(page.getByTestId('queue-HELD')).toContainText('0');
     await shot(page, testInfo, 'uc12-scenario-federation');
 

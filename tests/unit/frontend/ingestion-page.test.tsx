@@ -243,12 +243,57 @@ describe('取り込み（UC-15・UC-16。SC-11）', () => {
 
     const federationRows = await screen.findAllByTestId('federation-log-row');
     expect(federationRows).toHaveLength(2);
-    expect(federationRows[0]?.textContent).toContain('成功');
+    expect(federationRows[0]?.textContent).toContain('送信済み');
+    expect(federationRows[0]?.textContent).not.toContain('成功');
     expect(federationRows[0]?.querySelectorAll('td')[3]?.textContent).toBe('—');
     expect(federationRows[1]?.textContent).toContain('保留');
     expect(federationRows[1]?.textContent).toContain('連携先が停止中です');
     expect(screen.getByTestId('queue-PENDING').textContent).toContain('1');
     expect(screen.getByTestId('queue-HELD').textContent).toContain('4');
+  });
+
+  it('連携の結果の語は、連携キューの状態の語と同じ（送信済み・失敗・保留・期限切れ。#164 SC-11-4）', async () => {
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'GET /federation/logs': () =>
+          jsonResponse({
+            items: [
+              federationLog({ logId: 'f-a', result: 'SENT' }),
+              federationLog({ logId: 'f-b', result: 'FAILED' }),
+              federationLog({ logId: 'f-c', result: 'HELD' }),
+              federationLog({ logId: 'f-d', result: 'EXPIRED' }),
+            ],
+            nextCursor: null,
+            queue: QUEUE,
+          }),
+      }),
+    );
+
+    const rows = await screen.findAllByTestId('federation-log-row');
+    const resultOf = (row: HTMLElement | undefined) =>
+      row?.querySelector('.log-result')?.textContent;
+
+    expect(rows.map(resultOf)).toEqual(['送信済み', '失敗', '保留', '期限切れ']);
+    expect(screen.getByTestId('queue-SENT').textContent).toContain('送信済み');
+    expect(screen.getByTestId('queue-FAILED').textContent).toContain('失敗');
+    expect(screen.getByTestId('queue-HELD').textContent).toContain('保留');
+    expect(screen.getByTestId('queue-EXPIRED').textContent).toContain('期限切れ');
+  });
+
+  it('連携の説明に、保留になる場合（農業情報基盤の停止中、接続先が未設定・無効）と、復旧後に送ること・期限を示す（#164 SC-11-10）', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+
+    const section = await screen.findByTestId('federation-section');
+    const lead = within(section).getByText(/連携の結果（送信済み・失敗・保留・期限切れ）です/);
+
+    expect(lead.textContent).toContain(
+      '農業情報基盤が停止中、または接続先が未設定・無効のときも、保留に',
+    );
+    expect(lead.textContent).toContain('復旧後');
+    expect(lead.textContent).toContain('既定 30 日');
+    // 結果の語に「成功」を使わない（「送信に成功したら」は、動作の説明なので、よい）
+    expect(lead.textContent).not.toContain('（成功');
   });
 
   it('ログの表の各セルに、項目名（data-label）を持つ。狭い画面（900px 以下）では、表をログ 1 件ごとのカードにして、項目名を表示するため', async () => {
