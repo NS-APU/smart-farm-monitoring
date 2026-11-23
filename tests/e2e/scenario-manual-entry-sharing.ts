@@ -28,6 +28,7 @@ import {
 import { fillEntryForm, saveEntry } from './support/entry.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 import { userIdText, itemListQuery } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
 /** 項目ごとの行（並べ替え「カテゴリ」の一覧）と、1 回の計測ごとの行（日時順。既定。Issue #363）。 */
@@ -91,6 +92,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await goToNotifications(b.page);
     await alert.getByRole('link', { name: '詳細を確認' }).click();
     await expect(b.page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
+    await expandPanel(b.page, 'source-data');
     await expect(b.page.getByTestId('source-data')).toContainText('手動入力');
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(unreadBadge(b.page)).toHaveText(String(unreadForB - 1));

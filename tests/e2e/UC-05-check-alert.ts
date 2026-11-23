@@ -47,6 +47,7 @@ import {
   shot,
 } from './support/viewpoint-scenarios.ts';
 import { locatorOf } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const rows = locatorOf('notification-row');
 
@@ -297,6 +298,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     await target.getByRole('link', { name: '詳細を確認' }).click();
     await expect(b.page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
+    await expandPanel(b.page, 'source-data');
     await expect(b.page.getByTestId('source-data')).toContainText('手動入力');
     await shot(b.page, testInfo, 'uc05-scenario-b-detail');
     // 6. 確認した通知が、既読になる（Bの未読が減る）

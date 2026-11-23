@@ -32,6 +32,7 @@ import {
   shot,
 } from './support/viewpoint-scenarios.ts';
 import { dashboardCard as card, locatorOf, userIdText } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const criterion = (page: Page, indicator: string): Locator =>
   page.getByTestId(`criterion-edit-${indicator}`);
@@ -114,6 +115,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
 
     // UC-03: Bが、ステータスの推移で、変更前（注意）→ 変更後（正常）を確認する
     await b.page.goto('/viewpoints/environmentalAdaptability?equipmentId=SENSOR-01');
+    await expandPanel(b.page, 'trend');
     await expect(b.page.getByTestId('status-history').locator('.status-segment')).toHaveText([
       '注意',
       '正常',
@@ -164,6 +166,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await expect(card(b.page, 'satisfaction').locator('.status-badge')).toContainText('正常');
     await expect(card(b.page, 'satisfaction')).toContainText('カスタムの判断基準');
     await b.page.goto('/viewpoints/environmentalAdaptability?equipmentId=SENSOR-01');
+    await expandPanel(b.page, 'trend');
     await expect(b.page.getByTestId('status-history').locator('.status-segment')).toHaveText([
       '注意',
       '正常',
