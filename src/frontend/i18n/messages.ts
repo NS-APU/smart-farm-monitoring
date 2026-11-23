@@ -166,7 +166,6 @@ export const MESSAGES = {
     recommendedAction: '推奨アクション',
     evaluatedPeriod: '判定の対象期間',
     customCriteria: 'カスタムの判断基準',
-    detail: '詳細を見る',
     notEvaluated: '評価がまだ行われていません',
     evaluatedAt: '最終の評価',
     goDataEntry: 'データ入力へ',
@@ -297,7 +296,11 @@ export const MESSAGES = {
     scale: '1〜5スター',
     criteria: '判断基準',
     missingTitle: '未入力の観点があります',
-    missingLead: '9観点すべての満足度が入力されるまで、評価は「不明」です。入力してください',
+    missingLead:
+      '評価は「不明」です。新しい入力は、9観点すべてが必須です。以前の、一部の観点だけの入力が残っている（期間内の最新の入力に、値のない観点がある）ため、以前の入力を修正して、または新しく、9観点すべてを入力してください',
+    noInputTitle: '期間内に、満足度の入力がありません',
+    noInputLead:
+      '評価は「不明」です。満足度は、入力者ごとの、期間内の最新の入力で評価します。月に 1 回を目安に、9観点すべてを入力してください。入力が遅れると、前回の入力が期間から外れて「不明」になります（期間を長くすると、前回の入力が含まれることがあります）',
     notEntered: '未入力',
     scores: '観点ごとの満足度',
     goDataEntry: 'データ入力へ',

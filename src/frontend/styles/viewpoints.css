@@ -409,12 +409,6 @@
   align-items: center;
 }
 
-.card-link {
-  margin-top: auto;
-  padding-top: 12px;
-  font-weight: 700;
-}
-
 /* 観点の詳細 */
 .diagnosis {
   padding: 12px 16px;

@@ -291,24 +291,25 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
     expect(screen.queryByText(/最終の評価/)).toBeNull();
   });
 
-  it('判定の対象期間が、全観点で同じなら、上部に 1 回だけ示し、カードごとには示さない（評価前の観点は、除いて比べる）', async () => {
+  it('判定の対象期間は、分までを示す（秒は示さない）。満足度を除く観点で同じなら、上部に 1 回だけ示し、カードごとには示さない（評価前の観点は、除いて比べる）', async () => {
     renderPath('/');
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(screen.getByTestId('evaluated-period-common').textContent).toContain(
-      '判定の対象期間: 2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
-    );
+    const common = screen.getByTestId('evaluated-period-common').textContent;
+    expect(common).toContain('判定の対象期間: 2026/10/02 12:00 〜 2026/10/09 12:00');
+    expect(common).not.toContain('12:00:00');
     expect(document.querySelectorAll('.viewpoint-card .evaluated-period')).toHaveLength(0);
   });
 
-  it('判定の対象期間が、観点で違うとき（例: 満足度の既定は 30 日）は、上部にまとめず、カードごとに示す', async () => {
+  it('満足度の期間が、共通の期間（満足度を除く観点で同じ）と違うとき（例: 既定の 30 日）は、満足度のカードにだけ、分までを示す', async () => {
     renderPath('/', {
       dashboard: () =>
         jsonResponse(
           dashboard({
             viewpoints: [
               card(),
+              card({ viewpointId: 'harvestSpeed', name: '収穫速度' }),
               card({
                 viewpointId: 'satisfaction',
                 name: '満足度',
@@ -322,9 +323,125 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
 
     await screen.findByRole('heading', { name: '安全性' });
 
+    expect(screen.getByTestId('evaluated-period-common').textContent).toContain(
+      '判定の対象期間: 2026/10/02 12:00 〜 2026/10/09 12:00',
+    );
+    expect(within(cardOf('安全性')).queryByText(/判定の対象期間/)).toBeNull();
+    expect(within(cardOf('収穫速度')).queryByText(/判定の対象期間/)).toBeNull();
+    const satisfactionPeriod = within(cardOf('満足度')).getByText(/判定の対象期間/);
+    expect(satisfactionPeriod.textContent).toBe(
+      '判定の対象期間: 2026/09/09 12:00 〜 2026/10/09 12:00',
+    );
+  });
+
+  it('満足度の期間が、共通の期間と同じ（期間を選んだとき）なら、満足度のカードにも示さない', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card(),
+              card({ viewpointId: 'satisfaction', name: '満足度', status: 'NORMAL' }),
+            ],
+          }),
+        ),
+    });
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(screen.getByTestId('evaluated-period-common')).toBeDefined();
+    expect(document.querySelectorAll('.viewpoint-card .evaluated-period')).toHaveLength(0);
+  });
+
+  it('満足度が「不明」でも、期間があり、共通の期間と違うなら、満足度のカードにだけ示す。期間がなければ示さない', async () => {
+    const unknownSatisfaction = {
+      viewpointId: 'satisfaction',
+      name: '満足度',
+      status: 'UNKNOWN',
+      statuses: { short: null, long: 'UNKNOWN' },
+      metrics: {},
+      metricStatuses: {},
+    } as const;
+    const { unmount } = renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card(),
+              card({
+                ...unknownSatisfaction,
+                evaluatedFrom: '2026-09-09T03:00:00.000Z',
+                evaluatedTo: '2026-10-09T03:00:00.000Z',
+              }),
+            ],
+          }),
+        ),
+    });
+    await screen.findByRole('heading', { name: '安全性' });
+    expect(within(cardOf('満足度')).getByText(/判定の対象期間: 2026\/09\/09 12:00/)).toBeDefined();
+    expect(within(cardOf('安全性')).queryByText(/判定の対象期間/)).toBeNull();
+    unmount();
+
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card(),
+              card({ ...unknownSatisfaction, evaluatedFrom: null, evaluatedTo: null }),
+            ],
+          }),
+        ),
+    });
+    await screen.findByRole('heading', { name: '安全性' });
+    expect(within(cardOf('満足度')).queryByText(/判定の対象期間/)).toBeNull();
+  });
+
+  it('満足度を除く観点の間で、期間が違うときは、上部にまとめず、期間のある観点のカードごとに示す', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card(),
+              card({
+                viewpointId: 'harvestSpeed',
+                name: '収穫速度',
+                evaluatedFrom: '2026-10-08T03:00:00.000Z',
+              }),
+            ],
+          }),
+        ),
+    });
+
+    await screen.findByRole('heading', { name: '安全性' });
+
     expect(screen.queryByTestId('evaluated-period-common')).toBeNull();
-    expect(within(cardOf('安全性')).getByText(/判定の対象期間: 2026\/10\/02/)).toBeDefined();
-    expect(within(cardOf('満足度')).getByText(/判定の対象期間: 2026\/09\/09/)).toBeDefined();
+    expect(
+      within(cardOf('安全性')).getByText(/判定の対象期間: 2026\/10\/02 12:00 〜/),
+    ).toBeDefined();
+    expect(
+      within(cardOf('収穫速度')).getByText(/判定の対象期間: 2026\/10\/08 12:00 〜/),
+    ).toBeDefined();
+  });
+
+  it('カードの詳細へのリンクは、題名の 1 つだけ（「詳細を見る」の二重のリンクはない）。観点別の状態の表のリンクは、別', async () => {
+    renderPath('/');
+
+    await screen.findByRole('heading', { name: '安全性' });
+
+    const safety = cardOf('安全性');
+    const links = within(safety).getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]?.textContent).toBe('安全性');
+    expect(
+      within(safety)
+        .getByRole('heading', { name: '安全性' })
+        .contains(links[0] ?? null),
+    ).toBe(true);
+    expect(screen.queryByText(/詳細を見る/)).toBeNull();
+    // 題名のリンクと、観点別の状態の表のリンクだけ
+    expect(screen.getAllByRole('link', { name: '安全性' })).toHaveLength(2);
   });
 
   it('期間のある観点がなければ（すべて評価前）、判定の対象期間は、示さない', async () => {
@@ -352,7 +469,7 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
       within(cardOf('満足度'))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-    ).toEqual(['/?viewpoint=satisfaction', '/?viewpoint=satisfaction']);
+    ).toEqual(['/?viewpoint=satisfaction']);
   });
 
   it('カード・観点別の状態の表のリンクは、観点の詳細のドロワーを開く（ダッシュボードの URL に観点を付ける）。期間は、選んでいるときだけ引き継ぐ', async () => {
@@ -364,7 +481,7 @@ describe('ダッシュボード: 表示（Issue #355・#356）', () => {
       within(cardOf('安全性'))
         .getAllByRole('link')
         .map((link) => link.getAttribute('href')),
-    ).toEqual(['/?viewpoint=safety&periodDays=60', '/?viewpoint=safety&periodDays=60']);
+    ).toEqual(['/?viewpoint=safety&periodDays=60']);
     expect(
       within(screen.getByTestId('status-row-safety')).getByRole('link').getAttribute('href'),
     ).toBe('/?viewpoint=safety&periodDays=60');
@@ -1576,7 +1693,13 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
 
     const missing = await screen.findByTestId('satisfaction-missing');
 
-    expect(missing.textContent).toContain('操作性、耐久性');
+    expect(missing.textContent).toContain('未入力の観点があります: 操作性、耐久性');
+    // 一部の観点だけの入力が残っているとき（以前の入力。新しい入力は 9 観点が必須）: 修正か、新しい入力を促す
+    expect(missing.textContent).toContain('以前の、一部の観点だけの入力が残っている');
+    expect(missing.textContent).toContain(
+      '以前の入力を修正して、または新しく、9観点すべてを入力してください',
+    );
+    expect(missing.textContent).not.toContain('期間内に、満足度の入力がありません');
     expect(within(missing).getByRole('link', { name: 'データ入力へ' }).getAttribute('href')).toBe(
       '/data-entry',
     );
@@ -1601,7 +1724,29 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     const overall = await screen.findByTestId('overall');
 
     expect(overall.textContent).toContain('まだ評価されていません');
-    expect(screen.getByTestId('satisfaction-missing').textContent).toContain('収穫精度');
+    expect(screen.getByTestId('satisfaction-missing').textContent).toContain(
+      '期間内に、満足度の入力がありません',
+    );
+  });
+
+  it('期間内に、入力が 1 件もない（9観点すべてが未入力）なら、期間内に入力がない旨と、月に 1 回の入力の目安・期間を長くする案内を示し、9観点の一覧は示さない', async () => {
+    renderPath('/satisfaction', {
+      detail: () =>
+        jsonResponse(satisfactionDetail([null, null, null, null, null, null, null, null, null])),
+    });
+
+    const missing = await screen.findByTestId('satisfaction-missing');
+
+    expect(missing.textContent).toContain('期間内に、満足度の入力がありません');
+    expect(missing.textContent).toContain('評価は「不明」です');
+    expect(missing.textContent).toContain('月に 1 回を目安に、9観点すべてを入力してください');
+    expect(missing.textContent).toContain('期間を長くすると');
+    expect(missing.textContent).not.toContain('収穫精度');
+    expect(missing.textContent).not.toContain('未入力の観点があります');
+    expect(within(missing).getByRole('link', { name: 'データ入力へ' }).getAttribute('href')).toBe(
+      '/data-entry',
+    );
+    expect(screen.getByTestId('score-harvestAccuracy').textContent).toContain('未入力');
   });
 
   it('期間を選んでいないときは、満足度の既定の期間（30 日）で取得し、期間の選択も 30 日を示す', async () => {

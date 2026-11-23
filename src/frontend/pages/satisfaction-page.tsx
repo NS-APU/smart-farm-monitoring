@@ -1,6 +1,7 @@
 /**
  * SC-04 満足度の詳細（UC-21。FR-6.9）。総合満足度（9観点の平均。小数第1位）と、各観点の満足度（1〜5スター）を
  * レーダーチャートで示す。9観点のいずれかが未入力の場合は「不明」とし、データ入力への導線を示す。
+ * 案内の文言は、実態に合わせて 2 つ: 期間内に入力が 1 件もない場合と、一部の観点だけの以前の入力が残っている場合（Issue #160）。
  */
 
 import { useCallback, type ReactNode } from 'react';
@@ -56,6 +57,8 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
     detail.metrics.find((row) => row.metricId === OVERALL_SATISFACTION_METRIC_ID)?.value ?? null;
   const axes = detail.radar ?? [];
   const missing = axes.filter((axis) => axis.score === null);
+  // 9観点すべてが未入力: 期間内に、入力が 1 件もない。一部だけ未入力: 一部の観点だけの以前の入力が、最新の入力として残っている
+  const noInput = missing.length === axes.length;
   const criterion = detail.criteria.criteria.find(
     (item) => item.indicator === OVERALL_SATISFACTION_METRIC_ID,
   );
@@ -103,11 +106,17 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
         {missing.length > 0 ? (
           <div className="notice notice-warning" role="status" data-testid="satisfaction-missing">
             <Icon name="status-caution" size={18} />
-            <p>
-              <strong>{MESSAGES.satisfaction.missingTitle}</strong>:{' '}
-              {missing.map((axis) => axis.name).join('、')}
-            </p>
-            <p>{MESSAGES.satisfaction.missingLead}</p>
+            {noInput ? (
+              <p>
+                <strong>{MESSAGES.satisfaction.noInputTitle}</strong>
+              </p>
+            ) : (
+              <p>
+                <strong>{MESSAGES.satisfaction.missingTitle}</strong>:{' '}
+                {missing.map((axis) => axis.name).join('、')}
+              </p>
+            )}
+            <p>{noInput ? MESSAGES.satisfaction.noInputLead : MESSAGES.satisfaction.missingLead}</p>
             <p className="notice-links">
               <Link to={PATHS.dataEntry}>{MESSAGES.satisfaction.goDataEntry}</Link>
             </p>

@@ -1,6 +1,7 @@
 /**
  * SC-02 ダッシュボード（UC-01、UC-04。FR-6.1〜6.3、6.6、6.7）。ハウス単位。
- * 操作: 対象のハウス・期間の選択・手動の更新。表示: 最終のデータ取得日時・最終の評価日時・判定の対象期間（全観点で同じなら、ここに 1 回）、
+ * 操作: 対象のハウス・期間の選択・手動の更新。表示: 最終のデータ取得日時・最終の評価日時・判定の対象期間（満足度を除く観点で同じなら、ここに 1 回。
+ * 満足度の期間が、これと違うときだけ、満足度のカードに示す。日時は、分まで。Issue #160）、
  * ステータスごとの観点の数、観点別の状態の一覧（表）、観点のカード（ステータス・主要メトリクスと判定・診断メッセージ・推奨アクション）。
  * 評価が更新されていない（最終の評価から 15 分以上）ときは、警告を出す。古い設備があるときは、警告を開くと、設備名・最終の受信日時・基準（分）の一覧を示す
  * （Issue #158）。最終の評価・最終のデータ取得の横に、ヘルプヒントを置く。
@@ -31,7 +32,7 @@ import { getDashboard } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { EquipmentSelect } from '../components/equipment-select.tsx';
-import { formatDateTimeJst } from '../components/format.ts';
+import { formatDateTimeJst, formatDateTimeMinutesJst } from '../components/format.ts';
 import {
   HorizonControls,
   horizonQueryString,
@@ -53,6 +54,12 @@ import { Link, navigate, useLocation } from '../router/router.tsx';
 
 /** ダッシュボードの評価の視点。視点の切り替えはなく、長期（選んだ期間）で示す。 */
 const DASHBOARD_HORIZON: Horizon = 'LONG';
+
+/** 判定の対象期間。 */
+interface EvaluatedPeriod {
+  readonly from: string;
+  readonly to: string;
+}
 
 /**
  * 観点の詳細へのパス。満足度は、専用の詳細（SC-04）へ。満足度は、期間を選んでいなければ、期間を付けない
@@ -88,18 +95,22 @@ export function viewpointDrawerPath(
   return `${PATHS.dashboard}?${query.toString()}`;
 }
 
+function periodOf(card: ViewpointCard): EvaluatedPeriod | null {
+  return card.evaluatedFrom === null || card.evaluatedTo === null
+    ? null
+    : { from: card.evaluatedFrom, to: card.evaluatedTo };
+}
+
 /**
- * 全観点で、判定の対象期間が同じなら、その期間（ダッシュボードの上部に 1 回だけ示す）。評価前の観点（期間がない）は、除いて比べる。
- * 期間が違う観点がある（例: 満足度の既定の期間は 30 日）、または、期間のある観点がなければ、null（カードごとに示す）。
+ * 満足度を除く観点で、判定の対象期間が同じなら、その期間（ダッシュボードの上部に 1 回だけ示す）。評価前の観点（期間がない）は、除いて比べる。
+ * 満足度は、既定の期間が 30 日で、ほかと違うため、比べる対象にしない（違うときだけ、満足度のカードに示す。Issue #160）。
+ * 期間が違う観点がある、または、期間のある観点がなければ、null（カードごとに示す）。
  */
-export function commonEvaluatedPeriod(
-  cards: readonly ViewpointCard[],
-): { readonly from: string; readonly to: string } | null {
-  const periods = cards.flatMap((card) =>
-    card.evaluatedFrom === null || card.evaluatedTo === null
-      ? []
-      : [{ from: card.evaluatedFrom, to: card.evaluatedTo }],
-  );
+export function commonEvaluatedPeriod(cards: readonly ViewpointCard[]): EvaluatedPeriod | null {
+  const periods = cards.flatMap((card) => {
+    const period = card.viewpointId === 'satisfaction' ? null : periodOf(card);
+    return period === null ? [] : [period];
+  });
   const first = periods[0];
   if (first === undefined) {
     return null;
@@ -107,6 +118,15 @@ export function commonEvaluatedPeriod(
   return periods.every((period) => period.from === first.from && period.to === first.to)
     ? first
     : null;
+}
+
+/** カードに、判定の対象期間を示すか。共通の期間（上部に示す）と同じなら、示さない。共通の期間がなければ、期間のあるカードごとに示す。 */
+export function showsCardPeriod(card: ViewpointCard, common: EvaluatedPeriod | null): boolean {
+  const period = periodOf(card);
+  if (period === null) {
+    return false;
+  }
+  return common?.from !== period.from || common.to !== period.to;
 }
 
 function MetricMark(props: { readonly status: EvaluationStatus | undefined }): ReactNode {
@@ -124,7 +144,7 @@ function MetricMark(props: { readonly status: EvaluationStatus | undefined }): R
 function ViewpointCardView(props: {
   readonly card: ViewpointCard;
   readonly path: string;
-  /** カードごとに、判定の対象期間を示すか（全観点で同じなら、ダッシュボードの上部に示すため、示さない）。 */
+  /** カードに、判定の対象期間を示すか（共通の期間と同じなら、ダッシュボードの上部に示すため、示さない）。 */
   readonly showPeriod: boolean;
 }): ReactNode {
   const { card, path } = props;
@@ -138,6 +158,7 @@ function ViewpointCardView(props: {
     >
       <div className="card-head">
         <ViewpointIcon viewpointId={card.viewpointId} />
+        {/* 詳細へのリンクは、題名の 1 つだけ（見出しの一覧から、観点名で移動できる。Issue #160） */}
         <h3>
           <Link to={path}>{card.name}</Link>
         </h3>
@@ -186,17 +207,13 @@ function ViewpointCardView(props: {
       ) : null}
       {props.showPeriod && card.evaluatedFrom !== null ? (
         <p className="evaluated-period">
-          {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeJst(card.evaluatedFrom)} 〜{' '}
-          {formatDateTimeJst(card.evaluatedTo)}
+          {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeMinutesJst(card.evaluatedFrom)} 〜{' '}
+          {formatDateTimeMinutesJst(card.evaluatedTo)}
         </p>
       ) : null}
       {card.isCustomCriteria ? (
         <p className="custom-criteria">{MESSAGES.dashboard.customCriteria}</p>
       ) : null}
-      <Link className="card-link" to={path}>
-        {MESSAGES.dashboard.detail}
-        <span className="visually-hidden">（{card.name}）</span>
-      </Link>
     </li>
   );
 }
@@ -400,8 +417,8 @@ export function DashboardPage(): ReactNode {
                 ／
               </span>
               <span data-testid="evaluated-period-common">
-                {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeJst(commonPeriod.from)} 〜{' '}
-                {formatDateTimeJst(commonPeriod.to)}
+                {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeMinutesJst(commonPeriod.from)}{' '}
+                〜 {formatDateTimeMinutesJst(commonPeriod.to)}
               </span>
             </>
           )}
@@ -461,7 +478,7 @@ function DashboardContent(props: {
   readonly selectedPeriodDays: PeriodDays | undefined;
 }): ReactNode {
   const { data } = props;
-  const showCardPeriod = commonEvaluatedPeriod(data.viewpoints) === null;
+  const commonPeriod = commonEvaluatedPeriod(data.viewpoints);
   // 評価が更新されていないとき（最終の評価から 15 分以上）は、その日時。画面の更新（10 秒ごと）のたびに、判定し直す。
   // 現在は、端末の時計（サーバーとの時計のずれは、考慮しない）
   const staleEvaluatedAt = isEvaluationStale(data.evaluatedAt, new Date())
@@ -570,7 +587,7 @@ function DashboardContent(props: {
             key={card.viewpointId}
             card={card}
             path={path}
-            showPeriod={showCardPeriod}
+            showPeriod={showsCardPeriod(card, commonPeriod)}
           />
         ))}
       </ul>

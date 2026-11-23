@@ -194,7 +194,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   }
   await m(
     'UC-04',
-    '注意・異常の観点の推奨アクションを確認する（カードの「詳細を見る」）',
+    '注意・異常の観点の推奨アクションを確認する（カードの題名のリンク）',
     '観点の詳細（SC-03）',
     'screen',
     {
@@ -202,7 +202,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         page
           .locator('.viewpoint-card.status-border-error, .viewpoint-card.status-border-caution')
           .first()
-          .locator('.card-link')
+          .getByRole('heading')
+          .getByRole('link')
           .click(),
       respond: async () => {
         await expectDetailShown(page);
