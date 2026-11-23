@@ -10,7 +10,7 @@ import {
   INITIAL_STATUS_CODES,
   seedInitialStatusCodes,
 } from '../../src/backend/application/seed/initial-data.ts';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { equipmentSet, FACILITY_ID, ROBOT_ID } from '../support/builders.ts';
 import { createControllableClock } from '../../src/backend/infrastructure/local/clocks.ts';

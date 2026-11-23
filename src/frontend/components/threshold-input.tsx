@@ -1,5 +1,5 @@
 /**
- * 判断基準の閾値の入力（SC-13。Issue #358）。スライダーと数値の欄が連動し、範囲の目安・単位・現在値と変更後の値を示す。
+ * 判断基準の閾値の入力（SC-13。Issue #358・#165）。スライダーと数値の欄が連動し、範囲の目安・単位・既定値・現在値と変更後の値を示す。
  * 数値の欄が入力の本体（ラベル・エラー・検証は、これまでどおり）で、スライダーは、目安の範囲での調整の補助。
  * 保存できる値の範囲は、スライダーの範囲ではない（範囲外の値は、数値の欄に入力でき、スライダーの範囲が広がる）。
  */
@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import type { ThresholdSliderRange } from '@smart-farm/shared/constants/criteria-ranges';
 import { MESSAGES } from '../i18n/messages.ts';
 import type { FieldControlProps } from './form-controls.tsx';
+import { Icon } from './icon.tsx';
 import { sliderValueText } from './threshold-slider.ts';
 
 const TEXT = MESSAGES.criteria;
@@ -24,6 +25,8 @@ export interface ThresholdInputProps {
   readonly value: number;
   /** 保存されている値（現在値）。 */
   readonly savedValue: number;
+  /** 既定値（SC-13-3）。比べる既定値がなければ undefined（示さない）。 */
+  readonly defaultValue: number | undefined;
   readonly editable: boolean;
   readonly onChange: (text: string) => void;
 }
@@ -33,10 +36,12 @@ function withUnit(value: number, unit: string): string {
 }
 
 export function ThresholdInput(props: ThresholdInputProps): ReactNode {
-  const { range, value, savedValue, unit } = props;
+  const { range, value, savedValue, defaultValue, unit } = props;
   const valid = Number.isFinite(value);
   const sliderValue = valid ? Math.min(Math.max(value, range.min), range.max) : range.min;
   const changed = valid && value !== savedValue;
+  // 既定値と違う（変更済み）かは、保存されている値で決める（入力の途中の値ではない）
+  const differsFromDefault = defaultValue !== undefined && savedValue !== defaultValue;
   return (
     <div className="threshold-input">
       <div className="threshold-controls">
@@ -69,6 +74,20 @@ export function ThresholdInput(props: ThresholdInputProps): ReactNode {
         <span>
           {TEXT.rangeHint}: {withUnit(range.min, unit)}〜{withUnit(range.max, unit)}
         </span>
+        {defaultValue === undefined ? null : (
+          <span
+            className={
+              differsFromDefault
+                ? 'threshold-default threshold-default-changed'
+                : 'threshold-default'
+            }
+            data-testid="threshold-default"
+          >
+            {differsFromDefault ? <Icon name="info" size={14} /> : null}
+            {TEXT.defaultValue}: {withUnit(defaultValue, unit)}
+            {differsFromDefault ? `（${TEXT.defaultChanged}）` : ''}
+          </span>
+        )}
         <span>
           {TEXT.currentValue}: {withUnit(savedValue, unit)}
         </span>

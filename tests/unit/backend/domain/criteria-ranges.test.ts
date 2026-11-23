@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findThresholdSliderRange } from '../../../../src/shared/constants/criteria-ranges.ts';
 import { VIEWPOINT_IDS } from '../../../../src/shared/constants/viewpoints.ts';
-import { getDefaultCriteria } from '../../../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../../../src/shared/constants/default-criteria.ts';
 
 /**
  * 判断基準の編集（SC-13）のスライダーの範囲の目安（Issue #358）が、すべての既定の判断基準の指標を覆い、

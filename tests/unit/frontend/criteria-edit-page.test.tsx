@@ -1,5 +1,8 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { getDefaultCriteria } from '../../../src/shared/constants/default-criteria.ts';
+import type { ViewpointId } from '../../../src/shared/constants/viewpoints.ts';
+import type { Criterion } from '../../../src/shared/schemas/criteria.ts';
 import { jsonResponse } from '../../support/frontend.ts';
 import {
   READ_ONLY_LOGIN,
@@ -466,7 +469,7 @@ describe('判断基準の編集: スライダー・帯・現在値と変更後�
     expect(metas[0]?.textContent).toBe('目安の範囲: 0%〜100%現在値: 80%変更後: 80%（変更なし）');
     expect(
       within(criterion('temperatureCelsius')).getAllByTestId('threshold-meta')[0]?.textContent,
-    ).toBe('目安の範囲: -10℃〜50℃現在値: 5℃変更後: 5℃（変更なし）');
+    ).toBe('目安の範囲: -10℃〜50℃既定: 0℃（変更済み）現在値: 5℃変更後: 5℃（変更なし）');
   });
 
   it('スライダーを動かすと、数値の欄が連動し、変更後の値を示す。保存すると、その値を数値で送る', async () => {
@@ -632,5 +635,200 @@ describe('判断基準の編集: 単位のない指標（総合満足度）の�
       within(card).getByLabelText<HTMLInputElement>('異常下限（未満で異常）', { exact: false })
         .value,
     ).toBe('3');
+  });
+});
+
+describe('判断基準の編集: 既定値の併記（SC-13-3。Issue #165）', () => {
+  /** 実際の既定値（観点ごと）に、編集画面の応答の項目を足したもの。 */
+  function viewOf(viewpointId: ViewpointId, patch?: (criteria: Criterion[]) => Criterion[]) {
+    const defaults = getDefaultCriteria(viewpointId);
+    return {
+      ...defaults,
+      criteria: patch === undefined ? defaults.criteria : patch([...defaults.criteria]),
+      usesStatusIndicator: false,
+    };
+  }
+
+  function metaTexts(indicator: string): (string | null)[] {
+    return within(criterion(indicator))
+      .getAllByTestId('threshold-meta')
+      .map((node) => node.textContent);
+  }
+
+  function defaultNotes(indicator: string): HTMLElement[] {
+    return within(criterion(indicator)).getAllByTestId('threshold-default');
+  }
+
+  it('範囲型: 閾値ごとに、「既定: xx」を、単位つきで、閾値の入力の並び（異常下限・正常下限・正常上限・異常上限）で示す', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () =>
+        jsonResponse(viewOf('environmentalAdaptability')),
+    });
+    await screen.findByTestId('criteria-state');
+
+    expect(metaTexts('temperatureCelsius')).toEqual([
+      '目安の範囲: -10℃〜50℃既定: 0℃現在値: 0℃変更後: 0℃（変更なし）',
+      '目安の範囲: -10℃〜50℃既定: 10℃現在値: 10℃変更後: 10℃（変更なし）',
+      '目安の範囲: -10℃〜50℃既定: 25℃現在値: 25℃変更後: 25℃（変更なし）',
+      '目安の範囲: -10℃〜50℃既定: 35℃現在値: 35℃変更後: 35℃（変更なし）',
+    ]);
+    // 既定値のままなら、強調しない
+    for (const note of defaultNotes('temperatureCelsius')) {
+      expect(note.classList.contains('threshold-default-changed')).toBe(false);
+    }
+  });
+
+  it('上限型: 注意開始値・異常開始値の既定を、単位つきで示す', async () => {
+    renderApp('/viewpoints/harvestSpeed/criteria', {
+      'GET /viewpoints/harvestSpeed/criteria': () => jsonResponse(viewOf('harvestSpeed')),
+    });
+    await screen.findByTestId('criteria-state');
+
+    expect(defaultNotes('travelStoppedRatePercent').map((node) => node.textContent)).toEqual([
+      '既定: 5%',
+      '既定: 10%',
+    ]);
+    expect(defaultNotes('averageSecondsPerFruit').map((node) => node.textContent)).toEqual([
+      '既定: 60秒/果実',
+      '既定: 120秒/果実',
+    ]);
+  });
+
+  it('下限型: 注意下限・異常下限の既定を示す。単位のない指標（総合満足度）は、単位を付けない', async () => {
+    renderApp('/viewpoints/satisfaction/criteria', {
+      'GET /viewpoints/satisfaction/criteria': () => jsonResponse(viewOf('satisfaction')),
+    });
+    await screen.findByTestId('criteria-state');
+
+    expect(defaultNotes('overallSatisfaction').map((node) => node.textContent)).toEqual([
+      '既定: 4',
+      '既定: 3',
+    ]);
+  });
+
+  it('既定値と違う閾値（変更済み）は、文字（「変更済み」）とアイコンで強調する。同じ閾値は、強調しない。入力で変えても、既定の表示は保存されている値で決まる', async () => {
+    const changed = {
+      ...viewOf('environmentalAdaptability', (criteria) =>
+        criteria.map((item) =>
+          item.indicator === 'temperatureCelsius' && item.kind === 'RANGE'
+            ? { ...item, thresholds: { ...item.thresholds, normalLower: 15 } }
+            : item,
+        ),
+      ),
+      version: 'v2',
+      isDefault: false,
+    };
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(changed),
+    });
+    await screen.findByTestId('criteria-state');
+
+    const notes = defaultNotes('temperatureCelsius');
+    expect(notes.map((node) => node.textContent)).toEqual([
+      '既定: 0℃',
+      '既定: 10℃（変更済み）',
+      '既定: 25℃',
+      '既定: 35℃',
+    ]);
+    expect(notes.map((node) => node.classList.contains('threshold-default-changed'))).toEqual([
+      false,
+      true,
+      false,
+      false,
+    ]);
+    // アイコン（装飾。読み上げの対象外）は、変更済みの閾値だけ
+    expect(notes.map((node) => node.querySelector('svg[aria-hidden="true"]') !== null)).toEqual([
+      false,
+      true,
+      false,
+      false,
+    ]);
+    // ほかの指標（既定のまま）は、強調しない
+    for (const note of defaultNotes('humidityPercent')) {
+      expect(note.classList.contains('threshold-default-changed')).toBe(false);
+    }
+
+    // 入力で変えても（まだ保存していない）、既定の表示・強調は、保存されている値で決まる
+    fireEvent.change(
+      within(criterion('temperatureCelsius')).getByLabelText('正常下限（以上で正常）', {
+        exact: false,
+      }),
+      { target: { value: '10' } },
+    );
+    expect(metaTexts('temperatureCelsius')[1]).toBe(
+      '目安の範囲: -10℃〜50℃既定: 10℃（変更済み）現在値: 15℃変更後: 10℃',
+    );
+  });
+
+  it('既定値へ戻した後は、強調が消える（読み直した判断基準が、既定値）', async () => {
+    const changed = {
+      ...viewOf('harvestAccuracy', (criteria) =>
+        criteria.map((item) =>
+          item.indicator === 'marketableFruitRatePercent' && item.kind === 'LOWER'
+            ? { ...item, thresholds: { ...item.thresholds, cautionBelow: 85 } }
+            : item,
+        ),
+      ),
+      version: 'v2',
+      isDefault: false,
+    };
+    let reset = false;
+    renderApp('/viewpoints/harvestAccuracy/criteria', {
+      'GET /viewpoints/harvestAccuracy/criteria': () =>
+        jsonResponse(reset ? viewOf('harvestAccuracy') : changed),
+      'POST /viewpoints/harvestAccuracy/criteria/reset': () => {
+        reset = true;
+        return jsonResponse(viewOf('harvestAccuracy'));
+      },
+    });
+    await screen.findByTestId('criteria-state');
+    expect(defaultNotes('marketableFruitRatePercent').map((node) => node.textContent)).toEqual([
+      '既定: 90%（変更済み）',
+      '既定: 80%',
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: '既定値へ戻す' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', {
+        name: '既定値へ戻す',
+      }),
+    );
+    expect((await screen.findByTestId('criteria-notice')).textContent).toBe('既定値へ戻しました');
+
+    await waitFor(() => {
+      expect(defaultNotes('marketableFruitRatePercent').map((node) => node.textContent)).toEqual([
+        '既定: 90%',
+        '既定: 80%',
+      ]);
+    });
+  });
+
+  it('参照のみの利用者（権限なし）にも、既定を示す', async () => {
+    renderApp(
+      PATH,
+      {
+        'GET /viewpoints/environmentalAdaptability/criteria': () =>
+          jsonResponse(viewOf('environmentalAdaptability')),
+      },
+      { login: READ_ONLY_LOGIN },
+    );
+    await screen.findByTestId('criteria-state');
+
+    expect(defaultNotes('co2Ppm')).toHaveLength(4);
+  });
+
+  it('既定値の指標・型と合わない判断基準には、既定を示さない（比べる既定がない）', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(BASE),
+    });
+    await screen.findByTestId('criteria-state');
+
+    // BASE の湿度は上限型（既定は範囲型）
+    expect(within(criterion('humidityPercent')).queryAllByTestId('threshold-default')).toHaveLength(
+      0,
+    );
+    expect(metaTexts('humidityPercent')[0]).toBe(
+      '目安の範囲: 0%〜100%現在値: 80%変更後: 80%（変更なし）',
+    );
   });
 });

@@ -14,7 +14,7 @@ import type {
   ViewpointCriteria,
 } from '@smart-farm/shared/schemas/criteria';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
-import { getDefaultCriteria } from '../../domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '@smart-farm/shared/constants/default-criteria';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { ClockPort } from '../ports/clock-port.ts';

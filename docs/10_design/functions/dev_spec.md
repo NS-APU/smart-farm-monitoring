@@ -158,12 +158,12 @@ smart-farm-monitoring/
 
 ### 2.4 評価エンジンの構造（[architecture.md](../architecture/architecture.md) 7章）
 
-`src/backend/domain/evaluation/`。観点の追加は、「観点の定義」（`viewpoints/`）と「判断基準の既定値」（`default-criteria.ts`）の追加で行う（NFR-2.7、NFR-8.2）。
+`src/backend/domain/evaluation/`。観点の追加は、「観点の定義」（`viewpoints/`）と「判断基準の既定値」（`default-criteria.ts`。画面〔SC-13 の既定値の併記〕と共有するため `src/shared/constants/`）の追加で行う（NFR-2.7、NFR-8.2）。
 
 | 部品 | 内容 |
 |------|------|
 | `viewpoints/*.ts` | 観点の定義（`defineViewpoint`。主要メトリクスを省略すると、判定する指標と同じ）: 判定する指標、必須の入力、短期評価の有無、ダッシュボードの主要メトリクス、メトリクスの算出関数（robot-health.md / house-health.md / operation-health.md の算出式）。ロボット7・ハウス1・評価の運用面2 |
-| `default-criteria.ts` | 判断基準の既定値（viewpoint/ の値）。閾値の型は上限型・下限型・範囲型。コードの判定ロジックに閾値を書かない |
+| `default-criteria.ts`（`src/shared/constants/`） | 判断基準の既定値（viewpoint/ の値）。閾値の型は上限型・下限型・範囲型。コードの判定ロジックに閾値を書かない |
 | `measures.ts` | 観測値 → 集計済みの入力（使う観測値の選択、手動入力の優先、合計・最新・平均・最悪のカテゴリ、データ活用度合いの入力） |
 | `grading.ts` | 閾値判定（境界は「以上」「未満」）、最も悪い判定、短期と長期の組み合わせ（不明を除く） |
 | `engine.ts` | 1つの視点の評価: 必須の入力の不足・算出不能 → 不明、最も悪い判定、診断メッセージ・推奨アクション |

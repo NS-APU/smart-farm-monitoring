@@ -5,7 +5,7 @@
 
 import { VIEWPOINT_IDS, type ViewpointId } from '@smart-farm/shared/constants/viewpoints';
 import type { ViewpointCriteria } from '@smart-farm/shared/schemas/criteria';
-import { getDefaultCriteria } from '../../domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '@smart-farm/shared/constants/default-criteria';
 import type { CriteriaRepository } from '../ports/repositories.ts';
 
 export interface CriteriaService {

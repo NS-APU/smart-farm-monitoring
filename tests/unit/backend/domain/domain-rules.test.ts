@@ -4,7 +4,7 @@ import { CriterionSchema } from '@smart-farm/shared/schemas/criteria';
 import {
   getDefaultCriteria,
   DEFAULT_CRITERIA_VERSION,
-} from '../../../../src/backend/domain/evaluation/default-criteria.ts';
+} from '../../../../src/shared/constants/default-criteria.ts';
 import {
   evaluateScope,
   SHORT_HORIZON_HOURS,

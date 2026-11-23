@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
 import { NotificationIdSchema, toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import { createEvaluationService } from '../../src/backend/application/evaluation/evaluation-service.ts';
 import {

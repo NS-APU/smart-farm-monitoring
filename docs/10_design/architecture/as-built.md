@@ -43,7 +43,7 @@
 - 1 つのコードベースの**モジュラーモノリス**と**ポート・アダプタ**（ADR-0001）。層は shared・domain・application・infrastructure・presentation・runtime・frontend。依存は内向きで、ESLint が強制している
 - 技術スタックの選定（ADR-0005）: TypeScript・Hono・React・Vite・Zod・Vitest・Playwright・pnpm・ESLint・Prettier
 - ポートの名前と役割: `FileSourcePort`・`FormatProfile`・`FederationPort`・`NotifierPort`・Repository・`ClockPort`・`SecretPort`・`AuthPort`
-- 評価エンジンは**外部に依存しない純粋関数**で、観点は定義（`ViewpointDefinition`）と判断基準の既定値（`default-criteria.ts`）で追加できる
+- 評価エンジンは**外部に依存しない純粋関数**で、観点は定義（`ViewpointDefinition`）と判断基準の既定値（`shared/constants/default-criteria.ts`）で追加できる
 - 取り込みの「取得（FileSourcePort）」と「解釈（FormatProfile）」の分離、連携キュー（アウトボックス）による非同期の連携、通知の重複抑制、認可は「ロール → 権限」の設定、同じ Hono アプリを Node サーバーと Lambda ハンドラで使う構成
 
 **実装で変わった点・実装されていない点**
@@ -689,7 +689,7 @@ classDiagram
 ```
 
 - **ViewpointDefinition**（コード。保存しない）: 観点ごとの定義（`domain/evaluation/definition.ts`）。短期評価の有無・判断基準で判定する指標・ステータスコードを使うか・一部の指標だけで判定するか・必須の入力・ダッシュボードと詳細のメトリクス・推奨アクションの文言・メトリクスの算出関数（`computeMetrics`）を持つ。10 観点（`viewpoints/robot-viewpoints.ts`・`house-viewpoints.ts`・`operation-viewpoints.ts`）を `registry.ts` に登録する
-- **ViewpointCriteria**: 既定値はコード（`default-criteria.ts`）にあり、保存するのは変更後の値のみ。変更後は版 `CUSTOM-<n>`、既定値は版 `DEFAULT`
+- **ViewpointCriteria**: 既定値はコード（`shared/constants/default-criteria.ts`。画面の既定値の併記〔SC-13-3〕と共有）にあり、保存するのは変更後の値のみ。変更後は版 `CUSTOM-<n>`、既定値は版 `DEFAULT`
 - **Criterion**: 指標ごとの条件。`UPPER`（`cautionFrom`・`errorFrom`）・`LOWER`（`errorBelow`・`cautionBelow`）・`RANGE`（`errorLower`・`normalLower`・`normalUpper`・`errorUpper`）の 3 形。閾値の大小関係は Zod の `superRefine` で検証する
 - **EvaluationResult**: 設備×観点×視点×期間ごとの**最新の結果を上書き**して保存する。保存の一意キーは `設備ID#観点ID#視点#期間（短期は 0）`。履歴は持たない（ステータスの推移は `StatusChangeEntry` から作る）
 - **StatusChangeEntry**: 観点の最終ステータス（短期・長期（7 日）のうち「不明」を除いた悪い方）が変わったときに追記する。最新の 1 件（`lastStatusChanges`）と履歴（`statusChangeHistory`）の 2 コレクションに保存する
@@ -891,7 +891,7 @@ classDiagram
 | 耐久性           | ROBOT                   | なし | MTBF（500時間未満・100時間未満）・稼働率（95%未満・90%未満）＋ステータスコード                                                                                   | 稼働時間・復旧時間・故障回数・ステータスコード                                      |
 | 満足度           | OPERATION               | なし | 総合満足度（4未満・3未満）                                                                                                                                       | 9 観点のスター評価すべて                                                            |
 
-「対象」の列は、`ViewpointTarget`（`shared/constants/viewpoints.ts`）の分類（運用面 `OPERATION` はハウス単位で評価する）。実際の評価は、設備の種別ごとに、ハウス＝全 10 観点（配下の設備の観測値をまとめて集計）、ロボット＝`ROBOT` の 7 観点、センサー＝環境適応性のみ（`viewpointsForEquipmentType`）。閾値は `default-criteria.ts` の既定値で、判断基準の編集で変更できる。
+「対象」の列は、`ViewpointTarget`（`shared/constants/viewpoints.ts`）の分類（運用面 `OPERATION` はハウス単位で評価する）。実際の評価は、設備の種別ごとに、ハウス＝全 10 観点（配下の設備の観測値をまとめて集計）、ロボット＝`ROBOT` の 7 観点、センサー＝環境適応性のみ（`viewpointsForEquipmentType`）。閾値は `shared/constants/default-criteria.ts` の既定値で、判断基準の編集で変更できる。
 
 # 設計アーキテクチャ
 
@@ -931,8 +931,8 @@ flowchart TB
 
 | 層               | ディレクトリ                  | 責務                                                                                                   | 主なファイル                                                                                                                                                                                                                                          |
 | ---------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 共通             | `src/shared/`                 | 定数・Zod スキーマと型・共通エラー・判断基準の表示用変換。フロントエンドとバックエンドで共有する       | `constants/`（`status.ts`・`viewpoints.ts`・`items.ts`・`metrics.ts`・`permissions.ts`・`observation-labels.ts`）、`schemas/`（12 ファイル）、`errors.ts`（`AppError`）、`criteria-text.ts`                                                           |
-| ドメイン         | `src/backend/domain/`         | 外部に依存しない純粋なロジック                                                                         | `evaluation/`（`engine.ts`・`grading.ts`・`measures.ts`・`scope-evaluator.ts`・`series.ts`・`definition.ts`・`messages.ts`・`numbers.ts`・`default-criteria.ts`・`viewpoints/`）、`observation-quality.ts`、`notification-rules.ts`、`status-code.ts` |
+| 共通             | `src/shared/`                 | 定数・Zod スキーマと型・共通エラー・判断基準の表示用変換。フロントエンドとバックエンドで共有する       | `constants/`（`status.ts`・`viewpoints.ts`・`items.ts`・`metrics.ts`・`permissions.ts`・`observation-labels.ts`・`default-criteria.ts`）、`schemas/`（12 ファイル）、`errors.ts`（`AppError`）、`criteria-text.ts`                                                           |
+| ドメイン         | `src/backend/domain/`         | 外部に依存しない純粋なロジック                                                                         | `evaluation/`（`engine.ts`・`grading.ts`・`measures.ts`・`scope-evaluator.ts`・`series.ts`・`definition.ts`・`messages.ts`・`numbers.ts`・`viewpoints/`）、`observation-quality.ts`、`notification-rules.ts`、`status-code.ts` |
 | アプリケーション | `src/backend/application/`    | ユースケース（サービス・参照・ジョブ）とポートの定義。トランザクションを持たず、Repository を順に呼ぶ  | `manual-entry/`・`equipment/`・`evaluation/`・`ingestion/`・`federation/`・`notification/`・`auth/`・`audit/`・`query/`・`jobs/`・`seed/`・`ports/`・`settings.ts`                                                                                    |
 | インフラ         | `src/backend/infrastructure/` | ポートのアダプタ（現状はローカル用のみ）・FormatProfile・ログ                                          | `local/`（13 ファイル）、`format-profiles/`（`declarative-profile.ts`＋設定 JSON 2 つ）、`logging/json-logger.ts`                                                                                                                                     |
 | 提示             | `src/backend/presentation/`   | Hono アプリ・ルート表・ハンドラ・認証認可・共通エラー・開発用 API                                      | `create-app.ts`・`route-table.ts`・`handlers.ts`（領域ごとのハンドラ（`viewpoint-`・`manual-entry-`・`equipment-`・`status-code-`・`criteria-`・`user-`・`ingestion-`・`push-subscription-handlers.ts`。設定・管理は `admin-handlers.ts` がまとめる）と合わせて）・`middleware.ts`（`requestContext`）・`auth-guards.ts`・`request-parsing.ts`・`etag.ts`・`request-helpers.ts`・`query-schemas.ts`・`route-types.ts`・`errors.ts`・`api-deps.ts`・`dev-routes.ts`                                                                                                     |
