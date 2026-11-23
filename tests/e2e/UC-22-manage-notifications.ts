@@ -52,7 +52,8 @@ import {
   seed,
   shot,
 } from './support/viewpoint-scenarios.ts';
-import { expectHeaderIntact, locatorOf } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { expectHeaderIntact, locatorOf, userLabelText } from './support/pages.ts';
 
 const rows = locatorOf('notification-row');
 const kindFilter = (page: Page) => page.getByLabel('種別');
@@ -816,25 +817,31 @@ test.describe('通知のメモ（API。Issue #239。D-42）', () => {
     expect(notification?.memoCount).toBe(0);
     const id = notification?.notificationId ?? '';
 
-    const first = await apiOk<{ memoId: string; enteredBy: string; body: string }>(
-      request,
-      'POST',
-      `/notifications/${id}/memos`,
-      { body: '  ファイルサーバーを再起動して復旧した  ' },
-    );
+    const first = await apiOk<{
+      memoId: string;
+      enteredBy: string;
+      enteredByName?: string;
+      body: string;
+    }>(request, 'POST', `/notifications/${id}/memos`, {
+      body: '  ファイルサーバーを再起動して復旧した  ',
+    });
     await advanceMinutes(request, 5);
     await apiOk(request, 'POST', `/notifications/${id}/memos`, { body: '復旧を確認した' });
 
     expect(first.body).toBe('ファイルサーバーを再起動して復旧した');
     expect(first.enteredBy).not.toBe('');
-    const memos = await apiOk<{ items: { body: string; createdAt: string }[] }>(
-      request,
-      'GET',
-      `/notifications/${id}/memos`,
-    );
+    // 入力者の表示名（現在のユーザー名）を、応答に含める（SC-07-7）
+    expect(first.enteredByName).toBe(E2E_USER.userName);
+    const memos = await apiOk<{
+      items: { body: string; createdAt: string; enteredBy: string; enteredByName?: string }[];
+    }>(request, 'GET', `/notifications/${id}/memos`);
     expect(memos.items.map((item) => item.body)).toEqual([
       'ファイルサーバーを再起動して復旧した',
       '復旧を確認した',
+    ]);
+    expect(memos.items.map((item) => item.enteredByName)).toEqual([
+      E2E_USER.userName,
+      E2E_USER.userName,
     ]);
     expect(
       Date.parse(memos.items[1]?.createdAt ?? '') - Date.parse(memos.items[0]?.createdAt ?? ''),
@@ -931,6 +938,8 @@ test.describe('通知の経過・回復日時・メモ（画面。Issue #159 の
       'ファイルサーバーを再起動して復旧した',
     );
     await expect(row.getByTestId('notification-memo')).toContainText('2026/');
+    // 入力者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(row.getByTestId('notification-memo')).toContainText(userLabelText(E2E_USER));
     await expect(details.locator('summary')).toHaveText('メモ（1 件）');
     await expect(row.getByRole('button', { name: /編集|削除/ })).toHaveCount(0);
     await shot(page, testInfo, 'uc22-memo');
@@ -947,6 +956,9 @@ test.describe('通知の経過・回復日時・メモ（画面。Issue #159 の
       await otherRow.getByTestId('notification-details').locator('summary').click();
       await expect(otherRow.getByTestId('notification-memo')).toContainText(
         'ファイルサーバーを再起動して復旧した',
+      );
+      await expect(otherRow.getByTestId('notification-memo')).toContainText(
+        userLabelText(E2E_USER),
       );
     } finally {
       await other.context.close();

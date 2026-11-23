@@ -14,7 +14,7 @@ import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   AUDIT_OPERATIONS,
   AUDIT_TARGET_TYPES,
-  type AuditLogEntry,
+  type AuditLogListItem,
 } from '@smart-farm/shared/schemas/audit';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { listAuditLogs } from '../api/management-endpoints.ts';
@@ -27,6 +27,7 @@ import { jstDateToIso } from '../components/jst.ts';
 import { FilterPanel, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { userLabel } from '../lib/user-label.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { POLLING_INTERVAL_MS, usePolling } from '../hooks/use-polling.ts';
 import {
@@ -82,7 +83,7 @@ function recordOf(value: unknown): Record<string, unknown> | undefined {
 function targetNameOf(
   targetType: string,
   targetId: string,
-  items: readonly AuditLogEntry[],
+  items: readonly AuditLogListItem[],
   equipmentNames: ReadonlyMap<string, string>,
 ): string | undefined {
   if (targetType === 'criteria') {
@@ -247,7 +248,7 @@ export function EntryHistoryPage(): ReactNode {
     ? targetNameOf(targetType, targetId, data?.items ?? [], equipmentNames)
     : undefined;
 
-  function row(entry: AuditLogEntry): ReactNode {
+  function row(entry: AuditLogListItem): ReactNode {
     return (
       <tr key={entry.auditId} data-testid="audit-row">
         <td data-label={TEXT.occurredAt}>
@@ -258,7 +259,7 @@ export function EntryHistoryPage(): ReactNode {
           {targetTypeLabel(entry.targetType)}
           <span className="muted category-note">（{entry.targetId}）</span>
         </td>
-        <td data-label={TEXT.actor}>{entry.actor}</td>
+        <td data-label={TEXT.actor}>{userLabel(entry.actor, entry.actorName)}</td>
         <td data-label={TEXT.before}>
           <AuditValue targetType={entry.targetType} value={entry.before} />
         </td>

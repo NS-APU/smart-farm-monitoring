@@ -1,11 +1,13 @@
 /**
  * 変更履歴（FR-4.2.3、NFR-5.7）。入力・変更・削除の操作を記録し、操作種別・変更者・期間で絞り込んで参照する。
  * 記録する対象: 手動入力、判断基準、設備、ステータスコード、ユーザー、取り込み設定。
+ * 一覧の応答には、変更者の表示名（現在のユーザー名。保存しない）を付ける（Issue #154 の SC-07-7）。
  */
 
 import type { SortDirection } from '@smart-farm/shared/constants/sorting';
 import type {
   AuditLogEntry,
+  AuditLogListItem,
   AuditLogListResponse,
   AuditTargetType,
 } from '@smart-farm/shared/schemas/audit';
@@ -13,7 +15,8 @@ import type { UserId } from '@smart-farm/shared/schemas/common';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
-import type { AuditLogRepository } from '../ports/repositories.ts';
+import { loadUserNames } from '../auth/user-display-names.ts';
+import type { AuditLogRepository, UserRepository } from '../ports/repositories.ts';
 
 export interface AuditRecordInput {
   readonly operation: AuditLogEntry['operation'];
@@ -43,6 +46,8 @@ export interface AuditService {
 
 export function createAuditService(deps: {
   auditLogs: AuditLogRepository;
+  /** 変更者の表示名（現在のユーザー名）の解決に使う。 */
+  users: Pick<UserRepository, 'list'>;
   clock: ClockPort;
   ids: IdGeneratorPort;
 }): AuditService {
@@ -75,7 +80,12 @@ export function createAuditService(deps: {
         }),
         { limit: query.limit, cursor: query.cursor },
       );
-      return { items: page.items, nextCursor: page.nextCursor };
+      const nameOf = page.items.length === 0 ? undefined : await loadUserNames(deps.users);
+      const items: AuditLogListItem[] = page.items.map((entry) => ({
+        ...entry,
+        ...omitUndefined({ actorName: nameOf?.(entry.actor) }),
+      }));
+      return { items, nextCursor: page.nextCursor };
     },
   };
 }

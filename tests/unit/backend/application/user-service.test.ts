@@ -50,6 +50,7 @@ function build(users: (original: UserRepository) => UserRepository, credentials:
   const wrapped = users(repositories.users);
   const audit = createAuditService({
     auditLogs: repositories.auditLogs,
+    users: repositories.users,
     clock,
     ids: createSequentialIdGenerator('audit'),
   });

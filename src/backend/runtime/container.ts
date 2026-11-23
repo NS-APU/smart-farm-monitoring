@@ -470,6 +470,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
+    users: repositories.users,
     recipients: createNotificationRecipients({ repositories, policy }),
     webPush,
     clock,
@@ -525,7 +526,12 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     settings: settings.ingestion,
     logger,
   });
-  const auditService = createAuditService({ auditLogs: repositories.auditLogs, clock, ids });
+  const auditService = createAuditService({
+    auditLogs: repositories.auditLogs,
+    users: repositories.users,
+    clock,
+    ids,
+  });
   const manualEntryService = createManualEntryService({
     repositories,
     audit: auditService,
@@ -539,6 +545,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const criteriaAdminService = createCriteriaAdminService({
     criteriaService: criteria,
     criteriaRepository: repositories.criteria,
+    users: repositories.users,
     audit: auditService,
     evaluation: evaluationService,
     clock,

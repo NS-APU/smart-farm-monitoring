@@ -7,7 +7,7 @@ import { render } from '@testing-library/react';
 import { createElement } from 'react';
 import type { LoginResponse } from '../../src/shared/schemas/auth.ts';
 import { toEquipmentId, toUserId } from '../../src/shared/schemas/common.ts';
-import type { ManualEntry } from '../../src/shared/schemas/manual-entry.ts';
+import type { ManualEntryListItem } from '../../src/shared/schemas/manual-entry.ts';
 import type { NotificationItem } from '../../src/shared/schemas/notification.ts';
 import { PERMISSIONS } from '../../src/shared/constants/permissions.ts';
 import { App } from '../../src/frontend/app.tsx';
@@ -116,7 +116,7 @@ export function notification(overrides: Partial<NotificationItem> = {}): Notific
   };
 }
 
-export function manualEntry(overrides: Partial<ManualEntry> = {}): ManualEntry {
+export function manualEntry(overrides: Partial<ManualEntryListItem> = {}): ManualEntryListItem {
   return {
     entryId: 'e-1',
     equipmentId: toEquipmentId('ROBOT-01'),

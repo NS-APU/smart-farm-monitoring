@@ -145,6 +145,11 @@ export type ViewpointCriteria = z.infer<typeof ViewpointCriteriaSchema>;
 /** 判断基準の編集（SC-13）の応答: 判断基準と、ステータスコードでも判定する観点か（その指標は編集できない）。 */
 export const CriteriaViewSchema = ViewpointCriteriaSchema.extend({
   usesStatusIndicator: z.boolean(),
+  /**
+   * 最終変更者の表示名。読み取り時に、現在のユーザー名から付ける（保存しない。削除済みの利用者は、項目を出さない。
+   * 画面は、「ユーザー名（ID）」で表示する。Issue #154 の SC-07-7）。
+   */
+  updatedByName: z.string().optional(),
 });
 export type CriteriaView = z.infer<typeof CriteriaViewSchema>;
 

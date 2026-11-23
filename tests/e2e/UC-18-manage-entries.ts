@@ -26,6 +26,7 @@ import {
   SENSOR_ID,
   USER_B,
   VIEWER,
+  accessToken,
   addEntry,
   addUser,
   advanceMinutes,
@@ -46,7 +47,8 @@ import {
   saveEntry,
 } from './support/entry.ts';
 import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { locatorOf, userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { locatorOf, userLabelText } from './support/pages.ts';
 
 const rows = locatorOf('entry-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
@@ -140,7 +142,9 @@ test.describe('基本フロー: 入力済みデータの一覧を開く', () => 
     await expect(rows(page).nth(2)).toContainText('故障情報');
     await expect(rows(page).nth(2)).toContainText('故障回数: 2回');
     await expect(rows(page).nth(2)).toContainText('復旧に要した時間: 90分');
-    await expect(rows(page).nth(2)).toContainText(userIdText('e2e-user'));
+    // 入力者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(rows(page).nth(2)).toContainText(userLabelText(E2E_USER));
+    expect((await column(rows(page), 4))[2]).toBe('E2Eテスト用ユーザー（e2e-user）');
     await expect(rows(page).nth(2)).toContainText('ケーブルの接触不良を交換した');
     await expect(rows(page).nth(1)).toContainText('温度: 22.5℃');
     await expect(rows(page).nth(0)).toContainText('満足度（安全性）: 4スター');
@@ -325,7 +329,11 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     await page.getByLabel('並べ替えの向き').selectOption('asc');
     await expect
       .poll(() => column(rows(page), 4))
-      .toEqual(['e2e-user', 'e2e-user-b', 'e2e-user-b']);
+      .toEqual([
+        'E2Eテスト用ユーザー（e2e-user）',
+        'E2E利用者B（e2e-user-b）',
+        'E2E利用者B（e2e-user-b）',
+      ]);
     expect((await column(rows(page), 3)).slice(1)).toEqual([
       '緊急停止回数: 1回',
       '緊急停止回数: 3回',
@@ -333,7 +341,11 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     await page.getByLabel('並べ替えの向き').selectOption('desc');
     await expect
       .poll(() => column(rows(page), 4))
-      .toEqual(['e2e-user-b', 'e2e-user-b', 'e2e-user']);
+      .toEqual([
+        'E2E利用者B（e2e-user-b）',
+        'E2E利用者B（e2e-user-b）',
+        'E2Eテスト用ユーザー（e2e-user）',
+      ]);
   });
 
   test('設備の絞り込みは、ハウスの下にロボット・センサーを字下げし、種別を付ける。ハウスを選ぶと、配下のロボット・センサーの入力も含める（SC-07-8）', async ({
@@ -565,7 +577,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await shot(page, testInfo, 'uc18-edited');
     await expect(rows(page).first()).toContainText('復旧に要した時間: 90分');
     await expect(rows(page).first()).toContainText('訂正: 復旧は 90 分だった');
-    await expect(rows(page).first()).toContainText(userIdText('e2e-user'));
+    await expect(rows(page).first()).toContainText(userLabelText(E2E_USER));
     // 評価に反映される（MTTR 1.5 時間 = 正常。以前は 10 時間 = 異常）
     await page.goto('/viewpoints/maintainability?equipmentId=ROBOT-01');
     await expect(page.getByTestId('metric-mttrHours').locator('td').first()).toHaveText('1.50時間');
@@ -792,7 +804,9 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
       '変更後',
     ]);
     await expect(auditRows(page).nth(0)).toContainText('削除');
-    await expect(auditRows(page).nth(0)).toContainText('e2e-user-b');
+    // 変更者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(auditRows(page).nth(0)).toContainText(userLabelText(USER_B));
+    expect((await column(auditRows(page), 3))[0]).toBe('E2E利用者B（e2e-user-b）');
     await expect(auditRows(page).nth(0)).toContainText('ヒヤリハット件数: 1件');
     await expect(auditRows(page).nth(1)).toContainText('登録');
     await expect(auditRows(page).nth(2)).toContainText('編集');
@@ -965,7 +979,7 @@ test.describe('シナリオ: 利用者Aが入力し、利用者Bが修正し、�
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/data-entry/list', USER_B);
     await expect(rows(b.page)).toHaveCount(1);
-    await expect(rows(b.page).first()).toContainText(userIdText('e2e-user'));
+    await expect(rows(b.page).first()).toContainText(userLabelText(E2E_USER));
     await rows(b.page).first().getByRole('button', { name: '修正' }).click();
     await fillEntryForm(b.page, { items: { 緊急停止回数: '1' }, note: 'Bが訂正' }, editor(b.page));
     await editor(b.page).getByRole('button', { name: '保存', exact: true }).click();
@@ -976,17 +990,18 @@ test.describe('シナリオ: 利用者Aが入力し、利用者Bが修正し、�
     await page.goto('/data-entry/list');
     await expect(rows(page).first()).toContainText('緊急停止回数: 1回');
     await expect(rows(page).first()).toContainText('Bが訂正');
-    await expect(rows(page).first()).toContainText(userIdText('e2e-user'));
+    await expect(rows(page).first()).toContainText(userLabelText(E2E_USER));
     await expect(rows(page).first()).not.toContainText('e2e-user-b');
+    await expect(rows(page).first()).not.toContainText(USER_B.userName);
     // 履歴: 登録（A）→ 編集（B）
     await page.goto('/data-entry/history?targetType=manual-entry');
     await expect(auditRows(page)).toHaveCount(2);
     await expect(auditRows(page).nth(0)).toContainText('編集');
-    await expect(auditRows(page).nth(0)).toContainText('e2e-user-b');
+    await expect(auditRows(page).nth(0)).toContainText(userLabelText(USER_B));
     await expect(auditRows(page).nth(0)).toContainText('緊急停止回数: 3回');
     await expect(auditRows(page).nth(0)).toContainText('緊急停止回数: 1回');
     await expect(auditRows(page).nth(1)).toContainText('登録');
-    await expect(auditRows(page).nth(1)).toContainText(userIdText('e2e-user'));
+    await expect(auditRows(page).nth(1)).toContainText(userLabelText(E2E_USER));
     await b.context.close();
   });
 });
@@ -1125,6 +1140,63 @@ test.describe('権限: 変更する権限・履歴を参照する権限のない
   });
 });
 
+test.describe('入力者・変更者の表示名（Issue #154 の SC-07-7）', () => {
+  test('入力者・変更者は、現在のユーザー名で「ユーザー名（ID）」と表示する。ユーザー名を変えると、過去の入力・履歴も新しい名前になる。削除した利用者は、ID だけ', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await addEntryAs(request, USER_B, {
+      equipmentId: ROBOT_ID,
+      category: 'SAFETY',
+      observedAt: hoursAgo(2),
+      items: { emergencyStopCount: 1 },
+    });
+    await addEntry(request, {
+      category: 'SAFETY',
+      observedAt: hoursAgo(1),
+      items: { emergencyStopCount: 2 },
+    });
+
+    // 入力者・変更者は、「ユーザー名（ID）」（新しい順: A → B）
+    await openList(page);
+    await expect
+      .poll(() => column(rows(page), 4))
+      .toEqual(['E2Eテスト用ユーザー（e2e-user）', 'E2E利用者B（e2e-user-b）']);
+    await openHistory(page, '?targetType=manual-entry');
+    await expect(auditRows(page).filter({ hasText: 'e2e-user-b' })).toContainText(
+      'E2E利用者B（e2e-user-b）',
+    );
+
+    // Bが、ユーザー名を変える: 過去の入力・履歴も、現在のユーザー名で表示する（変更時点の名前は、保存しない）
+    const rename = await request.put('/api/v1/auth/profile', {
+      headers: { authorization: `Bearer ${await accessToken(request, USER_B)}` },
+      data: { userName: 'E2E利用者B（改名後）' },
+    });
+    expect(rename.ok()).toBe(true);
+    await openList(page);
+    await expect
+      .poll(() => column(rows(page), 4))
+      .toEqual(['E2Eテスト用ユーザー（e2e-user）', 'E2E利用者B（改名後）（e2e-user-b）']);
+    await openHistory(page, '?targetType=manual-entry');
+    await expect(auditRows(page).filter({ hasText: 'e2e-user-b' })).toContainText(
+      'E2E利用者B（改名後）（e2e-user-b）',
+    );
+
+    // Bを削除する: 名前を引けないため、ID だけを表示する
+    await apiOk(request, 'DELETE', `/users/${USER_B.userId}`);
+    await openList(page);
+    await expect
+      .poll(() => column(rows(page), 4))
+      .toEqual(['E2Eテスト用ユーザー（e2e-user）', 'e2e-user-b']);
+    await openHistory(page, '?targetType=manual-entry');
+    expect(
+      (await column(auditRows(page), 3)).filter((text) => text.includes('e2e-user-b')),
+    ).toEqual(['e2e-user-b']);
+  });
+});
+
 // 画面幅・長い値（最大長の備考2000文字・長い入力者）でも、表が潰れない（NFR-7.3）
 const LONG_USER = {
   userId: `u${'a'.repeat(99)}`,
@@ -1224,6 +1296,8 @@ for (const viewport of VIEWPORTS) {
         await openList(page);
 
         await expect(rows(page)).toHaveCount(2);
+        // 入力者は、「ユーザー名（ID）」。長いユーザーID でも、全文が、表の中に折り返して出る（SC-07-7）
+        await expect(rows(page).nth(1)).toContainText(userLabelText(LONG_USER));
         await expectTableNotCrushed(page, '.entry-table');
         if (viewport.fits) {
           await expectTableFits(page);
@@ -1253,6 +1327,7 @@ for (const viewport of VIEWPORTS) {
       await openHistory(page, '?targetType=manual-entry');
 
       await expect(auditRows(page)).toHaveCount(1);
+      await expect(auditRows(page).first()).toContainText(userLabelText(LONG_USER));
       await expectTableNotCrushed(page, '.audit-table');
       if (viewport.fits) {
         await expectTableFits(page);

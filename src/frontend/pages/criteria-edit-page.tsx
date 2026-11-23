@@ -27,6 +27,7 @@ import { formatDateTimeJst } from '../components/format.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
+import { userLabel } from '../lib/user-label.ts';
 import { normalizeNumberText } from '../components/number-text.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
@@ -346,14 +347,14 @@ function CriteriaEditor(props: EditorProps): ReactNode {
   );
 }
 
-/** 最終変更の表示（「最終変更: 日時 / 変更者: ユーザーID」）。日時・変更者が分からなければ、あるものだけ示す。 */
+/** 最終変更の表示（「最終変更: 日時 / 変更者: ユーザー名（ユーザーID）」。ユーザー名がなければ、ユーザーIDだけ）。日時・変更者が分からなければ、あるものだけ示す。 */
 function lastChangedText(data: CriteriaView): string {
   const parts: string[] = [];
   if (data.updatedAt !== undefined) {
     parts.push(formatDateTimeJst(data.updatedAt));
   }
   if (data.updatedBy !== undefined) {
-    parts.push(`${TEXT.updatedBy}: ${data.updatedBy}`);
+    parts.push(`${TEXT.updatedBy}: ${userLabel(data.updatedBy, data.updatedByName)}`);
   }
   return parts.length === 0 ? '' : `${TEXT.lastChanged}: ${parts.join(' / ')}`;
 }

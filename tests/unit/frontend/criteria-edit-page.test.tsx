@@ -110,6 +110,15 @@ describe('判断基準の編集（UC-19。SC-13）', () => {
     ).toBe('/settings/status-codes');
   });
 
+  it('最終変更の変更者は、「ユーザー名（ID）」で示す（SC-07-7）。ユーザー名がなければ（削除済みの利用者）、ID だけを示す', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () =>
+        jsonResponse({ ...CHANGED, updatedByName: '作業者1' }),
+    });
+    const state = await screen.findByTestId('criteria-state');
+    expect(state.textContent).toContain('変更者: 作業者1（worker-1）');
+  });
+
   it('既定値のときは、「既定値」だけを示し、最終変更・版は示さない', async () => {
     renderApp(PATH, {
       'GET /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(BASE),

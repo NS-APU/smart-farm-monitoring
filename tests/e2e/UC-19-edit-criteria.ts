@@ -40,7 +40,8 @@ import {
   shot,
 } from './support/viewpoint-scenarios.ts';
 import { listNotifications } from './support/notifications.ts';
-import { locatorOf, userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { locatorOf, userLabelText } from './support/pages.ts';
 import { expandPanel } from './support/helpers.ts';
 
 const card = (page: Page, indicator: string) => page.getByTestId(`criterion-edit-${indicator}`);
@@ -155,7 +156,8 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
     await expect(state(page)).toContainText('変更済み');
     await expect(state(page)).toContainText('最終変更');
-    await expect(state(page)).toContainText('変更者: e2e-user');
+    // 変更者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(state(page)).toContainText(`変更者: ${userLabelText(E2E_USER)}`);
     await expect(state(page)).toContainText('2026/10/09');
     // 内部の版（CUSTOM-1）は、示さない（SC-13-5）
     await expect(state(page)).not.toContainText('版');
@@ -636,7 +638,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     // 読み込み直すと、利用者Aの変更（変更者: 利用者A）が表示され、案内は消える。もう一度保存できる
     await conflict.getByRole('button', { name: '読み込み直す' }).click();
     await expect(state(b.page)).toContainText('変更済み');
-    await expect(state(b.page)).toContainText(/変更者: e2e-user(?!-)/);
+    await expect(state(b.page)).toContainText(`変更者: ${userLabelText(E2E_USER)}`);
     await expect(conflict).toHaveCount(0);
     await expect(
       card(b.page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）'),
@@ -645,7 +647,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await save(b.page).click();
     await expect(notice(b.page)).toBeVisible();
     // 保存した利用者B（最終変更の変更者）に変わる
-    await expect(state(b.page)).toContainText(`変更者: ${USER_B.userId}`);
+    await expect(state(b.page)).toContainText(`変更者: ${userLabelText(USER_B)}`);
     await expect.poll(() => storedVersion(request, 'environmentalAdaptability')).toBe('CUSTOM-2');
     await b.context.close();
   });
@@ -704,11 +706,11 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await expect(history).toHaveCount(2);
     await expect(history.first()).toContainText('判断基準');
     await expect(history.first()).toContainText('harvestAccuracy');
-    await expect(history.first()).toContainText(userIdText('e2e-user'));
+    await expect(history.first()).toContainText(userLabelText(E2E_USER));
     await expect(history.first()).toContainText('編集');
     // 変更（1件目）と、既定値へ戻す操作（2件目）の、2件。どちらも、操作種別は「編集」
     await expect(history.nth(1)).toContainText('harvestAccuracy');
-    await expect(history.nth(1)).toContainText(userIdText('e2e-user'));
+    await expect(history.nth(1)).toContainText(userLabelText(E2E_USER));
     await expect(history.nth(1)).toContainText('編集');
     const body: unknown = await (
       await api(request, 'GET', '/audit-logs?targetType=criteria')

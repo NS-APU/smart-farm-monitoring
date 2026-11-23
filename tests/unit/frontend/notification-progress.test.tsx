@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type {
   NotificationItem,
   NotificationMemo,
+  NotificationMemoView,
 } from '../../../src/shared/schemas/notification.ts';
 import { formatElapsed, formatShortDateTimeJst } from '../../../src/frontend/components/format.ts';
 import { must } from '../../support/builders.ts';
@@ -42,7 +43,7 @@ function listOf(items: NotificationItem[]) {
   return () => jsonResponse({ items, nextCursor: null, asOf: AS_OF });
 }
 
-function memo(overrides: Partial<NotificationMemo> = {}): NotificationMemo {
+function memo(overrides: Partial<NotificationMemoView> = {}): NotificationMemoView {
   return {
     memoId: 'm-1',
     notificationId: 'n-1' as NotificationMemo['notificationId'],
@@ -179,7 +180,7 @@ describe('通知のメモ（SC-05-1）', () => {
       'GET /notifications/n-1/memos': () =>
         jsonResponse({
           items: [
-            memo(),
+            memo({ enteredByName: '作業者1' }),
             memo({
               memoId: 'm-2',
               enteredBy: 'worker-2' as never,
@@ -200,9 +201,13 @@ describe('通知のメモ（SC-05-1）', () => {
       expect.stringContaining('ファイルサーバーを再起動した'),
       expect.stringContaining('復旧を確認した'),
     ]);
-    expect(items[0]?.textContent).toContain('worker-1');
-    expect(items[0]?.textContent).toContain('2026/10/09 11:05:00');
-    expect(items[1]?.textContent).toContain('worker-2');
+    // 入力者は、「ユーザー名（ID）」。ユーザー名がなければ（削除済みの利用者）、ID だけ（SC-07-7）
+    expect(items[0]?.querySelector('.notification-memo-meta')?.textContent).toBe(
+      '作業者1（worker-1） / 2026/10/09 11:05:00',
+    );
+    expect(items[1]?.querySelector('.notification-memo-meta')?.textContent).toBe(
+      'worker-2 / 2026/10/09 11:30:00',
+    );
     expect(callsOf(calls, 'GET', '/notifications/n-1/memos')).toHaveLength(1);
   });
 

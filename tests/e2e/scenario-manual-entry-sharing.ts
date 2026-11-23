@@ -27,7 +27,8 @@ import {
 } from './support/app.ts';
 import { fillEntryForm, saveEntry } from './support/entry.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
-import { userIdText, itemListQuery } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { userLabelText, itemListQuery } from './support/pages.ts';
 import { expandPanel } from './support/helpers.ts';
 
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
@@ -104,7 +105,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await advanceMinutes(request, 1);
     await b.page.goto('/data-entry/list');
     await expect(entryRows(b.page)).toHaveCount(1);
-    await expect(entryRows(b.page).first()).toContainText(userIdText('e2e-user'));
+    await expect(entryRows(b.page).first()).toContainText(userLabelText(E2E_USER));
     await entryRows(b.page).first().getByRole('button', { name: '修正' }).click();
     const editor = b.page.getByTestId('entry-edit');
     await fillEntryForm(
@@ -141,10 +142,11 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await page.goto('/data-entry/list');
     await expect(entryRows(page).first()).toContainText('Bが再確認し、22℃に訂正した');
     await expect(entryRows(page).first()).not.toContainText('e2e-user-b');
+    await expect(entryRows(page).first()).not.toContainText(USER_B.userName);
     await page.goto('/data-entry/history?targetType=manual-entry');
     await expect(auditRows(page)).toHaveCount(2);
     await expect(auditRows(page).nth(0)).toContainText('編集');
-    await expect(auditRows(page).nth(0)).toContainText('e2e-user-b');
+    await expect(auditRows(page).nth(0)).toContainText(userLabelText(USER_B));
     await expect(auditRows(page).nth(1)).toContainText('登録');
     await shot(page, testInfo, 'scenario-entry-a-history');
 
@@ -171,7 +173,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await b.page.goto('/data-entry/history?targetType=manual-entry');
     await expect(auditRows(b.page)).toHaveCount(3);
     await expect(auditRows(b.page).nth(0)).toContainText('削除');
-    await expect(auditRows(b.page).nth(0)).toContainText(userIdText('e2e-user'));
+    await expect(auditRows(b.page).nth(0)).toContainText(userLabelText(E2E_USER));
     await expect(auditRows(b.page).nth(1)).toContainText('編集');
     await expect(auditRows(b.page).nth(2)).toContainText('登録');
 
