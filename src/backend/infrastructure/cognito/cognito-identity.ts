@@ -41,9 +41,12 @@ import type { UserRecord } from '../../application/ports/records.ts';
 import type { UserRepository } from '../../application/ports/repositories.ts';
 import {
   LOGIN_FAILED_MESSAGE,
-  LOGIN_LOCKED_MESSAGE,
+  DEFAULT_LOGIN_FAILURE_POLICY,
+  LOGIN_THROTTLED_MESSAGE,
   REFRESH_TOKEN_TTL_DAYS,
   SESSION_INVALID_MESSAGE,
+  loginLockedMessage,
+  type LoginFailurePolicy,
 } from '../common/auth-policy.ts';
 
 export interface CognitoIdentityDeps {
@@ -54,6 +57,8 @@ export interface CognitoIdentityDeps {
   readonly users: UserRepository;
   readonly clock: ClockPort;
   readonly throttle: LoginThrottlePort;
+  /** 接続元ごとのログインの失敗の制限。ロック時の文言の待ち時間に使う（制限の判定は、throttle が行う）。既定は、失敗 5 回 / 15 分。 */
+  readonly loginFailurePolicy?: LoginFailurePolicy;
 }
 
 export interface CognitoIdentity {
@@ -88,6 +93,7 @@ function isNamed(error: unknown, name: string): boolean {
 
 export function createCognitoIdentity(deps: CognitoIdentityDeps): CognitoIdentity {
   const { client, userPoolId, clientId, users, clock, throttle } = deps;
+  const lockedMessage = loginLockedMessage(deps.loginFailurePolicy ?? DEFAULT_LOGIN_FAILURE_POLICY);
 
   function toPrincipal(user: UserRecord): AuthPrincipal {
     return {
@@ -212,7 +218,7 @@ export function createCognitoIdentity(deps: CognitoIdentityDeps): CognitoIdentit
   const auth: AuthPort = {
     async login(credentials, clientKey) {
       if (await throttle.isLocked(clientKey)) {
-        throw new AppError('RATE_LIMITED', LOGIN_LOCKED_MESSAGE);
+        throw new AppError('RATE_LIMITED', lockedMessage);
       }
       const userId = UserIdSchema.safeParse(credentials.userId);
       if (!userId.success) {
@@ -231,7 +237,7 @@ export function createCognitoIdentity(deps: CognitoIdentityDeps): CognitoIdentit
         );
       } catch (error) {
         if (isOneOf(error, THROTTLED)) {
-          throw new AppError('RATE_LIMITED', LOGIN_LOCKED_MESSAGE);
+          throw new AppError('RATE_LIMITED', LOGIN_THROTTLED_MESSAGE);
         }
         if (isOneOf(error, REJECTED)) {
           await throttle.recordFailure(clientKey);

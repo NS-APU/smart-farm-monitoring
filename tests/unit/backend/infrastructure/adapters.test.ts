@@ -287,6 +287,39 @@ describe('ローカルの認証（AuthPort）', () => {
     ).resolves.toBeDefined();
   });
 
+  it('ロック時のメッセージは、待ち時間（設定の時間。既定は 15 分）と、解除できないときは管理者に連絡する旨を示す（Issue #157。SC-01-3）', async () => {
+    const { auth } = await setup();
+    for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT; attempt += 1) {
+      await auth.login({ userId: 'user-a', password: 'bad' }, 'client-1').catch(() => undefined);
+    }
+
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインに失敗した回数が上限に達しました。15 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
+  it('ロック時のメッセージの待ち時間は、設定の時間から作る（30 分に変えたら、30 分）（Issue #157。SC-01-3）', async () => {
+    const { repositories, clock } = await setup();
+    const auth = createLocalAuth({
+      users: repositories.users,
+      clock,
+      loginFailurePolicy: { limit: 1, windowMinutes: 30 },
+    });
+    await auth.login({ userId: 'user-a', password: 'bad' }, 'client-1').catch(() => undefined);
+
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインに失敗した回数が上限に達しました。30 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
   it(`制限の時間（${String(LOGIN_FAILURE_WINDOW_MINUTES)}分）が過ぎたら、再び試行できる`, async () => {
     const { auth, clock } = await setup();
     for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT; attempt += 1) {

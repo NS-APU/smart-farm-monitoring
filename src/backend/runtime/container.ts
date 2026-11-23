@@ -335,6 +335,7 @@ function buildCognitoIdentity(
   storage: Storage,
   clock: ClockPort,
   overrides: ContainerOverrides,
+  loginFailurePolicy: LoginFailurePolicy,
 ): Identity {
   return createCognitoIdentity({
     client:
@@ -347,6 +348,7 @@ function buildCognitoIdentity(
     users: storage.repositories.users,
     clock,
     throttle: storage.loginThrottle,
+    loginFailurePolicy,
   });
 }
 
@@ -406,7 +408,7 @@ function buildAdapters(
           }),
           credentials: createLocalCredentials({ hash: hashPassword }),
         }
-      : buildCognitoIdentity(config.cognito, storage, clock, overrides);
+      : buildCognitoIdentity(config.cognito, storage, clock, overrides, config.loginFailurePolicy);
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
   // 農業情報基盤への連携: FEDERATION_MODE=ngsi-ld のとき、NGSI-LD のアダプタ（接続先・テナント・context は、設定から読む。ADR-0024）。

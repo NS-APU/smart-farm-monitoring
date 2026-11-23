@@ -35,7 +35,13 @@ import { changePasswordViaUi, loginViaUi, resetBackend } from './support/helpers
 import { shot } from './support/viewpoint-scenarios.ts';
 
 const FAILED_MESSAGE = 'ユーザーIDまたはパスワードが正しくありません';
-const LOCKED_MESSAGE = 'ログインの試行回数が上限を超えました。しばらくしてからやり直してください';
+// ロック時の文言: 待ち時間は、設定の時間（既定は 15 分）から作る。解除できないときは、管理者に連絡する旨を添える（Issue #157。SC-01-3）
+const LOCKED_MESSAGE =
+  'ログインに失敗した回数が上限に達しました。15 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください';
+const EXPIRED_MESSAGE = 'セッションの有効期限が切れました。もう一度ログインしてください';
+const FORGOT_MESSAGE = 'パスワードを忘れたときは、管理者に連絡してください';
+const PURPOSE_MESSAGE =
+  'ロボットとハウスの状態をデータで見える化し、早めの対応を支えるシステムです';
 
 /** 接続元（X-Forwarded-For）を、テストごとに別にする（ログインの試行回数の制限が、ほかのテストに影響しないように）。 */
 async function useClient(page: Page, address: string): Promise<void> {
@@ -148,6 +154,17 @@ test.describe('基本フロー: ログインし、利用し、ログアウトす
     await page.getByLabel('ユーザーID').fill(E2E_USER.userId);
     await page.getByRole('button', { name: 'ログイン' }).click();
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+  });
+
+  test('ログイン画面は、システムの目的を 1 行で示し、パスワードを忘れたときは管理者に連絡する旨を示す。連絡先の具体的な名前・メールアドレス・電話番号は、書かない（Issue #157。SC-01-2・SC-01-5）', async ({
+    page,
+  }) => {
+    await page.goto('/login');
+
+    await expect(page.getByText(PURPOSE_MESSAGE)).toBeVisible();
+    await expect(page.getByText(FORGOT_MESSAGE)).toBeVisible();
+    const text = (await page.locator('main').textContent()) ?? '';
+    expect(text).not.toMatch(/@|\d{2,4}-\d{2,4}-\d{3,4}/);
   });
 
   test('ログイン済みで、ログイン画面を開くと、ダッシュボードへ移る', async ({ page }) => {
@@ -520,9 +537,55 @@ test.describe('代替フロー: セッションの有効期限が切れた場合
     await page.getByRole('link', { name: /^未読の通知/ }).click();
 
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
-    await expect(page).toHaveURL(/\/login\?next=%2Fnotifications$/);
+    // 期限切れで戻されたときは、戻り先（next）に加えて、理由（reason=expired）が付き、その旨を示す（Issue #157。SC-01-1）
+    await expect(page).toHaveURL(/\/login\?next=%2Fnotifications&reason=expired$/);
+    await expect(page.getByText(EXPIRED_MESSAGE)).toBeVisible();
     await loginViaUi(page);
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
+    // ログインしたあとは、理由の印は残らない
+    expect(new URL(page.url()).search).toBe('');
+  });
+
+  test('期限切れで戻されたあと、ログイン画面を再読み込みしても、理由を示し続ける。ログイン後にログアウトしたときは、示さない（Issue #157。SC-01-1）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request, { equipment: false });
+    await alignBrowserClock(page);
+    await openAs(page, '/');
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    await advanceMinutes(request, 7 * 24 * 60 + 1);
+    await page.getByRole('link', { name: /^未読の通知/ }).click();
+    await expect(page.getByText(EXPIRED_MESSAGE)).toBeVisible();
+
+    await page.reload();
+
+    await expect(page.getByText(EXPIRED_MESSAGE)).toBeVisible();
+    await loginViaUi(page);
+    await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
+    await logout(page);
+    await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+    await expect(page.getByText(EXPIRED_MESSAGE)).toHaveCount(0);
+    expect(page.url()).not.toContain('reason=');
+  });
+
+  test('最初の訪問（未認証で、保護された画面・ログイン画面を開く）と、ログアウトのあとは、期限切れの理由を示さない。許可しない理由の印は、無視する（Issue #157。SC-01-1）', async ({
+    page,
+  }) => {
+    await page.goto('/notifications');
+    await expect(page).toHaveURL(/\/login\?next=%2Fnotifications$/);
+    await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+    await expect(page.getByText(EXPIRED_MESSAGE)).toHaveCount(0);
+
+    await page.goto('/login?reason=unknown');
+    await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+    await expect(page.getByText(EXPIRED_MESSAGE)).toHaveCount(0);
+
+    await loginViaUi(page);
+    await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    await logout(page);
+    await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+    await expect(page.getByText(EXPIRED_MESSAGE)).toHaveCount(0);
   });
 });
 
