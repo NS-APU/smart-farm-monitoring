@@ -83,7 +83,7 @@ describe('Web Push の実配信: 送る内容', () => {
     expect(request?.endpoint).toBe(ENDPOINT);
     expect(request?.keys).toEqual(KEYS);
     expect(JSON.parse(request?.payload ?? 'null')).toEqual({
-      title: '異常検知',
+      title: '状態の悪化',
       message: '【異常】安全性（ハウス1）: 転倒を検知しました',
       notificationId: 'n-1',
     });
@@ -97,7 +97,7 @@ describe('Web Push の実配信: 送る内容', () => {
   });
 
   it.each([
-    ['STATUS_CHANGE', '異常検知'],
+    ['STATUS_CHANGE', '状態の悪化'],
     ['INGESTION_FAILURE', 'データ取得失敗'],
     ['FEDERATION_EXPIRED', '連携の期限切れ'],
   ] as const)('見出しは、通知の種別（%s）の表示名（%s）', async (kind, title) => {
