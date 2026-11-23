@@ -168,6 +168,8 @@ export const MANAGEMENT_MESSAGES = {
     empty: '入力済みのデータはありません',
     emptyAction: 'データ入力へ',
     goHistory: '変更履歴を見る',
+    /** 各行の、その入力の変更履歴への導線（SC-07-10）。 */
+    rowHistory: '履歴',
     goEntry: 'データ入力へ',
     deleteTitle: '入力データを削除しますか',
     deleteMessage:
@@ -211,6 +213,13 @@ export const MANAGEMENT_MESSAGES = {
     metaNote: '備考',
     backToEntries: '入力済みデータへ戻る',
     noPermission: '変更履歴を参照する権限がありません',
+    // 対象の絞り込み（チップ。他の画面の「履歴」「変更履歴を見る」から開く。#155）
+    clearTarget: '解除',
+    clearTargetLabel: '対象の絞り込みを解除',
+    refresh: '更新',
+    refreshing: '更新中…',
+    manualRefreshNote:
+      '対象を絞った表示は、自動では更新しません。最新の履歴を見るときは、「更新」を押してください',
   },
   observations: {
     title: '計測データ',
@@ -234,6 +243,9 @@ export const MANAGEMENT_MESSAGES = {
     itemsAndValues: '項目と値',
     itemCount: (count: number) => `${String(count)} 項目`,
     qualityAllValid: 'すべて有効',
+    // 手動入力の行からの導線（SC-09-5）
+    openEntry: '入力データを開く',
+    rowHistory: '履歴',
   },
   equipment: {
     title: 'ハウス・設備',
@@ -415,6 +427,7 @@ export const MANAGEMENT_MESSAGES = {
     title: '判断基準の編集',
     lead: '閾値を、運用に合わせて調整します。変更はシステム全体（すべての利用者）に適用され、以降の評価に使われます',
     backToDetail: '観点の詳細へ戻る',
+    goHistory: '変更履歴を見る',
     state: '現在の状態',
     stateDefault: '既定値',
     stateChanged: '変更済み',
