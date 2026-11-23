@@ -25,7 +25,7 @@ describe('buildPushPayload', () => {
     const payload = buildPushPayload(notification());
 
     expect(payload).toEqual({
-      title: '異常検知',
+      title: '状態の悪化',
       message: '【異常】安全性（ハウス1）: 転倒を検知しました',
       notificationId: 'n-1',
     });

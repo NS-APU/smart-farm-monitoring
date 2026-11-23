@@ -10,7 +10,7 @@ export const PUSH_MESSAGE_MAX_LENGTH = 300;
 
 /** 通知の種別ごとの見出し（画面の種別の表示名と同じ）。 */
 const TITLES: Readonly<Record<Notification['kind'], string>> = {
-  STATUS_CHANGE: '異常検知',
+  STATUS_CHANGE: '状態の悪化',
   INGESTION_FAILURE: 'データ取得失敗',
   FEDERATION_EXPIRED: '連携の期限切れ',
 };
