@@ -508,6 +508,11 @@ export const MANAGEMENT_MESSAGES = {
     logs: '取り込みのログ',
     logSource: '取り込み元',
     logEquipment: '設備',
+    /** 削除された設備のログ（設備の一覧にない設備。識別子は示さない。Issue #164）。 */
+    logEquipmentDeleted: '（削除済みの設備）',
+    /** 失敗の行の、設備のファイルのパス（ログには記録がないため、設備の現在の設定。管理者のみ。Issue #164）。 */
+    logFilePath: (path: string) => `ファイルのパス（現在の設定）: ${path}`,
+    logFilePathNone: 'ファイルのパスは未設定です',
     logResultFilterLabels: { SUCCESS: '成功', FAILURE: '失敗' },
     equipmentRuns: '設備ごとの接続と状況',
     equipmentRunData: '最後にデータが取れた日時',

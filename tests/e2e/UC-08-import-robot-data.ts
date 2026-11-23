@@ -746,13 +746,17 @@ test.describe('設備ごとの接続: 1 つのファイルサーバーの停止�
     await expect(equipmentResult(page, 'ROBOT-02')).toHaveText('失敗');
     await expect(equipmentData(page, 'ROBOT-01')).toHaveText('2026/10/09 12:00:00');
     await expect(equipmentData(page, 'ROBOT-02')).toHaveText('—');
-    // 失敗の設備のログは、設備ごと。理由は、固定の文言（接続先・ファイルのパスを含まない）
+    // 失敗の設備のログは、設備ごと。理由（エラー内容の欄）は、固定の文言（接続先・ファイルのパスを含まない）。
+    // 行には、設備のファイルのパス（現在の設定）を、設備の列に示す（Issue #164）。接続先のホスト名は、行のどこにも示さない
     const failure = logRows(page).filter({ hasText: SECOND_ROBOT_NAME });
     await expect(failure).toHaveCount(1);
     await expect(failure).toHaveAttribute('data-result', 'FAILURE');
     await expect(failure).toContainText('ファイルサーバーに接続できません');
     await expect(failure).not.toContainText('127.0.0.1');
-    await expect(failure).not.toContainText(SECOND_PATH);
+    await expect(failure.locator('td').nth(8)).not.toContainText(SECOND_PATH);
+    await expect(failure.getByTestId('ingestion-log-path')).toHaveText(
+      `ファイルのパス（現在の設定）: ${SECOND_PATH}`,
+    );
     await expect(logRows(page).filter({ hasText: '収穫ロボット1' }).first()).toHaveAttribute(
       'data-result',
       'SUCCESS',
