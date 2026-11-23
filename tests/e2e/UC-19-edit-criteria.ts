@@ -50,6 +50,19 @@ const save = (page: Page) => page.getByRole('button', { name: '保存する' });
 const fieldError = (page: Page, indicator: string, name: string) =>
   card(page, indicator).locator(`[data-field="${name}"] .field-error`);
 
+/** 保存されている判断基準の内部の版（API の version。画面には示さない）。 */
+async function storedVersion(
+  request: Parameters<typeof api>[0],
+  viewpointId: string,
+): Promise<string> {
+  const body = (await (
+    await api(request, 'GET', `/viewpoints/${viewpointId}/criteria`)
+  ).json()) as {
+    version: string;
+  };
+  return body.version;
+}
+
 async function openCriteria(
   page: Page,
   viewpointId: string,
@@ -97,7 +110,28 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     await expect(stopped.getByLabel('異常開始値（以上で異常）')).toHaveValue('10');
   });
 
-  test('閾値を編集して保存すると、変更済み（版・変更者・日時つき）になり、現在の評価が更新され、診断メッセージで、変更した基準による判定である旨を示す', async ({
+  test('条件名の入力欄の横の説明（SC-13-5）を開くと、診断メッセージと判断基準の表で、どの条件に当てはまったかを示す名前であることを示す。Esc で閉じる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+    const temperature = card(page, 'temperatureCelsius');
+
+    await temperature.getByRole('button', { name: '条件名の説明' }).click();
+
+    const panel = page.getByTestId('help-hint-panel');
+    await expect(panel).toContainText('診断メッセージ');
+    await expect(panel).toContainText('判断基準の表');
+    await expect(panel).toContainText('どの条件に当てはまったか');
+    // 入力欄は、これまでどおり、ラベルで操作できる
+    await expect(temperature.getByLabel('条件名')).toHaveValue('温度');
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+  });
+
+  test('閾値を編集して保存すると、変更済み（最終変更の変更者・日時つき。内部の版は示さない）になり、現在の評価が更新され、診断メッセージで、変更した基準による判定である旨を示す', async ({
     page,
     request,
   }, testInfo) => {
@@ -120,9 +154,12 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     // 3. 保存し、変更済みであることを識別できる
     await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
     await expect(state(page)).toContainText('変更済み');
-    await expect(state(page)).toContainText('版: CUSTOM-1');
+    await expect(state(page)).toContainText('最終変更');
     await expect(state(page)).toContainText('変更者: e2e-user');
     await expect(state(page)).toContainText('2026/10/09');
+    // 内部の版（CUSTOM-1）は、示さない（SC-13-5）
+    await expect(state(page)).not.toContainText('版');
+    await expect(state(page)).not.toContainText('CUSTOM');
     await shot(page, testInfo, 'uc19-saved');
     // 観点の詳細: 変更済みの判断基準・評価の更新・診断メッセージ
     await page.getByRole('link', { name: '観点の詳細へ戻る' }).click();
@@ -181,7 +218,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     );
   });
 
-  test('変更を繰り返すと、版が進む（CUSTOM-1 → CUSTOM-2）。再読み込みしても、変更後の閾値が保持される', async ({
+  test('変更を繰り返しても、画面は「変更済み」を示し、内部の版（API の version）が進む（CUSTOM-1 → CUSTOM-2）。再読み込みしても、変更後の閾値が保持される', async ({
     page,
     request,
   }) => {
@@ -192,11 +229,15 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
 
     await rate.getByLabel('注意下限（未満で注意）').fill('92');
     await save(page).click();
-    await expect(state(page)).toContainText('版: CUSTOM-1');
+    await expect(state(page)).toContainText('変更済み');
+    expect(await storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-1');
     await rate.getByLabel('注意下限（未満で注意）').fill('93');
     await save(page).click();
 
-    await expect(state(page)).toContainText('版: CUSTOM-2');
+    await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
+    await expect(state(page)).toContainText('変更済み');
+    await expect(state(page)).not.toContainText('版');
+    await expect.poll(() => storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-2');
     await page.reload();
     await expect(
       card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）'),
@@ -567,7 +608,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     // 先に、利用者Aが保存する
     await card(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）').fill('30');
     await save(page).click();
-    await expect(state(page)).toContainText('版: CUSTOM-1');
+    await expect(state(page)).toContainText('変更済み');
 
     // 後から、利用者Bが（古い画面から）保存する: 競合の案内。保存されない
     await card(b.page, 'humidityPercent').getByLabel('正常上限（未満で正常）').fill('75');
@@ -592,9 +633,10 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
       stored.criteria.find((item) => item.indicator === 'humidityPercent')?.thresholds.normalUpper,
     ).not.toBe(75);
 
-    // 読み込み直すと、利用者Aの変更（版 CUSTOM-1）が表示され、案内は消える。もう一度保存できる
+    // 読み込み直すと、利用者Aの変更（変更者: 利用者A）が表示され、案内は消える。もう一度保存できる
     await conflict.getByRole('button', { name: '読み込み直す' }).click();
-    await expect(state(b.page)).toContainText('版: CUSTOM-1');
+    await expect(state(b.page)).toContainText('変更済み');
+    await expect(state(b.page)).toContainText(/変更者: e2e-user(?!-)/);
     await expect(conflict).toHaveCount(0);
     await expect(
       card(b.page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）'),
@@ -602,7 +644,9 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await card(b.page, 'humidityPercent').getByLabel('正常上限（未満で正常）').fill('75');
     await save(b.page).click();
     await expect(notice(b.page)).toBeVisible();
-    await expect(state(b.page)).toContainText('版: CUSTOM-2');
+    // 保存した利用者B（最終変更の変更者）に変わる
+    await expect(state(b.page)).toContainText(`変更者: ${USER_B.userId}`);
+    await expect.poll(() => storedVersion(request, 'environmentalAdaptability')).toBe('CUSTOM-2');
     await b.context.close();
   });
 
@@ -618,12 +662,14 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await openCriteria(page, 'harvestAccuracy');
     await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('92');
     await save(page).click();
-    await expect(state(page)).toContainText('版: CUSTOM-1');
+    await expect(state(page)).toContainText('変更済み');
+    expect(await storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-1');
     // 利用者B: 変更済みの画面を開いたあと、利用者Aがさらに変更する
     await openCriteria(first.page, 'harvestAccuracy', USER_B);
     await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('93');
     await save(page).click();
-    await expect(state(page)).toContainText('版: CUSTOM-2');
+    await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
+    await expect.poll(() => storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-2');
 
     await first.page.getByRole('button', { name: '既定値へ戻す' }).click();
     await confirmDialog(first.page, '既定値へ戻す');

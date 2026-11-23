@@ -114,6 +114,39 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await shot(page, testInfo, 'uc17-list');
   });
 
+  test('「カテゴリの見かた」の凡例（SC-12-6）は、はじめは閉じている。開くと、正常・注意・異常の意味と対応の目安を示し、もう一度押すと閉じる。コードの説明は、凡例を開いても変わらない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openStatusCodes(page);
+    const toggle = page.getByRole('button', { name: 'カテゴリの見かた' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('status-code-legend-body')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const body = page.getByTestId('status-code-legend-body');
+    await expect(page.getByTestId('status-code-legend-NORMAL')).toContainText(
+      '判断基準を満たしています',
+    );
+    await expect(page.getByTestId('status-code-legend-CAUTION')).toContainText(
+      '農作業者の確認が望ましい',
+    );
+    await expect(page.getByTestId('status-code-legend-ERROR')).toContainText(
+      '農作業者の対応が必要',
+    );
+    await expect(page.getByTestId('status-code-legend-UNKNOWN')).toHaveCount(0);
+    await expect(body).toContainText('収穫速度・メンテナンス性・耐久性');
+    // 個々のコードの説明（初期の定義は説明なし）は、この変更では変えない
+    await expect(rowOf(page, 'STANDBY').locator('td').nth(3)).toHaveText('—');
+    await shot(page, testInfo, 'uc17-legend');
+
+    await toggle.click();
+    await expect(body).toHaveCount(0);
+  });
+
   test('登録: コード値・名称・説明・カテゴリを入力して登録すると、一覧に追加される。再読み込みしても保持される', async ({
     page,
     request,
@@ -654,6 +687,9 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
     // 登録のボタンも、フォームも、ない（Issue #366）
     await expect(page.getByRole('button', { name: 'ステータスコードの登録' })).toHaveCount(0);
     await expect(addForm(page)).toHaveCount(0);
+    // 凡例は、参照のみの利用者も開ける
+    await page.getByRole('button', { name: 'カテゴリの見かた' }).click();
+    await expect(page.getByTestId('status-code-legend-body')).toBeVisible();
     await shot(page, testInfo, 'uc17-readonly');
     const login = await request.post('/api/v1/auth/login', {
       data: { userId: VIEWER.userId, password: VIEWER.password },

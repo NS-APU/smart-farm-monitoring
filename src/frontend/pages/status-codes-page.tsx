@@ -2,6 +2,7 @@
  * SC-12 ステータスコード（UC-17。FR-3）。ロボットのステータスコードの定義（コード値・名称・説明・カテゴリ）の
  * 参照・登録・編集・削除（論理削除。確認を求める）。コード値は一意（重複はエラー）。
  * カテゴリは、収穫速度・メンテナンス性・耐久性の判定に影響する。変更する権限（status-code:manage）がなければ、参照のみ。
+ * カテゴリ（正常・注意・異常）の意味と対応の目安は、折りたたみ式の凡例で示す（SC-12-6。Issue #154）。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
@@ -19,6 +20,7 @@ import {
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
+import { StatusCodeLegend } from '../components/legend.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
@@ -268,6 +270,7 @@ export function StatusCodesPage(): ReactNode {
       </div>
       <p className="muted">{TEXT.lead}</p>
       <p className="muted">{TEXT.impact}</p>
+      <StatusCodeLegend />
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
       <ResultNotice message={notice} testId="status-codes-notice" />
       <FormError message={submit.formMessage} />

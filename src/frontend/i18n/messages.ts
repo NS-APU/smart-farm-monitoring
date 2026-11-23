@@ -178,6 +178,10 @@ export const MESSAGES = {
     hintLabel: (name: string) => `${name}の説明`,
     example: '例',
     statusLegendTitle: '状態の見かた',
+    statusCodeLegendTitle: 'カテゴリの見かた',
+    /** ステータスコードのカテゴリの凡例の注記（ADR-0017 D-23。evaluation.md 3 章）。 */
+    statusCodeLegendNote:
+      'ステータスコードのカテゴリは、観点（収穫速度・メンテナンス性・耐久性）の判定にそのまま使われます。観点の状態は、指標の判定のうち最も悪いものです',
     qualityLegendTitle: 'データの状態の見かた',
     usedInEvaluation: '評価に使います',
     notUsedInEvaluation: '評価に使いません',

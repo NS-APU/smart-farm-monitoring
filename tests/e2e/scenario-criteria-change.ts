@@ -84,7 +84,8 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await criterion(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）').fill('30');
     await saveButton(page).click();
     await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
-    await expect(page.getByTestId('criteria-state')).toContainText('版: CUSTOM-1');
+    await expect(page.getByTestId('criteria-state')).toContainText('変更済み');
+    await expect(page.getByTestId('criteria-state')).not.toContainText('版');
     // SC-13-3: 保存した正常上限（30℃）は、既定（25℃）と違うため、「変更済み」と強調する
     await expect(
       criterion(page, 'temperatureCelsius').getByTestId('threshold-default').nth(2),
@@ -132,7 +133,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await criterion(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）').fill('26');
     await saveButton(page).click();
     await expect(notice(page)).toBeVisible();
-    await expect(page.getByTestId('criteria-state')).toContainText('版: CUSTOM-2');
+    await expect(page.getByTestId('criteria-state')).toContainText('変更済み');
 
     // UC-10・UC-22・UC-05: 異常の通知がBに届く。Bが、通知から、詳細・推奨アクションを確認する
     await b.page.goto('/notifications');
