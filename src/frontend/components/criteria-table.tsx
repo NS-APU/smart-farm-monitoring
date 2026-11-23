@@ -25,7 +25,7 @@ export function CriteriaTable(props: { readonly detail: ViewpointDetailResponse 
         >
           {criteria.isDefault
             ? MESSAGES.viewpoint.criteriaDefault
-            : `${MESSAGES.viewpoint.criteriaChanged}（${MESSAGES.viewpoint.criteriaVersion}: ${criteria.version}）`}
+            : MESSAGES.viewpoint.criteriaChanged}
         </span>
         <Link className="panel-link" to={PATHS.criteria(detail.viewpointId)}>
           {MESSAGES.viewpoint.editCriteria}
