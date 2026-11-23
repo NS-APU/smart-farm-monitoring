@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   criterionBands,
+  criterionStatusAt,
   describeCriterionRows,
   formatThreshold,
 } from '../../../src/shared/criteria-text.ts';
@@ -131,5 +132,23 @@ describe('観測値の取得元・状態の表示名', () => {
       LATE: '遅延',
       INVALID: '不正',
     });
+  });
+});
+
+describe('criterionStatusAt', () => {
+  it('値が入る区分のステータスを返す。境界は、下限を含み、上限を含まない（以上・未満）', () => {
+    const bands = criterionBands(criterionOf('environmentalAdaptability', 'temperatureCelsius'));
+    const normal = bands.find((band) => band.status === 'NORMAL');
+    expect(normal).toBeDefined();
+    if (normal === undefined) {
+      return;
+    }
+
+    expect(criterionStatusAt(bands, normal.from)).toBe('NORMAL');
+    expect(criterionStatusAt(bands, normal.to)).toBe('CAUTION');
+  });
+
+  it('区分がなければ（判断基準のない指標）、null', () => {
+    expect(criterionStatusAt([], 10)).toBeNull();
   });
 });
