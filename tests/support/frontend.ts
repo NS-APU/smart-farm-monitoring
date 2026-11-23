@@ -1,6 +1,6 @@
 /** フロントエンドのテスト用の補助: API のスタブ（fetch）、応答のデータ（合成データ）、セッション。 */
 
-import { vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
 import type { DashboardResponse, ViewpointCard } from '@smart-farm/shared/schemas/evaluation';
@@ -176,6 +176,20 @@ export function card(overrides: Partial<ViewpointCard> = {}): ViewpointCard {
     horizonUsed: 'LONG',
     ...overrides,
   };
+}
+
+/**
+ * 現在の時刻（Date だけ。タイマーは、そのまま）を、`dashboard()` の最終の評価（2026-10-09T03:00:00Z）の 5 分後に固定する
+ * （各テストの前後で。評価が更新されていない警告〔最終の評価から 15 分以上。Issue #158〕が、実際の現在の時刻で出ないように）。
+ */
+export function pinClockToDashboardFixture(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-09T03:05:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 }
 
 export function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardResponse {

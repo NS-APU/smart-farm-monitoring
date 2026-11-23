@@ -12,7 +12,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { HOUSE_ID, apiOk, setEquipmentInterval } from './support/app.ts';
+import { HOUSE_ID, alignBrowserClock, apiOk, setEquipmentInterval } from './support/app.ts';
 import { assignPlaceholderPaths } from './support/http-files.ts';
 import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
 import {
@@ -36,6 +36,7 @@ import {
   prepare,
   runEvaluation,
   seed,
+  setClock,
   shot,
 } from './support/viewpoint-scenarios.ts';
 
@@ -590,6 +591,19 @@ test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低
     await expect(warning).toBeVisible();
     await expect(page.getByTestId('stale-equipment')).toContainText('収穫ロボット1');
     await expect(page.getByTestId('stale-equipment')).not.toContainText('環境センサー1');
+    // 警告の文は先頭の設備名だけ。開くと、設備名・最終の受信日時・基準（分）の一覧を示す（#158。ADR-0016 の D-12）
+    const details = page.getByTestId('stale-equipment-details');
+    await expect(details).not.toHaveAttribute('open', '');
+    await details.getByText('古い設備の一覧（1 件）').click();
+    await expect(details).toHaveAttribute('open', '');
+    await expect(details.getByRole('columnheader')).toHaveText([
+      '設備名',
+      '最終の受信日時',
+      '基準（分）',
+    ]);
+    const robotRow = details.getByRole('row').filter({ hasText: '収穫ロボット1' });
+    await expect(robotRow.getByRole('cell')).toHaveText(['2026/10/09 11:50:00', '3 分']);
+    await expect(details.getByRole('row').filter({ hasText: '環境センサー1' })).toHaveCount(0);
     await shot(page, testInfo, 'dashboard-stale-equipment');
 
     // ロボットの取得間隔を 5 分にすると、基準は 15 分になり、10 分前のデータは、古くない（「更新」で、すぐ読み直す）
@@ -598,6 +612,61 @@ test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低
     await expect(warning).toHaveCount(0);
     await expect(page.getByTestId('data-status')).toContainText('最終のデータ取得');
     await expect(page.getByTestId('data-status')).not.toContainText('古い');
+  });
+});
+
+test.describe('評価の鮮度の警告（評価の間隔 5 分 × 3 = 15 分。#158。SC-02-6）', () => {
+  test('評価が止まって（サーバーの時計が進んでも、評価の定期実行が動かない）15 分たつと、警告を出す。14 分では出さない。評価が動けば、警告は消える', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+
+    // 14 分後（サーバーとブラウザの時計を進める。評価の定期実行は、動かさない）: 警告なし
+    const after = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+    await setClock(request, after(14));
+    await openDashboard(page, '', after(14));
+    await expect(page.getByTestId('dashboard-meta')).toContainText(
+      '最終の評価: 2026/10/09 12:00:00',
+    );
+    await expect(page.getByTestId('evaluation-stale')).toHaveCount(0);
+
+    // 15 分後: 警告（最終の評価の日時を示す）
+    await setClock(request, after(15));
+    await alignBrowserClock(page, after(15));
+    await page.getByRole('button', { name: '更新' }).click();
+    const warning = page.getByTestId('evaluation-stale');
+    await expect(warning).toContainText(
+      '評価が更新されていません（最終の評価: 2026/10/09 12:00:00）',
+    );
+    await shot(page, testInfo, 'dashboard-evaluation-stale');
+
+    // 評価が動く（定期の評価 JB-02）と、最終の評価が更新され、警告は消える
+    await runEvaluation(request);
+    await page.getByRole('button', { name: '更新' }).click();
+    await expect(page.getByTestId('dashboard-meta')).toContainText(
+      '最終の評価: 2026/10/09 12:15:00',
+    );
+    await expect(warning).toHaveCount(0);
+  });
+
+  test('「最終の評価」「最終のデータ取得」の横のヘルプヒントが、反映の遅れ（最大 5 分）と、画面の更新・取得間隔の違いを説明する', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする（手動のみの運用では、「最終の手動入力」の説明になる）
+    await assignPlaceholderPaths(request);
+    await seed(request, mixedScenario());
+    await openDashboard(page);
+
+    await page.getByRole('button', { name: '最終の評価の説明' }).click();
+    await expect(page.getByTestId('help-hint-panel')).toContainText('最大 5 分');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '最終のデータ取得の説明' }).click();
+    await expect(page.getByTestId('help-hint-panel')).toContainText('10 秒ごとに更新');
+    await expect(page.getByTestId('help-hint-panel')).toContainText('取得間隔ごと');
   });
 });
 
