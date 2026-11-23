@@ -31,6 +31,7 @@ import {
   series,
   speedDetail,
 } from '../../support/viewpoint-fixtures.ts';
+import { toEquipmentId } from '../../../src/shared/schemas/common.ts';
 import { getDefaultCriteria } from '../../../src/shared/constants/default-criteria.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
 
@@ -1864,5 +1865,134 @@ describe('判断基準の表の、狭い幅のカード（#151。SC-03）', () =
     await screen.findByTestId('criteria');
 
     expectCardLabels(within(screen.getByTestId('criteria')).getByRole('table'));
+  });
+});
+
+describe('対応の結果を記録する導線（SC-02-10。UC-06）', () => {
+  const RECORD = '対応の結果を記録する';
+
+  it('ダッシュボードのカード: 異常・注意のカードだけに出る。押すと、ダッシュボードの対象のハウスを指定して、データ入力へ移る。正常・不明には出さない', async () => {
+    renderPath('/', {
+      dashboard: () =>
+        jsonResponse(
+          dashboard({
+            viewpoints: [
+              card(),
+              card({ viewpointId: 'harvestSpeed', name: '収穫速度', status: 'CAUTION' }),
+              card({ viewpointId: 'durability', name: '耐久性', status: 'ERROR' }),
+              card({
+                viewpointId: 'satisfaction',
+                name: '満足度',
+                status: 'UNKNOWN',
+                evaluatedFrom: null,
+                evaluatedTo: null,
+              }),
+            ],
+          }),
+        ),
+    });
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(
+      within(cardOf('収穫速度')).getByRole('link', { name: RECORD }).getAttribute('href'),
+    ).toBe('/data-entry?equipmentId=HOUSE-01');
+    expect(within(cardOf('耐久性')).getByRole('link', { name: RECORD }).getAttribute('href')).toBe(
+      '/data-entry?equipmentId=HOUSE-01',
+    );
+    expect(within(cardOf('安全性')).queryByRole('link', { name: RECORD })).toBeNull();
+    expect(within(cardOf('満足度')).queryByRole('link', { name: RECORD })).toBeNull();
+  });
+
+  it('観点の詳細: 注意・異常のとき、診断結果に出る（評価した設備を指定する）。正常のとき出さない。不明のときは、既存の案内（データ入力へ）だけで、重複して出さない', async () => {
+    const caution = renderPath('/viewpoints/environmentalAdaptability');
+    const diagnosisSection = await screen.findByTestId('diagnosis');
+    expect(within(diagnosisSection).getByRole('link', { name: RECORD }).getAttribute('href')).toBe(
+      '/data-entry?equipmentId=HOUSE-01',
+    );
+    caution.unmount();
+
+    const normal = renderPath('/viewpoints/environmentalAdaptability', {
+      detail: () =>
+        jsonResponse(detail({ status: 'NORMAL', selected: diagnosis({ status: 'NORMAL' }) })),
+    });
+    await screen.findByTestId('diagnosis');
+    expect(screen.queryByRole('link', { name: RECORD })).toBeNull();
+    normal.unmount();
+
+    renderPath('/viewpoints/environmentalAdaptability', {
+      detail: () =>
+        jsonResponse(
+          detail({
+            status: 'UNKNOWN',
+            isEvaluated: false,
+            selected: null,
+            short: null,
+            long: null,
+          }),
+        ),
+    });
+    const unknown = await screen.findByTestId('diagnosis');
+    expect(within(unknown).getByTestId('unknown-guide')).toBeDefined();
+    expect(within(unknown).queryByRole('link', { name: RECORD })).toBeNull();
+  });
+
+  it('ドロワーの中の観点の詳細にも出る。ロボットを選んでいれば、そのロボットを指定する', async () => {
+    renderPath('/?viewpoint=environmentalAdaptability', {
+      detail: () => jsonResponse(detail({ equipmentId: toEquipmentId('ROBOT-01') })),
+    });
+
+    const dialog = await screen.findByRole('dialog');
+    const link = await within(dialog).findByRole('link', { name: RECORD });
+
+    expect(link.getAttribute('href')).toBe('/data-entry?equipmentId=ROBOT-01');
+  });
+
+  it('満足度の詳細: 総合満足度が注意・異常のとき出る。正常のとき出さない', async () => {
+    const low = renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail([3, 3, 3, 3, 3, 3, 3, 3, 3])),
+    });
+    expect((await screen.findByRole('link', { name: RECORD })).getAttribute('href')).toBe(
+      '/data-entry?equipmentId=HOUSE-01',
+    );
+    low.unmount();
+
+    renderPath('/satisfaction', {
+      detail: () => jsonResponse(satisfactionDetail([5, 5, 5, 5, 5, 5, 5, 5, 5])),
+    });
+    await screen.findByTestId('overall');
+    expect(screen.queryByRole('link', { name: RECORD })).toBeNull();
+  });
+});
+
+describe('満足度の表の観点名のリンク（SC-04-4。UC-21）', () => {
+  const FULL = [5, 4, 3, 4, 5, 4, 3, 4, 5];
+
+  it('表の観点名が、その観点の詳細（ダッシュボードのドロワー）へのリンクになる。レーダーの軸は、リンクにしない', async () => {
+    renderPath('/satisfaction', { detail: () => jsonResponse(satisfactionDetail(FULL)) });
+    const radar = await screen.findByTestId('radar');
+
+    const row = within(radar).getByTestId('score-harvestAccuracy');
+    expect(within(row).getByRole('link', { name: '収穫精度' }).getAttribute('href')).toBe(
+      '/?viewpoint=harvestAccuracy',
+    );
+    expect(within(radar).getAllByRole('link')).toHaveLength(9);
+    expect(radar.querySelector('svg.radar-chart a')).toBeNull();
+  });
+
+  it('選んだ期間を引き継ぐ。押すと、ダッシュボードに、その観点のドロワーが開く', async () => {
+    renderPath('/satisfaction?periodDays=60', {
+      detail: () => jsonResponse(satisfactionDetail(FULL)),
+    });
+    const radar = await screen.findByTestId('radar');
+    const link = within(within(radar).getByTestId('score-safety')).getByRole('link', {
+      name: '安全性',
+    });
+    expect(link.getAttribute('href')).toBe('/?viewpoint=safety&periodDays=60');
+
+    fireEvent.click(link);
+
+    expect(await screen.findByRole('dialog', { name: '安全性の詳細' })).toBeDefined();
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('?viewpoint=safety&periodDays=60');
   });
 });

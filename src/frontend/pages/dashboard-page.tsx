@@ -43,13 +43,14 @@ import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { StatusLegend } from '../components/legend.tsx';
 import { MetricLabel } from '../components/metric-label.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
+import { RecordResponseLink } from '../components/record-response-link.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { ViewpointDrawer } from '../components/viewpoint-drawer.tsx';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePeriodSelection } from '../hooks/use-horizon-selection.ts';
 import { POLLING_INTERVAL_MS, usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
-import { PATHS } from '../router/paths.ts';
+import { PATHS, viewpointDrawerPath } from '../router/paths.ts';
 import { Link, navigate, useLocation } from '../router/router.tsx';
 
 /** ダッシュボードの評価の視点。視点の切り替えはなく、長期（選んだ期間）で示す。 */
@@ -77,22 +78,6 @@ export function viewpointPath(
   return selectedPeriodDays === undefined
     ? PATHS.satisfaction
     : `${PATHS.satisfaction}?${new URLSearchParams({ periodDays: String(selectedPeriodDays) }).toString()}`;
-}
-
-/**
- * 観点の詳細を、ドロワーで開くパス（ダッシュボードの URL に、`viewpoint` を付ける。Issue #357）。
- * 期間は、選んでいるときだけ付ける（選んでいなければ、観点ごとの既定の期間。ダッシュボードの期間を、勝手に選んだことにしない）。
- * 視点は、付けない（ドロワーの既定は、長期）。
- */
-export function viewpointDrawerPath(
-  viewpointId: string,
-  selectedPeriodDays: PeriodDays | undefined,
-): string {
-  const query = new URLSearchParams({ viewpoint: viewpointId });
-  if (selectedPeriodDays !== undefined) {
-    query.set('periodDays', String(selectedPeriodDays));
-  }
-  return `${PATHS.dashboard}?${query.toString()}`;
 }
 
 function periodOf(card: ViewpointCard): EvaluatedPeriod | null {
@@ -144,10 +129,12 @@ function MetricMark(props: { readonly status: EvaluationStatus | undefined }): R
 function ViewpointCardView(props: {
   readonly card: ViewpointCard;
   readonly path: string;
+  /** 対象のハウス（「対応の結果を記録する」の対象の設備）。 */
+  readonly equipmentId: string;
   /** カードに、判定の対象期間を示すか（共通の期間と同じなら、ダッシュボードの上部に示すため、示さない）。 */
   readonly showPeriod: boolean;
 }): ReactNode {
-  const { card, path } = props;
+  const { card, path, equipmentId } = props;
   const metrics = Object.entries(card.metrics);
   // ステータスは、短期・長期のうち悪い方。短期の方が悪い（表示する長期の評価と違う）ときは、その旨を示す
   const shortWorse = card.statuses.short !== null && card.status !== card.statuses.long;
@@ -197,6 +184,7 @@ function ViewpointCardView(props: {
         <strong>{MESSAGES.dashboard.recommendedAction}: </strong>
         {card.recommendedAction}
       </p>
+      <RecordResponseLink status={card.status} equipmentId={equipmentId} />
       {shortWorse && card.statuses.short !== null ? (
         <p className="evaluated-period" data-testid={`short-worse-${card.viewpointId}`}>
           {MESSAGES.dashboard.shortWorseNote(
@@ -434,6 +422,8 @@ export function DashboardPage(): ReactNode {
             readHorizonQuery(search).periodDays ?? defaultPeriodDays(drawerViewpointId),
             readHorizonQuery(search).periodDays,
           )}
+          viewpointIds={data?.viewpoints.map((card) => card.viewpointId) ?? []}
+          selectedPeriodDays={readHorizonQuery(search).periodDays}
           onClose={closeDrawer}
         />
       )}
@@ -587,6 +577,7 @@ function DashboardContent(props: {
             key={card.viewpointId}
             card={card}
             path={path}
+            equipmentId={data.equipmentId}
             showPeriod={showsCardPeriod(card, commonPeriod)}
           />
         ))}

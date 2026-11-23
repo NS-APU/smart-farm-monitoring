@@ -20,6 +20,7 @@ import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { formatDateTimeJst } from './format.ts';
 import { HelpHint } from './help-hint.tsx';
+import { RecordResponseLink } from './record-response-link.tsx';
 import { StatusBadge } from './status-badge.tsx';
 
 /** 視点の表示名（短期は直近24時間、長期は選んだ期間）。 */
@@ -119,6 +120,7 @@ export function DiagnosisSection(props: { readonly detail: ViewpointDetailRespon
             <strong>{MESSAGES.viewpoint.recommendedAction}</strong>
             <span>{selected.recommendedAction}</span>
           </p>
+          <RecordResponseLink status={detail.status} equipmentId={detail.equipmentId} />
           {selected.isCustomCriteria ? (
             <p className="custom-criteria">{MESSAGES.dashboard.customCriteria}</p>
           ) : null}

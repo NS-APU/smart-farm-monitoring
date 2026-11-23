@@ -1274,6 +1274,7 @@ input:not([type='radio']) {
   flex: none;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--space);
   padding: 8px 16px;
   background: var(--color-surface);
@@ -1282,6 +1283,33 @@ input:not([type='radio']) {
 
 .drawer-page-link {
   color: var(--color-link);
+}
+
+/* 前の観点・次の観点（SC-03-6）。左に寄せる。最初・最後の無効は、aria-disabled（フォーカスは保つ） */
+.drawer-nav {
+  display: flex;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.drawer-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  border-color: var(--color-border-control);
+}
+
+.drawer-nav-button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 「対応の結果を記録する」（異常・注意の観点のカード・詳細。SC-02-10） */
+.record-response {
+  margin: 8px 0 0;
 }
 
 .drawer-close {

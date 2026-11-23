@@ -758,3 +758,29 @@ for (const viewport of SATISFACTION_VIEWPORTS) {
     }
   });
 }
+
+test.describe('表の観点名から、その観点の詳細へ（SC-04-4）', () => {
+  test('表の観点名は、その観点のドロワーを開くリンク（選んだ期間を引き継ぐ）。レーダーの軸は、リンクにしない。ドロワーでは、前後の観点へ移れる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [5, 4, 3, 4, 5, 4, 3, 4, 5]);
+    await openSatisfaction(page, '?periodDays=60');
+
+    const radar = page.getByTestId('radar');
+    await expect(radar.getByRole('link')).toHaveCount(9);
+    await expect(radar.locator('svg.radar-chart a')).toHaveCount(0);
+    await expect(
+      page.getByTestId('score-harvestSpeed').getByRole('link', { name: '収穫速度' }),
+    ).toHaveAttribute('href', '/?viewpoint=harvestSpeed&periodDays=60');
+
+    await page.getByTestId('score-harvestSpeed').getByRole('link', { name: '収穫速度' }).click();
+
+    await expect(page).toHaveURL(/\/\?viewpoint=harvestSpeed&periodDays=60$/);
+    const dialog = page.getByRole('dialog', { name: '収穫速度の詳細' });
+    await expect(dialog.getByTestId('diagnosis')).toBeVisible();
+    await dialog.getByRole('button', { name: '次の観点' }).click();
+    await expect(page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
+  });
+});

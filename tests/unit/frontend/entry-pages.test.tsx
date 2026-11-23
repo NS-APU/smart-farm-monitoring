@@ -4,7 +4,7 @@ import { satisfactionItemKey } from '../../../src/shared/constants/items.ts';
 import { PERMISSIONS } from '../../../src/shared/constants/permissions.ts';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '../../../src/shared/constants/viewpoints.ts';
 import { toEquipmentId } from '../../../src/shared/schemas/common.ts';
-import { jsonResponse } from '../../support/frontend.ts';
+import { jsonResponse, twoFacilityTree } from '../../support/frontend.ts';
 import {
   FULL_LOGIN,
   READ_ONLY_LOGIN,
@@ -490,6 +490,68 @@ describe('データ入力（UC-06。SC-06）', () => {
     await screen.findByRole('button', { name: '保存する' });
     expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
     expect((field('カテゴリ') as HTMLSelectElement).value).toBe('ENVIRONMENT');
+  });
+
+  describe('対象の設備の初期値: リンクで明示された設備（?equipmentId=。「対応の結果を記録する」から。SC-02-10）', () => {
+    it('直前に入力した設備の記憶があっても、リンクの設備を選ぶ（記憶したカテゴリは、その設備の種別に合わないので、空にする）', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'SENSOR-01', category: 'ENVIRONMENT' }),
+      );
+      renderApp('/data-entry?equipmentId=ROBOT-01');
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('ROBOT-01');
+      expect((field('カテゴリ') as HTMLSelectElement).value).toBe('');
+    });
+
+    it('記憶したカテゴリが、リンクの設備の種別に合うときは、そのカテゴリを使う', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'ROBOT-01', category: 'FAILURE' }),
+      );
+      renderApp('/data-entry?equipmentId=ROBOT-02', {
+        'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('ROBOT-02');
+      expect((field('カテゴリ') as HTMLSelectElement).value).toBe('FAILURE');
+    });
+
+    it('記憶がなければ、ダッシュボードの対象より、リンクの設備を優先する', async () => {
+      renderApp('/data-entry?equipmentId=SENSOR-01');
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
+    });
+
+    it('リンクの設備が、一覧にないときは、無視する（従来の優先順位: 記憶、ダッシュボードの対象）', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'SENSOR-01', category: 'ENVIRONMENT' }),
+      );
+      const remembered = renderApp('/data-entry?equipmentId=NO-SUCH');
+      await screen.findByRole('button', { name: '保存する' });
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
+      remembered.unmount();
+
+      window.localStorage.clear();
+      renderApp('/data-entry?equipmentId=NO-SUCH');
+      await screen.findByRole('button', { name: '保存する' });
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('HOUSE-01');
+    });
+
+    it('通常の入口（クエリなし）は、従来どおり、記憶した設備を使う', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'SENSOR-01', category: 'ENVIRONMENT' }),
+      );
+      renderApp('/data-entry');
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
+    });
   });
 
   it.each([

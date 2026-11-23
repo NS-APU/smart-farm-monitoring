@@ -4,6 +4,7 @@
  * - ダッシュボードは、描画したまま保つ。閉じたあとも、スクロール位置・選んだ期間・対象のハウスが保たれる
  * - 閉じる: ✕・Esc・背面を押す・ブラウザの「戻る」。閉じたら、開いたカードのリンクにフォーカスが戻る
  * - 幅は min(880px, 100vw)。900px 以下は、全画面。開いている間は、フォーカスをドロワーの中に閉じ込め、本文のスクロールを固定する
+ * - 前の観点・次の観点（SC-03-6）: ダッシュボードの観点の並びで切り替える。最初・最後は片方が無効。履歴は積まない
  * - 直接 URL（/viewpoints/…）は、従来どおり、全画面のページ。通知の「詳細を確認」は、ドロワーで開く（#159 の SC-05-6）
  *
  * 確認できないこと（E2E の限界）: 実機（スマートフォン）の、ブラウザのアドレスバーの出入りに、ドロワーの高さが追従すること（`100dvh`）、
@@ -17,6 +18,7 @@ import {
   prepare,
   seed,
   shot,
+  VIEWPOINT_ORDER,
   waitForDrawerSettled,
 } from './support/viewpoint-scenarios.ts';
 
@@ -325,4 +327,81 @@ test('ダークでも、ドロワーが読める（背景・文字の色の確�
 
   await expect(drawer(page, '安全性の詳細').getByTestId('diagnosis')).toBeVisible();
   await shot(page, testInfo, 'drawer-dark');
+});
+
+test.describe('前の観点・次の観点（SC-03-6）', () => {
+  const FIRST = VIEWPOINT_ORDER[0];
+  const SECOND = VIEWPOINT_ORDER[1];
+  const LAST = ['satisfaction', '満足度'] as const;
+  const BEFORE_LAST = ['durability', '耐久性'] as const;
+
+  test.beforeEach(async ({ request }) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+  });
+
+  test('ダッシュボードの観点の並びで、前後の観点へ切り替わる。期間は保つ。最初では「前の観点」、最後では「次の観点」が無効', async ({
+    page,
+  }) => {
+    await openDashboard(page, '?periodDays=30');
+    await cardLink(page, FIRST[0]).click();
+    const first = drawer(page, `${FIRST[1]}の詳細`);
+    await expect(first.getByTestId('diagnosis')).toBeVisible();
+    await expect(first.getByRole('button', { name: '前の観点' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+
+    await first.getByRole('button', { name: '次の観点' }).click();
+
+    const second = drawer(page, `${SECOND[1]}の詳細`);
+    await expect(second).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`viewpoint=${SECOND[0]}&periodDays=30$`));
+    await expect(second.getByTestId('diagnosis')).toBeVisible();
+    await expect(second.getByRole('button', { name: '前の観点' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
+    await second.getByRole('button', { name: '前の観点' }).click();
+    await expect(drawer(page, `${FIRST[1]}の詳細`)).toBeVisible();
+
+    // 最後の観点（満足度）: 「次の観点」が無効。前は、その手前の観点
+    await page.keyboard.press('Escape');
+    await cardLink(page, LAST[0]).click();
+    const last = drawer(page, `${LAST[1]}の詳細`);
+    await expect(last.getByTestId('radar')).toBeVisible();
+    await expect(last.getByRole('button', { name: '次の観点' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await last.getByRole('button', { name: '前の観点' }).click();
+    await expect(drawer(page, `${BEFORE_LAST[1]}の詳細`)).toBeVisible();
+    // 切り替えは、履歴を積まない。「戻る」で、ドロワーが閉じる
+    await page.goBack();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  });
+
+  test('スマートフォン幅（375px）でも、前後の観点・「ページで開く」・閉じるが、横にはみ出さず、押せる', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openDashboard(page);
+    await cardLink(page, FIRST[0]).click();
+    const dialog = drawer(page, `${FIRST[1]}の詳細`);
+    await expect(dialog.getByTestId('diagnosis')).toBeVisible();
+    await waitForDrawerSettled(page);
+
+    for (const name of ['前の観点', '次の観点', '観点の詳細を閉じる']) {
+      const box = await dialog.getByRole('button', { name }).boundingBox();
+      expect(box?.x ?? -1, name).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? 0) + (box?.width ?? 0), name).toBeLessThanOrEqual(375);
+    }
+    const pageLink = await dialog.getByRole('link', { name: 'ページで開く' }).boundingBox();
+    expect((pageLink?.x ?? 0) + (pageLink?.width ?? 0)).toBeLessThanOrEqual(375);
+    expect(
+      await dialog.locator('.drawer-head').evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await dialog.getByRole('button', { name: '次の観点' }).click();
+    await expect(drawer(page, `${SECOND[1]}の詳細`)).toBeVisible();
+  });
 });
