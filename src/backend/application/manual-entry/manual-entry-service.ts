@@ -84,8 +84,8 @@ export interface ManualEntryService {
     actor: UserId,
     scope?: EquipmentScope,
   ): Promise<ManualEntrySaveResponse>;
-  /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。 */
-  delete(entryId: string, actor: UserId, scope?: EquipmentScope): Promise<void>;
+  /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。応答は、保存・修正と同じ形（entry は、削除済みの入力。Issue #150）。 */
+  delete(entryId: string, actor: UserId, scope?: EquipmentScope): Promise<ManualEntrySaveResponse>;
   list(query: ManualEntryListQuery): Promise<ManualEntryListResponse>;
 }
 
@@ -390,6 +390,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         before,
       });
       await reevaluate([before.equipmentId]);
+      return {
+        entry: deleted,
+        viewpointStatuses: await relatedStatuses(deleted),
+        evaluation: evaluationState,
+      };
     },
 
     async list(query) {

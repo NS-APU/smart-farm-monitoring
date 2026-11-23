@@ -241,7 +241,7 @@ test.describe('連携対象の内容: 生データ（ロボット・環境セン
     const updated = await api(request, 'PUT', `/manual-entries/${created.entry.entryId}`, entry);
     expect(updated.status()).toBe(200);
     const deleted = await api(request, 'DELETE', `/manual-entries/${created.entry.entryId}`);
-    expect(deleted.status()).toBe(204);
+    expect(deleted.status()).toBe(200);
     await runJob(request, 'JB-03');
 
     const added = (await received(request))

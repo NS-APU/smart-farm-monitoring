@@ -52,11 +52,12 @@ describe('評価を、保存の応答の前に行う（EVALUATION_ON_WRITE=sync�
 
     const created = await service.create(input(), ACTOR);
     const updated = await service.update(created.entry.entryId, sensorInput(), ACTOR);
-    await service.delete(created.entry.entryId, ACTOR);
+    const deleted = await service.delete(created.entry.entryId, ACTOR);
 
     expect(context.config.evaluationOnWrite).toBe('sync');
     expect(created.evaluation).toBe('DONE');
     expect(updated.evaluation).toBe('DONE');
+    expect(deleted.evaluation).toBe('DONE');
     // 設備を変更した修正は、変更前と変更後の設備を評価する。削除は、修正後の設備（センサー）を評価する
     expect(evaluateAffected.mock.calls.map(([, ids]) => ids)).toEqual([
       [ROBOT_ID],
@@ -74,11 +75,12 @@ describe('評価を、保存の応答の前に行わない（EVALUATION_ON_WRITE
 
     const created = await service.create(input(), ACTOR);
     const updated = await service.update(created.entry.entryId, sensorInput(), ACTOR);
-    await service.delete(created.entry.entryId, ACTOR);
+    const deleted = await service.delete(created.entry.entryId, ACTOR);
 
     expect(context.config.evaluationOnWrite).toBe('deferred');
     expect(created.evaluation).toBe('DEFERRED');
     expect(updated.evaluation).toBe('DEFERRED');
+    expect(deleted.evaluation).toBe('DEFERRED');
     expect(evaluateAffected).not.toHaveBeenCalled();
     expect(await savedCount(context)).toBe(0);
   });
@@ -120,6 +122,22 @@ describe('評価を、保存の応答の前に行わない（EVALUATION_ON_WRITE
 
     expect(before.viewpointStatuses).toEqual([]);
     expect(after.viewpointStatuses.length).toBeGreaterThan(0);
+  });
+
+  it('削除の応答（DELETE。200）にも、評価の状態（DEFERRED）と、前回の評価の関連観点のステータスを含める。応答は、共有のスキーマで読める（Issue #150）', async () => {
+    const { context } = await setup('deferred');
+    const { entry } = await context.container.manualEntryService.create(input(), ACTOR);
+    await context.container.evaluationService.evaluateAll('SCHEDULED');
+
+    const response = await context.request(`/manual-entries/${entry.entryId}`, {
+      method: 'DELETE',
+    });
+
+    expect(response.status).toBe(200);
+    const body = ManualEntrySaveResponseSchema.parse(await response.json());
+    expect(body.evaluation).toBe('DEFERRED');
+    expect(body.entry).toMatchObject({ entryId: entry.entryId, isDeleted: true });
+    expect(body.viewpointStatuses.length).toBeGreaterThan(0);
   });
 
   it('定期の評価（JB-02。evaluateAll）が、保存した入力を、評価に反映する', async () => {

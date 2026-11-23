@@ -274,7 +274,10 @@ describe('手動入力（一覧・登録・修正・削除）', () => {
     await expectNotFound(await call('PUT', otherEntryId, entryBody(ROBOT_2_ID)));
     await expectNotFound(await call('PUT', ownEntryId, entryBody(ROBOT_2_ID)));
     await expectNotFound(await call('DELETE', otherEntryId));
-    expect((await call('DELETE', ownEntryId)).status).toBe(204);
+    // 削除は、保存と同じ形（評価の状態・関連観点のステータス）を返す（200。Issue #150）
+    const deleted = await call('DELETE', ownEntryId);
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toMatchObject({ entry: { entryId: ownEntryId, isDeleted: true } });
 
     expect(await entriesOf(await get(context, '/manual-entries'))).toEqual([ROBOT_2_ID]);
   });

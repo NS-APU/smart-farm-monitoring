@@ -818,7 +818,14 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
 
     const response = await send(context, 'DELETE', `/manual-entries/${entry.entryId}`);
 
-    expect(response.status).toBe(204);
+    // 保存・修正と同じ形（評価の状態・関連観点のステータス）を返す。entry は、削除済みの入力（Issue #150）
+    expect(response.status).toBe(200);
+    const body = ManualEntrySaveResponseSchema.parse(await response.json());
+    expect(body.entry).toMatchObject({ entryId: entry.entryId, isDeleted: true });
+    expect(body.evaluation).toBe('DONE');
+    expect(body.viewpointStatuses).toContainEqual(
+      expect.objectContaining({ viewpointId: 'operability', status: 'UNKNOWN' }),
+    );
     const observations = await context.container.repositories.observations.findForEvaluation(
       [ROBOT_ID],
       new Date('2026-10-01T00:00:00Z'),
