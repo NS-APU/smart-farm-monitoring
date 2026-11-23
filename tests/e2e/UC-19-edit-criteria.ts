@@ -967,7 +967,7 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
     await expect(temperature.getByRole('slider')).toHaveCount(4);
     await expect(slider(page, 'temperatureCelsius', '正常下限のスライダー')).toHaveValue('10');
     await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
-      '目安の範囲: -10℃〜50℃現在値: 10℃変更後: 10℃（変更なし）',
+      '目安の範囲: -10℃〜50℃既定: 10℃現在値: 10℃変更後: 10℃（変更なし）',
     );
     // 変更前は、現在の帯だけ（範囲型は 5 区分）
     await expect(page.getByTestId('zone-current-temperatureCelsius')).toBeVisible();
@@ -980,7 +980,7 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
     await slider(page, 'temperatureCelsius', '正常下限のスライダー').fill('20');
     await expect(temperature.getByLabel('正常下限（以上で正常）')).toHaveValue('20');
     await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
-      '目安の範囲: -10℃〜50℃現在値: 10℃変更後: 20℃',
+      '目安の範囲: -10℃〜50℃既定: 10℃現在値: 10℃変更後: 20℃',
     );
     await expect(page.getByTestId('zone-after-temperatureCelsius')).toBeVisible();
     await shot(page, testInfo, 'uc19-slider-changed');
@@ -994,6 +994,7 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
     await expect(notice(page)).toBeVisible();
     await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
     await expect(meta(page, 'temperatureCelsius', 1)).toContainText('現在値: 18℃');
+    await expect(meta(page, 'temperatureCelsius', 1)).toContainText('既定: 10℃（変更済み）');
     await page.goto('/');
     await expect(
       page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
@@ -1052,6 +1053,7 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
       await expect(card(page, indicator).getByRole('slider').first()).toBeVisible();
       await expect(page.getByTestId(`zone-current-${indicator}`)).toBeVisible();
       await expect(meta(page, indicator, 0)).toContainText('変更なし');
+      await expect(meta(page, indicator, 0)).toContainText('既定: ');
     }
   });
 
@@ -1073,7 +1075,7 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
     const overall = card(page, 'overallSatisfaction');
     await expect(overall.getByRole('slider', { name: '注意下限のスライダー' })).toHaveValue('4');
     await expect(meta(page, 'overallSatisfaction', 0)).toHaveText(
-      '目安の範囲: 1〜5現在値: 4変更後: 4（変更なし）',
+      '目安の範囲: 1〜5既定: 4現在値: 4変更後: 4（変更なし）',
     );
     await overall.getByRole('slider', { name: '注意下限のスライダー' }).fill('3.5');
     await expect(overall.getByLabel('注意下限（未満で注意）')).toHaveValue('3.5');
@@ -1143,4 +1145,128 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
       await shot(page, testInfo, `uc19-slider-layout-${String(viewport.width)}`);
     });
   }
+});
+
+test.describe('閾値の既定値の併記（SC-13-3。Issue #165）', () => {
+  const defaults = (page: Page, indicator: string) =>
+    card(page, indicator).getByTestId('threshold-default');
+  const meta = (page: Page, indicator: string, index: number) =>
+    card(page, indicator).getByTestId('threshold-meta').nth(index);
+
+  test('閾値ごとに「既定: xx」を、単位つきで、閾値の入力の並びで示す（範囲型・下限型・上限型）。既定値のままなら、強調しない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+
+    // 範囲型（温度）: 異常下限・正常下限・正常上限・異常上限の順
+    await expect(defaults(page, 'temperatureCelsius')).toHaveText([
+      '既定: 0℃',
+      '既定: 10℃',
+      '既定: 25℃',
+      '既定: 35℃',
+    ]);
+    await expect(card(page, 'humidityPercent').getByTestId('threshold-default')).toHaveText([
+      '既定: 30%',
+      '既定: 40%',
+      '既定: 80%',
+      '既定: 90%',
+    ]);
+    await expect(page.locator('.threshold-default-changed')).toHaveCount(0);
+    await shot(page, testInfo, 'uc19-default-values');
+    // 下限型（注意下限・異常下限）・上限型（注意開始値・異常開始値）
+    await page.goto('/viewpoints/harvestAccuracy/criteria');
+    await expect(defaults(page, 'marketableFruitRatePercent')).toHaveText([
+      '既定: 90%',
+      '既定: 80%',
+    ]);
+    await page.goto('/viewpoints/harvestSpeed/criteria');
+    await expect(defaults(page, 'travelStoppedRatePercent')).toHaveText(['既定: 5%', '既定: 10%']);
+    await expect(defaults(page, 'averageSecondsPerFruit')).toHaveText([
+      '既定: 60秒/果実',
+      '既定: 120秒/果実',
+    ]);
+  });
+
+  test('既定値と違う閾値（保存した変更）は、文字とアイコンで強調する。入力の途中では、既定の表示は変わらない。既定値へ戻すと、強調は消える。権限がない利用者にも、既定を示す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await addUser(request, VIEWER);
+    await openCriteria(page, 'environmentalAdaptability');
+    const temperature = defaults(page, 'temperatureCelsius');
+
+    // 入力の途中（保存前）は、強調しない（既定は、保存されている値と比べる）
+    await card(page, 'temperatureCelsius').getByLabel('正常下限（以上で正常）').fill('15');
+    await expect(temperature.nth(1)).toHaveText('既定: 10℃');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+
+    // 保存後: 既定と違う正常下限だけ、「変更済み」と強調する（アイコンつき）
+    await expect(temperature).toHaveText([
+      '既定: 0℃',
+      '既定: 10℃（変更済み）',
+      '既定: 25℃',
+      '既定: 35℃',
+    ]);
+    await expect(page.locator('.threshold-default-changed')).toHaveCount(1);
+    await expect(temperature.nth(1).locator('svg[aria-hidden="true"]')).toHaveCount(1);
+    await expect(temperature.nth(0).locator('svg')).toHaveCount(0);
+    await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
+      '目安の範囲: -10℃〜50℃既定: 10℃（変更済み）現在値: 15℃変更後: 15℃（変更なし）',
+    );
+    await shot(page, testInfo, 'uc19-default-changed');
+
+    // 見るだけの利用者にも、既定と強調を示す
+    await openCriteria(page, 'environmentalAdaptability', VIEWER);
+    await expect(defaults(page, 'temperatureCelsius').nth(1)).toHaveText('既定: 10℃（変更済み）');
+
+    // 既定値へ戻すと、強調は消える
+    await openCriteria(page, 'environmentalAdaptability');
+    await page.getByRole('button', { name: '既定値へ戻す' }).click();
+    await confirmDialog(page, '既定値へ戻す');
+    await expect(notice(page)).toHaveText('既定値へ戻しました');
+    await expect(defaults(page, 'temperatureCelsius').nth(1)).toHaveText('既定: 10℃');
+    await expect(page.locator('.threshold-default-changed')).toHaveCount(0);
+  });
+
+  test('満足度（総合満足度）の判断基準にも、単位なしで既定を示し、変更済みを強調する（Issue #359 の部品と共通）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, satisfactionData([4, 4, 4, 4, 4, 4, 4, 4, 3]));
+    await alignBrowserClock(page);
+    await openAs(page, '/viewpoints/satisfaction/criteria');
+    await expect(defaults(page, 'overallSatisfaction')).toHaveText(['既定: 4', '既定: 3']);
+
+    await card(page, 'overallSatisfaction').getByLabel('注意下限（未満で注意）').fill('3.5');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+    await expect(defaults(page, 'overallSatisfaction')).toHaveText([
+      '既定: 4（変更済み）',
+      '既定: 3',
+    ]);
+  });
+
+  test('スマートフォン幅（375px）でも、既定と「変更済み」の強調が、はみ出さずに並ぶ', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openCriteria(page, 'environmentalAdaptability');
+    await card(page, 'temperatureCelsius').getByLabel('正常下限（以上で正常）').fill('15');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+
+    await expect(defaults(page, 'temperatureCelsius').nth(1)).toHaveText('既定: 10℃（変更済み）');
+    await expectNoPageOverflow(page);
+    await shot(page, testInfo, 'uc19-default-changed-375');
+  });
 });

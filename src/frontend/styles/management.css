@@ -804,6 +804,16 @@ textarea {
   font-size: 0.8rem;
 }
 
+.threshold-default-changed {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.threshold-default > .icon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
 .threshold-changed {
   color: var(--color-text);
   font-weight: 700;

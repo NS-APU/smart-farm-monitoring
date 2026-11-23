@@ -85,6 +85,10 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await saveButton(page).click();
     await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
     await expect(page.getByTestId('criteria-state')).toContainText('版: CUSTOM-1');
+    // SC-13-3: 保存した正常上限（30℃）は、既定（25℃）と違うため、「変更済み」と強調する
+    await expect(
+      criterion(page, 'temperatureCelsius').getByTestId('threshold-default').nth(2),
+    ).toHaveText('既定: 25℃（変更済み）');
     await shot(page, testInfo, 'scenario-criteria-a-saved');
     await page.goto('/viewpoints/satisfaction/criteria');
     await criterion(page, 'overallSatisfaction').getByLabel('注意下限（未満で注意）').fill('3.5');
@@ -156,6 +160,10 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await confirmDialog(page, '既定値へ戻す');
     await expect(notice(page)).toHaveText('既定値へ戻しました');
     await expect(page.getByTestId('criteria-state')).toContainText('既定値');
+    // SC-13-3: 既定値へ戻すと、強調は消える
+    await expect(
+      criterion(page, 'temperatureCelsius').getByTestId('threshold-default').nth(2),
+    ).toHaveText('既定: 25℃');
 
     // UC-01・UC-02・UC-03: Bの環境適応性は、既定値の評価（注意）に戻る。満足度は、変更済みの基準のまま（正常）
     await b.page.goto('/');

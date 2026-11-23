@@ -426,6 +426,8 @@ export const MANAGEMENT_MESSAGES = {
     sliderSuffix: 'のスライダー',
     notANumber: '数値ではありません',
     rangeHint: '目安の範囲',
+    defaultValue: '既定',
+    defaultChanged: '変更済み',
     currentValue: '現在値',
     afterValue: '変更後',
     unchanged: '変更なし',

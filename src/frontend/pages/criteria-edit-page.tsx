@@ -5,10 +5,13 @@
  * ステータスコードで判定する指標は、ここでは編集できない（ステータスコード〔SC-12〕で設定する）。
  * 同時編集の検出（SC-13-1）: 読み込んだときの版（ETag）を、保存・既定値へ戻す操作の If-Match に付ける。
  * 他の管理者が先に変更していたら（409）、その旨と「読み込み直す」を示す。
+ * 既定値の併記（SC-13-3）: 各閾値の横に「既定: xx」を示し、保存されている値が既定値と違うとき（変更済み）は強調する。
+ * 既定値は、画面と評価で共有する `shared/constants/default-criteria.ts` から得る（API の応答には含めない）。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { getMetricMeta } from '@smart-farm/shared/constants/metrics';
+import { getDefaultCriteria } from '@smart-farm/shared/constants/default-criteria';
 import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   CriteriaUpdateRequestSchema,
@@ -100,6 +103,19 @@ function savedThresholdOf(saved: Criterion, key: ThresholdKey): number {
   return thresholds[key] ?? Number.NaN;
 }
 
+/** 既定の閾値（SC-13-3）。既定値に、同じ指標・同じ型がなければ undefined（比べる既定値がない）。 */
+function defaultThresholdOf(
+  defaults: readonly Criterion[],
+  saved: Criterion,
+  key: ThresholdKey,
+): number | undefined {
+  const base = defaults.find(
+    (criterion) => criterion.indicator === saved.indicator && criterion.kind === saved.kind,
+  );
+  const thresholds: Readonly<Record<string, number>> | undefined = base?.thresholds;
+  return thresholds?.[key];
+}
+
 interface EditorProps {
   readonly viewpointId: string;
   readonly criteria: CriteriaView;
@@ -157,6 +173,7 @@ function CriteriaEditor(props: EditorProps): ReactNode {
   }
 
   const { criteria } = props;
+  const defaults = getDefaultCriteria(criteria.viewpointId).criteria;
   return (
     <form
       noValidate
@@ -248,6 +265,7 @@ function CriteriaEditor(props: EditorProps): ReactNode {
                       text={thresholdText(row, key)}
                       value={toNumber(thresholdText(row, key))}
                       savedValue={savedThresholdOf(saved, key)}
+                      defaultValue={defaultThresholdOf(defaults, saved, key)}
                       editable={props.canEdit}
                       onChange={(text) => {
                         change(index, (current) => ({
