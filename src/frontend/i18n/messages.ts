@@ -245,7 +245,6 @@ export const MESSAGES = {
     criteriaLabel: '条件名',
     criteriaChanged: '変更済み',
     criteriaDefault: '既定値',
-    criteriaVersion: '版',
     criteriaStatusNote:
       'ステータスコードのカテゴリ（正常・注意・異常）でも判定します。設定は、メニューの「ステータスコード」で行います',
     editCriteria: '判断基準を編集',

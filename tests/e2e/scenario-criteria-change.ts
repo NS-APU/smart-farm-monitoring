@@ -108,7 +108,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     expect(await cautionCount(b.page)).toBe(cautionBefore - 2);
     await shot(b.page, testInfo, 'scenario-criteria-b-relaxed');
     await b.page.goto('/viewpoints/environmentalAdaptability');
-    await expect(b.page.getByTestId('criteria-state')).toContainText('変更済み（版: CUSTOM-1）');
+    await expect(b.page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(b.page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
     );
