@@ -963,6 +963,22 @@ input:not([type='radio']) {
   color: var(--color-text);
 }
 
+/* 古い設備の一覧（警告の中で開閉する。幅が狭いときは、表だけ横にスクロールする） */
+.stale-equipment-list {
+  margin-top: 8px;
+}
+
+.stale-equipment-list summary {
+  cursor: pointer;
+}
+
+.stale-equipment-list table {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
 .state-view {
   padding: var(--space);
 }
