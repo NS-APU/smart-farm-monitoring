@@ -393,11 +393,13 @@ export const MANAGEMENT_MESSAGES = {
     state: '現在の状態',
     stateDefault: '既定値',
     stateChanged: '変更済み',
-    version: '版',
+    lastChanged: '最終変更',
     updatedBy: '変更者',
-    updatedAt: '変更日時',
     indicator: '指標',
     label: '条件名',
+    /** 条件名のヘルプヒント（機能仕様書 3.2・3.12、FR-5.7。診断メッセージは「条件名 値（状態）」の形で使う）。 */
+    labelHelp:
+      '診断メッセージと、観点の詳細の判断基準の表で、どの条件に当てはまったかを示す名前です（診断メッセージでは「条件名 値（状態）」の形で使います）。200 文字以内で入力します',
     kindLabels: {
       UPPER: '上限型（値が大きいほど悪い）',
       LOWER: '下限型（値が小さいほど悪い）',

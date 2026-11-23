@@ -1,6 +1,6 @@
 /**
  * SC-13 判断基準の編集（UC-19。FR-5.7、FR-5.8）。観点の判断基準（指標ごとの型・閾値・条件名）の参照・編集・保存と、
- * 既定値へ戻す操作。変更はシステム全体（すべての利用者）に適用し、変更済みであることを識別できる（版・変更者・日時）。
+ * 既定値へ戻す操作。変更はシステム全体（すべての利用者）に適用し、変更済みであることを識別できる（「変更済み」と、最終変更〔変更者・日時〕。内部の版は示さない。SC-13-5）。
  * 大小関係・数値・条件名（空欄・200文字超）を検証し、不正な組み合わせは保存できない。
  * ステータスコードで判定する指標は、ここでは編集できない（ステータスコード〔SC-12〕で設定する）。
  * 同時編集の検出（SC-13-1）: 読み込んだときの版（ETag）を、保存・既定値へ戻す操作の If-Match に付ける。
@@ -231,6 +231,7 @@ function CriteriaEditor(props: EditorProps): ReactNode {
                 label={TEXT.label}
                 name={`criteria.${String(index)}.label`}
                 error={errors[`criteria.${String(index)}.label`]}
+                help={{ help: TEXT.labelHelp }}
                 required
               >
                 {(control) => (
@@ -345,6 +346,18 @@ function CriteriaEditor(props: EditorProps): ReactNode {
   );
 }
 
+/** 最終変更の表示（「最終変更: 日時 / 変更者: ユーザーID」）。日時・変更者が分からなければ、あるものだけ示す。 */
+function lastChangedText(data: CriteriaView): string {
+  const parts: string[] = [];
+  if (data.updatedAt !== undefined) {
+    parts.push(formatDateTimeJst(data.updatedAt));
+  }
+  if (data.updatedBy !== undefined) {
+    parts.push(`${TEXT.updatedBy}: ${data.updatedBy}`);
+  }
+  return parts.length === 0 ? '' : `${TEXT.lastChanged}: ${parts.join(' / ')}`;
+}
+
 export function CriteriaEditPage(props: { readonly viewpointId: string }): ReactNode {
   const { viewpointId } = props;
   const { api } = useAuth();
@@ -378,13 +391,8 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
           <span className={`tag ${data.isDefault ? '' : 'tag-changed'}`}>
             {data.isDefault ? TEXT.stateDefault : TEXT.stateChanged}
           </span>
-          {data.isDefault ? null : (
-            <span className="muted">
-              {' '}
-              {TEXT.version}: {data.version}
-              {data.updatedBy === undefined ? '' : ` / ${TEXT.updatedBy}: ${data.updatedBy}`}
-              {data.updatedAt === undefined ? '' : ` / ${formatDateTimeJst(data.updatedAt)}`}
-            </span>
+          {data.isDefault || lastChangedText(data) === '' ? null : (
+            <span className="muted"> {lastChangedText(data)}</span>
           )}
         </p>
         <CriteriaEditor

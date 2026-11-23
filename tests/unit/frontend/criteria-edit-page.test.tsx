@@ -93,22 +93,32 @@ describe('判断基準の編集（UC-19。SC-13）', () => {
     );
   });
 
-  it('変更済みなら、版・変更者・変更日時を示す。ステータスコードでも判定する観点には、その旨と、ステータスコードへの案内を示す', async () => {
+  it('変更済みなら、「変更済み」と最終変更（変更者・日時）を示し、内部の版は示さない。ステータスコードでも判定する観点には、その旨と、ステータスコードへの案内を示す', async () => {
     renderApp(PATH, {
       'GET /viewpoints/environmentalAdaptability/criteria': () =>
         jsonResponse({ ...CHANGED, usesStatusIndicator: true }),
     });
     const state = await screen.findByTestId('criteria-state');
     expect(state.textContent).toContain('変更済み');
-    expect(state.textContent).toContain('版: v2');
+    expect(state.textContent).toContain('最終変更');
     expect(state.textContent).toContain('変更者: worker-1');
     expect(state.textContent).toContain('2026');
+    expect(state.textContent).not.toContain('版');
+    expect(state.textContent).not.toContain('v2');
     expect(
       within(screen.getByTestId('criteria-status-note')).getByRole('link').getAttribute('href'),
     ).toBe('/settings/status-codes');
   });
 
-  it('変更者・変更日時が不明な変更済みの判断基準は、版だけを示す', async () => {
+  it('既定値のときは、「既定値」だけを示し、最終変更・版は示さない', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(BASE),
+    });
+    const state = await screen.findByTestId('criteria-state');
+    expect(state.textContent).toBe('現在の状態: 既定値');
+  });
+
+  it('変更者・変更日時が不明な変更済みの判断基準は、「変更済み」だけを示す（最終変更・版は示さない）', async () => {
     const rest = Object.fromEntries(
       Object.entries(CHANGED).filter(([key]) => key !== 'updatedAt' && key !== 'updatedBy'),
     );
@@ -116,8 +126,26 @@ describe('判断基準の編集（UC-19。SC-13）', () => {
       'GET /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(rest),
     });
     const state = await screen.findByTestId('criteria-state');
-    expect(state.textContent).toContain('版: v2');
-    expect(state.textContent).not.toContain('変更者');
+    expect(state.textContent).toBe('現在の状態: 変更済み');
+  });
+
+  it('条件名の入力欄の横に、説明のボタンがある。開くと、診断メッセージと判断基準の表で使う名前であることを示す', async () => {
+    renderApp(PATH, {
+      'GET /viewpoints/environmentalAdaptability/criteria': () => jsonResponse(BASE),
+    });
+    await screen.findByTestId('criteria-state');
+    const card = criterion('temperatureCelsius');
+    // 入力欄のラベルは、これまでどおり「条件名」（説明のボタンは、ラベルに混ざらない）
+    expect(within(card).getByLabelText<HTMLInputElement>('条件名', { exact: false }).value).toBe(
+      '温度',
+    );
+
+    fireEvent.click(within(card).getByRole('button', { name: '条件名の説明' }));
+
+    const note = screen.getByRole('note');
+    expect(note.textContent).toContain('診断メッセージ');
+    expect(note.textContent).toContain('判断基準の表');
+    expect(note.textContent).toContain('どの条件に当てはまったか');
   });
 
   it('権限（criteria:edit）がなければ、参照のみ。入力欄は読み取り専用で、保存・既定値へ戻す操作を表示しない', async () => {
@@ -384,7 +412,7 @@ describe('判断基準の編集: 版つき更新（SC-13-1。同時編集の検�
     fireEvent.click(within(conflict).getByRole('button', { name: '読み込み直す' }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('criteria-state').textContent).toContain('版: v3');
+      expect(screen.getByTestId('criteria-state').textContent).toContain('変更者: worker-2');
     });
     expect(screen.queryByTestId('criteria-conflict')).toBeNull();
     expect(cautionFromOf().value).toBe('70');
