@@ -2,9 +2,11 @@
  * SC-09 計測データ一覧（UC-20。FR-6.8）。評価の根拠となる、計測データ（自動取り込み・手動入力）を、
  * 日時・設備・カテゴリ・項目・値・取得元・状態の一覧で示す。カテゴリ・設備・取得元・日時の期間・キーワードで絞り込み、
  * 日時・カテゴリ・値で並べ替え、ページを移動できる。条件は URL のクエリに反映する。
+ * 「問題あり（欠損・遅延・不正を含む）」だけに絞り込める（SC-09-3）。期間（31 日以内）が必須で、選んでいる間は、
+ * 自動で更新せず、手動の「更新」で取り直す（読んだ後に絞るため、読み取りが多い。ADR-0007）。
  */
 
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -20,7 +22,7 @@ import { OBSERVATION_SOURCES } from '@smart-farm/shared/constants/status';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import {
   checkListPeriod,
-  LIST_PERIOD_GUIDANCE,
+  listPeriodGuidance,
   requiresListPeriod,
 } from '@smart-farm/shared/observation-list-period';
 import { listMeasurements, listObservations } from '../api/endpoints.ts';
@@ -28,8 +30,10 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
+import { Icon } from '../components/icon.tsx';
 import { isoToJstDate, jstDateToIso } from '../components/jst.ts';
 import {
+  CheckboxFilter,
   DIRECTION_OPTIONS,
   FilterPanel,
   InputFilter,
@@ -40,7 +44,7 @@ import { EmptyState, ErrorView, LoadingView } from '../components/state-views.ts
 import { formatObservationValue } from '../components/source-data-section.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
-import { usePolling } from '../hooks/use-polling.ts';
+import { POLLING_INTERVAL_MS, usePolling } from '../hooks/use-polling.ts';
 import {
   countActiveConditions,
   readSortParams,
@@ -66,6 +70,7 @@ const CONDITION_NAMES = [
   'equipmentId',
   'from',
   'to',
+  'problemOnly',
   'sort',
   'direction',
 ];
@@ -145,9 +150,11 @@ export function ObservationsPage(): ReactNode {
   const equipmentId = query.get('equipmentId');
   const from = query.get('from');
   const to = query.get('to');
+  // 「問題あり」の絞り込み（URL のクエリが true のときだけ。SC-09-3）
+  const problemOnly = query.get('problemOnly') === 'true';
   const { sort, direction } = readSortParams(query, OBSERVATION_SORT_KEYS, 'observedAt');
   const paging = useCursorPaging(
-    [keyword, category, source, equipmentId, from, to, sort, direction].join('|'),
+    [keyword, category, source, equipmentId, from, to, problemOnly, sort, direction].join('|'),
   );
 
   const activeCount = countActiveConditions([
@@ -157,6 +164,7 @@ export function ObservationsPage(): ReactNode {
     equipmentId !== '',
     from !== '',
     to !== '',
+    problemOnly,
     sort !== 'observedAt',
     direction !== 'desc',
   ]);
@@ -164,9 +172,10 @@ export function ObservationsPage(): ReactNode {
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
   const toIso = jstDateToIso(to, 'end');
-  // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（ADR-0007 の判断。#91）。足りないときは、案内を示し、API を呼ばない
+  // 値・カテゴリの順の並べ替えと、キーワード検索と、「問題あり」の絞り込みは、期間（31 日以内）が必須（ADR-0007 の判断。#91・SC-09-3）。
+  // 足りないときは、案内を示し、API を呼ばない
   const periodMissing =
-    requiresListPeriod({ sort, keyword }) &&
+    requiresListPeriod({ sort, keyword, problemOnly }) &&
     checkListPeriod({ from: fromIso ?? undefined, to: toIso ?? undefined }) !== null;
   // 日時順は、1 回の計測ごとの一覧（Issue #363）。カテゴリ・値の順は、項目ごとの一覧
   const measurementMode = sort === 'observedAt';
@@ -181,6 +190,7 @@ export function ObservationsPage(): ReactNode {
       ...(equipmentId === '' ? {} : { equipmentId }),
       ...(fromIso === null ? {} : { from: fromIso }),
       ...(toIso === null ? {} : { to: toIso }),
+      ...(problemOnly ? { problemOnly: 'true' as const } : {}),
       direction,
       limit: PAGE_SIZE,
       ...omitUndefined({ cursor }),
@@ -199,18 +209,31 @@ export function ObservationsPage(): ReactNode {
     equipmentId,
     fromIso,
     toIso,
+    problemOnly,
     sort,
     direction,
     cursor,
   ]);
-  const { data, error, reload } = usePolling(fetchPage);
+  // 「問題あり」は、読んだ後に絞るため（読み取りが多い）、自動では更新しない（手動の「更新」）
+  const { data, error, reload, version } = usePolling(
+    fetchPage,
+    problemOnly ? null : POLLING_INTERVAL_MS,
+  );
+  const [refreshFrom, setRefreshFrom] = useState<number | null>(null);
+  const refreshing = refreshFrom !== null && refreshFrom === version;
+  const refresh = (): void => {
+    if (!refreshing) {
+      setRefreshFrom(version);
+      reload();
+    }
+  };
   const statusNames = useStatusNames();
 
   let body: ReactNode;
   if (periodMissing) {
     body = (
       <p className="state-view" role="status" data-testid="observations-period-guidance">
-        {LIST_PERIOD_GUIDANCE}
+        {listPeriodGuidance({ problemOnly })}
       </p>
     );
   } else if (error !== undefined) {
@@ -218,9 +241,9 @@ export function ObservationsPage(): ReactNode {
   } else if (data === undefined) {
     body = <LoadingView />;
   } else if (data.items.length === 0) {
-    const filtered = [keyword, category, source, equipmentId, from, to].some(
-      (value) => value !== '',
-    );
+    const filtered =
+      problemOnly ||
+      [keyword, category, source, equipmentId, from, to].some((value) => value !== '');
     body = (
       <EmptyState testId="observations-empty">
         <p>{filtered ? TEXT.empty : TEXT.emptyLead}</p>
@@ -448,6 +471,15 @@ export function ObservationsPage(): ReactNode {
               query.set({ to: value });
             }}
           />
+          <CheckboxFilter
+            label={TEXT.problemOnly}
+            checked={problemOnly}
+            hint={TEXT.problemOnlyNote}
+            hintTestId="observations-problem-note"
+            onChange={(checked) => {
+              query.set({ problemOnly: checked ? 'true' : undefined });
+            }}
+          />
           <SelectFilter
             label={MESSAGES.form.sort}
             value={sort}
@@ -465,6 +497,25 @@ export function ObservationsPage(): ReactNode {
             }}
           />
         </FilterPanel>
+        {problemOnly ? (
+          <>
+            <div className="filter-chips">
+              <button
+                type="button"
+                className="refresh-button"
+                aria-disabled={refreshing}
+                aria-busy={refreshing}
+                onClick={refresh}
+              >
+                <Icon name="refresh" size={16} />
+                {refreshing ? TEXT.refreshing : TEXT.refresh}
+              </button>
+            </div>
+            <p className="muted" data-testid="observations-manual-refresh-note">
+              {TEXT.manualRefreshNote}
+            </p>
+          </>
+        ) : null}
       </section>
       <section className="panel" aria-label={TEXT.title}>
         {body}

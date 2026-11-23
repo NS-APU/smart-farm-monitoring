@@ -94,6 +94,8 @@ export interface ObservationListParams {
   readonly from?: string;
   readonly to?: string;
   readonly q?: string;
+  /** 'true' なら、「問題あり」（有効でない観測値）だけ。期間（31 日以内）が必須（SC-09-3）。 */
+  readonly problemOnly?: 'true';
   readonly sort?: ObservationSortKey;
   readonly direction?: SortDirection;
   readonly limit?: number;
@@ -115,6 +117,8 @@ export interface MeasurementListParams {
   readonly from?: string;
   readonly to?: string;
   readonly q?: string;
+  /** 'true' なら、有効でない項目を含む計測だけ。期間（31 日以内）が必須（SC-09-3）。 */
+  readonly problemOnly?: 'true';
   readonly direction?: SortDirection;
   readonly limit?: number;
   readonly cursor?: string;

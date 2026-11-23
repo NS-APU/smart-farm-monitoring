@@ -243,6 +243,13 @@ export const MANAGEMENT_MESSAGES = {
     itemsAndValues: '項目と値',
     itemCount: (count: number) => `${String(count)} 項目`,
     qualityAllValid: 'すべて有効',
+    // 「問題あり」の絞り込み（SC-09-3）。期間が必須で、選んでいる間は、自動で更新しない（読み取りが多いため。ADR-0007）
+    problemOnly: '問題あり（欠損・遅延・不正を含む）',
+    problemOnlyNote: '期間は 31 日以内。多いときは、期間を狭めてください',
+    refresh: '更新',
+    refreshing: '更新中…',
+    manualRefreshNote:
+      '「問題あり」の絞り込みは、自動では更新しません。最新のデータを見るときは、「更新」を押してください',
     // 手動入力の行からの導線（SC-09-5）
     openEntry: '入力データを開く',
     rowHistory: '履歴',

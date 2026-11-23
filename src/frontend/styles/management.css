@@ -320,6 +320,12 @@ textarea {
   max-width: 260px;
 }
 
+/* チェックボックスの絞り込み（ラベルが長い。例: 計測データの「問題あり」）は、ラベルが 1 行に収まる幅にする */
+.filter-bar .field-checkbox {
+  flex: 1 1 320px;
+  max-width: 380px;
+}
+
 .filter-actions {
   display: flex;
   flex-wrap: wrap;
