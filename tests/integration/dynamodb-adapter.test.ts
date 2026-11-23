@@ -304,6 +304,35 @@ describe('観測値（DynamoDB）', () => {
     expect((await observations.query({}, { limit: 1 })).items).toHaveLength(1);
   });
 
+  it('「問題あり」の絞り込みも、読んだ件数（絞る前）が上限を超えたら、問題ありが少なくても、期間を絞り込むよう案内して、入力不正にする（SC-09-3）', async () => {
+    const { observations } = await setup({ observationReadLimit: 3 });
+    await observations.saveMany(
+      [1, 2, 3, 4, 5].map((hour) =>
+        observation({
+          itemKey: 'harvestCount',
+          value: hour,
+          quality: hour === 2 ? 'MISSING' : 'VALID',
+          observedAt: `2026-10-09T0${hour}:00:00.000Z`,
+        }),
+      ),
+    );
+
+    await expect(observations.query({ problemOnly: true }, { limit: 100 })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('期間を絞り込んでください') as string,
+    });
+    // 期間を狭めれば（読む件数が上限以内なら）、問題ありだけを返す
+    const narrowed = await observations.query(
+      {
+        problemOnly: true,
+        from: new Date('2026-10-09T01:00:00.000Z'),
+        to: new Date('2026-10-09T03:00:00.000Z'),
+      },
+      { limit: 100 },
+    );
+    expect(narrowed.items.map((item) => item.quality)).toEqual(['MISSING']);
+  });
+
   it('最終の受信日時: 自動取り込み（論理削除・手動入力を除く）と全体を、別に持ち、古い値で戻さない', async () => {
     const { observations } = await setup();
     const at = (hour: string) => `2026-10-09T${hour}:00:00.000Z`;

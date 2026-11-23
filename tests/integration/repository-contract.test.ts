@@ -331,6 +331,78 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(both.items).toEqual([]);
     });
 
+    it('一覧: 「問題あり」（有効でない: 欠損・遅延・不正）だけに絞り込める。計測日時の順・値の順のどちらでも。ほかの条件とも組み合わせられる（SC-09-3）', async () => {
+      const repositories = await seeded();
+      await repositories.observations.saveMany([
+        observation({
+          itemKey: 'harvestCount',
+          value: null,
+          quality: 'MISSING',
+          observedAt: '2026-10-09T04:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'operatingHours',
+          value: 5,
+          quality: 'LATE',
+          observedAt: '2026-10-09T04:10:00.000Z',
+        }),
+        observation({
+          itemKey: 'failureCount',
+          value: -1,
+          quality: 'INVALID',
+          source: 'MANUAL',
+          observedAt: '2026-10-09T04:20:00.000Z',
+        }),
+        observation({
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 99,
+          quality: 'INVALID',
+          observedAt: '2026-10-09T04:30:00.000Z',
+        }),
+        // 論理削除した問題ありは、含めない
+        observation({
+          itemKey: 'standbyHours',
+          value: null,
+          quality: 'MISSING',
+          isDeleted: true,
+          observedAt: '2026-10-09T04:40:00.000Z',
+        }),
+      ]);
+      const qualities = (items: readonly { quality: string }[]) =>
+        [...new Set(items.map((item) => item.quality))].sort();
+
+      const byTime = await repositories.observations.query(
+        { problemOnly: true },
+        { limit: 50 },
+        { key: 'observedAt', direction: 'asc' },
+      );
+      const byValue = await repositories.observations.query(
+        { problemOnly: true },
+        { limit: 50 },
+        { key: 'value', direction: 'asc' },
+      );
+      const combined = await repositories.observations.query(
+        { problemOnly: true, equipmentIds: [ROBOT_ID], source: 'MANUAL' },
+        { limit: 50 },
+      );
+      const off = await repositories.observations.query({ problemOnly: false }, { limit: 50 });
+
+      expect(byTime.items.map((item) => item.itemKey)).toEqual([
+        'harvestCount',
+        'operatingHours',
+        'failureCount',
+        'temperatureCelsius',
+      ]);
+      expect(qualities(byTime.items)).toEqual(['INVALID', 'LATE', 'MISSING']);
+      expect(byValue.items.map((item) => item.itemKey).sort()).toEqual(
+        byTime.items.map((item) => item.itemKey).sort(),
+      );
+      expect(combined.items.map((item) => item.itemKey)).toEqual(['failureCount']);
+      // 指定しない（false）なら、絞らない（有効な 6 件 + 問題あり 4 件。論理削除を除く）
+      expect(off.items).toHaveLength(10);
+    });
+
     it('一覧: 計測日時・カテゴリ・値で並べ替えられる（既定は計測日時の新しい順）', async () => {
       const repositories = await seeded();
       const query = (key: 'observedAt' | 'category' | 'value', direction: 'asc' | 'desc') =>

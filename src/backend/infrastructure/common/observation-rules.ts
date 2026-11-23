@@ -37,6 +37,9 @@ export function matchesObservation(
   if (filter.source !== undefined && observation.source !== filter.source) {
     return false;
   }
+  if (filter.problemOnly === true && observation.quality === 'VALID') {
+    return false;
+  }
   if (
     bounds.fromIso !== undefined &&
     compareIsoInstants(observation.observedAt, bounds.fromIso) < 0

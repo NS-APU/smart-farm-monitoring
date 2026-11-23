@@ -82,6 +82,8 @@ export interface ObservationFilter {
   readonly from?: Date;
   readonly to?: Date;
   readonly includeDeleted?: boolean;
+  /** true なら、有効でない観測値（欠損・遅延・不正。quality が VALID でない）だけ（SC-09-3）。読んだ後に絞る（読み取りは、減らない）。 */
+  readonly problemOnly?: boolean;
   /**
    * アプリ側の追加の絞り込み（キーワード検索など、表示名を使う条件）。
    * DynamoDB の実装は、キーの条件で取得した結果に適用する。
