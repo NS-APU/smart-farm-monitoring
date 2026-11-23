@@ -791,8 +791,9 @@ test.describe('他のユースケースとの関連: 入力・取り込み・削
     const { entry } = (await response.json()) as { entry: { entryId: string } };
     await openObservations(page);
     await expect(rows(page)).toHaveCount(2);
+    // 手動入力の行は、取得元の下に、入力データ一覧・変更履歴への導線を持つ（#155。SC-09-5。管理者は、変更履歴も参照できる）
     for (const text of await column(page, 5)) {
-      expect(text).toBe('手動入力');
+      expect(text).toBe('手動入力入力データを開く履歴');
     }
 
     await api(request, 'DELETE', `/manual-entries/${entry.entryId}`);
