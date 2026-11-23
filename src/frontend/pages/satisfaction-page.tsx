@@ -5,6 +5,7 @@
  */
 
 import { useCallback, type ReactNode } from 'react';
+import type { PeriodDays } from '@smart-farm/shared/constants/status';
 import { SATISFACTION_MAX_STARS } from '@smart-farm/shared/constants/items';
 import { SATISFACTION_DEFAULT_PERIOD_DAYS } from '@smart-farm/shared/constants/viewpoints';
 import {
@@ -21,13 +22,14 @@ import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { HorizonControls } from '../components/horizon-controls.tsx';
 import { Icon, ViewpointIcon } from '../components/icon.tsx';
 import { NotApplicableNotice } from '../components/not-applicable-notice.tsx';
+import { RecordResponseLink } from '../components/record-response-link.tsx';
 import { RadarChart } from '../components/radar-chart.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
 import { useHorizonSelection } from '../hooks/use-horizon-selection.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
-import { PATHS } from '../router/paths.ts';
+import { PATHS, viewpointDrawerPath } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 
 function Stars(props: { readonly score: number | null }): ReactNode {
@@ -51,8 +53,12 @@ function Stars(props: { readonly score: number | null }): ReactNode {
   );
 }
 
-function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }): ReactNode {
-  const { detail } = props;
+function SatisfactionContent(props: {
+  readonly detail: ViewpointDetailResponse;
+  /** 選んだ期間（観点の詳細へのリンクに引き継ぐ。選んでいなければ undefined）。 */
+  readonly selectedPeriodDays: PeriodDays | undefined;
+}): ReactNode {
+  const { detail, selectedPeriodDays } = props;
   const overall =
     detail.metrics.find((row) => row.metricId === OVERALL_SATISFACTION_METRIC_ID)?.value ?? null;
   const axes = detail.radar ?? [];
@@ -98,6 +104,7 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
             {MESSAGES.viewpoint.editCriteria}
           </Link>
         </p>
+        <RecordResponseLink status={detail.status} equipmentId={detail.equipmentId} />
         {detail.selected === null ? (
           <p className="state-view" role="status">
             {MESSAGES.viewpoint.notEvaluated}
@@ -141,7 +148,12 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
             <tbody>
               {axes.map((axis) => (
                 <tr key={axis.viewpointId} data-testid={`score-${axis.viewpointId}`}>
-                  <th scope="row">{axis.name}</th>
+                  <th scope="row">
+                    {/* 観点名は、その観点の詳細（ダッシュボードのドロワー）へのリンク（SC-04-4）。レーダーの軸は、リンクにしない */}
+                    <Link to={viewpointDrawerPath(axis.viewpointId, selectedPeriodDays)}>
+                      {axis.name}
+                    </Link>
+                  </th>
                   <td>
                     <Stars score={axis.score} />
                   </td>
@@ -168,7 +180,9 @@ export function SatisfactionView(props: { readonly variant?: 'page' | 'drawer' }
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentError } = useAppState();
   // 期間を選んでいなければ、満足度の既定の期間（30 日）。選べば、他の観点と同じ長期の期間
-  const { periodDays, setPeriodDays } = useHorizonSelection(SATISFACTION_DEFAULT_PERIOD_DAYS);
+  const { periodDays, selectedPeriodDays, setPeriodDays } = useHorizonSelection(
+    SATISFACTION_DEFAULT_PERIOD_DAYS,
+  );
 
   const fetchDetail = useCallback(async () => {
     if (selectedEquipmentId === undefined) {
@@ -193,7 +207,7 @@ export function SatisfactionView(props: { readonly variant?: 'page' | 'drawer' }
   } else if (data === undefined) {
     content = <LoadingView />;
   } else {
-    content = <SatisfactionContent detail={data} />;
+    content = <SatisfactionContent detail={data} selectedPeriodDays={selectedPeriodDays} />;
   }
 
   return (

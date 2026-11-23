@@ -40,9 +40,8 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { countActiveConditions, useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
-import { PATHS } from '../router/paths.ts';
+import { PATHS, viewpointDrawerPath } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
-import { viewpointDrawerPath } from './dashboard-page.tsx';
 import { ResultNotice } from '../components/result-notice.tsx';
 
 const PAGE_SIZE = 20;

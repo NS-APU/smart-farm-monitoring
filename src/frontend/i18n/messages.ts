@@ -195,7 +195,13 @@ export const MESSAGES = {
       label: (viewpointName: string) => `${viewpointName}の詳細`,
       close: '観点の詳細を閉じる',
       openAsPage: 'ページで開く',
+      /** 観点どうしの移動（ダッシュボードの観点の並びで、前後へ。SC-03-6）。 */
+      navLabel: '観点の移動',
+      previous: '前の観点',
+      next: '次の観点',
     },
+    /** 異常・注意の観点から、データ入力（UC-06）へ移るリンク（SC-02-10）。 */
+    recordResponse: '対応の結果を記録する',
     equipment: '対象の設備',
     diagnosis: '診断結果',
     diagnosticMessage: '診断メッセージ',

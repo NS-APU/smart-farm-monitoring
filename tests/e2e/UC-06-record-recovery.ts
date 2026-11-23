@@ -10,7 +10,7 @@
  *
  * 値の同値分割: 復旧に要した時間（MTTR = 時間 ÷ 故障回数。4時間・8時間の境界）、故障回数（0・1・複数）、
  * 不正な入力（必須項目の欠け・形式・範囲・備考の長さ・未来の日時・同じ計測日時の重複）。
- * 関連するユースケース: UC-10（保存後の通知）・UC-01/UC-02（評価の反映）・UC-18（入力済みデータ）。
+ * 関連するユースケース: UC-10（保存後の通知）・UC-01/UC-02（評価の反映。異常・注意の観点から「対応の結果を記録する」で入る。SC-02-10）・UC-18（入力済みデータ）。
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -34,9 +34,16 @@ import {
   mainArea,
   saveEntry,
 } from './support/entry.ts';
-import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
+import {
+  environmentData,
+  hoursAgo,
+  merge,
+  safetyData,
+  seed,
+  shot,
+} from './support/viewpoint-scenarios.ts';
 import { E2E_USER } from './support/e2e-user.ts';
-import { userLabelText } from './support/pages.ts';
+import { dashboardCard, userLabelText } from './support/pages.ts';
 
 /** 復旧の記録が使うステータスコード（ロボットデータから取り込み済みの想定）。 */
 async function seedStatusCode(request: Parameters<typeof prepareApp>[0]): Promise<void> {
@@ -655,5 +662,85 @@ test.describe('入力欄のヘルプヒント（SC-06-9。Issue #154）', () => 
         category,
       ).toHaveCount(0);
     }
+  });
+});
+
+test.describe('異常・注意の観点から、対応の結果を記録する（SC-02-10。#155）', () => {
+  const RECORD = '対応の結果を記録する';
+  const REMEMBER_KEY = 'smart-farm:last-entry-target';
+
+  test('ダッシュボードのカードの「対応の結果を記録する」は、異常・注意の観点だけに出る。押すと、直前に入力した設備の記憶があっても、そのカードの設備でデータ入力が開く。通常の入口は、記憶した設備', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, merge(environmentData({ temperature: 40 }), safetyData('NORMAL')));
+    await alignBrowserClock(page);
+    await openAs(page, '/');
+    // 直前に入力した設備を、別の設備（ロボット）にしておく（記憶があると、引き継ぎが効かない不具合を検出するため）
+    await page.evaluate(
+      ([key, value]) => {
+        window.localStorage.setItem(key, value);
+      },
+      [REMEMBER_KEY, JSON.stringify({ equipmentId: ROBOT_ID, category: 'FAILURE' })] as const,
+    );
+    await expect(dashboardCard(page, 'environmentalAdaptability')).toContainText('異常');
+    await expect(dashboardCard(page, 'safety')).toContainText('正常');
+    await expect(dashboardCard(page, 'safety').getByRole('link', { name: RECORD })).toHaveCount(0);
+    await expect(
+      dashboardCard(page, 'environmentalAdaptability').getByRole('link', { name: RECORD }),
+    ).toHaveCount(1);
+
+    await dashboardCard(page, 'environmentalAdaptability')
+      .getByRole('link', { name: RECORD })
+      .click();
+
+    await expect(page).toHaveURL(new RegExp(`/data-entry[?]equipmentId=${HOUSE_ID}$`));
+    await expect(page.getByRole('heading', { name: 'データ入力', level: 1 })).toBeVisible();
+    await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(HOUSE_ID);
+    // 記憶したカテゴリ（故障情報）は、ハウスに合わないので、空にする
+    await expect(mainArea(page).getByLabel('カテゴリ')).toHaveValue('');
+    await shot(page, testInfo, 'uc06-from-card');
+
+    // 通常の入口（メニュー・URL の直接指定）は、従来どおり、記憶した設備
+    await openAs(page, '/data-entry');
+    await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(ROBOT_ID);
+    await expect(mainArea(page).getByLabel('カテゴリ')).toHaveValue('FAILURE');
+  });
+
+  test('観点の詳細（ドロワー）の診断結果にも出る。押すと、評価した設備でデータ入力が開き、そのまま入力して保存できる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 40 }));
+    await alignBrowserClock(page);
+    await openAs(page, '/?viewpoint=environmentalAdaptability');
+    const dialog = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(dialog.getByTestId('diagnosis')).toBeVisible();
+
+    await dialog.getByTestId('diagnosis').getByRole('link', { name: RECORD }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/data-entry[?]equipmentId=${HOUSE_ID}$`));
+    await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(HOUSE_ID);
+    await fillEntryForm(page, {
+      category: 'SATISFACTION',
+      observedAt: RECOVERY_AT,
+      stars: allSatisfactionStars(4),
+    });
+    await saveEntry(page);
+    await expect(page.getByTestId('entry-result')).toContainText('保存しました');
+  });
+
+  test('評価前・データ不足（不明）の観点には出さない（不明は、既存の「データ入力へ」の案内）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await alignBrowserClock(page);
+    await openAs(page, '/viewpoints/environmentalAdaptability');
+
+    await expect(page.getByTestId('unknown-guide')).toBeVisible();
+    await expect(page.getByRole('link', { name: RECORD })).toHaveCount(0);
   });
 });

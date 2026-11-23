@@ -13,6 +13,7 @@ import {
   createMemorySession,
   dashboard,
   equipmentTree,
+  errorResponse,
   jsonResponse,
   twoFacilityTree,
   type FakeHandler,
@@ -26,10 +27,15 @@ import {
   series,
 } from '../../support/viewpoint-fixtures.ts';
 
-function handler(options: { equipment?: () => Response } = {}): FakeHandler {
+interface Options {
+  equipment?: () => Response;
+  dashboard?: () => Response;
+}
+
+function handler(options: Options = {}): FakeHandler {
   const base = withBaseRoutes({
     'GET /equipment': options.equipment ?? (() => jsonResponse(equipmentTree())),
-    'GET /dashboard': () => jsonResponse(dashboard()),
+    'GET /dashboard': options.dashboard ?? (() => jsonResponse(dashboard())),
     'GET /observations': () => jsonResponse(observationList()),
   });
   return (request) => {
@@ -46,7 +52,7 @@ function handler(options: { equipment?: () => Response } = {}): FakeHandler {
   };
 }
 
-function renderPath(path: string, options: { equipment?: () => Response } = {}) {
+function renderPath(path: string, options: Options = {}) {
   window.history.pushState(null, '', path);
   const fake = createFakeFetch(handler(options));
   const view = render(<App session={createMemorySession(WORKER_LOGIN)} fetchFn={fake.fetchFn} />);
@@ -367,5 +373,110 @@ describe('全画面のページ（従来どおり）', () => {
     expect(await screen.findByRole('heading', { level: 1, name: /環境適応性/ })).toBeDefined();
     expect(screen.getByRole('navigation', { name: 'パンくず' })).toBeDefined();
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('観点の詳細のドロワー: 前の観点・次の観点（SC-03-6。UC-02）', () => {
+  // ダッシュボードの観点の並び（フィクスチャ）: 安全性 → 収穫速度 → 満足度
+
+  it('次の観点を押すと、ドロワーの観点が切り替わる（URL の観点を更新。期間は保つ。履歴は積まず、「戻る」で閉じる）', async () => {
+    renderPath('/?periodDays=30');
+    await screen.findByRole('heading', { name: '安全性', level: 3 });
+    const dialog = await openDrawer('安全性');
+    const historyLength = window.history.length;
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '次の観点' }));
+
+    expect(await screen.findByRole('dialog', { name: '収穫速度の詳細' })).toBeDefined();
+    expect(window.location.search).toBe('?viewpoint=harvestSpeed&periodDays=30');
+    expect(window.history.length).toBe(historyLength);
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '前の観点' }));
+    expect(await screen.findByRole('dialog', { name: '安全性の詳細' })).toBeDefined();
+    expect(window.location.search).toBe('?viewpoint=safety&periodDays=30');
+  });
+
+  it('次の観点が満足度のときは、満足度の詳細に切り替わる', async () => {
+    renderPath('/?viewpoint=harvestSpeed');
+    const dialog = await screen.findByRole('dialog', { name: '収穫速度の詳細' });
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: '次の観点' }));
+
+    const satisfaction = await screen.findByRole('dialog', { name: '満足度の詳細' });
+    expect(
+      await within(satisfaction).findByRole('heading', { level: 2, name: /満足度の詳細/ }),
+    ).toBeDefined();
+    expect(window.location.search).toBe('?viewpoint=satisfaction');
+  });
+
+  it('最初の観点では「前の観点」、最後の観点では「次の観点」を無効にする（押しても動かない）', async () => {
+    const first = renderPath('/?viewpoint=safety');
+    const top = await screen.findByRole('dialog', { name: '安全性の詳細' });
+    await within(top).findByTestId('diagnosis');
+    expect(
+      (await within(top).findByRole('button', { name: '前の観点' })).getAttribute('aria-disabled'),
+    ).toBe('true');
+    expect(
+      (await within(top).findByRole('button', { name: '次の観点' })).getAttribute('aria-disabled'),
+    ).toBe('false');
+    fireEvent.click(await within(top).findByRole('button', { name: '前の観点' }));
+    expect(window.location.search).toBe('?viewpoint=safety');
+    first.unmount();
+
+    renderPath('/?viewpoint=satisfaction');
+    const bottom = await screen.findByRole('dialog', { name: '満足度の詳細' });
+    expect(
+      (await within(bottom).findByRole('button', { name: '次の観点' })).getAttribute(
+        'aria-disabled',
+      ),
+    ).toBe('true');
+    expect(
+      (await within(bottom).findByRole('button', { name: '前の観点' })).getAttribute(
+        'aria-disabled',
+      ),
+    ).toBe('false');
+    fireEvent.click(await within(bottom).findByRole('button', { name: '次の観点' }));
+    expect(window.location.search).toBe('?viewpoint=satisfaction');
+  });
+
+  it('切り替えても、対象の設備の選択は保つ（ロボットを選んだまま、次の観点へ）', async () => {
+    const { calls } = renderPath('/', { equipment: () => jsonResponse(twoFacilityTree()) });
+    await screen.findByRole('heading', { name: '安全性', level: 3 });
+    const dialog = await openDrawer('安全性');
+    const select = within(dialog).getByLabelText<HTMLSelectElement>('対象の設備');
+    await waitFor(() => {
+      expect(select.options.length).toBeGreaterThan(3);
+    });
+    fireEvent.change(select, { target: { value: 'ROBOT-02' } });
+    await waitFor(() => {
+      expect(detailCalls(calls).at(-1)?.query.get('equipmentId')).toBe('ROBOT-02');
+    });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '次の観点' }));
+
+    await screen.findByRole('dialog', { name: '収穫速度の詳細' });
+    await waitFor(() => {
+      expect(detailCalls(calls, 'harvestSpeed').at(-1)?.query.get('equipmentId')).toBe('ROBOT-02');
+    });
+    expect(
+      within(screen.getByRole('dialog')).getByLabelText<HTMLSelectElement>('対象の設備').value,
+    ).toBe('ROBOT-02');
+  });
+
+  it('観点の並びが分からない間（ダッシュボードの読み込み中）は、前後の観点を出さない', async () => {
+    renderPath('/?viewpoint=safety', {
+      dashboard: () => errorResponse(500, 'INTERNAL_ERROR', '取得できません'),
+    });
+    const dialog = await screen.findByRole('dialog', { name: '安全性の詳細' });
+
+    expect(within(dialog).queryByRole('button', { name: '前の観点' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: '次の観点' })).toBeNull();
+  });
+
+  it('全画面のページには、前後の観点を出さない（ドロワーだけ）', async () => {
+    renderPath('/viewpoints/safety');
+    await screen.findByRole('heading', { level: 1, name: /環境適応性/ });
+
+    expect(screen.queryByRole('button', { name: '次の観点' })).toBeNull();
   });
 });

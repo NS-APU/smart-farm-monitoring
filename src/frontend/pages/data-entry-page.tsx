@@ -14,7 +14,7 @@ import { ManualEntryResult } from '../components/manual-entry-result.tsx';
 import { usePermission } from '../hooks/use-permission.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
-import { Link } from '../router/router.tsx';
+import { Link, useLocation } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
 
 const TEXT = MESSAGES.entry;
@@ -23,6 +23,8 @@ export function DataEntryPage(): ReactNode {
   const canWrite = usePermission('manual-entry:write');
   const canViewAll = usePermission('equipment:view-all');
   const { equipmentTree } = useAppState();
+  // リンクで明示された対象の設備（「対応の結果を記録する」から。SC-02-10）
+  const requestedEquipmentId = useLocation().search.get('equipmentId') ?? undefined;
   const [result, setResult] = useState<ManualEntrySaveResponse | undefined>(undefined);
 
   return (
@@ -58,6 +60,7 @@ export function DataEntryPage(): ReactNode {
       ) : (
         <section className="panel" aria-label={TEXT.title}>
           <ManualEntryForm
+            initialEquipmentId={requestedEquipmentId}
             onSaved={(response) => {
               setResult(response);
             }}

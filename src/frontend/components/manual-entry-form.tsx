@@ -84,6 +84,11 @@ function writeRemembered(value: Remembered): void {
 export interface ManualEntryFormProps {
   /** 修正する入力。なければ、新規の入力。 */
   readonly entry?: ManualEntry | undefined;
+  /**
+   * リンクで明示された対象の設備（「対応の結果を記録する」から。SC-02-10）。新規の入力で、一覧にある設備のときだけ、
+   * 直前に入力した設備より優先して、初期値にする。
+   */
+  readonly initialEquipmentId?: string | undefined;
   readonly onSaved: (response: ManualEntrySaveResponse) => void;
   readonly onCancel?: (() => void) | undefined;
 }
@@ -148,14 +153,20 @@ function StatusCodeField(props: {
 }
 
 export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
-  const { entry } = props;
+  const { entry, initialEquipmentId } = props;
   const { api } = useAuth();
   const { equipmentList, selectedEquipmentId } = useAppState();
   const submit = useSubmit();
 
   const [remembered] = useState(() => (entry === undefined ? readRemembered() : undefined));
   const [equipmentId, setEquipmentId] = useState(
-    entry?.equipmentId ?? remembered?.equipmentId ?? selectedEquipmentId ?? '',
+    entry?.equipmentId ??
+      (equipmentList.some((item) => item.equipmentId === initialEquipmentId)
+        ? initialEquipmentId
+        : undefined) ??
+      remembered?.equipmentId ??
+      selectedEquipmentId ??
+      '',
   );
   const [chosenCategory, setCategory] = useState<string>(
     entry?.category ?? remembered?.category ?? '',
