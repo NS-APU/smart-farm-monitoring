@@ -92,7 +92,7 @@ function SatisfactionContent(props: { readonly detail: ViewpointDetailResponse }
           >
             {detail.criteria.isDefault
               ? MESSAGES.viewpoint.criteriaDefault
-              : `${MESSAGES.viewpoint.criteriaChanged}（${MESSAGES.viewpoint.criteriaVersion}: ${detail.criteria.version}）`}
+              : MESSAGES.viewpoint.criteriaChanged}
           </span>
           <Link className="panel-link" to={PATHS.criteria(detail.viewpointId)}>
             {MESSAGES.viewpoint.editCriteria}

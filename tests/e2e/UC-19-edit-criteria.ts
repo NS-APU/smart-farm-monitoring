@@ -169,7 +169,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     await expect(page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
     );
-    await expect(page.getByTestId('criteria-state')).toContainText('変更済み（版: CUSTOM-1）');
+    await expect(page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(page.getByTestId('criterion-temperatureCelsius')).toContainText(
       '温度（イチゴの適温）',
     );
@@ -583,7 +583,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await expect(
       b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
     ).toContainText('正常');
-    await expect(b.page.getByTestId('criteria-state')).toContainText('変更済み（版: CUSTOM-1）');
+    await expect(b.page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(b.page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
     );

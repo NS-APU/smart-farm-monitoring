@@ -759,13 +759,13 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(within(criteria).queryByTestId('criteria-status-note')).toBeNull();
   });
 
-  it('変更した判断基準・ステータスコードで判定する観点: 変更済みと版、カスタムの旨、ステータスコードは名称で表示する', async () => {
+  it('変更した判断基準・ステータスコードで判定する観点: 変更済み（版は示さない）、カスタムの旨、ステータスコードは名称で表示する', async () => {
     renderPath('/viewpoints/harvestSpeed', { detail: () => jsonResponse(speedDetail()) });
 
     const criteria = await screen.findByTestId('criteria');
     const basis = screen.getByTestId('basis');
 
-    expect(within(criteria).getByTestId('criteria-state').textContent).toBe('変更済み（版: V2）');
+    expect(within(criteria).getByTestId('criteria-state').textContent).toBe('変更済み');
     expect(within(criteria).getByTestId('criteria-status-note').textContent).toContain(
       'メニューの「ステータスコード」',
     );
@@ -1659,7 +1659,7 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     );
   });
 
-  it('総合満足度の判断基準を変更しているときは、変更済み（版）と示し、変更後の閾値を、判断基準の一覧に示す（Issue #359）', async () => {
+  it('総合満足度の判断基準を変更しているときは、変更済み（版は示さない）と示し、変更後の閾値を、判断基準の一覧に示す（Issue #359）', async () => {
     const changed = {
       ...getDefaultCriteria('satisfaction'),
       version: 'V3',
@@ -1679,7 +1679,7 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
 
     const overall = await screen.findByTestId('overall');
 
-    expect(within(overall).getByTestId('criteria-state').textContent).toBe('変更済み（版: V3）');
+    expect(within(overall).getByTestId('criteria-state').textContent).toBe('変更済み');
     const criteria = within(overall).getByRole('list', { name: '判断基準' });
     expect(criteria.textContent).toContain('3.5以上');
     expect(criteria.textContent).toContain('2.5以上3.5未満');
