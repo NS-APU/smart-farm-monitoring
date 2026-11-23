@@ -329,6 +329,8 @@ export interface AuditLogRepository {
       readonly operation?: AuditLogEntry['operation'];
       readonly actor?: UserId;
       readonly targetType?: string;
+      /** 対象の ID。索引はなく、期間内の項目を読んだ後に絞る（ADR-0007 の「変更履歴の対象の ID」）。 */
+      readonly targetId?: string;
       readonly from?: Date;
       readonly to?: Date;
       readonly direction?: SortDirection;

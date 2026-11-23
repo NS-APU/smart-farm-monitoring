@@ -1510,6 +1510,12 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await ids({ actor: USER })).toEqual(['a-3', 'a-1']);
     expect(await ids({ targetType: 'manual-entry' })).toEqual(['a-3', 'a-2', 'a-1']);
     expect(await ids({ targetType: 'criteria' })).toEqual([]);
+    expect(await ids({ targetType: 'manual-entry', targetId: 'e-1' })).toEqual([
+      'a-3',
+      'a-2',
+      'a-1',
+    ]);
+    expect(await ids({ targetId: 'e-2' })).toEqual([]);
     expect(await ids({ direction: 'asc' })).toEqual(['a-1', 'a-2', 'a-3']);
     expect(await ids({ direction: 'desc' })).toEqual(['a-3', 'a-2', 'a-1']);
     expect(

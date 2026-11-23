@@ -104,7 +104,8 @@ export function createAuditLogRepository(db: Database): AuditLogRepository {
           return (
             (filter.operation === undefined || entry.operation === filter.operation) &&
             (filter.actor === undefined || entry.actor === filter.actor) &&
-            (filter.targetType === undefined || entry.targetType === filter.targetType)
+            (filter.targetType === undefined || entry.targetType === filter.targetType) &&
+            (filter.targetId === undefined || entry.targetId === filter.targetId)
           );
         },
       });

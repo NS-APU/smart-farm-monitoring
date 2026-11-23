@@ -203,6 +203,8 @@ export interface AuditLogListParams {
   readonly operation?: AuditOperation;
   readonly actor?: string;
   readonly targetType?: string;
+  /** 対象の ID（その対象の履歴だけを返す。#155）。 */
+  readonly targetId?: string;
   readonly from?: string;
   readonly to?: string;
   readonly direction?: SortDirection;

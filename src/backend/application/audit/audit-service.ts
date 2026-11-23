@@ -28,6 +28,7 @@ export interface AuditListQuery {
   readonly operation?: AuditLogEntry['operation'] | undefined;
   readonly actor?: UserId | undefined;
   readonly targetType?: string | undefined;
+  readonly targetId?: string | undefined;
   readonly from?: Date | undefined;
   readonly to?: Date | undefined;
   readonly direction?: SortDirection | undefined;
@@ -67,6 +68,7 @@ export function createAuditService(deps: {
           operation: query.operation,
           actor: query.actor,
           targetType: query.targetType,
+          targetId: query.targetId,
           from: query.from,
           to: query.to,
           direction: query.direction,
