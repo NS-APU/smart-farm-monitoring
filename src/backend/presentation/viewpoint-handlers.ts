@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { OBSERVATION_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
 import {
   checkListPeriod,
-  LIST_PERIOD_GUIDANCE,
+  listPeriodGuidance,
   MAX_LIST_PERIOD_DAYS,
   requiresListPeriod,
 } from '@smart-farm/shared/observation-list-period';
@@ -20,10 +20,49 @@ import {
   ObservationSourceSchema,
 } from '@smart-farm/shared/schemas/common';
 import type { ApiDeps, AppEnv } from './api-deps.ts';
-import { HorizonQuerySchema, SortDirectionSchema, toOptionalDate } from './query-schemas.ts';
+import {
+  HorizonQuerySchema,
+  ProblemOnlyQuerySchema,
+  SortDirectionSchema,
+  toOptionalDate,
+} from './query-schemas.ts';
 import { resolveEquipmentId, scopeOfRequest } from './request-helpers.ts';
 import { parseQuery } from './request-parsing.ts';
 import type { RouteHandler } from './route-types.ts';
+
+/** 期間（31 日以内）が必須の操作で、期間の指定を検証する（観測値の一覧・計測ごとの一覧で共通）。 */
+function refineListPeriod(
+  query: {
+    readonly from?: string | undefined;
+    readonly to?: string | undefined;
+    readonly problemOnly?: boolean | undefined;
+  },
+  context: z.core.$RefinementCtx,
+): void {
+  const problem = checkListPeriod(query);
+  if (problem === 'TOO_LONG') {
+    for (const field of ['from', 'to'] as const) {
+      context.addIssue({
+        code: 'custom',
+        path: [field],
+        message: `期間は ${String(MAX_LIST_PERIOD_DAYS)} 日以内にしてください`,
+      });
+    }
+  } else if (problem === 'MISSING') {
+    for (const [field, label] of [
+      ['from', '開始'],
+      ['to', '終了'],
+    ] as const) {
+      if (query[field] === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: [field],
+          message: `期間の${label}を指定してください。${listPeriodGuidance(query)}`,
+        });
+      }
+    }
+  }
+}
 
 const ObservationListQuerySchema = PageQuerySchema.extend({
   equipmentId: EquipmentIdSchema.optional(),
@@ -35,35 +74,14 @@ const ObservationListQuerySchema = PageQuerySchema.extend({
   to: IsoDateTimeSchema.optional(),
   /** キーワード（項目・カテゴリ・設備・取得元・状態の表示名、値の部分一致）。 */
   q: z.string().max(100).optional(),
+  /** true なら、「問題あり」（有効でない観測値）だけ。 */
+  problemOnly: ProblemOnlyQuerySchema,
   sort: z.enum(OBSERVATION_SORT_KEYS).default('observedAt'),
   direction: SortDirectionSchema,
 }).superRefine((query, context) => {
-  // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（ADR-0007 の判断。#91）
-  if (!requiresListPeriod({ sort: query.sort, keyword: query.q })) {
-    return;
-  }
-  const problem = checkListPeriod(query);
-  if (problem === 'TOO_LONG') {
-    for (const field of ['from', 'to'] as const) {
-      context.addIssue({
-        code: 'custom',
-        path: [field],
-        message: `期間は ${String(MAX_LIST_PERIOD_DAYS)} 日以内にしてください`,
-      });
-    }
-  } else if (problem === 'MISSING') {
-    for (const [field, label] of [
-      ['from', '開始'],
-      ['to', '終了'],
-    ] as const) {
-      if (query[field] === undefined) {
-        context.addIssue({
-          code: 'custom',
-          path: [field],
-          message: `期間の${label}を指定してください。${LIST_PERIOD_GUIDANCE}`,
-        });
-      }
-    }
+  // 値・カテゴリの順の並べ替えと、キーワード検索と、「問題あり」の絞り込みは、期間（31 日以内）が必須（ADR-0007 の判断。#91・SC-09-3）
+  if (requiresListPeriod({ sort: query.sort, keyword: query.q, problemOnly: query.problemOnly })) {
+    refineListPeriod(query, context);
   }
 });
 
@@ -75,34 +93,14 @@ const MeasurementListQuerySchema = PageQuerySchema.extend({
   from: IsoDateTimeSchema.optional(),
   to: IsoDateTimeSchema.optional(),
   q: z.string().max(100).optional(),
+  problemOnly: ProblemOnlyQuerySchema,
   direction: SortDirectionSchema,
 }).superRefine((query, context) => {
-  // キーワード検索は、期間（31 日以内）が必須（ADR-0007 の判断。#91）。観測値の一覧と同じ
-  if (!requiresListPeriod({ sort: 'observedAt', keyword: query.q })) {
-    return;
-  }
-  const problem = checkListPeriod(query);
-  if (problem === 'TOO_LONG') {
-    for (const field of ['from', 'to'] as const) {
-      context.addIssue({
-        code: 'custom',
-        path: [field],
-        message: `期間は ${String(MAX_LIST_PERIOD_DAYS)} 日以内にしてください`,
-      });
-    }
-  } else if (problem === 'MISSING') {
-    for (const [field, label] of [
-      ['from', '開始'],
-      ['to', '終了'],
-    ] as const) {
-      if (query[field] === undefined) {
-        context.addIssue({
-          code: 'custom',
-          path: [field],
-          message: `期間の${label}を指定してください。${LIST_PERIOD_GUIDANCE}`,
-        });
-      }
-    }
+  // キーワード検索と、「問題あり」の絞り込みは、期間（31 日以内）が必須（ADR-0007 の判断。#91・SC-09-3）。観測値の一覧と同じ
+  if (
+    requiresListPeriod({ sort: 'observedAt', keyword: query.q, problemOnly: query.problemOnly })
+  ) {
+    refineListPeriod(query, context);
   }
 });
 
@@ -137,6 +135,7 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
           from: toOptionalDate(query.from),
           to: toOptionalDate(query.to),
           keyword: query.q,
+          problemOnly: query.problemOnly,
           direction: query.direction,
           limit: query.limit,
           cursor: query.cursor,
@@ -157,6 +156,7 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
           from: toOptionalDate(query.from),
           to: toOptionalDate(query.to),
           keyword: query.q,
+          problemOnly: query.problemOnly,
           sort: query.sort,
           direction: query.direction,
           limit: query.limit,

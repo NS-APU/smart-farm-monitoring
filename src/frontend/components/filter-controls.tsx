@@ -60,6 +60,38 @@ export function InputFilter(props: {
   );
 }
 
+/** チェックボックスの絞り込み（オン・オフ）。説明（hint）を、欄の下に示す。 */
+export function CheckboxFilter(props: {
+  readonly label: string;
+  readonly checked: boolean;
+  /** 欄の下の説明。 */
+  readonly hint?: string;
+  readonly hintTestId?: string;
+  readonly onChange: (checked: boolean) => void;
+}): ReactNode {
+  const hintId = useId();
+  return (
+    <div className="field field-checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={props.checked}
+          aria-describedby={props.hint === undefined ? undefined : hintId}
+          onChange={(event) => {
+            props.onChange(event.target.checked);
+          }}
+        />
+        {props.label}
+      </label>
+      {props.hint === undefined ? null : (
+        <p id={hintId} className="field-hint" data-testid={props.hintTestId}>
+          {props.hint}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** 並べ替えの向き（降順・昇順）の選択肢。 */
 export const DIRECTION_OPTIONS: readonly FilterOption[] = [
   { value: 'desc', label: MESSAGES.form.directionDesc },

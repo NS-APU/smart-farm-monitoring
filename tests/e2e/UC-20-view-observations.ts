@@ -776,6 +776,218 @@ test.describe('データの状態（有効・遅延・欠損・不正）の表�
   });
 });
 
+test.describe('代替フロー: 「問題あり（欠損・遅延・不正を含む）」だけに絞り込む（SC-09-3）', () => {
+  const PROBLEM_GUIDANCE =
+    '「問題あり」の絞り込みは、期間（31 日以内）を指定してください。多いときは、期間を狭めてください';
+  const problemCheckbox = (page: Page) =>
+    page.getByRole('checkbox', { name: '問題あり（欠損・遅延・不正を含む）' });
+
+  /** 有効 1・遅延 1・欠損 1・不正 1（センサー。計測ごとに別の日時）と、ロボットの 1 回の計測（収穫数は有効・稼働時間は欠損）。 */
+  const PROBLEM_DATA: readonly SeededObservation[] = [
+    { equipmentId: SENSOR_ID, itemKey: 'temperatureCelsius', value: 22, observedAt: hoursAgo(1) },
+    {
+      equipmentId: SENSOR_ID,
+      itemKey: 'humidityPercent',
+      value: 60,
+      observedAt: hoursAgo(5),
+      receivedAt: hoursAgo(1),
+      quality: 'LATE',
+    },
+    {
+      equipmentId: SENSOR_ID,
+      itemKey: 'illuminanceLux',
+      value: null,
+      observedAt: hoursAgo(2),
+      quality: 'MISSING',
+    },
+    {
+      equipmentId: SENSOR_ID,
+      itemKey: 'co2Ppm',
+      value: 99999,
+      observedAt: hoursAgo(3),
+      quality: 'INVALID',
+    },
+    { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 10, observedAt: hoursAgo(4) },
+    {
+      equipmentId: ROBOT_ID,
+      itemKey: 'operatingHours',
+      value: null,
+      observedAt: hoursAgo(4),
+      quality: 'MISSING',
+    },
+  ];
+
+  test('計測ごとの一覧は、有効でない項目を含む計測だけを、全項目で示す。選んでいる間は、手動の「更新」で取り直し、外すと、すべてに戻る', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...PROBLEM_DATA] });
+    await openMeasurements(page, PERIOD);
+    await expect(measurementRows(page)).toHaveCount(5);
+    // 選んでいないときは、自動で更新する（手動の「更新」は、ない）
+    await expect(page.getByRole('button', { name: '更新' })).toHaveCount(0);
+
+    await problemCheckbox(page).check();
+
+    await expect(measurementRows(page)).toHaveCount(4);
+    await expect(page).toHaveURL(/problemOnly=true/);
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 3 件');
+    await expect(page.getByTestId('observations-problem-note')).toHaveText(
+      '期間は 31 日以内。多いときは、期間を狭めてください',
+    );
+    await expect(page.getByTestId('observations-manual-refresh-note')).toContainText(
+      '自動では更新しません',
+    );
+    // 有効だけの計測（温度）は出ない。ロボットの計測は、有効な項目（収穫数）も含めて、全項目を示す
+    await expect(measurementRows(page).filter({ hasText: '温度' })).toHaveCount(0);
+    const robot = measurementRows(page).filter({ hasText: '収穫ロボット1' });
+    await expect(robot).toHaveCount(1);
+    await expect(robot.getByTestId('measurement-item')).toHaveCount(2);
+    await expect(robot.locator('.quality-missing').first()).toBeVisible();
+    const states = await measurementRows(page).evaluateAll((nodes) =>
+      nodes.map((node) => node.querySelector('td:last-child')?.textContent.trim()),
+    );
+    expect(states).toEqual(['欠損 1', '不正 1', '欠損 1', '遅延 1']);
+    await shot(page, testInfo, 'uc20-problem-filter');
+
+    // 新しい問題ありのデータが増えても、自動では更新せず、「更新」を押すと取り直す
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: null,
+          observedAt: hoursAgo(6),
+          quality: 'MISSING',
+        },
+      ],
+    });
+    await expect(measurementRows(page)).toHaveCount(4);
+    await page.getByRole('button', { name: '更新' }).click();
+    await expect(measurementRows(page)).toHaveCount(5);
+
+    // 外すと、すべての計測に戻り、手動の「更新」は消える
+    await problemCheckbox(page).uncheck();
+    await expect(measurementRows(page)).toHaveCount(6);
+    await expect(page.getByRole('button', { name: '更新' })).toHaveCount(0);
+    await expect(page).not.toHaveURL(/problemOnly=/);
+  });
+
+  test('項目ごとの一覧（日時以外の並べ替え）では、有効でない項目だけを示す。条件のクリアで、「問題あり」も外れる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...PROBLEM_DATA] });
+    await openObservations(page, '?problemOnly=true');
+
+    await expect(rows(page)).toHaveCount(4);
+    await expect.poll(() => column(page, 6)).toEqual(['欠損', '欠損', '不正', '遅延']);
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(problemCheckbox(page)).not.toBeChecked();
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/problemOnly=/);
+    // 並べ替えも初期値（日時順）に戻り、計測ごとの一覧になる
+    await expect(measurementRows(page)).toHaveCount(5);
+  });
+
+  test('期間がなければ、案内を示す。期間（31 日以内）を指定すると、一覧に戻る。31 日を超えると、案内を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...PROBLEM_DATA] });
+    await openMeasurements(page);
+    await expect(measurementRows(page)).toHaveCount(5);
+
+    await problemCheckbox(page).check();
+    await expect(page.getByTestId('observations-period-guidance')).toHaveText(PROBLEM_GUIDANCE);
+    await expect(measurementRows(page)).toHaveCount(0);
+
+    await page.getByLabel('期間（開始日）').fill('2026-10-08');
+    await page.getByLabel('期間（終了日）').fill('2026-10-09');
+    await expect(measurementRows(page)).toHaveCount(4);
+    await expect(page.getByTestId('observations-period-guidance')).toHaveCount(0);
+
+    await page.getByLabel('期間（開始日）').fill('2026-09-08');
+    await expect(page.getByTestId('observations-period-guidance')).toHaveText(PROBLEM_GUIDANCE);
+  });
+
+  test('該当するデータがなければ、その旨を示す（有効なデータだけのとき）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 22,
+          observedAt: hoursAgo(1),
+        },
+      ],
+    });
+
+    await openMeasurements(page, `${PERIOD}&problemOnly=true`);
+
+    await expect(page.getByTestId('observations-empty')).toHaveText('該当するデータはありません');
+  });
+
+  test('API: 「問題あり」は、期間（31 日以内）が必須（400。項目ごとのエラーつき）。期間があれば、有効でない観測値・計測だけを返す。true・false 以外は 400', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: [...PROBLEM_DATA] });
+    const period = 'from=2026-10-08T00:00:00.000Z&to=2026-10-09T23:59:59.999Z';
+
+    const noPeriod = await api(request, 'GET', '/observations?problemOnly=true');
+    const measurementsNoPeriod = await api(
+      request,
+      'GET',
+      '/observations/measurements?problemOnly=true',
+    );
+    const tooLong = await api(
+      request,
+      'GET',
+      '/observations?problemOnly=true&from=2026-09-01T00:00:00.000Z&to=2026-10-09T00:00:00.000Z',
+    );
+    const items = await api(request, 'GET', `/observations?problemOnly=true&${period}`);
+    const measurements = await api(
+      request,
+      'GET',
+      `/observations/measurements?problemOnly=true&${period}`,
+    );
+    const invalid = await api(request, 'GET', `/observations?problemOnly=yes&${period}`);
+    const off = await api(request, 'GET', '/observations?problemOnly=false');
+
+    for (const response of [noPeriod, measurementsNoPeriod, tooLong]) {
+      expect(response.status()).toBe(400);
+      const body = (await response.json()) as {
+        error: { code: string; fields: { name: string }[] };
+      };
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(body.error.fields.map((field) => field.name).sort()).toEqual(['from', 'to']);
+    }
+    expect(invalid.status()).toBe(400);
+    expect(off.status()).toBe(200);
+    expect(items.status()).toBe(200);
+    const itemBody = (await items.json()) as { items: { quality: string }[] };
+    expect(itemBody.items.map((item) => item.quality).sort()).toEqual([
+      'INVALID',
+      'LATE',
+      'MISSING',
+      'MISSING',
+    ]);
+    const measurementBody = (await measurements.json()) as { items: { items: unknown[] }[] };
+    expect(measurementBody.items).toHaveLength(4);
+    expect(measurementBody.items.map((item) => item.items.length).sort()).toEqual([1, 1, 1, 2]);
+  });
+});
+
 test.describe('他のユースケースとの関連: 入力・取り込み・削除が、一覧に反映される', () => {
   test('手動入力（UC-07）で保存したデータは、手動入力として一覧に現れ、入力の削除（UC-18）で、一覧から外れる', async ({
     page,

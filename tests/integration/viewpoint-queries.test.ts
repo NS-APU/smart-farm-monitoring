@@ -1170,6 +1170,72 @@ describe('観測値の一覧（元データ。GET /observations）', () => {
     });
   });
 
+  describe('「問題あり」（有効でない: 欠損・遅延・不正）の絞り込みは、期間（31 日以内）が必須（SC-09-3）', () => {
+    const start = '2020-01-01T00:00:00.000Z';
+    const end = (days: number, extraMs = 0) =>
+      new Date(Date.parse(start) + days * 86_400_000 + extraMs).toISOString();
+
+    it('期間（from・to）がなければ、400（項目ごとのエラーつき）。片方だけでも、指定していない方の項目', async () => {
+      const context = await withData();
+
+      const none = await get(context, '/observations?problemOnly=true');
+      const half = await get(
+        context,
+        `/observations?problemOnly=true&from=${encodeURIComponent(start)}`,
+      );
+
+      for (const [response, names] of [
+        [none, ['from', 'to']],
+        [half, ['to']],
+      ] as const) {
+        expect(response.status).toBe(400);
+        const error = (response.body as { error: { code: string; fields?: { name: string }[] } })
+          .error;
+        expect(error.code).toBe('VALIDATION_ERROR');
+        expect((error.fields ?? []).map((field) => field.name).sort()).toEqual(names);
+      }
+      // 期間がないときの案内は、「問題あり」の絞り込みを示す
+      expect(JSON.stringify(none.body)).toContain('「問題あり」の絞り込みは、期間（31 日以内）');
+    });
+
+    it('境界: ちょうど 31 日は、受け付ける。31 日と 1 ミリ秒は、400', async () => {
+      const context = await withData();
+      const period = (to: string) =>
+        `from=${encodeURIComponent(start)}&to=${encodeURIComponent(to)}`;
+
+      await list(context, `problemOnly=true&${period(end(31))}`);
+      const tooLong = await get(context, `/observations?problemOnly=true&${period(end(31, 1))}`);
+
+      expect(tooLong.status).toBe(400);
+    });
+
+    it('「問題あり」の観測値だけを返す（遅延を含む）。指定しない・false なら、期間は不要で、すべて返す', async () => {
+      const context = await withData();
+
+      const problem = await list(context, `problemOnly=true&${PERIOD}`);
+      const off = await list(context, 'problemOnly=false');
+      const none = await list(context);
+      const withCategory = await list(context, `problemOnly=true&category=HARVEST&${PERIOD}`);
+
+      expect(problem.items.map((item) => [item.itemKey, item.quality])).toEqual([
+        ['operatingHours', 'LATE'],
+      ]);
+      expect(off.items).toHaveLength(8);
+      expect(none.items).toHaveLength(8);
+      expect(withCategory.items).toEqual([]);
+    });
+
+    it('値の順の並べ替えとも組み合わせられる。不正な値（true・false 以外）は、400', async () => {
+      const context = await withData();
+
+      const sorted = await list(context, `problemOnly=true&sort=value&${PERIOD}`);
+      const invalid = await get(context, `/observations?problemOnly=yes&${PERIOD}`);
+
+      expect(sorted.items.map((item) => item.itemKey)).toEqual(['operatingHours']);
+      expect(invalid.status).toBe(400);
+    });
+  });
+
   it('ページ分割（limit・cursor）で、全件を重複なく返す。不正なカーソルは 400', async () => {
     const context = await withData();
 

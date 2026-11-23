@@ -304,6 +304,98 @@ describe('絞り込み', () => {
   });
 });
 
+describe('「問題あり」（有効でない: 欠損・遅延・不正）の絞り込み（SC-09-3）', () => {
+  const period = `from=${encodeURIComponent(at(0))}&to=${encodeURIComponent(at(60))}`;
+
+  /** 10 分: すべて有効／20 分: 遅延を含む／30 分: 欠損を含む／40 分: 不正を含む（センサー）。 */
+  async function withProblems() {
+    const context = await withEquipment();
+    const [harvest, operating, standby] = robotMeasurement(20);
+    await save(context, [
+      ...robotMeasurement(10),
+      must(harvest),
+      { ...must(operating), quality: 'LATE' as const },
+      must(standby),
+      ...robotMeasurement(30).map((item) =>
+        item.itemKey === 'harvestCount'
+          ? { ...item, value: null, quality: 'MISSING' as const }
+          : item,
+      ),
+      observation({
+        equipmentId: SENSOR_ID,
+        itemKey: 'temperatureCelsius',
+        value: 999,
+        quality: 'INVALID',
+        observedAt: at(40),
+      }),
+    ]);
+    return context;
+  }
+
+  it('有効でない項目を 1 つでも含む計測だけを返す（遅延を含む）。その計測は、有効な項目も含めて、全項目を示す', async () => {
+    const context = await withProblems();
+
+    const { items, nextCursor } = await fetchMeasurements(
+      context,
+      `?problemOnly=true&${period}&direction=asc`,
+    );
+
+    expect(nextCursor).toBeNull();
+    expect(items.map((item) => item.observedAt)).toEqual([at(20), at(30), at(40)]);
+    expect(items[0]?.items.map((item) => [item.itemKey, item.quality])).toEqual([
+      ['harvestCount', 'VALID'],
+      ['operatingHours', 'LATE'],
+      ['standbyHours', 'VALID'],
+    ]);
+    expect(items[1]?.items.map((item) => item.quality)).toEqual(['MISSING', 'VALID', 'VALID']);
+    expect(items[2]?.items.map((item) => item.quality)).toEqual(['INVALID']);
+  });
+
+  it('指定しない・false なら、すべての計測を返し、期間も不要。ほかの条件（設備・取得元）とも組み合わせられる', async () => {
+    const context = await withProblems();
+
+    const off = await fetchMeasurements(context, '?problemOnly=false');
+    const none = await fetchMeasurements(context);
+    const sensorOnly = await fetchMeasurements(
+      context,
+      `?problemOnly=true&equipmentId=${SENSOR_ID}&${period}`,
+    );
+    const manual = await fetchMeasurements(context, `?problemOnly=true&source=MANUAL&${period}`);
+
+    expect(off.items).toHaveLength(4);
+    expect(none.items).toHaveLength(4);
+    expect(sensorOnly.items.map((item) => item.equipmentId)).toEqual([SENSOR_ID]);
+    expect(manual.items).toEqual([]);
+  });
+
+  it('ページ分割しても、「問題あり」の計測だけが、重複・欠けなく並ぶ', async () => {
+    const context = await withProblems();
+
+    const pages = await allPages(context, `?problemOnly=true&limit=1&${period}`);
+
+    expect(pages.map((page) => page.length)).toEqual([1, 1, 1]);
+    expect(pages.flat().map((item) => item.observedAt)).toEqual([at(40), at(30), at(20)]);
+  });
+
+  it('期間（31 日以内）が必須。足りなければ 400（from・to）。不正な値も 400', async () => {
+    const context = await withProblems();
+
+    const missing = await context.request('/observations/measurements?problemOnly=true');
+    const tooLong = await context.request(
+      `/observations/measurements?problemOnly=true&from=${encodeURIComponent(at(0))}&to=${encodeURIComponent(at(60 * 24 * 40))}`,
+    );
+    const invalid = await context.request(`/observations/measurements?problemOnly=1&${period}`);
+
+    expect(missing.status).toBe(400);
+    expect(tooLong.status).toBe(400);
+    expect(invalid.status).toBe(400);
+    expect((await errorOf(missing)).fields?.map((field) => field.name).sort()).toEqual([
+      'from',
+      'to',
+    ]);
+  });
+});
+
 describe('閲覧の範囲', () => {
   it('割り当てのない一般ユーザーには、何も返さない（範囲外の設備の指定は、存在しないもの）', async () => {
     const context = await withEquipment();

@@ -46,6 +46,8 @@ export interface ObservationListParams {
   readonly from?: Date | undefined;
   readonly to?: Date | undefined;
   readonly keyword?: string | undefined;
+  /** true なら、有効でない観測値（欠損・遅延・不正）だけ（SC-09-3）。 */
+  readonly problemOnly?: boolean | undefined;
   readonly sort: ObservationSortKey;
   readonly direction: SortDirection;
   readonly limit: number;
@@ -61,6 +63,8 @@ export interface MeasurementListParams {
   readonly from?: Date | undefined;
   readonly to?: Date | undefined;
   readonly keyword?: string | undefined;
+  /** true なら、有効でない項目（欠損・遅延・不正）を 1 つでも含む計測だけ（SC-09-3。計測の全項目を示す）。 */
+  readonly problemOnly?: boolean | undefined;
   readonly direction: SortDirection;
   /** 1 ページの計測の数の目安（同じ日時の計測は、まとめて返すため、これを超えることがある）。 */
   readonly limit: number;
@@ -269,7 +273,7 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
   }
 
   /**
-   * 絞り込み（キーワード・カテゴリ）で選ばれた計測は、一致した項目だけでなく、その計測の全項目を示す
+   * 絞り込み（キーワード・カテゴリ・「問題あり」）で選ばれた計測は、一致した項目だけでなく、その計測の全項目を示す
    * （計測の中の一部の項目だけが見えると、計測の全体が分からないため）。絞り込みがなければ、読んだ内容が、全項目。
    */
   async function completeMeasurements(
@@ -333,6 +337,7 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
         source: params.source,
         from,
         to,
+        problemOnly: params.problemOnly === true ? true : undefined,
         matches,
       });
       const sort = { key: 'observedAt', direction: params.direction } as const;
@@ -376,7 +381,7 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
           const hasMore = !exhausted || selected.length < slots.length;
           const measurements = await completeMeasurements(
             selected.flatMap(toMeasurements),
-            keyword !== '' || params.category !== undefined,
+            keyword !== '' || params.category !== undefined || params.problemOnly === true,
           );
           return { items: measurements, nextCursor: hasMore ? lastSlot.observedAt : null };
         }
@@ -419,6 +424,7 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
           source: params.source,
           from: params.from,
           to: params.to,
+          problemOnly: params.problemOnly === true ? true : undefined,
           matches,
         }),
         { limit: params.limit, cursor: params.cursor },

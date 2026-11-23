@@ -33,6 +33,16 @@ export const EndpointOnlySchema = z.object({ endpoint: PushEndpointSchema.option
 /** 並び順の向き（既定は新しい順）。 */
 export const SortDirectionSchema = z.enum(SORT_DIRECTIONS).default('desc');
 
+/**
+ * 観測値の一覧（GET /observations・GET /observations/measurements）の「問題あり」の絞り込み（SC-09-3）。
+ * `true`・`false` の文字列だけ（それ以外は、入力不正）。省略は undefined。
+ * true なら、有効でない観測値（欠損・遅延・不正）だけ。期間（31 日以内）が必須（読んだ後に絞るため。ADR-0007）。
+ */
+export const ProblemOnlyQuerySchema = z
+  .enum(['true', 'false'])
+  .transform((value) => value === 'true')
+  .optional();
+
 /** 日時（ISO 8601 の文字列）を Date にする。省略は undefined のまま。 */
 export function toOptionalDate(iso: string | undefined): Date | undefined {
   return iso === undefined ? undefined : new Date(iso);
