@@ -80,11 +80,14 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     const unreadBefore = Number(await unreadBadge(page).textContent());
     await notification.getByRole('link', { name: '詳細を確認' }).click();
 
-    // 3. 異常の対象・内容・根拠のメトリクス（UC-02）
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('環境適応性');
-    await expect(
-      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
-    ).toContainText('環境センサー1');
+    // 3. 異常の対象・内容・根拠のメトリクス（UC-02）。観点の詳細は、ダッシュボード上のドロワーで開く（SC-05-6。全画面のページ /viewpoints/… ではない）
+    const drawer = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(drawer).toBeVisible();
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability$/);
+    await expect(drawer.getByRole('heading', { name: /環境適応性/, level: 2 })).toBeVisible();
+    await expect(drawer.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      '環境センサー1',
+    );
     await expect(
       page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
     ).toContainText('異常');
@@ -101,6 +104,8 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
 
     // 6. 確認した通知は、既読になる（ヘッダーの件数が、減る）
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore - 1));
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
     await goToNotifications(page);
     await expect(
       rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
@@ -141,6 +146,7 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
 
     await notification.getByRole('link', { name: '詳細を確認' }).click();
 
+    await expect(page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
     await expect(page.getByTestId('recommended-action')).toContainText('確認が望ましい状態です');
   });
 
@@ -164,11 +170,13 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     await shot(page, testInfo, 'uc05-notifications-robot');
     await notification.getByRole('link', { name: '詳細を確認' }).click();
 
-    // 異常の対象（ロボット）・内容・根拠のメトリクス・推奨アクション
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('収穫精度');
-    await expect(
-      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
-    ).toContainText('収穫ロボット1');
+    // 異常の対象（ロボット）・内容・根拠のメトリクス・推奨アクション（ダッシュボード上のドロワー）
+    const drawer = page.getByRole('dialog', { name: '収穫精度の詳細' });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('heading', { name: /収穫精度/, level: 2 })).toBeVisible();
+    await expect(drawer.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      '収穫ロボット1',
+    );
     await expect(
       page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
     ).toContainText('異常');
@@ -179,6 +187,8 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     await shot(page, testInfo, 'uc05-detail-robot');
 
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore - 1));
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
     await goToNotifications(page);
     await expect(
       rows(page).filter({ hasText: '収穫精度' }).filter({ hasText: '収穫ロボット1' }),

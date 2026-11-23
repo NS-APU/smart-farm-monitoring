@@ -67,6 +67,8 @@ export const MANAGEMENT_MESSAGES = {
     confirmMarkMessage: (count: number) =>
       `未読の通知 ${String(count)} 件を既読にします。この画面に読み込んだ時点より後に届いた通知は、既読にしません。`,
     nothingToMark: '既読にする未読の通知はありません',
+    // 再取得（約 10 秒）で届いた新しい通知は、自動では加えない（#159 の SC-05-10）
+    newArrivals: (count: number) => `新着あり（${String(count)} 件）。押すと更新します`,
     markedNotice: (count: number) => `${String(count)} 件の通知を既読にしました`,
     // 経過・回復日時・メモ（#159 の SC-05-1。D-42）
     notRecovered: '未回復',

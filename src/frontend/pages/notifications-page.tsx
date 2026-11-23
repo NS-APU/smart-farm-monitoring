@@ -1,6 +1,8 @@
 /**
  * SC-05 通知一覧（UC-05、UC-22。FR-7.5、FR-7.6）。通知の一覧（新しい順）、種別・既読状態での絞り込み、
- * 個別・一括の既読化（一括は、画面に読み込んだ時点までの未読に限り、件数つきの確認をする。ADR-0019 の D-39）。通知から、対象の観点の詳細（SC-03）または取り込みの状況（SC-11）へ移る。
+ * 個別・一括の既読化（一括は、画面に読み込んだ時点までの未読に限り、件数つきの確認をする。ADR-0019 の D-39）。通知から、対象の観点の詳細（ダッシュボード上のドロワー。SC-03）または取り込みの状況（SC-11）へ移る
+ * （#159 の SC-05-6。ドロワーを開くとき、ダッシュボードの対象のハウスを、通知のハウスにする。通知時点の判定は再現しない。経過で示す）。
+ * 約 10 秒の再取得で届いた新しい通知は、自動では加えず、「新着あり（N 件）」を示す（押すと更新する。操作中に、行が下へずれないように。#159 の SC-05-10）。
  * 通知ごとに、回復日時と、開閉できる欄（経過・メモ。共有・追記のみ）を示す（#159。ADR-0019 の D-42）。
  * 状態は、未読・既読の2つのみ（対応状況の管理・承認はない。Q-018）。
  */
@@ -13,6 +15,7 @@ import {
   type ReadState,
 } from '@smart-farm/shared/constants/status';
 import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
+import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { NotificationItem, ReadAllRequest } from '@smart-farm/shared/schemas/notification';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
@@ -32,12 +35,14 @@ import { EmptyState, ErrorView, LoadingView } from '../components/state-views.ts
 import { StatusBadge } from '../components/status-badge.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { useHoldNewItems } from '../hooks/use-hold-new-items.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { countActiveConditions, useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { viewpointDrawerPath } from './dashboard-page.tsx';
 import { ResultNotice } from '../components/result-notice.tsx';
 
 const PAGE_SIZE = 20;
@@ -75,6 +80,24 @@ function targetAndEquipment(
   return { target: equipmentNames.get(facilityId) ?? facilityId, equipment: found.name };
 }
 
+/**
+ * 観点のドロワーを開くとき、選ぶ設備（ダッシュボードの対象のハウスは、選んだ設備が属するハウスになる）。
+ * 通知の設備が、通知のハウス（作成時に固定した facilityId）の配下（またはそのハウス自身）なら、その設備。
+ * 設備が、別のハウスへ移った・階層にない（削除した）ときは、通知のハウス。通知のハウスがなければ（古い記録など）、通知の設備。
+ */
+export function drawerTargetEquipmentId(
+  item: NotificationItem,
+  equipmentList: readonly Equipment[],
+): EquipmentId | undefined {
+  const { equipmentId, facilityId } = item;
+  if (facilityId === undefined) {
+    return equipmentId;
+  }
+  const found = equipmentList.find((candidate) => candidate.equipmentId === equipmentId);
+  const belongs = found !== undefined && (found.facilityId ?? found.equipmentId) === facilityId;
+  return belongs ? equipmentId : facilityId;
+}
+
 /** 確認待ちの一括既読: 確認で示した件数と、実行する範囲（読み込んだ時点まで）。 */
 interface PendingMark {
   readonly count: number;
@@ -103,13 +126,26 @@ export function NotificationsPage(): ReactNode {
       }),
     [api, kind, readState, cursor],
   );
-  const { data, error, reload } = usePolling(fetchPage);
+  const polling = usePolling(fetchPage);
+  const { error, reload } = polling;
+  // 再取得で届いた新しい通知は、自動では加えない（押すと、加える）。自分の操作のあとは、加えて更新する
+  const {
+    shown: data,
+    newCount,
+    showNew,
+    refresh,
+  } = useHoldNewItems(
+    polling.data,
+    `${kind}|${readState}|${cursor ?? ''}`,
+    (item: NotificationItem) => item.notificationId,
+    polling,
+  );
 
   async function markRead(notification: NotificationItem): Promise<void> {
     const result = await submit.run(() => markNotificationRead(api, notification.notificationId));
     if (result.ok) {
       notifyUnreadChanged();
-      reload();
+      refresh();
     }
   }
 
@@ -153,14 +189,15 @@ export function NotificationsPage(): ReactNode {
     if (result.ok) {
       setNotice(TEXT.markedNotice(result.value.markedCount));
       notifyUnreadChanged();
-      reload();
+      refresh();
     }
   }
 
   /** 通知を選ぶと、通知を既読にして、対象の画面へ移る（移動は、リンクが行う）。 */
   function open(notification: NotificationItem): void {
-    if (notification.equipmentId !== undefined) {
-      selectEquipment(notification.equipmentId);
+    const target = drawerTargetEquipmentId(notification, equipmentList);
+    if (target !== undefined) {
+      selectEquipment(target);
     }
     if (notification.readState === 'UNREAD') {
       void markNotificationRead(api, notification.notificationId).then(
@@ -238,7 +275,7 @@ export function NotificationsPage(): ReactNode {
                     <NotificationDetails item={item} onMemoAdded={reload} />
                     {item.kind === 'STATUS_CHANGE' && item.viewpointId !== undefined ? (
                       <Link
-                        to={PATHS.viewpoint(item.viewpointId)}
+                        to={viewpointDrawerPath(item.viewpointId, undefined)}
                         onClick={() => {
                           open(item);
                         }}
@@ -361,6 +398,13 @@ export function NotificationsPage(): ReactNode {
         <ResultNotice message={notice} testId="notifications-notice" />
       </section>
       <section className="panel" aria-label={TEXT.title}>
+        {newCount === 0 ? null : (
+          <p role="status" className="notice notice-info" data-testid="notifications-new">
+            <button type="button" className="button-secondary" onClick={showNew}>
+              {TEXT.newArrivals(newCount)}
+            </button>
+          </p>
+        )}
         {body}
       </section>
       {pending === undefined ? null : (

@@ -1165,11 +1165,14 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
       .filter({ hasText: '環境センサー1' });
     await expect(alert).toContainText('異常');
 
-    // UC-02・UC-04: 通知から観点の詳細を開き、診断と推奨アクションを確認する（開くと、その通知は既読になる）
+    // UC-02・UC-04: 通知から観点の詳細（ダッシュボード上のドロワー）を開き、診断と推奨アクションを確認する（開くと、その通知は既読になる）
     await alert.getByRole('link', { name: '詳細を確認' }).click();
-    await expect(page.getByRole('heading', { name: '環境適応性', level: 1 })).toBeVisible();
+    const drawer = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(drawer.getByRole('heading', { name: '環境適応性', level: 2 })).toBeVisible();
     await expect(page.getByTestId('recommended-action')).toBeVisible();
     await expect(unreadBadge(page)).toHaveText(String(unread - 1));
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
 
     // UC-06: 復旧の対応を記録する（ロボットの故障情報）。保存すると、関連する観点のステータスを示す
     await goToMenu(page, 'データ入力');
