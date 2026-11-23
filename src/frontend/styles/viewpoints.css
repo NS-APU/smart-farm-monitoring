@@ -573,7 +573,7 @@
   border-radius: 8px;
 }
 
-.trend-metric summary {
+.trend-metric > summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
