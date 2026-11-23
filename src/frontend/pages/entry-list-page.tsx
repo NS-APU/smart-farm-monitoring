@@ -1,6 +1,7 @@
 /**
  * SC-07 入力データ一覧（UC-18。FR-4.2.1、FR-4.2.2）。手動入力したデータの一覧・検索・絞り込み・並べ替え・
- * ページ分割と、修正・削除（論理削除。確認を求める）。修正・削除の後は、評価を更新する（サーバー側）。
+ * ページ分割と、修正・削除（論理削除。確認を求める）。修正は、ダイアログで行う（#150。SC-07-2）。
+ * 修正・削除の後は、評価を更新し（サーバー側）、評価の更新（AWS: 数分かかる／ローカル: 関連する観点のステータス）を示す（D-27）。
  * 条件は URL のクエリに反映する（再読み込みで保持）。
  */
 
@@ -12,7 +13,7 @@ import {
 } from '@smart-farm/shared/constants/items';
 import { MANUAL_ENTRY_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
 import { formatThreshold } from '@smart-farm/shared/criteria-text';
-import type { ManualEntry } from '@smart-farm/shared/schemas/manual-entry';
+import type { ManualEntry, ManualEntrySaveResponse } from '@smart-farm/shared/schemas/manual-entry';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { deleteManualEntry, listManualEntries } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
@@ -21,6 +22,11 @@ import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { ManualEntryForm } from '../components/manual-entry-form.tsx';
+import {
+  ManualEntryResult,
+  type ManualEntryResultKind,
+} from '../components/manual-entry-result.tsx';
+import { Modal } from '../components/modal.tsx';
 import {
   DIRECTION_OPTIONS,
   FilterPanel,
@@ -41,7 +47,6 @@ import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
-import { ResultNotice } from '../components/result-notice.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.entries;
@@ -52,6 +57,12 @@ const SORT_LABELS = {
 } as const;
 /** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
 const CONDITION_NAMES = ['q', 'category', 'equipmentId', 'from', 'to', 'sort', 'direction'];
+
+/** 修正・削除の結果（SC-07。評価の更新を示す）。 */
+interface EntryResult {
+  readonly kind: ManualEntryResultKind;
+  readonly response: ManualEntrySaveResponse;
+}
 
 /** 入力項目の値の表示（値・単位）。 */
 function formatItemValue(itemKey: string, value: number | string): string {
@@ -91,7 +102,7 @@ export function EntryListPage(): ReactNode {
   const submit = useSubmit();
   const [editing, setEditing] = useState<ManualEntry | undefined>(undefined);
   const [deleting, setDeleting] = useState<ManualEntry | undefined>(undefined);
-  const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [result, setResult] = useState<EntryResult | undefined>(undefined);
 
   const keyword = query.get('q').trim();
   const category = MANUAL_INPUT_CATEGORIES.find((value) => value === query.get('category')) ?? '';
@@ -134,10 +145,10 @@ export function EntryListPage(): ReactNode {
   const { data, error, reload } = usePolling(fetchPage);
 
   async function confirmDelete(entry: ManualEntry): Promise<void> {
-    const result = await submit.run(() => deleteManualEntry(api, entry.entryId));
+    const deleted = await submit.run(() => deleteManualEntry(api, entry.entryId));
     setDeleting(undefined);
-    if (result.ok) {
-      setNotice(TEXT.deleted);
+    if (deleted.ok) {
+      setResult({ kind: 'deleted', response: deleted.value });
       reload();
     }
   }
@@ -199,7 +210,7 @@ export function EntryListPage(): ReactNode {
                           type="button"
                           className="button-secondary"
                           onClick={() => {
-                            setNotice(undefined);
+                            setResult(undefined);
                             setEditing(entry);
                           }}
                         >
@@ -209,7 +220,7 @@ export function EntryListPage(): ReactNode {
                           type="button"
                           className="button-danger-outline"
                           onClick={() => {
-                            setNotice(undefined);
+                            setResult(undefined);
                             setDeleting(entry);
                           }}
                         >
@@ -333,29 +344,42 @@ export function EntryListPage(): ReactNode {
         </FilterPanel>
       </section>
 
-      <ResultNotice message={notice} testId="entries-notice" />
+      {result === undefined ? null : (
+        <ManualEntryResult
+          response={result.response}
+          kind={result.kind}
+          title={result.kind === 'deleted' ? TEXT.deleted : TEXT.updated}
+          testId="entries-notice"
+        />
+      )}
       <FormError message={submit.formMessage} />
 
+      <section className="panel" aria-label={TEXT.title}>
+        {body}
+      </section>
+
       {editing === undefined ? null : (
-        <section className="panel" aria-labelledby="entry-edit-heading" data-testid="entry-edit">
-          <h2 id="entry-edit-heading">{MESSAGES.entry.editTitle}</h2>
+        <Modal
+          title={MESSAGES.entry.editTitle}
+          size="wide"
+          testId="entry-edit"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <ManualEntryForm
             entry={editing}
-            onSaved={() => {
+            onSaved={(response) => {
               setEditing(undefined);
-              setNotice(TEXT.updated);
+              setResult({ kind: 'updated', response });
               reload();
             }}
             onCancel={() => {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       )}
-
-      <section className="panel" aria-label={TEXT.title}>
-        {body}
-      </section>
 
       {deleting === undefined ? null : (
         <ConfirmDialog

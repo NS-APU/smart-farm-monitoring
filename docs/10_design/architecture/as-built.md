@@ -1403,7 +1403,7 @@ sequenceDiagram
   MS->>EV: evaluateAll MANUAL_ENTRY
   MS-->>H: entry と viewpointStatuses 200
 
-  Note over H: DELETE は 204
+  Note over H: DELETE は 200 で、修正と同じ形<br>entry は削除済みの入力 #150
   H->>MS: delete(entryId, userId)
   MS->>REP: manualEntries.get 無い・削除済みは<br>NOT_FOUND
   MS->>REP: manualEntries.save isDeleted<br>true 論理削除
@@ -1411,6 +1411,7 @@ sequenceDiagram
   MS->>FS: enqueue OBSERVATION<br>削除済みの観測値として送る
   MS->>AU: record DELETE before
   MS->>EV: evaluateAll MANUAL_ENTRY
+  MS-->>H: entry isDeleted true と<br>viewpointStatuses と evaluation 200
 ```
 
 ## 4.5 設備の登録・修正・削除（`/equipment`。UC-12）

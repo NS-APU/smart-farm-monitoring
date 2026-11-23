@@ -191,7 +191,7 @@ test.describe('ステータスの変化と通知（変化したときだけ通�
 
     // データがなくなり「不明」になる → 通知しない（状態の変化の履歴は、時刻ごとに 1 件のため、時計を 1 分進めてから削除する）
     await advanceMinutes(request, 1);
-    expect((await api(request, 'DELETE', `/manual-entries/${entryId}`)).status()).toBe(204);
+    expect((await api(request, 'DELETE', `/manual-entries/${entryId}`)).status()).toBe(200);
     expect(await environmentNotifications(request)).toHaveLength(2);
     // 再び異常 → 「不明」を挟んだだけの、同じ異常の継続（30 分後も、60 分後も、通知しない）
     await advanceMinutes(request, 30);

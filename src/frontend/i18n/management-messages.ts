@@ -175,6 +175,13 @@ export const MANAGEMENT_MESSAGES = {
     deleteItems: '項目',
     deleted: '削除しました',
     updated: '修正しました',
+    // 修正・削除の後の結果（評価の更新。D-27。Issue #150）。保存時（entry.savedLead・savedLeadDeferred）に合わせる
+    updatedLead: '入力内容を修正し、評価を更新しました。関連する観点の現在のステータスです',
+    updatedLeadDeferred:
+      '入力内容を修正しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
+    deletedLead: '入力内容を削除し、評価を更新しました。関連する観点の現在のステータスです',
+    deletedLeadDeferred:
+      '入力内容を削除しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
   },
   history: {
     title: '変更履歴',

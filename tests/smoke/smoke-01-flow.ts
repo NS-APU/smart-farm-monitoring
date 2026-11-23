@@ -160,7 +160,9 @@ async function deleteSmokeEntry(
         .click();
     },
     respond: async () => {
-      await expect(page.getByTestId('entries-notice')).toHaveText('削除しました');
+      await expect(page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+        '削除しました',
+      );
       await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
     },
   });

@@ -85,8 +85,13 @@ export function createManualEntryHandlers(deps: ApiDeps): Readonly<Record<string
     },
 
     async 'DELETE /manual-entries/:entryId'(c) {
-      await deps.manualEntryService.delete(entryIdOf(c), actorOf(c), await scopeOfRequest(c, deps));
-      return c.body(null, 204);
+      return c.json(
+        await deps.manualEntryService.delete(
+          entryIdOf(c),
+          actorOf(c),
+          await scopeOfRequest(c, deps),
+        ),
+      );
     },
 
     async 'GET /audit-logs'(c) {

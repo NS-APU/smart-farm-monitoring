@@ -186,7 +186,10 @@ export function updateManualEntry(api: ApiClient, entryId: string, input: Manual
 }
 
 export function deleteManualEntry(api: ApiClient, entryId: string) {
-  return api.command(API_PATHS.manualEntry(entryId), { method: 'DELETE' });
+  return api.request(API_PATHS.manualEntry(entryId), {
+    method: 'DELETE',
+    schema: ManualEntrySaveResponseSchema,
+  });
 }
 
 export function listManualEntries(api: ApiClient, params: ManualEntryListParams) {

@@ -114,7 +114,9 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     );
     await shot(b.page, testInfo, 'scenario-entry-b-edit');
     await editor.getByRole('button', { name: '保存', exact: true }).click();
-    await expect(b.page.getByTestId('entries-notice')).toHaveText('修正しました');
+    await expect(b.page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+      '修正しました',
+    );
     await b.page.goto('/');
     await expect(environmentBadge(b.page)).toContainText('正常');
 
@@ -152,7 +154,9 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await entryRows(page).first().getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('入力データを削除しますか');
     await confirmDialog(page, '削除');
-    await expect(page.getByTestId('entries-notice')).toHaveText('削除しました');
+    await expect(page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+      '削除しました',
+    );
     await expect(entryRows(page)).toHaveCount(0);
 
     // UC-20・UC-01: Bの一覧・ダッシュボードからも消え、観点は、データなしの「不明」になる
