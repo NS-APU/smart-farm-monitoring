@@ -1115,7 +1115,7 @@ describe('観点の詳細: 推移（UC-03）', () => {
     const trend = await screen.findByTestId('trend');
     fireEvent.click(must(trend.querySelector('summary')));
     await waitFor(() => {
-      expect((screen.getByTestId('trend') as HTMLDetailsElement).open).toBe(true);
+      expect(screen.getByTestId<HTMLDetailsElement>('trend').open).toBe(true);
     });
 
     fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '30' } });
