@@ -149,6 +149,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await expect(alert).toContainText('カスタムの判断基準による判定です');
     await shot(b.page, testInfo, 'scenario-criteria-b-notification');
     await alert.getByRole('link', { name: '詳細を確認' }).click();
+    await expect(b.page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(
       b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),

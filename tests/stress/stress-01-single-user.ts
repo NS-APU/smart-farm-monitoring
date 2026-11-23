@@ -1026,6 +1026,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: () => expectDetailShown(page),
     },
   );
+  // 通知の「詳細を確認」は、ダッシュボード上のドロワーで開く（#159 の SC-05-6）。メニューへ移る前に、閉じる
+  await page.keyboard.press('Escape');
   await m('UC-22', '通知の一覧に戻る（メニュー）', '通知（SC-05）', 'screen', {
     act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: () => expectListShown(page, 'notification-row'),

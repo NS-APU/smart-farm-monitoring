@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { jsonResponse } from '../../support/frontend.ts';
+import { dashboard, jsonResponse, twoFacilityTree } from '../../support/frontend.ts';
 import {
   callsOf,
   errorBody,
@@ -457,18 +457,106 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('サーバーでエラーが発生しました');
   });
 
-  it('状態の悪化の通知から観点の詳細を開くと、対象の設備を選び、未読の通知を既読にする', async () => {
+  it('状態の悪化の通知から観点の詳細を開くと、ダッシュボード上のドロワー（/?viewpoint=観点）で開き、未読の通知を既読にする（SC-05-6）', async () => {
     const { calls } = renderApp('/notifications', {
       'GET /notifications': listOf([notification({ equipmentId: 'ROBOT-01' as never })]),
       'POST /notifications/n-1/read': () => noContent(),
     });
 
-    fireEvent.click(await screen.findByRole('link', { name: '詳細を確認' }));
+    const link = await screen.findByRole('link', { name: '詳細を確認' });
+    // 全画面の観点のページ（/viewpoints/…）ではなく、ダッシュボード上のドロワー。視点・期間は指定しない
+    expect(link.getAttribute('href')).toBe('/?viewpoint=environmentalAdaptability');
+    fireEvent.click(link);
 
     await waitFor(() => {
       expect(callsOf(calls, 'POST', '/notifications/n-1/read')).toHaveLength(1);
     });
-    expect(window.location.pathname).toBe('/viewpoints/environmentalAdaptability');
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('?viewpoint=environmentalAdaptability');
+    expect(await screen.findByTestId('viewpoint-drawer')).toBeDefined();
+  });
+
+  it('ロボット・センサーの通知は、通知のハウスをダッシュボードの対象にし、観点の詳細は、通知の設備で開く（SC-05-6）', async () => {
+    const { calls } = renderApp('/notifications', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'GET /notifications': listOf([
+        notification({
+          equipmentId: 'ROBOT-02' as never,
+          facilityId: 'HOUSE-02' as never,
+          viewpointId: 'harvestAccuracy',
+        }),
+      ]),
+      'GET /dashboard': () => jsonResponse(dashboard()),
+    });
+
+    fireEvent.click(await screen.findByRole('link', { name: '詳細を確認' }));
+
+    await waitFor(() => {
+      expect(
+        callsOf(calls, 'GET', '/dashboard').some(
+          (call) => call.query.get('equipmentId') === 'HOUSE-02',
+        ),
+      ).toBe(true);
+    });
+    expect(
+      callsOf(calls, 'GET', '/viewpoints/harvestAccuracy').some(
+        (call) => call.query.get('equipmentId') === 'ROBOT-02',
+      ),
+    ).toBe(true);
+    expect(
+      callsOf(calls, 'GET', '/dashboard').every(
+        (call) => call.query.get('equipmentId') !== 'HOUSE-01',
+      ),
+    ).toBe(true);
+  });
+
+  it('通知の設備が、通知のハウスの配下にない（移動した）ときは、通知のハウスを対象にする（SC-05-6）', async () => {
+    const { calls } = renderApp('/notifications', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'GET /notifications': listOf([
+        // ROBOT-01 は、いまは HOUSE-01 の配下。通知は、作成時の HOUSE-02 のもの
+        notification({
+          notificationId: 'n-m' as never,
+          equipmentId: 'ROBOT-01' as never,
+          facilityId: 'HOUSE-02' as never,
+        }),
+      ]),
+      'GET /dashboard': () => jsonResponse(dashboard()),
+    });
+
+    fireEvent.click(await screen.findByRole('link', { name: '詳細を確認' }));
+
+    await waitFor(() => {
+      expect(
+        callsOf(calls, 'GET', '/dashboard').some(
+          (call) => call.query.get('equipmentId') === 'HOUSE-02',
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('設備が階層にない通知（削除した設備）も、通知のハウスをダッシュボードの対象にする（SC-05-6）', async () => {
+    const { calls } = renderApp('/notifications', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'GET /notifications': listOf([
+        notification({
+          notificationId: 'n-d' as never,
+          equipmentId: 'ROBOT-99' as never,
+          facilityId: 'HOUSE-02' as never,
+        }),
+      ]),
+      'GET /dashboard': () => jsonResponse(dashboard()),
+    });
+
+    fireEvent.click(await screen.findByRole('link', { name: '詳細を確認' }));
+
+    await waitFor(() => {
+      expect(
+        callsOf(calls, 'GET', '/dashboard').some(
+          (call) => call.query.get('equipmentId') === 'HOUSE-02',
+        ),
+      ).toBe(true);
+    });
   });
 
   it('既読の通知から詳細を開いても、既読にする API は呼ばない', async () => {
@@ -481,8 +569,9 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     fireEvent.click(await screen.findByRole('link', { name: '詳細を確認' }));
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/viewpoints/environmentalAdaptability');
+      expect(window.location.search).toBe('?viewpoint=environmentalAdaptability');
     });
+    expect(window.location.pathname).toBe('/');
     expect(callsOf(calls, 'POST', '/notifications/n-6/read')).toHaveLength(0);
   });
 
@@ -492,7 +581,10 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
       'POST /notifications/n-2/read': () => errorBody(500, 'INTERNAL_ERROR', 'エラー'),
     });
 
-    fireEvent.click(await screen.findByRole('link', { name: '取り込みの状況を確認' }));
+    const link = await screen.findByRole('link', { name: '取り込みの状況を確認' });
+    // 観点を持たない通知は、ドロワーではなく、取り込みの状況へ（SC-05-6 で変えない）
+    expect(link.getAttribute('href')).toBe('/settings/ingestion');
+    fireEvent.click(link);
 
     await waitFor(() => {
       expect(window.location.pathname).toBe('/settings/ingestion');

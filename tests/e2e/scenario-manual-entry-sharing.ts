@@ -91,12 +91,14 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     // UC-02・UC-04: Bが、通知から、診断・根拠のデータ（手動入力）・推奨アクションを確認する。確認した通知は、Bの既読になる
     await goToNotifications(b.page);
     await alert.getByRole('link', { name: '詳細を確認' }).click();
+    await expect(b.page.getByRole('dialog', { name: /の詳細$/ })).toBeVisible();
     await expect(b.page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
     await expandPanel(b.page, 'source-data');
     await expect(b.page.getByTestId('source-data')).toContainText('手動入力');
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(unreadBadge(b.page)).toHaveText(String(unreadForB - 1));
     await shot(b.page, testInfo, 'scenario-entry-b-detail');
+    await b.page.keyboard.press('Escape');
 
     // UC-18: Bが、入力済みデータの一覧で、Aの入力を、正しい値（22℃）へ修正する（入力者は、Aのまま）
     await advanceMinutes(request, 1);

@@ -13,6 +13,7 @@
  * （個別・絞り込みの範囲・すべて）、件数（0件・1ページ・複数ページ）、利用者（既読は利用者ごと）。
  * 通知の経過・回復日時（Issue #238。D-42）: 通知一覧の API が、通知ごとに、次の通知までの経過と、最初に正常に戻った日時を返す。
  * 通知のメモ（Issue #239。D-42）: 利用者が、通知にメモを追記でき（共有・追記のみ）、入力者と日時が残る。通知一覧が、メモの件数を返す。
+ * 通知から観点の詳細へ（#159 の SC-05-6）: ダッシュボード上のドロワーで開き、対象のハウスは通知のハウスになる。約 10 秒の再取得（SC-05-10）: 新着は自動では加えず、「新着あり（N 件）」を示す。
  * 通知一覧の画面（Issue #159 の SC-05-1）: 経過・回復日時（回復あり・未回復・経過なし）と、メモの表示・入力（共有・追記のみ。入力の権限がない場合は、単体テスト）を示す。
  * 関連するユースケース: UC-05（通知から対象の確認へ）、UC-10・UC-24（通知の発生）。
  */
@@ -44,7 +45,13 @@ import {
   seedAbnormalEnvironment,
 } from './support/notifications.ts';
 import { advanceMinutes } from './support/app.ts';
-import { environmentData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
+import {
+  environmentData,
+  harvestAccuracyData,
+  hoursAgo,
+  seed,
+  shot,
+} from './support/viewpoint-scenarios.ts';
 import { expectHeaderIntact, locatorOf } from './support/pages.ts';
 
 const rows = locatorOf('notification-row');
@@ -340,7 +347,7 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
 });
 
 test.describe('通知から対象を確認する（UC-05への連携）', () => {
-  test('状態の悪化の通知から、対象の観点の詳細を開くと、対象の設備が選ばれ、通知が既読になる', async ({
+  test('状態の悪化の通知から、対象の観点の詳細を、ダッシュボード上のドロワーで開くと、対象の設備が選ばれ、通知が既読になる（SC-05-6）', async ({
     page,
     request,
   }) => {
@@ -352,12 +359,15 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
 
     await sensorRow.getByRole('link', { name: '詳細を確認' }).click();
 
-    await expect(page).toHaveURL(/\/viewpoints\/environmentalAdaptability/);
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('環境適応性');
-    await expect(
-      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
-    ).toContainText('環境センサー1');
-    await expect(page.getByRole('main').getByLabel('対象の設備')).toHaveValue('SENSOR-01');
+    // 全画面の観点のページ（/viewpoints/…）ではなく、ダッシュボード上のドロワー（/?viewpoint=観点）
+    const drawer = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability$/);
+    await expect(drawer.getByRole('heading', { name: /環境適応性/, level: 2 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeAttached();
+    await expect(drawer.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      '環境センサー1',
+    );
+    await expect(drawer.getByLabel('対象の設備')).toHaveValue('SENSOR-01');
     await expect(unreadBadge(page)).toHaveText('4');
   });
 
@@ -393,6 +403,89 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
 
     await expect(page).toHaveURL(/\/settings\/ingestion/);
     await expect(unreadBadge(page)).toHaveText('4');
+  });
+});
+
+test.describe('通知から観点のドロワーへ移る（#159 の SC-05-6）', () => {
+  test('別のハウスの設備の通知から開くと、ダッシュボードの対象のハウスが、通知のハウスになり、ドロワーは通知の設備で開く', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    // 別のハウスと、そのハウスのセンサーを登録し、そのセンサーだけが異常になるデータを入れる（ハウス1 は、データなし）
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-02',
+      equipmentType: 'FACILITY',
+      name: 'ハウス2',
+    });
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'SENSOR-02',
+      equipmentType: 'SENSOR',
+      name: '環境センサー2',
+      facilityId: 'HOUSE-02',
+    });
+    await seed(request, {
+      observations: [
+        ['temperatureCelsius', 40],
+        ['humidityPercent', 60],
+        ['illuminanceLux', 30_000],
+        ['co2Ppm', 900],
+      ].map(([itemKey, value]) => ({
+        equipmentId: 'SENSOR-02',
+        itemKey: String(itemKey),
+        observedAt: hoursAgo(1),
+        value: Number(value),
+      })),
+    });
+    await openNotifications(page);
+    const sensorRow = rows(page)
+      .filter({ hasText: '環境適応性' })
+      .filter({ hasText: '環境センサー2' });
+    await expect(sensorRow).toHaveCount(1);
+
+    await sensorRow.getByRole('link', { name: '詳細を確認' }).click();
+
+    const drawer = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability$/);
+    await expect(drawer.getByLabel('対象の設備')).toHaveValue('SENSOR-02');
+    // ダッシュボード（背面）の対象のハウスは、ハウス2。ハウス2 の評価（40℃ の異常）を示す
+    await expect(page.getByLabel('対象のハウス')).toHaveValue('HOUSE-02');
+    await expect(
+      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('異常');
+    // 閉じても、対象のハウスは、ハウス2 のまま
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await expect(page.getByLabel('対象のハウス')).toHaveValue('HOUSE-02');
+  });
+});
+
+test.describe('約 10 秒の再取得で、新着が届いても、行がずれない（#159 の SC-05-10）', () => {
+  test('新着の通知は、自動では加えず、「新着あり（N 件）」を示す。押すと、新着を加えて更新する', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    // 先に、通知を 1 件作っておく（収穫精度の異常）
+    await seed(request, harvestAccuracyData('ERROR'));
+    await openNotifications(page);
+    const before = await rows(page).count();
+    expect(before).toBeGreaterThanOrEqual(1);
+    const messagesBefore = await rows(page).locator('.notification-message p').allTextContents();
+
+    // 画面を開いたまま、新しい通知を作る（環境適応性などの異常）
+    await seedAbnormalEnvironment(request);
+
+    // 再取得（約 10 秒）のあと、「新着あり」を示す。表示中の行は、動かない
+    const banner = page.getByRole('button', { name: /^新着あり（\d+ 件）/ });
+    await expect(banner).toBeVisible({ timeout: 30_000 });
+    await expect(rows(page)).toHaveCount(before);
+    await expect(rows(page).locator('.notification-message p')).toHaveText(messagesBefore);
+
+    await banner.click();
+
+    await expect(banner).toHaveCount(0);
+    await expect.poll(() => rows(page).count()).toBeGreaterThan(before);
   });
 });
 
