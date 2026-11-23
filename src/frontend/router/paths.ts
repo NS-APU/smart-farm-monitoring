@@ -11,6 +11,12 @@ export const PATHS = {
   dataEntry: '/data-entry',
   dataEntryList: '/data-entry/list',
   dataEntryHistory: '/data-entry/history',
+  /** 変更履歴を、対象の種類と ID で絞って開く（クエリは、変更履歴の絞り込みの条件。#155）。 */
+  historyOf: (targetType: string, targetId: string) =>
+    `/data-entry/history?${new URLSearchParams({ targetType, targetId }).toString()}`,
+  /** 入力済みデータを、設備と、計測日（日本時間。`2026-10-09`）で絞って開く（#155）。 */
+  entriesOf: (equipmentId: string, date: string) =>
+    `/data-entry/list?${new URLSearchParams({ equipmentId, from: date, to: date }).toString()}`,
   observations: '/observations',
   settingsEquipment: '/settings/equipment',
   settingsIngestion: '/settings/ingestion',

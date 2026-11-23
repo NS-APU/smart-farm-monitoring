@@ -759,6 +759,25 @@ describe('変更履歴・手動入力（DynamoDB）', () => {
 
     expect(await ids('desc')).toEqual(['a-5', 'a-3', 'a-1']);
     expect(await ids('asc')).toEqual(['a-1', 'a-3', 'a-5']);
+    // 対象の ID（#155）: 読んだ後に絞る。対象の履歴が少なくても、ページを送れる
+    await auditLogs.add({
+      auditId: 'a-6',
+      operation: 'DELETE',
+      actor: USER,
+      occurredAt: '2026-10-09T06:00:00.000Z',
+      targetType: 'manual-entry',
+      targetId: 'e-2',
+    });
+    const byTarget = await auditLogs.list({ targetId: 'e-2' }, { limit: 1 });
+    expect(byTarget.items.map((entry) => entry.auditId)).toEqual(['a-6']);
+    expect(byTarget.nextCursor).toBeNull();
+    const firstByTarget = await auditLogs.list(
+      { targetType: 'manual-entry', targetId: 'e-1' },
+      { limit: 2 },
+    );
+    expect(firstByTarget.items.map((entry) => entry.auditId)).toEqual(['a-5', 'a-4']);
+    expect(firstByTarget.nextCursor).not.toBeNull();
+    expect((await auditLogs.list({ targetId: 'none' }, { limit: 5 })).items).toEqual([]);
     expect(
       (
         await auditLogs.list(

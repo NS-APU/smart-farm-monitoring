@@ -44,6 +44,7 @@ export function createAuditLogRepository(store: LocalStore): AuditLogRepository 
             (filter.operation === undefined || entry.operation === filter.operation) &&
             (filter.actor === undefined || entry.actor === filter.actor) &&
             (filter.targetType === undefined || entry.targetType === filter.targetType) &&
+            (filter.targetId === undefined || entry.targetId === filter.targetId) &&
             (fromIso === undefined || compareIsoInstants(entry.occurredAt, fromIso) >= 0) &&
             (toIso === undefined || compareIsoInstants(entry.occurredAt, toIso) <= 0),
         )

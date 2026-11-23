@@ -267,6 +267,46 @@ textarea {
   padding: 2px 12px;
 }
 
+.row-actions a {
+  align-self: center;
+}
+
+/* 計測データの、手動入力の行の導線（入力データを開く・履歴。#155） */
+.source-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 0.875rem;
+}
+
+/* 絞り込み条件のチップ（変更履歴の「対象: …（解除）」。#155） */
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px var(--space);
+  margin-top: 12px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 2px 4px 2px 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+
+.filter-chip button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+}
+
 /* 絞り込み */
 .filter-bar {
   display: flex;

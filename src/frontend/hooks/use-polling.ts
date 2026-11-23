@@ -1,6 +1,8 @@
 /**
  * 定期的に取得し直すフック。画面の更新は約10秒間隔で、タブが表示されているときだけ行う
  * （FR-6.7、coding-standards.md「フロントエンド」）。タブが非表示から表示に戻ったときは、次の間隔を待たず、すぐに取得し直す。
+ * 間隔に null を指定すると、自動の再取得（定期・タブへ戻ったとき）をしない。最初の取得と、reload（手動の更新）だけで取得する
+ * （読み取りの量が大きい画面で、読み取りを増やさないため。変更履歴の、対象を絞った表示。#155）。
  * 取得関数（fetcher）が変わったら、読み込み中の状態に戻して、取得し直す。
  * 取得済みのデータがあるときの、更新の一時的な失敗（モバイル回線の切断など）では、データを保持し、
  * 失敗は refreshError で伝える（画面の表示を消さない）。連続して失敗が続いたら、データを破棄してエラーにする。
@@ -58,7 +60,7 @@ function afterFailure<Data>(
 
 export function usePolling<Data>(
   fetcher: () => Promise<Data>,
-  intervalMs: number = POLLING_INTERVAL_MS,
+  intervalMs: number | null = POLLING_INTERVAL_MS,
 ): PollingState<Data> {
   const [result, setResult] = useState<Result<Data> | undefined>(undefined);
   const [reloadCount, setReloadCount] = useState(0);
@@ -83,6 +85,11 @@ export function usePolling<Data>(
       );
     };
     load();
+    if (intervalMs === null) {
+      return () => {
+        cancelled = true;
+      };
+    }
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         load();

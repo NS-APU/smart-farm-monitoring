@@ -36,6 +36,8 @@ const AuditLogQuerySchema = PageQuerySchema.extend({
   operation: z.enum(AUDIT_OPERATIONS).optional(),
   actor: UserIdSchema.optional(),
   targetType: z.enum(AUDIT_TARGET_TYPES).optional(),
+  /** 対象の ID（その対象の履歴だけを返す。#155）。 */
+  targetId: z.string().min(1).max(200).optional(),
   from: IsoDateTimeSchema.optional(),
   to: IsoDateTimeSchema.optional(),
   direction: SortDirectionSchema,
@@ -101,6 +103,7 @@ export function createManualEntryHandlers(deps: ApiDeps): Readonly<Record<string
           operation: query.operation,
           actor: query.actor,
           targetType: query.targetType,
+          targetId: query.targetId,
           from: toOptionalDate(query.from),
           to: toOptionalDate(query.to),
           direction: query.direction,

@@ -31,6 +31,7 @@ import {
   advanceMinutes,
   alignBrowserClock,
   api,
+  apiOk,
   confirmDialog,
   newUserSession,
   openAs,
@@ -990,6 +991,85 @@ test.describe('シナリオ: 利用者Aが入力し、利用者Bが修正し、�
   });
 });
 
+test.describe('変更履歴への導線（#155。SC-07-10・SC-08-4）', () => {
+  test('一覧の各行の「履歴」から、その入力だけの変更履歴を開く。チップ「対象: …」で示し、解除すると、同じ種類の全体に戻る。対象を絞った表示は、「更新」で取り直す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    const target = await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(3),
+      items: { failureCount: 2, recoveryMinutes: 90 },
+    });
+    await addEntry(request, {
+      equipmentId: SENSOR_ID,
+      category: 'ENVIRONMENT',
+      observedAt: hoursAgo(2),
+      items: { temperatureCelsius: 22.5, humidityPercent: 55 },
+    });
+    const edit = async (failureCount: number): Promise<void> => {
+      await advanceMinutes(request, 1);
+      await apiOk(request, 'PUT', `/manual-entries/${target.entry.entryId}`, {
+        equipmentId: ROBOT_ID,
+        category: 'FAILURE',
+        observedAt: hoursAgo(3),
+        items: { failureCount, recoveryMinutes: 90 },
+      });
+    };
+    await edit(3);
+
+    await openList(page);
+    await rows(page).filter({ hasText: '故障回数' }).getByRole('link', { name: '履歴' }).click();
+
+    // その入力（登録・編集の 2 件）だけが出る。センサーの入力の履歴は出ない
+    await expect
+      .poll(() => page.url())
+      .toContain(`/data-entry/history?targetType=manual-entry&targetId=${target.entry.entryId}`);
+    await expect(auditRows(page)).toHaveCount(2);
+    const chip = page.getByTestId('audit-target-chip');
+    await expect(chip).toContainText('対象: 手動入力');
+    await expect(chip).toContainText('収穫ロボット1');
+    await expect(chip).toContainText('故障回数');
+    await expect(page.getByLabel('対象の ID')).toHaveCount(0);
+    await shot(page, testInfo, 'uc18-history-target-chip');
+
+    // 対象を絞った表示は、自動では更新せず、「更新」で取り直す
+    await edit(4);
+    await expect(auditRows(page)).toHaveCount(2);
+    await page.getByRole('button', { name: '更新' }).click();
+    await expect(auditRows(page)).toHaveCount(3);
+
+    // 解除すると、対象の種類（手動入力）の全体（この入力の 3 件と、センサーの入力の 1 件）に戻る
+    await chip.getByRole('button', { name: /解除/ }).click();
+    await expect(chip).toHaveCount(0);
+    await expect(page).toHaveURL(/targetType=manual-entry/);
+    await expect(page).not.toHaveURL(/targetId=/);
+    await expect(auditRows(page)).toHaveCount(4);
+    await expect(page.getByRole('button', { name: '更新' })).toHaveCount(0);
+  });
+
+  test('対象の ID が、別の入力の ID のとき（該当なし）は、履歴がない旨を示す。条件のクリアで、対象も外れる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(3),
+      items: { failureCount: 2, recoveryMinutes: 90 },
+    });
+
+    await openHistory(page, '?targetType=manual-entry&targetId=no-such-entry');
+
+    await expect(page.getByTestId('audit-empty')).toHaveText('該当する履歴はありません');
+    await expect(page.getByTestId('audit-target-chip')).toContainText('対象: 手動入力');
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+    await expect(page.getByTestId('audit-target-chip')).toHaveCount(0);
+    await expect(auditRows(page).first()).toBeVisible();
+  });
+});
+
 test.describe('権限: 変更する権限・履歴を参照する権限のない利用者（閲覧者）', () => {
   test('閲覧者は、一覧を参照でき、修正・削除の操作と、変更履歴へのリンクを表示しない。変更履歴を直接開いても、権限がない旨を表示する。サーバー側でも拒否する', async ({
     page,
@@ -1009,6 +1089,8 @@ test.describe('権限: 変更する権限・履歴を参照する権限のない
     await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
     await expect(rows(page).first().getByRole('button')).toHaveCount(0);
     await expect(page.getByRole('link', { name: '変更履歴を見る' })).toHaveCount(0);
+    // 行の「履歴」も示さない（変更履歴の権限がない）
+    await expect(page.getByRole('link', { name: '履歴', exact: true })).toHaveCount(0);
     await page.goto('/data-entry/history');
     await expect(page.getByTestId('permission-notice')).toHaveText(
       '変更履歴を参照する権限がありません',

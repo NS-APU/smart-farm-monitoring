@@ -723,6 +723,28 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     expect(versions).toEqual(['CUSTOM-1→DEFAULT', 'DEFAULT→CUSTOM-1']);
   });
 
+  test('編集画面の「変更履歴を見る」から、その観点の判断基準の変更履歴だけを開く（#155。SC-13-6）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'harvestAccuracy');
+    await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('92');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+    await shot(page, testInfo, 'uc19-history-link');
+
+    await page.getByRole('link', { name: '変更履歴を見る' }).click();
+
+    await expect
+      .poll(() => page.url())
+      .toContain('/data-entry/history?targetType=criteria&targetId=harvestAccuracy');
+    await expect(page.getByTestId('audit-row')).toHaveCount(1);
+    await expect(page.getByTestId('audit-row')).toContainText('harvestAccuracy');
+    await expect(page.getByTestId('audit-target-chip')).toContainText('対象: 判断基準（収穫精度）');
+  });
+
   test('変更した基準で、状態が悪化すると（注意 → 異常）、通知を作る（UC-10への連携）', async ({
     page,
     request,
@@ -791,6 +813,8 @@ test.describe('権限: 編集する権限のない利用者（閲覧者）は、
     await expect(
       card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）'),
     ).toHaveAttribute('readonly', '');
+    // 変更履歴の権限がないため、「変更履歴を見る」も示さない（#155。SC-13-6）
+    await expect(page.getByRole('link', { name: '変更履歴を見る' })).toHaveCount(0);
     await shot(page, testInfo, 'uc19-readonly');
     const login = await request.post('/api/v1/auth/login', {
       data: { userId: VIEWER.userId, password: VIEWER.password },

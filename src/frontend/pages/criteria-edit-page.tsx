@@ -362,6 +362,7 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
   const { viewpointId } = props;
   const { api } = useAuth();
   const canEdit = usePermission('criteria:edit');
+  const canReadAudit = usePermission('audit:read');
   const meta = findViewpointMeta(viewpointId);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const fetchCriteria = useCallback(
@@ -434,6 +435,12 @@ export function CriteriaEditPage(props: { readonly viewpointId: string }): React
         </h1>
         <p className="page-meta">
           <Link to={PATHS.viewpoint(viewpointId)}>{TEXT.backToDetail}</Link>
+          {canReadAudit && meta !== undefined ? (
+            <>
+              <span className="meta-separator">|</span>
+              <Link to={PATHS.historyOf('criteria', viewpointId)}>{TEXT.goHistory}</Link>
+            </>
+          ) : null}
         </p>
       </div>
       <p className="muted">{TEXT.lead}</p>

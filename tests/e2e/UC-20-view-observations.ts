@@ -19,6 +19,7 @@ import {
   HOUSE_ID,
   ROBOT_ID,
   SENSOR_ID,
+  addEntry,
   alignBrowserClock,
   api,
   apiOk,
@@ -790,8 +791,9 @@ test.describe('他のユースケースとの関連: 入力・取り込み・削
     const { entry } = (await response.json()) as { entry: { entryId: string } };
     await openObservations(page);
     await expect(rows(page)).toHaveCount(2);
+    // 手動入力の行は、取得元の下に、入力データ一覧・変更履歴への導線を持つ（#155。SC-09-5。管理者は、変更履歴も参照できる）
     for (const text of await column(page, 5)) {
-      expect(text).toBe('手動入力');
+      expect(text).toBe('手動入力入力データを開く履歴');
     }
 
     await api(request, 'DELETE', `/manual-entries/${entry.entryId}`);
@@ -988,5 +990,51 @@ test.describe('データの状態の凡例（SC-09-2。Issue #154）', () => {
 
     await toggle.click();
     await expect(page.getByTestId('quality-legend-body')).toHaveCount(0);
+  });
+});
+
+test.describe('手動入力の行からの導線（#155。SC-09-5）', () => {
+  test('手動入力の行の「入力データを開く」で、設備・計測日で絞った入力データ一覧へ、「履歴」で、その入力の変更履歴へ移る。自動取り込みの行には、導線がない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    const created = await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(3),
+      items: { failureCount: 2, recoveryMinutes: 90 },
+    });
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 22,
+          observedAt: hoursAgo(2),
+        },
+      ],
+    });
+    await openMeasurements(page);
+
+    const manual = measurementRows(page).filter({ hasText: '故障回数' });
+    const auto = measurementRows(page).filter({ hasText: '温度' });
+    await expect(manual).toHaveCount(1);
+    await expect(auto).toHaveCount(1);
+    await expect(auto.getByRole('link')).toHaveCount(0);
+    await shot(page, testInfo, 'uc20-manual-row-links');
+
+    await manual.getByRole('link', { name: '入力データを開く' }).click();
+    await expect(page.getByRole('heading', { name: '入力済みデータ', level: 1 })).toBeVisible();
+    await expect.poll(() => page.url()).toContain('/data-entry/list?equipmentId=ROBOT-01&from=');
+    await expect(page.getByTestId('entry-row')).toHaveCount(1);
+    await expect(page.getByTestId('entry-row')).toContainText('故障回数: 2回');
+
+    await page.goBack();
+    await manual.getByRole('link', { name: '履歴', exact: true }).click();
+    await expect
+      .poll(() => page.url())
+      .toContain(`/data-entry/history?targetType=manual-entry&targetId=${created.entry.entryId}`);
+    await expect(page.getByTestId('audit-row')).toHaveCount(1);
+    await expect(page.getByTestId('audit-target-chip')).toContainText('故障回数');
   });
 });

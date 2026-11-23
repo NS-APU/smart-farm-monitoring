@@ -900,11 +900,51 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
       ['期間（開始）', '?from=2026-10-09T03:02:00.000Z', 2],
       ['期間（終了）', '?to=2026-10-09T03:01:00.000Z', 2],
       ['ページ分割', '?limit=3', 3],
+      ['対象の ID（#155）', '?targetType=status-code&targetId=STANDBY', 1],
+      ['対象の ID（該当なし）', '?targetType=status-code&targetId=NO-SUCH', 0],
+      ['対象の ID（種類が違う）', '?targetType=criteria&targetId=STANDBY', 0],
     ])('絞り込み: %s', async (_name, query, count) => {
       const context = await withEquipment();
       await prepareLogs(context);
 
       expect((await logs(context, query)).items).toHaveLength(count);
+    });
+
+    it('対象の種類と ID で、その入力の履歴（登録・編集・削除）だけを返す。別の入力の履歴は含めない（#155。SC-07-10）', async () => {
+      const context = await withEquipment();
+      await prepareLogs(context);
+      context.clock.advance(60_000);
+      const { entry: other } = await createEntry(context);
+      const firstId = (await logs(context, '?targetType=manual-entry&direction=asc')).items[0]
+        ?.targetId;
+      expect(firstId).toBeDefined();
+      expect(firstId).not.toBe(other.entryId);
+
+      const own = await logs(context, `?targetType=manual-entry&targetId=${other.entryId}`);
+      const first = await logs(context, `?targetType=manual-entry&targetId=${firstId ?? ''}`);
+
+      expect(own.items.map((item) => [item.operation, item.targetId])).toEqual([
+        ['CREATE', other.entryId],
+      ]);
+      expect(first.items.map((item) => item.operation)).toEqual(['DELETE', 'UPDATE', 'CREATE']);
+    });
+
+    it('対象の ID は、種類を指定せずに単独でも絞り込める。ページ分割でも、対象の履歴だけを返す', async () => {
+      const context = await withEquipment();
+      await prepareLogs(context);
+      const targetId =
+        (await logs(context, '?targetType=manual-entry')).items[0]?.targetId ?? 'missing';
+
+      const firstPage = await logs(context, `?targetId=${targetId}&limit=2`);
+      const secondPage = await logs(
+        context,
+        `?targetId=${targetId}&limit=2&cursor=${encodeURIComponent(firstPage.nextCursor ?? '')}`,
+      );
+
+      expect(firstPage.items).toHaveLength(2);
+      expect(firstPage.nextCursor).not.toBeNull();
+      expect(secondPage.items).toHaveLength(1);
+      expect(secondPage.nextCursor).toBeNull();
     });
   });
 });
