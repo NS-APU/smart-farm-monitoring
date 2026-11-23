@@ -18,6 +18,7 @@ import {
   twoFacilityTree,
   errorResponse,
   jsonResponse,
+  pinClockToDashboardFixture,
   type FakeHandler,
   type FakeRequest,
 } from '../../support/frontend.ts';
@@ -69,6 +70,9 @@ function renderPath(path: string, scenario: Scenario = {}) {
 
 const detailCalls = (calls: readonly FakeRequest[]) =>
   calls.filter((call) => call.path === '/viewpoints/environmentalAdaptability');
+
+// 評価が更新されていない警告（Issue #158）が、フィクスチャの最終の評価に対して、実際の現在の時刻で出ないようにする
+pinClockToDashboardFixture();
 
 beforeEach(() => {
   window.history.pushState(null, '', '/');

@@ -2,6 +2,8 @@
  * SC-02 ダッシュボード（UC-01、UC-04。FR-6.1〜6.3、6.6、6.7）。ハウス単位。
  * 操作: 対象のハウス・期間の選択・手動の更新。表示: 最終のデータ取得日時・最終の評価日時・判定の対象期間（全観点で同じなら、ここに 1 回）、
  * ステータスごとの観点の数、観点別の状態の一覧（表）、観点のカード（ステータス・主要メトリクスと判定・診断メッセージ・推奨アクション）。
+ * 評価が更新されていない（最終の評価から 15 分以上）ときは、警告を出す。古い設備があるときは、警告を開くと、設備名・最終の受信日時・基準（分）の一覧を示す
+ * （Issue #158）。最終の評価・最終のデータ取得の横に、ヘルプヒントを置く。
  * 約10秒間隔で最新の評価結果を読み直す（タブの表示中のみ）。視点（短期・長期）の切り替えはない（長期の評価を、選んだ期間で示す。
  * カードのステータスは、短期・長期のうち悪い方〔通知と同じ〕。短期の方が悪いときは、その旨を、カードに示す）。Issue #355・#356。
  * 期間は、URL のクエリで保持する。カード・表の行を選ぶと、観点の詳細（SC-03。満足度は SC-04）を、右からのドロワーで開く
@@ -9,8 +11,13 @@
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import {
+  EVALUATION_STALE_MINUTES,
+  isEvaluationStale,
+} from '@smart-farm/shared/constants/evaluation-schedule';
 import { formatMetricValue } from '@smart-farm/shared/constants/metrics';
 import { STATUS_INDICATOR_ID } from '@smart-farm/shared/constants/metrics';
+import { MS_PER_SECOND } from '@smart-farm/shared/time';
 import { defaultPeriodDays, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   EVALUATION_STATUSES,
@@ -30,6 +37,7 @@ import {
   horizonQueryString,
   readHorizonQuery,
 } from '../components/horizon-controls.tsx';
+import { HelpHint } from '../components/help-hint.tsx';
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
 import { StatusLegend } from '../components/legend.tsx';
 import { MetricLabel } from '../components/metric-label.tsx';
@@ -38,7 +46,7 @@ import { StatusBadge } from '../components/status-badge.tsx';
 import { ViewpointDrawer } from '../components/viewpoint-drawer.tsx';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePeriodSelection } from '../hooks/use-horizon-selection.ts';
-import { usePolling } from '../hooks/use-polling.ts';
+import { POLLING_INTERVAL_MS, usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link, navigate, useLocation } from '../router/router.tsx';
@@ -217,6 +225,21 @@ function DataStatusText(props: { readonly data: DashboardResponse }): ReactNode 
   );
 }
 
+/** 最終のデータ取得（手動のみの運用は、最終の手動入力）の横のヘルプヒント。画面の更新（10 秒）と、取得間隔の違いを説明する（SC-11-9）。 */
+function DataStatusHint(props: { readonly data: DashboardResponse }): ReactNode {
+  return props.data.dataFreshness === 'MANUAL' ? (
+    <HelpHint
+      name={MESSAGES.dashboard.lastManualInputHintName}
+      help={MESSAGES.dashboard.lastManualInputHint}
+    />
+  ) : (
+    <HelpHint
+      name={MESSAGES.dashboard.lastReceivedHintName}
+      help={MESSAGES.dashboard.lastReceivedHint(POLLING_INTERVAL_MS / MS_PER_SECOND)}
+    />
+  );
+}
+
 export function DashboardPage(): ReactNode {
   const { api } = useAuth();
   const {
@@ -358,12 +381,17 @@ export function DashboardPage(): ReactNode {
       {data === undefined ? null : (
         <p className="page-meta" data-testid="dashboard-meta">
           <DataStatusText data={data} />
+          <DataStatusHint data={data} />
           {data.evaluatedAt === null ? null : (
             <>
               <span className="meta-separator" aria-hidden="true">
                 ／
               </span>
               {MESSAGES.dashboard.evaluatedAt}: {formatDateTimeJst(data.evaluatedAt)}
+              <HelpHint
+                name={MESSAGES.dashboard.evaluatedAtHintName}
+                help={MESSAGES.dashboard.evaluatedAtHint(EVALUATION_STALE_MINUTES)}
+              />
             </>
           )}
           {commonPeriod === null ? null : (
@@ -399,31 +427,76 @@ export function DashboardPage(): ReactNode {
 /** 警告に示す、古い設備の名前の数（それを超えた分は、「ほか N 件」）。 */
 const STALE_NAMES_SHOWN = 3;
 
+/** 古い設備の一覧（開くと、設備名・最終の受信日時・基準〔分〕。Issue #158。ADR-0016 の D-12）。 */
+function StaleEquipmentList(props: {
+  readonly items: DashboardResponse['staleEquipment'];
+}): ReactNode {
+  return (
+    <details className="stale-equipment-list" data-testid="stale-equipment-details">
+      <summary>{MESSAGES.dashboard.staleEquipmentList(props.items.length)}</summary>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">{MESSAGES.dashboard.staleEquipmentName}</th>
+            <th scope="col">{MESSAGES.dashboard.staleEquipmentLastReceived}</th>
+            <th scope="col">{MESSAGES.dashboard.staleEquipmentThreshold}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.items.map((item) => (
+            <tr key={item.equipmentId}>
+              <th scope="row">{item.name}</th>
+              <td>{formatDateTimeJst(item.lastReceivedAt)}</td>
+              <td>{MESSAGES.dashboard.staleEquipmentMinutes(item.thresholdMinutes)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+}
+
 function DashboardContent(props: {
   readonly data: DashboardResponse;
   readonly selectedPeriodDays: PeriodDays | undefined;
 }): ReactNode {
   const { data } = props;
   const showCardPeriod = commonEvaluatedPeriod(data.viewpoints) === null;
+  // 評価が更新されていないとき（最終の評価から 15 分以上）は、その日時。画面の更新（10 秒ごと）のたびに、判定し直す。
+  // 現在は、端末の時計（サーバーとの時計のずれは、考慮しない）
+  const staleEvaluatedAt = isEvaluationStale(data.evaluatedAt, new Date())
+    ? data.evaluatedAt
+    : null;
   const cards = data.viewpoints.map((card) => ({
     card,
     path: viewpointDrawerPath(card.viewpointId, props.selectedPeriodDays),
   }));
   return (
     <>
-      {data.dataFreshness === 'STALE' ? (
-        <p role="alert" className="notice notice-warning">
+      {staleEvaluatedAt === null ? null : (
+        <p role="alert" className="notice notice-warning" data-testid="evaluation-stale">
           <Icon name="status-caution" size={18} />
-          {MESSAGES.dashboard.freshnessStale}
-          {data.staleEquipment.length > 0 ? (
-            <span data-testid="stale-equipment">
-              {MESSAGES.dashboard.staleEquipment(
-                data.staleEquipment.slice(0, STALE_NAMES_SHOWN).map((item) => item.name),
-                Math.max(0, data.staleEquipment.length - STALE_NAMES_SHOWN),
-              )}
-            </span>
-          ) : null}
+          {MESSAGES.dashboard.evaluationStale(formatDateTimeJst(staleEvaluatedAt))}
         </p>
+      )}
+      {data.dataFreshness === 'STALE' ? (
+        <div className="notice notice-warning">
+          <Icon name="status-caution" size={18} />
+          <p role="alert">
+            {MESSAGES.dashboard.freshnessStale}
+            {data.staleEquipment.length > 0 ? (
+              <span data-testid="stale-equipment">
+                {MESSAGES.dashboard.staleEquipment(
+                  data.staleEquipment.slice(0, STALE_NAMES_SHOWN).map((item) => item.name),
+                  Math.max(0, data.staleEquipment.length - STALE_NAMES_SHOWN),
+                )}
+              </span>
+            ) : null}
+          </p>
+          {data.staleEquipment.length > 0 ? (
+            <StaleEquipmentList items={data.staleEquipment} />
+          ) : null}
+        </div>
       ) : null}
       {data.dataFreshness === 'MANUAL' ? (
         <div role="status" className="notice notice-info" data-testid="freshness-manual">

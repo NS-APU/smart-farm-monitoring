@@ -22,8 +22,12 @@ export function dashboardCard(page: Page, viewpointId: string): Locator {
   return page.getByTestId(`card-${viewpointId}`);
 }
 
-/** ダッシュボードを開く（ログインしていなければ、ログインする）。 */
-export async function openDashboard(page: Page, query = ''): Promise<void> {
+/**
+ * ダッシュボードを開く（ログインしていなければ、ログインする）。ブラウザの時計は、サーバーの固定した時計に揃える
+ * （評価が更新されていない警告〔最終の評価から 15 分以上。#158〕は、ブラウザの時計と比べるため）。揃える時刻を指定すれば、その時刻にする。
+ */
+export async function openDashboard(page: Page, query = '', at?: Date): Promise<void> {
+  await alignBrowserClock(page, at);
   await gotoAuthenticated(page, `/${query}`);
   await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
 }
