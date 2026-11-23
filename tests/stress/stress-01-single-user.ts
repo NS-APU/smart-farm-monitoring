@@ -1012,9 +1012,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   const notificationRows = rowsOf(page, 'notification-row');
   await screenshot(page, '13-notifications');
-  await m('UC-22', '種別「異常検知」で絞り込む', '通知（SC-05）', 'screen', {
+  await m('UC-22', '種別「状態の悪化」で絞り込む', '通知（SC-05）', 'screen', {
     act: () => page.getByLabel('種別').selectOption('STATUS_CHANGE'),
-    respond: () => expectEveryRowContains(notificationRows, '異常検知'),
+    respond: () => expectEveryRowContains(notificationRows, '状態の悪化'),
   });
   await m(
     'UC-05',

@@ -46,7 +46,7 @@ export const MANAGEMENT_MESSAGES = {
     kind: '種別',
     readState: '既読状態',
     kindLabels: {
-      STATUS_CHANGE: '異常検知',
+      STATUS_CHANGE: '状態の悪化',
       INGESTION_FAILURE: 'データ取得失敗',
       FEDERATION_EXPIRED: '連携の期限切れ',
     },
@@ -68,6 +68,22 @@ export const MANAGEMENT_MESSAGES = {
       `未読の通知 ${String(count)} 件を既読にします。この画面に読み込んだ時点より後に届いた通知は、既読にしません。`,
     nothingToMark: '既読にする未読の通知はありません',
     markedNotice: (count: number) => `${String(count)} 件の通知を既読にしました`,
+    // 経過・回復日時・メモ（#159 の SC-05-1。D-42）
+    notRecovered: '未回復',
+    recovered: (time: string, elapsed: string) => `${time} に回復（${elapsed}）`,
+    progress: '経過',
+    detailsSummary: (hasProgress: boolean, memoCount: number) =>
+      `${hasProgress ? '経過・メモ' : 'メモ'}（${String(memoCount)} 件）`,
+    memoLabel: 'メモ',
+    memoHelp:
+      'この通知への対応や気づきを記録します。全員が読めます。追記だけで、編集・削除はできません（入力した人と日時が残ります）',
+    memoExample: 'ファイルサーバーを再起動して復旧した',
+    memoAdd: 'メモを追加',
+    memoAdding: '追加中…',
+    memoAdded: 'メモを追加しました',
+    memoEmpty: 'メモはありません',
+    memoLoadFailed: 'メモを読み込めませんでした',
+    memoNoPermission: 'メモを入力する権限がありません',
     empty: '通知はありません',
     emptyFiltered: '条件に合う通知はありません',
   },
