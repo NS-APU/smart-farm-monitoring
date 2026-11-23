@@ -1,6 +1,8 @@
 /**
  * 観点の詳細: 診断結果（UC-02・UC-04。FR-5.5、FR-6.4）。ステータス・診断メッセージ・推奨アクション・判定の対象期間を、
- * 視点（短期・長期）ごとに示す。評価できない（不明）場合は、その旨と、データの取得・入力を確認する導線を示す。
+ * 視点（短期・長期）ごとに示す（「視点ごとの判定」。以前は、推移の欄にも、同じ内容の「視点ごとのフィードバック」があった。SC-03-4）。
+ * 評価できない（不明）場合は、その旨と、データの取得・入力を確認する導線を示す。
+ * 短期評価を持たない観点は、「短期評価はありません」に、理由のヘルプヒントを添える（SC-03-9）。
  */
 
 import type { ReactNode } from 'react';
@@ -17,6 +19,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { formatDateTimeJst } from './format.ts';
+import { HelpHint } from './help-hint.tsx';
 import { StatusBadge } from './status-badge.tsx';
 
 /** 視点の表示名（短期は直近24時間、長期は選んだ期間）。 */
@@ -53,16 +56,29 @@ function HorizonCard(props: {
   readonly title: string;
   readonly diagnosis: HorizonDiagnosis | null;
   readonly emptyText: string;
+  /** 空の理由の説明（ヘルプヒント）。 */
+  readonly emptyHint?: ReactNode;
 }): ReactNode {
   const { diagnosis } = props;
   return (
     <div className="horizon-card" data-testid={props.testId}>
       <h4>{props.title}</h4>
       {diagnosis === null ? (
-        <p className="muted">{props.emptyText}</p>
+        <p className="muted">
+          {props.emptyText}
+          {props.emptyHint}
+        </p>
       ) : (
         <>
           <StatusBadge status={diagnosis.status} />
+          <p>
+            <strong>{MESSAGES.viewpoint.diagnosticMessage}: </strong>
+            {diagnosis.diagnosticMessage}
+          </p>
+          <p>
+            <strong>{MESSAGES.viewpoint.recommendedAction}: </strong>
+            {diagnosis.recommendedAction}
+          </p>
           <Period diagnosis={diagnosis} />
         </>
       )}
@@ -122,6 +138,14 @@ export function DiagnosisSection(props: { readonly detail: ViewpointDetailRespon
           diagnosis={detail.short}
           emptyText={
             detail.hasShortHorizon ? MESSAGES.viewpoint.notEvaluated : MESSAGES.viewpoint.noShort
+          }
+          emptyHint={
+            detail.hasShortHorizon ? undefined : (
+              <HelpHint
+                name={MESSAGES.viewpoint.noShortHint.name}
+                help={MESSAGES.viewpoint.noShortHint.help}
+              />
+            )
           }
         />
         <HorizonCard

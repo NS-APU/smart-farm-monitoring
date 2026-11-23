@@ -89,6 +89,14 @@ function cardOf(name: string): HTMLElement {
   return element;
 }
 
+/** 存在を前提とする要素・値を取り出す（なければ、テストを失敗させる）。 */
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('テストの前提: 要素がある');
+  }
+  return value;
+}
+
 describe('ダッシュボード: 操作（対象のハウス・期間・更新。Issue #355）', () => {
   it('視点（短期・長期）の切り替えはなく、長期の評価を、選んだ期間で示す。期間は URL のクエリで保持し、切り替えると、そのクエリで取得し直す', async () => {
     const { calls } = renderPath('/?periodDays=30');
@@ -749,6 +757,28 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     );
   });
 
+  it('「短期評価はありません」に、理由のヘルプヒントを添える（長い期間・一定期間の指標のため。SC-03-9）', async () => {
+    renderPath('/viewpoints/durability', {
+      detail: () =>
+        jsonResponse(
+          detail({
+            viewpointId: 'durability',
+            name: '耐久性',
+            hasShortHorizon: false,
+            short: null,
+          }),
+        ),
+    });
+
+    const card = await screen.findByTestId('horizon-short');
+    fireEvent.click(within(card).getByRole('button', { name: '短期評価の説明' }));
+
+    const panel = within(card).getByTestId('help-hint-panel');
+    expect(panel.textContent).toContain('長い期間');
+    expect(panel.textContent).toContain('一定期間');
+    expect(panel.textContent).toContain('直近24時間');
+  });
+
   it('短期評価を持たない観点: 短期の判定は「短期評価はありません」。短期を指定すると、長期を表示している旨を示す', async () => {
     renderPath('/viewpoints/durability?horizon=SHORT', {
       detail: () =>
@@ -783,10 +813,10 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(
       within(panel).getByText('この観点は短期評価を持たないため、長期の結果を表示しています'),
     ).toBeDefined();
+    // 視点ごとの内容は、診断の欄の 1 箇所だけ（推移の欄に、同じ内容を繰り返さない。SC-03-4）
     expect(within(trend).queryByTestId('feedback-short')).toBeNull();
-    expect(within(trend).getByTestId('no-short-note').textContent).toContain(
-      '短期評価はありません',
-    );
+    expect(within(trend).queryByTestId('no-short-note')).toBeNull();
+    expect(within(trend).queryByText('短期評価はありません')).toBeNull();
     expect(
       within(trend).getByText('この観点は短期評価を持たないため、長期の結果を表示しています'),
     ).toBeDefined();
@@ -1013,28 +1043,156 @@ describe('観点の詳細: 推移（UC-03）', () => {
     },
   );
 
-  it('視点ごとのフィードバック（診断メッセージ・推奨アクション）を、短期・長期で表示する', async () => {
+  it('視点ごとの判定に、診断メッセージ・推奨アクションを、短期・長期で表示する（フィードバックの欄は、1 つにまとめた。SC-03-4）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+
+    const diagnosisPanel = await screen.findByTestId('diagnosis');
+    const trend = await screen.findByTestId('trend');
+
+    const shortCard = within(diagnosisPanel).getByTestId('horizon-short');
+    expect(shortCard.textContent).toContain('正常');
+    expect(shortCard.textContent).toContain('診断メッセージ');
+    expect(shortCard.textContent).toContain('推奨アクション');
+    expect(shortCard.textContent).toContain('判定の対象期間');
+    expect(within(diagnosisPanel).getByTestId('horizon-long').textContent).toContain('注意');
+    expect(within(diagnosisPanel).getByTestId('horizon-long').textContent).toContain(
+      '温度 27.0℃（注意）',
+    );
+    expect(screen.queryByText('視点ごとのフィードバック')).toBeNull();
+    expect(within(trend).queryByTestId('feedback-short')).toBeNull();
+    expect(within(trend).queryByTestId('feedback-long')).toBeNull();
+  });
+
+  it('未評価の視点は、その旨を示す', async () => {
+    renderPath('/viewpoints/environmentalAdaptability', {
+      detail: () => jsonResponse(detail({ short: null, long: null })),
+    });
+
+    const panel = await screen.findByTestId('diagnosis');
+
+    expect(within(panel).getByTestId('horizon-short').textContent).toContain(
+      'まだ評価されていません',
+    );
+    expect(within(panel).getByTestId('horizon-long').textContent).toContain(
+      'まだ評価されていません',
+    );
+  });
+
+  it('観点の詳細の構成は、上から、診断・根拠の指標・推移・元データ・判断基準（SC-03-4）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+    await screen.findByTestId('trend');
+    await screen.findByTestId('source-data');
+
+    const ids = ['diagnosis', 'basis', 'trend', 'source-data', 'criteria'];
+    const nodes = ids.map((id) => screen.getByTestId(id));
+    for (let index = 1; index < nodes.length; index += 1) {
+      const previous = must(nodes[index - 1]);
+      const current = must(nodes[index]);
+      expect(previous.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
+  });
+
+  it('推移と元データは、折りたたみ（既定は閉）。見出しを押すと開き、もう一度押すと閉じる（SC-03-4）', async () => {
     renderPath('/viewpoints/environmentalAdaptability');
 
     const trend = await screen.findByTestId('trend');
+    const source = await screen.findByTestId('source-data');
 
-    expect(within(trend).getByTestId('feedback-short').textContent).toContain('正常');
-    expect(within(trend).getByTestId('feedback-short').textContent).toContain('推奨アクション');
-    expect(within(trend).getByTestId('feedback-long').textContent).toContain('注意');
+    for (const panel of [trend, source]) {
+      expect(panel.tagName).toBe('DETAILS');
+      expect((panel as HTMLDetailsElement).open).toBe(false);
+      const summary = must(panel.querySelector('summary'));
+      expect(summary.querySelector('h2')).not.toBeNull();
+      fireEvent.click(summary);
+      expect((panel as HTMLDetailsElement).open).toBe(true);
+      fireEvent.click(summary);
+      expect((panel as HTMLDetailsElement).open).toBe(false);
+    }
+    expect(trend.querySelector('summary h2')?.textContent).toBe('推移');
+    expect(source.querySelector('summary h2')?.textContent).toBe('元データ');
   });
 
-  it('フィードバックが未評価なら、その旨を示す', async () => {
-    renderPath('/viewpoints/environmentalAdaptability', {
-      series: () => jsonResponse(series({ feedback: { short: null, long: null } })),
+  it('開いた推移の欄は、期間を切り替えて、読み込み直しても、開いたままにする（SC-03-4）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+    const trend = await screen.findByTestId('trend');
+    fireEvent.click(must(trend.querySelector('summary')));
+    await waitFor(() => {
+      expect(screen.getByTestId<HTMLDetailsElement>('trend').open).toBe(true);
     });
 
+    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '30' } });
+
+    await waitFor(() => {
+      expect(window.location.search).toContain('periodDays=30');
+    });
+    const again = await screen.findByTestId('trend');
+    expect((again as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('グラフの下に、値の表を、見える折りたたみ（既定は閉）で示す。日時・値・状態の列がある（SC-03-2）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+
+    const trend = await screen.findByTestId('trend');
+    const values = within(trend).getByTestId('trend-values-temperatureCelsius');
+
+    expect(values.tagName).toBe('DETAILS');
+    expect((values as HTMLDetailsElement).open).toBe(false);
+    expect(values.closest('.visually-hidden')).toBeNull();
+    expect(values.querySelector('summary')?.textContent).toBe('値の表');
+    const table = within(values).getByTestId('trend-table-temperatureCelsius');
+    expect(table.closest('.visually-hidden')).toBeNull();
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['日時', '温度（℃）', '状態']);
+    // 20℃は正常、欠損は「—」、26℃は注意
+    const rows = within(table).getAllByRole('row');
+    expect(rows[1]?.textContent).toContain('正常');
+    expect(rows[3]?.textContent).toContain('—');
+    expect(rows[7]?.textContent).toContain('注意');
+  });
+
+  it('グラフの点を選ぶと、日時・値・状態を、グラフの下に表示する（SC-03-2）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+
+    const temperature = await screen.findByTestId('trend-temperatureCelsius');
+    const readout = within(temperature).getByTestId('chart-readout');
+    expect(readout.textContent).toContain('点を選ぶと');
+
+    fireEvent.click(must(temperature.querySelectorAll('g.chart-point')[0]));
+
+    expect(readout.textContent).toContain('2026/10/03');
+    expect(readout.textContent).toContain('20.0℃');
+    expect(readout.textContent).toContain('正常');
+  });
+
+  it('推移の説明を、画面に出す: ステータスの推移は最終ステータスの履歴で期間を変えても同じ／背景の帯は現在の基準（SC-03-3。D-24・D-25）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+
+    const history = await screen.findByTestId('status-history');
     const trend = await screen.findByTestId('trend');
 
-    expect(within(trend).getByTestId('feedback-short').textContent).toContain(
-      'まだ評価されていません',
+    const note = within(history).getByTestId('status-history-note').textContent;
+    expect(note).toContain('最終ステータス');
+    expect(note).toContain('期間を変えても、同じです');
+    expect(within(trend).getByTestId('chart-band-note').textContent).toContain(
+      '背景の帯は、現在の基準',
     );
-    expect(within(trend).getByTestId('feedback-long').textContent).toContain(
-      'まだ評価されていません',
+  });
+
+  it('ステータスの帯の両端に、開始・終了の日時を表示する（SC-03-3）', async () => {
+    renderPath('/viewpoints/environmentalAdaptability');
+
+    const history = await screen.findByTestId('status-history');
+
+    expect(within(history).getByTestId('status-timeline-from').textContent).toBe(
+      '2026/10/03 00:00:00',
+    );
+    expect(within(history).getByTestId('status-timeline-to').textContent).toBe(
+      '2026/10/09 12:00:00',
     );
   });
 

@@ -12,7 +12,7 @@
  */
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { gotoAuthenticated } from './support/helpers.ts';
+import { expandPanel, gotoAuthenticated } from './support/helpers.ts';
 import {
   ROBOT,
   SENSOR,
@@ -32,7 +32,8 @@ import {
 
 async function openDetail(page: Page, viewpointId: string, query = ''): Promise<void> {
   await gotoAuthenticated(page, `/viewpoints/${viewpointId}${query}`);
-  await expect(page.getByTestId('trend')).toBeVisible();
+  // 推移の欄は、折りたたみ（既定は閉。SC-03-4）。開く
+  await expandPanel(page, 'trend');
 }
 
 const trend = (page: Page) => page.getByTestId('trend');
@@ -128,21 +129,22 @@ test.describe('基本フロー: 観点と期間を選び、メトリクスの推
       /\/viewpoints\/environmentalAdaptability\?horizon=LONG&periodDays=30$/,
     );
 
-    // 2. システムが、推移（メトリクスの推移・ステータスの推移）を表示する
+    // 2. システムが、推移（メトリクスの推移・ステータスの推移）を表示する（推移の欄は、折りたたみ。開く）
+    await expandPanel(page, 'trend');
     await expect(trend(page)).toContainText(
       '推移の期間: 2026/09/10 00:00:00 〜 2026/10/09 12:00:00（日ごと）',
     );
     await expect(dots(metric(page, 'temperatureCelsius'))).toHaveCount(1);
     await expect(page.getByTestId('status-history')).toBeVisible();
     // 3. システムが、長期のフィードバックを提示する
-    await expect(page.getByTestId('feedback-long')).toContainText('長期（直近30日）');
+    await expect(page.getByTestId('horizon-long')).toContainText('長期（直近30日）');
 
     // 1. 農作業者が、期間を短期へ切り替える → 2・3. 短期の推移（1時間ごと）とフィードバック
     await page.getByRole('radio', { name: '短期' }).check();
     await expect(page).toHaveURL(/horizon=SHORT/);
     await expect(trend(page)).toContainText('（1時間ごと）');
-    await expect(page.getByTestId('feedback-short')).toContainText('短期（直近24時間）');
-    await expect(page.getByTestId('feedback-short')).toContainText('正常');
+    await expect(page.getByTestId('horizon-short')).toContainText('短期（直近24時間）');
+    await expect(page.getByTestId('horizon-short')).toContainText('正常');
     await trend(page).scrollIntoViewIfNeeded();
     await shot(page, testInfo, 'trend-from-dashboard');
   });
@@ -159,10 +161,10 @@ test.describe('基本フロー: 観点と期間を選び、メトリクスの推
     for (const id of ['temperatureCelsius', 'humidityPercent', 'illuminanceLux', 'co2Ppm']) {
       await expect(metric(page, id)).toHaveAttribute('open', '');
     }
-    await metric(page, 'humidityPercent').locator('summary').click();
+    await metric(page, 'humidityPercent').locator(':scope > summary').click();
     await expect(metric(page, 'humidityPercent')).not.toHaveAttribute('open', '');
     await expect(metric(page, 'humidityPercent').locator('svg')).toBeHidden();
-    await metric(page, 'humidityPercent').locator('summary').click();
+    await metric(page, 'humidityPercent').locator(':scope > summary').click();
     await expect(metric(page, 'humidityPercent').locator('svg')).toBeVisible();
 
     // 収穫精度は、ダッシュボードに出さないメトリクス（取り残し率・果実損傷率）が閉じている
@@ -171,10 +173,10 @@ test.describe('基本フロー: 観点と期間を選び、メトリクスの推
       .getByRole('link', { name: 'ダッシュボード' })
       .click();
     await page.goto('/viewpoints/harvestAccuracy');
-    await expect(trend(page)).toBeVisible();
+    await expandPanel(page, 'trend');
     await expect(metric(page, 'marketableFruitRatePercent')).toHaveAttribute('open', '');
     await expect(metric(page, 'missedFruitRatePercent')).not.toHaveAttribute('open', '');
-    await metric(page, 'missedFruitRatePercent').locator('summary').click();
+    await metric(page, 'missedFruitRatePercent').locator(':scope > summary').click();
     await expect(metric(page, 'missedFruitRatePercent')).toHaveAttribute('open', '');
   });
 });
@@ -289,12 +291,12 @@ test.describe('期間（短期・当日・直近7・30・60・90日）の選択'
     await seed(request, environmentData());
     await openDetail(page, 'environmentalAdaptability');
     await expect(trend(page)).toContainText('（日ごと）');
-    await expect(page.getByTestId('feedback-long')).toContainText('長期（直近7日）');
+    await expect(page.getByTestId('horizon-long')).toContainText('長期（直近7日）');
 
     await page.getByLabel('長期の期間').selectOption({ label: '直近30日' });
 
     await expect(page).toHaveURL(/periodDays=30$/);
-    await expect(page.getByTestId('feedback-long')).toContainText('長期（直近30日）');
+    await expect(page.getByTestId('horizon-long')).toContainText('長期（直近30日）');
     await expect(trend(page)).toContainText('推移の期間: 2026/09/10 00:00:00');
 
     await page.getByRole('radio', { name: '短期' }).check();
@@ -332,8 +334,8 @@ test.describe('データの状態（欠損・1区間のみ・境界）', () => {
 
     await openDetail(page, 'environmentalAdaptability');
 
-    await expect(page.getByTestId('feedback-long')).toContainText('まだ評価されていません');
-    await expect(page.getByTestId('feedback-short')).toContainText('まだ評価されていません');
+    await expect(page.getByTestId('horizon-long')).toContainText('まだ評価されていません');
+    await expect(page.getByTestId('horizon-short')).toContainText('まだ評価されていません');
     await expect(metric(page, 'temperatureCelsius')).toContainText('この期間のデータがありません');
   });
 
@@ -509,7 +511,7 @@ test.describe('観点のステータスの推移（FR-6.10）', () => {
   });
 });
 
-test.describe('視点ごとのフィードバック（短期・中長期）と、短期評価を持たない観点', () => {
+test.describe('視点ごとの判定（短期・中長期。診断メッセージ・推奨アクションを含む）と、短期評価を持たない観点', () => {
   test('短期・長期それぞれの診断メッセージと推奨アクションを提示する（短期が異常、長期が注意）', async ({
     page,
     request,
@@ -522,8 +524,8 @@ test.describe('視点ごとのフィードバック（短期・中長期）と�
 
     await openDetail(page, 'environmentalAdaptability');
 
-    const short = page.getByTestId('feedback-short');
-    const long = page.getByTestId('feedback-long');
+    const short = page.getByTestId('horizon-short');
+    const long = page.getByTestId('horizon-long');
     await expect(short).toContainText('短期（直近24時間）');
     await expect(short).toContainText('異常');
     await expect(short).toContainText('環境適応性: 異常。温度 40.0℃（異常）');
@@ -545,9 +547,14 @@ test.describe('視点ごとのフィードバック（短期・中長期）と�
 
     await openDetail(page, 'durability', '?horizon=SHORT&periodDays=30');
 
-    await expect(page.getByTestId('feedback-short')).toHaveCount(0);
-    await expect(page.getByTestId('no-short-note')).toContainText('短期評価はありません');
-    await expect(page.getByTestId('feedback-long')).toContainText('長期（直近30日）');
+    // 短期は、「短期評価はありません」と、理由のヘルプヒント（診断の欄の、視点ごとの判定。推移の欄には、同じ内容を出さない）
+    await expect(page.getByTestId('horizon-short')).toContainText('短期評価はありません');
+    await expect(page.getByTestId('horizon-short')).not.toContainText('診断メッセージ');
+    await expect(trend(page)).not.toContainText('短期評価はありません');
+    await page.getByTestId('horizon-short').getByRole('button', { name: '短期評価の説明' }).click();
+    await expect(page.getByTestId('help-hint-panel')).toContainText('長い期間');
+    await expect(page.getByTestId('help-hint-panel')).toContainText('一定期間');
+    await expect(page.getByTestId('horizon-long')).toContainText('長期（直近30日）');
     await expect(trend(page)).toContainText(
       'この観点は短期評価を持たないため、長期の結果を表示しています',
     );
@@ -565,9 +572,99 @@ test.describe('視点ごとのフィードバック（短期・中長期）と�
 
     for (const viewpointId of ['costEfficiency', 'dataUtilization']) {
       await openDetail(page, viewpointId, '?horizon=SHORT');
-      await expect(page.getByTestId('feedback-short')).toHaveCount(0);
-      await expect(page.getByTestId('feedback-long')).toBeVisible();
+      await expect(page.getByTestId('horizon-short')).toContainText('短期評価はありません');
+      await expect(page.getByTestId('horizon-long')).toContainText('診断メッセージ');
     }
+  });
+});
+
+test.describe('推移の欄の折りたたみ・グラフの値・説明（SC-03-4・SC-03-2・SC-03-3）', () => {
+  test('推移の欄は、既定で閉じていて、見出しを押すと開く。診断の欄に、視点ごとの判定が 1 つだけある', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData());
+    await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
+
+    await expect(page.getByTestId('diagnosis')).toBeVisible();
+    await expect(trend(page)).toBeVisible();
+    await expect(trend(page)).not.toHaveAttribute('open', '');
+    await expect(metric(page, 'temperatureCelsius')).toBeHidden();
+    await expect(page.getByText('視点ごとのフィードバック')).toHaveCount(0);
+
+    await trend(page).locator('summary').first().click();
+    await expect(trend(page)).toHaveAttribute('open', '');
+    await expect(metric(page, 'temperatureCelsius')).toBeVisible();
+    await trend(page).locator('summary').first().click();
+    await expect(metric(page, 'temperatureCelsius')).toBeHidden();
+  });
+
+  test('グラフの点を押すと、日時・値・状態を、グラフの下に表示する。キーボード（フォーカス・矢印キー）でも選べる', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, {
+      observations: [temperatureAt(2, 20), temperatureAt(1, 24), temperatureAt(0, 30)],
+    });
+    await openDetail(page, 'environmentalAdaptability');
+    const temperature = metric(page, 'temperatureCelsius');
+    const readout = temperature.getByTestId('chart-readout');
+    await expect(readout).toContainText('点を選ぶと');
+
+    // タップ（クリック）
+    await temperature.locator('g.chart-point').first().click();
+    await expect(readout).toContainText('2026/10/07');
+    await expect(readout).toContainText('20.0℃');
+    await expect(readout).toContainText('正常');
+
+    // キーボード: 点にフォーカスし、矢印キーで次の点へ（温度 30℃は、注意）
+    await temperature.locator('g.chart-point').first().focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(readout).toContainText('2026/10/09');
+    await expect(readout).toContainText('30.0℃');
+    await expect(readout).toContainText('注意');
+    await temperature.scrollIntoViewIfNeeded();
+    await shot(page, testInfo, 'trend-point-selected');
+  });
+
+  test('値の表は、見える折りたたみ（既定は閉）。日時・値・状態の列がある', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, { observations: [temperatureAt(1, 20), temperatureAt(0, 30)] });
+    await openDetail(page, 'environmentalAdaptability');
+
+    const values = page.getByTestId('trend-values-temperatureCelsius');
+    await expect(values).toBeVisible();
+    await expect(values).not.toHaveAttribute('open', '');
+    await expect(page.getByTestId('trend-table-temperatureCelsius')).toBeHidden();
+
+    await values.locator('summary').click();
+
+    const table = page.getByTestId('trend-table-temperatureCelsius');
+    await expect(table).toBeVisible();
+    await expect(table.locator('thead th')).toHaveText(['日時', '温度（℃）', '状態']);
+    await expect(table.locator('tbody tr').filter({ hasText: '30.0℃' })).toContainText('注意');
+    await expect(table.locator('tbody tr').filter({ hasText: '20.0℃' })).toContainText('正常');
+  });
+
+  test('推移の説明（最終ステータスの履歴で、期間を変えても同じ／背景の帯は現在の基準）と、ステータスの帯の両端の日時を表示する', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData());
+    await openDetail(page, 'environmentalAdaptability');
+
+    await expect(page.getByTestId('status-history-note')).toContainText('最終ステータス');
+    await expect(page.getByTestId('status-history-note')).toContainText('期間を変えても、同じです');
+    await expect(page.getByTestId('chart-band-note')).toContainText('背景の帯は、現在の基準');
+    await expect(page.getByTestId('status-timeline-from')).toHaveText('2026/10/03 00:00:00');
+    await expect(page.getByTestId('status-timeline-to')).toHaveText('2026/10/09 12:00:00');
   });
 });
 

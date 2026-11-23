@@ -30,6 +30,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { useAppState } from './app-state.tsx';
+import { CollapsiblePanel, type PanelOpenProps } from './collapsible-panel.tsx';
 import { DIRECTION_OPTIONS } from './filter-controls.tsx';
 import { Pager } from './form-controls.tsx';
 import { formatDateTimeJst } from './format.ts';
@@ -58,7 +59,7 @@ export function formatObservationValue(
   return `${formatThreshold(observation.value)}${unit}`;
 }
 
-export interface SourceDataSectionProps {
+export interface SourceDataSectionProps extends PanelOpenProps {
   readonly equipmentId: string;
   readonly viewpointId: string;
   /** 診断の対象期間（評価していなければ null。期間で絞り込まない）。 */
@@ -191,9 +192,14 @@ export function SourceDataSection(props: SourceDataSectionProps): ReactNode {
   }
 
   return (
-    <section className="panel" aria-labelledby="source-heading" data-testid="source-data">
+    <CollapsiblePanel
+      testId="source-data"
+      headingId="source-heading"
+      title={MESSAGES.viewpoint.sourceData}
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+    >
       <div className="panel-head">
-        <h2 id="source-heading">{MESSAGES.viewpoint.sourceData}</h2>
         <Link className="panel-link" to={PATHS.observations}>
           {MESSAGES.viewpoint.toObservations}
         </Link>
@@ -256,6 +262,6 @@ export function SourceDataSection(props: SourceDataSectionProps): ReactNode {
         </select>
       </div>
       {body}
-    </section>
+    </CollapsiblePanel>
   );
 }

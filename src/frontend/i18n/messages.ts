@@ -201,6 +201,11 @@ export const MESSAGES = {
     horizonShort: '短期',
     horizonLong: '長期',
     noShort: '短期評価はありません',
+    /** 「短期評価はありません」のヘルプヒント（ADR-0017 D-15。短期評価を持たない観点は、長い期間・一定期間の指標）。 */
+    noShortHint: {
+      name: '短期評価',
+      help: 'この観点は、長い期間・一定期間の指標のため、短期（直近24時間）の評価を持ちません。長期の結果を表示します',
+    },
     notEvaluated: 'この観点は、まだ評価されていません。データの取り込み・入力後に表示されます',
     unknownGuide:
       'データ不足のため評価できません。次の画面で、データの取得・入力を確認してください',
@@ -247,14 +252,24 @@ export const MESSAGES = {
     trendAverage: '期間の平均値',
     trendNoData: 'この期間のデータがありません',
     trendTableCaption: (metricLabel: string) => `${metricLabel}の推移（数値）`,
-    trendTableTime: '時刻',
+    trendTableTime: '日時',
+    trendTableStatus: '状態',
+    trendValues: '値の表',
+    chartReadoutHint: '点を選ぶと、日時・値・状態を表示します（キーボードは、矢印キー）',
+    chartReadoutTime: '日時',
+    chartReadoutValue: '値',
+    chartReadoutStatus: '状態',
+    chartPointLabel: (time: string, value: string) => `${time}: ${value}`,
     trendHourly: '1時間ごと',
     trendDaily: '日ごと',
     chartLegend: '背景の色は、判断基準の区分（正常・注意・異常）を示します',
+    /** 推移のグラフの背景の帯の説明（ADR-0017 D-24）。 */
+    chartBandNote: '背景の帯は、現在の基準です（過去の評価は、当時の基準のままです）',
+    /** ステータスの推移の説明（ADR-0017 D-25）。 */
+    statusHistoryNote: '最終ステータス（短期と長期の悪いほう）の履歴です。期間を変えても、同じです',
     statusHistory: 'ステータスの推移',
     statusHistoryNone: 'この期間に記録されたステータスの変化はありません',
     statusHistoryInitial: '期間の開始時点',
-    feedback: '視点ごとのフィードバック',
     sourceData: '元データ',
     sourceDataLead: '診断に使った取り込みデータ・手動入力データです',
     keyword: 'キーワード',

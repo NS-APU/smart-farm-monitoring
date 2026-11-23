@@ -13,7 +13,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
+import { expandPanel, gotoAuthenticated, loginViaUi } from './support/helpers.ts';
 import {
   ROBOT,
   SENSOR,
@@ -114,6 +114,33 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
       .getByRole('link', { name: 'ダッシュボード' })
       .click();
     await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
+  });
+
+  test('観点の詳細は、上から、診断・根拠の指標・推移・元データ・判断基準の順。推移と元データは、折りたたみ（既定は閉）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData({ temperature: 40 }, 1));
+
+    await openDetail(page, 'environmentalAdaptability');
+
+    const order = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid]')]
+        .map((element) => element.getAttribute('data-testid') ?? '')
+        .filter((id) => ['diagnosis', 'basis', 'trend', 'source-data', 'criteria'].includes(id)),
+    );
+    expect(order).toEqual(['diagnosis', 'basis', 'trend', 'source-data', 'criteria']);
+    for (const id of ['trend', 'source-data'] as const) {
+      await expect(page.getByTestId(id)).not.toHaveAttribute('open', '');
+      await expandPanel(page, id);
+      await page.getByTestId(id).locator('summary').first().click();
+      await expect(page.getByTestId(id)).not.toHaveAttribute('open', '');
+    }
+    // 同じ内容（視点ごとの判定とフィードバック）は、1 箇所だけ
+    await expect(page.getByTestId('horizon-short')).toContainText('診断メッセージ');
+    await expect(page.getByTestId('horizon-short')).toContainText('推奨アクション');
+    await expect(page.getByText('視点ごとのフィードバック')).toHaveCount(0);
   });
 
   test('短期と長期の判定を並べて表示し、それぞれの判定の対象期間を示す', async ({
@@ -1055,6 +1082,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await seed(request, sensorRows());
 
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
 
     const source = page.getByTestId('source-data');
     const rows = source.locator('tbody tr');
@@ -1103,6 +1131,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
       }),
     );
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
     const source = page.getByTestId('source-data');
     const rows = source.locator('tbody tr');
 
@@ -1142,6 +1171,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await prepare(request);
     await seed(request, sensorRows());
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
     const source = page.getByTestId('source-data');
     const rows = source.locator('tbody tr');
     await source.getByRole('button', { name: '次へ' }).click();
@@ -1202,6 +1232,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     });
 
     await openDetail(page, 'harvestAccuracy');
+    await expandPanel(page, 'source-data');
 
     const rows = page.getByTestId('source-data').locator('tbody tr');
     await expect(rows).toHaveCount(4);
@@ -1231,6 +1262,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await seed(request, {});
 
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
 
     const source = page.getByTestId('source-data');
     await expect(source.getByTestId('source-data-empty')).toContainText(
@@ -1259,6 +1291,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     );
 
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
 
     // 直近7日の環境の4件のみ（10日前の4件と、収穫数は含めない）
     await expect(page.getByTestId('source-data').locator('tbody tr')).toHaveCount(4);
@@ -1276,6 +1309,9 @@ test.describe('画面の表示（レイアウト）', () => {
     await page.setViewportSize({ width: 768, height: 1024 });
 
     await openDetail(page, 'harvestSpeed');
+    // 推移・元データは、折りたたみ（既定は閉）。開いた状態の配置も確認する
+    await expandPanel(page, 'trend');
+    await expandPanel(page, 'source-data');
 
     // 診断・根拠のメトリクス・判断基準・推移・元データの各欄が表示される
     for (const section of ['diagnosis', 'basis', 'criteria', 'trend', 'source-data']) {
@@ -1293,6 +1329,7 @@ test.describe('画面の表示（レイアウト）', () => {
     await page.setViewportSize({ width: 768, height: 1024 });
 
     await openDetail(page, 'harvestSpeed');
+    await expandPanel(page, 'source-data');
     await expect(page.getByTestId('source-data').locator('tbody tr').first()).toBeVisible();
 
     // 計測日時（1列目）・取得元（5列目）・状態（6列目）は、1行で表示する

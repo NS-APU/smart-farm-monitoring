@@ -6,7 +6,7 @@
  * ドロワーでは、パンくずを出さず（閉じる操作は、ドロワーが持つ）、見出しは h2（ページの h1 は、ダッシュボード）。
  */
 
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { defaultPeriodDays, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import { ApiError } from '../api/client.ts';
 import { getViewpointDetail, getViewpointSeries } from '../api/endpoints.ts';
@@ -53,6 +53,9 @@ export function ViewpointDetailView(props: {
   const Heading = isDrawer ? 'h2' : 'h1';
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentError } = useAppState();
+  // 推移・元データの欄の開閉（既定は閉。期間・設備を切り替えて、欄が作り直されても、開いたままにする。SC-03-4）
+  const [trendOpen, setTrendOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
     useHorizonSelection(defaultPeriodDays(viewpointId));
 
@@ -105,7 +108,6 @@ export function ViewpointDetailView(props: {
       <>
         <DiagnosisSection detail={loaded} />
         <MetricsTable detail={loaded} />
-        <CriteriaTable detail={loaded} />
         {series.data === undefined ? (
           <section className="panel">
             {series.error === undefined ? (
@@ -115,9 +117,16 @@ export function ViewpointDetailView(props: {
             )}
           </section>
         ) : (
-          <TrendSection series={series.data} detail={loaded} />
+          <TrendSection
+            series={series.data}
+            detail={loaded}
+            open={trendOpen}
+            onOpenChange={setTrendOpen}
+          />
         )}
         <SourceDataSection
+          open={sourceOpen}
+          onOpenChange={setSourceOpen}
           equipmentId={loaded.equipmentId}
           viewpointId={loaded.viewpointId}
           period={
@@ -126,6 +135,7 @@ export function ViewpointDetailView(props: {
               : { from: loaded.selected.evaluatedFrom, to: loaded.selected.evaluatedTo }
           }
         />
+        <CriteriaTable detail={loaded} />
       </>
     );
   }

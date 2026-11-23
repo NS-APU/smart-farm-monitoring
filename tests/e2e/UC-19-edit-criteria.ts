@@ -41,6 +41,7 @@ import {
 } from './support/viewpoint-scenarios.ts';
 import { listNotifications } from './support/notifications.ts';
 import { locatorOf, userIdText } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const card = (page: Page, indicator: string) => page.getByTestId(`criterion-edit-${indicator}`);
 const notice = locatorOf('criteria-notice');
@@ -715,6 +716,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await expect(notice(page)).toBeVisible();
 
     await page.goto('/viewpoints/environmentalAdaptability?equipmentId=SENSOR-01');
+    await expandPanel(page, 'trend');
 
     // 変更前（注意）→ 変更後（正常）の推移が、残る
     await expect(page.getByTestId('status-history').locator('.status-segment')).toHaveText([

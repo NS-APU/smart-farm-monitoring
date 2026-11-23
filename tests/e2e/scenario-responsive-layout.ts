@@ -15,6 +15,7 @@ import {
   seed,
 } from './support/viewpoint-scenarios.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const LONG_NAME = '収穫ロボットの非常に長い名称'.repeat(15).slice(0, 200);
 
@@ -123,6 +124,8 @@ for (const viewport of [
       await alignBrowserClock(page);
       await openAs(page, '/viewpoints/harvestAccuracy');
       await expect(page.getByRole('heading', { level: 1 }).first()).toContainText('収穫精度');
+      // 元データの欄は、折りたたみ（既定は閉。SC-03-4）。開く
+      await expandPanel(page, 'source-data');
 
       const table = page.locator('table.source-table');
       await expect(table).toBeVisible();

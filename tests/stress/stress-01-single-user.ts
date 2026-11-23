@@ -10,6 +10,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { CATEGORY_LABELS } from '@smart-farm/shared/constants/items';
 import { VIEWPOINTS } from '@smart-farm/shared/constants/viewpoints';
+import { expandPanel } from '../e2e/support/helpers.ts';
 import { stubPush } from '../e2e/support/push.ts';
 import {
   putSeededFiles,
@@ -249,14 +250,14 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   }
   await m(
     'UC-03',
-    '視点を「短期」に切り替える（短期のフィードバック）',
+    '視点を「短期」に切り替える（短期の判定）',
     '観点の詳細・推移（SC-03）',
     'trend',
     {
       act: () => page.getByRole('radio', { name: '短期' }).check(),
       respond: async () => {
         await expectDetailShown(page);
-        await expect(page.getByTestId('feedback-short')).toBeVisible();
+        await expect(page.getByTestId('horizon-short')).toBeVisible();
       },
     },
   );
@@ -264,7 +265,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     act: () => page.getByRole('radio', { name: '長期' }).check(),
     respond: () => expectDetailShown(page),
   });
-  // 元データの表のページ送り
+  // 元データの表のページ送り（元データの欄は、折りたたみ。測定の前に開く）
+  await expandPanel(page, 'source-data');
   await m('UC-02', '元データの表で、次のページを開く', '観点の詳細・元データ（SC-03）', 'screen', {
     act: () => page.getByTestId('source-data').getByRole('button', { name: '次へ' }).click(),
     respond: async () => {

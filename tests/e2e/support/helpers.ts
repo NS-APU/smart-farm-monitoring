@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { LoginResponseSchema } from '../../../src/shared/schemas/auth.ts';
 import { E2E_USER } from './e2e-user.ts';
 
@@ -56,4 +56,18 @@ export async function resetBackend(
     headers: { authorization: `Bearer ${accessToken}` },
   });
   expect(reset.status()).toBe(204);
+}
+
+/**
+ * 観点の詳細の、折りたたみの欄（推移 `trend`・元データ `source-data`。SC-03-4。既定は閉）を開く。すでに開いていれば、何もしない。
+ * 欄の見出し（summary）を押して開き、開いたことを確認する。
+ */
+export async function expandPanel(page: Page, testId: 'trend' | 'source-data'): Promise<Locator> {
+  const panel = page.getByTestId(testId);
+  await expect(panel).toBeVisible();
+  if ((await panel.getAttribute('open')) === null) {
+    await panel.locator('summary').first().click();
+  }
+  await expect(panel).toHaveAttribute('open', '');
+  return panel;
 }
