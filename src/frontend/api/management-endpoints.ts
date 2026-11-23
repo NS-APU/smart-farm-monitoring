@@ -52,9 +52,12 @@ import {
 } from '@smart-farm/shared/schemas/manual-entry';
 import {
   NotificationListResponseSchema,
+  NotificationMemoListResponseSchema,
+  NotificationMemoSchema,
   PushStatusResponseSchema,
   ReadAllResponseSchema,
   UnreadCountResponseSchema,
+  type NotificationMemoInput,
   type ReadAllRequest,
 } from '@smart-farm/shared/schemas/notification';
 import {
@@ -84,6 +87,26 @@ export function listNotifications(api: ApiClient, params: NotificationListParams
 export function markNotificationRead(api: ApiClient, notificationId: string) {
   return api.command(API_PATHS.notificationRead(notificationId), {
     method: 'POST',
+  });
+}
+
+/** 通知のメモ（入力の古い順。全件。共有。ADR-0019 の D-42）。 */
+export function listNotificationMemos(api: ApiClient, notificationId: string) {
+  return api.request(API_PATHS.notificationMemos(notificationId), {
+    schema: NotificationMemoListResponseSchema,
+  });
+}
+
+/** 通知にメモを追記する（追記のみ。編集・削除はない。手動入力と同じ権限）。 */
+export function addNotificationMemo(
+  api: ApiClient,
+  notificationId: string,
+  input: NotificationMemoInput,
+) {
+  return api.request(API_PATHS.notificationMemos(notificationId), {
+    method: 'POST',
+    body: input,
+    schema: NotificationMemoSchema,
   });
 }
 

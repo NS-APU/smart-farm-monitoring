@@ -1,6 +1,7 @@
 /**
  * SC-05 通知一覧（UC-05、UC-22。FR-7.5、FR-7.6）。通知の一覧（新しい順）、種別・既読状態での絞り込み、
  * 個別・一括の既読化（一括は、画面に読み込んだ時点までの未読に限り、件数つきの確認をする。ADR-0019 の D-39）。通知から、対象の観点の詳細（SC-03）または取り込みの状況（SC-11）へ移る。
+ * 通知ごとに、回復日時と、開閉できる欄（経過・メモ。共有・追記のみ）を示す（#159。ADR-0019 の D-42）。
  * 状態は、未読・既読の2つのみ（対応状況の管理・承認はない。Q-018）。
  */
 
@@ -24,6 +25,7 @@ import {
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx';
+import { NotificationDetails, NotificationRecovery } from '../components/notification-details.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { FilterPanel, SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -232,6 +234,8 @@ export function NotificationsPage(): ReactNode {
                   </td>
                   <td className="notification-message" data-label={TEXT.message}>
                     <p>{item.message}</p>
+                    <NotificationRecovery item={item} />
+                    <NotificationDetails item={item} onMemoAdded={reload} />
                     {item.kind === 'STATUS_CHANGE' && item.viewpointId !== undefined ? (
                       <Link
                         to={PATHS.viewpoint(item.viewpointId)}

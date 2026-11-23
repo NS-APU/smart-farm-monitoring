@@ -483,6 +483,63 @@ textarea {
   vertical-align: top;
 }
 
+/* 通知ごとの、回復日時と、経過・メモの欄（開閉。#159） */
+.notification-recovery {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.notification-details {
+  margin: 0 0 4px;
+}
+
+.notification-details summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.notification-progress {
+  margin: 4px 0;
+  font-weight: 400;
+}
+
+.notification-memo-list {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-memo-list li {
+  padding: 4px 0;
+  border-top: 1px solid var(--color-border);
+  font-weight: 400;
+}
+
+.notification-memo-meta {
+  font-size: 0.85rem;
+}
+
+.notification-memo-body {
+  white-space: pre-wrap;
+}
+
+.notification-memo-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.notification-memo-form textarea {
+  width: 100%;
+}
+
+.notification-memo-form button {
+  justify-self: start;
+}
+
 /* 通知の表（SC-05）: 長い値（名称 200 文字を含む対象・設備・メッセージ）や狭い幅でも、列が 1 文字幅へ潰れない。
    列は、日時・種別・観点・対象（ハウス）・設備・ステータス・メッセージ・状態の 8 つ（#362）。
    日時・種別・観点・ステータス・状態は折り返さず（最小の幅を保つ）、長くなりうる対象・設備・メッセージだけを、枠の中で折り返す。

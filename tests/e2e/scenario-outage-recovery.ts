@@ -80,7 +80,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await expect(await runNow(page, 'robot')).toContainText('取得しました（失敗）');
     await shot(page, testInfo, 'scenario-outage-a-failed');
 
-    // UC-23: 通知（異常検知・取り込み失敗）は、有効にしたAの端末（購読の識別子が1つだけ）にだけ配信される（Bは有効にしていない）
+    // UC-23: 通知（状態の悪化・取り込み失敗）は、有効にしたAの端末（購読の識別子が1つだけ）にだけ配信される（Bは有効にしていない）
     await runJob(request, 'JB-04');
     const created = await listNotifications(request);
     expect(created.length).toBeGreaterThanOrEqual(2);

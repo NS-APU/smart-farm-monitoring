@@ -99,7 +99,7 @@ test.describe('基本フロー: 判断基準に照らして判定し、注意・
     await openNotifications(page);
     const house = environmentRows(page).filter({ hasText: '（ハウス1）' });
     await expect(house).toHaveCount(1);
-    await expect(house).toContainText('異常検知');
+    await expect(house).toContainText('状態の悪化');
     await expect(house.locator('.status-badge')).toContainText('異常');
     await expect(house).toContainText('環境適応性');
     await expect(house).toContainText('【異常】環境適応性（ハウス1）');
@@ -350,7 +350,7 @@ test.describe('通知の周辺: 農業情報基盤が停止していても通知
   });
 });
 
-/** 指定した観点の通知（異常検知）。 */
+/** 指定した観点の通知（状態の悪化）。 */
 async function notificationsOfViewpoint(
   request: Parameters<typeof prepareApp>[0],
   viewpointId: string,

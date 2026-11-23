@@ -12,6 +12,7 @@ export const API_PATHS = {
   viewpointCriteriaReset: (viewpointId: string) =>
     `/viewpoints/${segment(viewpointId)}/criteria/reset`,
   notificationRead: (notificationId: string) => `/notifications/${segment(notificationId)}/read`,
+  notificationMemos: (notificationId: string) => `/notifications/${segment(notificationId)}/memos`,
   manualEntry: (entryId: string) => `/manual-entries/${segment(entryId)}`,
   equipment: (equipmentId: string) => `/equipment/${segment(equipmentId)}`,
   statusCode: (code: string) => `/status-codes/${segment(code)}`,

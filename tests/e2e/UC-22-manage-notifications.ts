@@ -3,16 +3,17 @@
  *
  * ユースケースシナリオ（use-cases.md）:
  *   基本フロー  1. 農作業者が、ヘッダーの未読件数から、通知の一覧を開く
- *               2. システムが、日時・種別（異常検知／データ取得失敗）・対象の観点・メッセージ・既読状態を一覧で表示する
+ *               2. システムが、日時・種別（状態の悪化／データ取得失敗）・対象の観点・メッセージ・既読状態を一覧で表示する
  *               3. 農作業者が、種別、既読／未読で絞り込む
  *               4. 農作業者が、通知を個別に、または一括で既読にする
  *   代替フロー  通知がない場合は、その旨を表示する
  *   事後条件    既読の状態が更新され、未読の件数に反映される
  *
- * 値の同値分割: 種別（すべて・異常検知・データ取得失敗）× 既読状態（すべて・未読・既読）の9通り、既読にする範囲
+ * 値の同値分割: 種別（すべて・状態の悪化・データ取得失敗）× 既読状態（すべて・未読・既読）の9通り、既読にする範囲
  * （個別・絞り込みの範囲・すべて）、件数（0件・1ページ・複数ページ）、利用者（既読は利用者ごと）。
  * 通知の経過・回復日時（Issue #238。D-42）: 通知一覧の API が、通知ごとに、次の通知までの経過と、最初に正常に戻った日時を返す。
  * 通知のメモ（Issue #239。D-42）: 利用者が、通知にメモを追記でき（共有・追記のみ）、入力者と日時が残る。通知一覧が、メモの件数を返す。
+ * 通知一覧の画面（Issue #159 の SC-05-1）: 経過・回復日時（回復あり・未回復・経過なし）と、メモの表示・入力（共有・追記のみ。入力の権限がない場合は、単体テスト）を示す。
  * 関連するユースケース: UC-05（通知から対象の確認へ）、UC-10・UC-24（通知の発生）。
  */
 
@@ -50,7 +51,7 @@ const rows = locatorOf('notification-row');
 const kindFilter = (page: Page) => page.getByLabel('種別');
 const stateFilter = (page: Page) => page.getByLabel('既読状態');
 
-/** 通知を5件作る（異常検知3件・データ取得失敗2件）。 */
+/** 通知を5件作る（状態の悪化3件・データ取得失敗2件）。 */
 async function prepareFiveNotifications(request: Parameters<typeof prepareApp>[0]): Promise<void> {
   await prepareApp(request);
   await seedAbnormalEnvironment(request);
@@ -100,7 +101,7 @@ test.describe('基本フロー: ヘッダーの未読件数から、通知の一
     const environmentOfHouse = rows(page)
       .filter({ hasText: '環境適応性' })
       .filter({ hasText: '（ハウス1）' });
-    await expect(environmentOfHouse).toContainText('異常検知');
+    await expect(environmentOfHouse).toContainText('状態の悪化');
     await expect(environmentOfHouse).toContainText('異常');
     await expect(environmentOfHouse).toContainText('未読');
     const failure = rows(page)
@@ -140,12 +141,12 @@ test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
   ];
 
   for (const item of combinations) {
-    test(`種別「${item.kind === '' ? 'すべて' : item.kind === 'STATUS_CHANGE' ? '異常検知' : 'データ取得失敗'}」× 既読状態「${item.state === '' ? 'すべて' : item.state === 'UNREAD' ? '未読' : '既読'}」は ${String(item.expected)} 件`, async ({
+    test(`種別「${item.kind === '' ? 'すべて' : item.kind === 'STATUS_CHANGE' ? '状態の悪化' : 'データ取得失敗'}」× 既読状態「${item.state === '' ? 'すべて' : item.state === 'UNREAD' ? '未読' : '既読'}」は ${String(item.expected)} 件`, async ({
       page,
       request,
     }) => {
       await prepareFiveNotifications(request);
-      // 異常検知（ハウスの環境適応性）と、データ取得失敗（ロボットデータ）を、既読にしておく
+      // 状態の悪化（ハウスの環境適応性）と、データ取得失敗（ロボットデータ）を、既読にしておく
       const all = await listNotifications(request);
       for (const notification of all) {
         const isHouseEnvironment =
@@ -339,7 +340,7 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
 });
 
 test.describe('通知から対象を確認する（UC-05への連携）', () => {
-  test('異常検知の通知から、対象の観点の詳細を開くと、対象の設備が選ばれ、通知が既読になる', async ({
+  test('状態の悪化の通知から、対象の観点の詳細を開くと、対象の設備が選ばれ、通知が既読になる', async ({
     page,
     request,
   }) => {
@@ -772,6 +773,91 @@ test.describe('通知のメモ（API。Issue #239。D-42）', () => {
     expect([update.status(), remove.status()]).toEqual([404, 404]);
     expect(missing.status()).toBe(404);
     expect((await listNotifications(request))[0]?.memoCount).toBe(1);
+  });
+});
+
+test.describe('通知の経過・回復日時・メモ（画面。Issue #159 の SC-05-1。D-42）', () => {
+  test('異常 → 正常（5 分後）→ 異常（25 分後）: 最初の通知は、回復日時（5 分）と経過を示し、最新の通知は「未回復」。推奨アクションは、一覧に出さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 40 }));
+    await advanceMinutes(request, 5);
+    await seed(request, environmentData({ temperature: 22 }));
+    await advanceMinutes(request, 20);
+    await seed(request, environmentData({ temperature: 40 }));
+
+    await openNotifications(page);
+
+    const sensorRows = rows(page)
+      .filter({ hasText: '環境適応性' })
+      .filter({ hasText: '（環境センサー1）' });
+    await expect(sensorRows).toHaveCount(2);
+    const latest = sensorRows.first();
+    const oldest = sensorRows.last();
+    await expect(oldest.getByTestId('notification-recovery')).toHaveText(
+      /^\d{2}:\d{2} に回復（5 分）$/,
+    );
+    await expect(latest.getByTestId('notification-recovery')).toHaveText('未回復');
+    await oldest.getByTestId('notification-details').locator('summary').click();
+    await expect(oldest.getByTestId('notification-progress')).toContainText(
+      /\d{2}:\d{2} 異常 → \d{2}:\d{2} 正常 → \d{2}:\d{2} 異常/,
+    );
+    await expect(page.getByText('推奨アクション')).toHaveCount(0);
+    await shot(page, testInfo, 'uc22-progress');
+  });
+
+  test('取り込み失敗の通知には、経過・回復日時を出さない。メモを追記すると、入力者と日時つきで残り、読み込み直しても、別の利用者にも見える。空のメモは追記できない。編集・削除の操作はない', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await failIngestion(request, ['robot']);
+    await openNotifications(page);
+    const row = rows(page).first();
+    await expect(row.getByTestId('notification-recovery')).toHaveCount(0);
+    await expect(row.getByTestId('notification-progress')).toHaveCount(0);
+    const details = row.getByTestId('notification-details');
+    await expect(details.locator('summary')).toHaveText('メモ（0 件）');
+
+    await details.locator('summary').click();
+    await expect(row.getByTestId('notification-memo-empty')).toHaveText('メモはありません');
+    // 空のメモは、追記できない
+    await row.getByRole('button', { name: 'メモを追加' }).click();
+    await expect(row.getByText('メモを入力してください')).toBeVisible();
+    await expect(row.getByTestId('notification-memo')).toHaveCount(0);
+    await row.getByLabel('メモ').fill('ファイルサーバーを再起動して復旧した');
+    await row.getByRole('button', { name: 'メモを追加' }).click();
+
+    await expect(row.getByTestId('notification-memo-notice')).toContainText('メモを追加しました');
+    await expect(row.getByTestId('notification-memo')).toHaveCount(1);
+    await expect(row.getByTestId('notification-memo')).toContainText(
+      'ファイルサーバーを再起動して復旧した',
+    );
+    await expect(row.getByTestId('notification-memo')).toContainText('2026/');
+    await expect(details.locator('summary')).toHaveText('メモ（1 件）');
+    await expect(row.getByRole('button', { name: /編集|削除/ })).toHaveCount(0);
+    await shot(page, testInfo, 'uc22-memo');
+
+    // 読み込み直しても残り、別の利用者にも見える（共有）
+    await openNotifications(page);
+    await expect(
+      rows(page).first().getByTestId('notification-details').locator('summary'),
+    ).toHaveText('メモ（1 件）');
+    const other = await newUserSession(browser, testInfo, 'memo-other');
+    try {
+      await openAs(other.page, '/notifications', USER_B);
+      const otherRow = rows(other.page).first();
+      await otherRow.getByTestId('notification-details').locator('summary').click();
+      await expect(otherRow.getByTestId('notification-memo')).toContainText(
+        'ファイルサーバーを再起動して復旧した',
+      );
+    } finally {
+      await other.context.close();
+    }
   });
 });
 

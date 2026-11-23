@@ -67,7 +67,7 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     const rows = await screen.findAllByTestId('notification-row');
 
     expect(rows).toHaveLength(5);
-    expect(rows[0]?.textContent).toContain('異常検知');
+    expect(rows[0]?.textContent).toContain('状態の悪化');
     expect(rows[0]?.textContent).toContain('環境適応性');
     expect(rows[0]?.textContent).toContain('ハウス1');
     expect(rows[0]?.getAttribute('data-read-state')).toBe('UNREAD');
@@ -457,7 +457,7 @@ describe('通知一覧（UC-05・UC-22。SC-05）', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('サーバーでエラーが発生しました');
   });
 
-  it('異常検知の通知から観点の詳細を開くと、対象の設備を選び、未読の通知を既読にする', async () => {
+  it('状態の悪化の通知から観点の詳細を開くと、対象の設備を選び、未読の通知を既読にする', async () => {
     const { calls } = renderApp('/notifications', {
       'GET /notifications': listOf([notification({ equipmentId: 'ROBOT-01' as never })]),
       'POST /notifications/n-1/read': () => noContent(),
