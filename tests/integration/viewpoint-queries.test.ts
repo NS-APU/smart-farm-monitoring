@@ -14,7 +14,7 @@ import {
 } from '../../src/shared/schemas/evaluation.ts';
 import { ObservationListResponseSchema } from '../../src/shared/schemas/observation.ts';
 import { toEquipmentId, toUserId, type UserId } from '../../src/shared/schemas/common.ts';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import {
   equipmentSet,

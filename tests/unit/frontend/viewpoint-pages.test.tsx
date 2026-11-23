@@ -31,7 +31,7 @@ import {
   series,
   speedDetail,
 } from '../../support/viewpoint-fixtures.ts';
-import { getDefaultCriteria } from '../../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../../src/shared/constants/default-criteria.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
 
 interface Scenario {

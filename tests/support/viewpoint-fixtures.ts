@@ -7,7 +7,7 @@ import type {
   ViewpointDetailResponse,
 } from '../../src/shared/schemas/evaluation.ts';
 import type { ObservationListResponse } from '../../src/shared/schemas/observation.ts';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 
 const HOUSE = toEquipmentId('HOUSE-01');
 

@@ -24,7 +24,7 @@ import {
 import { LineChart } from '../../../src/frontend/components/line-chart.tsx';
 import { RadarChart } from '../../../src/frontend/components/radar-chart.tsx';
 import { criterionBands } from '../../../src/shared/criteria-text.ts';
-import { getDefaultCriteria } from '../../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../../src/shared/constants/default-criteria.ts';
 
 /** 存在を前提とする要素・値を取り出す（なければ、テストを失敗させる）。 */
 function must<T>(value: T | null | undefined): T {

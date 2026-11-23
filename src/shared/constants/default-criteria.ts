@@ -79,11 +79,23 @@ const CRITERIA_BY_VIEWPOINT: Readonly<Record<ViewpointId, readonly Criterion[]>>
   satisfaction: [lower('overallSatisfaction', 4, 3)],
 };
 
+/** 判断基準の複製（呼び出し側が閾値を書き換えても、既定値の定義に影響しないように。共通コードは、structuredClone の型を持たない）。 */
+function copyOf(criterion: Criterion): Criterion {
+  switch (criterion.kind) {
+    case 'UPPER':
+      return { ...criterion, thresholds: { ...criterion.thresholds } };
+    case 'LOWER':
+      return { ...criterion, thresholds: { ...criterion.thresholds } };
+    case 'RANGE':
+      return { ...criterion, thresholds: { ...criterion.thresholds } };
+  }
+}
+
 /** 観点の既定の判断基準。 */
 export function getDefaultCriteria(viewpointId: ViewpointId): ViewpointCriteria {
   return {
     viewpointId,
-    criteria: CRITERIA_BY_VIEWPOINT[viewpointId].map((criterion) => structuredClone(criterion)),
+    criteria: CRITERIA_BY_VIEWPOINT[viewpointId].map(copyOf),
     version: DEFAULT_CRITERIA_VERSION,
     isDefault: true,
   };

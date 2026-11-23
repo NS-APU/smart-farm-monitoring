@@ -7,7 +7,7 @@ import {
   type ViewpointId,
 } from '@smart-farm/shared/constants/viewpoints';
 import type { StatusDetail } from '@smart-farm/shared/schemas/evaluation';
-import { getDefaultCriteria } from '../../../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../../../src/shared/constants/default-criteria.ts';
 import { evaluateHorizon } from '../../../../src/backend/domain/evaluation/engine.ts';
 import {
   CUSTOM_CRITERIA_NOTE,

@@ -7,7 +7,7 @@ import {
   describeCriterionRows,
   formatThreshold,
 } from '../../../src/shared/criteria-text.ts';
-import { getDefaultCriteria } from '../../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../../src/shared/constants/default-criteria.ts';
 import {
   OBSERVATION_QUALITY_LABELS,
   OBSERVATION_SOURCE_LABELS,
