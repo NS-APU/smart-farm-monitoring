@@ -1198,7 +1198,9 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
       .getByLabel('備考（所感・補足情報）')
       .fill('通信ケーブルとコネクタを交換した');
     await page.getByTestId('entry-edit').getByRole('button', { name: '保存' }).click();
-    await expect(page.getByTestId('entries-notice')).toHaveText('修正しました');
+    await expect(page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+      '修正しました',
+    );
     await page.getByRole('link', { name: '変更履歴を見る' }).click();
     await expect(page.getByTestId('audit-row').filter({ hasText: '手動入力' })).toHaveCount(2);
 

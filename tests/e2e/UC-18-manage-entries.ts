@@ -39,16 +39,19 @@ import {
 import {
   allSatisfactionStars,
   fieldError,
+  expectRelatedStatus,
   fillEntryForm,
   satisfactionApiItems,
   saveEntry,
 } from './support/entry.ts';
-import { hoursAgo, shot } from './support/viewpoint-scenarios.ts';
+import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
 import { locatorOf, userIdText } from './support/pages.ts';
 
 const rows = locatorOf('entry-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
 const notice = locatorOf('entries-notice');
+/** 修正・削除の結果の見出し（「修正しました」「削除しました」。評価の更新の表示は、その下。D-27）。 */
+const noticeTitle = (page: Page) => notice(page).getByRole('heading');
 const editor = (page: Page) => page.getByTestId('entry-edit');
 
 async function openList(
@@ -454,6 +457,78 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
 });
 
 test.describe('基本フロー 3〜4: データを修正または削除し、検証して保存する', () => {
+  test('修正は、ダイアログで行う（SC-07-2）。最初の入力欄にフォーカスがあり、Esc・✕・キャンセルで閉じて、「修正」のボタンへフォーカスが戻る。表の上のパネルは出ない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addEntry(request, {
+      category: 'SAFETY',
+      observedAt: hoursAgo(1),
+      items: { emergencyStopCount: 1 },
+    });
+    await openList(page);
+    const opener = rows(page).first().getByRole('button', { name: '修正' });
+
+    await opener.click();
+
+    const dialog = page.getByRole('dialog', { name: '入力内容の修正' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAttribute('data-testid', 'entry-edit');
+    await expect(dialog).toBeInViewport();
+    await expect(dialog.getByLabel('対象の設備')).toBeFocused();
+    await expect(page.locator('body')).toHaveClass(/modal-open/);
+    // 表の上のインラインのパネルではない（ダイアログの外の、画面の中には、修正のフォームがない）
+    await expect(page.locator('section.panel form.entry-form')).toHaveCount(0);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await expect(page.locator('body')).not.toHaveClass(/modal-open/);
+
+    await opener.click();
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+
+    await opener.click();
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await expect(notice(page)).toHaveCount(0);
+  });
+
+  test('修正の後も、評価の更新（ローカル: 関連する観点のステータス）を示す（D-27）。修正前の MTTR 10 時間（異常）→ 修正後 1.5 時間（正常）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    // メンテナンス性の評価に使う、取り込み済みのステータス（UC-06 と同じ）
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'statusCode', value: 'STANDBY', observedAt: hoursAgo(2) },
+      ],
+    });
+    await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(1),
+      items: { failureCount: 1, recoveryMinutes: 600 },
+    });
+    await openList(page);
+    await rows(page).first().getByRole('button', { name: '修正' }).click();
+    await fillEntryForm(page, { items: { 復旧に要した時間: '90' } }, editor(page));
+
+    await editor(page).getByRole('button', { name: '保存', exact: true }).click();
+
+    await expect(noticeTitle(page)).toHaveText('修正しました');
+    await expect(notice(page)).toContainText('入力内容を修正し、評価を更新しました');
+    await expectRelatedStatus(page, 'maintainability', '正常');
+    // 一覧の画面なので、一覧へのリンクは出さない。ダッシュボードで確認できる
+    await expect(notice(page).getByRole('link', { name: '入力済みデータの一覧へ' })).toHaveCount(0);
+    await expect(notice(page).getByRole('link', { name: 'ダッシュボードで確認' })).toBeVisible();
+    await shot(page, testInfo, 'uc18-edited-result');
+  });
+
   test('修正: 入力済みの内容（設備・カテゴリ・計測日時・項目の値・備考）を編集欄に表示し、変更して保存すると、一覧と評価に反映される（入力者は変わらない）', async ({
     page,
     request,
@@ -484,8 +559,9 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     );
     await editor(page).getByRole('button', { name: '保存', exact: true }).click();
 
-    await expect(notice(page)).toHaveText('修正しました');
+    await expect(noticeTitle(page)).toHaveText('修正しました');
     await expect(editor(page)).toHaveCount(0);
+    await shot(page, testInfo, 'uc18-edited');
     await expect(rows(page).first()).toContainText('復旧に要した時間: 90分');
     await expect(rows(page).first()).toContainText('訂正: 復旧は 90 分だった');
     await expect(rows(page).first()).toContainText(userIdText('e2e-user'));
@@ -519,7 +595,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     );
     await editor(page).getByRole('button', { name: '保存', exact: true }).click();
 
-    await expect(notice(page)).toHaveText('修正しました');
+    await expect(noticeTitle(page)).toHaveText('修正しました');
     await expect(rows(page).first()).toContainText('ハウス1');
     await expect(rows(page).first()).toContainText('満足度情報');
     await expect(rows(page).first()).toContainText('満足度（収穫精度）: 5スター');
@@ -615,7 +691,11 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await rows(page).first().getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
 
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(noticeTitle(page)).toHaveText('削除しました');
+    // 削除の後も、評価の更新（ローカル: 関連する観点のステータス）を示す（D-27）
+    await expect(notice(page)).toContainText('入力内容を削除し、評価を更新しました');
+    await expect(notice(page).getByTestId('related-safety')).toBeVisible();
+    await shot(page, testInfo, 'uc18-deleted');
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByTestId('entries-empty')).toBeVisible();
     await page.goto('/observations');
@@ -640,7 +720,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
 
     await rows(page).first().getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(noticeTitle(page)).toHaveText('削除しました');
 
     await page.goto('/viewpoints/maintainability?equipmentId=ROBOT-01');
     await expect(page.getByTestId('metric-failureCount').locator('td').first()).toHaveText('—');
@@ -888,7 +968,7 @@ test.describe('シナリオ: 利用者Aが入力し、利用者Bが修正し、�
     await rows(b.page).first().getByRole('button', { name: '修正' }).click();
     await fillEntryForm(b.page, { items: { 緊急停止回数: '1' }, note: 'Bが訂正' }, editor(b.page));
     await editor(b.page).getByRole('button', { name: '保存', exact: true }).click();
-    await expect(notice(b.page)).toHaveText('修正しました');
+    await expect(noticeTitle(b.page)).toHaveText('修正しました');
     await shot(b.page, testInfo, 'uc18-user-b-edited');
 
     // 利用者A: 修正後の内容を確認する（入力者は、Aのまま）
@@ -1121,6 +1201,7 @@ for (const viewport of VIEWPORTS.filter((item) => !item.fits)) {
     await expect(edit).toBeInViewport({ ratio: 1 });
     await edit.click();
     await expect(editor(page)).toBeVisible();
+    await expect(editor(page)).toBeInViewport({ ratio: 1 });
     await expect(editor(page).getByLabel('備考（所感・補足情報）')).toHaveValue(LONG_NOTE_JAPANESE);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -1134,7 +1215,7 @@ for (const viewport of VIEWPORTS.filter((item) => !item.fits)) {
     await expect(page.getByTestId('confirm-dialog')).toBeVisible();
     await shot(page, testInfo, `uc18-confirm-${String(viewport.width)}`);
     await confirmDialog(page, '削除');
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(noticeTitle(page)).toHaveText('削除しました');
   });
 }
 

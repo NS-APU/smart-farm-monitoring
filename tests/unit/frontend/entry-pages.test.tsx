@@ -15,7 +15,6 @@ import {
   errorBody,
   loginWith,
   manualEntry,
-  noContent,
   renderApp,
   type Routes,
 } from '../../support/management-frontend.ts';
@@ -77,6 +76,14 @@ beforeEach(() => {
   window.localStorage.clear();
   window.history.pushState(null, '', '/');
 });
+
+/** 削除の応答（200。保存と同じ形。entry は、削除済みの入力。Issue #150）。 */
+const DELETED = { ...SAVED, entry: manualEntry({ isDeleted: true }) };
+
+/** SC-07 の修正・削除の結果の、見出し（「修正しました」「削除しました」）。 */
+function resultTitle(): string {
+  return within(screen.getByTestId('entries-notice')).getByRole('heading').textContent;
+}
 
 describe('データ入力（UC-06。SC-06）', () => {
   it('権限（manual-entry:write）がなければ、入力できない旨を示し、フォームを表示しない', async () => {
@@ -724,7 +731,8 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
 
     fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
 
-    expect((await screen.findByTestId('entries-notice')).textContent).toBe('修正しました');
+    await screen.findByTestId('entries-notice');
+    expect(resultTitle()).toBe('修正しました');
     expect(callsOf(calls, 'PUT', '/manual-entries/e-1')[0]?.body).toMatchObject({
       items: { failureCount: 5, recoveryMinutes: 90 },
     });
@@ -766,20 +774,172 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     });
   });
 
-  it('修正をキャンセルすると、フォームを閉じる', async () => {
-    renderApp('/data-entry/list', listRoutes());
-    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
-    const edit = await screen.findByTestId('entry-edit');
+  describe('修正は、ダイアログで行う（Issue #150。SC-07-2）', () => {
+    it('「修正」で、ダイアログ（名前は「入力内容の修正」）が開き、表の上のパネルは出ない。入力内容を表示する', async () => {
+      renderApp('/data-entry/list', listRoutes());
+      const button = await screen.findByRole('button', { name: '修正' });
 
-    fireEvent.click(within(edit).getByRole('button', { name: 'キャンセル' }));
+      fireEvent.click(button);
 
-    expect(screen.queryByTestId('entry-edit')).toBeNull();
+      const dialog = screen.getByRole('dialog', { name: '入力内容の修正' });
+      expect(dialog).toBe(screen.getByTestId('entry-edit'));
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(dialog.closest('section.panel')).toBeNull();
+      expect(within(dialog).getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('2');
+    });
+
+    it('キャンセルで閉じ、「修正」のボタンへフォーカスが戻る', async () => {
+      renderApp('/data-entry/list', listRoutes());
+      const button = await screen.findByRole('button', { name: '修正' });
+      button.focus();
+      fireEvent.click(button);
+      const edit = await screen.findByTestId('entry-edit');
+
+      fireEvent.click(within(edit).getByRole('button', { name: 'キャンセル' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement).toBe(button);
+    });
+
+    it('Esc と ✕ のボタンでも閉じる（そのたびに、API は呼ばない）', async () => {
+      const { calls } = renderApp('/data-entry/list', listRoutes());
+      const button = await screen.findByRole('button', { name: '修正' });
+      fireEvent.click(button);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      fireEvent.click(button);
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '閉じる' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(callsOf(calls, 'PUT', '/manual-entries/e-1')).toHaveLength(0);
+    });
+
+    it('保存に成功すると閉じる。失敗（サーバーのエラー）では、閉じず、エラーを示す', async () => {
+      let failing = true;
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () =>
+          failing ? errorBody(500, 'INTERNAL', '保存に失敗しました') : jsonResponse(SAVED),
+      });
+      fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+      const edit = await screen.findByTestId('entry-edit');
+
+      fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+      expect((await within(edit).findByRole('alert')).textContent).toBe(
+        'エラーが発生しました。しばらくしてからやり直してください',
+      );
+      expect(screen.getByRole('dialog')).toBe(edit);
+      expect(screen.queryByTestId('entries-notice')).toBeNull();
+
+      failing = false;
+      fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+      await screen.findByTestId('entries-notice');
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  describe('修正・削除の後は、評価の更新を示す（D-27。Issue #150）', () => {
+    async function updateEntry(): Promise<HTMLElement> {
+      fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+      fireEvent.click(
+        within(await screen.findByTestId('entry-edit')).getByRole('button', { name: '保存' }),
+      );
+      return await screen.findByTestId('entries-notice');
+    }
+
+    async function deleteEntry(): Promise<HTMLElement> {
+      fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+      fireEvent.click(
+        within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
+      );
+      return await screen.findByTestId('entries-notice');
+    }
+
+    it('ローカル（DONE）: 修正の後に、「修正しました」と、評価を更新した旨・関連する観点のステータスを示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () => jsonResponse({ ...SAVED, evaluation: 'DONE' }),
+      });
+
+      const result = await updateEntry();
+
+      expect(resultTitle()).toBe('修正しました');
+      expect(result.getAttribute('role')).toBe('status');
+      expect(within(result).getByTestId('entry-lead').textContent).toBe(
+        '入力内容を修正し、評価を更新しました。関連する観点の現在のステータスです',
+      );
+      expect(within(result).getByTestId('related-durability').textContent).toContain('耐久性');
+      expect(
+        within(result).getByRole('link', { name: 'メンテナンス性' }).getAttribute('href'),
+      ).toBe('/viewpoints/maintainability');
+      // 一覧の画面なので、一覧へのリンクは出さない
+      expect(within(result).queryByRole('link', { name: '入力済みデータの一覧へ' })).toBeNull();
+    });
+
+    it('AWS（DEFERRED）: 修正の後に、「ステータスへの反映には、数分かかります」と示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () => jsonResponse({ ...SAVED, evaluation: 'DEFERRED' }),
+      });
+
+      const result = await updateEntry();
+
+      const lead = within(result).getByTestId('entry-lead').textContent;
+      expect(lead).toContain('入力内容を修正しました');
+      expect(lead).toContain('ステータスへの反映には、数分かかります');
+      expect(within(result).getByTestId('related-durability')).toBeDefined();
+    });
+
+    it('ローカル（DONE）: 削除の後に、「削除しました」と、評価を更新した旨・関連する観点のステータスを示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'DELETE /manual-entries/e-1': () => jsonResponse({ ...DELETED, evaluation: 'DONE' }),
+      });
+
+      const result = await deleteEntry();
+
+      expect(resultTitle()).toBe('削除しました');
+      expect(within(result).getByTestId('entry-lead').textContent).toBe(
+        '入力内容を削除し、評価を更新しました。関連する観点の現在のステータスです',
+      );
+      expect(within(result).getByTestId('related-durability').textContent).toContain('耐久性');
+    });
+
+    it('AWS（DEFERRED）: 削除の後に、「ステータスへの反映には、数分かかります」と示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'DELETE /manual-entries/e-1': () => jsonResponse({ ...DELETED, evaluation: 'DEFERRED' }),
+      });
+
+      const result = await deleteEntry();
+
+      const lead = within(result).getByTestId('entry-lead').textContent;
+      expect(lead).toContain('入力内容を削除しました');
+      expect(lead).toContain('ステータスへの反映には、数分かかります');
+    });
+
+    it('関連する観点がなければ、その旨を示す。次の「削除」を押すと、結果は消える', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () => jsonResponse({ ...SAVED, viewpointStatuses: [] }),
+      });
+
+      const result = await updateEntry();
+
+      expect(within(result).getByText('関連する観点の評価は、まだありません')).toBeDefined();
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      expect(screen.queryByTestId('entries-notice')).toBeNull();
+    });
   });
 
   it('削除: 確認のダイアログを表示し、確定すると、削除の API を呼んで、一覧を読み直す。キャンセルなら、何もしない', async () => {
     const { calls } = renderApp('/data-entry/list', {
       ...listRoutes(),
-      'DELETE /manual-entries/e-1': () => noContent(),
+      'DELETE /manual-entries/e-1': () => jsonResponse(DELETED),
     });
     fireEvent.click(await screen.findByRole('button', { name: '削除' }));
     const dialog = await screen.findByTestId('confirm-dialog');
@@ -792,16 +952,17 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
       within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
     );
 
-    expect((await screen.findByTestId('entries-notice')).textContent).toBe('削除しました');
+    await screen.findByTestId('entries-notice');
+    expect(resultTitle()).toBe('削除しました');
     expect(callsOf(calls, 'DELETE', '/manual-entries/e-1')).toHaveLength(1);
   });
 
-  it('SC-07 の修正・削除の通知（entries-notice）は、結果の通知の部品で、role="status"・表示されたときに画面内へスクロールする（Issue #150）', async () => {
+  it('SC-07 の修正・削除の結果（entries-notice）は、role="status"・表示されたときに画面内へスクロールする（Issue #150）', async () => {
     const scroll = stubScrollIntoView();
     renderApp('/data-entry/list', {
       'GET /manual-entries': () => jsonResponse({ items: [manualEntry()], nextCursor: null }),
       'PUT /manual-entries/e-1': () => jsonResponse(SAVED),
-      'DELETE /manual-entries/e-1': () => noContent(),
+      'DELETE /manual-entries/e-1': () => jsonResponse(DELETED),
     });
     fireEvent.click(await screen.findByRole('button', { name: '修正' }));
     const edit = await screen.findByTestId('entry-edit');
@@ -810,7 +971,7 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     const updated = await screen.findByTestId('entries-notice');
 
     expect(updated.getAttribute('role')).toBe('status');
-    expect(updated.textContent).toBe('修正しました');
+    expect(resultTitle()).toBe('修正しました');
     expect(scroll.mock.contexts).toContain(updated);
     const afterUpdate = scroll.mock.calls.length;
 
@@ -820,7 +981,7 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('entries-notice').textContent).toBe('削除しました');
+      expect(resultTitle()).toBe('削除しました');
     });
     expect(scroll.mock.calls.length).toBeGreaterThan(afterUpdate);
     expect(scroll.mock.contexts.at(-1)).toBe(screen.getByTestId('entries-notice'));

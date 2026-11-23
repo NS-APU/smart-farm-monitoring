@@ -573,7 +573,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // UC-18 入力済みデータ（約5,000件）の一覧・修正・削除・変更履歴
   // ---------------------------------------------------------------------------------------------
   const entryRows = rowsOf(page, 'entry-row');
-  const entryNotice = page.getByTestId('entries-notice');
+  // 修正・削除の結果（評価の更新の表示つき）の、見出し（D-27）
+  const entryNotice = page.getByTestId('entries-notice').getByRole('heading');
   await m(
     'UC-18',
     'データ入力の画面から「入力済みデータの一覧へ」を開く',
