@@ -154,6 +154,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
       notifications: repositories.notifications,
       evaluations: repositories.evaluations,
       pushSubscriptions: repositories.pushSubscriptions,
+      users: repositories.users,
       recipients: createNotificationRecipients({
         repositories,
         policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),

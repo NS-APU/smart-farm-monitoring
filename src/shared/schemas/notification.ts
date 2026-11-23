@@ -99,6 +99,15 @@ export const NotificationMemoSchema = z.object({
 });
 export type NotificationMemo = z.infer<typeof NotificationMemoSchema>;
 
+/**
+ * 通知のメモの API の応答（追記・一覧）。入力者の表示名（`enteredByName`）を、読み取り時に、現在のユーザー名から付ける
+ * （保存しない。削除済みの利用者は、項目を出さない。画面は、「ユーザー名（ID）」で表示する。Issue #154 の SC-07-7）。
+ */
+export const NotificationMemoViewSchema = NotificationMemoSchema.extend({
+  enteredByName: z.string().optional(),
+});
+export type NotificationMemoView = z.infer<typeof NotificationMemoViewSchema>;
+
 /** POST /notifications/:id/memos の入力。前後の空白を除き、1〜2000 文字（手動入力のメモと同じ上限）。 */
 export const NotificationMemoInputSchema = z.object({
   body: z
@@ -111,7 +120,7 @@ export type NotificationMemoInput = z.infer<typeof NotificationMemoInputSchema>;
 
 /** GET /notifications/:id/memos の応答（入力の古い順。全件）。 */
 export const NotificationMemoListResponseSchema = z.object({
-  items: z.array(NotificationMemoSchema),
+  items: z.array(NotificationMemoViewSchema),
 });
 export type NotificationMemoListResponse = z.infer<typeof NotificationMemoListResponseSchema>;
 

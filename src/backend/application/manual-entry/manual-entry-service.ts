@@ -3,6 +3,7 @@
  * 入力 → 検証 → 保存（1回の入力と、項目ごとの観測値）→ 変更履歴 → 評価の更新（→ 通知）。
  * 修正・削除は、論理削除を基本とし、観測値も削除済みにして、集計の対象から外す。
  * 修正・削除の後も、保存後と同じく評価を更新する（暫定。dev_spec.md 4章 No.21）。
+ * 一覧の応答には、入力者の表示名（現在のユーザー名。保存しない）を付ける（Issue #154 の SC-07-7）。
  */
 
 import {
@@ -26,6 +27,7 @@ import {
   validateManualEntry,
   type ManualEntry,
   type ManualEntryInput,
+  type ManualEntryListItem,
   type ManualEntryListResponse,
   type ManualEntrySaveResponse,
   type ManualEntryViewpointStatus,
@@ -37,6 +39,7 @@ import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/source-items.ts';
 import type { AuditService } from '../audit/audit-service.ts';
+import { loadUserNames } from '../auth/user-display-names.ts';
 import { ALL_EQUIPMENT, canViewEquipment, type EquipmentScope } from '../access/facility-scope.ts';
 import {
   EQUIPMENT_NOT_FOUND_MESSAGE,
@@ -92,7 +95,7 @@ export interface ManualEntryService {
 export interface ManualEntryServiceDeps {
   readonly repositories: Pick<
     Repositories,
-    'manualEntries' | 'observations' | 'equipment' | 'evaluations' | 'statusCodes'
+    'manualEntries' | 'observations' | 'equipment' | 'evaluations' | 'statusCodes' | 'users'
   >;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
@@ -437,7 +440,13 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         { limit: query.limit, cursor: query.cursor },
         { key: query.sort, direction: query.direction },
       );
-      return { items: page.items, nextCursor: page.nextCursor };
+      // 入力者の表示名（現在のユーザー名）。一覧が空のときは、利用者の一覧を読まない
+      const nameOf = page.items.length === 0 ? undefined : await loadUserNames(repositories.users);
+      const items: ManualEntryListItem[] = page.items.map((entry) => ({
+        ...entry,
+        ...omitUndefined({ enteredByName: nameOf?.(entry.enteredBy) }),
+      }));
+      return { items, nextCursor: page.nextCursor };
     },
   };
 }

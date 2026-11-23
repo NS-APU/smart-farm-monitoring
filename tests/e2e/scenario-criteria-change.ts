@@ -31,7 +31,8 @@ import {
   seed,
   shot,
 } from './support/viewpoint-scenarios.ts';
-import { dashboardCard as card, locatorOf, userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { dashboardCard as card, locatorOf, userLabelText } from './support/pages.ts';
 import { expandPanel } from './support/helpers.ts';
 
 const criterion = (page: Page, indicator: string): Locator =>
@@ -192,7 +193,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
       await expect(row.locator('td').nth(1)).toHaveText('編集');
     }
     await expect(page.getByTestId('audit-row').first()).toContainText('environmentalAdaptability');
-    await expect(page.getByTestId('audit-row').first()).toContainText(userIdText('e2e-user'));
+    await expect(page.getByTestId('audit-row').first()).toContainText(userLabelText(E2E_USER));
     await goToMenu(page, 'ダッシュボード');
     await b.context.close();
   });

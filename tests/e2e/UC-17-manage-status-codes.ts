@@ -30,7 +30,7 @@ import {
 import { placeFile } from './support/http-files.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { durabilityData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { locatorOf, rowBy } from './support/pages.ts';
+import { locatorOf, rowBy, userLabelText } from './support/pages.ts';
 
 const rows = locatorOf('status-code-row');
 const rowOf = rowBy('status-code-row', 'data-code');
@@ -579,7 +579,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
       await expect(row).toContainText(operation);
       await expect(row).toContainText('ステータスコード');
       await expect(row).toContainText('（CHARGING）');
-      await expect(row).toContainText(E2E_USER.userId);
+      await expect(row).toContainText(userLabelText(E2E_USER));
     }
     // 変更前後の定義（列: 日時・操作・対象・操作者・変更前・変更後）。ない側は「—」
     await expect(audit.nth(0).locator('td').nth(4)).toContainText('"category": "CAUTION"');

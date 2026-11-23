@@ -3,7 +3,7 @@
  * - 回復日時（`NotificationRecovery`）: 状態変化の通知に、「11:20 に回復（20 分）」または「未回復」を、常に示す。経過を示せない通知（`progress` が
  *   null・状態変化ではない通知）には、出さない
  * - 経過・メモ（`NotificationDetails`）: 開閉できる欄（既定は閉じる）。経過（「11:00 異常 → 11:20 正常 → 11:40 異常」。通知の日と違う日の時刻は、
- *   月/日つき）と、メモ（共有・追記のみ。入力者・日時つき）。メモは、欄を開いたときに読み込み、追記できる（手動入力と同じ権限 `manual-entry:write`）
+ *   月/日つき）と、メモ（共有・追記のみ。入力者〔「ユーザー名（ID）」〕・日時つき）。メモは、欄を開いたときに読み込み、追記できる（手動入力と同じ権限 `manual-entry:write`）
  * 推奨アクションは、一覧に載せない（リンク先の観点の詳細で確認する）。
  */
 
@@ -12,12 +12,13 @@ import { STATUS_LABELS } from '@smart-farm/shared/constants/status';
 import {
   NotificationMemoInputSchema,
   type NotificationItem,
-  type NotificationMemo,
+  type NotificationMemoView,
 } from '@smart-farm/shared/schemas/notification';
 import { addNotificationMemo, listNotificationMemos } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { usePermission } from '../hooks/use-permission.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
+import { userLabel } from '../lib/user-label.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { Field, FormError } from './form-controls.tsx';
 import { formatDateTimeJst, formatElapsed, formatShortDateTimeJst } from './format.ts';
@@ -52,7 +53,7 @@ function MemoSection(props: {
   const { api } = useAuth();
   const canWrite = usePermission('manual-entry:write');
   const { notificationId, memoCount, onAdded } = props;
-  const [memos, setMemos] = useState<readonly NotificationMemo[] | undefined>(undefined);
+  const [memos, setMemos] = useState<readonly NotificationMemoView[] | undefined>(undefined);
   const [loadFailed, setLoadFailed] = useState(false);
   const [body, setBody] = useState('');
   const [inputError, setInputError] = useState<string | undefined>(undefined);
@@ -118,7 +119,7 @@ function MemoSection(props: {
         {memos.map((memo) => (
           <li key={memo.memoId} data-testid="notification-memo">
             <div className="notification-memo-meta muted">
-              {memo.enteredBy}（{formatDateTimeJst(memo.createdAt)}）
+              {userLabel(memo.enteredBy, memo.enteredByName)} / {formatDateTimeJst(memo.createdAt)}
             </div>
             <div className="notification-memo-body">{memo.body}</div>
           </li>

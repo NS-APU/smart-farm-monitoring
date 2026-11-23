@@ -35,7 +35,8 @@ import {
   saveEntry,
 } from './support/entry.ts';
 import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { userLabelText } from './support/pages.ts';
 
 /** 復旧の記録が使うステータスコード（ロボットデータから取り込み済みの想定）。 */
 async function seedStatusCode(request: Parameters<typeof prepareApp>[0]): Promise<void> {
@@ -160,7 +161,7 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(rows.first()).toContainText('故障回数: 2回');
     await expect(rows.first()).toContainText('復旧に要した時間: 150分');
     await expect(rows.first()).toContainText('搬送ベルトの張りを調整した。再発したら交換する');
-    await expect(rows.first()).toContainText(userIdText('e2e-user'));
+    await expect(rows.first()).toContainText(userLabelText(E2E_USER));
     await expect(rows.first().locator('time')).toContainText('2026/10/09 11:00');
     await shot(page, testInfo, 'uc06-saved-list');
   });

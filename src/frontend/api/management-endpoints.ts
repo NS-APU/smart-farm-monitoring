@@ -53,7 +53,7 @@ import {
 import {
   NotificationListResponseSchema,
   NotificationMemoListResponseSchema,
-  NotificationMemoSchema,
+  NotificationMemoViewSchema,
   PushStatusResponseSchema,
   ReadAllResponseSchema,
   UnreadCountResponseSchema,
@@ -106,7 +106,7 @@ export function addNotificationMemo(
   return api.request(API_PATHS.notificationMemos(notificationId), {
     method: 'POST',
     body: input,
-    schema: NotificationMemoSchema,
+    schema: NotificationMemoViewSchema,
   });
 }
 

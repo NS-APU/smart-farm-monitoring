@@ -110,9 +110,11 @@ export async function expectEquipmentFieldIntact(page: Page): Promise<void> {
 }
 
 /**
- * 画面の文言の中から、指定した利用者ID だけに一致する正規表現（`e2e-user` が、`e2e-user-b` に一致しない）。
- * 表の行の文言は、セルの間に空白がないため、直後にハイフンが続かないことだけで判定する（別の列の文言が、直後に続くことがある）。
+ * 入力者・変更者の表示（「ユーザー名（ID）」。Issue #154 の SC-07-7）。括弧で閉じるため、`e2e-user` が `e2e-user-b` に一致しない。
  */
-export function userIdText(userId: string): RegExp {
-  return new RegExp(`${userId}(?!-)`);
+export function userLabelText(user: {
+  readonly userId: string;
+  readonly userName: string;
+}): string {
+  return `${user.userName}（${user.userId}）`;
 }

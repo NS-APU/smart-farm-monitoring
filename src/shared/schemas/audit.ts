@@ -34,8 +34,17 @@ export const AuditLogEntrySchema = z.object({
 });
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
 
+/**
+ * 変更履歴の一覧の 1 件（API の応答）。変更者の表示名（`actorName`）を、読み取り時に、現在のユーザー名から付ける
+ * （保存しない。削除済みの利用者は、項目を出さない。画面は、「ユーザー名（ID）」で表示する。Issue #154 の SC-07-7）。
+ */
+export const AuditLogListItemSchema = AuditLogEntrySchema.extend({
+  actorName: z.string().optional(),
+});
+export type AuditLogListItem = z.infer<typeof AuditLogListItemSchema>;
+
 export const AuditLogListResponseSchema = z.object({
-  items: z.array(AuditLogEntrySchema),
+  items: z.array(AuditLogListItemSchema),
   nextCursor: z.string().nullable(),
 });
 export type AuditLogListResponse = z.infer<typeof AuditLogListResponseSchema>;

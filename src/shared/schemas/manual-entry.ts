@@ -63,8 +63,17 @@ export const ManualEntrySchema = ManualEntryInputSchema.extend({
 });
 export type ManualEntry = z.infer<typeof ManualEntrySchema>;
 
+/**
+ * 入力データ一覧の 1 件（API の応答）。入力者の表示名（`enteredByName`）を、読み取り時に、現在のユーザー名から付ける
+ * （保存しない。削除済みの利用者は、項目を出さない。画面は、「ユーザー名（ID）」で表示する。Issue #154 の SC-07-7）。
+ */
+export const ManualEntryListItemSchema = ManualEntrySchema.extend({
+  enteredByName: z.string().optional(),
+});
+export type ManualEntryListItem = z.infer<typeof ManualEntryListItemSchema>;
+
 export const ManualEntryListResponseSchema = z.object({
-  items: z.array(ManualEntrySchema),
+  items: z.array(ManualEntryListItemSchema),
   nextCursor: z.string().nullable(),
 });
 export type ManualEntryListResponse = z.infer<typeof ManualEntryListResponseSchema>;

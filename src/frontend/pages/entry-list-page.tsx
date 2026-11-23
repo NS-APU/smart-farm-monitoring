@@ -36,6 +36,7 @@ import {
 import { equipmentOptionLabel } from '../components/equipment-options.ts';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { userLabel } from '../lib/user-label.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import {
@@ -197,7 +198,9 @@ export function EntryListPage(): ReactNode {
                   <td data-label={TEXT.values}>
                     <EntryValues entry={entry} />
                   </td>
-                  <td data-label={TEXT.enteredBy}>{entry.enteredBy}</td>
+                  <td data-label={TEXT.enteredBy}>
+                    {userLabel(entry.enteredBy, entry.enteredByName)}
+                  </td>
                   <td data-label={TEXT.note}>
                     {entry.note === undefined ? (
                       MESSAGES.common.missingValue

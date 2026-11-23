@@ -605,6 +605,21 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     expect(rows[1]?.querySelectorAll('td')[5]?.textContent).toBe('—');
   });
 
+  it('入力者は、「ユーザー名（ID）」で表示する。ユーザー名がなければ（削除済みの利用者）、ID だけを表示する（SC-07-7）', async () => {
+    renderApp(
+      '/data-entry/list',
+      listRoutes([
+        manualEntry({ enteredBy: 'worker-1' as never, enteredByName: '作業者1' }),
+        manualEntry({ entryId: 'e-2', enteredBy: 'gone-user' as never }),
+      ]),
+    );
+
+    const rows = await screen.findAllByTestId('entry-row');
+
+    expect(rows[0]?.querySelectorAll('td')[4]?.textContent).toBe('作業者1（worker-1）');
+    expect(rows[1]?.querySelectorAll('td')[4]?.textContent).toBe('gone-user');
+  });
+
   it('説明文は、「論理削除」という用語を使わず、削除したデータの扱い（一覧・集計から外れる。変更履歴には残る）を示す', async () => {
     renderApp('/data-entry/list', listRoutes([manualEntry()]));
 
@@ -1123,6 +1138,24 @@ describe('変更履歴（UC-18。SC-08）', () => {
     expect(rows[1]?.querySelectorAll('td')[4]?.textContent).toBe('—');
     expect(rows[2]?.textContent).toContain('削除');
     expect(rows[2]?.textContent).toContain('something-new');
+  });
+
+  it('変更者は、「ユーザー名（ID）」で表示する。ユーザー名がなければ（削除済みの利用者）、ID だけを表示する（SC-07-7）', async () => {
+    renderApp('/data-entry/history', {
+      'GET /audit-logs': () =>
+        jsonResponse({
+          items: [
+            { ...AUDIT_ENTRY, actorName: '作業者1' },
+            { ...AUDIT_ENTRY, auditId: 'a-2', actor: 'gone-user' },
+          ],
+          nextCursor: null,
+        }),
+    });
+
+    const rows = await screen.findAllByTestId('audit-row');
+
+    expect(rows[0]?.querySelectorAll('td')[3]?.textContent).toBe('作業者1（worker-1）');
+    expect(rows[1]?.querySelectorAll('td')[3]?.textContent).toBe('gone-user');
   });
 
   it('手動入力の履歴は、項目の値のほかに、計測日時・設備・カテゴリ・備考を示す（備考が空・カテゴリが未知でも表示できる）', async () => {

@@ -77,6 +77,7 @@ function build(
     credentials,
     audit: createAuditService({
       auditLogs: repositories.auditLogs,
+      users: repositories.users,
       clock,
       ids: createSequentialIdGenerator('audit'),
     }),

@@ -33,6 +33,7 @@ function setup(overrides: { expiryDays?: number; batchSize?: number } = {}) {
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
+    users: repositories.users,
     recipients: createNotificationRecipients({
       repositories,
       policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
