@@ -52,6 +52,41 @@ describe('ステータスコード（UC-17。SC-12）', () => {
     expect(rows[2]?.textContent).toContain('注意');
   });
 
+  it('「カテゴリの見かた」の凡例は、はじめは閉じている。開くと、正常・注意・異常の意味と対応の目安を示し、「不明」は示さない。もう一度押すと閉じる', async () => {
+    renderApp('/settings/status-codes', { 'GET /status-codes': () => jsonResponse(CODES) });
+    await screen.findAllByTestId('status-code-row');
+    const toggle = screen.getByRole('button', { name: 'カテゴリの見かた' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('status-code-legend-body')).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const body = screen.getByTestId('status-code-legend-body');
+    expect(within(body).getByTestId('status-code-legend-NORMAL').textContent).toContain(
+      '判断基準を満たしています',
+    );
+    expect(within(body).getByTestId('status-code-legend-CAUTION').textContent).toContain(
+      '農作業者の確認が望ましい',
+    );
+    expect(within(body).getByTestId('status-code-legend-ERROR').textContent).toContain(
+      '農作業者の対応が必要',
+    );
+    expect(within(body).queryByTestId('status-code-legend-UNKNOWN')).toBeNull();
+    // カテゴリが、判定にどう使われるか
+    expect(body.textContent).toContain('収穫速度・メンテナンス性・耐久性');
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('status-code-legend-body')).toBeNull();
+  });
+
+  it('変更する権限がなくても、凡例を開ける', async () => {
+    renderApp('/settings/status-codes', {}, { login: READ_ONLY_LOGIN });
+    await screen.findAllByTestId('status-code-row');
+    fireEvent.click(screen.getByRole('button', { name: 'カテゴリの見かた' }));
+    expect(screen.getByTestId('status-code-legend-body')).toBeDefined();
+  });
+
   it('定義がなければ、その旨を表示する', async () => {
     renderApp('/settings/status-codes', { 'GET /status-codes': () => jsonResponse({ items: [] }) });
     expect((await screen.findByTestId('status-codes-empty')).textContent).toContain(
