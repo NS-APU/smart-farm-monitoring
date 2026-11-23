@@ -3,24 +3,37 @@
 import { TIME_ZONE_JST } from '@smart-farm/shared/time';
 import { MESSAGES } from '../i18n/messages.ts';
 
-const DATE_TIME_FORMAT = new Intl.DateTimeFormat('ja-JP', {
+const DATE_TIME_MINUTES_OPTIONS: Intl.DateTimeFormatOptions = {
   timeZone: TIME_ZONE_JST,
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
   hour: '2-digit',
   minute: '2-digit',
-  second: '2-digit',
   hour12: false,
+};
+
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat('ja-JP', {
+  ...DATE_TIME_MINUTES_OPTIONS,
+  second: '2-digit',
 });
 
-/** 日時を「2026/10/09 12:34:56」の形式（日本時間）にする。欠損は「—」。 */
-export function formatDateTimeJst(iso: string | null | undefined): string {
+const DATE_TIME_MINUTES_FORMAT = new Intl.DateTimeFormat('ja-JP', DATE_TIME_MINUTES_OPTIONS);
+
+function formatWith(format: Intl.DateTimeFormat, iso: string | null | undefined): string {
   if (iso === null || iso === undefined) {
     return MESSAGES.common.missingValue;
   }
   const date = new Date(iso);
-  return Number.isNaN(date.getTime())
-    ? MESSAGES.common.missingValue
-    : DATE_TIME_FORMAT.format(date);
+  return Number.isNaN(date.getTime()) ? MESSAGES.common.missingValue : format.format(date);
+}
+
+/** 日時を「2026/10/09 12:34:56」の形式（日本時間）にする。欠損は「—」。 */
+export function formatDateTimeJst(iso: string | null | undefined): string {
+  return formatWith(DATE_TIME_FORMAT, iso);
+}
+
+/** 日時を「2026/10/09 12:34」の形式（日本時間。秒は省く）にする。欠損は「—」。ダッシュボードの、判定の対象期間に使う。 */
+export function formatDateTimeMinutesJst(iso: string | null | undefined): string {
+  return formatWith(DATE_TIME_MINUTES_FORMAT, iso);
 }

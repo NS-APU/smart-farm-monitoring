@@ -78,9 +78,17 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     await expect(accuracy.locator('.action')).toContainText(
       '推奨アクション: 現在の状態を維持し、引き続き推移を確認してください',
     );
-    await expect(accuracy.locator('.evaluated-period')).toContainText(
-      '判定の対象期間: 2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
+    // 判定の対象期間は、分まで。満足度を除く観点で同じなので、上部に 1 回だけ示し、カードには示さない
+    // （満足度は、既定の期間が 30 日で違うため、満足度のカードにだけ示す）
+    await expect(page.getByTestId('evaluated-period-common')).toHaveText(
+      '判定の対象期間: 2026/10/02 12:00 〜 2026/10/09 12:00',
     );
+    await expect(accuracy.locator('.evaluated-period')).toHaveCount(0);
+    await expect(card(page, 'satisfaction').locator('.evaluated-period')).toHaveText(
+      '判定の対象期間: 2026/09/09 12:00 〜 2026/10/09 12:00',
+    );
+    // 詳細へのリンクは、題名の 1 つだけ
+    await expect(accuracy.getByRole('link')).toHaveCount(1);
     // 対象のハウスと、最終の評価日時
     await expect(page.getByLabel('対象のハウス')).toHaveValue(HOUSE_ID);
     await expect(page.getByTestId('dashboard-meta')).toContainText(
@@ -396,27 +404,27 @@ test.describe('期間の選択（視点〔短期・長期〕の切り替えは�
     // 温度: 直近7日=20℃（正常）、7〜30日前=30℃、30〜60日前=44℃、60〜90日前=5℃（6時間ごと）
     // 期間ごとの平均: 当日 20（正常）、7日 20（正常）、30日 約27.6（注意）、60日 約35.8（異常）、90日 約25.6（注意）
     const periods = [
-      { days: 1, label: '当日', status: '正常', from: '2026/10/08 12:00:00', value: /20\.0℃/ },
-      { days: 7, label: '直近7日', status: '正常', from: '2026/10/02 12:00:00', value: /20\.0℃/ },
+      { days: 1, label: '当日', status: '正常', from: '2026/10/08 12:00', value: /20\.0℃/ },
+      { days: 7, label: '直近7日', status: '正常', from: '2026/10/02 12:00', value: /20\.0℃/ },
       {
         days: 30,
         label: '直近30日',
         status: '注意',
-        from: '2026/09/09 12:00:00',
+        from: '2026/09/09 12:00',
         value: /27\.\d℃/,
       },
       {
         days: 60,
         label: '直近60日',
         status: '異常',
-        from: '2026/08/10 12:00:00',
+        from: '2026/08/10 12:00',
         value: /35\.\d℃/,
       },
       {
         days: 90,
         label: '直近90日',
         status: '注意',
-        from: '2026/07/11 12:00:00',
+        from: '2026/07/11 12:00',
         value: /25\.\d℃/,
       },
     ] as const;
@@ -436,7 +444,7 @@ test.describe('期間の選択（視点〔短期・長期〕の切り替えは�
         await expect(page).toHaveURL(new RegExp(`periodDays=${String(period.days)}$`));
         // 期間を選ぶと、全観点で判定の対象期間が同じになるため、上部に 1 回だけ示す（カードには示さない）
         await expect(page.getByTestId('evaluated-period-common')).toContainText(
-          `判定の対象期間: ${period.from} 〜 2026/10/09 12:00:00`,
+          `判定の対象期間: ${period.from} 〜 2026/10/09 12:00`,
         );
         await expect(environment.locator('.evaluated-period')).toHaveCount(0);
         await expect(environment.locator('.status-badge')).toContainText(period.status);

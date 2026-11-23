@@ -625,7 +625,7 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     expect(within(safety).getByText('—')).toBeDefined();
     // 判定の対象期間は、全観点で同じなので、上部に 1 回だけ示し、カードには示さない（Issue #355）
     expect(screen.getByTestId('evaluated-period-common').textContent).toContain(
-      '2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
+      '2026/10/02 12:00 〜 2026/10/09 12:00',
     );
     expect(within(safety).queryByText(/判定の対象期間/)).toBeNull();
     expect(within(safety).queryByText('カスタムの判断基準')).toBeNull();

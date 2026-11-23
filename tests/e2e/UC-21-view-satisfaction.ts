@@ -236,8 +236,8 @@ test.describe('代替フロー: 満足度が入力されていない観点があ
     await expect(overallScore(page)).toHaveText('—');
     await expect(overallBadge(page)).toContainText('不明');
     const missing = page.getByTestId('satisfaction-missing');
-    await expect(missing).toContainText('未入力の観点があります');
-    await expect(missing).toContainText('データ活用度合い、耐久性');
+    await expect(missing).toContainText('未入力の観点があります: データ活用度合い、耐久性');
+    await expect(missing).toContainText('以前の、一部の観点だけの入力が残っている');
     await expect(missing.getByRole('link', { name: 'データ入力へ' })).toHaveAttribute(
       'href',
       '/data-entry',
@@ -274,7 +274,12 @@ test.describe('代替フロー: 満足度が入力されていない観点があ
     await openSatisfaction(page);
 
     await expect(overallBadge(page)).toContainText('不明');
-    await expect(page.getByTestId('satisfaction-missing')).toContainText('収穫精度、収穫速度');
+    // 期間内に、入力が 1 件もない: その旨と入力の目安を示し、9観点の一覧は示さない
+    const missing = page.getByTestId('satisfaction-missing');
+    await expect(missing).toContainText('期間内に、満足度の入力がありません');
+    await expect(missing).toContainText('月に 1 回を目安に、9観点すべてを入力してください');
+    await expect(missing).not.toContainText('未入力の観点があります');
+    await expect(missing).not.toContainText('収穫精度、収穫速度');
     const radar = page.getByTestId('radar').locator('svg.radar-chart');
     await expect(radar.locator('circle.radar-dot')).toHaveCount(0);
     await expect(radar.locator('text.radar-label-missing')).toHaveCount(9);
@@ -416,12 +421,14 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
 
     const satisfaction = page.getByTestId('card-satisfaction');
     await expect(satisfaction.locator('.status-badge')).toContainText('正常');
+    // 判定の対象期間は、分まで。満足度の期間が、共通の期間（満足度を除く観点で同じ）と違うので、満足度のカードにだけ示す
     await expect(satisfaction.locator('.evaluated-period').first()).toContainText(
-      '2026/09/09 12:00:00 〜 2026/10/09 12:00:00',
+      '2026/09/09 12:00 〜 2026/10/09 12:00',
     );
-    await expect(
-      page.getByTestId('card-safety').locator('.evaluated-period').first(),
-    ).toContainText('2026/10/02 12:00:00 〜 2026/10/09 12:00:00');
+    await expect(page.getByTestId('card-safety').locator('.evaluated-period')).toHaveCount(0);
+    await expect(page.getByTestId('evaluated-period-common')).toContainText(
+      '2026/10/02 12:00 〜 2026/10/09 12:00',
+    );
 
     await satisfaction.locator('h3').getByRole('link').click();
 

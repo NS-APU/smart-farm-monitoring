@@ -1,7 +1,10 @@
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { useCallback } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { formatDateTimeJst } from '../../../src/frontend/components/format.ts';
+import {
+  formatDateTimeJst,
+  formatDateTimeMinutesJst,
+} from '../../../src/frontend/components/format.ts';
 import { POLLING_INTERVAL_MS, usePolling } from '../../../src/frontend/hooks/use-polling.ts';
 import {
   Link,
@@ -305,5 +308,11 @@ describe('日時の表示', () => {
     expect(formatDateTimeJst(null)).toBe('—');
     expect(formatDateTimeJst(undefined)).toBe('—');
     expect(formatDateTimeJst('not a date')).toBe('—');
+  });
+
+  it('分までの表示は、UTC の日時を、秒を省いて日本時間で表示する。欠損・不正は「—」', () => {
+    expect(formatDateTimeMinutesJst('2026-10-09T03:04:05Z')).toBe('2026/10/09 12:04');
+    expect(formatDateTimeMinutesJst(null)).toBe('—');
+    expect(formatDateTimeMinutesJst('not a date')).toBe('—');
   });
 });
