@@ -98,6 +98,8 @@ export function EntryListPage(): ReactNode {
   const { equipmentList, equipmentNames } = useAppState();
   const canWrite = usePermission('manual-entry:write');
   const canReadAudit = usePermission('audit:read');
+  // 操作の列: 修正・削除（入力の権限）と、その入力の変更履歴へのリンク（変更履歴の権限。SC-07-10）
+  const showActions = canWrite || canReadAudit;
   const query = useQueryParams();
   const submit = useSubmit();
   const [editing, setEditing] = useState<ManualEntry | undefined>(undefined);
@@ -179,7 +181,7 @@ export function EntryListPage(): ReactNode {
                 <th scope="col">{TEXT.values}</th>
                 <th scope="col">{TEXT.enteredBy}</th>
                 <th scope="col">{TEXT.note}</th>
-                {canWrite ? <th scope="col">{TEXT.actions}</th> : null}
+                {showActions ? <th scope="col">{TEXT.actions}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -203,29 +205,38 @@ export function EntryListPage(): ReactNode {
                       <div className="entry-note">{entry.note}</div>
                     )}
                   </td>
-                  {canWrite ? (
+                  {showActions ? (
                     <td data-label={TEXT.actions}>
                       <div className="row-actions">
-                        <button
-                          type="button"
-                          className="button-secondary"
-                          onClick={() => {
-                            setResult(undefined);
-                            setEditing(entry);
-                          }}
-                        >
-                          {MESSAGES.form.edit}
-                        </button>
-                        <button
-                          type="button"
-                          className="button-danger-outline"
-                          onClick={() => {
-                            setResult(undefined);
-                            setDeleting(entry);
-                          }}
-                        >
-                          {MESSAGES.form.delete}
-                        </button>
+                        {canWrite ? (
+                          <>
+                            <button
+                              type="button"
+                              className="button-secondary"
+                              onClick={() => {
+                                setResult(undefined);
+                                setEditing(entry);
+                              }}
+                            >
+                              {MESSAGES.form.edit}
+                            </button>
+                            <button
+                              type="button"
+                              className="button-danger-outline"
+                              onClick={() => {
+                                setResult(undefined);
+                                setDeleting(entry);
+                              }}
+                            >
+                              {MESSAGES.form.delete}
+                            </button>
+                          </>
+                        ) : null}
+                        {canReadAudit ? (
+                          <Link to={PATHS.historyOf('manual-entry', entry.entryId)}>
+                            {TEXT.rowHistory}
+                          </Link>
+                        ) : null}
                       </div>
                     </td>
                   ) : null}

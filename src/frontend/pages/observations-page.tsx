@@ -28,7 +28,7 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
 import { Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
-import { jstDateToIso } from '../components/jst.ts';
+import { isoToJstDate, jstDateToIso } from '../components/jst.ts';
 import {
   DIRECTION_OPTIONS,
   FilterPanel,
@@ -39,6 +39,7 @@ import { QualityLegend } from '../components/legend.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { formatObservationValue } from '../components/source-data-section.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import {
   countActiveConditions,
@@ -107,9 +108,35 @@ function QualitySummary(props: { readonly measurement: Measurement }): ReactNode
   );
 }
 
+/**
+ * 手動入力の行の導線（SC-09-5）。入力データ一覧を、設備・計測日（日本時間）で絞って開く。変更履歴の権限があれば、
+ * その入力の変更履歴（対象の種類=手動入力・ID=入力の ID）も開く。自動取り込みの行（入力の ID がない）には、何も示さない。
+ */
+function ManualEntryLinks(props: {
+  readonly equipmentId: string;
+  readonly observedAt: string;
+  readonly manualEntryId: string | undefined;
+  readonly canReadAudit: boolean;
+}): ReactNode {
+  if (props.manualEntryId === undefined) {
+    return null;
+  }
+  return (
+    <div className="source-links">
+      <Link to={PATHS.entriesOf(props.equipmentId, isoToJstDate(props.observedAt))}>
+        {TEXT.openEntry}
+      </Link>
+      {props.canReadAudit ? (
+        <Link to={PATHS.historyOf('manual-entry', props.manualEntryId)}>{TEXT.rowHistory}</Link>
+      ) : null}
+    </div>
+  );
+}
+
 export function ObservationsPage(): ReactNode {
   const { api } = useAuth();
   const { equipmentList, equipmentNames } = useAppState();
+  const canReadAudit = usePermission('audit:read');
   const query = useQueryParams();
 
   const keyword = query.get('q').trim();
@@ -260,6 +287,12 @@ export function ObservationsPage(): ReactNode {
                     </td>
                     <td className="nowrap-cell" data-label={TEXT.source}>
                       {OBSERVATION_SOURCE_LABELS[measurement.source]}
+                      <ManualEntryLinks
+                        equipmentId={measurement.equipmentId}
+                        observedAt={measurement.observedAt}
+                        manualEntryId={measurement.manualEntryId}
+                        canReadAudit={canReadAudit}
+                      />
                     </td>
                     <td className="nowrap-cell" data-label={MESSAGES.viewpoint.quality}>
                       <QualitySummary measurement={measurement} />
@@ -306,6 +339,12 @@ export function ObservationsPage(): ReactNode {
                     </td>
                     <td className="nowrap-cell" data-label={TEXT.source}>
                       {OBSERVATION_SOURCE_LABELS[item.source]}
+                      <ManualEntryLinks
+                        equipmentId={item.equipmentId}
+                        observedAt={item.observedAt}
+                        manualEntryId={item.manualEntryId}
+                        canReadAudit={canReadAudit}
+                      />
                     </td>
                     <td className="nowrap-cell" data-label={MESSAGES.viewpoint.quality}>
                       <span className={`quality quality-${item.quality.toLowerCase()}`}>

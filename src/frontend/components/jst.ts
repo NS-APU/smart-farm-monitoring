@@ -35,6 +35,11 @@ export function jstDateTimeToIso(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+/** 日時（UTC）の、日本時間の日付（`2026-10-09`）。 */
+export function isoToJstDate(iso: string): string {
+  return isoToJstDateTimeInput(iso).slice(0, 10);
+}
+
 /** 日時（UTC）を、日本時間の日時の入力の形式（`2026-10-09T12:34`）にする。 */
 export function isoToJstDateTimeInput(iso: string): string {
   return JST_FORMAT.format(new Date(iso)).replace(' ', 'T');
