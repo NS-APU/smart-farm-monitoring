@@ -1,9 +1,9 @@
 {
   "profileId": "environment-sensor-json",
-  "version": "0.1.0",
-  "status": "PROVISIONAL",
+  "version": "1.0.0",
+  "status": "CONFIRMED",
   "format": "JSON",
-  "basis": "環境センサーの機種・取得方式が未確定（Q-004。機種は特定しない。Raspberry Pi などで自作する可能性がある）のため、ロボットデータと同じ方式・形式に合わせた仮決め（#174。ADR-0003・ADR-0016 の D-08）。以前の仮決め（environment-sensor-csv@0.1.0。CSV）は、宇都宮大学から示された「取得方式・ファイルの形式・配置方法は、基本的にロボットデータと同様」に合わせて、置き換えた。ファイルは1台のセンサーの JSON（設備の識別子 sensorId + 記録の配列。1 つのファイルを随時更新し、中身は最新の値だけ）。温度・湿度・照度・CO2濃度の4項目（構想時の項目）。値のない項目は null（欠損）。タイムゾーンのない日時は、日本時間（+09:00）と推察した（utcOffsetMinutes）。",
+  "basis": "確定（本システムが定める、環境センサーの取り込み仕様。専用文書: docs/10_design/data/environment-sensor-data-definition.md）。提供元から別の定義が示されたら、差分を洗い出して、版を上げる。環境センサーの機種・取得方式は未確定（機種は特定しない。Raspberry Pi などで自作する可能性がある）で、ファイル仕様は、ロボットデータと同じ方式・形式に合わせて定めた（ADR-0003・ADR-0015 の 2・ADR-0016 の D-08）。ファイルは 1 台のセンサーの JSON（設備の識別子 sensorId + 記録の配列）で、1 つのファイルを随時更新し、中身は最新の値（または直近の少数）だけ。項目は温度・湿度・照度・CO2濃度の 4 つ。値の範囲は ADR-0016 の D-10。値のない項目は null（欠損）。タイムゾーンのない日時は、日本時間（+09:00）として読む（utcOffsetMinutes）。以前の仮決め（environment-sensor-json@0.1.0。さらに前は environment-sensor-csv@0.1.0）から、項目・構造は変えていない。",
   "utcOffsetMinutes": 540,
   "layout": {
     "recordsPath": "records",

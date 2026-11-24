@@ -669,7 +669,7 @@ describe('Web Push のダミー', () => {
   });
 });
 
-describe('FormatProfile（仮決めのロボット JSON・環境センサー JSON。1 つのファイルを随時更新する方式）', () => {
+describe('FormatProfile（仮決めのロボット JSON・確定の環境センサー JSON。1 つのファイルを随時更新する方式）', () => {
   const registry = createDefaultFormatProfileRegistry();
   const robot = registry.get('robot-json');
   const sensor = registry.get('environment-sensor-json');
@@ -679,7 +679,7 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー JSO
   const fixture = (path: string) =>
     readFileSync(join(FIXTURES_DIRECTORY, 'file-server', path), 'utf8');
 
-  it('版と状態（仮決め）を持ち、解釈に使った版の表記を作る', () => {
+  it('版と状態（ロボットは仮決め・環境センサーは確定）を持ち、解釈に使った版の表記を作る', () => {
     expect(robot).toMatchObject({
       profileId: 'robot-json',
       version: '0.2.0',
@@ -688,9 +688,9 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー JSO
     });
     expect(sensor).toMatchObject({
       profileId: 'environment-sensor-json',
-      version: '0.1.0',
-      status: 'PROVISIONAL',
-      versionLabel: 'environment-sensor-json@0.1.0(PROVISIONAL)',
+      version: '1.0.0',
+      status: 'CONFIRMED',
+      versionLabel: 'environment-sensor-json@1.0.0(CONFIRMED)',
     });
     expect(registry.get('none')).toBeUndefined();
   });

@@ -509,9 +509,71 @@ describe('UC-09 環境センサーデータの自動取り込み', () => {
     const observations = await observationsOf(context, SENSOR_ID);
     expect(observations).toHaveLength(12);
     expect(observations.filter((item) => item.quality === 'MISSING')).toHaveLength(1);
-    expect(observations[0]?.formatProfileVersion).toBe(
-      'environment-sensor-json@0.1.0(PROVISIONAL)',
+    expect(observations[0]?.formatProfileVersion).toBe('environment-sensor-json@1.0.0(CONFIRMED)');
+  });
+
+  it('データ定義（確定）の文書のサンプル 1: 4 項目とも、すべて有効な値として保存し、解釈に使った版（確定）を残す（#300・#302）', async () => {
+    const context = await setup();
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-definition-sample-001.json',
     );
+
+    const summary = await context.container.ingestionService.runSource('environment-sensor');
+
+    expect(summary).toMatchObject({
+      result: 'SUCCESS',
+      filesProcessed: 1,
+      recordCount: 8,
+      rejectedCount: 0,
+    });
+    const observations = await observationsOf(context, SENSOR_ID);
+    expect(observations).toHaveLength(8);
+    expect(observations.every((item) => item.quality === 'VALID')).toBe(true);
+    expect(
+      observations.every(
+        (item) =>
+          item.formatProfileVersion === 'environment-sensor-json@1.0.0(CONFIRMED)' &&
+          item.source === 'AUTO_IMPORT',
+      ),
+    ).toBe(true);
+    expect(
+      observations
+        .filter((item) => item.observedAt === '2026-10-09T02:00:00.000Z')
+        .map((item) => [item.itemKey, item.value])
+        .sort(),
+    ).toEqual([
+      ['co2Ppm', 650],
+      ['humidityPercent', 62],
+      ['illuminanceLux', 48000],
+      ['temperatureCelsius', 24.5],
+    ]);
+  });
+
+  it('データ定義（確定）の文書のサンプル 2: タイムゾーンのない日時は日本時間・null は欠損・省略した項目は保存しない（#300・#302）', async () => {
+    const context = await setup();
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-definition-sample-002-partial.json',
+    );
+
+    const summary = await context.container.ingestionService.runSource('environment-sensor');
+
+    // 1 件目は 4 項目（湿度は null）、2 件目は 3 項目（CO2 は省略）。欠損 1 件は、棄却数に数える
+    expect(summary).toMatchObject({ recordCount: 6, rejectedCount: 1 });
+    const observations = await observationsOf(context, SENSOR_ID);
+    expect(observations).toHaveLength(7);
+    expect(
+      observations
+        .filter((item) => item.quality === 'MISSING')
+        .map((item) => [item.itemKey, item.observedAt]),
+    ).toEqual([['humidityPercent', '2026-10-09T02:10:00.000Z']]);
+    expect(
+      observations
+        .filter((item) => item.observedAt === '2026-10-09T02:15:00.000Z')
+        .map((item) => item.itemKey)
+        .sort(),
+    ).toEqual(['humidityPercent', 'illuminanceLux', 'temperatureCelsius']);
   });
 
   it('範囲外・数値でない値・計測日時のない記録を区別して扱う。項目の一部だけの記録は、読める', async () => {
