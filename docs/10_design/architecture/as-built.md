@@ -1369,11 +1369,11 @@ sequenceDiagram
       alt 前回と同じ
         Note over EV: 何もしない
       else 変わった
-        EV->>REP: evaluations.appendStatusChange
-        EV->>FS: enqueue EVALUATION 設備と観点
         opt 注意・異常へ変わり isNotifiableStatusChange<br>履歴から出来事で判定 を通った
           EV->>NS: notifyStatusChange 4.10
         end
+        EV->>FS: enqueue EVALUATION 設備と観点
+        EV->>REP: evaluations.appendStatusChange<br>完了の印として最後に記録 Issue 561
       end
     end
   end
@@ -2369,7 +2369,7 @@ dedupKey（連携の期限切れ）= "FEDERATION_EXPIRED"
 isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) = (now − 作成日時) < 60分   ※ 取り込みの失敗・停止、連携の期限切れだけ
 ```
 
-- 作る条件は、**最終ステータスが「注意」「異常」へ悪化したとき**（`evaluation-service.ts` の `recordStatusChanges`）。評価側は、最終ステータスが前回（「不明」を含む）と変わったときだけ、変化を記録し、「注意」「異常」への変化のときだけ、履歴を読んで通知を判定する。「不明」には通知せず、判定でも無視する（履歴には、残す）
+- 作る条件は、**最終ステータスが「注意」「異常」へ悪化したとき**（`evaluation-service.ts` の `recordStatusChanges`）。評価側は、最終ステータスが前回（「不明」を含む）と変わったときだけ、通知の作成 → 連携キューへの積み込み → 変化の記録の順に行い（記録は、完了の印として最後。失敗したら、記録せず、次の評価で再試行する。記録の前に済んだ通知・連携は、再試行で重複しうる。Issue #561）、「注意」「異常」への変化のときだけ、履歴を読んで通知を判定する（記録する前の履歴で判定する）。「不明」には通知せず、判定でも無視する（履歴には、残す）
 - 状態変化の通知は、**時間による抑制をしない**（再発を通知するため）。出来事の区切りは、15 分以上続いた正常（`settings.notification.recurrenceAfterNormalMinutes`）。同じ出来事の中では、通知した重大度より重いときだけ通知する（「注意」→「異常」は通知。「異常」→「注意」→「異常」の 2 回目の「異常」は、通知しない）
 - 取り込み失敗の通知は、取り込み元ごとに 1 つのキー。取り込みが間隔ごとに失敗し続けても、60 分に 1 回まで
 - 通知には、ステータス・観点名・設備名・診断メッセージ（または取り込み元の表示名と理由）を含める。`【異常】収穫精度（ハウス1）: …`、`【データ取得失敗】ロボットデータ: …`
@@ -2711,7 +2711,7 @@ E2E は `tests/e2e/UC-NN-*.ts`（ユースケースごとに 1 ファイル）�
 | UC-05     | `UC-05-check-alert.ts`                                            | `evaluation-notification`（通知の一覧・既読）・`notification-read-all`（一括既読。#240）                      | `frontend/notifications-page.test.tsx`                                                                                                           |
 | UC-06・07 | `UC-06-record-recovery.ts`・`UC-07-input-missing-data.ts`         | `management-api`（手動入力の登録）                                                                           | `shared/manual-entry.test.ts`・`frontend/entry-pages.test.tsx`                                                                                   |
 | UC-08・09 | `UC-08-import-robot-data.ts`・`UC-09-import-sensor-data.ts`       | `ingestion`                                                                                                  | `backend/infrastructure/adapters.test.ts`（FormatProfile）・`integration/http-file-source-contract.test.ts`（FileSourcePort の契約テスト）・`backend/domain/domain-rules.test.ts`（品質判定）          |
-| UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知。出来事の判定・再発・抑制。#236）                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
+| UC-10     | `UC-10-detect-and-notify.ts`                                      | `evaluation-notification`（評価・異常検知と通知。出来事の判定・再発・抑制。#236）・`evaluation-retry`（通知・連携・記録の失敗と再試行。#561）                            | `backend/domain/`（`grading`・`measures`・`viewpoint-evaluation`・`domain-rules`）                                                               |
 | UC-11     | `UC-11-federate-data.ts`                                          | `evaluation-notification`（農業情報基盤との連携）                                                            | `backend/infrastructure/adapters.test.ts`（農業情報基盤のモック）                                                                                |
 | UC-12     | `UC-12-manage-equipment.ts`                                       | `management-api`（設備管理）                                                                                 | `frontend/equipment-page.test.tsx`                                                                                                               |
 | UC-13     | `UC-13-login-logout.ts`                                           | `api`（認証・認可（全ルート））                                                                              | `frontend/app.test.tsx`（ログイン）・`backend/infrastructure/adapters.test.ts`（ローカルの認証）・`backend/application/application-misc.test.ts` |
