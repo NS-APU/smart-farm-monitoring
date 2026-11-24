@@ -1360,6 +1360,7 @@ sequenceDiagram
   loop 設備ごと
     EV->>EV: resolveEvaluationScope<br>ハウスは配下を含める
     EV->>REP: observations.findForEvaluation(ids,<br>now マイナス 90 日, now)
+    EV->>REP: observations.findLatestBefore(ids,<br>累積の項目, now マイナス 90 日)<br>期間の直前の値 D-26
     EV->>DOM: evaluateScope 観点 × 窓ごとに<br>aggregateMeasures と<br>evaluateHorizon
     DOM-->>EV: EvaluationDraft の配列
     EV->>REP: evaluations.saveLatest<br>各結果を並列に上書き Issue 79
@@ -2241,7 +2242,7 @@ status = resolveStatus(...)                              （1.5 の「ステー�
 
 - **未取得の項目は、結果に含めない**（0 で代用しない）。後段で「不明」になる
 - 数値は、小数第 6 位に丸める（`normalizeMetric`。`roundTo(value + Number.EPSILON, 6)`）。90% ちょうどのような境界が、浮動小数点の誤差で外れないようにするため
-- 集計の種類: `TOTAL`（期間内の発生量の合計。短期・長期とも）、`LEVEL`（状態値。短期は最新、長期は平均）、`RATING`（満足度。各入力者の、期間内の最新の入力を取り、入力者の平均を取る＝1 人 1 票。観点（項目）ごとに選ぶ。入力者の記録（`enteredBy`）がない入力は、1 人として扱う。短期・長期とも同じ。D-18）、`STATUS`（ステータスコード）
+- 集計の種類: `TOTAL`（期間内の値の合計。手動専用の件数・時間・金額など、入力ごとの値を足す。短期・長期とも）、`CUMULATIVE`（累積の合計。自動の合計 5 項目〔収穫数・稼働時間・待機時間・収穫稼働時間・走行停止時間〕。**期間の値 = 期間内の増分の合計**。設備ごとに、計測日時の順に、直前の値との差を足す。期間の直前の値（期間より前で最も新しい値）を基準にし、なければ 0 から。値が減ったときは、リセットとみなし、減った時点の値そのものを増分にする。短期・長期とも同じ。D-26。実装: `domain/evaluation/measures.ts` の `aggregateCumulativeItem`。自動取り込みと手動入力が混在するときは、取得元を区別せず、計測日時の順につなげる〔取得元の優先は #228〕）、`LEVEL`（状態値。短期は最新、長期は平均）、`RATING`（満足度。各入力者の、期間内の最新の入力を取り、入力者の平均を取る＝1 人 1 票。観点（項目）ごとに選ぶ。入力者の記録（`enteredBy`）がない入力は、1 人として扱う。短期・長期とも同じ。D-18）、`STATUS`（ステータスコード）
 
 **ステータスコードの集計**（`resolveStatus`）: 値が文字列で、定義があり、論理削除でないものだけを対象にする。短期は、最新の点のコード。長期は、期間内で**最も悪いカテゴリ**（異常 > 注意 > 正常）の点のうち、最新のもの。
 

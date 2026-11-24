@@ -13,12 +13,12 @@
     },
     {
       "timestamp": "2026-10-09T01:15:00Z",
-      "harvestCount": 11,
+      "harvestCount": 23,
       "harvestSecondsPerFruit": 47.5,
-      "operatingHours": 0.25,
-      "standbyHours": 0.03,
-      "harvestOperatingHours": 0.14,
-      "travelStoppedHours": 0.004,
+      "operatingHours": 0.5,
+      "standbyHours": 0.05,
+      "harvestOperatingHours": 0.29,
+      "travelStoppedHours": 0.007,
       "statusCode": "RUNNING"
     }
   ]

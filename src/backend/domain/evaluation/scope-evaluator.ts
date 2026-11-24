@@ -9,6 +9,7 @@ import {
   type Horizon,
   type PeriodDays,
 } from '@smart-farm/shared/constants/status';
+import { isCumulativeItem } from '@smart-farm/shared/constants/items';
 import type { ViewpointId } from '@smart-farm/shared/constants/viewpoints';
 import type { ViewpointCriteria } from '@smart-farm/shared/schemas/criteria';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
@@ -25,6 +26,8 @@ export const SHORT_HORIZON_HOURS = 24;
 export interface ScopeEvaluationInput {
   /** 評価の単位に含まれる設備の観測値（最長の期間の分）。 */
   readonly observations: readonly Observation[];
+  /** 累積の項目の基準にする、`observations` の範囲より前の観測値（設備・項目ごとの、直前の値。D-26）。 */
+  readonly baselineObservations?: readonly Observation[];
   readonly now: Date;
   readonly viewpointIds: readonly ViewpointId[];
   readonly criteriaOf: (viewpointId: ViewpointId) => ViewpointCriteria;
@@ -49,16 +52,25 @@ export function evaluateScope(input: ScopeEvaluationInput): EvaluationDraft[] {
   const nowMs = input.now.getTime();
   // 計測日時の解釈は、観測値ごとに1度だけ行う（窓ごと・観点ごとに、全観測値を解釈し直さない。V-072）
   const observedMs = input.observations.map((observation) => Date.parse(observation.observedAt));
-  /** 窓（from〜to）の観測値。元の順序を保つ（集計の結果は、窓の外の観測値に影響されない）。 */
-  const observationsWithin = (fromMs: number, toMs: number): Observation[] => {
+  /**
+   * 窓（from〜to）の観測値と、累積の項目の基準にする、窓より前の観測値。元の順序を保つ
+   * （窓の外の観測値は、累積の項目の基準にだけ影響する）。
+   */
+  const observationsAround = (
+    fromMs: number,
+    toMs: number,
+  ): { within: Observation[]; prior: Observation[] } => {
     const within: Observation[] = [];
+    const prior: Observation[] = [...(input.baselineObservations ?? [])];
     for (const [index, observation] of input.observations.entries()) {
       const ms = observedMs[index] ?? Number.NaN;
       if (ms >= fromMs && ms <= toMs) {
         within.push(observation);
+      } else if (ms < fromMs && isCumulativeItem(observation.itemKey)) {
+        prior.push(observation);
       }
     }
-    return within;
+    return { within, prior };
   };
   // 集計の結果は、観点に依存しない（観測値・視点・窓・設備の構成だけで決まる）。同じ窓は、観点をまたいで共有する（V-072）
   const measuresCache = new Map<string, Measures>();
@@ -79,8 +91,10 @@ export function evaluateScope(input: ScopeEvaluationInput): EvaluationDraft[] {
       const cacheKey = `${window.horizon}|${String(window.hours)}`;
       let measures = measuresCache.get(cacheKey);
       if (measures === undefined) {
+        const { within, prior } = observationsAround(from.getTime(), nowMs);
         measures = aggregateMeasures({
-          observations: observationsWithin(from.getTime(), nowMs),
+          observations: within,
+          priorObservations: prior,
           horizon: window.horizon,
           from,
           to: input.now,

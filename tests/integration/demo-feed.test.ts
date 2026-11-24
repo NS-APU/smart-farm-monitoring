@@ -60,6 +60,42 @@ describe('合成データのファイルの生成（buildDemoFeedFiles）', () =
     expect(before.get('2026-10-20T04:00:00.000Z')).not.toBe(before.get('2026-10-20T04:15:00.000Z'));
   });
 
+  it('ロボットの収穫数・稼働時間は、「今日（日本時間）これまでの累計」（累積。日本時間の 0 時にリセット。D-26）', () => {
+    // 日本時間 2026-10-21 00:15（UTC 2026-10-20T15:15Z）。0:00 の区間（15:00Z）でリセットされ、0:15 の値は、0:00 の値より大きい。
+    // 前の日の最後の区間（14:45Z）の値は、0:00 の値より大きい（減る = リセット）
+    const files = buildDemoFeedFiles(new Date('2026-10-20T15:20:00.000Z'), {
+      intervalMinutes: 15,
+      buckets: 3,
+    });
+    const records = (
+      JSON.parse(files[0]?.content ?? '{}') as {
+        records: { timestamp: string; harvestCount: number; operatingHours: number }[];
+      }
+    ).records;
+
+    expect(records.map((record) => record.timestamp)).toEqual([
+      '2026-10-20T14:45:00.000Z',
+      '2026-10-20T15:00:00.000Z',
+      '2026-10-20T15:15:00.000Z',
+    ]);
+    const [last, first, second] = records;
+    // 前日の最後 > 当日の最初（リセット）。当日は、増える。0:00 の稼働時間は、1 区間分（0.25 時間）
+    expect(last?.harvestCount).toBeGreaterThan(first?.harvestCount ?? 0);
+    expect(second?.harvestCount).toBeGreaterThan(first?.harvestCount ?? 0);
+    expect(first?.operatingHours).toBe(0.25);
+    expect(second?.operatingHours).toBe(0.5);
+  });
+
+  it('累積の値は、ファイルに含める最初の区間より前の分も含む（区間の数に依らず、同じ区間は同じ値）', () => {
+    const now = new Date('2026-10-20T04:22:30.000Z');
+    const few = buildDemoFeedFiles(now, { intervalMinutes: 15, buckets: 2 });
+    const many = buildDemoFeedFiles(now, { intervalMinutes: 15, buckets: 8 });
+    const lastOf = (files: typeof few) =>
+      (JSON.parse(files[0]?.content ?? '{}') as { records: unknown[] }).records.at(-1);
+
+    expect(lastOf(few)).toEqual(lastOf(many));
+  });
+
   it('ロボットは robotId、センサーは sensorId と、記録の配列を持つ（FormatProfile が読める形）', () => {
     const files = buildDemoFeedFiles(NOW, { intervalMinutes: 15, buckets: 1 });
     const robot = JSON.parse(files[0]?.content ?? '{}') as {

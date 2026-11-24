@@ -74,12 +74,14 @@ export type ItemValueType = 'integer' | 'number' | 'string';
 
 /**
  * 集計の種類（dev_spec.md 4章の暫定仕様）。
- * - TOTAL: 期間内の合計（件数・時間・金額など、記録ごとの発生量）
+ * - TOTAL: 期間内の合計（件数・時間・金額など、記録ごとの発生量。入力ごとの値を足す）
+ * - CUMULATIVE: 累積の合計（収穫数・稼働時間など。値は、時間とともに増える累積のスナップショット）。期間の値は、期間内の増分の合計
+ *   （期間の直前の値を基準にする。値が減ったときは、リセットとみなし、減った時点の値そのものを増分にする。D-26。暫定）
  * - LEVEL: 状態値。短期は期間内の最新値、長期は期間内の平均
  * - STATUS: ステータスコード。短期は最新、長期は期間内で最も悪いカテゴリ
  * - RATING: 入力者ごとの評価（満足度）。各入力者の期間内の最新の入力を取り、入力者の平均を取る（1 人 1 票。短期・長期とも。D-18）
  */
-export type ItemAggregation = 'TOTAL' | 'LEVEL' | 'STATUS' | 'RATING';
+export type ItemAggregation = 'TOTAL' | 'CUMULATIVE' | 'LEVEL' | 'STATUS' | 'RATING';
 
 export interface ItemDefinition {
   readonly itemKey: string;
@@ -132,7 +134,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '個',
     valueType: 'integer',
     min: 0,
-    aggregation: 'TOTAL',
+    aggregation: 'CUMULATIVE',
     origins: BOTH,
   },
   // データ辞書（data-dictionary.md）の項目。自動取り込み（robot-json）と合成データが使う。参考の項目で、収穫速度の平均処理時間は、収穫稼働時間と収穫数から算出する。
@@ -156,7 +158,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '時間',
     valueType: 'number',
     min: 0,
-    aggregation: 'TOTAL',
+    aggregation: 'CUMULATIVE',
     origins: BOTH,
   },
   // データ辞書（data-dictionary.md）の項目。自動取り込み（robot-json）と合成データが使う。参考の項目で、どの観点の判定にも使わない。
@@ -168,7 +170,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '時間',
     valueType: 'number',
     min: 0,
-    aggregation: 'TOTAL',
+    aggregation: 'CUMULATIVE',
     origins: BOTH,
   },
   {
@@ -178,7 +180,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '時間',
     valueType: 'number',
     min: 0,
-    aggregation: 'TOTAL',
+    aggregation: 'CUMULATIVE',
     origins: BOTH,
   },
   {
@@ -188,7 +190,7 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
     unit: '時間',
     valueType: 'number',
     min: 0,
-    aggregation: 'TOTAL',
+    aggregation: 'CUMULATIVE',
     origins: BOTH,
   },
   {
@@ -428,6 +430,16 @@ export const ITEM_CATALOG: readonly ItemDefinition[] = [
 const ITEM_BY_KEY: ReadonlyMap<string, ItemDefinition> = new Map(
   ITEM_CATALOG.map((item) => [item.itemKey, item]),
 );
+
+/** 累積の項目か（期間の値を、増分の合計で求める項目。D-26）。 */
+export function isCumulativeItem(itemKey: string): boolean {
+  return ITEM_BY_KEY.get(itemKey)?.aggregation === 'CUMULATIVE';
+}
+
+/** 累積の項目の項目キー（期間の直前の値を読む対象）。 */
+export const CUMULATIVE_ITEM_KEYS: readonly string[] = ITEM_CATALOG.filter(
+  (item) => item.aggregation === 'CUMULATIVE',
+).map((item) => item.itemKey);
 
 export function findItemDefinition(itemKey: string): ItemDefinition | undefined {
   return ITEM_BY_KEY.get(itemKey);
