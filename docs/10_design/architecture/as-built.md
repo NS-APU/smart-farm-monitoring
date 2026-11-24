@@ -932,7 +932,7 @@ flowchart TB
 | 層               | ディレクトリ                  | 責務                                                                                                   | 主なファイル                                                                                                                                                                                                                                          |
 | ---------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 共通             | `src/shared/`                 | 定数・Zod スキーマと型・共通エラー・判断基準の表示用変換。フロントエンドとバックエンドで共有する       | `constants/`（`status.ts`・`viewpoints.ts`・`items.ts`・`metrics.ts`・`permissions.ts`・`observation-labels.ts`・`default-criteria.ts`）、`schemas/`（12 ファイル）、`errors.ts`（`AppError`）、`criteria-text.ts`                                                           |
-| ドメイン         | `src/backend/domain/`         | 外部に依存しない純粋なロジック                                                                         | `evaluation/`（`engine.ts`・`grading.ts`・`measures.ts`・`scope-evaluator.ts`・`series.ts`・`definition.ts`・`messages.ts`・`numbers.ts`・`viewpoints/`）、`observation-quality.ts`、`notification-rules.ts`、`status-code.ts` |
+| ドメイン         | `src/backend/domain/`         | 外部に依存しない純粋なロジック                                                                         | `evaluation/`（`engine.ts`・`grading.ts`・`measures.ts`・`scope-evaluator.ts`・`worst-result.ts`・`series.ts`・`definition.ts`・`messages.ts`・`numbers.ts`・`viewpoints/`）、`observation-quality.ts`、`notification-rules.ts`、`status-code.ts` |
 | アプリケーション | `src/backend/application/`    | ユースケース（サービス・参照・ジョブ）とポートの定義。トランザクションを持たず、Repository を順に呼ぶ  | `manual-entry/`・`equipment/`・`evaluation/`・`ingestion/`・`federation/`・`notification/`・`auth/`・`audit/`・`query/`・`jobs/`・`seed/`・`ports/`・`settings.ts`                                                                                    |
 | インフラ         | `src/backend/infrastructure/` | ポートのアダプタ（現状はローカル用のみ）・FormatProfile・ログ                                          | `local/`（13 ファイル）、`format-profiles/`（`declarative-profile.ts`＋設定 JSON 2 つ）、`logging/json-logger.ts`                                                                                                                                     |
 | 提示             | `src/backend/presentation/`   | Hono アプリ・ルート表・ハンドラ・認証認可・共通エラー・開発用 API                                      | `create-app.ts`・`route-table.ts`・`handlers.ts`（領域ごとのハンドラ（`viewpoint-`・`manual-entry-`・`equipment-`・`status-code-`・`criteria-`・`user-`・`ingestion-`・`push-subscription-handlers.ts`。設定・管理は `admin-handlers.ts` がまとめる）と合わせて）・`middleware.ts`（`requestContext`）・`auth-guards.ts`・`request-parsing.ts`・`etag.ts`・`request-helpers.ts`・`query-schemas.ts`・`route-types.ts`・`errors.ts`・`api-deps.ts`・`dev-routes.ts`                                                                                                     |
@@ -2191,7 +2191,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TB
-  A["EvaluationService.evaluateEquipment<br>設備ごと"] --> B["resolveEvaluationScope<br>評価の単位 ハウスは配下を含める"]
+  A["EvaluationService.execute<br>ロボット・センサー → ハウスの順"] --> B["resolveEvaluationScope<br>評価の単位 ハウスの運用面の観点は配下を含める"]
   B --> C["observations.findForEvaluation<br>直近90日の観測値"]
   C --> D["evaluateScope<br>観点 × 窓"]
   D --> E["aggregateMeasures<br>観測値から入力値へ集計"]
@@ -2203,6 +2203,8 @@ flowchart TB
   J -->|"はい"| K["状態変化の追記 と 連携キュー<br>注意か異常なら通知"]
   J -->|"いいえ"| L["何もしない"]
 ```
+
+**ハウスの評価（D-19。#212）**: `execute` は、評価する設備のうち、ロボット・センサーを先に、ハウスをあとに評価する。ハウスのロボットの観点・環境適応性は、観測値でなく、配下の設備の評価結果（この回に評価したもの。評価していない設備は、`evaluations.listLatest` で読む保存済みの最新の結果）から、`aggregateWorstResults`（`worst-result.ts`）が、観点・視点・期間ごとに、最も悪い結果を採る。配下に結果のない観点と、運用面の観点（データ活用度合い・満足度）だけを、ハウスと配下の観測値から、`evaluateScope` で評価する（観測値の読み取り〔直近 90 日〕は、ハウスで 1 回のままで、短期の窓の集計と、ロボットの観点の評価は、ハウスでは行わない）。状態の変化の検知・通知・連携は、ハウスの結果（集約したもの）でも、これまでどおり、設備 × 観点ごとに行う。
 
 ### 1.2 窓（視点と期間）
 
@@ -2570,7 +2572,7 @@ for 区間:
 | 手動のみの運用（#202） | 選んだ設備（ハウスなら配下のロボット・センサー）に、自動取り込みの対象（同じ種別の取り込み元が有効で、取得先がある（`sourceFilePath`）。`isAutoIngestionTarget`）が 1 つもなければ `MANUAL`（警告しない。`lastManualInputAt` に、最終の手動入力〔論理削除を除く受信日時の最大。`receivedAtByEquipment` の `manualOnly`〕を返す）。「データ取得停止」の通知も、対象でない設備は対象にしない | `dashboard-query.ts`・`auto-target.ts` |
 | パスワードのハッシュ   | `scrypt`（ソルト 16 バイト、鍵 64 バイト）。形式 `scrypt$<salt>$<hash>`。比較は `timingSafeEqual`                                                              | `password-hasher.ts`                               |
 | ログインの試行制限     | 接続元ごとの失敗の時刻を保持し、窓（既定 15 分。`LOGIN_FAILURE_WINDOW_MINUTES`）の中で、上限（既定 5 回。`LOGIN_FAILURE_LIMIT`）に達したら拒否。成功で消す。存在しないユーザーも、ダミーのハッシュで同じ時間をかける                       | `local-auth.ts`                                    |
-| 評価の単位             | ハウス＝ハウスと配下の観測値をまとめて評価。ロボット・センサー＝その設備のみ                                                                                   | `scope.ts`                                         |
+| 評価の単位             | ロボット・センサー＝その設備の観測値のみ。ハウス＝ロボットの観点・環境適応性は、配下の設備の最も悪い結果（観点・視点・期間ごと。「不明」を除く。同じ悪さは登録順で先頭。設備が複数のときだけ、診断メッセージの先頭に「（設備名）」）。運用面の観点（データ活用度合い・満足度）は、ハウスと配下の観測値で評価。配下に結果がない観点は、ハウス自身の観測値で評価（D-19。#212） | `scope.ts`・`worst-result.ts`・`evaluation-service.ts` |
 | 観点の絞り込み         | ハウス 10 観点、ロボット 7 観点、センサー 1 観点（環境適応性）                                                                                                 | `viewpointsForEquipmentType`                       |
 | 満足度の集計           | 長期（平均）の入力値の平均。短期評価はない。期間内に複数回入力されると、スターは平均（小数）になり、画面は四捨五入して示す                                     | `operation-viewpoints.ts`・`satisfaction-page.tsx` |
 | ローカルのファイル保存 | 変更から 300 ミリ秒後に、まとめて JSON を書く（一時ファイルへ書いて置き換える）。終了時に残りを書く                                                            | `local-store.ts`                                   |
