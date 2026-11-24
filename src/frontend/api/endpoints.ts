@@ -13,7 +13,10 @@ import {
   MeasurementListResponseSchema,
   ObservationListResponseSchema,
 } from '@smart-farm/shared/schemas/observation';
-import { StatusCodeListResponseSchema } from '@smart-farm/shared/schemas/status-code';
+import {
+  StatusCodeListResponseSchema,
+  UnregisteredStatusCodeListResponseSchema,
+} from '@smart-farm/shared/schemas/status-code';
 import { EquipmentTreeResponseSchema } from '@smart-farm/shared/schemas/equipment';
 import { UnreadCountResponseSchema } from '@smart-farm/shared/schemas/notification';
 import type { ApiClient } from './client.ts';
@@ -133,4 +136,11 @@ export function listMeasurements(api: ApiClient, params: MeasurementListParams) 
 
 export function getStatusCodes(api: ApiClient) {
   return api.request('/status-codes', { schema: StatusCodeListResponseSchema });
+}
+
+/** 未登録のコード値（取り込みで、定義にないコード値として記録した値）。管理者のみ（SC-12-5）。 */
+export function getUnregisteredStatusCodes(api: ApiClient) {
+  return api.request('/status-codes/unregistered', {
+    schema: UnregisteredStatusCodeListResponseSchema,
+  });
 }

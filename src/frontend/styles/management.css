@@ -255,6 +255,33 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* 未登録のコード値の表（SC-12-5）: 長いコード値（最大 100 文字）は、枠の中で折り返す。案・理由の文は、値の下に置く */
+.unregistered-table {
+  table-layout: fixed;
+  min-width: 640px;
+}
+
+.unregistered-table th:nth-child(2) {
+  width: 90px;
+}
+
+.unregistered-table th:nth-child(3) {
+  width: 180px;
+}
+
+.unregistered-table th:nth-child(4) {
+  width: 340px;
+}
+
+.unregistered-table td {
+  overflow-wrap: anywhere;
+}
+
+.unregistered-table .category-note {
+  display: block;
+  margin-left: 0;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;

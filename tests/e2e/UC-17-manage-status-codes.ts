@@ -703,7 +703,7 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
   });
 });
 
-test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結果を、API で確認する。画面での確認は、別の PR。Issue #158）', () => {
+test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結果を、API で確認する。画面は、次の describe。Issue #158）', () => {
   interface UnregisteredItem {
     code: string;
     count: number;
@@ -785,6 +785,125 @@ test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結�
     });
 
     expect(denied.status()).toBe(403);
+  });
+});
+
+test.describe('未登録のコード値の画面（SC-12-5。UC-08 の取り込みの結果を、ステータスコードの画面で確認し、登録する。Issue #158）', () => {
+  const panel = locatorOf('unregistered-codes');
+  const unregisteredRows = locatorOf('unregistered-row');
+  const unregisteredRowOf = rowBy('unregistered-row', 'data-code');
+
+  const base = {
+    harvestCount: 10,
+    harvestSecondsPerFruit: 36,
+    operatingHours: 0.25,
+    harvestOperatingHours: 0.1,
+    travelStoppedHours: 0.002,
+  };
+  /** 定義にないコード値（UNKNOWN_MODE 2 件・low charge 1 件・日本語 1 件）を、ロボットのデータとして取り込む。 */
+  async function ingestUnregistered(request: Parameters<typeof prepareApp>[0]): Promise<void> {
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson([
+        { hoursAgo: 0.75, fields: { ...base, statusCode: 'low charge' } },
+        { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+        { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+        { hoursAgo: 0.2, fields: { ...base, statusCode: '充電異常' } },
+        // 登録済みのコード値は、一覧に出ない
+        { hoursAgo: 0.1, fields: { ...base, statusCode: 'RUNNING' } },
+      ]),
+    );
+    await apiOk(request, 'POST', '/ingestion/robot/run');
+  }
+
+  test('0 件なら、空の状態を示す。取り込みのあと、自動では更新されず、「更新」で、件数の多い順に表示する。登録できない形式の値には、理由を示し、登録のボタンは出さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openStatusCodes(page);
+    await expect(page.getByTestId('unregistered-codes-empty')).toContainText(
+      '未登録のコード値はありません',
+    );
+    await expect(panel(page)).toContainText('登録した後に取り込むデータから');
+    await expect(panel(page)).toContainText('評価し直しません');
+    await expect(panel(page)).toContainText('自動では更新しません');
+
+    await ingestUnregistered(request);
+    // 自動では、更新されない
+    await expect(unregisteredRows(page)).toHaveCount(0);
+    await panel(page).getByRole('button', { name: '更新' }).click();
+
+    await expect(unregisteredRows(page)).toHaveCount(3);
+    await expect(
+      unregisteredRows(page).evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-code')),
+      ),
+    ).resolves.toEqual(['UNKNOWN_MODE', 'low charge', '充電異常']);
+    await expect(unregisteredRowOf(page, 'UNKNOWN_MODE')).toContainText('2 件');
+    await expect(
+      unregisteredRowOf(page, 'UNKNOWN_MODE').getByRole('button', { name: '登録' }),
+    ).toBeVisible();
+    // 登録できない形式: 理由を示し、登録のボタンは出さない。案があれば、形式の例を示す
+    await expect(unregisteredRowOf(page, 'low charge')).toContainText('登録できない形式');
+    await expect(unregisteredRowOf(page, 'low charge')).toContainText(
+      '「LOW_CHARGE」のような形式なら、登録できます',
+    );
+    await expect(
+      unregisteredRowOf(page, 'low charge').getByRole('button', { name: '登録' }),
+    ).toHaveCount(0);
+    await expect(unregisteredRowOf(page, '充電異常')).toContainText('登録できない形式');
+    await expect(
+      unregisteredRowOf(page, '充電異常').getByRole('button', { name: '登録' }),
+    ).toHaveCount(0);
+    await shot(page, testInfo, 'uc17-unregistered');
+  });
+
+  test('「登録」でダイアログが開き、コード値は初期値になる。名称を入れて登録すると、定義の表に加わり、一覧から消える。削除すると、一覧に戻る', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await ingestUnregistered(request);
+    await openStatusCodes(page);
+    await expect(unregisteredRows(page)).toHaveCount(3);
+
+    await unregisteredRowOf(page, 'UNKNOWN_MODE').getByRole('button', { name: '登録' }).click();
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('ステータスコードを登録');
+    await expect(addForm(page).getByLabel('コード値')).toHaveValue('UNKNOWN_MODE');
+    await expect(page.getByTestId('status-code-add-note')).toContainText('UNKNOWN_MODE');
+    await expect(page.getByTestId('status-code-add-note')).toContainText(
+      '登録した後に取り込むデータから',
+    );
+    await shot(page, testInfo, 'uc17-unregistered-register');
+    await addForm(page).getByLabel('名称').fill('不明なモード');
+    await addForm(page).getByLabel('カテゴリ').selectOption('CAUTION');
+    await addForm(page).getByRole('button', { name: '登録する' }).click();
+
+    await expect(notice(page)).toHaveText('登録しました');
+    await expect(rowOf(page, 'UNKNOWN_MODE')).toContainText('不明なモード');
+    await expect(unregisteredRows(page)).toHaveCount(2);
+    await expect(unregisteredRowOf(page, 'UNKNOWN_MODE')).toHaveCount(0);
+
+    // 登録したコードを削除すると、一覧に戻る（記録は、消えていない）
+    await rowOf(page, 'UNKNOWN_MODE').getByRole('button', { name: '削除' }).click();
+    await confirmDialog(page, '削除');
+    await expect(notice(page)).toHaveText('削除しました');
+    await expect(unregisteredRowOf(page, 'UNKNOWN_MODE')).toBeVisible();
+  });
+
+  test('変更する権限のない利用者（閲覧者）には、一覧を表示しない', async ({ page, request }) => {
+    await prepareApp(request);
+    await addUser(request, VIEWER);
+    await ingestUnregistered(request);
+
+    await openStatusCodes(page, VIEWER);
+
+    await expect(rows(page)).toHaveCount(8);
+    await expect(panel(page)).toHaveCount(0);
+    await expect(page.getByText('未登録のコード値')).toHaveCount(0);
   });
 });
 
