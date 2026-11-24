@@ -105,6 +105,56 @@ describe('評価の単位の全観点の評価', () => {
   });
 });
 
+describe('評価の単位の評価: 累積の項目の期間の値（D-26）', () => {
+  const NOW = new Date('2026-10-09T03:00:00Z');
+  const DAY = 86_400_000;
+  const operating = (value: number, msBefore: number) =>
+    observation({
+      itemKey: 'operatingHours',
+      value,
+      observedAt: new Date(NOW.getTime() - msBefore).toISOString(),
+    });
+
+  function operatingByPeriod(
+    observationList: ReturnType<typeof operating>[],
+    baselineObservations?: ReturnType<typeof operating>[],
+  ): Record<string, number | null | undefined> {
+    const drafts = evaluateScope({
+      observations: observationList,
+      ...(baselineObservations === undefined ? {} : { baselineObservations }),
+      now: NOW,
+      viewpointIds: ['durability'],
+      criteriaOf: getDefaultCriteria,
+      statusCodes: statusCodeMap(),
+      expectedStreams: { robot: true, sensor: false },
+      coverageSlotMinutes: 15,
+    });
+    return Object.fromEntries(
+      drafts.map((draft) => [String(draft.periodDays), draft.evaluation.metrics.operatingHours]),
+    );
+  }
+
+  it('各期間の値は、その期間の直前の値を基準にした、増分の合計にする（期間より前の値は、基準に使う）', () => {
+    const periods = operatingByPeriod([
+      operating(100, 10 * DAY),
+      operating(130, 3 * DAY),
+      operating(150, 3_600_000),
+    ]);
+
+    // 当日: 基準は 3 日前の 130 → 20。7 日: 基準は 10 日前の 100 → 30 + 20。30・60・90 日: 基準なし（0 から）→ 100 + 30 + 20
+    expect(periods).toMatchObject({ '1': 20, '7': 50, '30': 150, '60': 150, '90': 150 });
+  });
+
+  it('読んだ範囲より前の値（baselineObservations）も、期間の基準に使う', () => {
+    const periods = operatingByPeriod(
+      [operating(130, 3 * DAY), operating(150, 3_600_000)],
+      [operating(100, 100 * DAY)],
+    );
+
+    expect(periods).toMatchObject({ '1': 20, '7': 50, '30': 50, '60': 50, '90': 50 });
+  });
+});
+
 describe('ステータスコードの状態判定', () => {
   const codes = statusCodeMap();
 

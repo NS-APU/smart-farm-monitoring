@@ -3,12 +3,21 @@
  * 集計の規則は dev_spec.md 4章の暫定仕様:
  * - 使う観測値: 論理削除でない、品質が VALID または LATE、値がある、計測日時が期間内、評価時刻までに受信済み
  * - 同じ設備・項目・計測日時に自動取り込みと手動入力が重なる場合は、手動入力を使う（FR-4.1.4。Q の暫定）
- * - 合計（TOTAL）: 期間内の合計。状態値（LEVEL）: 短期は最新値、長期は平均。ステータス: 短期は最新、長期は最も悪いカテゴリ
+ * - 合計（TOTAL。手動専用の件数など）: 期間内の入力ごとの値の合計
+ * - 累積（CUMULATIVE。収穫数・稼働時間など。D-26）: 期間内の増分の合計。設備ごとに、計測日時の順に、直前の値との差を足す。
+ *   期間の直前の値を基準にし（なければ 0 から）、値が減ったときは、リセットとみなして、減った時点の値そのものを増分にする。
+ *   自動取り込みと手動入力が混在するときは、取得元を区別せず、計測日時の順につなげる（取得元の優先は #228 で入れる。混在すると、
+ *   別のカウンターがつながり、増分が正しくならないことがある）
+ * - 状態値（LEVEL）: 短期は最新値、長期は平均。ステータス: 短期は最新、長期は最も悪いカテゴリ
  * - 評価（RATING。満足度）: 各入力者の期間内の最新の入力を取り、入力者の平均を取る（1 人 1 票。短期・長期とも）
  * - 未取得の項目は、結果に含めない（0 で代用しない）
  */
 
-import { STATUS_CODE_ITEM_KEY, findItemDefinition } from '@smart-farm/shared/constants/items';
+import {
+  STATUS_CODE_ITEM_KEY,
+  findItemDefinition,
+  isCumulativeItem,
+} from '@smart-farm/shared/constants/items';
 import { STATUS_SEVERITY, type Horizon } from '@smart-farm/shared/constants/status';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { StatusDetail } from '@smart-farm/shared/schemas/evaluation';
@@ -36,11 +45,30 @@ export interface AggregationInput {
   readonly expectedStreams: ExpectedStreams;
   /** データ活用度合いの「期待される取得数」を数える間隔（分）。取り込み間隔の既定値を使う。 */
   readonly coverageSlotMinutes: number;
+  /**
+   * 累積の項目の基準にする、期間（from）より前の観測値（累積の項目だけが使われる。ほかの項目・期間内の観測値は無視する）。
+   * 設備・項目ごとに、計測日時が最も新しい、使える観測値を、期間の直前の値にする。
+   */
+  readonly priorObservations?: readonly Observation[];
 }
 
 interface Point {
   readonly observation: Observation;
   readonly observedMs: number;
+}
+
+/** 評価に使える観測値（論理削除でない・値がある・品質が使える・評価時刻までに受信済み）の計測日時（ミリ秒）。使えなければ undefined。 */
+function usableObservedMs(observation: Observation, knownAtMs: number): number | undefined {
+  if (
+    observation.isDeleted ||
+    observation.value === null ||
+    !isUsableQuality(observation.quality)
+  ) {
+    return undefined;
+  }
+  return Date.parse(observation.receivedAt) > knownAtMs
+    ? undefined
+    : Date.parse(observation.observedAt);
 }
 
 function selectUsablePoints(
@@ -54,24 +82,51 @@ function selectUsablePoints(
   const knownAtMs = knownAt.getTime();
   const points: Point[] = [];
   for (const observation of observations) {
-    if (
-      observation.isDeleted ||
-      observation.value === null ||
-      !isUsableQuality(observation.quality)
-    ) {
-      continue;
-    }
-    const observedMs = Date.parse(observation.observedAt);
-    if (
-      observedMs < fromMs ||
-      observedMs > toMs ||
-      Date.parse(observation.receivedAt) > knownAtMs
-    ) {
+    const observedMs = usableObservedMs(observation, knownAtMs);
+    if (observedMs === undefined || observedMs < fromMs || observedMs > toMs) {
       continue;
     }
     points.push({ observation, observedMs });
   }
   return points;
+}
+
+/** 累積の項目の基準を引く単位（設備・項目）。 */
+function baselineKey(observation: Pick<Observation, 'equipmentId' | 'itemKey'>): string {
+  return `${observation.equipmentId}#${observation.itemKey}`;
+}
+
+/**
+ * 累積の項目の、期間の直前の値（設備・項目ごとに、期間（fromMs）より前で、計測日時が最も新しい、使える数値の観測値）。
+ * 同じ計測日時は、手動入力を使う（手動入力の優先と同じ）。推移（区間ごとの集計）が、区間をまたいで、基準を引き継ぐのにも使う。
+ */
+export function latestBaselineObservations(
+  observations: readonly Observation[],
+  fromMs: number,
+  knownAtMs: number,
+): Observation[] {
+  const latest = new Map<string, { observedMs: number; observation: Observation }>();
+  for (const observation of observations) {
+    if (typeof observation.value !== 'number' || !isCumulativeItem(observation.itemKey)) {
+      continue;
+    }
+    const observedMs = usableObservedMs(observation, knownAtMs);
+    if (observedMs === undefined || observedMs >= fromMs) {
+      continue;
+    }
+    const key = baselineKey(observation);
+    const current = latest.get(key);
+    if (
+      current === undefined ||
+      observedMs > current.observedMs ||
+      (observedMs === current.observedMs &&
+        observation.source === 'MANUAL' &&
+        current.observation.source !== 'MANUAL')
+    ) {
+      latest.set(key, { observedMs, observation });
+    }
+  }
+  return [...latest.values()].map(({ observation }) => observation);
 }
 
 /** 同じ設備・項目・計測日時に自動取り込みと手動入力がある場合は、手動入力だけを残す。 */
@@ -155,6 +210,49 @@ function aggregateNumericItem(
   }
   const total = numeric.reduce((sum, point) => sum + point.value, 0);
   return normalizeMetric(aggregation === 'TOTAL' ? total : total / numeric.length);
+}
+
+/**
+ * 累積の項目の期間の値: 期間内の増分の合計（D-26）。設備ごとに、計測日時の順に、直前の値（期間の最初は、基準。なければ 0）との差を足す。
+ * 値が減ったときは、リセットとみなし、減った時点の値そのものを増分にする。
+ */
+function aggregateCumulativeItem(
+  itemKey: string,
+  points: readonly Point[],
+  baselines: ReadonlyMap<string, number>,
+): number | undefined {
+  const byEquipment = new Map<string, { observedMs: number; value: number }[]>();
+  for (const { observation, observedMs } of points) {
+    if (typeof observation.value !== 'number') {
+      continue;
+    }
+    const group = byEquipment.get(observation.equipmentId);
+    if (group === undefined) {
+      byEquipment.set(observation.equipmentId, [{ observedMs, value: observation.value }]);
+    } else {
+      group.push({ observedMs, value: observation.value });
+    }
+  }
+  if (byEquipment.size === 0) {
+    return undefined;
+  }
+  let total = 0;
+  for (const [equipmentId, group] of byEquipment) {
+    // 同じ計測日時は、元の順序を保つ（安定な並べ替え）。並んでいる入力は、並べ替えない
+    if (
+      group.some(
+        (point, index) => index > 0 && point.observedMs < (group[index - 1]?.observedMs ?? 0),
+      )
+    ) {
+      group.sort((left, right) => left.observedMs - right.observedMs);
+    }
+    let previous = baselines.get(`${equipmentId}#${itemKey}`) ?? 0;
+    for (const { value } of group) {
+      total += value >= previous ? value - previous : value;
+      previous = value;
+    }
+  }
+  return normalizeMetric(total);
 }
 
 function resolveStatus(
@@ -260,13 +358,27 @@ export function aggregateMeasures(input: AggregationInput): Measures {
     }
   }
 
+  const baselines = new Map(
+    latestBaselineObservations(
+      input.priorObservations ?? [],
+      input.from.getTime(),
+      (input.knownAt ?? input.to).getTime(),
+    ).flatMap((observation) =>
+      typeof observation.value === 'number'
+        ? [[baselineKey(observation), observation.value] as const]
+        : [],
+    ),
+  );
   const values: Record<string, number> = {};
   for (const [itemKey, points] of pointsByItem) {
     const definition = findItemDefinition(itemKey);
     if (definition === undefined || definition.aggregation === 'STATUS') {
       continue;
     }
-    const aggregated = aggregateNumericItem(definition.aggregation, input.horizon, points);
+    const aggregated =
+      definition.aggregation === 'CUMULATIVE'
+        ? aggregateCumulativeItem(itemKey, points, baselines)
+        : aggregateNumericItem(definition.aggregation, input.horizon, points);
     if (aggregated !== undefined) {
       values[itemKey] = aggregated;
     }

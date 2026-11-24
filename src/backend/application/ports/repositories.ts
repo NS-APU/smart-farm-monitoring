@@ -112,6 +112,15 @@ export interface ObservationRepository {
     from: Date,
     to: Date,
   ): Promise<Observation[]>;
+  /**
+   * 累積の項目の基準（期間の直前の値。D-26）: 指定した設備・項目ごとに、`before` より前で、計測日時が最も新しい、論理削除でない観測値
+   * （取得元は問わない）を返す。なければ含めない。評価の期間の前の値を読むために使う（件数は、設備 × 項目の数だけ）。
+   */
+  findLatestBefore(
+    equipmentIds: readonly EquipmentId[],
+    itemKeys: readonly string[],
+    before: Date,
+  ): Promise<Observation[]>;
   query(
     filter: ObservationFilter,
     page: PageRequest,

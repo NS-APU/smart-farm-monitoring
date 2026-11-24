@@ -6,7 +6,7 @@
  */
 
 import { AppError } from '@smart-farm/shared/errors';
-import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
+import { CUMULATIVE_ITEM_KEYS, satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
 import {
   SATISFACTION_TARGET_VIEWPOINT_IDS,
@@ -167,15 +167,16 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
 
       const plan = planBuckets(now, horizonUsed, periodDays, JST_OFFSET_MINUTES);
       const from = plan.starts[0] ?? now;
-      const observations = await repositories.observations.findForEvaluation(
-        scope.equipmentIds,
-        from,
-        now,
-      );
+      // 累積の項目の、最初の区間の基準（期間の直前の値）も読む（設備 × 項目の数の、少量の読み取り。D-26）
+      const [observations, priorObservations] = await Promise.all([
+        repositories.observations.findForEvaluation(scope.equipmentIds, from, now),
+        repositories.observations.findLatestBefore(scope.equipmentIds, CUMULATIVE_ITEM_KEYS, from),
+      ]);
       const statusCodeList = await repositories.statusCodes.list({ includeDeleted: true });
       const result = computeMetricSeries({
         definition,
         observations,
+        priorObservations,
         now,
         horizon: horizonUsed,
         periodDays,

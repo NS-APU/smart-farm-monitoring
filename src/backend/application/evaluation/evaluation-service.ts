@@ -6,6 +6,7 @@
  * 定期（データ途絶の確認）、初期データの投入後、開発用 API からの再評価。
  */
 
+import { CUMULATIVE_ITEM_KEYS } from '@smart-farm/shared/constants/items';
 import {
   defaultPeriodDays,
   viewpointsForEquipmentType,
@@ -163,13 +164,19 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   ): Promise<EvaluationResult[]> {
     const scope = resolveEvaluationScope(equipment, allEquipment);
     const viewpointIds = viewpointsForEquipmentType(equipment.equipmentType).map((meta) => meta.id);
-    const observations = await repositories.observations.findForEvaluation(
-      scope.equipmentIds,
-      new Date(now.getTime() - LONGEST_PERIOD_DAYS * MS_PER_DAY),
-      now,
-    );
+    const readFrom = new Date(now.getTime() - LONGEST_PERIOD_DAYS * MS_PER_DAY);
+    // 累積の項目の、期間の直前の値は、読んだ範囲（最長の期間）の中にあれば、それを使う。範囲より前の値だけ、別に読む（設備 × 項目の数の、少量の読み取り。D-26）
+    const [observations, baselineObservations] = await Promise.all([
+      repositories.observations.findForEvaluation(scope.equipmentIds, readFrom, now),
+      repositories.observations.findLatestBefore(
+        scope.equipmentIds,
+        CUMULATIVE_ITEM_KEYS,
+        readFrom,
+      ),
+    ]);
     const drafts = evaluateScope({
       observations,
+      baselineObservations,
       now,
       viewpointIds,
       criteriaOf: (viewpointId) => {

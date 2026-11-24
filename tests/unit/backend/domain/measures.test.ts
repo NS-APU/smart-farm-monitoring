@@ -3,8 +3,14 @@ import {
   aggregateMeasures,
   type AggregationInput,
 } from '../../../../src/backend/domain/evaluation/measures.ts';
-import { toUserId } from '../../../../src/shared/schemas/common.ts';
-import { FACILITY_ID, observation, SENSOR_ID, statusCodeMap } from '../../../support/builders.ts';
+import { toEquipmentId, toUserId } from '../../../../src/shared/schemas/common.ts';
+import {
+  FACILITY_ID,
+  observation,
+  SENSOR_ID,
+  statusCodeMap,
+  type ObservationOverrides,
+} from '../../../support/builders.ts';
 
 const NOW = new Date('2026-10-09T03:00:00Z');
 const DAY_MS = 86_400_000;
@@ -160,7 +166,7 @@ describe('観測値の集計: 数値でない値（ステータスコードの�
 });
 
 describe('観測値の集計: 集計の種類', () => {
-  it('合計の項目は、期間内の合計にする（短期・長期とも）', () => {
+  it('累積の項目（稼働時間）は、期間内の増分の合計にする（短期・長期とも。D-26。累積の値を足さない）', () => {
     const observations = [
       observation({ itemKey: 'operatingHours', value: 0.25, observedAt: '2026-10-09T01:00:00Z' }),
       observation({ itemKey: 'operatingHours', value: 0.5, observedAt: '2026-10-09T02:00:00Z' }),
@@ -171,8 +177,9 @@ describe('観測値の集計: 集計の種類', () => {
     );
     const long = aggregateMeasures(input({ observations }));
 
-    expect(short.values.operatingHours).toBe(0.75);
-    expect(long.values.operatingHours).toBe(0.75);
+    // 0.25（0 からの増分）+ 0.25（0.25 → 0.5）。累積の値を足した 0.75 にはならない
+    expect(short.values.operatingHours).toBe(0.5);
+    expect(long.values.operatingHours).toBe(0.5);
   });
 
   it('状態値の項目は、短期は最新値、長期は平均にする', () => {
@@ -470,7 +477,8 @@ describe('観測値の集計: 手動入力と自動取り込みの重なり', ()
       }),
     );
 
-    expect(measures.values.harvestCount).toBe(22);
+    // 累積の値（10 → 12）は、増分の合計 12（10 + 2）。取得元の優先は #228（混在時の扱いは、そこで決める）
+    expect(measures.values.harvestCount).toBe(12);
   });
 });
 
@@ -629,5 +637,201 @@ describe('観測値の集計: 大量のステータスコード（Issue #266）'
       name: 'バッテリー不足',
       category: 'CAUTION',
     });
+  });
+});
+
+describe('観測値の集計: 累積の項目（収穫数・稼働時間など。期間の値 = 期間内の増分の合計。D-26）', () => {
+  const at = (hhmm: string): string => `2026-10-09T${hhmm}:00Z`;
+  const harvest = (value: number, hhmm: string, overrides: Partial<ObservationOverrides> = {}) =>
+    observation({ itemKey: 'harvestCount', value, observedAt: at(hhmm), ...overrides });
+
+  it('累積の値は、足し算にせず、増分の合計にする（8:00 に 0、12:00 に 1,200、16:00 に 2,400 なら、2,400）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(0, '00:00'), harvest(1200, '01:00'), harvest(2400, '02:00')],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(2400);
+  });
+
+  it('合計の 5 項目は、すべて、累積として集計する', () => {
+    const keys = [
+      'harvestCount',
+      'operatingHours',
+      'standbyHours',
+      'harvestOperatingHours',
+      'travelStoppedHours',
+    ];
+    const measures = aggregateMeasures(
+      input({
+        observations: keys.flatMap((itemKey) => [
+          observation({ itemKey, value: 1, observedAt: at('00:00') }),
+          observation({ itemKey, value: 4, observedAt: at('01:00') }),
+          observation({ itemKey, value: 6, observedAt: at('02:00') }),
+        ]),
+      }),
+    );
+
+    for (const itemKey of keys) {
+      expect(measures.values[itemKey], itemKey).toBe(6);
+    }
+  });
+
+  it('値が減ったときは、リセットとみなし、減った時点の値そのものを、その区間の増分にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(100, '00:00'),
+          harvest(250, '00:30'),
+          harvest(30, '01:00'),
+          harvest(80, '01:30'),
+        ],
+      }),
+    );
+
+    // 100 + 150 + 30（リセット）+ 50
+    expect(measures.values.harvestCount).toBe(330);
+  });
+
+  it('値が変わらなければ、増分は 0（同じ累積の値を、繰り返し足さない）', () => {
+    const measures = aggregateMeasures(
+      input({ observations: [harvest(10, '00:00'), harvest(10, '00:30'), harvest(10, '01:00')] }),
+    );
+
+    expect(measures.values.harvestCount).toBe(10);
+  });
+
+  it('期間の直前の値を基準にする（期間の最初の値の全体を、増分にしない）', () => {
+    const baseline = harvest(1000, '23:00', { observedAt: '2026-10-01T00:00:00Z' });
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(1200, '01:00'), harvest(1500, '02:00')],
+        priorObservations: [baseline],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(500);
+  });
+
+  it('期間の直前の値は、期間の開始より前の、最新の値を使う（順序に依らない）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(1500, '01:00')],
+        priorObservations: [
+          harvest(1400, '00:00', { observedAt: '2026-10-02T00:00:00Z' }),
+          harvest(900, '00:00', { observedAt: '2026-10-01T00:00:00Z' }),
+        ],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(100);
+  });
+
+  it('期間の直前の値が、期間の値より大きければ（リセット）、期間の最初の値が増分になる', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(40, '01:00'), harvest(100, '02:00')],
+        priorObservations: [harvest(5000, '00:00', { observedAt: '2026-10-01T00:00:00Z' })],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(100);
+  });
+
+  it('期間の直前の値がなければ、0 から始まるとみなす（1 件だけなら、その値）', () => {
+    const measures = aggregateMeasures(input({ observations: [harvest(7, '01:00')] }));
+
+    expect(measures.values.harvestCount).toBe(7);
+  });
+
+  it('期間の直前の値は、使える観測値だけ（論理削除・欠損・不正・評価時刻より後に受信したものは使わない）', () => {
+    const before = '2026-10-02T00:00:00Z';
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(1500, '01:00')],
+        priorObservations: [
+          harvest(1000, '00:00', { observedAt: '2026-10-01T00:00:00Z' }),
+          harvest(1400, '00:00', { observedAt: before, isDeleted: true }),
+          harvest(1450, '00:00', { observedAt: before, quality: 'INVALID' }),
+          harvest(1480, '00:00', { observedAt: before, receivedAt: '2026-10-09T05:00:00Z' }),
+        ],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(500);
+  });
+
+  it('期間内に観測値がなければ、期間の直前の値があっても、未取得（キーなし）にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [],
+        priorObservations: [harvest(1000, '00:00', { observedAt: '2026-10-01T00:00:00Z' })],
+      }),
+    );
+
+    expect(measures.values).toEqual({});
+  });
+
+  it('設備ごとに、増分を求めて合計する（別の設備の累積の値を、つなげない）', () => {
+    const other = toEquipmentId('ROBOT-T2');
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(100, '00:00'),
+          harvest(1000, '00:10', { equipmentId: other }),
+          harvest(150, '01:00'),
+          harvest(1300, '01:10', { equipmentId: other }),
+        ],
+      }),
+    );
+
+    // 設備 1: 150、設備 2: 1,300（つなげると、100 → 1,000 → 150 → 1,300 で 1,000 + 0 + 1,300 になる）
+    expect(measures.values.harvestCount).toBe(1450);
+  });
+
+  it('計測日時の順に並んでいない入力でも、計測日時の順に増分を求める', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(2400, '02:00'), harvest(0, '00:00'), harvest(1200, '01:00')],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(2400);
+  });
+
+  it('小数の累積の値（稼働時間）の増分は、小数第 6 位に丸める（浮動小数点の誤差を残さない）', () => {
+    const operating = (value: number, hhmm: string) =>
+      observation({ itemKey: 'operatingHours', value, observedAt: at(hhmm) });
+    const measures = aggregateMeasures(
+      input({
+        observations: [operating(0.1, '00:00'), operating(0.3, '01:00'), operating(0.7, '02:00')],
+      }),
+    );
+
+    expect(measures.values.operatingHours).toBe(0.7);
+  });
+
+  it('短期（直近 24 時間）も、同じく、期間の直前の値を基準にした増分の合計にする', () => {
+    const measures = aggregateMeasures(
+      input({
+        horizon: 'SHORT',
+        from: new Date('2026-10-08T03:00:00Z'),
+        observations: [harvest(1200, '01:00'), harvest(1500, '02:00')],
+        priorObservations: [harvest(1000, '00:00', { observedAt: '2026-10-08T02:00:00Z' })],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(500);
+  });
+
+  it('手動専用の件数の項目は、現状のまま、入力ごとの件数を足す', () => {
+    const damaged = (value: number, hhmm: string) =>
+      observation({ itemKey: 'damagedFruitCount', value, source: 'MANUAL', observedAt: at(hhmm) });
+    const measures = aggregateMeasures(
+      input({ observations: [damaged(2, '00:00'), damaged(3, '01:00'), damaged(1, '02:00')] }),
+    );
+
+    expect(measures.values.damagedFruitCount).toBe(6);
   });
 });

@@ -199,6 +199,93 @@ describe('区間ごとのメトリクス（computeMetricSeries）', () => {
   });
 });
 
+describe('区間ごとのメトリクス: 累積の項目（収穫数・稼働時間など。区間の値 = 区間内の増分の合計。D-26）', () => {
+  const durability = getViewpointDefinition('durability');
+  const base = {
+    definition: durability,
+    now: NOW,
+    statusCodes: new Map(),
+    expectedStreams: { robot: true, sensor: false },
+    coverageSlotMinutes: 15,
+    timeZoneOffsetMinutes: JST_OFFSET_MINUTES,
+  };
+
+  function operating(value: number, observedAt: string) {
+    return observation({ itemKey: 'operatingHours', value, observedAt });
+  }
+
+  function operatingPoints(result: ReturnType<typeof computeMetricSeries>) {
+    return result.metrics
+      .find((item) => item.metricId === 'operatingHours')
+      ?.points.filter((point) => point.value !== null);
+  }
+
+  it('区間の値は、前の区間の最後の値を基準にした増分（累積の値の全体を、区間の値にしない）。値が減ったら、リセット', () => {
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 7,
+      observations: [
+        operating(6, '2026-10-07T01:00:00.000Z'),
+        operating(10, '2026-10-08T01:00:00.000Z'),
+        operating(4, '2026-10-09T01:00:00.000Z'),
+      ],
+    });
+
+    expect(operatingPoints(result)).toEqual([
+      { at: '2026-10-06T15:00:00.000Z', value: 6 },
+      { at: '2026-10-07T15:00:00.000Z', value: 4 },
+      { at: '2026-10-08T15:00:00.000Z', value: 4 },
+    ]);
+  });
+
+  it('データのない区間をまたいでも、基準は、その前の最後の値（空の区間は、欠損のまま）', () => {
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 7,
+      observations: [
+        operating(6, '2026-10-07T01:00:00.000Z'),
+        operating(20, '2026-10-09T01:00:00.000Z'),
+      ],
+    });
+
+    expect(operatingPoints(result)).toEqual([
+      { at: '2026-10-06T15:00:00.000Z', value: 6 },
+      { at: '2026-10-08T15:00:00.000Z', value: 14 },
+    ]);
+  });
+
+  it('期間の前の値（priorObservations）を、最初の区間の基準にする', () => {
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 1,
+      priorObservations: [operating(100, '2026-10-01T00:00:00.000Z')],
+      observations: [
+        operating(103, '2026-10-08T05:00:00.000Z'),
+        operating(110, '2026-10-08T06:00:00.000Z'),
+      ],
+    });
+
+    expect(operatingPoints(result)).toEqual([
+      { at: '2026-10-08T05:00:00.000Z', value: 3 },
+      { at: '2026-10-08T06:00:00.000Z', value: 7 },
+    ]);
+  });
+
+  it('期間の前の値がなければ、0 から始まるとみなす', () => {
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 1,
+      observations: [operating(3, '2026-10-08T05:00:00.000Z')],
+    });
+
+    expect(operatingPoints(result)).toEqual([{ at: '2026-10-08T05:00:00.000Z', value: 3 }]);
+  });
+});
+
 describe('観点の元データの項目（viewpointSourceItemKeys）', () => {
   it('観点の入力のうち、項目カタログにある項目を返す（環境適応性は、判定する環境の4項目）', () => {
     expect(viewpointSourceItemKeys(getViewpointDefinition('environmentalAdaptability'))).toEqual([

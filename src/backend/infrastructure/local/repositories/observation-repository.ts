@@ -312,6 +312,29 @@ export function createObservationRepository(
         ),
       );
     },
+    findLatestBefore(equipmentIds, itemKeys, before) {
+      const wanted = new Set(itemKeys);
+      const beforeIso = before.toISOString();
+      // 設備・項目ごとに、計測日時が最も新しいもの（同じ計測日時は、手動入力）
+      const latest = new Map<string, Observation>();
+      for (const item of observationsOf(equipmentIds)) {
+        if (
+          item.isDeleted ||
+          !wanted.has(item.itemKey) ||
+          compareIsoInstants(item.observedAt, beforeIso) >= 0
+        ) {
+          continue;
+        }
+        const key = `${item.equipmentId}#${item.itemKey}`;
+        const current = latest.get(key);
+        const order =
+          current === undefined ? 1 : compareIsoInstants(item.observedAt, current.observedAt);
+        if (order > 0 || (order === 0 && item.source === 'MANUAL')) {
+          latest.set(key, item);
+        }
+      }
+      return Promise.resolve([...latest.values()]);
+    },
     query(filter, page, sort = { key: 'observedAt', direction: 'desc' }) {
       const bounds = { fromIso: filter.from?.toISOString(), toIso: filter.to?.toISOString() };
       if (sort.key === 'observedAt') {

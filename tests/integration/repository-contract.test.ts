@@ -339,6 +339,98 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(found.every((item) => item.equipmentId === ROBOT_ID && !item.isDeleted)).toBe(true);
     });
 
+    it('期間の直前の値（累積の項目の基準。D-26）: 設備・項目ごとに、指定した日時より前の、論理削除でない最新の観測値を返す', async () => {
+      const { repositories } = create();
+      await repositories.observations.saveMany([
+        observation({ itemKey: 'harvestCount', value: 5, observedAt: '2026-09-01T00:00:00.000Z' }),
+        observation({ itemKey: 'harvestCount', value: 9, observedAt: '2026-09-02T00:00:00.000Z' }),
+        // 論理削除は、使わない（その前の値に戻る）
+        observation({
+          itemKey: 'harvestCount',
+          value: 99,
+          observedAt: '2026-09-03T00:00:00.000Z',
+          isDeleted: true,
+        }),
+        // 指定した日時ちょうど・それより後は、含めない
+        observation({
+          itemKey: 'harvestCount',
+          value: 200,
+          observedAt: '2026-10-01T00:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'harvestCount',
+          value: 300,
+          observedAt: '2026-10-02T00:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'operatingHours',
+          value: 1.5,
+          observedAt: '2026-09-02T00:00:00.000Z',
+        }),
+        // 対象でない項目・設備は、返さない
+        observation({ itemKey: 'standbyHours', value: 4, observedAt: '2026-09-02T00:00:00.000Z' }),
+        observation({
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 20,
+          observedAt: '2026-09-02T00:00:00.000Z',
+        }),
+      ]);
+
+      const found = await repositories.observations.findLatestBefore(
+        [ROBOT_ID, SENSOR_ID],
+        ['harvestCount', 'operatingHours', 'travelStoppedHours'],
+        new Date('2026-10-01T00:00:00.000Z'),
+      );
+
+      expect(
+        found
+          .map((item) => [item.equipmentId, item.itemKey, item.value, item.observedAt])
+          .sort((left, right) => String(left[1]).localeCompare(String(right[1]))),
+      ).toEqual([
+        [ROBOT_ID, 'harvestCount', 9, '2026-09-02T00:00:00.000Z'],
+        [ROBOT_ID, 'operatingHours', 1.5, '2026-09-02T00:00:00.000Z'],
+      ]);
+    });
+
+    it('期間の直前の値: 手動入力と自動取り込みが混在していても、計測日時が最も新しいものを返す', async () => {
+      const { repositories } = create();
+      await repositories.observations.saveMany([
+        observation({
+          itemKey: 'harvestCount',
+          value: 10,
+          source: 'AUTO_IMPORT',
+          observedAt: '2026-09-02T00:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'harvestCount',
+          value: 12,
+          source: 'MANUAL',
+          observedAt: '2026-09-02T06:00:00.000Z',
+        }),
+      ]);
+
+      const found = await repositories.observations.findLatestBefore(
+        [ROBOT_ID],
+        ['harvestCount'],
+        new Date('2026-10-01T00:00:00.000Z'),
+      );
+
+      expect(found.map((item) => item.value)).toEqual([12]);
+    });
+
+    it('期間の直前の値: 対象がなければ、空を返す', async () => {
+      const { repositories } = create();
+
+      expect(
+        await repositories.observations.findLatestBefore(
+          [ROBOT_ID],
+          ['harvestCount'],
+          new Date('2026-10-01T00:00:00.000Z'),
+        ),
+      ).toEqual([]);
+    });
+
     it.each([
       ['カテゴリ', { category: 'HARVEST' as const }, 2],
       ['項目', { itemKey: 'operatingHours' }, 1],
