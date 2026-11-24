@@ -23,6 +23,25 @@ import { getViewpointDefinition } from './viewpoints/registry.ts';
 /** 短期視点の対象期間（直近の時間）。短期の定義は未確定（Q-009）のため暫定（dev_spec.md 4章）。 */
 export const SHORT_HORIZON_HOURS = 24;
 
+/** 評価の期間（窓）。短期の対象期間は 24 時間、長期は当日〜90 日（直近の時間数で表す）。 */
+export interface EvaluationWindow {
+  readonly horizon: Horizon;
+  readonly periodDays: PeriodDays | null;
+  readonly hours: number;
+}
+
+/** 観点が評価する窓（短期は、短期の評価を持つ観点だけ）。 */
+export function evaluationWindows(hasShortHorizon: boolean): EvaluationWindow[] {
+  const windows: EvaluationWindow[] = [];
+  if (hasShortHorizon) {
+    windows.push({ horizon: 'SHORT', periodDays: null, hours: SHORT_HORIZON_HOURS });
+  }
+  for (const periodDays of PERIOD_DAYS_OPTIONS) {
+    windows.push({ horizon: 'LONG', periodDays, hours: periodDays * 24 });
+  }
+  return windows;
+}
+
 export interface ScopeEvaluationInput {
   /** 評価の単位に含まれる設備の観測値（最長の期間の分）。 */
   readonly observations: readonly Observation[];
@@ -78,15 +97,7 @@ export function evaluateScope(input: ScopeEvaluationInput): EvaluationDraft[] {
   for (const viewpointId of input.viewpointIds) {
     const definition = getViewpointDefinition(viewpointId);
     const criteria = input.criteriaOf(viewpointId);
-    const windows: { horizon: Horizon; periodDays: PeriodDays | null; hours: number }[] = [];
-    if (definition.hasShortHorizon) {
-      windows.push({ horizon: 'SHORT', periodDays: null, hours: SHORT_HORIZON_HOURS });
-    }
-    for (const periodDays of PERIOD_DAYS_OPTIONS) {
-      windows.push({ horizon: 'LONG', periodDays, hours: periodDays * 24 });
-    }
-
-    for (const window of windows) {
+    for (const window of evaluationWindows(definition.hasShortHorizon)) {
       const from = new Date(nowMs - window.hours * MS_PER_HOUR);
       const cacheKey = `${window.horizon}|${String(window.hours)}`;
       let measures = measuresCache.get(cacheKey);
