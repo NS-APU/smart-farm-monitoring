@@ -673,21 +673,21 @@ describe('通知（UC-05, UC-22）', () => {
     );
     const count = await (await context.request('/notifications/unread-count')).json();
 
-    expect(list.items).toHaveLength(3);
+    expect(list.items).toHaveLength(2);
     expect(list.items.every((item) => item.readState === 'UNREAD')).toBe(true);
     expect(list.items[0]).toMatchObject({ kind: 'STATUS_CHANGE' });
     expect(list.items[0]).not.toHaveProperty('dedupKey');
-    expect(count).toEqual({ unreadCount: 3 });
+    expect(count).toEqual({ unreadCount: 2 });
   });
 
   it('種別・既読／未読で絞り込め、ページ分割できる', async () => {
     const context = await withNotifications();
     const first = NotificationListResponseSchema.parse(
-      await (await context.request('/notifications?limit=2')).json(),
+      await (await context.request('/notifications?limit=1')).json(),
     );
     const second = NotificationListResponseSchema.parse(
       await (
-        await context.request(`/notifications?limit=2&cursor=${first.nextCursor ?? ''}`)
+        await context.request(`/notifications?limit=1&cursor=${first.nextCursor ?? ''}`)
       ).json(),
     );
     const environment = NotificationListResponseSchema.parse(
@@ -697,12 +697,12 @@ describe('通知（UC-05, UC-22）', () => {
       await (await context.request('/notifications?readState=UNREAD')).json(),
     );
 
-    expect(first.items).toHaveLength(2);
+    expect(first.items).toHaveLength(1);
     expect(first.nextCursor).not.toBeNull();
     expect(second.items).toHaveLength(1);
     expect(second.nextCursor).toBeNull();
     expect(environment.items).toEqual([]);
-    expect(unread.items).toHaveLength(3);
+    expect(unread.items).toHaveLength(2);
   });
 
   it.each([['limit=0'], ['limit=101'], ['kind=OTHER'], ['readState=SEEN'], ['cursor=%21%21']])(
@@ -730,7 +730,7 @@ describe('通知（UC-05, UC-22）', () => {
     expect(read.status).toBe(204);
     expect(missing.status).toBe(404);
     expect(await (await context.request('/notifications/unread-count', { token })).json()).toEqual({
-      unreadCount: 2,
+      unreadCount: 1,
     });
     const readList = NotificationListResponseSchema.parse(
       await (await context.request('/notifications?readState=READ', { token })).json(),
@@ -762,9 +762,9 @@ describe('通知（UC-05, UC-22）', () => {
 
     expect(filtered.status).toBe(200);
     expect(await filtered.json()).toEqual({ markedCount: 0 });
-    expect(countAfterFilter).toEqual({ unreadCount: 3 });
+    expect(countAfterFilter).toEqual({ unreadCount: 2 });
     expect(all.status).toBe(200);
-    expect(await all.json()).toEqual({ markedCount: 3 });
+    expect(await all.json()).toEqual({ markedCount: 2 });
     expect(countAfterAll).toEqual({ unreadCount: 0 });
   });
 

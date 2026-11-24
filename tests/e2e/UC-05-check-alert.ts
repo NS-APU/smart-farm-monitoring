@@ -13,7 +13,7 @@
  *               ・通知が取り込み失敗（UC-24）の場合は、取り込みの状況を確認し（UC-16）、設定や接続先を見直す
  *   事後条件    農作業者が、異常に対応している、または対応を判断している
  *
- * 値の同値分割: 通知の種類（状態の悪化・取り込み失敗）、ステータス（注意・異常）、対象（ハウス・センサー）、確認の経路（ヘッダー・通知の一覧・ダッシュボード）、
+ * 値の同値分割: 通知の種類（状態の悪化・取り込み失敗）、ステータス（注意・異常）、対象（センサー・ロボット。運用面の観点はハウス）、確認の経路（ヘッダー・通知の一覧・ダッシュボード）、
  * 既読の状態（未読・既読）、利用者（通知を受け取る人・確認する人。別のブラウザ）。
  * 関連するユースケース: UC-10（通知の発生）、UC-02・UC-04（根拠・推奨アクション）、UC-06・UC-07（記録）、UC-22（一覧・既読）、UC-24・UC-16・UC-15。
  */
@@ -141,7 +141,7 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     await openAs(page, '/notifications');
     const notification = rows(page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: '（ハウス1）' });
+      .filter({ hasText: '環境センサー1' });
     await expect(notification.locator('.status-badge')).toContainText('注意');
 
     await notification.getByRole('link', { name: '詳細を確認' }).click();
@@ -301,7 +301,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     await b.page.getByRole('link', { name: /未読の通知/ }).click();
     const target = rows(b.page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: '（ハウス1）' });
+      .filter({ hasText: '環境センサー1' });
     await expect(target).toHaveAttribute('data-read-state', 'UNREAD');
 
     // 利用者B: 異常の対象・内容・根拠・推奨アクションを確認する（UC-05 の 3・4。UC-02・UC-04）
@@ -350,7 +350,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     // 利用者A: 自分の未読は、Bの既読に影響されない。通知を確認して、すべて既読にする（UC-22）
     await page.goto('/notifications');
     await expect(
-      rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '（ハウス1）' }),
+      rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
     ).toHaveAttribute('data-read-state', 'UNREAD');
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
     await confirmDialog(page, '既読にする');
@@ -358,11 +358,13 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     // 利用者B: 自分の既読は、そのまま（Aが全件を既読にしても、Bの既読・未読には影響しない）
     await b.page.goto('/notifications');
     await expect(
-      rows(b.page).filter({ hasText: '環境適応性' }).filter({ hasText: '（ハウス1）' }),
-    ).toHaveAttribute('data-read-state', 'READ');
-    await expect(
       rows(b.page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
-    ).toHaveAttribute('data-read-state', 'UNREAD');
+    ).toHaveAttribute('data-read-state', 'READ');
+    // Bが開いていない通知（データ活用度合い）は、Aが既読にしても、Bには未読のまま
+    await expect(rows(b.page).filter({ hasText: 'データ活用度合い' })).toHaveAttribute(
+      'data-read-state',
+      'UNREAD',
+    );
     await b.context.close();
   });
 });

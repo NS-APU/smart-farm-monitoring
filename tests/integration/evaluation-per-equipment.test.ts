@@ -364,7 +364,7 @@ describe('評価の実行順と、一部の設備だけの評価', () => {
     );
   });
 
-  it('ハウスの状態の変化は、集約した結果で検知する。通知の本文に、どの設備かが入る', async () => {
+  it('ハウスの状態の変化は、集約した結果で検知し、履歴に記録する。通知は、ハウスには出さず、悪い設備（ロボット B）に出す（D-19 の論点 3）', async () => {
     const context = await setupMultiple();
     await context.container.repositories.observations.saveMany([
       ...maintainabilityInputs(ROBOT_B_ID, 'FALLEN', 61),
@@ -384,12 +384,151 @@ describe('評価の実行順と、一部の設備だけの評価', () => {
       (entry) => entry.notification,
     );
     const maintainability = items.filter((item) => item.viewpointId === 'maintainability');
-    // 通知は、これまでどおり、設備ごと（ロボット B）とハウスに出る（ハウスの通知を止めるのは、通知の単位の見直し）
-    expect(maintainability.map((item) => item.equipmentId).sort()).toEqual(
-      [FACILITY_ID, ROBOT_B_ID].sort(),
+    // 通知は、悪い設備（ロボット B）の 1 件だけ。ハウスの通知は出さない（同じ事象の二重の通知をなくす）
+    expect(maintainability.map((item) => item.equipmentId)).toEqual([ROBOT_B_ID]);
+    expect(maintainability[0]?.message).toContain(`メンテナンス性（${ROBOT_B_NAME}）`);
+  });
+});
+
+describe('通知の単位は、設備（D-19 の論点 3）', () => {
+  async function notificationItems(context: Context) {
+    const { items } = await context.container.repositories.notifications.list(
+      USER,
+      {},
+      { limit: 100 },
     );
-    expect(maintainability.find((item) => item.equipmentId === FACILITY_ID)?.message).toContain(
-      `（${ROBOT_B_NAME}）`,
+    return items.map((entry) => entry.notification);
+  }
+
+  it('複数台で、ロボット B だけが異常のとき、通知はロボット B の 1 件。本文に、設備名と観点名が、1 回ずつ入る', async () => {
+    const context = await setupMultiple();
+    await context.container.repositories.observations.saveMany([
+      ...maintainabilityInputs(ROBOT_B_ID, 'FALLEN', 30),
+      ...maintainabilityInputs(ROBOT_ID, 'RUNNING', 30),
+    ]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const items = (await notificationItems(context)).filter(
+      (item) => item.viewpointId === 'maintainability',
     );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ equipmentId: ROBOT_B_ID, status: 'ERROR' });
+    expect(items[0]?.message).toContain(`【異常】メンテナンス性（${ROBOT_B_NAME}）:`);
+    // ハウスの集約の診断メッセージ（先頭に「（設備名）」が付く）は、通知に使わない
+    expect(items[0]?.message).not.toContain(`: （${ROBOT_B_NAME}）`);
+  });
+
+  it('複数のセンサーで、センサー B だけが 40℃（異常）のとき、環境適応性の通知は、センサー B の 1 件（ハウスの通知は出ない）', async () => {
+    const context = await setupMultiple();
+    await context.container.repositories.observations.saveMany([
+      temperature(SENSOR_B_ID, 40, 30),
+      temperature(SENSOR_ID, 22, 29),
+    ]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const items = (await notificationItems(context)).filter(
+      (item) => item.viewpointId === 'environmentalAdaptability',
+    );
+    expect(items.map((item) => item.equipmentId)).toEqual([SENSOR_B_ID]);
+    expect(items[0]?.message).toContain(`環境適応性（${SENSOR_B_NAME}）`);
+  });
+
+  it('基本構成（1:1:1）で、センサーが異常のとき、環境適応性の通知は、センサーの 1 件（ハウスの通知は出ない。以前は 2 件）', async () => {
+    const context = await createTestContext();
+    for (const equipment of equipmentSet()) {
+      await context.container.repositories.equipment.save(equipment);
+    }
+    await context.container.repositories.observations.saveMany([temperature(SENSOR_ID, 45, 30)]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const items = (await notificationItems(context)).filter(
+      (item) => item.viewpointId === 'environmentalAdaptability',
+    );
+    expect(items.map((item) => item.equipmentId)).toEqual([SENSOR_ID]);
+  });
+
+  it('運用面の観点（データ活用度合い・満足度）は、ハウスの結果そのものを通知する', async () => {
+    const context = await setupMultiple();
+    await context.container.repositories.observations.saveMany(
+      SATISFACTION_TARGET_VIEWPOINT_IDS.map((viewpointId) =>
+        observation({
+          equipmentId: FACILITY_ID,
+          itemKey: satisfactionItemKey(viewpointId),
+          value: 1,
+          observedAt: minutesBefore(60),
+          source: 'MANUAL',
+        }),
+      ),
+    );
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const items = await notificationItems(context);
+    const satisfaction = items.filter((item) => item.viewpointId === 'satisfaction');
+    expect(satisfaction).toHaveLength(1);
+    expect(satisfaction[0]).toMatchObject({ equipmentId: FACILITY_ID, status: 'ERROR' });
+    // ロボットのデータがなく取得の割合が低いため、データ活用度合い（ハウス単位）も通知される
+    const utilization = items.filter((item) => item.viewpointId === 'dataUtilization');
+    expect(utilization.map((item) => item.equipmentId)).toEqual([FACILITY_ID]);
+  });
+
+  it('通知しないハウスの変化も、状態の変化の履歴と連携キューには、ハウスの分を積む', async () => {
+    const context = await setupMultiple();
+    await context.container.repositories.observations.saveMany([temperature(SENSOR_B_ID, 40, 30)]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const { evaluations, federation } = context.container.repositories;
+    const houseHistory = await evaluations.listStatusChanges(
+      FACILITY_ID,
+      'environmentalAdaptability',
+    );
+    expect(houseHistory.map((entry) => entry.status)).toEqual(['ERROR']);
+    const queued = await federation.listDue(new Date(TEST_NOW.getTime() + HOUR_MS), 1000);
+    expect(
+      queued.find((item) => item.targetRef === `${FACILITY_ID}#environmentalAdaptability`)?.payload,
+    ).toMatchObject({ status: 'ERROR' });
+    expect(
+      queued.find((item) => item.targetRef === `${SENSOR_B_ID}#environmentalAdaptability`)?.payload,
+    ).toMatchObject({ status: 'ERROR' });
+  });
+
+  it('D-38 の抑制は、設備ごとに動く: 短い行き来（正常が 15 分未満）は通知せず、正常が 15 分以上続いたあとの悪化は、ロボット B の 2 件目の通知になる', async () => {
+    const context = await setupMultiple();
+    // 故障回数・復旧時間（手動入力）を、先に入れておく（ステータスは、同じ日時の値を上書きして切り替える）
+    await context.container.repositories.observations.saveMany(
+      maintainabilityInputs(ROBOT_B_ID, 'RUNNING', 120),
+    );
+    const evaluateAfter = async (minutes: number, statusCode: string) => {
+      context.clock.advance(minutes * MINUTE_MS);
+      await context.container.repositories.observations.saveMany([
+        observation({
+          equipmentId: ROBOT_B_ID,
+          itemKey: 'statusCode',
+          value: statusCode,
+          observedAt: minutesBefore(60),
+        }),
+      ]);
+      await context.container.evaluationService.evaluateAll('DEV');
+    };
+    const maintainabilityNotifications = async (equipmentId: typeof ROBOT_ID) =>
+      (await notificationItems(context)).filter(
+        (item) => item.viewpointId === 'maintainability' && item.equipmentId === equipmentId,
+      );
+
+    await evaluateAfter(0, 'FALLEN');
+    await evaluateAfter(5, 'RUNNING');
+    await evaluateAfter(5, 'FALLEN');
+    // 正常は 5 分だけ続いた（短い行き来）。同じ出来事として、通知しない
+    expect(await maintainabilityNotifications(ROBOT_B_ID)).toHaveLength(1);
+
+    await evaluateAfter(5, 'RUNNING');
+    await evaluateAfter(20, 'FALLEN');
+    // 正常が 20 分続いたあとの悪化は、新しい出来事
+    expect(await maintainabilityNotifications(ROBOT_B_ID)).toHaveLength(2);
+    expect(await maintainabilityNotifications(FACILITY_ID)).toHaveLength(0);
   });
 });

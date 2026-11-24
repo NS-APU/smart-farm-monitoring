@@ -72,7 +72,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await goToNotifications(b.page);
     const alert = notificationRows(b.page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: '（ハウス1）' });
+      .filter({ hasText: '環境センサー1' });
     await expect(alert).toContainText('異常');
     await expect(alert).toHaveAttribute('data-read-state', 'UNREAD');
 
@@ -180,7 +180,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     // UC-22: Aの通知の既読は、Bの既読とは独立（Bが確認した通知も、Aには未読のまま）
     await page.goto('/notifications');
     await expect(
-      notificationRows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '（ハウス1）' }),
+      notificationRows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
     ).toHaveAttribute('data-read-state', 'UNREAD');
     await b.context.close();
   });

@@ -294,7 +294,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     });
   }
 
-  test('異常になる値を保存すると、未読の通知が作られる（ハウスとセンサーの単位）', async ({
+  test('異常になる値を保存すると、未読の通知が作られる（センサーの単位。ハウスの通知は作られない）', async ({
     page,
     request,
   }) => {
@@ -312,8 +312,8 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
 
     await goToNotifications(page);
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
-    await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: '（ハウス1）' })).toContainText('異常');
+    // 通知の単位は、設備（センサー）。ハウスの集約の結果の通知は作られない
+    await expect(rows).toHaveCount(1);
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('異常');
     for (const row of await rows.all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
@@ -337,7 +337,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
     await expect(rows).toHaveCount(0);
 
-    // 注意: ハウスとセンサーの単位で、「注意」の通知が作られる（修正せず、別の計測日時で入力する）
+    // 注意: センサーの単位で、「注意」の通知が作られる（修正せず、別の計測日時で入力する）
     await goToMenu(page, 'データ入力');
     await fillEntryForm(page, {
       ...environment,
@@ -347,8 +347,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
     await goToNotifications(page);
-    await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: '（ハウス1）' })).toContainText('注意');
+    await expect(rows).toHaveCount(1);
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('注意');
     for (const row of await rows.all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');

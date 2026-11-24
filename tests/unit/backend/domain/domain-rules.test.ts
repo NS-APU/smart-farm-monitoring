@@ -21,6 +21,7 @@ import {
   buildIngestionFailureMessage,
   buildStatusChangeDedupKey,
   buildStatusChangeMessage,
+  isStatusChangeNotificationUnit,
   isWithinSuppression,
 } from '../../../../src/backend/domain/notification-rules.ts';
 import { describeRobotState } from '../../../../src/backend/domain/status-code.ts';
@@ -219,6 +220,18 @@ describe('ステータスコードの状態判定', () => {
 });
 
 describe('通知の規則', () => {
+  it('通知の単位は、設備（ロボット・センサー）。ハウスは、運用面の観点（データ活用度合い・満足度）だけ通知する（D-19 の論点 3）', () => {
+    // 設備（ロボット・センサー）の結果は、観点によらず通知の単位
+    expect(isStatusChangeNotificationUnit('ROBOT', 'safety')).toBe(true);
+    expect(isStatusChangeNotificationUnit('SENSOR', 'environmentalAdaptability')).toBe(true);
+    // ハウスの、ロボットの観点・環境適応性は、配下の設備の集約のため、通知しない
+    expect(isStatusChangeNotificationUnit('FACILITY', 'harvestAccuracy')).toBe(false);
+    expect(isStatusChangeNotificationUnit('FACILITY', 'environmentalAdaptability')).toBe(false);
+    // 運用面の観点は、ハウス単位の評価で、ハウスの結果そのものを通知する
+    expect(isStatusChangeNotificationUnit('FACILITY', 'dataUtilization')).toBe(true);
+    expect(isStatusChangeNotificationUnit('FACILITY', 'satisfaction')).toBe(true);
+  });
+
   it('重複抑制のキーは、観点・対象・ステータスから作る', () => {
     expect(buildStatusChangeDedupKey('safety', 'ROBOT-1', 'ERROR')).toBe(
       'STATUS_CHANGE#safety#ROBOT-1#ERROR',

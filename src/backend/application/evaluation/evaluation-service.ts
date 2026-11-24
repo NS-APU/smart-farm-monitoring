@@ -22,7 +22,10 @@ import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { evaluateScope, type EvaluationDraft } from '../../domain/evaluation/scope-evaluator.ts';
 import { aggregateWorstResults } from '../../domain/evaluation/worst-result.ts';
-import { isNotifiableStatusChange } from '../../domain/notification-rules.ts';
+import {
+  isNotifiableStatusChange,
+  isStatusChangeNotificationUnit,
+} from '../../domain/notification-rules.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { errorLogFields } from '../error-fields.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -244,7 +247,8 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   /**
    * 観点の最終ステータス（短期・長期のうち「不明」を除いた悪い方）の変化を、通知・連携キュー・記録に反映する。
    * 「注意」「異常」への悪化は、状態の変化の履歴から、新しい出来事か（正常が一定時間続いたあとか）・より重い重大度かを
-   * 判定して、通知する（D-37・D-38・D-42）。
+   * 判定して、通知する（D-37・D-38・D-42）。通知の単位は、設備（ハウスの集約の結果は通知しない。ADR-0019 の「通知の単位」）。
+   * 通知しない変化も、連携キューへの積み込みと、状態の変化の記録は行う。
    * 順序は、通知の作成 → 連携キューへの積み込み → 状態の変化の記録。**記録を、完了の印として、最後に行う**。
    * どれかが失敗したら、記録しないため、次の評価で、同じ変化として再試行される（通知・連携が、永久に失われない。Issue #561）。
    * 記録の前に、通知・連携が済んでいる場合は、再試行で、通知・連携の項目が重複しうる（取りこぼしより重複を許容する。
@@ -283,8 +287,10 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
       changes += 1;
       let stage: StatusChangeStage = 'NOTIFICATION';
       try {
-        // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）
+        // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）。
+        // 通知の単位は、設備（ハウスの集約の結果は、通知しない。D-19 の論点 3）。通知しない変化も、連携・記録は行う
         const notifiable =
+          isStatusChangeNotificationUnit(equipment.equipmentType, viewpointId) &&
           (status === 'CAUTION' || status === 'ERROR') &&
           isNotifiableStatusChange({
             history: await repositories.evaluations.listStatusChanges(

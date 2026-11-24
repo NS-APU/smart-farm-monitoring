@@ -7,7 +7,12 @@
  * - 取り込みの失敗・停止の通知は、同じ取り込み元・状況について、60 分に 1 件（D-38）
  */
 
-import { STATUS_LABELS, type EvaluationStatus } from '@smart-farm/shared/constants/status';
+import {
+  STATUS_LABELS,
+  type EquipmentType,
+  type EvaluationStatus,
+} from '@smart-farm/shared/constants/status';
+import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 
 /** 同じ重複抑制のキーの通知を繰り返さない期間（分）。取り込みの失敗・停止、連携の期限切れの通知に使う（D-38）。 */
@@ -87,6 +92,20 @@ export function isNotifiableStatusChange(input: StatusChangeDecisionInput): bool
     reached = Math.max(reached, SEVERITY[entry.status]);
   }
   return SEVERITY[next] > reached;
+}
+
+/**
+ * 観点の状態の変化の通知の単位か（D-19 の論点 3。ADR-0019）。通知の単位は、データを持つ設備（ロボット・センサー）。
+ * ハウスの結果のうち、ロボットの観点・環境適応性は、配下の設備の最も悪い結果（集約）のため、通知しない
+ * （設備の通知と、同じ事象で二重になるため）。運用面の観点（データ活用度合い・満足度）は、ハウス単位の評価で、
+ * ハウスの結果そのものを通知する（手動入力の漏れは、データ活用度合いの観点が知らせる。D-37）。
+ * 通知しない変化も、状態の変化の履歴・連携キューには残す。
+ */
+export function isStatusChangeNotificationUnit(
+  equipmentType: EquipmentType,
+  viewpointId: string,
+): boolean {
+  return equipmentType !== 'FACILITY' || findViewpointMeta(viewpointId)?.target === 'OPERATION';
 }
 
 export function buildStatusChangeDedupKey(

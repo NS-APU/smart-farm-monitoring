@@ -365,9 +365,9 @@ describe('異常検知と通知（UC-10）', () => {
 
     const summary = await context.container.evaluationService.evaluateAll('DEV');
 
-    // 環境適応性は、ハウスとセンサーの両方で評価される。ロボットのデータがなく取得の割合が低いため、
+    // 環境適応性は、センサーの通知だけ（ハウスの集約の結果は通知しない）。ロボットのデータがなく取得の割合が低いため、
     // データ活用度合い（ハウス）も「異常」になる
-    expect(summary.notificationsCreated).toBe(3);
+    expect(summary.notificationsCreated).toBe(2);
     const notifications = await notificationsOf(context);
     const forSensor = notifications.find((item) => item.equipmentId === SENSOR_ID);
     expect(forSensor).toMatchObject({
@@ -396,7 +396,7 @@ describe('異常検知と通知（UC-10）', () => {
 
     expect(again).toMatchObject({ statusChanges: 0, notificationsCreated: 0 });
     expect(later.notificationsCreated).toBe(0);
-    expect(await notificationsOf(context)).toHaveLength(3);
+    expect(await notificationsOf(context)).toHaveLength(2);
   });
 
   it('「注意」から「異常」に悪化したら、新しい通知を作る', async () => {
@@ -411,12 +411,12 @@ describe('異常検知と通知（UC-10）', () => {
     ]);
     const summary = await context.container.evaluationService.evaluateAll('DEV');
 
-    expect(summary.notificationsCreated).toBe(2);
+    expect(summary.notificationsCreated).toBe(1);
     expect(
       (await notificationsOf(context)).filter(
         (item) => item.status === 'ERROR' && item.viewpointId === 'environmentalAdaptability',
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   describe('通知の条件（Issue #236。D-37・D-38・D-42）', () => {
@@ -432,7 +432,7 @@ describe('異常検知と通知（UC-10）', () => {
       return context.container.evaluationService.evaluateAll('DEV');
     }
 
-    /** 環境適応性（ハウス・センサーの 2 設備）の通知。 */
+    /** 環境適応性（センサーの設備ごと。ハウスの集約の結果は通知しない）の通知。 */
     const environmentNotifications = async (context: Context) =>
       (await notificationsOf(context)).filter(
         (item) => item.viewpointId === 'environmentalAdaptability',
@@ -445,9 +445,9 @@ describe('異常検知と通知（UC-10）', () => {
       await evaluateAfter(context, 5, 15);
       const recurred = await evaluateAfter(context, 20, 45);
 
-      // 正常は、5 分後から 20 分続いた。2 設備で、「異常」を再び通知する（直前の通知から 25 分）
-      expect(recurred.notificationsCreated).toBe(2);
-      expect(await environmentNotifications(context)).toHaveLength(4);
+      // 正常は、5 分後から 20 分続いた。センサーで、「異常」を再び通知する（直前の通知から 25 分）
+      expect(recurred.notificationsCreated).toBe(1);
+      expect(await environmentNotifications(context)).toHaveLength(2);
     });
 
     it('短い行き来: 異常 → 正常が 15 分未満 → 異常 は、同じ出来事として通知しない', async () => {
@@ -458,7 +458,7 @@ describe('異常検知と通知（UC-10）', () => {
       const again = await evaluateAfter(context, 10, 45);
 
       expect(again.notificationsCreated).toBe(0);
-      expect(await environmentNotifications(context)).toHaveLength(2);
+      expect(await environmentNotifications(context)).toHaveLength(1);
     });
 
     it('改善（異常 → 注意）は、通知しない', async () => {
@@ -470,7 +470,7 @@ describe('異常検知と通知（UC-10）', () => {
       expect(improved.statusChanges).toBeGreaterThan(0);
       expect(improved.notificationsCreated).toBe(0);
       const notifications = await environmentNotifications(context);
-      expect(notifications).toHaveLength(2);
+      expect(notifications).toHaveLength(1);
       expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
     });
 
@@ -482,11 +482,11 @@ describe('異常検知と通知（UC-10）', () => {
       const improved = await evaluateAfter(context, 5, 30);
       const errorAgain = await evaluateAfter(context, 5, 45);
 
-      expect(caution.notificationsCreated).toBe(3);
-      expect(error.notificationsCreated).toBe(2);
+      expect(caution.notificationsCreated).toBe(2);
+      expect(error.notificationsCreated).toBe(1);
       expect(improved.notificationsCreated).toBe(0);
       expect(errorAgain.notificationsCreated).toBe(0);
-      expect(await environmentNotifications(context)).toHaveLength(4);
+      expect(await environmentNotifications(context)).toHaveLength(2);
     });
 
     it('不明を挟んだ再通知はしない: 注意 → 不明（データなし）→ 注意 は、継続とみなす', async () => {
@@ -508,7 +508,7 @@ describe('異常検知と通知（UC-10）', () => {
       );
       expect(last?.status).toBe('CAUTION');
       expect(cautionAgain.notificationsCreated).toBe(0);
-      expect(await environmentNotifications(context)).toHaveLength(2);
+      expect(await environmentNotifications(context)).toHaveLength(1);
     });
 
     it('不明の記録は、状態の変化の履歴に残る（ステータスの推移・経過のため）', async () => {
@@ -587,22 +587,22 @@ describe('通知の一覧・既読（UC-05, UC-22）', () => {
     const failures = await service.list(USER, { kind: 'INGESTION_FAILURE', limit: 20 });
     const other = await service.list(toUserId('someone-else'), { readState: 'UNREAD', limit: 20 });
 
-    expect(items).toHaveLength(4);
-    expect(unread.items).toHaveLength(3);
+    expect(items).toHaveLength(3);
+    expect(unread.items).toHaveLength(2);
     expect(read.items).toHaveLength(1);
     expect(failures.items.map((item) => item.sourceId)).toEqual(['robot']);
     expect(failures.items[0]?.equipmentId).toBeUndefined();
-    expect(other.items).toHaveLength(4);
+    expect(other.items).toHaveLength(3);
   });
 
   it('未読の件数を数え、一括で既読にする（絞り込みの範囲または全件）', async () => {
     const context = await withNotifications();
     const service = context.container.notificationService;
 
-    expect(await service.unreadCount(USER)).toBe(4);
-    expect(await service.markAllRead(USER, { kind: 'INGESTION_FAILURE' })).toBe(1);
     expect(await service.unreadCount(USER)).toBe(3);
-    expect(await service.markAllRead(USER, {})).toBe(3);
+    expect(await service.markAllRead(USER, { kind: 'INGESTION_FAILURE' })).toBe(1);
+    expect(await service.unreadCount(USER)).toBe(2);
+    expect(await service.markAllRead(USER, {})).toBe(2);
     expect(await service.unreadCount(USER)).toBe(0);
   });
 
@@ -615,7 +615,7 @@ describe('通知の一覧・既読（UC-05, UC-22）', () => {
 
     expect(first.items).toHaveLength(2);
     expect(first.nextCursor).not.toBeNull();
-    expect(second.items).toHaveLength(2);
+    expect(second.items).toHaveLength(1);
     expect(second.nextCursor).toBeNull();
   });
 });
@@ -665,8 +665,8 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const summary = await deliver(context);
 
-    expect(summary).toEqual({ notificationsProcessed: 3, delivered: 3, failed: 0 });
-    expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(3);
+    expect(summary).toEqual({ notificationsProcessed: 2, delivered: 2, failed: 0 });
+    expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(2);
     const notification = await firstNotification(context);
     expect(webPushOf(notification)).toMatchObject({ result: 'SUCCESS', attempts: 1 });
     expect(notification.webPushDeliveries).toMatchObject([
@@ -684,7 +684,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const summary = await deliver(context);
 
-    expect(summary).toEqual({ notificationsProcessed: 3, delivered: 0, failed: 0 });
+    expect(summary).toEqual({ notificationsProcessed: 2, delivered: 0, failed: 0 });
     expect(context.container.dev?.mocks.webPush.delivered()).toEqual([]);
     expect(webPushOf(await firstNotification(context))).toMatchObject({
       result: 'SUCCESS',
@@ -724,7 +724,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     context.clock.advance(MINUTE_MS);
     const retry = await deliver(context);
 
-    expect(first).toMatchObject({ failed: 3, delivered: 0 });
+    expect(first).toMatchObject({ failed: 2, delivered: 0 });
     expect(afterFailure.webPushDeliveries).toEqual([
       {
         subscriptionId: 's-1',
@@ -738,11 +738,11 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     expect(webPushOf(afterFailure)).toMatchObject({ result: 'PENDING', attempts: 1 });
     // 次の試行の日時の前は、再送しない
     expect(tooSoon).toMatchObject({ delivered: 0, failed: 0 });
-    expect(retry).toMatchObject({ failed: 3 });
+    expect(retry).toMatchObject({ failed: 2 });
     expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
       attempts: 2,
     });
-    expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
+    expect(await context.container.notificationService.unreadCount(USER)).toBe(2);
   });
 
   it('再送の間隔は、1 分から倍々（1・2・4・8・16・32 分）。通知を作ってから 1 時間（60 分）で、断念する。断念した通知は、画面内の通知として残る', async () => {
@@ -771,7 +771,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     });
     expect(webPushOf(notification)).toMatchObject({ result: 'FAILURE', attempts: 6 });
     expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
-    expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
+    expect(await context.container.notificationService.unreadCount(USER)).toBe(2);
   });
 
   it('失敗した購読にだけ、再送する。届いた購読には、再配信しない（二重配信がない）', async () => {
@@ -794,9 +794,9 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     recovered = true;
     await deliver(context);
 
-    // 通知 3 件 × 購読 2 件 = 6 回、そのあと、失敗した購読への再送が 3 回。届いた購読へは、1 通知につき 1 回だけ
-    expect(calls.filter((id) => id === 's-ok')).toHaveLength(3);
-    expect(calls.filter((id) => id === 's-ng')).toHaveLength(6);
+    // 通知 2 件 × 購読 2 件 = 4 回、そのあと、失敗した購読への再送が 2 回。届いた購読へは、1 通知につき 1 回だけ
+    expect(calls.filter((id) => id === 's-ok')).toHaveLength(2);
+    expect(calls.filter((id) => id === 's-ng')).toHaveLength(4);
     const notification = await firstNotification(context);
     expect(notification.webPushDeliveries).toMatchObject([
       { subscriptionId: 's-ok', result: 'SUCCESS', attempts: 1 },
@@ -814,7 +814,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const retry = await deliver(context);
 
-    expect(retry).toMatchObject({ delivered: 3, failed: 0 });
+    expect(retry).toMatchObject({ delivered: 2, failed: 0 });
     expect(webPushOf(await firstNotification(context))).toMatchObject({
       result: 'SUCCESS',
       attempts: 2,
@@ -835,8 +835,8 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const ttls = spy.mock.calls.map((call) => call[2].ttlSeconds);
 
-    expect(ttls.slice(0, 3)).toEqual([3600, 3600, 3600]);
-    expect(ttls.slice(3)).toEqual([3000, 3000, 3000]);
+    expect(ttls.slice(0, 2)).toEqual([3600, 3600]);
+    expect(ttls.slice(2)).toEqual([3000, 3000]);
   });
 
   it('購読が無効（解除・期限切れ）なら、購読を無効にして、その購読への配信は断念する', async () => {
