@@ -97,6 +97,60 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     await shot(page, testInfo, 'dashboard-mixed');
   });
 
+  test('ロボットが複数台のとき、ハウスの結果は、最も悪いロボットの結果になる（最新のロボットの正常で、転倒を見逃さない）。診断メッセージに、どのロボットかが示される（D-19）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: HOUSE_ID,
+      externalId: 'ROBOT-SAMPLE-02',
+    });
+    // ロボット 2 が転倒し、その 1 分後に、ロボット 1 が収穫中（ハウスの最新のステータスは、ロボット 1 の「収穫中」）
+    const manualAt = hoursAgo(1);
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: 'ROBOT-02',
+          itemKey: 'statusCode',
+          observedAt: hoursAgo(1.02),
+          value: 'FALLEN',
+        },
+        { equipmentId: ROBOT, itemKey: 'statusCode', observedAt: hoursAgo(1), value: 'HARVESTING' },
+        ...[ROBOT, 'ROBOT-02'].flatMap((equipmentId) => [
+          {
+            equipmentId,
+            itemKey: 'failureCount',
+            observedAt: manualAt,
+            value: 1,
+            source: 'MANUAL' as const,
+          },
+          {
+            equipmentId,
+            itemKey: 'recoveryMinutes',
+            observedAt: manualAt,
+            value: 90,
+            source: 'MANUAL' as const,
+          },
+        ]),
+      ],
+    });
+
+    await openDashboard(page);
+
+    const maintainability = card(page, 'maintainability');
+    await expect(maintainability.locator('.status-badge')).toContainText('異常');
+    await expect(maintainability.locator('.diagnostic')).toContainText(
+      '（収穫ロボット2）メンテナンス性: 異常',
+    );
+    await expect(maintainability.locator('.diagnostic')).toContainText(
+      'ステータス 転倒（姿勢異常）',
+    );
+  });
+
   test('主要メトリクスの値と、メトリクスごとの判定（アイコン・文字・色）が表示される。ステータスコードは名称で表示する', async ({
     page,
     request,
