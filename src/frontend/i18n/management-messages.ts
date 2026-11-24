@@ -19,6 +19,8 @@ export const MANAGEMENT_MESSAGES = {
     deleting: '削除中…',
     close: '閉じる',
     required: '必須',
+    // 評価の更新が、応答の前に行われなかったとき（DEFERRED。AWS）の、結果の通知の補足（ADR-0014。設備・ステータスコード・判断基準の保存後）
+    evaluationDeferred: '評価の更新は、定期の評価で行われ、反映には、数分かかります',
     all: 'すべて',
     search: '検索',
     filter: '絞り込み',

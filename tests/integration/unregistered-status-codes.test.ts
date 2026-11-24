@@ -155,7 +155,7 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
 
   it('論理削除したコード値は、未登録として記録する', async () => {
     const context = await setup();
-    expect((await context.request('/status-codes/RUNNING', { method: 'DELETE' })).status).toBe(204);
+    expect((await context.request('/status-codes/RUNNING', { method: 'DELETE' })).status).toBe(200);
     await place(context, [{ timestamp: T1, statusCode: 'RUNNING' }]);
 
     await run(context);
@@ -428,7 +428,7 @@ describe('GET /status-codes/unregistered（UC-17。SC-12-5。管理者のみ）'
 
     expect(created.status).toBe(201);
     expect(afterCreate.map((item) => item.code)).toEqual(['ERR_Y']);
-    expect(deleted.status).toBe(204);
+    expect(deleted.status).toBe(200);
     expect(afterDelete.map((item) => `${item.code}:${String(item.count)}`)).toEqual([
       'ERR_X:4',
       'ERR_Y:1',

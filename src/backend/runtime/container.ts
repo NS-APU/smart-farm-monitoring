@@ -548,6 +548,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     users: repositories.users,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     clock,
     logger,
   });
@@ -558,6 +559,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     federation,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     clock,
     logger,
   });
@@ -566,6 +568,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     unregisteredStatusCodes: repositories.unregisteredStatusCodes,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     logger,
   });
   const userService = createUserService({

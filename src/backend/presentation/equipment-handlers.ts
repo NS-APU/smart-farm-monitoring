@@ -26,8 +26,8 @@ export function createEquipmentHandlers(deps: ApiDeps): Readonly<Record<string, 
     },
     async 'DELETE /equipment/:equipmentId'(c) {
       const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
-      await deps.equipmentService.delete(equipmentId, actorOf(c));
-      return c.body(null, 204);
+      // 評価の状態を返す（200。`DEFERRED` は、評価が定期の評価に任されること。ADR-0014）
+      return c.json(await deps.equipmentService.delete(equipmentId, actorOf(c)));
     },
   };
 }

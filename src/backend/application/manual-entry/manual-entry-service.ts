@@ -47,7 +47,10 @@ import {
   requireActiveEquipment,
 } from '../equipment/require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
-import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
+import {
+  evaluationWriteStateOf,
+  type EvaluationOnWrite,
+} from '../evaluation/evaluation-on-write.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
 import type { FederationService } from '../federation/federation-service.ts';
@@ -150,7 +153,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
   const { repositories, audit, evaluation, evaluationOnWrite, federation, clock, ids, logger } =
     deps;
   /** 応答に付ける、評価の状態。`deferred` では、評価は、定期の評価（JB-02）が更新する。 */
-  const evaluationState = evaluationOnWrite === 'sync' ? 'DONE' : 'DEFERRED';
+  const evaluationState = evaluationWriteStateOf(evaluationOnWrite);
 
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);

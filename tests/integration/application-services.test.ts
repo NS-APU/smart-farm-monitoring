@@ -20,6 +20,7 @@ const UNUSED_DEPS = {
   audit: { record: vi.fn(), list: vi.fn() },
   federation: { enqueue: vi.fn() },
   evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn() },
+  evaluationOnWrite: 'sync' as const,
   clock: createControllableClock(),
   logger: NULL_LOGGER,
 };
@@ -112,6 +113,7 @@ describe('判断基準・設備・ステータスコードの参照', () => {
     const list = await createStatusCodeService({
       audit: UNUSED_DEPS.audit,
       evaluation: UNUSED_DEPS.evaluation,
+      evaluationOnWrite: UNUSED_DEPS.evaluationOnWrite,
       logger: UNUSED_DEPS.logger,
       statusCodes: repositories.statusCodes,
       unregisteredStatusCodes: repositories.unregisteredStatusCodes,

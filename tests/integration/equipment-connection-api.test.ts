@@ -824,7 +824,7 @@ describe('設備の削除と、データのリセット', () => {
 
     const response = await send(context, 'DELETE', `/equipment/${ROBOT_ID}`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
     const saved = await context.container.equipmentConnections.list();
     expect(saved.has(ROBOT_ID)).toBe(false);
     expect(saved.has(SENSOR_ID)).toBe(true);
@@ -840,7 +840,7 @@ describe('設備の削除と、データのリセット', () => {
 
     const response = await send(context, 'DELETE', `/equipment/${FACILITY_ID}`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
     expect((await context.container.equipmentConnections.list()).size).toBe(0);
   });
 

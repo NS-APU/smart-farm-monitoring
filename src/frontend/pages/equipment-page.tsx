@@ -51,6 +51,7 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { withEvaluationNote } from '../lib/evaluation-note.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
@@ -210,7 +211,7 @@ function FacilityForm(
       setEquipmentId('');
       setName('');
       reloadEquipment();
-      props.onDone(TEXT.created, 'registerChild');
+      props.onDone(withEvaluationNote(TEXT.created, result.value.evaluation), 'registerChild');
     }
   }
 
@@ -330,7 +331,7 @@ function ChildForm(props: FormProps & { readonly onCancel: () => void }): ReactN
     setExternalId('');
     setSourceFilePath('');
     setInterval('');
-    props.onDone(TEXT.created, 'dataEntry');
+    props.onDone(withEvaluationNote(TEXT.created, result.value.evaluation), 'dataEntry');
   }
 
   const busy = submit.busy || controller.busy;
@@ -550,7 +551,7 @@ function EditForm(
         return;
       }
     }
-    props.onDone(TEXT.updated);
+    props.onDone(withEvaluationNote(TEXT.updated, result.value.evaluation));
   }
 
   /** ハウスの名称（確認で、ID でなく名称を示す。分からなければ ID）。 */
@@ -760,7 +761,7 @@ export function EquipmentPage(): ReactNode {
     const result = await submit.run(() => deleteEquipment(api, target.equipmentId));
     setDeleting(undefined);
     if (result.ok) {
-      setNotice(TEXT.deleted);
+      setNotice(withEvaluationNote(TEXT.deleted, result.value.evaluation));
       reloadEquipment();
     }
   }

@@ -1,7 +1,7 @@
 /** ステータスコード定義のスキーマ。data-dictionary.md 7章、FR-3。 */
 
 import { z } from 'zod';
-import { IsoDateTimeSchema, JudgedStatusSchema } from './common.ts';
+import { EvaluationWriteStateSchema, IsoDateTimeSchema, JudgedStatusSchema } from './common.ts';
 
 /** コード値の最大の長さ（文字数）。未登録のコード値の記録も、この長さで切る。 */
 export const STATUS_CODE_VALUE_MAX_LENGTH = 100;
@@ -22,6 +22,12 @@ export const StatusCodeDefinitionSchema = z.object({
   isDeleted: z.boolean(),
 });
 export type StatusCodeDefinition = z.infer<typeof StatusCodeDefinitionSchema>;
+
+/** POST・PUT /status-codes の応答: 定義と、評価の状態（ADR-0014。項目がなければ、`DONE` とみなす）。 */
+export const StatusCodeSaveResponseSchema = StatusCodeDefinitionSchema.extend({
+  evaluation: EvaluationWriteStateSchema.optional(),
+});
+export type StatusCodeSaveResponse = z.infer<typeof StatusCodeSaveResponseSchema>;
 
 export const StatusCodeListResponseSchema = z.object({
   items: z.array(StatusCodeDefinitionSchema),

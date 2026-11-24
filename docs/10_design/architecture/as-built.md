@@ -49,7 +49,7 @@
 **実装で変わった点・実装されていない点**
 
 - **本番のアダプタは、DynamoDB の Repository と Cognito の認証を除き、未実装**: 宇都宮大学のファイルサーバーへの接続（HTTP のアダプタは、#119 で実装済み。接続先・認証情報は #298）・実農業情報基盤（Secrets は、パラメータストア版が実装済み。#206。**実 Web Push 配信も、実装済み**〔#241。`WEB_PUSH_DELIVERY=vapid`。開発サイトで、実機への配信を確認済み〕。評価環境のファイルサーバーは、デモ用の HTTP 配信（ADR-0025）。**農業情報基盤は、NGSI-LD のアダプタ**〔#177。ADR-0024。`FEDERATION_MODE=ngsi-ld`。IaC で設定。接続先を画面で設定するまでは、連携は保留。ローカル・テストは、モック〕）。`APP_MODE=production` は、`AUTH_PROVIDER=cognito` と `PERSISTENCE=dynamodb` が必須で、満たさなければ起動時に `ConfigError`（Issue #75。ADR-0009）。実装済みのアダプタは、ローカル用（メモリ＋JSON ファイル、アプリ内の認証、ファイルサーバーと農業情報基盤のモック、Web Push のダミー、操作できる時計）と、**DynamoDB の Repository**（`infrastructure/dynamodb/`。Issue #73。`PERSISTENCE=dynamodb`。ローカル・テストの `APP_MODE` で、DynamoDB Local に対して動作確認済み。実際の AWS の `Main` テーブルの一部（ユーザー・ログインの試行回数・ステータスコードの初期データ）への読み書きは、手元のバックエンドから確認済み（2026-10-16）。観測値のテーブル・一覧・評価は未確認。Issue #79）、**Cognito の認証**（`infrastructure/cognito/`。Issue #74。`AUTH_PROVIDER=cognito`。偽の Cognito での契約テストと、**実際の Cognito（東京）での確認済み**（2026-10-16。手元のバックエンドから。Lambda からも確認済み（2026-10-20。ADR-0009・ADR-0010））。ADR-0008）
-- 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
+- 評価は、観点・期間は、すべてを評価する（設計の「影響を受ける観点に絞る」ではない）。設備は、取り込み後・手動入力の保存後は、**変わった設備と、それを含むハウスだけ**（`evaluateAffected`）、定期（JB-02）・設備などの変更後は、全設備。**AWS の API の Lambda では、手動入力の保存・削除と、設備・ステータスコード・判断基準の変更で、評価しない**（`EVALUATION_ON_WRITE=deferred`。定期の評価が更新する。ADR-0014）
 - 認可の検査は、設計の「API の入口とユースケースの両方」ではなく、**API の入口（ルート表と `requirePermission`）のみ**
 - ルーター・グラフ（折れ線・レーダーチャート）は、ライブラリを使わず、**自作**（History API のルーター、SVG）
 - 実装時に増えたもの: 開発用 API（`/api/v1/dev/*`）、操作できる時計と停止・遅延の再現（`FaultController`）、合成データの生成、E2E の撮影とレイアウト検査
@@ -68,7 +68,7 @@
 | D-06 | 農業情報基盤との連携       | 連携方式は、NGSI-LD（Orion-LD）の upsert（ADR-0024。architecture.md 5.3）                                                                                                          | `FederationPort` のモック（`mock-federation.ts`）と、NGSI-LD のアダプタ（`http/ngsi-ld-federation.ts`。`FEDERATION_MODE=ngsi-ld`）                                                                                                                                                                         | 一部実装（#177 の PR 1。設備の連携・設定の画面は、PR 2・3）           |
 | D-07 | 認可の検査の位置           | 「API の入口と、アプリケーション層のユースケースで行う」（architecture.md 9章）                                                                           | 入口のみ。ルート表（`presentation/route-table.ts`）の `access` を `create-app.ts` の `guarded` が検査する。アプリケーション層のサービスには権限の検査がない（`AccessPolicy` の `can` は、どこからも呼ばれていない）           | 変更                             |
 | D-08 | 評価の対象                 | 「影響を受ける設備・観点に絞って行う」（architecture.md 7章）                                                                                             | `EvaluationService` が、設備ごとに、全観点×全期間（長期 5 窓、短期評価を持つ観点はさらに短期 1 窓）を評価し、保存する。取り込み・手動入力の保存後は、データが変わった設備と、それを含むハウスだけ（`evaluateAffected`）、設備・ステータスコード・判断基準の変更後・定期（JB-02）は、全設備（`evaluateAll`）                      | 一部実装（保存後は絞り込み済み。手順10）                             |
-| D-09 | 段階間の受け渡し | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2） | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）。**AWS の API の Lambda では、手動入力の保存・修正・削除は、評価を呼ばない**（`EVALUATION_ON_WRITE=deferred`。D-22） | 実装の具体化 |
+| D-09 | 段階間の受け渡し | 保存イベント（同じ関数内の呼び出し、またはストリーム）（architecture.md 3.2） | 同期的な関数呼び出し。取り込み・手動入力・設備・ステータスコード・判断基準の各サービスが、`evaluateAll`（取り込み・手動入力の保存後は `evaluateAffected`）を直接呼ぶ（失敗は、ログに残して握りつぶし、保存の結果に影響させない）。**AWS の API の Lambda では、手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除・既定値へ戻す操作は、評価を呼ばない**（`EVALUATION_ON_WRITE=deferred`。D-22） | 実装の具体化 |
 | D-10 | 即時取得の応答 | 機能仕様書 3.10・4.2（ADR-0016）: 同期して実行し、結果の概要を 202 で返す | `POST /ingestion/:sourceId/run` は、同期して実行し、結果の概要を 202 で返す（`admin-handlers.ts`。dev_spec.md 4章 No.29） | 実装済み（設計どおり） |
 | D-11 | グラフ・ルーター           | グラフのライブラリは、設計時に選定（architecture.md 13.1）                                                                                                | ライブラリは未使用。SVG を自作（`line-chart.tsx`・`radar-chart.tsx`・`chart-geometry.ts`）。ルーターも自作（`router/router.tsx`。ADR-0005 の範囲外のため追加していないと明記）                                                | 変更                             |
 | D-12 | 結合テストの DB | DynamoDB のローカル版などのエミュレータ（architecture.md 14章）、テスト用 DB・コンテナ（test-policy.md） | **DynamoDB Local**（Java。`DYNAMODB_LOCAL_DIR` または `DYNAMODB_ENDPOINT`。CI は、コンテナで起動）で、DynamoDB のアダプタを検証する。Repository は、メモリ・ファイル・DynamoDB の 3 実装に、同じ契約テスト（`repository-contract.test.ts`）を適用する。Cognito は偽の Cognito（`tests/support/fake-cognito.ts`）、S3 は偽の S3（`tests/support/fake-s3.ts`）で検証する | 実装済み（設計どおり） |
@@ -81,7 +81,7 @@
 | D-19 | 提示層とインフラ層の依存   | `api-deps.ts` の冒頭コメント: 「提示層は、インフラ層（アダプタ）を知らない」。ESLint は、domain・application・shared・frontend にのみ import の制限を課す | 開発用 API のために、`presentation/api-deps.ts`・`dev-routes.ts` が `infrastructure/local/` の型・定数・合成データ生成を import している（ESLint の制限対象外）。本番の経路（`handlers`）は、アプリケーション層のみに依存する | コードのコメントと実装が食い違う |
 | D-20 | 技術スタックの追加（ライセンス対応） | architecture.md 13.1: Formatter / Linter は Prettier・ESLint（flat config + typescript-eslint）。ビルドは Vite | ライセンス（コピーレフトの除外）の確認の結果（[.license-check/license-report.md](../../../.license-check/license-report.md)）、アクセシビリティの検査に oxlint を追加し（`eslint-plugin-jsx-a11y` を削除。axe-core が MPL-2.0）、Vite の CSS の最小化に esbuild を追加した（`build.cssMinify: 'esbuild'`。Vite 8 が必須とする lightningcss が MPL-2.0 のため、`pnpm-workspace.yaml` の `overrides` で導入しない）。architecture.md 13.1 には、Issue #40 で、Zod・oxlint・Testing Library・jsdom と、React 19.3 系を反映した | 追加（architecture.md に反映済み） |
 | D-21 | IaC・画面の配信 | architecture.md 11.2・13.1: IaC は Amplify Gen 2（または CDK）、画面は Amplify Hosting（または S3 + CloudFront）（ADR-0002） | CDK・S3 + CloudFront を採用。画面と API を CloudFront の同じオリジンで配信し、GitHub Actions + OIDC で手動デプロイする（ADR-0006。Issue #71）。architecture.md 13.1 に反映した | 追加（architecture.md に反映済み） |
-| D-22 | 手動入力の保存後の評価 | 入力の保存のたびに、評価を更新する（human-in-the-loop.md。FR-4.1.5） | 設定 `EVALUATION_ON_WRITE`（`sync`・`deferred`）で切り替える。既定の `sync`（ローカル・E2E）は、設計どおり。**AWS の API の Lambda は `deferred`**: 保存・修正・削除で評価せず、定期の評価（JB-02。5 分ごと）が更新する。保存の応答は、前回の評価のステータスと `evaluation: DEFERRED` を返す。データ量に比例して、評価（直近 90 日の読み出し）が重くなるため（Issue #79・#123。ADR-0014） | 変更（意図的。AWS のみ） |
+| D-22 | 手動入力・設備・ステータスコード・判断基準の保存後の評価 | 入力の保存のたびに、評価を更新する（human-in-the-loop.md。FR-4.1.5） | 設定 `EVALUATION_ON_WRITE`（`sync`・`deferred`）で切り替える。既定の `sync`（ローカル・E2E）は、設計どおり。**AWS の API の Lambda は `deferred`**: 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除・既定値へ戻す操作で評価せず、定期の評価（JB-02。5 分ごと）が更新する。手動入力の応答は、前回の評価のステータスと `evaluation: DEFERRED` を返す。設備・ステータスコード・判断基準の応答は、`evaluation: DEFERRED` を返す（削除は、200 で `{ evaluation }`）。データ量に比例して、評価（直近 90 日の読み出し）が重くなる（設備・ステータスコード・判断基準の変更は、全設備を評価するため、さらに重い）ため（Issue #79・#123・#404。ADR-0014） | 変更（意図的。AWS のみ） |
 
 ## 解析で気づいた課題
 
@@ -1167,7 +1167,7 @@ flowchart LR
 | `DEMO_FEED_PORT`                                                | `8790`                    | `pnpm dev:demo-feed`（バックエンドではなく、デモ用の配信のコマンド）のポート。`--port` でも指定できる（0〜65535）                               |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
-| `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123。ADR-0014） |
+| `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123・#404。ADR-0014） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 管理者 `admin`・一般 `general` の 2 ロール | ロールと権限の定義、初期ユーザーのロール（既定は、ユーザー管理の権限を持つ最初のロール＝`admin`） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
@@ -1213,7 +1213,7 @@ flowchart LR
 - すべての `/api/v1` のリクエストは、`createApp`（`create-app.ts`）の `requestContext`（リクエスト ID・構造化ログ）→ `bodyLimit`（1 MiB）→ ルートごとの `guarded`（`route-table.ts` の `access` に従い、`authenticateRequest` と `requirePermission`）→ ハンドラの順に通る。エラーは `handleError` が共通形式（`{ error: { code, message, fields? } }`）に変換する
 - ハンドラは薄く、「入力の検証（Zod）→ サービスの呼び出し → 応答」のみを行う。ドメインの規則は、アプリケーション層とドメイン層にある
 - 保存はすべて Repository のポート経由（ローカルの実装は、メモリのコレクションへの書き込みと、300 ミリ秒後のファイルへのまとめ書き）
-- 登録・修正・削除の後の評価（`evaluateAll`）は、失敗しても保存の結果に影響させない（`try/catch` でログに残す）。評価の中身は 4.3 に示す
+- 登録・修正・削除の後の評価（`evaluateAll`）は、失敗しても保存の結果に影響させない（`try/catch` でログに残す）。`EVALUATION_ON_WRITE=deferred` では、設備・ステータスコード・判断基準の変更後に、評価を呼ばず（`reevaluateAllOnWrite`）、応答に評価の状態（`evaluation`）を付ける（ADR-0014）。評価の中身は 4.3 に示す
 
 ## 4.1 ログイン・セッションの更新・ログアウト（UC-13）
 
@@ -1437,7 +1437,7 @@ sequenceDiagram
     ES->>REP: list で sourceFilePath<br>が同じ種別の中で一意かを<br>assertSourceFilePathUnique<br>重複は CONFLICT
     ES->>REP: save(isDeleted false createdAt)
     ES->>AU: record CREATE
-    ES->>EV: evaluateAll EQUIPMENT_CHANGE
+    ES->>EV: evaluateAll EQUIPMENT_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
   else 修正 PUT /equipment/ID 200
     APP->>ES: update(equipmentId, input,<br>actor)
     ES->>REP: findActive 無い・削除済みは<br>NOT_FOUND
@@ -1445,8 +1445,8 @@ sequenceDiagram
     ES->>ES: assertFacility と<br>assertExternalIdUnique 自分は除く
     ES->>REP: save 設備ID・種別・createdAt<br>は維持
     ES->>AU: record UPDATE before と after
-    ES->>EV: evaluateAll EQUIPMENT_CHANGE
-  else 削除 DELETE /equipment/ID 204
+    ES->>EV: evaluateAll EQUIPMENT_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
+  else 削除 DELETE /equipment/ID 200 evaluation
     APP->>ES: delete(equipmentId, actor)
     ES->>REP: findActive
     ES->>REP: ハウスなら配下の有効な設備を list<br>で取得
@@ -1454,7 +1454,7 @@ sequenceDiagram
       ES->>REP: save isDeleted true 論理削除
       ES->>AU: record DELETE before
     end
-    ES->>EV: evaluateAll EQUIPMENT_CHANGE
+    ES->>EV: evaluateAll EQUIPMENT_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
   end
 ```
 
@@ -1483,13 +1483,13 @@ sequenceDiagram
     SS->>REP: findActive 無ければ NOT_FOUND
     SS->>REP: save 名称・カテゴリ・説明を更新
     SS->>AU: record UPDATE
-  else 削除 DELETE /status-codes/CODE 204
+  else 削除 DELETE /status-codes/CODE 200 evaluation
     APP->>SS: delete(code, actor)
     SS->>REP: findActive
     SS->>REP: save isDeleted true
     SS->>AU: record DELETE
   end
-  SS->>EV: evaluateAll STATUS_CODE_CHANGE
+  SS->>EV: evaluateAll STATUS_CODE_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
 ```
 
 ### 4.6.1 未登録のコード値の記録と一覧（SC-12-5。#158）
@@ -1542,7 +1542,7 @@ sequenceDiagram
     CA->>CS: getEffective で before を取得
     CA->>REP: save 版 CUSTOM-n isDefault false<br>updatedAt updatedBy
     CA->>AU: record UPDATE before と after
-    CA->>EV: evaluateAll CRITERIA_CHANGE
+    CA->>EV: evaluateAll CRITERIA_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
     CA-->>PG: CriteriaView
   else 既定値へ戻す POST reset
     PG->>APP: POST<br>/viewpoints/:id/criteria/reset<br>権限 criteria:edit
@@ -1550,7 +1550,7 @@ sequenceDiagram
     APP->>CA: reset(viewpointId, actor)
     CA->>REP: delete(viewpointId)
     CA->>AU: record UPDATE before と after<br>に既定値
-    CA->>EV: evaluateAll CRITERIA_CHANGE
+    CA->>EV: evaluateAll CRITERIA_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
     CA-->>PG: 既定値の CriteriaView
   end
 ```
