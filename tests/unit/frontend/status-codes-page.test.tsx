@@ -9,7 +9,6 @@ import {
   confirmDetailsOf,
   confirmNotesOf,
   errorBody,
-  noContent,
   renderApp,
 } from '../../support/management-frontend.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
@@ -257,7 +256,7 @@ describe('ステータスコード（UC-17。SC-12）', () => {
 
   it('削除: 評価への影響を示す確認のダイアログ。確定すると削除して一覧を読み直す。キャンセルなら何もしない', async () => {
     const { calls } = renderApp('/settings/status-codes', {
-      'DELETE /status-codes/FALLEN': () => noContent(),
+      'DELETE /status-codes/FALLEN': () => jsonResponse({ evaluation: 'DONE' }),
     });
     const rows = await screen.findAllByTestId('status-code-row');
 

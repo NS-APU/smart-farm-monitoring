@@ -27,6 +27,7 @@ import { formatDateTimeJst } from '../components/format.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
+import { withEvaluationNote } from '../lib/evaluation-note.ts';
 import { userLabel } from '../lib/user-label.ts';
 import { normalizeNumberText } from '../components/number-text.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -161,7 +162,12 @@ function CriteriaEditor(props: EditorProps): ReactNode {
       updateCriteria(api, props.viewpointId, parsed.data, props.etag),
     );
     if (result.ok) {
-      props.onChanged(TEXT.saved);
+      // 評価が定期の評価に任されるとき（DEFERRED）は、現在の評価を更新したとは言わない（ADR-0014。#404）
+      props.onChanged(
+        result.value.evaluation === 'DEFERRED'
+          ? withEvaluationNote(MESSAGES.form.saved, 'DEFERRED')
+          : TEXT.saved,
+      );
     }
   }
 
@@ -169,7 +175,7 @@ function CriteriaEditor(props: EditorProps): ReactNode {
     const result = await submit.run(() => resetCriteria(api, props.viewpointId, props.etag));
     setConfirmingReset(false);
     if (result.ok) {
-      props.onChanged(TEXT.resetDone);
+      props.onChanged(withEvaluationNote(TEXT.resetDone, result.value.evaluation));
     }
   }
 

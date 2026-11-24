@@ -22,12 +22,14 @@ import {
   FacilityAccessEntrySchema,
   FacilityAccessResponseSchema,
 } from '@smart-farm/shared/schemas/facility-access';
+import { EvaluationWriteResponseSchema } from '@smart-farm/shared/schemas/common';
 import {
+  CriteriaSaveResponseSchema,
   CriteriaViewSchema,
   type CriteriaUpdateRequest,
 } from '@smart-farm/shared/schemas/criteria';
 import {
-  EquipmentSchema,
+  EquipmentSaveResponseSchema,
   type EquipmentCreateRequest,
   type EquipmentUpdateRequest,
 } from '@smart-farm/shared/schemas/equipment';
@@ -61,7 +63,7 @@ import {
   type ReadAllRequest,
 } from '@smart-farm/shared/schemas/notification';
 import {
-  StatusCodeDefinitionSchema,
+  StatusCodeSaveResponseSchema,
   type StatusCodeCreateRequest,
   type StatusCodeUpdateRequest,
 } from '@smart-farm/shared/schemas/status-code';
@@ -218,7 +220,11 @@ export function listAuditLogs(api: ApiClient, params: AuditLogListParams) {
 
 // 設備（SC-10）
 export function createEquipment(api: ApiClient, input: EquipmentCreateRequest) {
-  return api.request('/equipment', { method: 'POST', body: input, schema: EquipmentSchema });
+  return api.request('/equipment', {
+    method: 'POST',
+    body: input,
+    schema: EquipmentSaveResponseSchema,
+  });
 }
 
 export function updateEquipment(
@@ -229,12 +235,16 @@ export function updateEquipment(
   return api.request(API_PATHS.equipment(equipmentId), {
     method: 'PUT',
     body: input,
-    schema: EquipmentSchema,
+    schema: EquipmentSaveResponseSchema,
   });
 }
 
+/** 設備を削除する。応答は、評価の状態（ADR-0014）。 */
 export function deleteEquipment(api: ApiClient, equipmentId: string) {
-  return api.command(API_PATHS.equipment(equipmentId), { method: 'DELETE' });
+  return api.request(API_PATHS.equipment(equipmentId), {
+    method: 'DELETE',
+    schema: EvaluationWriteResponseSchema,
+  });
 }
 
 // ステータスコード（SC-12）
@@ -242,7 +252,7 @@ export function createStatusCode(api: ApiClient, input: StatusCodeCreateRequest)
   return api.request('/status-codes', {
     method: 'POST',
     body: input,
-    schema: StatusCodeDefinitionSchema,
+    schema: StatusCodeSaveResponseSchema,
   });
 }
 
@@ -250,12 +260,16 @@ export function updateStatusCode(api: ApiClient, code: string, input: StatusCode
   return api.request(API_PATHS.statusCode(code), {
     method: 'PUT',
     body: input,
-    schema: StatusCodeDefinitionSchema,
+    schema: StatusCodeSaveResponseSchema,
   });
 }
 
+/** ステータスコードを削除する。応答は、評価の状態（ADR-0014）。 */
 export function deleteStatusCode(api: ApiClient, code: string) {
-  return api.command(API_PATHS.statusCode(code), { method: 'DELETE' });
+  return api.request(API_PATHS.statusCode(code), {
+    method: 'DELETE',
+    schema: EvaluationWriteResponseSchema,
+  });
 }
 
 // 判断基準（SC-13）
@@ -276,7 +290,7 @@ export function updateCriteria(
     method: 'PUT',
     body: input,
     ...(etag === undefined ? {} : { ifMatch: etag }),
-    schema: CriteriaViewSchema,
+    schema: CriteriaSaveResponseSchema,
   });
 }
 
@@ -284,7 +298,7 @@ export function resetCriteria(api: ApiClient, viewpointId: string, etag: string 
   return api.request(API_PATHS.viewpointCriteriaReset(viewpointId), {
     method: 'POST',
     ...(etag === undefined ? {} : { ifMatch: etag }),
-    schema: CriteriaViewSchema,
+    schema: CriteriaSaveResponseSchema,
   });
 }
 

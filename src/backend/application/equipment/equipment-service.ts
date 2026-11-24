@@ -5,10 +5,16 @@
  */
 
 import { conflictError, validationError } from '@smart-farm/shared/errors';
-import type { EquipmentId, UserId } from '@smart-farm/shared/schemas/common';
+import type {
+  EquipmentId,
+  EvaluationWriteResponse,
+  EvaluationWriteState,
+  UserId,
+} from '@smart-farm/shared/schemas/common';
 import type {
   Equipment,
   EquipmentCreateRequest,
+  EquipmentSaveResponse,
   EquipmentTreeResponse,
   EquipmentUpdateRequest,
 } from '@smart-farm/shared/schemas/equipment';
@@ -20,7 +26,8 @@ import type { FederationService } from '../federation/federation-service.ts';
 import type { EquipmentConnections } from '../ingestion/equipment-connections.ts';
 import { requireActiveEquipment } from './require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
-import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
+import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
+import { reevaluateAllOnWrite } from '../evaluation/reevaluate-safely.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
 import type { EquipmentRepository, SettingsRepository } from '../ports/repositories.ts';
@@ -31,14 +38,15 @@ const EQUIPMENT_TARGET_TYPE = 'equipment' satisfies AuditTargetType;
 export interface EquipmentService {
   /** ハウス → ロボット／センサーの階層（論理削除を除く）。 */
   getTree(): Promise<EquipmentTreeResponse>;
-  create(input: EquipmentCreateRequest, actor: UserId): Promise<Equipment>;
+  /** 登録する。応答に、評価の状態を含める（`deferred` では `DEFERRED`。ADR-0014）。 */
+  create(input: EquipmentCreateRequest, actor: UserId): Promise<EquipmentSaveResponse>;
   update(
     equipmentId: EquipmentId,
     input: EquipmentUpdateRequest,
     actor: UserId,
-  ): Promise<Equipment>;
-  /** 論理削除する（ハウスは、配下も）。存在しない（削除済みを含む）場合は NOT_FOUND。 */
-  delete(equipmentId: EquipmentId, actor: UserId): Promise<void>;
+  ): Promise<EquipmentSaveResponse>;
+  /** 論理削除する（ハウスは、配下も）。存在しない（削除済みを含む）場合は NOT_FOUND。評価の状態を返す。 */
+  delete(equipmentId: EquipmentId, actor: UserId): Promise<EvaluationWriteResponse>;
 }
 
 export interface EquipmentServiceDeps {
@@ -51,6 +59,8 @@ export interface EquipmentServiceDeps {
   readonly equipmentConnections?: Pick<EquipmentConnections, 'remove'>;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
+  /** 変更の後の評価を、応答の前に行うか（`deferred` は、定期の評価〔JB-02〕に任せる。ADR-0014）。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   readonly clock: ClockPort;
   readonly logger: Logger;
 }
@@ -63,7 +73,7 @@ function byCreation(left: Equipment, right: Equipment): number {
 }
 
 export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentService {
-  const { equipment: repository, audit, evaluation, clock, logger } = deps;
+  const { equipment: repository, audit, evaluation, evaluationOnWrite, clock, logger } = deps;
   const settingsRepository = deps.settings;
 
   /** 設備の名前・ID を、連携キューに積む（D-35）。削除のときは、積まない（基盤のデータは、削除しない。D-28）。 */
@@ -125,9 +135,15 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     }
   }
 
-  /** 評価の更新。失敗しても、設備の保存の結果には影響させない。 */
-  const reevaluate = (): Promise<void> =>
-    reevaluateSafely(evaluation, logger, 'EQUIPMENT_CHANGE', '設備の変更後の評価に失敗しました');
+  /** 評価の更新（`deferred` では、しない）。失敗しても、設備の保存の結果には影響させない。 */
+  const reevaluate = (): Promise<EvaluationWriteState> =>
+    reevaluateAllOnWrite(
+      evaluationOnWrite,
+      evaluation,
+      logger,
+      'EQUIPMENT_CHANGE',
+      '設備の変更後の評価に失敗しました',
+    );
 
   return {
     async getTree() {
@@ -173,8 +189,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         after: created,
       });
       await enqueueFederation(created);
-      await reevaluate();
-      return created;
+      return { ...created, evaluation: await reevaluate() };
     },
 
     async update(equipmentId, input, actor) {
@@ -228,8 +243,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       if (updated.name !== before.name || updated.facilityId !== before.facilityId) {
         await enqueueFederation(updated);
       }
-      await reevaluate();
-      return updated;
+      return { ...updated, evaluation: await reevaluate() };
     },
 
     async delete(equipmentId, actor) {
@@ -252,7 +266,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
           before: equipment,
         });
       }
-      await reevaluate();
+      return { evaluation: await reevaluate() };
     },
   };
 }

@@ -11,7 +11,12 @@
 import { z } from 'zod';
 import type { FieldError } from '../errors.ts';
 import { getMetricMeta } from '../constants/metrics.ts';
-import { IsoDateTimeSchema, UserIdSchema, ViewpointIdSchema } from './common.ts';
+import {
+  EvaluationWriteStateSchema,
+  IsoDateTimeSchema,
+  UserIdSchema,
+  ViewpointIdSchema,
+} from './common.ts';
 import { toFieldErrors } from './field-errors.ts';
 
 /** 判断基準の条件の上限（FR-5.7）。 */
@@ -152,6 +157,12 @@ export const CriteriaViewSchema = ViewpointCriteriaSchema.extend({
   updatedByName: z.string().optional(),
 });
 export type CriteriaView = z.infer<typeof CriteriaViewSchema>;
+
+/** PUT /viewpoints/{viewpointId}/criteria・POST .../reset の応答: 判断基準の編集の応答と、評価の状態（ADR-0014。項目がなければ、`DONE` とみなす）。 */
+export const CriteriaSaveResponseSchema = CriteriaViewSchema.extend({
+  evaluation: EvaluationWriteStateSchema.optional(),
+});
+export type CriteriaSaveResponse = z.infer<typeof CriteriaSaveResponseSchema>;
 
 /** 判断基準の入力を検証し、項目ごとのエラーを返す（空配列なら有効）。 */
 export function validateCriteriaInput(input: unknown): FieldError[] {

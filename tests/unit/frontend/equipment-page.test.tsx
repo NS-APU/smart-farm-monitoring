@@ -6,7 +6,6 @@ import {
   at,
   callsOf,
   errorBody,
-  noContent,
   renderApp,
 } from '../../support/management-frontend.ts';
 
@@ -537,8 +536,8 @@ describe('設備管理（UC-12。SC-10）', () => {
 
   it('削除: ロボットは確認のダイアログ。ハウスは、配下も対象外になる旨を示す。確定すると、削除して階層を読み直す', async () => {
     const { calls } = renderApp('/settings/equipment', {
-      'DELETE /equipment/ROBOT-01': () => noContent(),
-      'DELETE /equipment/HOUSE-01': () => noContent(),
+      'DELETE /equipment/ROBOT-01': () => jsonResponse({ evaluation: 'DONE' }),
+      'DELETE /equipment/HOUSE-01': () => jsonResponse({ evaluation: 'DONE' }),
     });
     const rows = await screen.findAllByTestId('equipment-row');
 

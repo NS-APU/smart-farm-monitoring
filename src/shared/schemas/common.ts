@@ -68,3 +68,17 @@ export function toEquipmentId(value: string): EquipmentId {
 export function toUserId(value: string): UserId {
   return UserIdSchema.parse(value);
 }
+
+/**
+ * 保存・変更の応答の、評価の状態（ADR-0014）。`DONE`: 応答の前に評価を更新した。
+ * `DEFERRED`: 評価は、定期の評価（JB-02）が更新する（反映には、数分かかる）。項目がなければ、`DONE` とみなす。
+ */
+export const EVALUATION_WRITE_STATES = ['DONE', 'DEFERRED'] as const;
+export const EvaluationWriteStateSchema = z.enum(EVALUATION_WRITE_STATES);
+export type EvaluationWriteState = z.infer<typeof EvaluationWriteStateSchema>;
+
+/** 評価の状態だけを持つ応答（設備・ステータスコードの削除。DELETE。200）。 */
+export const EvaluationWriteResponseSchema = z.object({
+  evaluation: EvaluationWriteStateSchema.optional(),
+});
+export type EvaluationWriteResponse = z.infer<typeof EvaluationWriteResponseSchema>;

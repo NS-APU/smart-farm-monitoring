@@ -22,6 +22,7 @@ import { EVALUATION_STATUSES } from '../constants/status.ts';
 import { MS_PER_MINUTE } from '../time.ts';
 import {
   CategorySchema,
+  EVALUATION_WRITE_STATES,
   EquipmentIdSchema,
   IsoDateTimeSchema,
   UserIdSchema,
@@ -92,7 +93,7 @@ export type ManualEntryViewpointStatus = z.infer<typeof ManualEntryViewpointStat
  * `DEFERRED`: 評価は、定期の評価が更新する（ステータスは、前回の評価の値。反映には、数分かかる。ADR-0014）。
  * 項目がなければ、`DONE` とみなす。
  */
-export const MANUAL_ENTRY_EVALUATION_STATES = ['DONE', 'DEFERRED'] as const;
+export const MANUAL_ENTRY_EVALUATION_STATES = EVALUATION_WRITE_STATES;
 
 /**
  * 保存・修正の応答の、入力した項目ごとの「評価に使われるか」（D-26。Issue #162 の SC-06-5）。

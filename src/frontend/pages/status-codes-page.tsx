@@ -32,6 +32,7 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { withEvaluationNote } from '../lib/evaluation-note.ts';
 import { Modal } from '../components/modal.tsx';
 import { ResultNotice } from '../components/result-notice.tsx';
 
@@ -77,7 +78,7 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
         setCode('');
         setName('');
         setDescription('');
-        props.onDone(TEXT.created);
+        props.onDone(withEvaluationNote(TEXT.created, result.value.evaluation));
       }
       return;
     }
@@ -89,7 +90,7 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
     setClientErrors({});
     const result = await submit.run(() => updateStatusCode(api, definition.code, parsed.data));
     if (result.ok) {
-      props.onDone(TEXT.updated);
+      props.onDone(withEvaluationNote(TEXT.updated, result.value.evaluation));
     }
   }
 
@@ -219,7 +220,7 @@ export function StatusCodesPage(): ReactNode {
     const result = await submit.run(() => deleteStatusCode(api, target.code));
     setDeleting(undefined);
     if (result.ok) {
-      done(TEXT.deleted);
+      done(withEvaluationNote(TEXT.deleted, result.value.evaluation));
     }
   }
 

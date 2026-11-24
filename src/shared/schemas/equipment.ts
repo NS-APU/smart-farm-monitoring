@@ -10,6 +10,7 @@ import {
 import {
   EquipmentIdSchema,
   EquipmentTypeSchema,
+  EvaluationWriteStateSchema,
   IsoDateTimeSchema,
   type EquipmentId,
 } from './common.ts';
@@ -91,6 +92,16 @@ export const EquipmentSchema = z
   .refine(hasValidSourceFilePath, SOURCE_FILE_PATH_RULE_ISSUE)
   .refine(hasValidInterval, INTERVAL_RULE_ISSUE);
 export type Equipment = z.infer<typeof EquipmentSchema>;
+
+/**
+ * POST・PUT /equipment の応答: 設備と、評価の状態（ADR-0014。`DEFERRED` は、評価が定期の評価に任されること）。
+ * 項目がなければ、`DONE` とみなす。
+ */
+export const EquipmentSaveResponseSchema = z.intersection(
+  EquipmentSchema,
+  z.object({ evaluation: EvaluationWriteStateSchema.optional() }),
+);
+export type EquipmentSaveResponse = z.infer<typeof EquipmentSaveResponseSchema>;
 
 /** 設備の取得間隔の、実際の値（分）。指定がなければ、種別ごとの既定。ハウスは、持たない（undefined）。 */
 export function effectiveIntervalMinutes(equipment: {

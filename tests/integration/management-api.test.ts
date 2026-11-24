@@ -1129,7 +1129,7 @@ describe('設備管理（UC-12。POST・PUT・DELETE /equipment）', () => {
 
     const response = await send(context, 'DELETE', `/equipment/${ROBOT_ID}`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
     const stored = await context.container.repositories.equipment.get(ROBOT_ID);
     expect(stored?.isDeleted).toBe(true);
     const tree = (await (await send(context, 'GET', '/equipment')).json()) as {
@@ -1144,7 +1144,7 @@ describe('設備管理（UC-12。POST・PUT・DELETE /equipment）', () => {
 
     const response = await send(context, 'DELETE', `/equipment/${FACILITY_ID}`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
     expect(await (await send(context, 'GET', '/equipment')).json()).toEqual({ facilities: [] });
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?operation=DELETE')).json(),
@@ -1211,7 +1211,7 @@ describe('ステータスコード（UC-17。POST・PUT・DELETE /status-codes�
       'STOPPED',
     ]);
     expect(listed.items[0]?.name).toBe('充電待ち');
-    expect(deleted.status).toBe(204);
+    expect(deleted.status).toBe(200);
     expect(after.items.some((item) => item.code === 'CHARGING')).toBe(false);
   });
 
