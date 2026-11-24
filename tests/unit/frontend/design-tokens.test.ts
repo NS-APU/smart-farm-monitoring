@@ -261,6 +261,16 @@ describe.each(THEMES)('デザイントークン（%s）', (_name, tokens) => {
     }
   });
 
+  it('変更履歴の変更点の印（Issue #190。SC-08-5）: 文字は面の上で 4.5:1 以上、枠は面・タグの面の上で 3:1 以上', () => {
+    const text = pick(tokens, 'color-text');
+    const mutedSurface = pick(tokens, 'color-surface-muted');
+    const border = pick(tokens, 'color-border-control');
+
+    expect(contrast(text, mutedSurface), '文字 / タグの面').toBeGreaterThanOrEqual(4.5);
+    expect(contrast(border, mutedSurface), '枠 / タグの面').toBeGreaterThanOrEqual(3);
+    expect(contrast(border, surface), '枠 / 面').toBeGreaterThanOrEqual(3);
+  });
+
   it('観点のアイコンは、その枠の背景に対して 3:1 以上のコントラスト（WCAG 1.4.11）。状態の色とは混ぜない', () => {
     const icon = pick(tokens, 'color-viewpoint-icon');
     const box = pick(tokens, 'color-viewpoint-icon-bg');

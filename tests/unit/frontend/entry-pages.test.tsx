@@ -1398,7 +1398,9 @@ describe('変更履歴（UC-18。SC-08）', () => {
     expect(after?.textContent).toContain('2026/10/09 12:00:00');
     expect(after?.textContent).toContain('ROBOT-02');
     expect(after?.textContent).toContain('new-category');
-    expect(after?.textContent).not.toContain('備考');
+    // 備考が空になった（なくなった項目）: 変更後は、備考を「なし」の印で示し、空の値は示さない（Issue #190。SC-08-5）
+    expect(after?.textContent).toContain('備考なし');
+    expect(after?.textContent).not.toContain('修正前の備考');
   });
 
   it('条件（操作種別・対象・変更者・期間・並べ替え）は、API のクエリに反映する。不正なクエリの値は、無視する', async () => {

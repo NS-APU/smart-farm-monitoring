@@ -1333,6 +1333,52 @@ textarea {
   min-width: 16em;
 }
 
+/* 変更点の印（編集の変更前後。#190。SC-08-5）。文字のタグ + 太字 + 枠線。色だけに頼らない。状態（正常・注意・異常）の色は使わず、
+   中立のトークンだけにする（ライト・ダークの両方で、文字 4.5:1・枠 3:1 以上。design-tokens.test.ts）。「なし」は、破線の枠 */
+.diff-mark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.diff-mark-removed {
+  border-style: dashed;
+}
+
+/* 狭い幅（カード）でも、印のタグが枠から出ないよう、行の折り返しを許す */
+.audit-table .entry-values li,
+.audit-table .audit-meta dd {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* 内容を開いて確認する種類: 閉じた状態でも見える、変わった項目名の 1 行と、項目ごとの区切り */
+.audit-changes {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.audit-field-head {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  white-space: normal;
+}
+
+.audit-field-head + .audit-json {
+  margin-top: 2px;
+}
+
 @media (min-width: 901px) {
   .audit-table td:nth-child(5),
   .audit-table td:nth-child(6) {

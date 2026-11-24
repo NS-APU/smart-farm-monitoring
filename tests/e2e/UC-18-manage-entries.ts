@@ -19,7 +19,7 @@
  * 関連するユースケース: UC-06・UC-07（入力）、UC-20（一覧からの除外）、UC-10（再評価の通知）、UC-01（評価）、UC-19（判断基準の履歴）。
  */
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   HOUSE_ID,
   ROBOT_ID,
@@ -37,6 +37,7 @@ import {
   newUserSession,
   openAs,
   prepareApp,
+  setEquipmentInterval,
 } from './support/app.ts';
 import {
   allSatisfactionStars,
@@ -978,7 +979,15 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
     await expect(auditRows(page).first()).toContainText('ステータスコード');
     await expect(auditRows(page).first()).toContainText('STANDBY');
     await auditRows(page).first().locator('summary').nth(1).click();
-    await expect(auditRows(page).first().locator('pre').nth(1)).toContainText('待機（変更）');
+    // 変更後の列（変更後の内容。項目ごとの区切りに分かれる。Issue #190）
+    await expect(
+      auditRows(page)
+        .first()
+        .locator('td')
+        .nth(5)
+        .locator('pre')
+        .filter({ hasText: '待機（変更）' }),
+    ).toBeVisible();
     await page.getByLabel('対象', { exact: true }).selectOption('equipment');
     await expect(auditRows(page).first()).toContainText('設備');
   });
@@ -1442,3 +1451,186 @@ test.describe('事後条件: 変更履歴の変更前後の値に、項目の値
     await shot(page, testInfo, 'uc18-history-meta');
   });
 });
+
+/** 変更履歴の、変更点の印（Issue #190。SC-08-5）の確認。広い幅・タブレット幅・スマートフォン幅（900px 以下は、1 件ごとのカード）。 */
+for (const viewport of VIEWPORTS) {
+  test.describe(`${viewport.name}: 変更履歴の変更点の印（SC-08-5）`, () => {
+    /** 印のタグが、文字・太字・枠線を持つ（色だけに頼っていない）。 */
+    async function expectMarkNotColorOnly(mark: Locator): Promise<void> {
+      await expect(mark).toBeVisible();
+      expect((await mark.innerText()).trim()).not.toBe('');
+      const style = await mark.evaluate((node) => {
+        const computed = getComputedStyle(node);
+        return { weight: Number(computed.fontWeight), border: computed.borderTopWidth };
+      });
+      expect(style.weight).toBeGreaterThanOrEqual(700);
+      expect(style.border).toBe('1px');
+    }
+
+    /** 印のタグが、画面の幅の中に見える（カードで、枠から出ない）。 */
+    async function expectInsideViewport(mark: Locator): Promise<void> {
+      await mark.scrollIntoViewIfNeeded();
+      const box = await mark.boundingBox();
+      expect(box).not.toBeNull();
+      if (box !== null && viewport.width <= 900) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      }
+    }
+
+    test('手動入力: 変わった項目に「変更」「追加」「なし」。変わらない項目・登録・削除には付けない', async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      const created = await addEntry(request, {
+        category: 'SAFETY',
+        observedAt: hoursAgo(3),
+        items: { emergencyStopCount: 1, nearMissCount: 2 },
+        note: '修正前の備考',
+      });
+      const url = `/manual-entries/${created.entry.entryId}`;
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      // 1 回目の修正: 緊急停止回数を変更・ヒヤリハット件数と備考をなくす
+      await api(request, 'PUT', url, {
+        equipmentId: ROBOT_ID,
+        category: 'SAFETY',
+        observedAt: hoursAgo(3),
+        items: { emergencyStopCount: 2 },
+      });
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      // 2 回目の修正: ヒヤリハット件数を加える（緊急停止回数は、そのまま）
+      await api(request, 'PUT', url, {
+        equipmentId: ROBOT_ID,
+        category: 'SAFETY',
+        observedAt: hoursAgo(3),
+        items: { emergencyStopCount: 2, nearMissCount: 4 },
+      });
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      await api(request, 'DELETE', url);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+
+      await openHistory(page, '?targetType=manual-entry');
+
+      await expect(auditRows(page)).toHaveCount(4);
+      const deleted = auditRows(page).nth(0);
+      const second = auditRows(page).nth(1);
+      const first = auditRows(page).nth(2);
+      const registered = auditRows(page).nth(3);
+      // 登録・削除: 印を付けない（操作種別だけで示す）
+      await expect(deleted).toContainText('削除');
+      await expect(registered).toContainText('登録');
+      await expect(deleted.locator('.diff-mark')).toHaveCount(0);
+      await expect(registered.locator('.diff-mark')).toHaveCount(0);
+      // 1 回目: 緊急停止回数は「変更」（変更前・変更後）、ヒヤリハット件数・備考は、変更後に「なし」
+      const firstBefore = first.locator('td[data-label="変更前"]');
+      const firstAfter = first.locator('td[data-label="変更後"]');
+      await expect(firstBefore.locator('.diff-mark')).toHaveText(['変更']);
+      await expect(firstAfter.locator('.diff-mark')).toHaveText(['変更', 'なし', 'なし']);
+      const stopAfter = firstAfter.locator('li').filter({ hasText: '緊急停止回数' });
+      const missAfter = firstAfter.locator('li').filter({ hasText: 'ヒヤリハット件数' });
+      const missBefore = firstBefore.locator('li').filter({ hasText: 'ヒヤリハット件数' });
+      await expect(stopAfter).toContainText('2回変更');
+      await expect(missAfter).toContainText('なし');
+      await expect(missAfter).not.toContainText('2件');
+      await expect(missBefore).toContainText('2件');
+      await expect(missBefore.locator('.diff-mark')).toHaveCount(0);
+      // 2 回目: ヒヤリハット件数が、変更後に「追加」。緊急停止回数（変わらない）には付けない
+      const secondAfter = second.locator('td[data-label="変更後"]');
+      await expect(second.locator('td[data-label="変更前"] .diff-mark')).toHaveCount(0);
+      await expect(secondAfter.locator('.diff-mark')).toHaveText(['追加']);
+      await expect(
+        secondAfter.locator('li').filter({ hasText: '緊急停止回数' }).locator('.diff-mark'),
+      ).toHaveCount(0);
+      for (const mark of await firstAfter.locator('.diff-mark').all()) {
+        await expectMarkNotColorOnly(mark);
+        await expectInsideViewport(mark);
+      }
+      await expectInsideViewport(secondAfter.locator('.diff-mark'));
+      await shot(page, testInfo, `uc18-history-diff-manual-${String(viewport.width)}`);
+    });
+
+    test('設備・ステータスコード・判断基準: 閉じた状態で、変わった項目名を 1 行で示す。内容を開くと、変わった項目に印が付く', async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      await setEquipmentInterval(request, ROBOT_ID, 5);
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      await setEquipmentInterval(request, ROBOT_ID, 10);
+      await api(request, 'PUT', '/status-codes/STANDBY', {
+        name: '待機（変更）',
+        category: 'NORMAL',
+      });
+      // 判断基準の更新は、読み込んだ時点の版（ETag）を If-Match に付ける（SC-13-1）
+      const read = await api(request, 'GET', '/viewpoints/harvestAccuracy/criteria');
+      const etag = read.headers().etag ?? '';
+      const view = (await read.json()) as {
+        criteria: { indicator: string; kind: string; thresholds: { cautionBelow: number } }[];
+      };
+      const target = view.criteria.find((criterion) => criterion.kind === 'LOWER');
+      expect(target).toBeDefined();
+      const saved = await api(
+        request,
+        'PUT',
+        '/viewpoints/harvestAccuracy/criteria',
+        {
+          criteria: view.criteria.map((criterion) =>
+            criterion === target
+              ? {
+                  ...criterion,
+                  thresholds: {
+                    ...criterion.thresholds,
+                    cautionBelow: criterion.thresholds.cautionBelow + 1,
+                  },
+                }
+              : criterion,
+          ),
+        },
+        { 'if-match': etag },
+      );
+      expect(saved.status(), '判断基準の保存').toBe(200);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+
+      // 設備: 1 回目は、取得間隔を「追加」、2 回目は「変更」
+      await openHistory(page, `?targetType=equipment&targetId=${ROBOT_ID}`);
+      const equipmentRows = auditRows(page).filter({ hasText: '編集' });
+      await expect(equipmentRows).toHaveCount(2);
+      const newer = equipmentRows.nth(0).locator('td[data-label="変更後"]');
+      const older = equipmentRows.nth(1).locator('td[data-label="変更後"]');
+      await expect(newer.locator('.audit-changes')).toHaveText('変更: 取得間隔');
+      await expect(older.locator('.audit-changes')).toHaveText('追加: 取得間隔');
+      // 閉じた状態でも、見える（内容を開かなくても、1 行で分かる）
+      await expect(newer.locator('.audit-changes')).toBeVisible();
+      await expect(newer.locator('details')).not.toHaveAttribute('open', '');
+      await expect(newer.locator('.diff-mark')).toBeHidden();
+      await newer.locator('summary').click();
+      const mark = newer
+        .locator('.audit-field', { hasText: '"intervalMinutes": 10' })
+        .locator('.diff-mark');
+      await expect(mark).toHaveText('変更');
+      await expectMarkNotColorOnly(mark);
+      await expectInsideViewport(mark);
+      // 変わらない項目（設備 ID）には、印を付けない。全項目は残る
+      const unchanged = newer.locator('.audit-field', { hasText: '"equipmentId"' });
+      await expect(unchanged).toBeVisible();
+      await expect(unchanged.locator('.diff-mark')).toHaveCount(0);
+      await shot(page, testInfo, `uc18-history-diff-equipment-${String(viewport.width)}`);
+
+      // ステータスコード
+      await openHistory(page, '?targetType=status-code');
+      await expect(
+        auditRows(page).first().locator('td[data-label="変更後"] .audit-changes'),
+      ).toContainText('変更: 名称');
+
+      // 判断基準: 閾値が変わった指標だけ（版・更新日時・更新者は、印の対象にしない）
+      await openHistory(page, '?targetType=criteria');
+      await expect(auditRows(page)).toHaveCount(1);
+      const criteriaAfter = auditRows(page).first().locator('td[data-label="変更後"]');
+      await expect(criteriaAfter.locator('.audit-changes')).toHaveText('変更: 可販果率');
+      await criteriaAfter.locator('summary').click();
+      await expect(criteriaAfter.locator('.diff-mark')).toHaveText(['変更']);
+      await shot(page, testInfo, `uc18-history-diff-criteria-${String(viewport.width)}`);
+    });
+  });
+}
