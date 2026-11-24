@@ -4,6 +4,7 @@
  * 書き換わり、中身は最新の値だけ。Issue #174。ADR-0016 の D-08）。ロボットは `robot-json`、環境センサーは
  * `environment-sensor-json`（どちらも JSON。設備の識別子 + 記録の配列）。
  * 値は、デモのデータ（synthetic-data.ts の generateAutoObservations）と同じ生成の規則で、**区間の時刻から決まる**（同じ区間は、同じ内容）。
+ * 収穫数・稼働時間などの累積の項目は、「今日（日本時間）これまでの累計」（日本時間の 0 時にリセット。D-26）。
  * 実行が数回、抜けても、直近の区間は、ファイルの記録に含まれる。実データは使わない（合成データのみ）。
  */
 
@@ -15,8 +16,11 @@ import {
 import {
   DEMO_ROBOT_EXTERNAL_ID,
   DEMO_SENSOR_EXTERNAL_ID,
+  ZERO_TOTALS,
+  addToTotals,
   createRandom,
   generateAutoSample,
+  japanDayOf,
 } from './synthetic-data.ts';
 
 /** 区間ごとの乱数の種の基準（区間の番号を足す）。デモの投入（20_261_009）とは、別の値にする。 */
@@ -42,23 +46,37 @@ export function buildDemoFeedFiles(
 ): DemoFeedFile[] {
   const intervalMs = options.intervalMinutes * MS_PER_MINUTE;
   const currentBucket = Math.floor(now.getTime() / intervalMs);
+  const firstBucket = currentBucket - options.buckets + 1;
+  // 累積の値は、その日（日本時間）の最初の区間から足し上げる（ファイルに含める最初の区間より前の分も、同じ規則で決まる）
+  const dayOfBucket = (bucket: number): number => japanDayOf(bucket * intervalMs);
+  let startBucket = firstBucket;
+  while (dayOfBucket(startBucket - 1) === dayOfBucket(firstBucket)) {
+    startBucket -= 1;
+  }
   const robotRecords: Record<string, unknown>[] = [];
   const sensorRecords: Record<string, unknown>[] = [];
-  for (let back = options.buckets - 1; back >= 0; back -= 1) {
-    const bucket = currentBucket - back;
-    const timestamp = new Date(bucket * intervalMs).toISOString();
+  let totals = ZERO_TOTALS;
+  for (let bucket = startBucket; bucket <= currentBucket; bucket += 1) {
     const sample = generateAutoSample(
       createRandom(FEED_SEED_BASE + bucket),
       options.intervalMinutes,
       DEMO_FEED_TEMPERATURE_BASE_CELSIUS,
     );
+    if (bucket > startBucket && dayOfBucket(bucket) !== dayOfBucket(bucket - 1)) {
+      totals = ZERO_TOTALS;
+    }
+    totals = addToTotals(totals, sample);
+    if (bucket < firstBucket) {
+      continue;
+    }
+    const timestamp = new Date(bucket * intervalMs).toISOString();
     robotRecords.push({
       timestamp,
-      harvestCount: sample.harvestCount,
-      operatingHours: sample.operatingHours,
-      standbyHours: sample.standbyHours,
-      harvestOperatingHours: sample.harvestOperatingHours,
-      travelStoppedHours: sample.travelStoppedHours,
+      harvestCount: totals.harvestCount,
+      operatingHours: totals.operatingHours,
+      standbyHours: totals.standbyHours,
+      harvestOperatingHours: totals.harvestOperatingHours,
+      travelStoppedHours: totals.travelStoppedHours,
       statusCode: sample.statusCode,
     });
     sensorRecords.push({

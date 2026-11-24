@@ -37,15 +37,26 @@ export function robotFileContent(options: FileContentOptions): string {
   }
   const now = Date.now();
   const random = createRandom(20_261_100 + options.index);
-  const records = Array.from({ length: options.recordsPerFile }, (_, record) => ({
-    timestamp: timestampOf(now, options.index, options.recordsPerFile, record),
-    harvestCount: 8 + Math.floor(random() * 8),
+  const draws = Array.from({ length: options.recordsPerFile }, () => ({
+    harvestIncrement: 8 + Math.floor(random() * 8),
     harvestSecondsPerFruit: Math.round((40 + random() * 15) * 10) / 10,
-    operatingHours: 0.05,
-    standbyHours: 0.005,
-    harvestOperatingHours: 0.03,
-    travelStoppedHours: 0.0006,
     statusCode: random() < 0.8 ? 'HARVESTING' : 'RUNNING',
+  }));
+  // 収穫数・稼働時間などは、累積の値（D-26）。記録 0 が最も新しく、後ろの記録ほど古い。古い順に、増分を足し上げる
+  const cumulative = (increment: (record: number) => number, record: number): number =>
+    Math.round(
+      draws.slice(record).reduce((sum, _draw, offset) => sum + increment(record + offset), 0) *
+        1_000_000,
+    ) / 1_000_000;
+  const records = draws.map((draw, record) => ({
+    timestamp: timestampOf(now, options.index, options.recordsPerFile, record),
+    harvestCount: cumulative((at) => draws[at]?.harvestIncrement ?? 0, record),
+    harvestSecondsPerFruit: draw.harvestSecondsPerFruit,
+    operatingHours: cumulative(() => 0.05, record),
+    standbyHours: cumulative(() => 0.005, record),
+    harvestOperatingHours: cumulative(() => 0.03, record),
+    travelStoppedHours: cumulative(() => 0.0006, record),
+    statusCode: draw.statusCode,
   }));
   return JSON.stringify({ robotId: options.externalId, records });
 }

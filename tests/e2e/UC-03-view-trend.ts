@@ -388,7 +388,13 @@ test.describe('データの状態（欠損・1区間のみ・境界）', () => {
   }, testInfo) => {
     await prepare(request);
     const hour = (hours: number, damaged: number, wrong: number): SeededObservation[] => [
-      { equipmentId: ROBOT, itemKey: 'harvestCount', value: 100, observedAt: hoursAgo(hours) },
+      // 収穫数は累積の値（D-26）。1 時間あたり 100 になるよう、4 時間前の 100 から、100 ずつ増やす
+      {
+        equipmentId: ROBOT,
+        itemKey: 'harvestCount',
+        value: (5 - hours) * 100,
+        observedAt: hoursAgo(hours),
+      },
       {
         equipmentId: ROBOT,
         itemKey: 'damagedFruitCount',
