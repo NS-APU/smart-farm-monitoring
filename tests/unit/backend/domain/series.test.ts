@@ -274,6 +274,65 @@ describe('区間ごとのメトリクス: 累積の項目（収穫数・稼働�
     ]);
   });
 
+  it('取得元は、推移の期間の全体で決める。自動があれば、手動だけの区間は、欠損のまま（手動で補わない）', () => {
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 7,
+      observations: [
+        operating(6, '2026-10-07T01:00:00.000Z'),
+        observation({
+          itemKey: 'operatingHours',
+          value: 20,
+          source: 'MANUAL',
+          observedAt: '2026-10-08T01:00:00.000Z',
+        }),
+      ],
+    });
+
+    expect(operatingPoints(result)).toEqual([{ at: '2026-10-06T15:00:00.000Z', value: 6 }]);
+  });
+
+  it('期間の全体に自動がなければ、手動だけで、増分を求める', () => {
+    const manual = (value: number, observedAt: string) =>
+      observation({ itemKey: 'operatingHours', value, source: 'MANUAL', observedAt });
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 7,
+      observations: [manual(6, '2026-10-07T01:00:00.000Z'), manual(10, '2026-10-08T01:00:00.000Z')],
+    });
+
+    expect(operatingPoints(result)).toEqual([
+      { at: '2026-10-06T15:00:00.000Z', value: 6 },
+      { at: '2026-10-07T15:00:00.000Z', value: 4 },
+    ]);
+  });
+
+  it('区間をまたぐ基準も、取得元ごとに引き継ぐ（間の手動入力は、自動の基準にならない）', () => {
+    const result = computeMetricSeries({
+      ...base,
+      horizon: 'LONG',
+      periodDays: 7,
+      observations: [
+        operating(100, '2026-10-06T01:00:00.000Z'),
+        observation({
+          itemKey: 'operatingHours',
+          value: 5000,
+          source: 'MANUAL',
+          observedAt: '2026-10-07T01:00:00.000Z',
+        }),
+        operating(160, '2026-10-08T01:00:00.000Z'),
+      ],
+    });
+
+    // 手動の 5,000 を基準にすると、160 は、リセットとみなされ、160 になる。自動だけなら、100 → 160 の 60
+    expect(operatingPoints(result)).toEqual([
+      { at: '2026-10-05T15:00:00.000Z', value: 100 },
+      { at: '2026-10-07T15:00:00.000Z', value: 60 },
+    ]);
+  });
+
   it('期間の前の値がなければ、0 から始まるとみなす', () => {
     const result = computeMetricSeries({
       ...base,
