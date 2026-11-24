@@ -11,6 +11,7 @@ import type { ApiDeps, AppEnv } from './api-deps.ts';
 import { assertIfMatch, jsonWithEtag } from './etag.ts';
 import { actorOf } from './request-helpers.ts';
 import { parseJsonBody } from './request-parsing.ts';
+import { scopeOfRequest } from './request-helpers.ts';
 import type { RouteHandler } from './route-types.ts';
 
 function viewpointIdOf(c: Context<AppEnv>): ViewpointId {
@@ -32,6 +33,18 @@ export function createCriteriaHandlers(deps: ApiDeps): Readonly<Record<string, R
       assertIfMatch(c, await deps.criteriaAdminService.get(viewpointId));
       const input = await parseJsonBody(c, CriteriaUpdateRequestSchema);
       return c.json(await deps.criteriaAdminService.update(viewpointId, input, actorOf(c)));
+    },
+    async 'POST /viewpoints/:viewpointId/criteria/preview'(c) {
+      // 入力途中の閾値の影響（保存しない）。保存と同じ入力・検証・権限。閲覧できる設備だけが対象
+      const viewpointId = viewpointIdOf(c);
+      const input = await parseJsonBody(c, CriteriaUpdateRequestSchema);
+      return c.json(
+        await deps.criteriaPreviewService.preview(
+          viewpointId,
+          input,
+          await scopeOfRequest(c, deps),
+        ),
+      );
     },
     async 'POST /viewpoints/:viewpointId/criteria/reset'(c) {
       const viewpointId = viewpointIdOf(c);

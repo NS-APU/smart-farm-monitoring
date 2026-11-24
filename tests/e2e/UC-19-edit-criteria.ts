@@ -1342,3 +1342,179 @@ test.describe('閾値の既定値の併記（SC-13-3。Issue #165）', () => {
     await shot(page, testInfo, 'uc19-default-changed-375');
   });
 });
+
+test.describe('影響の確認（SC-13-2。Issue #165。ADR-0017 の D-24）', () => {
+  const previewButton = (page: Page) => page.getByRole('button', { name: '影響を確認' });
+  const previewNotice = (page: Page) => page.getByTestId('criteria-preview-notice');
+  const row = (page: Page, equipmentId: string) =>
+    page.getByTestId(`criteria-preview-row-${equipmentId}`);
+  const normalUpper = (page: Page) =>
+    card(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）');
+
+  test('「影響を確認」を押すまで、実行しない。押すと、入力途中の閾値で、状態が変わる設備（ハウス・センサー）を、「現在」と「変更後」で一覧にする。保存はしない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    // 温度 27℃: 既定値（正常は 10℃以上 25℃未満）では「注意」。ハウスも、配下のセンサーの最悪で「注意」
+    await seed(request, environmentData({ temperature: 27 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    // 自動では、実行しない（入力を変えても、結果を出さない）
+    await normalUpper(page).fill('30');
+    await expect(previewNotice(page)).toHaveCount(0);
+
+    await previewButton(page).click();
+
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+    await expect(row(page, 'HOUSE-01')).toContainText('ハウス1');
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(0)).toContainText('注意');
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(1)).toContainText('正常');
+    await expect(row(page, 'SENSOR-01')).toContainText('環境センサー1');
+    await expect(row(page, 'SENSOR-01').getByRole('cell').nth(0)).toContainText('注意');
+    await expect(row(page, 'SENSOR-01').getByRole('cell').nth(1)).toContainText('正常');
+    // ロボットは、環境適応性の対象外（見出しの行 + 2 行）
+    await expect(page.getByTestId('criteria-preview-table').getByRole('row')).toHaveCount(3);
+    // 保存済みの評価結果に対する影響であることを、明記する
+    const basis = page.getByTestId('criteria-preview-basis');
+    await expect(basis).toContainText('保存済みの評価結果に対する影響');
+    await expect(basis).toContainText('最大約 5 分前');
+    await expect(basis).toContainText('定期の評価');
+    await shot(page, testInfo, 'uc19-impact-preview');
+    // 保存していない: 読み込み直しても、既定値のまま
+    await page.reload();
+    await expect(state(page)).toContainText('既定値');
+    await expect(normalUpper(page)).toHaveValue('25');
+    const criteria = (await (
+      await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria')
+    ).json()) as { isDefault: boolean };
+    expect(criteria.isDefault).toBe(true);
+  });
+
+  test('確認した結果は、実際に保存して評価し直した結果と一致する（注意 → 正常）。入力を変えると、結果は消える', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 27 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('30');
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+
+    // 入力を変えると、結果を消す
+    await normalUpper(page).fill('31');
+    await expect(previewNotice(page)).toHaveCount(0);
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+    await save(page).click();
+
+    await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
+    // 保存後のダッシュボードの状態は、確認した「変更後」（正常）と同じ
+    await page.goto('/');
+    await expect(
+      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('正常');
+  });
+
+  test('変わる設備がないとき（現在と同じ閾値・影響のない変更）は、「変わる設備はありません」と示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 20 }));
+    await openCriteria(page, 'environmentalAdaptability');
+
+    // 変更なし
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('変わる設備はありません');
+    await expect(page.getByTestId('criteria-preview-table')).toHaveCount(0);
+    // 20℃ は、正常上限を 22℃ にしても、正常のまま
+    await normalUpper(page).fill('22');
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('変わる設備はありません');
+  });
+
+  test('状態が「不明」の設備（観測値がない）は、閾値を変えても「不明」のままで、変わる設備に含めない。その旨と件数を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    // 環境のデータがない（ハウス・センサーの環境適応性は「不明」）
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('30');
+
+    await previewButton(page).click();
+
+    await expect(previewNotice(page)).toHaveText('変わる設備はありません');
+    await expect(page.getByTestId('criteria-preview-unknown')).toContainText('「不明」のまま');
+    await expect(page.getByTestId('criteria-preview-unknown')).toContainText('2 件');
+  });
+
+  test('入力が不正なとき（大小関係が成り立たない）は、確認できず、保存と同じメッセージで示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 27 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('5');
+
+    await previewButton(page).click();
+
+    const message = '異常下限 < 正常下限 < 正常上限 < 異常上限 になるように指定してください';
+    await expect(page.getByTestId('criterion-error-temperatureCelsius')).toHaveText(message);
+    await expect(previewNotice(page)).toHaveCount(0);
+    await save(page).click();
+    await expect(page.getByTestId('criterion-error-temperatureCelsius')).toHaveText(message);
+  });
+
+  test('権限のない利用者（閲覧者）には、「影響を確認」を出さない。サーバー側でも拒否する（403）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUser(request, VIEWER);
+    await seed(request, {});
+
+    await openCriteria(page, 'environmentalAdaptability', VIEWER);
+
+    await expect(previewButton(page)).toHaveCount(0);
+    const login = await request.post('/api/v1/auth/login', {
+      data: { userId: VIEWER.userId, password: VIEWER.password },
+    });
+    const { accessToken } = (await login.json()) as { accessToken: string };
+    const denied = await request.fetch(
+      '/api/v1/viewpoints/environmentalAdaptability/criteria/preview',
+      { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, data: {} },
+    );
+    expect(denied.status()).toBe(403);
+  });
+
+  test('スマートフォン幅（375px）でも、結果の一覧（カード）が、はみ出さずに並ぶ', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 27 }));
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('30');
+
+    await previewButton(page).click();
+
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+    await expect(row(page, 'HOUSE-01')).toBeVisible();
+    // 狭い幅では、表をカードにする（各セルの項目名は、data-label で示す）
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(0)).toHaveAttribute(
+      'data-label',
+      '現在',
+    );
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(1)).toHaveAttribute(
+      'data-label',
+      '変更後',
+    );
+    await expectNoPageOverflow(page);
+    await shot(page, testInfo, 'uc19-impact-preview-375');
+  });
+});

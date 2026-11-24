@@ -7,6 +7,7 @@
  * 他の管理者が先に変更していたら（409）、その旨と「読み込み直す」を示す。
  * 既定値の併記（SC-13-3）: 各閾値の横に「既定: xx」を示し、保存されている値が既定値と違うとき（変更済み）は強調する。
  * 既定値は、画面と評価で共有する `shared/constants/default-criteria.ts` から得る（API の応答には含めない）。
+ * 影響の確認（SC-13-2）: 「影響を確認」で、入力途中の閾値を、保存済みの評価結果に当てた再判定（状態が変わる設備）を示す。保存しない。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
@@ -17,11 +18,18 @@ import {
   CriteriaUpdateRequestSchema,
   CriterionSchema,
   type Criterion,
+  type CriteriaPreviewResponse,
   type CriteriaView,
 } from '@smart-farm/shared/schemas/criteria';
 import { MS_PER_HOUR } from '@smart-farm/shared/time';
-import { getCriteria, resetCriteria, updateCriteria } from '../api/management-endpoints.ts';
+import {
+  getCriteria,
+  previewCriteria,
+  resetCriteria,
+  updateCriteria,
+} from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
+import { CriteriaImpactPreview } from '../components/criteria-impact-preview.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -118,6 +126,20 @@ function defaultThresholdOf(
   return thresholds?.[key];
 }
 
+/** 入力途中の値から、保存・影響の確認の要求を組み立てて検証する（同じ検証・同じエラーのメッセージ）。 */
+function requestOf(rows: readonly Row[]) {
+  return CriteriaUpdateRequestSchema.safeParse({
+    criteria: rows.map((row) => ({
+      indicator: row.indicator,
+      kind: row.kind,
+      label: row.label,
+      thresholds: Object.fromEntries(
+        Object.entries(row.values).map(([key, text]) => [key, toNumber(text)]),
+      ),
+    })),
+  });
+}
+
 interface EditorProps {
   readonly viewpointId: string;
   readonly criteria: CriteriaView;
@@ -132,27 +154,22 @@ interface EditorProps {
 function CriteriaEditor(props: EditorProps): ReactNode {
   const { api } = useAuth();
   const submit = useSubmit();
+  const previewSubmit = useSubmit();
+  const [impact, setImpact] = useState<CriteriaPreviewResponse | undefined>(undefined);
   const [rows, setRows] = useState<readonly Row[]>(() => rowsOf(props.criteria));
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
   const [confirmingReset, setConfirmingReset] = useState(false);
-  const errors = { ...clientErrors, ...submit.fieldErrors };
+  const errors = { ...clientErrors, ...submit.fieldErrors, ...previewSubmit.fieldErrors };
 
   function change(index: number, patch: (row: Row) => Row): void {
     setRows((current) => current.map((row, position) => (position === index ? patch(row) : row)));
+    // 入力を変えたら、確認の結果は、今の入力のものではなくなる
+    setImpact(undefined);
   }
 
   async function handleSubmit(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
-    const parsed = CriteriaUpdateRequestSchema.safeParse({
-      criteria: rows.map((row) => ({
-        indicator: row.indicator,
-        kind: row.kind,
-        label: row.label,
-        thresholds: Object.fromEntries(
-          Object.entries(row.values).map(([key, text]) => [key, toNumber(text)]),
-        ),
-      })),
-    });
+    const parsed = requestOf(rows);
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
       return;
@@ -168,6 +185,22 @@ function CriteriaEditor(props: EditorProps): ReactNode {
           ? withEvaluationNote(MESSAGES.form.saved, 'DEFERRED')
           : TEXT.saved,
       );
+    }
+  }
+
+  async function handlePreview(): Promise<void> {
+    setImpact(undefined);
+    const parsed = requestOf(rows);
+    if (!parsed.success) {
+      setClientErrors(fieldErrorsOfZod(parsed.error));
+      return;
+    }
+    setClientErrors({});
+    const result = await previewSubmit.run(() =>
+      previewCriteria(api, props.viewpointId, parsed.data),
+    );
+    if (result.ok) {
+      setImpact(result.value);
     }
   }
 
@@ -305,6 +338,18 @@ function CriteriaEditor(props: EditorProps): ReactNode {
         <p className="muted" data-testid="criteria-status-note">
           {TEXT.statusNote}（<Link to={PATHS.settingsStatusCodes}>{TEXT.goStatusCodes}</Link>）
         </p>
+      ) : null}
+      {props.canEdit ? (
+        <>
+          <CriteriaImpactPreview
+            busy={previewSubmit.busy}
+            result={impact}
+            onPreview={() => {
+              void handlePreview();
+            }}
+          />
+          <FormError message={previewSubmit.formMessage} />
+        </>
       ) : null}
       {submit.errorCode === 'CONFLICT' ? (
         <div role="alert" className="state-view state-error" data-testid="criteria-conflict">
