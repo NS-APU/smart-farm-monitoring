@@ -145,6 +145,29 @@ describe('評価の単位の評価: 累積の項目の期間の値（D-26）', (
     expect(periods).toMatchObject({ '1': 20, '7': 50, '30': 150, '60': 150, '90': 150 });
   });
 
+  it('期間ごとに、取得元を決める（当日は自動なし→手動、7 日以上は自動あり→自動）。手動の基準は、手動の値から選ぶ', () => {
+    const at = (msBefore: number) => new Date(NOW.getTime() - msBefore).toISOString();
+    const auto = (value: number, msBefore: number) =>
+      observation({ itemKey: 'operatingHours', value, observedAt: at(msBefore) });
+    const manual = (value: number, msBefore: number) =>
+      observation({
+        itemKey: 'operatingHours',
+        value,
+        source: 'MANUAL',
+        observedAt: at(msBefore),
+      });
+
+    const periods = operatingByPeriod([
+      auto(1000, 3 * DAY + 6 * 3_600_000),
+      auto(1500, 3 * DAY),
+      manual(300, 2 * 3_600_000),
+      manual(450, 3_600_000),
+    ]);
+
+    // 当日: 自動なし → 手動だけ（基準なし）→ 450。7・30・60・90 日: 自動あり → 自動だけ → 1,500（手動は使わない）
+    expect(periods).toMatchObject({ '1': 450, '7': 1500, '30': 1500, '60': 1500, '90': 1500 });
+  });
+
   it('読んだ範囲より前の値（baselineObservations）も、期間の基準に使う', () => {
     const periods = operatingByPeriod(
       [operating(130, 3 * DAY), operating(150, 3_600_000)],

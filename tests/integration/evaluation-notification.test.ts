@@ -175,6 +175,86 @@ describe('評価（JB-02）', () => {
     expect(result?.status).toBe('ERROR');
   });
 
+  it('合計（累積）の項目は、自動があれば自動だけを評価に使い、手動入力は評価に使わない（D-26。両方とも保持する）', async () => {
+    const context = await setup();
+    const harvest = (value: number, hoursBefore: number, source: 'AUTO_IMPORT' | 'MANUAL') =>
+      observation({
+        itemKey: 'harvestCount',
+        value,
+        source,
+        observedAt: new Date(TEST_NOW.getTime() - hoursBefore * HOUR_MS).toISOString(),
+      });
+    const manualCount = (itemKey: string, value: number) =>
+      observation({
+        itemKey,
+        value,
+        source: 'MANUAL',
+        observedAt: new Date(TEST_NOW.getTime() - HOUR_MS).toISOString(),
+      });
+    // 自動の 1,800 → 手動の 1,700 → 自動の 2,400。果実損傷数（手動専用の件数）は 240
+    await context.container.repositories.observations.saveMany([
+      harvest(1800, 4, 'AUTO_IMPORT'),
+      harvest(1700, 3, 'MANUAL'),
+      harvest(2400, 2, 'AUTO_IMPORT'),
+      manualCount('damagedFruitCount', 240),
+      manualCount('wrongHarvestCount', 0),
+      manualCount('missedFruitCount', 0),
+    ]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const result = await context.container.repositories.evaluations.getLatest(
+      ROBOT_ID,
+      'harvestAccuracy',
+      'SHORT',
+      null,
+    );
+    // 収穫数 = 自動だけの 2,400（手動を混ぜると 4,200）。損傷率 = 240 ÷ 2,400
+    expect(result?.metrics.damagedFruitRatePercent).toBe(10);
+    // 両方とも保持している（削除しない）
+    const kept = await context.container.repositories.observations.findForEvaluation(
+      [ROBOT_ID],
+      new Date(TEST_NOW.getTime() - 10 * HOUR_MS),
+      TEST_NOW,
+    );
+    expect(
+      kept.filter((item) => item.itemKey === 'harvestCount').map((item) => item.source),
+    ).toEqual(expect.arrayContaining(['AUTO_IMPORT', 'MANUAL']));
+  });
+
+  it('合計（累積）の項目で、自動がなければ、手動入力だけを評価に使う（手動のみの運用）', async () => {
+    const context = await setup();
+    const at = (hoursBefore: number) =>
+      new Date(TEST_NOW.getTime() - hoursBefore * HOUR_MS).toISOString();
+    await context.container.repositories.observations.saveMany(
+      [
+        ['harvestCount', 100, 3],
+        ['harvestCount', 250, 2],
+        ['damagedFruitCount', 25, 1],
+        ['wrongHarvestCount', 0, 1],
+        ['missedFruitCount', 0, 1],
+      ].map(([itemKey, value, hoursBefore]) =>
+        observation({
+          itemKey: String(itemKey),
+          value: Number(value),
+          source: 'MANUAL',
+          observedAt: at(Number(hoursBefore)),
+        }),
+      ),
+    );
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const result = await context.container.repositories.evaluations.getLatest(
+      ROBOT_ID,
+      'harvestAccuracy',
+      'SHORT',
+      null,
+    );
+    // 収穫数 = 手動の増分の合計 250（100 + 150）。損傷率 = 25 ÷ 250
+    expect(result?.metrics.damagedFruitRatePercent).toBe(10);
+  });
+
   it('変更した判断基準があれば、それで判定し、判断基準の版と変更済みの識別を結果に残す', async () => {
     const context = await setup();
     await context.container.repositories.observations.saveMany([

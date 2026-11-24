@@ -5,6 +5,7 @@
  * - 区間にデータがない・算出できないメトリクスは、欠損（null）。0 で代用しない
  * - 期間の平均値は、値がある区間の平均（暫定。dev_spec.md 4章）
  * - 累積の項目（収穫数・稼働時間など）の区間の値は、区間内の増分の合計。基準は、前の区間までの最後の値（なければ、期間の前の値。D-26）
+ * - 累積の項目の取得元（自動を優先。D-26）は、区間ごとではなく、推移の期間の全体で、設備・項目ごとに決める（区間ごとに取得元が変わらない）
  */
 
 import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
@@ -13,7 +14,12 @@ import type { SeriesMetric } from '@smart-farm/shared/schemas/evaluation';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '@smart-farm/shared/time';
 import type { ViewpointDefinition } from './definition.ts';
-import { aggregateMeasures, latestBaselineObservations, type ExpectedStreams } from './measures.ts';
+import {
+  aggregateMeasures,
+  autoCumulativeKeysIn,
+  latestBaselineObservations,
+  type ExpectedStreams,
+} from './measures.ts';
 import { normalizeMetric } from './numbers.ts';
 
 /** 短期・当日の推移の区間の数（24時間）。 */
@@ -100,6 +106,9 @@ export function computeMetricSeries(input: SeriesInput): SeriesResult {
     groups[index]?.push(observation);
   }
 
+  // 累積の項目の取得元（自動があれば自動）は、推移の期間の全体で決める（D-26）
+  const autoCumulativeKeys = autoCumulativeKeysIn(input.observations, new Date(firstStartMs), now);
+
   // 累積の項目の基準: 区間ごとに、前の区間までの最後の値を引き継ぐ（区間ごとに、過去の全件を走査しない）
   let baselines: readonly Observation[] = input.priorObservations ?? [];
   const metricValues = plan.starts.map((start, index) => {
@@ -109,6 +118,7 @@ export function computeMetricSeries(input: SeriesInput): SeriesResult {
     const measures = aggregateMeasures({
       observations: bucketObservations,
       priorObservations: baselines,
+      autoCumulativeKeys,
       horizon: input.horizon,
       from: start,
       to,

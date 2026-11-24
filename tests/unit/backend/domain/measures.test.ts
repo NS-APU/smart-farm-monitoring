@@ -6,6 +6,7 @@ import {
 import { toEquipmentId, toUserId } from '../../../../src/shared/schemas/common.ts';
 import {
   FACILITY_ID,
+  ROBOT_ID,
   observation,
   SENSOR_ID,
   statusCodeMap,
@@ -427,8 +428,73 @@ describe('観測値の集計: 満足度（入力者ごとの最新の平均。1 
   });
 });
 
-describe('観測値の集計: 手動入力と自動取り込みの重なり', () => {
-  it('同じ設備・項目・計測日時では、手動入力を使い、自動取り込みの値は二重に数えない', () => {
+describe('観測値の集計: 手動入力と自動取り込みの重なり（状態値・ステータスコード。従来どおり）', () => {
+  const temperature = (
+    value: number,
+    observedAt: string,
+    source: 'AUTO_IMPORT' | 'MANUAL' = 'AUTO_IMPORT',
+  ) =>
+    observation({
+      equipmentId: SENSOR_ID,
+      itemKey: 'temperatureCelsius',
+      value,
+      source,
+      observedAt,
+    });
+
+  it('同じ設備・項目・計測日時では、手動入力を使い、自動取り込みの値は二重に数えない（状態値）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          temperature(20, '2026-10-09T02:00:00Z'),
+          temperature(40, '2026-10-09T02:00:00Z', 'MANUAL'),
+          temperature(30, '2026-10-09T02:15:00Z'),
+        ],
+      }),
+    );
+
+    // 長期は平均。同じ日時の自動（20）は使わず、手動（40）と、別の日時の自動（30）の平均
+    expect(measures.values.temperatureCelsius).toBe(35);
+  });
+
+  it('計測日時が異なれば、手動入力と自動取り込みの両方を使う（状態値。D-26 の自動優先は、合計の項目だけ）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          temperature(20, '2026-10-09T02:00:00Z'),
+          temperature(30, '2026-10-09T02:01:00Z', 'MANUAL'),
+        ],
+      }),
+    );
+
+    expect(measures.values.temperatureCelsius).toBe(25);
+  });
+
+  it('ステータスコードも、自動取り込みがあっても、手動入力を使う（短期は、最新の入力）', () => {
+    const measures = aggregateMeasures(
+      input({
+        horizon: 'SHORT',
+        from: new Date('2026-10-08T03:00:00Z'),
+        observations: [
+          observation({
+            itemKey: 'statusCode',
+            value: 'RUNNING',
+            observedAt: '2026-10-09T01:00:00Z',
+          }),
+          observation({
+            itemKey: 'statusCode',
+            value: 'STOPPED',
+            source: 'MANUAL',
+            observedAt: '2026-10-09T02:00:00Z',
+          }),
+        ],
+      }),
+    );
+
+    expect(measures.status?.code).toBe('STOPPED');
+  });
+
+  it('合計（累積）の項目で、同じ計測日時に自動取り込みと手動入力が重なるときも、自動があれば、自動だけを使う（D-26）', () => {
     const measures = aggregateMeasures(
       input({
         observations: [
@@ -454,10 +520,11 @@ describe('観測値の集計: 手動入力と自動取り込みの重なり', ()
       }),
     );
 
-    expect(measures.values.harvestCount).toBe(17);
+    // 自動だけ: 10 → 5（減ったのでリセット）。10 + 5。手動の 12 は使わない
+    expect(measures.values.harvestCount).toBe(15);
   });
 
-  it('計測日時が異なれば、手動入力と自動取り込みの両方を使う', () => {
+  it('合計（累積）の項目で、計測日時が異なるときも、自動があれば、手動入力を使わない（D-26）', () => {
     const measures = aggregateMeasures(
       input({
         observations: [
@@ -477,8 +544,7 @@ describe('観測値の集計: 手動入力と自動取り込みの重なり', ()
       }),
     );
 
-    // 累積の値（10 → 12）は、増分の合計 12（10 + 2）。取得元の優先は #228（混在時の扱いは、そこで決める）
-    expect(measures.values.harvestCount).toBe(12);
+    expect(measures.values.harvestCount).toBe(10);
   });
 });
 
@@ -833,5 +899,278 @@ describe('観測値の集計: 累積の項目（収穫数・稼働時間など�
     );
 
     expect(measures.values.damagedFruitCount).toBe(6);
+  });
+});
+
+describe('観測値の集計: 合計（累積）の項目は、自動取り込みを優先する（D-26。評価の期間に自動が 1 件でもあれば、自動だけ）', () => {
+  const at = (hhmm: string): string => `2026-10-09T${hhmm}:00Z`;
+  const harvest = (
+    value: number,
+    hhmm: string,
+    source: 'AUTO_IMPORT' | 'MANUAL',
+    overrides: Partial<ObservationOverrides> = {},
+  ) => observation({ itemKey: 'harvestCount', value, source, observedAt: at(hhmm), ...overrides });
+
+  it('自動の 1,800 → 手動の 1,700 → 自動の 2,400 は、手動を混ぜず、自動だけの 2,400（混ぜると 4,200 になる誤り）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(1800, '00:00', 'AUTO_IMPORT'),
+          harvest(1700, '01:00', 'MANUAL'),
+          harvest(2400, '02:00', 'AUTO_IMPORT'),
+        ],
+      }),
+    );
+
+    // 自動だけ: 1,800（0 からの増分）+ 600
+    expect(measures.values.harvestCount).toBe(2400);
+  });
+
+  it('期間の直前の自動の値を基準にした増分は 600（間の手動入力で壊れない）', () => {
+    const measures = aggregateMeasures(
+      input({
+        from: new Date('2026-10-09T01:30:00Z'),
+        observations: [harvest(1700, '01:45', 'MANUAL'), harvest(2400, '02:00', 'AUTO_IMPORT')],
+        priorObservations: [harvest(1800, '01:00', 'AUTO_IMPORT')],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(600);
+  });
+
+  it('自動の基準は、自動の値だけから選ぶ（直前の値が手動でも、基準にしない）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(1800, '01:00', 'AUTO_IMPORT'),
+          harvest(2400, '02:00', 'AUTO_IMPORT'),
+        ],
+        priorObservations: [
+          harvest(1000, '00:00', 'AUTO_IMPORT', { observedAt: '2026-10-01T00:00:00Z' }),
+          harvest(5000, '00:00', 'MANUAL', { observedAt: '2026-10-08T00:00:00Z' }),
+        ],
+      }),
+    );
+
+    // 基準は、自動の 1,000: 800 + 600。手動の 5,000 を基準にすると、リセット扱いで 1,800 + 600
+    expect(measures.values.harvestCount).toBe(1400);
+  });
+
+  it('自動がなければ、手動だけを使う（手動のみの運用）。手動の基準は、手動の値だけから選ぶ', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [harvest(150, '01:00', 'MANUAL'), harvest(400, '02:00', 'MANUAL')],
+        priorObservations: [
+          harvest(100, '00:00', 'MANUAL', { observedAt: '2026-10-01T00:00:00Z' }),
+          harvest(9000, '00:00', 'AUTO_IMPORT', { observedAt: '2026-10-08T00:00:00Z' }),
+        ],
+      }),
+    );
+
+    // 基準は、手動の 100: 50 + 250
+    expect(measures.values.harvestCount).toBe(300);
+  });
+
+  it('期間の外にしか自動がなければ、期間内は手動だけを使う（自動の有無は、評価の期間ごとに判定する）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(1800, '00:00', 'AUTO_IMPORT', { observedAt: '2026-09-01T00:00:00Z' }),
+          harvest(100, '01:00', 'MANUAL'),
+          harvest(250, '02:00', 'MANUAL'),
+        ],
+        from: new Date('2026-10-08T00:00:00Z'),
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(250);
+  });
+
+  it('同じ観測値で、短期（24 時間）と長期（7 日）の取得元が違うことがある（短期は自動なし→手動、長期は自動あり→自動）', () => {
+    const observations = [
+      harvest(1000, '00:00', 'AUTO_IMPORT', { observedAt: '2026-10-05T00:00:00Z' }),
+      harvest(1500, '00:00', 'AUTO_IMPORT', { observedAt: '2026-10-05T06:00:00Z' }),
+      harvest(300, '01:00', 'MANUAL'),
+      harvest(450, '02:00', 'MANUAL'),
+    ];
+
+    const short = aggregateMeasures(
+      input({ observations, horizon: 'SHORT', from: new Date('2026-10-08T03:00:00Z') }),
+    );
+    const long = aggregateMeasures(input({ observations }));
+
+    expect(short.values.harvestCount).toBe(450);
+    expect(long.values.harvestCount).toBe(1500);
+  });
+
+  it('自動の有無は、設備ごとに判定する（自動のある設備は自動、手動だけの設備は手動を使い、増分を合計する）', () => {
+    const other = toEquipmentId('ROBOT-T2');
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(100, '00:00', 'AUTO_IMPORT'),
+          harvest(9999, '00:30', 'MANUAL'),
+          harvest(160, '01:00', 'AUTO_IMPORT'),
+          harvest(30, '00:10', 'MANUAL', { equipmentId: other }),
+          harvest(80, '01:10', 'MANUAL', { equipmentId: other }),
+        ],
+      }),
+    );
+
+    // 設備 1（自動）: 100 + 60。設備 2（手動のみ）: 30 + 50
+    expect(measures.values.harvestCount).toBe(240);
+  });
+
+  it('自動の有無は、項目ごとに判定する（収穫数に自動があっても、稼働時間の手動入力は、自動がなければ使う）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(100, '01:00', 'AUTO_IMPORT'),
+          harvest(9999, '01:30', 'MANUAL'),
+          observation({
+            itemKey: 'operatingHours',
+            value: 2,
+            source: 'MANUAL',
+            observedAt: at('02:00'),
+          }),
+        ],
+      }),
+    );
+
+    expect(measures.values).toMatchObject({ harvestCount: 100, operatingHours: 2 });
+  });
+
+  it('合計（累積）の 5 項目は、すべて、自動があれば手動を使わない', () => {
+    const keys = [
+      'harvestCount',
+      'operatingHours',
+      'standbyHours',
+      'harvestOperatingHours',
+      'travelStoppedHours',
+    ];
+    const measures = aggregateMeasures(
+      input({
+        observations: keys.flatMap((itemKey) => [
+          observation({ itemKey, value: 3, source: 'AUTO_IMPORT', observedAt: at('01:00') }),
+          observation({ itemKey, value: 900, source: 'MANUAL', observedAt: at('02:00') }),
+        ]),
+      }),
+    );
+
+    for (const itemKey of keys) {
+      expect(measures.values[itemKey], itemKey).toBe(3);
+    }
+  });
+
+  it('使えない自動（論理削除・欠損・不正・評価時刻より後に受信）は、「自動がある」に数えない（手動を使う）', () => {
+    const unusable: Partial<ObservationOverrides>[] = [
+      { isDeleted: true },
+      { value: null, quality: 'MISSING' },
+      { quality: 'INVALID' },
+      { receivedAt: '2026-10-09T05:00:00Z' },
+    ];
+    for (const override of unusable) {
+      const measures = aggregateMeasures(
+        input({
+          observations: [
+            harvest(1800, '00:30', 'AUTO_IMPORT', override),
+            harvest(100, '01:00', 'MANUAL'),
+            harvest(250, '02:00', 'MANUAL'),
+          ],
+        }),
+      );
+
+      expect(measures.values.harvestCount, JSON.stringify(override)).toBe(250);
+    }
+  });
+
+  it('遅延（LATE）の自動は、使える自動として数える（手動を使わない）', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(500, '00:30', 'AUTO_IMPORT', { quality: 'LATE' }),
+          harvest(9999, '01:00', 'MANUAL'),
+        ],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(500);
+  });
+
+  it('自動の値が文字列だけのときは、数値の自動がないとみなし、手動を使う', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest('RUNNING' as unknown as number, '00:30', 'AUTO_IMPORT'),
+          harvest(250, '01:00', 'MANUAL'),
+        ],
+      }),
+    );
+
+    expect(measures.values.harvestCount).toBe(250);
+  });
+
+  it('自動がある期間でも、手動専用の件数の項目・状態値は、従来どおり、手動入力を使う', () => {
+    const measures = aggregateMeasures(
+      input({
+        observations: [
+          harvest(100, '01:00', 'AUTO_IMPORT'),
+          harvest(9999, '01:30', 'MANUAL'),
+          observation({
+            itemKey: 'damagedFruitCount',
+            value: 4,
+            source: 'MANUAL',
+            observedAt: at('01:30'),
+          }),
+          observation({
+            equipmentId: SENSOR_ID,
+            itemKey: 'temperatureCelsius',
+            value: 20,
+            observedAt: at('01:00'),
+          }),
+          observation({
+            equipmentId: SENSOR_ID,
+            itemKey: 'temperatureCelsius',
+            value: 30,
+            source: 'MANUAL',
+            observedAt: at('02:00'),
+          }),
+        ],
+      }),
+    );
+
+    expect(measures.values).toMatchObject({
+      harvestCount: 100,
+      damagedFruitCount: 4,
+      temperatureCelsius: 25,
+    });
+  });
+
+  it('データ活用度合い（手動入力の数え方）は、評価に使われない手動入力も、手動入力の取得数に数える（変わらない）', () => {
+    const observations = [harvest(100, '01:00', 'AUTO_IMPORT'), harvest(9999, '01:30', 'MANUAL')];
+    const from = new Date(NOW.getTime() - DAY_MS);
+
+    const withoutManual = aggregateMeasures(
+      input({ from, observations: observations.slice(0, 1) }),
+    );
+    const withManual = aggregateMeasures(input({ from, observations }));
+
+    expect(withoutManual.values.manualDataCount).toBe(0);
+    expect(withManual.values.manualDataCount).toBe(1);
+    expect(withManual.values.robotDataCount).toBe(withoutManual.values.robotDataCount);
+    expect(withManual.values.totalDataCount).toBe(withoutManual.values.totalDataCount);
+  });
+
+  it('取得元を決める設備・項目を、呼び出し側が渡すこともできる（推移で、全体の期間の判定を、区間に使う）', () => {
+    const observations = [harvest(100, '01:00', 'MANUAL'), harvest(250, '02:00', 'MANUAL')];
+
+    const fromPeriod = aggregateMeasures(input({ observations }));
+    const decided = aggregateMeasures(
+      input({ observations, autoCumulativeKeys: new Set([`${ROBOT_ID}#harvestCount`]) }),
+    );
+
+    expect(fromPeriod.values.harvestCount).toBe(250);
+    // 全体の期間では自動がある（この区間には、自動がない）ので、手動は使わず、未取得
+    expect(decided.values).not.toHaveProperty('harvestCount');
   });
 });
