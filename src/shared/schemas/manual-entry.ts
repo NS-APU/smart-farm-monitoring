@@ -23,7 +23,9 @@ import { MS_PER_MINUTE } from '../time.ts';
 import {
   CategorySchema,
   EquipmentIdSchema,
+  HorizonSchema,
   IsoDateTimeSchema,
+  PeriodDaysSchema,
   UserIdSchema,
   ViewpointIdSchema,
 } from './common.ts';
@@ -93,10 +95,27 @@ export type ManualEntryViewpointStatus = z.infer<typeof ManualEntryViewpointStat
  */
 export const MANUAL_ENTRY_EVALUATION_STATES = ['DONE', 'DEFERRED'] as const;
 
+/**
+ * 保存・修正の応答の、入力した項目ごとの「評価に使われるか」（D-26。Issue #162 の SC-06-5）。
+ * 合計（累積）の項目は、評価の期間に、同じ設備・項目の自動取り込みの値があれば、自動だけを使い、手動入力は使われない。
+ * - `used`: いずれかの評価の期間（短期視点・長期視点の各期間）で、評価に使われるか
+ * - `autoPriorityPeriods`: 自動取り込みの値を使うため、この入力が使われない評価の期間（短期は `periodDays` が null）。なければ空
+ */
+export const ManualEntryItemUsageSchema = z.object({
+  itemKey: z.string(),
+  used: z.boolean(),
+  autoPriorityPeriods: z.array(
+    z.object({ horizon: HorizonSchema, periodDays: PeriodDaysSchema.nullable() }),
+  ),
+});
+export type ManualEntryItemUsage = z.infer<typeof ManualEntryItemUsageSchema>;
+
 export const ManualEntrySaveResponseSchema = z.object({
   entry: ManualEntrySchema,
   viewpointStatuses: z.array(ManualEntryViewpointStatusSchema),
   evaluation: z.enum(MANUAL_ENTRY_EVALUATION_STATES).optional(),
+  /** 入力した項目ごとの「評価に使われるか」（保存・修正。削除の応答にはない。項目がなければ、従来どおり）。 */
+  usage: z.array(ManualEntryItemUsageSchema).optional(),
 });
 export type ManualEntrySaveResponse = z.infer<typeof ManualEntrySaveResponseSchema>;
 

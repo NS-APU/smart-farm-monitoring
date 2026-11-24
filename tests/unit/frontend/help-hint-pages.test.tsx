@@ -202,6 +202,34 @@ describe('データ入力（SC-06-9）: 入力欄のヘルプヒント', () => {
     expect(text).toContain('例: 45');
   });
 
+  it.each([
+    ['HARVEST', '収穫数（個）', '収穫した個数'],
+    ['OPERATION', '稼働時間（時間）', '稼働した時間'],
+    ['OPERATION', '待機時間（時間）', '待機していた時間'],
+    ['OPERATION', '収穫稼働時間（時間）', '収穫作業をしていた時間'],
+    ['OPERATION', '走行停止時間（時間）', '走行が止まっていた時間'],
+  ])(
+    'D-26 の合計の項目（%s の「%s」）: 値の意味（今日これまでの累計）と、自動取り込みの値がある期間は評価に使われないことを示す（#162）',
+    async (category, label, meaning) => {
+      await openForm(category);
+
+      fireEvent.click(hint(`${label}の説明`));
+
+      const text = screen.getByRole('note').textContent;
+      expect(text).toContain(meaning);
+      expect(text).toContain('今日これまでの累計');
+      expect(text).toContain('自動取り込みの値がある期間は、評価に使われません');
+    },
+  );
+
+  it('合計でない項目（1 果実あたりの収穫時間）の説明は、変えない（累計とは書かない）', async () => {
+    await openForm('HARVEST');
+
+    fireEvent.click(hint('1果実あたりの収穫時間（秒/果実）の説明'));
+
+    expect(screen.getByRole('note').textContent).not.toContain('累計');
+  });
+
   it.each(['COST', 'FAILURE', 'OPERABILITY'])(
     'D-20（コスト）・D-21（故障）・D-22（操作）の項目（%s）には、ヒントを付けない（別の Issue で行う）',
     async (category) => {

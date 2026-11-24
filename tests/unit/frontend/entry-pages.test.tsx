@@ -369,6 +369,116 @@ describe('データ入力（UC-06。SC-06）', () => {
     expect(scroll.mock.contexts[1]).toBe(screen.getByTestId('entry-result'));
   });
 
+  describe('保存の結果: 評価に使われない項目を示す（D-26。Issue #162 の SC-06-5）', () => {
+    const ALL_AUTO = [
+      { horizon: 'SHORT', periodDays: null },
+      { horizon: 'LONG', periodDays: 1 },
+      { horizon: 'LONG', periodDays: 7 },
+    ];
+    const NOT_USED_SENTENCE = 'この期間は自動取り込みの値を使うため、この入力は評価に使われません';
+
+    async function saveWith(response: Record<string, unknown>): Promise<HTMLElement> {
+      renderApp('/data-entry', {
+        'POST /manual-entries': () => jsonResponse({ ...SAVED, ...response }, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'HARVEST' } });
+      fireEvent.change(screen.getByLabelText('収穫数（個）'), { target: { value: '1700' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+      return await screen.findByTestId('entry-result');
+    }
+
+    it('評価に使われない項目を、項目名とともに一覧し、「この期間は自動取り込みの値を使うため、この入力は評価に使われません」と示す。保存は、できている', async () => {
+      const result = await saveWith({
+        evaluation: 'DONE',
+        usage: [
+          { itemKey: 'harvestCount', used: false, autoPriorityPeriods: ALL_AUTO },
+          { itemKey: 'harvestSecondsPerFruit', used: true, autoPriorityPeriods: [] },
+        ],
+      });
+
+      const notice = within(result).getByTestId('usage-notice');
+      expect(notice.textContent).toContain('評価に使われない項目があります');
+      expect(notice.textContent).toContain('入力は保存されています');
+      expect(within(notice).getByTestId('usage-harvestCount').textContent).toBe(
+        `収穫数: ${NOT_USED_SENTENCE}`,
+      );
+      // 使われる項目は、一覧に出さない
+      expect(within(notice).queryByTestId('usage-harvestSecondsPerFruit')).toBeNull();
+      // 保存の結果（見出し・関連観点のステータス）は、そのまま
+      expect(within(result).getByRole('heading').textContent).toBe('保存しました');
+      expect(within(result).getByTestId('related-durability')).toBeDefined();
+    });
+
+    it('すべての項目が使われる（自動取り込みの値がない）ときは、何も示さない。応答に usage がなくても、従来どおり', async () => {
+      const used = await saveWith({
+        usage: [{ itemKey: 'harvestCount', used: true, autoPriorityPeriods: [] }],
+      });
+      expect(within(used).queryByTestId('usage-notice')).toBeNull();
+    });
+
+    it('応答に usage がなければ（従来の応答）、何も示さない', async () => {
+      const result = await saveWith({});
+
+      expect(within(result).queryByTestId('usage-notice')).toBeNull();
+    });
+
+    it('一部の評価の期間でだけ、自動取り込みの値を使うときは、その期間を示す（ほかの期間では、使われる）', async () => {
+      const result = await saveWith({
+        usage: [
+          {
+            itemKey: 'harvestCount',
+            used: true,
+            autoPriorityPeriods: [
+              { horizon: 'LONG', periodDays: 7 },
+              { horizon: 'LONG', periodDays: 30 },
+            ],
+          },
+        ],
+      });
+
+      const text = within(result).getByTestId('usage-harvestCount').textContent;
+      expect(text).toBe(
+        '収穫数: 長期視点（直近7日）・長期視点（直近30日）の評価では、自動取り込みの値を使うため、この入力は使われません',
+      );
+    });
+
+    it('評価の更新が定期の評価（DEFERRED。AWS）でも、同じ表示（観測値から判定するため）', async () => {
+      const result = await saveWith({
+        evaluation: 'DEFERRED',
+        usage: [{ itemKey: 'harvestCount', used: false, autoPriorityPeriods: ALL_AUTO }],
+      });
+
+      expect(within(result).getByTestId('usage-harvestCount').textContent).toContain(
+        NOT_USED_SENTENCE,
+      );
+    });
+
+    it('次の保存で、使われる入力になれば、前の表示は消える', async () => {
+      const responses = [
+        { usage: [{ itemKey: 'harvestCount', used: false, autoPriorityPeriods: ALL_AUTO }] },
+        { usage: [{ itemKey: 'harvestCount', used: true, autoPriorityPeriods: [] }] },
+      ];
+      renderApp('/data-entry', {
+        'POST /manual-entries': () => jsonResponse({ ...SAVED, ...responses.shift() }, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'HARVEST' } });
+      fireEvent.change(screen.getByLabelText('収穫数（個）'), { target: { value: '1700' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+      await screen.findByTestId('usage-notice');
+
+      fireEvent.change(screen.getByLabelText('収穫数（個）'), { target: { value: '1800' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('usage-notice')).toBeNull();
+      });
+    });
+  });
+
   describe('ステータスコード（文字列の項目）は、登録済みのコードから選ぶ（#192 の PR 2）', () => {
     it('ステータスのカテゴリで、登録済みのコードを、名称（コード）の選択肢で示す（削除済みは、出ない）。選んだコードを、文字列で送る', async () => {
       const { calls } = renderApp('/data-entry', {
@@ -954,6 +1064,36 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
       ).toBe('/viewpoints/maintainability');
       // 一覧の画面なので、一覧へのリンクは出さない
       expect(within(result).queryByRole('link', { name: '入力済みデータの一覧へ' })).toBeNull();
+    });
+
+    it('修正の後も、評価に使われない項目を、データ入力（SC-06）と同じ部品で示す（Issue #162 の SC-06-5）', async () => {
+      const unused = [{ horizon: 'SHORT', periodDays: null }];
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () =>
+          jsonResponse({
+            ...SAVED,
+            evaluation: 'DONE',
+            usage: [{ itemKey: 'harvestCount', used: false, autoPriorityPeriods: unused }],
+          }),
+      });
+
+      const result = await updateEntry();
+
+      expect(within(result).getByTestId('usage-harvestCount').textContent).toBe(
+        '収穫数: この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+      );
+    });
+
+    it('削除の後は、評価に使われるかを示さない', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'DELETE /manual-entries/e-1': () => jsonResponse({ ...DELETED, evaluation: 'DONE' }),
+      });
+
+      const result = await deleteEntry();
+
+      expect(within(result).queryByTestId('usage-notice')).toBeNull();
     });
 
     it('AWS（DEFERRED）: 修正の後に、「ステータスへの反映には、数分かかります」と示す', async () => {

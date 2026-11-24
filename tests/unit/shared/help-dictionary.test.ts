@@ -99,7 +99,7 @@ describe('入力項目の説明（findItemHelp）', () => {
     expect(help).toContain('緊急停止');
   });
 
-  it('D-20（コスト 4 項目の単位）・D-21（復旧時間）・D-22（操作性）・D-26（合計の項目）の項目には、説明を付けない（別の Issue で行う）', () => {
+  it('D-20（コスト 4 項目の単位）・D-21（復旧時間）・D-22（操作性）の項目には、説明を付けない（別の Issue で行う）', () => {
     const excluded = [
       // D-20: コスト情報
       ...ITEM_CATALOG.filter((item) => item.category === 'COST').map((item) => item.itemKey),
@@ -107,7 +107,16 @@ describe('入力項目の説明（findItemHelp）', () => {
       ...ITEM_CATALOG.filter((item) => item.category === 'FAILURE').map((item) => item.itemKey),
       // D-22: 操作情報
       ...ITEM_CATALOG.filter((item) => item.category === 'OPERABILITY').map((item) => item.itemKey),
-      // D-26: 合計の項目（自動取り込みの 5 項目）
+    ];
+
+    expect(excluded.length).toBeGreaterThan(5);
+    for (const itemKey of excluded) {
+      expect(findItemHelp(itemKey), itemKey).toBeUndefined();
+    }
+  });
+
+  it('D-26 の合計の項目（自動取り込みの 5 項目）は、値の意味（今日これまでの累計）と、自動取り込みの値がある期間の扱いを説明する（#162）', () => {
+    const totals = [
       'harvestCount',
       'operatingHours',
       'standbyHours',
@@ -115,9 +124,11 @@ describe('入力項目の説明（findItemHelp）', () => {
       'travelStoppedHours',
     ];
 
-    expect(excluded.length).toBeGreaterThan(10);
-    for (const itemKey of excluded) {
-      expect(findItemHelp(itemKey), itemKey).toBeUndefined();
+    for (const itemKey of totals) {
+      const help = findItemHelp(itemKey)?.help ?? '';
+      expect(help, itemKey).toContain('今日これまでの累計');
+      expect(help, itemKey).toContain('自動取り込みの値がある期間は、評価に使われません');
+      expect(findItemDefinition(itemKey)?.aggregation, itemKey).toBe('CUMULATIVE');
     }
   });
 
