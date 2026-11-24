@@ -22,6 +22,7 @@ import {
 import type { ApiDeps, AppEnv } from './api-deps.ts';
 import {
   HorizonQuerySchema,
+  IncludeUsageQuerySchema,
   ProblemOnlyQuerySchema,
   SortDirectionSchema,
   toOptionalDate,
@@ -76,6 +77,8 @@ const ObservationListQuerySchema = PageQuerySchema.extend({
   q: z.string().max(100).optional(),
   /** true なら、「問題あり」（有効でない観測値）だけ。 */
   problemOnly: ProblemOnlyQuerySchema,
+  /** true なら、合計の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4）。 */
+  includeUsage: IncludeUsageQuerySchema,
   sort: z.enum(OBSERVATION_SORT_KEYS).default('observedAt'),
   direction: SortDirectionSchema,
 }).superRefine((query, context) => {
@@ -94,6 +97,7 @@ const MeasurementListQuerySchema = PageQuerySchema.extend({
   to: IsoDateTimeSchema.optional(),
   q: z.string().max(100).optional(),
   problemOnly: ProblemOnlyQuerySchema,
+  includeUsage: IncludeUsageQuerySchema,
   direction: SortDirectionSchema,
 }).superRefine((query, context) => {
   // キーワード検索と、「問題あり」の絞り込みは、期間（31 日以内）が必須（ADR-0007 の判断。#91・SC-09-3）。観測値の一覧と同じ
@@ -136,6 +140,7 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
           to: toOptionalDate(query.to),
           keyword: query.q,
           problemOnly: query.problemOnly,
+          includeUsage: query.includeUsage,
           direction: query.direction,
           limit: query.limit,
           cursor: query.cursor,
@@ -157,6 +162,7 @@ export function createViewpointHandlers(deps: ApiDeps): Readonly<Record<string, 
           to: toOptionalDate(query.to),
           keyword: query.q,
           problemOnly: query.problemOnly,
+          includeUsage: query.includeUsage,
           sort: query.sort,
           direction: query.direction,
           limit: query.limit,

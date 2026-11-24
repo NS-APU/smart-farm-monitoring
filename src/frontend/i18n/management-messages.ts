@@ -257,6 +257,10 @@ export const MANAGEMENT_MESSAGES = {
     refreshing: '更新中…',
     manualRefreshNote:
       '「問題あり」の絞り込みは、自動では更新しません。最新のデータを見るときは、「更新」を押してください',
+    // 評価に使われない手動入力の印（D-26。SC-09-4。Issue #162）。理由の文は、保存の結果（entry.usageNotUsed・usagePartial）と同じ
+    usageTag: '評価に使われていません',
+    usageTagPartial: '一部の評価に使われていません',
+    usageHintName: '評価での扱い',
     // 手動入力の行からの導線（SC-09-5）
     openEntry: '入力データを開く',
     rowHistory: '履歴',

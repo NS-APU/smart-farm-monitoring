@@ -795,6 +795,26 @@
   color: var(--status-unknown-text);
 }
 
+/* 評価に使われない手動入力の印（計測データ。D-26。Issue #162）。状態の色は使わず（状態の表示にだけ使う）、破線の枠と文字で示す */
+.usage-tag-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0 4px;
+  margin-left: 8px;
+  font-weight: 400;
+  white-space: normal;
+}
+
+.usage-tag {
+  padding: 0 8px;
+  border: 1px dashed var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .pager {
   display: flex;
   align-items: center;

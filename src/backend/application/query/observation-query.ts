@@ -3,6 +3,7 @@
  * 設備（ハウスは配下のロボット・センサーを含む）、観点（その観点の元データの項目）、カテゴリ・項目・取得元・期間で絞り込み、
  * キーワード（項目・カテゴリ・設備・取得元・状態の表示名、値）で検索する。並べ替え・ページ分割はサーバー側で行う。
  * 計測単位の一覧（listMeasurements。Issue #363）は、1 回の計測（設備・計測日時・取得元）の項目をまとめて返す（日時順だけ）。
+ * `includeUsage` のときは、合計（累積）の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4。D-26。`observation-usage.ts`）。
  */
 
 import { AppError } from '@smart-farm/shared/errors';
@@ -25,6 +26,7 @@ import type {
   MeasurementListResponse,
   Observation,
   ObservationListResponse,
+  ObservationRow,
 } from '@smart-farm/shared/schemas/observation';
 import { compareIsoInstants } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
@@ -33,7 +35,9 @@ import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/sour
 import { ALL_EQUIPMENT, canViewEquipment, type EquipmentScope } from '../access/facility-scope.ts';
 import { EQUIPMENT_NOT_FOUND_MESSAGE } from '../equipment/require-active-equipment.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
+import type { ClockPort } from '../ports/clock-port.ts';
 import type { Repositories } from '../ports/repositories.ts';
+import { judgeObservationUsage } from './observation-usage.ts';
 
 export interface ObservationListParams {
   readonly equipmentId?: EquipmentId | undefined;
@@ -52,6 +56,8 @@ export interface ObservationListParams {
   readonly direction: SortDirection;
   readonly limit: number;
   readonly cursor?: string | undefined;
+  /** true なら、合計の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4）。 */
+  readonly includeUsage?: boolean | undefined;
 }
 
 /** 計測単位の一覧の条件（観点・項目の絞り込みと、並べ替えの指定はない。日時順だけ）。 */
@@ -70,6 +76,8 @@ export interface MeasurementListParams {
   readonly limit: number;
   /** 前のページの最後の計測の日時（ISO 8601）。 */
   readonly cursor?: string | undefined;
+  /** true なら、合計の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4）。 */
+  readonly includeUsage?: boolean | undefined;
 }
 
 export interface ObservationQuery {
@@ -79,6 +87,8 @@ export interface ObservationQuery {
 
 export interface ObservationQueryDeps {
   readonly repositories: Pick<Repositories, 'equipment' | 'observations' | 'statusCodes'>;
+  /** 「評価に使われるか」の評価時刻（現在）。 */
+  readonly clock: ClockPort;
 }
 
 export interface ObservationNames {
@@ -238,7 +248,16 @@ const ITEMS_PER_MEASUREMENT_HINT = 12;
 const MAX_CHUNK = 500;
 
 export function createObservationQuery(deps: ObservationQueryDeps): ObservationQuery {
-  const { repositories } = deps;
+  const { repositories, clock } = deps;
+
+  /** 行に、「評価に使われるか」（合計の項目の手動入力だけ）を付ける。付けないときは、読んだ行のまま。 */
+  async function withUsage(rows: readonly Observation[]): Promise<ObservationRow[]> {
+    const usages = await judgeObservationUsage(repositories.observations, rows, clock.now());
+    return rows.map((row) => {
+      const usage = usages.get(row);
+      return usage === undefined ? row : { ...row, usage };
+    });
+  }
 
   /** 閲覧範囲・設備の指定から、対象の設備の絞り込みを決める。なければ（範囲なし）、何も返さない旨を示す。 */
   async function resolveEquipmentIds(
@@ -297,6 +316,19 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
         return items.length === 0 ? measurement : { ...measurement, items };
       }),
     );
+  }
+
+  /** 計測の項目に、「評価に使われるか」を付ける（全計測の項目を、まとめて判定する。読み取りは、設備・項目の組ごとに 1 回）。 */
+  async function withMeasurementUsage(
+    measurements: readonly Measurement[],
+  ): Promise<Measurement[]> {
+    const rows = await withUsage(measurements.flatMap(({ items }) => items));
+    let index = 0;
+    return measurements.map((measurement) => {
+      const items = rows.slice(index, index + measurement.items.length);
+      index += measurement.items.length;
+      return { ...measurement, items };
+    });
   }
 
   return {
@@ -379,10 +411,12 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
             return { items: [], nextCursor: null };
           }
           const hasMore = !exhausted || selected.length < slots.length;
-          const measurements = await completeMeasurements(
+          const completed = await completeMeasurements(
             selected.flatMap(toMeasurements),
             keyword !== '' || params.category !== undefined || params.problemOnly === true,
           );
+          const measurements =
+            params.includeUsage === true ? await withMeasurementUsage(completed) : completed;
           return { items: measurements, nextCursor: hasMore ? lastSlot.observedAt : null };
         }
       }
@@ -430,7 +464,10 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
         { limit: params.limit, cursor: params.cursor },
         { key: params.sort, direction: params.direction },
       );
-      return { items: page.items, nextCursor: page.nextCursor };
+      return {
+        items: params.includeUsage === true ? await withUsage(page.items) : page.items,
+        nextCursor: page.nextCursor,
+      };
     },
   };
 }

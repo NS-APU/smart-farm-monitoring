@@ -17,10 +17,11 @@ import { usableObservedMs } from '../../domain/evaluation/measures.ts';
 import { judgeManualUsageInEvaluationPeriods } from '../../domain/evaluation/manual-usage.ts';
 import type { ObservationRepository } from '../ports/repositories.ts';
 
-const LONGEST_PERIOD_DAYS = Math.max(...PERIOD_DAYS_OPTIONS);
+/** 評価の期間のうち、最も長いもの（日）。これより前の計測日時は、どの評価の期間にも入らない。 */
+export const LONGEST_PERIOD_DAYS = Math.max(...PERIOD_DAYS_OPTIONS);
 
-/** 評価の期間の終わりまでの、最も新しい、使える自動取り込みの観測値（なければ undefined）。 */
-async function latestUsableAuto(
+/** 評価の期間の終わりまでの、最も新しい、使える自動取り込みの観測値（なければ undefined）。計測データの一覧の印（SC-09-4）も、これを使う。 */
+export async function latestUsableAuto(
   observations: ObservationRepository,
   equipmentId: ManualEntry['equipmentId'],
   itemKey: string,

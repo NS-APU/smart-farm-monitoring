@@ -14,6 +14,7 @@ import { useRevealOnChange } from '../hooks/use-reveal-on-change.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
+import { usageReasonText } from './evaluation-usage.ts';
 import { Icon } from './icon.tsx';
 import { StatusBadge } from './status-badge.tsx';
 
@@ -27,20 +28,10 @@ const LEADS = {
   deleted: { done: MESSAGES.entries.deletedLead, deferred: MESSAGES.entries.deletedLeadDeferred },
 } as const;
 
-/** 自動取り込みの値を使うため、使われない評価の期間の呼び方（短期視点、長期視点〔当日・直近 N 日〕）。 */
-function periodLabel(period: ManualEntryItemUsage['autoPriorityPeriods'][number]): string {
-  return period.periodDays === null
-    ? MESSAGES.entry.usageShort
-    : MESSAGES.entry.usageLong(MESSAGES.dashboard.periodDays[period.periodDays]);
-}
-
-/** 項目ごとの説明。評価に使われる期間がなければ、「この期間は…使われません」。一部の期間だけなら、その期間を示す。 */
+/** 項目ごとの説明（項目名と、評価に使われない理由）。 */
 function usageText(usage: ManualEntryItemUsage): string {
   const label = findItemDefinition(usage.itemKey)?.label ?? usage.itemKey;
-  const reason = usage.used
-    ? MESSAGES.entry.usagePartial(usage.autoPriorityPeriods.map(periodLabel).join('・'))
-    : MESSAGES.entry.usageNotUsed;
-  return `${label}: ${reason}`;
+  return `${label}: ${usageReasonText(usage)}`;
 }
 
 export function ManualEntryResult(props: {

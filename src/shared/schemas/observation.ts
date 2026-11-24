@@ -5,9 +5,11 @@ import { MAX_NOTE_LENGTH } from '../constants/limits.ts';
 import {
   CategorySchema,
   EquipmentIdSchema,
+  HorizonSchema,
   IsoDateTimeSchema,
   ObservationQualitySchema,
   ObservationSourceSchema,
+  PeriodDaysSchema,
   UserIdSchema,
 } from './common.ts';
 
@@ -30,6 +32,29 @@ export const ObservationSchema = z.object({
 });
 export type Observation = z.infer<typeof ObservationSchema>;
 
+/**
+ * 手動入力の「評価に使われるか」（D-26。Issue #162）。合計（累積）の項目は、評価の期間に、同じ設備・項目の自動取り込みの値があれば、
+ * 自動だけを使い、手動入力は使われない。保存・修正の応答（項目ごと）と、計測データの一覧（行ごと。SC-09-4）が使う。
+ * - `used`: いずれかの評価の期間（短期視点・長期視点の各期間）で、評価に使われるか
+ * - `autoPriorityPeriods`: 自動取り込みの値を使うため、この入力が使われない評価の期間（短期は `periodDays` が null）。なければ空
+ */
+export const EvaluationUsageSchema = z.object({
+  used: z.boolean(),
+  autoPriorityPeriods: z.array(
+    z.object({ horizon: HorizonSchema, periodDays: PeriodDaysSchema.nullable() }),
+  ),
+});
+export type EvaluationUsage = z.infer<typeof EvaluationUsageSchema>;
+
+/**
+ * 一覧の応答の、観測値の行。`usage` は、クエリ `includeUsage=true` のときだけ、合計の項目の手動入力の行に付く
+ * （計測の日時が、評価の期間〔最長 90 日〕の外の行・自動取り込みの行・合計でない項目の行には付かない）。
+ */
+export const ObservationRowSchema = ObservationSchema.extend({
+  usage: EvaluationUsageSchema.optional(),
+});
+export type ObservationRow = z.infer<typeof ObservationRowSchema>;
+
 /** 観測値の一意キー（設備ID、項目、計測日時、取得元）。data-dictionary.md 3章。 */
 export function observationKey(
   observation: Pick<Observation, 'equipmentId' | 'itemKey' | 'observedAt' | 'source'>,
@@ -39,7 +64,7 @@ export function observationKey(
 
 /** GET /observations の応答（元データ・取り込み済みデータの一覧。FR-6.4、FR-6.8）。 */
 export const ObservationListResponseSchema = z.object({
-  items: z.array(ObservationSchema),
+  items: z.array(ObservationRowSchema),
   nextCursor: z.string().nullable(),
 });
 export type ObservationListResponse = z.infer<typeof ObservationListResponseSchema>;
@@ -57,7 +82,7 @@ export const MeasurementSchema = z.object({
   /** 最も新しい受信日時。 */
   receivedAt: IsoDateTimeSchema,
   /** この計測の項目ごとの観測値（項目の定義の順）。 */
-  items: z.array(ObservationSchema).min(1),
+  items: z.array(ObservationRowSchema).min(1),
 });
 export type Measurement = z.infer<typeof MeasurementSchema>;
 

@@ -4,6 +4,8 @@
  * 日時・カテゴリ・値で並べ替え、ページを移動できる。条件は URL のクエリに反映する。
  * 「問題あり（欠損・遅延・不正を含む）」だけに絞り込める（SC-09-3）。期間（31 日以内）が必須で、選んでいる間は、
  * 自動で更新せず、手動の「更新」で取り直す（読んだ後に絞るため、読み取りが多い。ADR-0007）。
+ * 合計（累積）の項目の手動入力で、評価の期間に自動取り込みの値があり、評価に使われないものには、「評価に使われていません」のタグと、
+ * 理由のヘルプヒントを付ける（D-26。SC-09-4。判定は API の `usage`〔`includeUsage=true`〕。評価の結果は使わない）。
  */
 
 import { useCallback, useState, type ReactNode } from 'react';
@@ -17,7 +19,11 @@ import {
   OBSERVATION_SOURCE_LABELS,
 } from '@smart-farm/shared/constants/observation-labels';
 import { OBSERVATION_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
-import type { Measurement, Observation } from '@smart-farm/shared/schemas/observation';
+import type {
+  EvaluationUsage,
+  Measurement,
+  ObservationRow,
+} from '@smart-farm/shared/schemas/observation';
 import { OBSERVATION_SOURCES } from '@smart-farm/shared/constants/status';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import {
@@ -28,8 +34,10 @@ import {
 import { listMeasurements, listObservations } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
+import { usageReasonText } from '../components/evaluation-usage.ts';
 import { Pager } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
+import { HelpHint } from '../components/help-hint.tsx';
 import { Icon } from '../components/icon.tsx';
 import { isoToJstDate, jstDateToIso } from '../components/jst.ts';
 import {
@@ -82,7 +90,11 @@ type ListResult =
       readonly items: Measurement[];
       readonly nextCursor: string | null;
     }
-  | { readonly mode: 'items'; readonly items: Observation[]; readonly nextCursor: string | null };
+  | {
+      readonly mode: 'items';
+      readonly items: ObservationRow[];
+      readonly nextCursor: string | null;
+    };
 
 const EMPTY_RESULT: ListResult = { mode: 'items', items: [], nextCursor: null };
 
@@ -91,9 +103,27 @@ function categoriesOf(measurement: Measurement): string {
   return [...new Set(measurement.items.map((item) => CATEGORY_LABELS[item.category]))].join('・');
 }
 
+/**
+ * 評価に使われない手動入力の印（SC-09-4）。自動取り込みの値を使う評価の期間がある行（`autoPriorityPeriods` が空でない）だけ。
+ * すべての期間で使われないときは「評価に使われていません」、期間によって取得元が変わる（一部の期間だけ使われない）ときは「一部の評価に使われていません」。
+ * 色だけに頼らず、文字で示す（NFR-7.2）。理由は、ヘルプヒントで説明する（保存の結果と同じ文）。
+ */
+function UsageTag(props: { readonly usage: EvaluationUsage | undefined }): ReactNode {
+  const { usage } = props;
+  if (usage === undefined || usage.autoPriorityPeriods.length === 0) {
+    return null;
+  }
+  return (
+    <span className="usage-tag-group" data-testid="usage-tag">
+      <span className="usage-tag">{usage.used ? TEXT.usageTagPartial : TEXT.usageTag}</span>
+      <HelpHint name={TEXT.usageHintName} help={usageReasonText(usage)} />
+    </span>
+  );
+}
+
 /** 1 回の計測の状態: すべて有効、または、有効でない項目の状態ごとの件数。 */
 function QualitySummary(props: { readonly measurement: Measurement }): ReactNode {
-  const counts = new Map<Observation['quality'], number>();
+  const counts = new Map<ObservationRow['quality'], number>();
   for (const item of props.measurement.items) {
     if (item.quality !== 'VALID') {
       counts.set(item.quality, (counts.get(item.quality) ?? 0) + 1);
@@ -191,6 +221,8 @@ export function ObservationsPage(): ReactNode {
       ...(fromIso === null ? {} : { from: fromIso }),
       ...(toIso === null ? {} : { to: toIso }),
       ...(problemOnly ? { problemOnly: 'true' as const } : {}),
+      // 手動入力の行の「評価に使われるか」（SC-09-4）を付けて読む
+      includeUsage: 'true' as const,
       direction,
       limit: PAGE_SIZE,
       ...omitUndefined({ cursor }),
@@ -304,6 +336,7 @@ export function ObservationsPage(): ReactNode {
                                 {OBSERVATION_QUALITY_LABELS[item.quality]}
                               </span>
                             )}
+                            <UsageTag usage={item.usage} />
                           </li>
                         ))}
                       </ul>
@@ -359,6 +392,7 @@ export function ObservationsPage(): ReactNode {
                     </td>
                     <td className="numeric" data-label={MESSAGES.viewpoint.value}>
                       {formatObservationValue(item, statusNames)}
+                      <UsageTag usage={item.usage} />
                     </td>
                     <td className="nowrap-cell" data-label={TEXT.source}>
                       {OBSERVATION_SOURCE_LABELS[item.source]}

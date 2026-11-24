@@ -1250,3 +1250,71 @@ test.describe('手動入力の行からの導線（#155。SC-09-5）', () => {
     await expect(page.getByTestId('audit-target-chip')).toContainText('故障回数');
   });
 });
+
+test.describe('評価に使われていない手動入力の印（SC-09-4。Issue #162）', () => {
+  test('自動取り込みの値がある期間の、合計の項目の手動入力の行に、「評価に使われていません」を付け、ヘルプヒントで理由を示す。自動取り込みの行・合計でない項目・自動のない項目の手動入力には付けない（計測ごと・項目ごとの両方）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 1800, observedAt: hoursAgo(3) },
+        {
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 22,
+          observedAt: hoursAgo(3),
+        },
+      ],
+    });
+    // 収穫数は、自動の値がある（使われない）。稼働時間は、自動がない（使われる）。温度は、合計の項目ではない（自動があっても使われる）
+    await addEntry(request, {
+      category: 'HARVEST',
+      observedAt: hoursAgo(2),
+      items: { harvestCount: 1700 },
+    });
+    await addEntry(request, {
+      category: 'OPERATION',
+      observedAt: hoursAgo(2),
+      items: { operatingHours: 5 },
+    });
+    await addEntry(request, {
+      category: 'ENVIRONMENT',
+      observedAt: hoursAgo(2),
+      items: { temperatureCelsius: 25 },
+    });
+
+    // 計測ごとの一覧
+    await openMeasurements(page);
+    const harvestItem = measurementRows(page)
+      .filter({ hasText: '手動入力' })
+      .getByTestId('measurement-item')
+      .filter({ hasText: '収穫数' });
+    const hoursItem = measurementRows(page)
+      .filter({ hasText: '手動入力' })
+      .getByTestId('measurement-item')
+      .filter({ hasText: '稼働時間' });
+    await expect(harvestItem.getByTestId('usage-tag')).toContainText('評価に使われていません');
+    await expect(hoursItem.getByTestId('usage-tag')).toHaveCount(0);
+    await expect(page.getByTestId('usage-tag')).toHaveCount(1);
+    await harvestItem.getByRole('button', { name: '評価での扱いの説明' }).click();
+    await expect(harvestItem.getByRole('note')).toHaveText(
+      'この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+    );
+    await expectNoHorizontalScroll(page);
+    await shot(page, testInfo, 'uc20-unused-manual-tag');
+
+    // 項目ごとの一覧
+    await openObservations(page);
+    const harvestRows = rows(page).filter({ hasText: '収穫数' });
+    await expect(harvestRows).toHaveCount(2);
+    await expect(harvestRows.filter({ hasText: '手動入力' }).getByTestId('usage-tag')).toHaveCount(
+      1,
+    );
+    await expect(
+      harvestRows.filter({ hasText: '自動取り込み' }).getByTestId('usage-tag'),
+    ).toHaveCount(0);
+    await expect(page.getByTestId('usage-tag')).toHaveCount(1);
+  });
+});

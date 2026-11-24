@@ -799,7 +799,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
       settings,
       clock,
     }),
-    observationQuery: createObservationQuery({ repositories }),
+    observationQuery: createObservationQuery({ repositories, clock }),
     notificationService: services.notificationService,
     evaluationService: services.evaluationService,
     ingestionService: services.ingestionService,
