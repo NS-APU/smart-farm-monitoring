@@ -1492,7 +1492,7 @@ sequenceDiagram
 
 ### 4.6.1 未登録のコード値の記録と一覧（SC-12-5。#158）
 
-取り込み（`IngestionService`）は、1 回の実行で新しく保存した「不正」の、定義にないステータスコードの観測値を、コード値ごとに集計し（`domain/unregistered-status-code.ts`）、上限（1 回に新しい値 20 種類・全体で 50 種類・値は 100 文字）の範囲で、`UnregisteredStatusCodeRepository` に、1 コード値ずつ加算する（`ingestion/unregistered-status-codes.ts`）。記録の失敗は、ログ（件数・種類数。値は出さない）に残し、取り込みは失敗にしない。`GET /status-codes/unregistered` は、`StatusCodeService.listUnregistered` が、記録から、登録済み（論理削除でない）のコード値を除き、件数の多い順に返す。
+取り込み（`IngestionService`）は、1 回の実行で新しく保存した「不正」の、定義にないステータスコードの観測値を、コード値ごとに集計し（`domain/unregistered-status-code.ts`）、上限（1 回に新しい値 20 種類・全体で 50 種類・値は 100 文字）の範囲で、`UnregisteredStatusCodeRepository` に、1 コード値ずつ加算する（`ingestion/unregistered-status-codes.ts`）。記録の失敗は、ログ（件数・種類数。値は出さない）に残し、取り込みは失敗にしない。`GET /status-codes/unregistered` は、`StatusCodeService.listUnregistered` が、記録から、登録済み（論理削除でない）のコード値を除き、件数の多い順に返す。画面は、`status-codes-page.tsx` が、管理者（`status-code:manage`）のときだけ、`usePolling(…, null)`（自動の更新なし。最初の取得と、手動の「更新」・登録・修正・削除のあとの再取得だけ）で取得し、`components/unregistered-status-codes-panel.tsx` で示す。登録できる形式の行から、登録のダイアログを開く（登録できない形式の行は、ボタンを出さない）。費用: 画面を開いたときの 1 回の Query（ポーリングなし。仮定。実測は未確認）。
 
 ```mermaid
 sequenceDiagram
