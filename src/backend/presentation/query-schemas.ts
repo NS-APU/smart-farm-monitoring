@@ -43,6 +43,13 @@ export const ProblemOnlyQuerySchema = z
   .transform((value) => value === 'true')
   .optional();
 
+/**
+ * `true`・`false` の文字列だけ（それ以外は、入力不正）。省略は undefined。
+ * true なら、計測データの一覧の、合計の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4）。
+ * 設備・項目の組ごとに、自動取り込みの観測値を 1 件読むため、必要な画面だけが指定する。
+ */
+export const IncludeUsageQuerySchema = ProblemOnlyQuerySchema;
+
 /** 日時（ISO 8601 の文字列）を Date にする。省略は undefined のまま。 */
 export function toOptionalDate(iso: string | undefined): Date | undefined {
   return iso === undefined ? undefined : new Date(iso);

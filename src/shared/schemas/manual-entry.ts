@@ -23,12 +23,11 @@ import { MS_PER_MINUTE } from '../time.ts';
 import {
   CategorySchema,
   EquipmentIdSchema,
-  HorizonSchema,
   IsoDateTimeSchema,
-  PeriodDaysSchema,
   UserIdSchema,
   ViewpointIdSchema,
 } from './common.ts';
+import { EvaluationUsageSchema } from './observation.ts';
 
 /** カテゴリごとに、手動入力できる項目（取得元に手動入力を含むもの）。 */
 export function manualItemsOfCategory(category: Category): readonly ItemDefinition[] {
@@ -101,13 +100,7 @@ export const MANUAL_ENTRY_EVALUATION_STATES = ['DONE', 'DEFERRED'] as const;
  * - `used`: いずれかの評価の期間（短期視点・長期視点の各期間）で、評価に使われるか
  * - `autoPriorityPeriods`: 自動取り込みの値を使うため、この入力が使われない評価の期間（短期は `periodDays` が null）。なければ空
  */
-export const ManualEntryItemUsageSchema = z.object({
-  itemKey: z.string(),
-  used: z.boolean(),
-  autoPriorityPeriods: z.array(
-    z.object({ horizon: HorizonSchema, periodDays: PeriodDaysSchema.nullable() }),
-  ),
-});
+export const ManualEntryItemUsageSchema = EvaluationUsageSchema.extend({ itemKey: z.string() });
 export type ManualEntryItemUsage = z.infer<typeof ManualEntryItemUsageSchema>;
 
 export const ManualEntrySaveResponseSchema = z.object({
