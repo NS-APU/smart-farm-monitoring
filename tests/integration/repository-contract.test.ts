@@ -489,6 +489,47 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(both.items).toEqual([]);
     });
 
+    it('一覧: 設備・項目・取得元（自動取り込み）・期間（終了を含む）・使える値（matches）で絞り、新しい順に 1 件だけ読める（保存の応答の「評価に使われるか」。#162）', async () => {
+      const repositories = await seeded();
+      const equipmentId = toEquipmentId('ROBOT-CONTRACT');
+      const sample = (observedAt: string, overrides: Partial<Parameters<typeof observation>[0]>) =>
+        observation({ equipmentId, itemKey: 'harvestCount', value: 1, observedAt, ...overrides });
+      await repositories.observations.saveMany([
+        sample('2026-10-09T01:00:00.000Z', { value: 100 }),
+        sample('2026-10-09T02:00:00.000Z', { value: 200 }),
+        // 新しいが、使えない値（品質が有効でない・論理削除・手動入力・終了より後）
+        sample('2026-10-09T02:10:00.000Z', { quality: 'INVALID' }),
+        sample('2026-10-09T02:20:00.000Z', { isDeleted: true }),
+        sample('2026-10-09T02:30:00.000Z', { source: 'MANUAL' }),
+        sample('2026-10-09T03:30:00.000Z', {}),
+        // 別の項目・別の設備
+        sample('2026-10-09T02:40:00.000Z', { itemKey: 'operatingHours' }),
+        observation({
+          equipmentId: toEquipmentId('ROBOT-OTHER'),
+          itemKey: 'harvestCount',
+          value: 1,
+          observedAt: '2026-10-09T02:50:00.000Z',
+        }),
+      ]);
+
+      const page = await repositories.observations.query(
+        {
+          equipmentIds: [equipmentId],
+          itemKey: 'harvestCount',
+          source: 'AUTO_IMPORT',
+          from: new Date('2026-10-08T03:00:00.000Z'),
+          to: new Date('2026-10-09T03:00:00.000Z'),
+          matches: (item) => item.quality === 'VALID',
+        },
+        { limit: 1 },
+        { key: 'observedAt', direction: 'desc' },
+      );
+
+      expect(page.items.map((item) => [item.observedAt, item.value])).toEqual([
+        ['2026-10-09T02:00:00.000Z', 200],
+      ]);
+    });
+
     it('一覧: 「問題あり」（有効でない: 欠損・遅延・不正）だけに絞り込める。計測日時の順・値の順のどちらでも。ほかの条件とも組み合わせられる（SC-09-3）', async () => {
       const repositories = await seeded();
       await repositories.observations.saveMany([

@@ -5,7 +5,6 @@
  * - コスト情報の 4 項目（単位が円/時間にそろう。D-20。#215）
  * - 故障情報（復旧に要した時間の単位・MTTR、同じ入力の中の合計。D-21。#215）
  * - 操作情報の 3 項目（1 回の作業あたりの入力。D-22。#217）
- * - 合計の項目（収穫数・稼働時間・待機時間・収穫稼働時間・走行停止時間）の値の意味（今日これまでの累計など。D-26。#162）
  */
 
 import type { Category } from './items.ts';
@@ -17,7 +16,19 @@ export interface ItemHelp {
   readonly example?: string;
 }
 
+/** 合計（累積）の項目の説明（D-26。#162）。値の意味は、今日これまでの累計（暫定）。自動取り込みの値がある期間の扱いも、あわせて示す。 */
+function totalItemHelp(meaning: string): ItemHelp {
+  return {
+    help: `${meaning}の、今日これまでの累計です。時間とともに増える値を、入力する時点のものとして入力します。自動取り込みの値がある期間は、評価に使われません`,
+  };
+}
+
 const ITEM_HELP: Readonly<Record<string, ItemHelp>> = {
+  harvestCount: totalItemHelp('収穫した個数'),
+  operatingHours: totalItemHelp('稼働した時間'),
+  standbyHours: totalItemHelp('待機していた時間'),
+  harvestOperatingHours: totalItemHelp('収穫作業をしていた時間'),
+  travelStoppedHours: totalItemHelp('走行が止まっていた時間'),
   harvestSecondsPerFruit: {
     help: '1果実の収穫にかかった時間です。参考の項目で、観点の判定には使いません',
     example: '45',

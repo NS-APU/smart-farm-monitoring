@@ -40,6 +40,7 @@ import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/regis
 import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/source-items.ts';
 import type { AuditService } from '../audit/audit-service.ts';
 import { loadUserNames } from '../auth/user-display-names.ts';
+import { judgeEntryUsage } from './manual-entry-usage.ts';
 import { ALL_EQUIPMENT, canViewEquipment, type EquipmentScope } from '../access/facility-scope.ts';
 import {
   EQUIPMENT_NOT_FOUND_MESSAGE,
@@ -281,6 +282,18 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     return found.filter((status): status is ManualEntryViewpointStatus => status !== undefined);
   }
 
+  /**
+   * 保存・修正の応答。関連する観点のステータスと、項目ごとの「評価に使われるか」（D-26）は、互いに独立のため、並列に読む
+   * （保存の応答時間への影響を、増やさない。ADR-0014）。
+   */
+  async function savedResponse(entry: ManualEntry): Promise<ManualEntrySaveResponse> {
+    const [viewpointStatuses, usage] = await Promise.all([
+      relatedStatuses(entry),
+      judgeEntryUsage(repositories.observations, entry, toObservations(entry, false), clock.now()),
+    ]);
+    return { entry, viewpointStatuses, evaluation: evaluationState, usage };
+  }
+
   async function findEntry(entryId: string, scope: EquipmentScope): Promise<ManualEntry> {
     const entry = await repositories.manualEntries.get(entryId);
     // 範囲外の設備の入力は、存在しないものとして扱う（設備の有無を、漏らさない）
@@ -326,11 +339,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         after: entry,
       });
       await reevaluate([entry.equipmentId]);
-      return {
-        entry,
-        viewpointStatuses: await relatedStatuses(entry),
-        evaluation: evaluationState,
-      };
+      return await savedResponse(entry);
     },
 
     async update(entryId, input, actor, scope = ALL_EQUIPMENT) {
@@ -367,11 +376,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       });
       // 設備を変更した修正は、変更前の設備も評価し直す
       await reevaluate([before.equipmentId, entry.equipmentId]);
-      return {
-        entry,
-        viewpointStatuses: await relatedStatuses(entry),
-        evaluation: evaluationState,
-      };
+      return await savedResponse(entry);
     },
 
     async delete(entryId, actor, scope = ALL_EQUIPMENT) {

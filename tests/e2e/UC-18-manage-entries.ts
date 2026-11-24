@@ -542,6 +542,37 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await shot(page, testInfo, 'uc18-edited-result');
   });
 
+  test('修正の後も、自動取り込みの値がある期間の合計の項目（収穫数）は、評価に使われない旨を、データ入力と同じ部品で示す（D-26。Issue #162 の SC-06-5）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 1800, observedAt: hoursAgo(4) },
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 2400, observedAt: hoursAgo(2) },
+      ],
+    });
+    await addEntry(request, {
+      category: 'HARVEST',
+      observedAt: hoursAgo(1),
+      items: { harvestCount: 1700 },
+    });
+    await openList(page);
+    await rows(page).first().getByRole('button', { name: '修正' }).click();
+    await editor(page)
+      .locator('[data-field="items.harvestCount"]')
+      .getByRole('textbox')
+      .fill('1750');
+
+    await editor(page).getByRole('button', { name: '保存', exact: true }).click();
+
+    await expect(noticeTitle(page)).toHaveText('修正しました');
+    await expect(notice(page).getByTestId('usage-harvestCount')).toHaveText(
+      '収穫数: この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+    );
+  });
+
   test('修正: 入力済みの内容（設備・カテゴリ・計測日時・項目の値・備考）を編集欄に表示し、変更して保存すると、一覧と評価に反映される（入力者は変わらない）', async ({
     page,
     request,

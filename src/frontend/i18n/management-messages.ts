@@ -143,6 +143,13 @@ export const MANAGEMENT_MESSAGES = {
     savedLeadDeferred:
       '入力内容を保存しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
     noRelated: '関連する観点の評価は、まだありません',
+    // 評価に使われない項目（D-26。保存・修正の結果。Issue #162 の SC-06-5）。自動取り込みの値がある期間は、合計の項目の手動入力は使われない
+    usageTitle: '評価に使われない項目があります（入力は保存されています）',
+    usageNotUsed: 'この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+    usagePartial: (periods: string) =>
+      `${periods}の評価では、自動取り込みの値を使うため、この入力は使われません`,
+    usageShort: '短期視点',
+    usageLong: (periodLabel: string) => `長期視点（${periodLabel}）`,
     goList: '入力済みデータの一覧へ',
     goDashboard: 'ダッシュボードで確認',
     noEquipment: '設備が登録されていません。設備を登録してください',

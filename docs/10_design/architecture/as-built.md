@@ -1333,7 +1333,8 @@ sequenceDiagram
   AU->>REP: auditLogs.add
   MS->>EV: evaluateAffected MANUAL_ENTRY 4.3<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
   MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス 観点ごとに並列 Issue 79
-  MS-->>MH: entry と viewpointStatuses と evaluation
+  MS->>REP: judgeEntryUsage<br>合計の項目だけ 設備と項目の自動の観測値を<br>新しい順に 1 件 関連観点の読み出しと並列 D-26 Issue 162
+  MS-->>MH: entry と viewpointStatuses と evaluation と usage
   MH-->>API: 201 JSON
   API-->>FORM: ManualEntrySaveResponse
   FORM->>FORM: notifyUnreadChanged<br>でヘッダーの未読件数を読み直し<br>直前の設備とカテゴリを<br>localStorage に記憶し 入力をクリア
@@ -1402,7 +1403,7 @@ sequenceDiagram
   MS->>FS: enqueue OBSERVATION<br>修正前の削除と修正後
   MS->>AU: record UPDATE before と after
   MS->>EV: evaluateAll MANUAL_ENTRY
-  MS-->>H: entry と viewpointStatuses 200
+  MS-->>H: entry と viewpointStatuses と usage 200
 
   Note over H: DELETE は 200 で、修正と同じ形<br>entry は削除済みの入力 #150
   H->>MS: delete(entryId, userId)
@@ -2453,7 +2454,7 @@ for 点 in usable:
 
 自動取り込みと手動入力の観測値が重なる場合の規則が、次のとおり、3 か所にある。
 
-0. **合計（累積）の項目は、自動を優先**（`autoCumulativeKeysOf`・`isManualOverriddenByAuto`。D-26。#228）: 集計の前に、評価の期間（短期 24 時間・長期の各期間）に、同じ設備・項目の自動取り込みの値（使える数値）が 1 件でもあれば、その設備・項目の手動入力を、集計の対象から外す（両方とも保持される）。自動がなければ、手動だけを使う。期間ごとに決めるため、期間によって取得元が変わりうる（24 時間は自動なし→手動、7 日は自動あり→自動）。期間の直前の値（基準）は、使う取得元の値だけから選ぶ（`latestBaselineObservations` は、設備・項目・取得元ごとに持つ）。推移（`computeMetricSeries`）は、推移の期間の全体で決め、区間に渡す。データ活用度合い（`computeCoverage`）は、優先の前の観測値で数える（評価に使われない手動入力も、手動入力の取得数に数える）。**手動入力が評価に使われるかの取り出し**（`domain/evaluation/manual-usage.ts`。純粋関数。評価の読み取りの範囲の観測値で判定でき、追加の読み取りは要らない）: `judgeManualUsage`（1 つの期間。手動入力ごとに、`used` と理由 `USED`・`AUTO_PRIORITY`・`OUT_OF_PERIOD`・`UNUSABLE`）、`judgeManualUsageInEvaluationPeriods`（短期・長期のすべての期間。期間ごとの結果と `usedInAnyPeriod`）。保存の応答・一覧の印は #162
+0. **合計（累積）の項目は、自動を優先**（`autoCumulativeKeysOf`・`isManualOverriddenByAuto`。D-26。#228）: 集計の前に、評価の期間（短期 24 時間・長期の各期間）に、同じ設備・項目の自動取り込みの値（使える数値）が 1 件でもあれば、その設備・項目の手動入力を、集計の対象から外す（両方とも保持される）。自動がなければ、手動だけを使う。期間ごとに決めるため、期間によって取得元が変わりうる（24 時間は自動なし→手動、7 日は自動あり→自動）。期間の直前の値（基準）は、使う取得元の値だけから選ぶ（`latestBaselineObservations` は、設備・項目・取得元ごとに持つ）。推移（`computeMetricSeries`）は、推移の期間の全体で決め、区間に渡す。データ活用度合い（`computeCoverage`）は、優先の前の観測値で数える（評価に使われない手動入力も、手動入力の取得数に数える）。**手動入力が評価に使われるかの取り出し**（`domain/evaluation/manual-usage.ts`。純粋関数。評価の読み取りの範囲の観測値で判定でき、追加の読み取りは要らない）: `judgeManualUsage`（1 つの期間。手動入力ごとに、`used` と理由 `USED`・`AUTO_PRIORITY`・`OUT_OF_PERIOD`・`UNUSABLE`）、`judgeManualUsageInEvaluationPeriods`（短期・長期のすべての期間。期間ごとの結果と `usedInAnyPeriod`）。**保存・修正の応答の `usage`**（項目ごとの `used` と、自動優先の期間 `autoPriorityPeriods`。D-26。#162 の SC-06-5）は、`application/manual-entry/manual-entry-usage.ts` の `judgeEntryUsage` が、この関数で判定する。評価と同じく 90 日分の観測値を読まず、合計の項目だけ、同じ設備・項目の自動取り込みの観測値（使える数値）を、評価時刻までの最新の 1 件（項目ごとに 1 回の問い合わせ。関連観点のステータスの読み出しと並列）読む（評価の期間に自動があるかは、最新の 1 件の計測日時で決まるため）。評価の結果は使わないので、`deferred`（AWS）でも判定できる。評価時刻は、現在。計測日時が許容の範囲で未来なら、その計測日時。計測データの印は #162 の PR2
 1. **評価での優先**（`applyManualPriority`。状態値・ステータスコード・手動専用の件数の項目）: 集計の前に、同じ `設備ID#項目#計測日時` の手動入力がある自動取り込みの観測値を、集計の対象から外す（両方とも保持される。手動入力が評価に使われる）。環境の項目（温度・湿度・照度・CO2）は、自動・手動のどちらでも入力できるため、この規則が働く
 2. **手動入力どうしの重複の禁止**（`ManualEntryService.assertNoConflict`）: 同じ設備・項目・計測日時の、別の有効な手動入力があれば、登録・修正を CONFLICT で拒否する。自分自身の入力（修正）は除く。観測値の一意キーが、取得元を含むため、手動入力は項目ごとに 1 つだけ
 

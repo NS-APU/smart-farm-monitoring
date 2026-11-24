@@ -460,6 +460,11 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
 
     // 3 時間前（日本時間 09:00）に、手動で収穫数 1,700 を入力する
     await enterHarvestCount(page, '1700', '2026-10-09T09:00');
+    // 保存はできるが、自動取り込みの値を使うため、評価に使われない旨を、項目名とともに示す（SC-06-5）
+    await expect(page.getByTestId('usage-notice')).toContainText('評価に使われない項目があります');
+    await expect(page.getByTestId('usage-harvestCount')).toHaveText(
+      '収穫数: この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+    );
 
     // 果実損傷数 50 ÷ 収穫数 2,400（自動だけ）= 2.1%。手動を混ぜた 4,200 なら 1.2%
     await expectDamagedRate(page, 'horizon=SHORT', '2.1%');
@@ -485,6 +490,9 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
 
     await enterHarvestCount(page, '100', '2026-10-09T09:00');
     await enterHarvestCount(page, '500', '2026-10-09T10:00');
+    // 自動がないので、手動が評価に使われる。「使われない」旨は示さない
+    await expect(page.getByTestId('entry-result')).toBeVisible();
+    await expect(page.getByTestId('usage-notice')).toHaveCount(0);
 
     // 手動の増分の合計 500（100 + 400）。50 ÷ 500 = 10.0%
     await expectDamagedRate(page, 'horizon=SHORT', '10.0%');
@@ -511,10 +519,35 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
     await openEntry(page);
 
     await enterHarvestCount(page, '500', '2026-10-09T09:00');
+    // 一部の期間（長期視点の 7 日以上）だけ、自動取り込みの値を使うため、その期間を示す
+    await expect(page.getByTestId('usage-harvestCount')).toContainText(
+      '長期視点（直近7日）・長期視点（直近30日）・長期視点（直近60日）・長期視点（直近90日）の評価では、自動取り込みの値を使うため、この入力は使われません',
+    );
 
     // 短期: 自動なし → 手動の 500。50 ÷ 500 = 10.0%。7 日: 自動あり → 自動の 1,500。50 ÷ 1,500 = 3.3%
     await expectDamagedRate(page, 'horizon=SHORT', '10.0%');
     await expectDamagedRate(page, 'horizon=LONG&periodDays=7', '3.3%');
+  });
+
+  test('合計の項目の入力欄に、値の意味（今日これまでの累計）を示す（ヘルプヒント）。合計でない項目には、示さない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'HARVEST' });
+
+    await mainArea(page).getByRole('button', { name: '収穫数（個）の説明', exact: true }).click();
+
+    await expect(page.getByRole('note')).toContainText('今日これまでの累計');
+    await expect(page.getByRole('note')).toContainText(
+      '自動取り込みの値がある期間は、評価に使われません',
+    );
+    await page.keyboard.press('Escape');
+    await mainArea(page)
+      .getByRole('button', { name: '1果実あたりの収穫時間（秒/果実）の説明' })
+      .click();
+    await expect(page.getByRole('note')).not.toContainText('累計');
   });
 });
 
