@@ -340,18 +340,18 @@ rfp.md 7章の方針（推察して仮決め、根拠を記録、確定後に差
 | 39 | 判断基準の閾値の範囲 | 単位が % の指標は、すべての閾値が 0〜100。それ以外は、物理的な範囲が未定義のため、検証しない | 判定が発動しない（常に正常・常に異常）基準を、保存できないように（V-028） | 指標ごとの範囲（Q-003・Q-007）。判断基準の既定値は、暫定（決定。ADR-0017。画面に説明する。実装は #220） | `shared/schemas/criteria.ts` |
 | 40 | データの新しさの判定 | ダッシュボードの「最終のデータ取得」・鮮度は、**自動取り込みで、削除されていない観測値**だけで判定する（手動入力は含めない）。**【決定（[ADR-0016](../adr/0016-ingestion-federation-rules.md)。実装済み: #198・#202）】自動取り込みが有効でない間（手動のみの運用）は、警告を出さず（`dataFreshness` = `MANUAL`）、最終の手動入力（`lastManualInputAt`。入力・修正した日時。論理削除を除く）を示す。単位は設備: 同じ種別の取り込み元が有効で、取得先がある（HTTP は `sourceFilePath`。モック・S3 は種別が合えば対象）設備が、自動取り込みの対象。選んだ設備（ハウスなら配下）に、対象が 1 つもなければ、手動のみ。対象があれば、従来どおり（対象でない設備は判定しない。手動入力は含めない）** | 手動入力で、ロボット・センサーの供給の停止が隠れないように（V-024） | FR-6.3 | `application/query/dashboard-query.ts`、`application/ingestion/auto-target.ts` |
 
-### 4.2 FormatProfile の仮決め仕様（Q-001、Q-004。[ADR-0003](../adr/0003-ingestion-adapter-and-provisional-spec.md)）
+### 4.2 FormatProfile の仮決め仕様（ロボット。Q-001）と確定仕様（環境センサー。Q-004 は機種・取得方式。[ADR-0003](../adr/0003-ingestion-adapter-and-provisional-spec.md)）
 
-仕様は、宣言的な設定ファイル（`src/backend/infrastructure/format-profiles/*.profile.json`）。**状態は「仮決め」**（`PROVISIONAL`）、根拠は設定の `basis` に記載する。取り込んだ観測値には、解釈に使った版（`robot-json@0.1.0(PROVISIONAL)` の形式）を残す。確定仕様の提供後は、新しい設定を追加し、差分を [data-dictionary.md](../data/data-dictionary.md) 10.2 に記録する（FR-1.11、FR-1.12）。
+仕様は、宣言的な設定ファイル（`src/backend/infrastructure/format-profiles/*.profile.json`）。**ロボットの状態は「仮決め」**（`PROVISIONAL`）、**環境センサーの状態は「確定」**（`CONFIRMED`。本システムが定める取り込み仕様。[environment-sensor-data-definition.md](../data/environment-sensor-data-definition.md)）、根拠は設定の `basis` に記載する。取り込んだ観測値には、解釈に使った版（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@1.0.0(CONFIRMED)` の形式）を残す。確定仕様の提供後は、新しい設定を追加し、差分を [data-dictionary.md](../data/data-dictionary.md) 10.2 に記録する（FR-1.11、FR-1.12）。
 
 | プロファイル | 取り込み元 | 形式 | レイアウト | 項目の対応 | 根拠 |
 |--------------|------------|------|------------|------------|------|
 | `robot-json`（0.2.0。#174 で 0.1.0 から見直し） | `robot`（ロボットデータ） | JSON | ファイル全体で1機体（`robotId`）、`records` の配列。各記録は、`timestamp`（ISO 8601）と項目。収穫数・稼働時間・待機時間・収穫稼働時間・走行停止時間は、累積の値（スナップショット。期間の値は増分の合計。#227）、1 果実あたりの収穫時間は、その時点の値と推察 | `harvestCount`、`harvestSecondsPerFruit`、`operatingHours`、`standbyHours`、`harvestOperatingHours`、`travelStoppedHours`、`statusCode`（キー名は、データ辞書の識別子と同じ） | ロボットの仕様が未提供（Q-001）。構想時の項目から推察 |
-| `environment-sensor-json`（0.1.0。#174 で、CSV〔`environment-sensor-csv@0.1.0`〕から置き換え） | `environment-sensor` | JSON | ファイル全体で1台のセンサー（`sensorId`）、`records` の配列。各記録は、`timestamp`（ISO 8601）と項目。値のない項目は `null`（欠損） | `temperatureCelsius`、`humidityPercent`、`illuminanceLux`、`co2Ppm`（キー名は、データ辞書の識別子と同じ） | センサーの機種・取得方式が未確定（Q-004）。一般的なログ形式を想定 |
+| `environment-sensor-json`（**1.0.0。確定**。0.1.0 は、#174 で、CSV〔`environment-sensor-csv@0.1.0`〕から置き換えた仮決め。項目・構造は変えていない） | `environment-sensor` | JSON | ファイル全体で1台のセンサー（`sensorId`）、`records` の配列。各記録は、`timestamp`（ISO 8601）と項目。値のない項目は `null`（欠損） | `temperatureCelsius`、`humidityPercent`、`illuminanceLux`、`co2Ppm`（キー名は、データ辞書の識別子と同じ） | 確定: 本システムが定める取り込み仕様（項目・構造・値の範囲・運用の仮定・サンプル・確認したい点は、専用文書）。機種・取得方式は未確定（Q-004）。提供元から別の定義が示されたら、差分を洗い出して、版を上げる |
 
 - ファイルの中の設備の識別子（`robotId`・`sensorId`）は、設備の `externalId` に対応づける（data-dictionary.md 2章）。登録がない識別子の記録は、読み取れなかったものとして数える。**削除した設備の識別子の記録は、「削除済みの設備」として別に数え、読み取れなかったものに含めない**（`deletedEquipmentCount`。取り込みの結果・取り込み元単位のログ。設備を削除するとき、識別子を、設定 `equipment.deletedExternalIds` に残す。同じ識別子で登録し直せば、登録中が優先。#231）
 - ファイルは、**1 つのファイルを随時更新する方式**（更新のたびに全体が書き換わり、中身は最新の値だけ）。取り込みは、変わった観測値だけを保存・連携に積む（No.17。ADR-0016 の D-08）。先頭の BOM（U+FEFF）は、取り除いて読む。CSV は、扱わない（#174 で削除）。実際の形式の提供後に、必要なら、プロファイルを追加・差し替える
-- 合成データ（`tests/fixtures/file-server/`）: 正常、一部欠損・不正、形式違い（壊れた JSON、構造の違う JSON）。実データは使わない
+- 合成データ（`tests/fixtures/file-server/`）: 正常、一部欠損・不正、形式違い（壊れた JSON、構造の違う JSON）。環境センサーは、専用文書のサンプル（`sensor-definition-sample-001.json`・`sensor-definition-sample-002-partial.json`）も置く（文書と同じ内容であることを、テストで確認する）。実データは使わない
 
 ### 4.3 DynamoDB の物理設計（[data-model.md](../data/data-model.md) 2章）との対応
 
