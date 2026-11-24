@@ -55,6 +55,23 @@ export const EVALUATION_TRIGGERS = [
 ] as const;
 export type EvaluationTrigger = (typeof EVALUATION_TRIGGERS)[number];
 
+/** 状態の変化の処理の段階（失敗の原因の切り分けのため、ログに残す）。 */
+type StatusChangeStage = 'NOTIFICATION' | 'FEDERATION' | 'RECORD';
+
+/** 状態の変化の処理の失敗に、設備の中の観点と段階を添える（呼び出し元へは、元のエラーを伝える）。 */
+class StatusChangeStageError extends Error {
+  readonly viewpointId: ViewpointId;
+  readonly stage: StatusChangeStage;
+  readonly original: unknown;
+
+  constructor(viewpointId: ViewpointId, stage: StatusChangeStage, original: unknown) {
+    super('状態の変化の処理に失敗しました', { cause: original });
+    this.viewpointId = viewpointId;
+    this.stage = stage;
+    this.original = original;
+  }
+}
+
 export interface EvaluationRunSummary {
   readonly equipmentEvaluated: number;
   readonly resultsSaved: number;
@@ -175,9 +192,13 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   }
 
   /**
-   * 観点の最終ステータス（短期・長期のうち「不明」を除いた悪い方）の変化を記録し、
-   * 変化があれば、連携キューに積む。「注意」「異常」への悪化は、状態の変化の履歴から、
-   * 新しい出来事か（正常が一定時間続いたあとか）・より重い重大度かを判定して、通知する（D-37・D-38・D-42）。
+   * 観点の最終ステータス（短期・長期のうち「不明」を除いた悪い方）の変化を、通知・連携キュー・記録に反映する。
+   * 「注意」「異常」への悪化は、状態の変化の履歴から、新しい出来事か（正常が一定時間続いたあとか）・より重い重大度かを
+   * 判定して、通知する（D-37・D-38・D-42）。
+   * 順序は、通知の作成 → 連携キューへの積み込み → 状態の変化の記録。**記録を、完了の印として、最後に行う**。
+   * どれかが失敗したら、記録しないため、次の評価で、同じ変化として再試行される（通知・連携が、永久に失われない。Issue #561）。
+   * 記録の前に、通知・連携が済んでいる場合は、再試行で、通知・連携の項目が重複しうる（取りこぼしより重複を許容する。
+   * 連携の重複は、ADR-0016 の D-06・ADR-0024 の 5 章のとおり、受け入れる）。
    */
   async function recordStatusChanges(
     equipment: Equipment,
@@ -192,7 +213,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         result.horizon === 'LONG' && result.periodDays === defaultPeriodDays(result.viewpointId),
     );
     // 観点ごとの、直前のステータスの変化は、互いに独立のため、先に、まとめて並列に読む（Issue #79）。
-    // 変化の記録・連携・通知は、観点の順に、1件ずつ行う（通知・連携の順序と重複の抑制を、変えない）
+    // 通知・連携・変化の記録は、観点の順に、1件ずつ行う（通知・連携の順序と重複の抑制を、変えない）
     const previousChanges = await Promise.all(
       defaultLongResults.map((longResult) =>
         repositories.evaluations.getLastStatusChange(equipment.equipmentId, longResult.viewpointId),
@@ -210,47 +231,54 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         continue;
       }
       changes += 1;
-      // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）
-      const notifiable =
-        (status === 'CAUTION' || status === 'ERROR') &&
-        isNotifiableStatusChange({
-          history: await repositories.evaluations.listStatusChanges(
-            equipment.equipmentId,
+      let stage: StatusChangeStage = 'NOTIFICATION';
+      try {
+        // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）
+        const notifiable =
+          (status === 'CAUTION' || status === 'ERROR') &&
+          isNotifiableStatusChange({
+            history: await repositories.evaluations.listStatusChanges(
+              equipment.equipmentId,
+              viewpointId,
+            ),
+            next: status,
+            now,
+            recurrenceMinutes: settings.notification.recurrenceAfterNormalMinutes,
+          });
+        const basis =
+          [longResult, shortResult].find((result) => result?.status === status) ?? longResult;
+        if (notifiable) {
+          await notifications.notifyStatusChange({
+            equipment,
             viewpointId,
-          ),
-          next: status,
-          now,
-          recurrenceMinutes: settings.notification.recurrenceAfterNormalMinutes,
+            status,
+            diagnosticMessage: basis.diagnosticMessage,
+          });
+          notified += 1;
+        }
+        stage = 'FEDERATION';
+        await federation.enqueue({
+          targetType: 'EVALUATION',
+          targetRef: `${equipment.equipmentId}#${viewpointId}`,
+          payload: {
+            equipmentId: equipment.equipmentId,
+            viewpointId,
+            status,
+            metrics: basis.metrics,
+            diagnosticMessage: basis.diagnosticMessage,
+            recommendedAction: basis.recommendedAction,
+            evaluatedAt: basis.evaluatedAt,
+          },
         });
-      await repositories.evaluations.appendStatusChange({
-        equipmentId: equipment.equipmentId,
-        viewpointId,
-        status,
-        changedAt: now.toISOString(),
-      });
-      const basis =
-        [longResult, shortResult].find((result) => result?.status === status) ?? longResult;
-      await federation.enqueue({
-        targetType: 'EVALUATION',
-        targetRef: `${equipment.equipmentId}#${viewpointId}`,
-        payload: {
+        stage = 'RECORD';
+        await repositories.evaluations.appendStatusChange({
           equipmentId: equipment.equipmentId,
           viewpointId,
           status,
-          metrics: basis.metrics,
-          diagnosticMessage: basis.diagnosticMessage,
-          recommendedAction: basis.recommendedAction,
-          evaluatedAt: basis.evaluatedAt,
-        },
-      });
-      if (notifiable) {
-        await notifications.notifyStatusChange({
-          equipment,
-          viewpointId,
-          status,
-          diagnosticMessage: basis.diagnosticMessage,
+          changedAt: now.toISOString(),
         });
-        notified += 1;
+      } catch (error) {
+        throw new StatusChangeStageError(viewpointId, stage, error);
       }
     }
     return { changes, notified };
@@ -288,11 +316,16 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         statusChanges += outcome.changes;
         notificationsCreated += outcome.notified;
       } catch (error) {
-        failures.push(error);
+        // 状態の変化の処理の失敗は、観点と段階（通知・連携・記録）をログに残し、呼び出し元へは、元のエラーを伝える
+        const original = error instanceof StatusChangeStageError ? error.original : error;
+        failures.push(original);
         logger.error('設備の評価に失敗しました', {
           trigger,
           equipmentId: equipment.equipmentId,
-          ...errorLogFields(error),
+          ...(error instanceof StatusChangeStageError
+            ? { viewpointId: error.viewpointId, stage: error.stage }
+            : {}),
+          ...errorLogFields(original),
         });
       }
     }
@@ -300,6 +333,8 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
       trigger,
       equipmentEvaluated: targets.length,
       resultsSaved,
+      statusChanges,
+      notificationsCreated,
       equipmentFailed: failures.length,
     });
     if (failures.length > 0) {
