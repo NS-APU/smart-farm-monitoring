@@ -168,6 +168,72 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.statusCodes.list({ includeDeleted: true })).toHaveLength(2);
   });
 
+  describe('未登録のコード値（SC-12-5。Issue #158）', () => {
+    const sortedByCode = <Item extends { readonly code: string }>(items: readonly Item[]) =>
+      [...items].sort((left, right) => left.code.localeCompare(right.code));
+
+    it('記録がなければ、空', async () => {
+      const { repositories } = create();
+
+      expect(await repositories.unregisteredStatusCodes.list()).toEqual([]);
+    });
+
+    it('件数を加え、最終の日時を更新する（なければ作る）。コード値ごとに 1 件', async () => {
+      const { repositories } = create();
+      const t1 = new Date('2026-11-01T01:00:00.000Z');
+      const t2 = new Date('2026-11-02T02:00:00.000Z');
+
+      await repositories.unregisteredStatusCodes.record('ERR_X', 2, t1);
+      await repositories.unregisteredStatusCodes.record('ERR_Y', 1, t1);
+      await repositories.unregisteredStatusCodes.record('ERR_X', 3, t2);
+
+      expect(sortedByCode(await repositories.unregisteredStatusCodes.list())).toEqual([
+        { code: 'ERR_X', count: 5, lastSeenAt: t2.toISOString() },
+        { code: 'ERR_Y', count: 1, lastSeenAt: t1.toISOString() },
+      ]);
+    });
+
+    it('同時の加算でも、件数を取りこぼさない', async () => {
+      const { repositories } = create();
+      const at = new Date('2026-11-01T01:00:00.000Z');
+
+      await Promise.all(
+        Array.from({ length: 5 }, () =>
+          repositories.unregisteredStatusCodes.record('ERR_X', 2, at),
+        ),
+      );
+
+      expect(await repositories.unregisteredStatusCodes.list()).toEqual([
+        { code: 'ERR_X', count: 10, lastSeenAt: at.toISOString() },
+      ]);
+    });
+
+    it('登録できない形式・日本語・100 文字の値も、そのまま記録でき、大文字・小文字は別の値', async () => {
+      const { repositories } = create();
+      const at = new Date('2026-11-01T01:00:00.000Z');
+      const codes = ['err x', 'エラー', 'A'.repeat(100), 'abc', 'ABC'];
+
+      for (const code of codes) {
+        await repositories.unregisteredStatusCodes.record(code, 1, at);
+      }
+
+      const recorded = await repositories.unregisteredStatusCodes.list();
+      expect(new Set(recorded.map((item) => item.code))).toEqual(new Set(codes));
+      expect(recorded).toHaveLength(codes.length);
+    });
+
+    it('ステータスコードの定義（登録）とは別の記録（定義の一覧に、現れない）', async () => {
+      const { repositories } = create();
+      await repositories.unregisteredStatusCodes.record(
+        'ERR_X',
+        1,
+        new Date('2026-11-01T01:00:00.000Z'),
+      );
+
+      expect(await repositories.statusCodes.list({ includeDeleted: true })).toEqual([]);
+    });
+  });
+
   it('判断基準: 変更後の値を保存・取得・削除できる', async () => {
     const { repositories } = create();
     const criteria = {

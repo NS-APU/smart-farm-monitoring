@@ -2,27 +2,43 @@
  * ステータスコード管理のユースケース（UC-17。FR-3）。ロボットのステータスコードの定義（コード値・名称・説明・カテゴリ）。
  * 登録・編集・削除（論理削除）は、変更履歴に記録し、評価に反映する（収穫速度・メンテナンス性・耐久性の判定に使うため）。
  * 削除済みのコード値を、もう一度登録した場合は、削除を取り消して、定義を更新する（暫定）。
+ * 未登録のコード値の一覧（SC-12-5。#158）: 取り込みが記録した、定義にないコード値から、登録済みのものを除いて返す。
  */
 
 import { AppError, conflictError } from '@smart-farm/shared/errors';
+import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import type { UserId } from '@smart-farm/shared/schemas/common';
 import type {
   StatusCodeCreateRequest,
   StatusCodeDefinition,
   StatusCodeListResponse,
   StatusCodeUpdateRequest,
+  UnregisteredStatusCodeListResponse,
 } from '@smart-farm/shared/schemas/status-code';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
+import { compareIsoInstants } from '@smart-farm/shared/time';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
+import {
+  isRegistrableStatusCode,
+  suggestStatusCode,
+} from '../../domain/unregistered-status-code.ts';
 import type { Logger } from '../ports/logger-port.ts';
-import type { StatusCodeRepository } from '../ports/repositories.ts';
+import type {
+  StatusCodeRepository,
+  UnregisteredStatusCodeRepository,
+} from '../ports/repositories.ts';
 
 const STATUS_CODE_TARGET_TYPE = 'status-code' satisfies AuditTargetType;
 
 export interface StatusCodeService {
   list(): Promise<StatusCodeListResponse>;
+  /**
+   * 未登録のコード値の一覧。登録済み（論理削除でない）のコード値は、読むときに除く（記録は消さない。あとで、そのコードを
+   * 削除すると、一覧に戻る）。件数の多い順（同じなら、最終の日時の新しい順、コード値の順）。
+   */
+  listUnregistered(): Promise<UnregisteredStatusCodeListResponse>;
   create(input: StatusCodeCreateRequest, actor: UserId): Promise<StatusCodeDefinition>;
   update(
     code: string,
@@ -35,6 +51,7 @@ export interface StatusCodeService {
 
 export interface StatusCodeServiceDeps {
   readonly statusCodes: StatusCodeRepository;
+  readonly unregisteredStatusCodes: UnregisteredStatusCodeRepository;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
   readonly logger: Logger;
@@ -57,7 +74,7 @@ function withoutDescriptionWhenEmpty(input: { description?: string | undefined }
 }
 
 export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCodeService {
-  const { statusCodes, audit, evaluation, logger } = deps;
+  const { statusCodes, unregisteredStatusCodes, audit, evaluation, logger } = deps;
 
   async function findActive(code: string): Promise<StatusCodeDefinition> {
     const found = await statusCodes.get(code);
@@ -80,6 +97,27 @@ export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCode
     async list() {
       const items = await statusCodes.list();
       return { items: items.sort((left, right) => compareCodes(left.code, right.code)) };
+    },
+
+    async listUnregistered() {
+      const registered = new Set((await statusCodes.list()).map((definition) => definition.code));
+      const items = (await unregisteredStatusCodes.list())
+        .filter((record) => !registered.has(record.code))
+        .sort(
+          (left, right) =>
+            right.count - left.count ||
+            compareIsoInstants(right.lastSeenAt, left.lastSeenAt) ||
+            compareCodes(left.code, right.code),
+        )
+        .map((record) => {
+          const suggestedCode = suggestStatusCode(record.code);
+          return {
+            ...record,
+            isRegistrable: isRegistrableStatusCode(record.code),
+            ...omitUndefined({ suggestedCode }),
+          };
+        });
+      return { items };
     },
 
     async create(input, actor) {

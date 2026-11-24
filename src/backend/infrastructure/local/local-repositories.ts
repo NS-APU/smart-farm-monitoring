@@ -17,6 +17,7 @@ import {
   createEquipmentRepository,
   createSettingsRepository,
   createStatusCodeRepository,
+  createUnregisteredStatusCodeRepository,
 } from './repositories/master-data-repositories.ts';
 import { createNotificationRepository } from './repositories/notification-repository.ts';
 import { createObservationRepository } from './repositories/observation-repository.ts';
@@ -41,6 +42,7 @@ export function createLocalRepositories(options: LocalStoreOptions = {}): LocalR
   // コレクションの登録の順序は、ファイルへ書き出す順序になる（そのため、組み立ての順序を保つ）
   const equipment = createEquipmentRepository(store);
   const statusCodes = createStatusCodeRepository(store);
+  const unregisteredStatusCodes = createUnregisteredStatusCodeRepository(store);
   const criteria = createCriteriaRepository(store);
   // 観測値は、設備ごとの索引を持つ。読み込み・全消去で、索引を作り直す
   const observations = createObservationRepository(
@@ -52,6 +54,7 @@ export function createLocalRepositories(options: LocalStoreOptions = {}): LocalR
   const repositories: Repositories = {
     equipment,
     statusCodes,
+    unregisteredStatusCodes,
     criteria,
     observations: observations.repository,
     evaluations: createEvaluationRepository(store),

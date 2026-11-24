@@ -355,6 +355,22 @@ describe('pnpm demo-data reset', () => {
     expect(await lock.tryAcquire('job:JB-04', 600_000)).toBeNull();
   });
 
+  it('未登録のコード値の記録（UNREGSC。Issue #158）も、消す（残すパーティションに含めない）', async () => {
+    const { run, container } = await seeded();
+    await container.repositories.unregisteredStatusCodes.record(
+      'ERR_X',
+      3,
+      new Date('2026-11-01T01:00:00.000Z'),
+    );
+    expect(KEPT_PARTITIONS).not.toContain('UNREGSC');
+    expect(await container.repositories.unregisteredStatusCodes.list()).toHaveLength(1);
+
+    const result = await run(['reset', '--yes']);
+
+    expect(result.exitCode).toBe(0);
+    expect(await container.repositories.unregisteredStatusCodes.list()).toEqual([]);
+  });
+
   it('リセットのあとに、もう一度、投入できる', async () => {
     const { run, counts } = await seeded();
     await run(['reset', '--yes']);

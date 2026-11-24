@@ -100,6 +100,13 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'GET', path: '/audit-logs', access: 'audit:read', useCases: ['UC-18'] },
   // ステータスコード（SC-12）
   { method: 'GET', path: '/status-codes', access: 'LOGIN', useCases: ['UC-17'] },
+  // 未登録のコード値（取り込みで、定義にないコード値として記録した値。SC-12-5。#158）
+  {
+    method: 'GET',
+    path: '/status-codes/unregistered',
+    access: 'status-code:manage',
+    useCases: ['UC-17'],
+  },
   { method: 'POST', path: '/status-codes', access: 'status-code:manage', useCases: ['UC-17'] },
   { method: 'PUT', path: '/status-codes/:code', access: 'status-code:manage', useCases: ['UC-17'] },
   {

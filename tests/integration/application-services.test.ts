@@ -114,6 +114,7 @@ describe('判断基準・設備・ステータスコードの参照', () => {
       evaluation: UNUSED_DEPS.evaluation,
       logger: UNUSED_DEPS.logger,
       statusCodes: repositories.statusCodes,
+      unregisteredStatusCodes: repositories.unregisteredStatusCodes,
     }).list();
 
     expect(list.items.map((item) => item.code)).toEqual(['A', 'A_X', 'B']);

@@ -563,6 +563,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   });
   const statusCodeService = createStatusCodeService({
     statusCodes: repositories.statusCodes,
+    unregisteredStatusCodes: repositories.unregisteredStatusCodes,
     audit: auditService,
     evaluation: evaluationService,
     logger,

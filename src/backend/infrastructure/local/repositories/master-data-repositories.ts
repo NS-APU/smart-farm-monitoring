@@ -4,11 +4,13 @@ import { z } from 'zod';
 import { ViewpointCriteriaSchema } from '@smart-farm/shared/schemas/criteria';
 import { EquipmentSchema } from '@smart-farm/shared/schemas/equipment';
 import { StatusCodeDefinitionSchema } from '@smart-farm/shared/schemas/status-code';
+import { UnregisteredStatusCodeRecordSchema } from '../../../application/ports/records.ts';
 import type {
   CriteriaRepository,
   EquipmentRepository,
   SettingsRepository,
   StatusCodeRepository,
+  UnregisteredStatusCodeRepository,
 } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
 import { deleterOf, saverOf, visibleOnly } from './collection-helpers.ts';
@@ -34,6 +36,28 @@ export function createStatusCodeRepository(store: LocalStore): StatusCodeReposit
     list: (listOptions) => Promise.resolve(visibleOnly(statusCodes.values(), listOptions)),
     get: (code) => Promise.resolve(statusCodes.get(code)),
     save: saverOf(statusCodes),
+  };
+}
+
+export function createUnregisteredStatusCodeRepository(
+  store: LocalStore,
+): UnregisteredStatusCodeRepository {
+  const records = store.collection(
+    'unregisteredStatusCodes',
+    UnregisteredStatusCodeRecordSchema,
+    (item) => item.code,
+  );
+  return {
+    list: () => Promise.resolve(records.values()),
+    record(code, count, seenAt) {
+      // 同期の処理のため、同時の加算でも、取りこぼさない
+      records.put({
+        code,
+        count: (records.get(code)?.count ?? 0) + count,
+        lastSeenAt: seenAt.toISOString(),
+      });
+      return Promise.resolve();
+    },
   };
 }
 

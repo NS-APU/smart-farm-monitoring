@@ -13,6 +13,7 @@ import {
   createEquipmentRepository,
   createSettingsRepository,
   createStatusCodeRepository,
+  createUnregisteredStatusCodeRepository,
 } from './master-data-repositories.ts';
 import { createNotificationRepository } from './notification-repository.ts';
 import { createObservationRepository } from './observation-repository.ts';
@@ -37,6 +38,7 @@ export function createDynamoRepositories(options: DynamoRepositoriesOptions): Re
   return {
     equipment: createEquipmentRepository(db),
     statusCodes: createStatusCodeRepository(db),
+    unregisteredStatusCodes: createUnregisteredStatusCodeRepository(db),
     criteria: createCriteriaRepository(db),
     observations: createObservationRepository(
       db,
