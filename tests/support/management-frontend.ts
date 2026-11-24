@@ -50,6 +50,8 @@ export function withBaseRoutes(routes: Routes = {}): FakeHandler {
     'GET /equipment': () => jsonResponse(equipmentTree()),
     'GET /notifications/unread-count': () => jsonResponse({ unreadCount: 0 }),
     'GET /status-codes': () => jsonResponse(STATUS_CODES_RESPONSE),
+    // 未登録のコード値（SC-12-5）。テストごとに上書きしなければ、0 件
+    'GET /status-codes/unregistered': () => jsonResponse({ items: [] }),
     // 連携先の設定（SC-11）。テストごとに上書きしなければ、モックの環境・未設定
     'GET /federation/settings': () =>
       jsonResponse({

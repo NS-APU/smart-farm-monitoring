@@ -429,6 +429,29 @@ export const MANAGEMENT_MESSAGES = {
     deleted: '削除しました',
     impact: 'カテゴリの変更は、評価に反映されます（変更の履歴は変更履歴に残ります）',
     readOnly: 'ステータスコードを変更する権限がありません。参照のみできます',
+    // 未登録のコード値の一覧（管理者のみ。SC-12-5。Issue #158）
+    unregistered: {
+      title: '未登録のコード値',
+      lead: '取り込んだデータに現れた、ステータスコードの定義にないコード値です（件数の多い順）。削除したコード値も、ここに現れます',
+      effectNote:
+        '登録した後に取り込むデータから、定義のとおりに評価されます。すでに保存した値（「不正な値」のもの）は、評価し直しません',
+      refreshNote:
+        'この一覧は、自動では更新しません。取り込みのあとは、「更新」を押して、読み直してください',
+      refresh: '更新',
+      refreshing: '更新中…',
+      count: '件数',
+      countValue: (count: number) => `${String(count)} 件`,
+      lastSeenAt: '最後に取り込んだ日時',
+      register: '登録',
+      unregistrable: '登録できない形式',
+      unregistrableExample: (suggestedCode: string) =>
+        `「${suggestedCode}」のような形式なら、登録できます`,
+      unregistrableNote:
+        '登録できるのは、英大文字で始まり、英大文字・数字・アンダースコアだけのコード値です。取り込んだデータの値が、この形式ではありません',
+      empty: '未登録のコード値はありません',
+      registerNote: (observedCode: string) =>
+        `取り込んだデータに現れたコード値「${observedCode}」を登録します`,
+    },
   },
   criteria: {
     title: '判断基準の編集',

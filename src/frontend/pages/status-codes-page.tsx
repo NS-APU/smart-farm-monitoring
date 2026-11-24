@@ -3,6 +3,7 @@
  * 参照・登録・編集・削除（論理削除。確認を求める）。コード値は一意（重複はエラー）。
  * カテゴリは、収穫速度・メンテナンス性・耐久性の判定に影響する。変更する権限（status-code:manage）がなければ、参照のみ。
  * カテゴリ（正常・注意・異常）の意味と対応の目安は、折りたたみ式の凡例で示す（SC-12-6。Issue #154）。
+ * 管理者には、取り込みで記録した未登録のコード値の一覧を、定義の表の下に示し、そこから登録できる（SC-12-5。Issue #158）。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
@@ -11,8 +12,10 @@ import {
   StatusCodeCreateRequestSchema,
   StatusCodeUpdateRequestSchema,
   type StatusCodeDefinition,
+  type UnregisteredStatusCode,
+  type UnregisteredStatusCodeListResponse,
 } from '@smart-farm/shared/schemas/status-code';
-import { getStatusCodes } from '../api/endpoints.ts';
+import { getStatusCodes, getUnregisteredStatusCodes } from '../api/endpoints.ts';
 import {
   createStatusCode,
   deleteStatusCode,
@@ -23,6 +26,7 @@ import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components
 import { StatusCodeLegend } from '../components/legend.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
+import { UnregisteredStatusCodesPanel } from '../components/unregistered-status-codes-panel.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
@@ -32,10 +36,14 @@ import { Modal } from '../components/modal.tsx';
 import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.statusCodes;
+/** 変更する権限がないとき（取得しない）の、未登録のコード値。 */
+const NO_UNREGISTERED: UnregisteredStatusCodeListResponse = { items: [] };
 
 interface StatusCodeFormProps {
   /** 編集する定義。なければ、新規の登録。 */
   readonly definition?: StatusCodeDefinition;
+  /** 未登録のコード値の一覧から開いた登録のとき、その値（コード値の初期値は、登録の初期値の案。登録できる形式の値だけ）。 */
+  readonly fromUnregistered?: UnregisteredStatusCode;
   readonly onDone: (message: string) => void;
   /** ダイアログを閉じる（登録・修正とも、ダイアログの中にあるため、必ずある）。 */
   readonly onCancel: () => void;
@@ -45,7 +53,9 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
   const { definition } = props;
   const { api } = useAuth();
   const submit = useSubmit();
-  const [code, setCode] = useState(definition?.code ?? '');
+  const [code, setCode] = useState(
+    definition?.code ?? props.fromUnregistered?.suggestedCode ?? props.fromUnregistered?.code ?? '',
+  );
   const [name, setName] = useState(definition?.name ?? '');
   const [description, setDescription] = useState(definition?.description ?? '');
   const [category, setCategory] = useState<string>(definition?.category ?? 'NORMAL');
@@ -94,6 +104,12 @@ function StatusCodeForm(props: StatusCodeFormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
+      {props.fromUnregistered === undefined ? null : (
+        <div className="muted" data-testid="status-code-add-note">
+          <p>{TEXT.unregistered.registerNote(props.fromUnregistered.code)}</p>
+          <p>{TEXT.unregistered.effectNote}</p>
+        </div>
+      )}
       <div className="form-grid">
         {definition === undefined ? (
           <Field label={TEXT.code} name="code" error={errors.code} hint={TEXT.codeHint} required>
@@ -173,17 +189,30 @@ export function StatusCodesPage(): ReactNode {
   const submit = useSubmit();
   const fetchList = useCallback(() => getStatusCodes(api), [api]);
   const { data, error, reload } = usePolling(fetchList);
+  // 未登録のコード値（管理者のみ。自動では更新しない。手動の「更新」と、登録・修正・削除のあとに読み直す）
+  const fetchUnregistered = useCallback(
+    (): Promise<UnregisteredStatusCodeListResponse> =>
+      canManage ? getUnregisteredStatusCodes(api) : Promise.resolve(NO_UNREGISTERED),
+    [api, canManage],
+  );
+  const unregistered = usePolling(fetchUnregistered, null);
+  const reloadUnregistered = unregistered.reload;
   const [editing, setEditing] = useState<StatusCodeDefinition | undefined>(undefined);
   // 登録のダイアログ（Issue #366）
   const [adding, setAdding] = useState(false);
+  // 未登録のコード値の一覧の「登録」から開いたときの、その値（SC-12-5）
+  const [registering, setRegistering] = useState<UnregisteredStatusCode | undefined>(undefined);
   const [deleting, setDeleting] = useState<StatusCodeDefinition | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
   function done(message: string): void {
     setEditing(undefined);
     setAdding(false);
+    setRegistering(undefined);
     setNotice(message);
     reload();
+    // 登録すると一覧から消える。削除すると、一覧に戻る
+    reloadUnregistered();
   }
 
   async function confirmDelete(target: StatusCodeDefinition): Promise<void> {
@@ -290,6 +319,16 @@ export function StatusCodesPage(): ReactNode {
         ) : null}
         {body}
       </section>
+      {canManage ? (
+        <UnregisteredStatusCodesPanel
+          polling={unregistered}
+          onRegister={(item) => {
+            setNotice(undefined);
+            setRegistering(item);
+            setAdding(true);
+          }}
+        />
+      ) : null}
       {canManage && editing !== undefined ? (
         <Modal
           title={`${editing.name}を${MESSAGES.form.edit}`}
@@ -314,12 +353,15 @@ export function StatusCodesPage(): ReactNode {
           testId="status-code-add-dialog"
           onClose={() => {
             setAdding(false);
+            setRegistering(undefined);
           }}
         >
           <StatusCodeForm
+            {...(registering === undefined ? {} : { fromUnregistered: registering })}
             onDone={done}
             onCancel={() => {
               setAdding(false);
+              setRegistering(undefined);
             }}
           />
         </Modal>
