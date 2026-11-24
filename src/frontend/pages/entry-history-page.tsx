@@ -8,8 +8,7 @@
  */
 
 import { useCallback, useState, type ReactNode } from 'react';
-import { CATEGORY_LABELS, findItemDefinition } from '@smart-farm/shared/constants/items';
-import { formatThreshold } from '@smart-farm/shared/criteria-text';
+import { findItemDefinition } from '@smart-farm/shared/constants/items';
 import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   AUDIT_OPERATIONS,
@@ -20,6 +19,7 @@ import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { listAuditLogs } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
+import { AuditValue } from '../components/audit-value.tsx';
 import { Icon } from '../components/icon.tsx';
 import { Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst, formatDateTimeMinutesJst } from '../components/format.ts';
@@ -27,6 +27,7 @@ import { jstDateToIso } from '../components/jst.ts';
 import { FilterPanel, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { recordOf } from '../lib/audit-diff.ts';
 import { userLabel } from '../lib/user-label.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { POLLING_INTERVAL_MS, usePolling } from '../hooks/use-polling.ts';
@@ -48,32 +49,6 @@ const CONDITION_NAMES = ['operation', 'targetType', 'targetId', 'actor', 'from',
 function targetTypeLabel(targetType: string): string {
   const labels: Readonly<Record<string, string>> = TEXT.targetTypeLabels;
   return labels[targetType] ?? targetType;
-}
-
-/** 手動入力の、項目の値以外の内容（計測日時・設備・カテゴリ・備考）。修正で、これらだけが変わった場合も、履歴で分かるようにする。 */
-function entryMetaOf(record: Readonly<Record<string, unknown>>): { label: string; text: string }[] {
-  const { observedAt, equipmentId, category, note } = record;
-  const meta: { label: string; text: string }[] = [];
-  if (typeof observedAt === 'string') {
-    meta.push({ label: TEXT.metaObservedAt, text: formatDateTimeJst(observedAt) });
-  }
-  if (typeof equipmentId === 'string') {
-    meta.push({ label: TEXT.metaEquipment, text: equipmentId });
-  }
-  if (typeof category === 'string') {
-    const labels: Readonly<Record<string, string>> = CATEGORY_LABELS;
-    meta.push({ label: TEXT.metaCategory, text: labels[category] ?? category });
-  }
-  if (typeof note === 'string' && note !== '') {
-    meta.push({ label: TEXT.metaNote, text: note });
-  }
-  return meta;
-}
-
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? Object.fromEntries(Object.entries(value))
-    : undefined;
 }
 
 /**
@@ -121,55 +96,6 @@ function targetNameOf(
     }
   }
   return undefined;
-}
-
-/** 変更前後の値の表示。手動入力は、項目と値（単位つき）。その他は、内容を開いて確認できる。 */
-export function AuditValue(props: {
-  readonly targetType: string;
-  readonly value: unknown;
-}): ReactNode {
-  if (props.value === undefined) {
-    return <span className="muted">{MESSAGES.common.missingValue}</span>;
-  }
-  const record = props.targetType === 'manual-entry' ? recordOf(props.value) : undefined;
-  const items = record === undefined ? undefined : recordOf(record.items);
-  if (record !== undefined && items !== undefined) {
-    const meta = entryMetaOf(record);
-    return (
-      <div>
-        <ul className="entry-values">
-          {Object.entries(items).map(([itemKey, value]) => {
-            const item = findItemDefinition(itemKey);
-            return (
-              <li key={itemKey}>
-                {item?.label ?? itemKey}:{' '}
-                <strong>
-                  {typeof value === 'number' ? formatThreshold(value) : String(value)}
-                  {item?.unit ?? ''}
-                </strong>
-              </li>
-            );
-          })}
-        </ul>
-        {meta.length === 0 ? null : (
-          <dl className="audit-meta">
-            {meta.map(({ label, text }) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd className={label === TEXT.metaNote ? 'entry-note' : undefined}>{text}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </div>
-    );
-  }
-  return (
-    <details>
-      <summary>{TEXT.showDetail}</summary>
-      <pre className="audit-json">{JSON.stringify(props.value, null, 2)}</pre>
-    </details>
-  );
 }
 
 export function EntryHistoryPage(): ReactNode {
@@ -261,10 +187,20 @@ export function EntryHistoryPage(): ReactNode {
         </td>
         <td data-label={TEXT.actor}>{userLabel(entry.actor, entry.actorName)}</td>
         <td data-label={TEXT.before}>
-          <AuditValue targetType={entry.targetType} value={entry.before} />
+          <AuditValue
+            targetType={entry.targetType}
+            value={entry.before}
+            counterpart={entry.after}
+            side="before"
+          />
         </td>
         <td data-label={TEXT.after}>
-          <AuditValue targetType={entry.targetType} value={entry.after} />
+          <AuditValue
+            targetType={entry.targetType}
+            value={entry.after}
+            counterpart={entry.before}
+            side="after"
+          />
         </td>
       </tr>
     );
