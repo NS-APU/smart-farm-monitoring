@@ -59,8 +59,8 @@ const rows = locatorOf('notification-row');
 const kindFilter = (page: Page) => page.getByLabel('種別');
 const stateFilter = (page: Page) => page.getByLabel('既読状態');
 
-/** 通知を5件作る（状態の悪化3件・データ取得失敗2件）。 */
-async function prepareFiveNotifications(request: Parameters<typeof prepareApp>[0]): Promise<void> {
+/** 通知を4件作る（状態の悪化2件〔センサーの環境適応性・ハウスのデータ活用度合い〕・データ取得失敗2件）。 */
+async function prepareFourNotifications(request: Parameters<typeof prepareApp>[0]): Promise<void> {
   await prepareApp(request);
   await seedAbnormalEnvironment(request);
   await failIngestion(request, ['robot', 'environment-sensor']);
@@ -77,17 +77,17 @@ test.describe('基本フロー: ヘッダーの未読件数から、通知の一
     page,
     request,
   }, testInfo) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await alignBrowserClock(page);
     await openAs(page, '/');
-    await expect(unreadBadge(page)).toHaveText('5');
+    await expect(unreadBadge(page)).toHaveText('4');
 
     // 1. ヘッダーの未読件数から、通知の一覧を開く
-    await page.getByRole('link', { name: '未読の通知: 5件' }).click();
+    await page.getByRole('link', { name: '未読の通知: 4件' }).click();
 
     // 2. 一覧を表示する
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(4);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '日時',
       '種別',
@@ -100,18 +100,18 @@ test.describe('基本フロー: ヘッダーの未読件数から、通知の一
     ]);
     // 対象は、ハウスの名称。設備の列は、ロボット・環境センサーの名称（ハウスの通知は「—」。Issue #362）
     const cell = (row: ReturnType<typeof rows>, column: number) => row.locator('td').nth(column);
-    const houseRow = rows(page).filter({ hasText: '（ハウス1）' });
+    // ハウスの通知は、運用面の観点（データ活用度合い）だけ。環境適応性は、設備（センサー）の通知だけ
+    const houseRow = rows(page).filter({ hasText: 'データ活用度合い' });
     await expect(cell(houseRow, 3)).toHaveText('ハウス1');
     await expect(cell(houseRow, 4)).toHaveText('—');
     const sensorRow = rows(page).filter({ hasText: '（環境センサー1）' });
     await expect(cell(sensorRow, 3)).toHaveText('ハウス1');
     await expect(cell(sensorRow, 4)).toHaveText('環境センサー1');
-    const environmentOfHouse = rows(page)
-      .filter({ hasText: '環境適応性' })
-      .filter({ hasText: '（ハウス1）' });
-    await expect(environmentOfHouse).toContainText('状態の悪化');
-    await expect(environmentOfHouse).toContainText('異常');
-    await expect(environmentOfHouse).toContainText('未読');
+    const environment = rows(page).filter({ hasText: '環境適応性' });
+    await expect(environment).toHaveCount(1);
+    await expect(environment).toContainText('状態の悪化');
+    await expect(environment).toContainText('異常');
+    await expect(environment).toContainText('未読');
     const failure = rows(page)
       .filter({ hasText: 'データ取得失敗' })
       .filter({ hasText: 'ロボットデータ' });
@@ -137,12 +137,12 @@ test.describe('基本フロー: ヘッダーの未読件数から、通知の一
 
 test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
   const combinations: readonly { kind: string; state: string; expected: number }[] = [
-    { kind: '', state: '', expected: 5 },
-    { kind: 'STATUS_CHANGE', state: '', expected: 3 },
+    { kind: '', state: '', expected: 4 },
+    { kind: 'STATUS_CHANGE', state: '', expected: 2 },
     { kind: 'INGESTION_FAILURE', state: '', expected: 2 },
-    { kind: '', state: 'UNREAD', expected: 3 },
+    { kind: '', state: 'UNREAD', expected: 2 },
     { kind: '', state: 'READ', expected: 2 },
-    { kind: 'STATUS_CHANGE', state: 'UNREAD', expected: 2 },
+    { kind: 'STATUS_CHANGE', state: 'UNREAD', expected: 1 },
     { kind: 'STATUS_CHANGE', state: 'READ', expected: 1 },
     { kind: 'INGESTION_FAILURE', state: 'UNREAD', expected: 1 },
     { kind: 'INGESTION_FAILURE', state: 'READ', expected: 1 },
@@ -153,20 +153,20 @@ test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
       page,
       request,
     }) => {
-      await prepareFiveNotifications(request);
-      // 状態の悪化（ハウスの環境適応性）と、データ取得失敗（ロボットデータ）を、既読にしておく
+      await prepareFourNotifications(request);
+      // 状態の悪化（センサーの環境適応性）と、データ取得失敗（ロボットデータ）を、既読にしておく
       const all = await listNotifications(request);
       for (const notification of all) {
-        const isHouseEnvironment =
+        const isSensorEnvironment =
           notification.viewpointId === 'environmentalAdaptability' &&
-          notification.equipmentId === 'HOUSE-01';
+          notification.equipmentId === 'SENSOR-01';
         const isRobotFailure = notification.sourceId === 'robot';
-        if (isHouseEnvironment || isRobotFailure) {
+        if (isSensorEnvironment || isRobotFailure) {
           await markReadViaApi(request, notification.notificationId);
         }
       }
       await openNotifications(page);
-      await expect(rows(page)).toHaveCount(5);
+      await expect(rows(page)).toHaveCount(4);
 
       await kindFilter(page).selectOption(item.kind);
       await stateFilter(page).selectOption(item.state);
@@ -190,7 +190,7 @@ test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
     page,
     request,
   }, testInfo) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page, '?kind=INGESTION_FAILURE&readState=READ');
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByTestId('notifications-empty')).toHaveText('条件に合う通知はありません');
@@ -208,16 +208,16 @@ test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page, '?kind=STATUS_CHANGE&readState=UNREAD');
     await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 2 件');
-    await expect(rows(page)).toHaveCount(3);
+    await expect(rows(page)).toHaveCount(2);
 
     await page.getByRole('button', { name: '条件のクリア' }).click();
 
     await expect(kindFilter(page)).toHaveValue('');
     await expect(stateFilter(page)).toHaveValue('');
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(4);
     await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
     await expect(page).not.toHaveURL(/kind=|readState=/);
   });
@@ -226,13 +226,13 @@ test.describe('絞り込み: 種別 × 既読状態（9通り）', () => {
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
 
     await openNotifications(page, '?kind=UNKNOWN&readState=SOMETHING');
 
     await expect(kindFilter(page)).toHaveValue('');
     await expect(stateFilter(page)).toHaveValue('');
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(4);
   });
 });
 
@@ -241,30 +241,30 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page);
-    await expect(unreadBadge(page)).toHaveText('5');
+    await expect(unreadBadge(page)).toHaveText('4');
     const target = rows(page).filter({ hasText: 'ロボットデータ' });
 
     await target.getByRole('button', { name: '既読にする' }).click();
 
     await expect(target).toHaveAttribute('data-read-state', 'READ');
     await expect(target.getByRole('button', { name: '既読にする' })).toHaveCount(0);
-    await expect(unreadBadge(page)).toHaveText('4');
-    await expect(page.getByRole('link', { name: '未読の通知: 4件' })).toBeVisible();
+    await expect(unreadBadge(page)).toHaveText('3');
+    await expect(page.getByRole('link', { name: '未読の通知: 3件' })).toBeVisible();
     await page.reload();
     await expect(rows(page).filter({ hasText: 'ロボットデータ' })).toHaveAttribute(
       'data-read-state',
       'READ',
     );
-    await expect(unreadBadge(page)).toHaveText('4');
+    await expect(unreadBadge(page)).toHaveText('3');
   });
 
   test('絞り込みの範囲を既読にすると、範囲内の未読だけが既読になる（範囲外は未読のまま）', async ({
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page, '?kind=INGESTION_FAILURE');
     await expect(rows(page)).toHaveCount(2);
 
@@ -274,7 +274,7 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
 
     await expect(rows(page).first()).toHaveAttribute('data-read-state', 'READ');
     await expect(rows(page).nth(1)).toHaveAttribute('data-read-state', 'READ');
-    await expect(unreadBadge(page)).toHaveText('3');
+    await expect(unreadBadge(page)).toHaveText('2');
     await kindFilter(page).selectOption('STATUS_CHANGE');
     for (const row of await rows(page).all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
@@ -285,12 +285,12 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     page,
     request,
   }, testInfo) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page);
     await expect(page.getByRole('button', { name: '絞り込みの範囲を既読にする' })).toBeDisabled();
 
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
-    await expect(page.getByTestId('confirm-dialog')).toContainText('未読の通知 5 件を既読にします');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('未読の通知 4 件を既読にします');
     await confirmDialog(page, '既読にする');
 
     await expect(unreadBadge(page)).toHaveText('0');
@@ -304,22 +304,22 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page);
 
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
     const dialog = page.getByTestId('confirm-dialog');
-    await expect(dialog).toContainText('未読の通知 5 件を既読にします');
+    await expect(dialog).toContainText('未読の通知 4 件を既読にします');
     await expect(dialog).toContainText('読み込んだ時点より後に届いた通知は、既読にしません');
     await dialog.getByRole('button', { name: 'キャンセル' }).click();
 
     await expect(dialog).toBeHidden();
-    await expect(unreadBadge(page)).toHaveText('5');
+    await expect(unreadBadge(page)).toHaveText('4');
     // 既読にしたあとは、既読にする未読がない（確認は開かず、その旨を示す）
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
     await confirmDialog(page, '既読にする');
     await expect(page.getByTestId('notifications-notice')).toContainText(
-      '5 件の通知を既読にしました',
+      '4 件の通知を既読にしました',
     );
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
     await expect(page.getByTestId('notifications-notice')).toContainText(
@@ -330,15 +330,15 @@ test.describe('基本フロー 4: 通知を個別に、または一括で既読�
   });
 
   test('既読にした通知を、未読の絞り込みで探すと、表示されない', async ({ page, request }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page, '?readState=UNREAD');
-    await expect(rows(page)).toHaveCount(5);
+    await expect(rows(page)).toHaveCount(4);
     const message =
       (await rows(page).first().locator('.notification-message p').textContent()) ?? '';
 
     await rows(page).first().getByRole('button', { name: '既読にする' }).click();
 
-    await expect(rows(page)).toHaveCount(4);
+    await expect(rows(page)).toHaveCount(3);
     await expect(rows(page).filter({ hasText: message })).toHaveCount(0);
     // 既読の絞り込みでは、その通知が表示される
     await openNotifications(page, '?readState=READ');
@@ -352,7 +352,7 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page);
     const sensorRow = rows(page)
       .filter({ hasText: '環境適応性' })
@@ -369,14 +369,14 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
       '環境センサー1',
     );
     await expect(drawer.getByLabel('対象の設備')).toHaveValue('SENSOR-01');
-    await expect(unreadBadge(page)).toHaveText('4');
+    await expect(unreadBadge(page)).toHaveText('3');
   });
 
   test('データ取得失敗の通知から、取り込みの状況を開くと、通知が既読になる', async ({
     page,
     request,
   }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await openNotifications(page);
 
     await rows(page)
@@ -386,16 +386,16 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
 
     await expect(page).toHaveURL(/\/settings\/ingestion/);
     await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
-    await expect(unreadBadge(page)).toHaveText('4');
+    await expect(unreadBadge(page)).toHaveText('3');
   });
 
   test('すでに既読の通知から開いても、件数は変わらない', async ({ page, request }) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     const all = await listNotifications(request);
     const robotFailure = all.find((item) => item.sourceId === 'robot');
     await markReadViaApi(request, robotFailure?.notificationId ?? '');
     await openNotifications(page);
-    await expect(unreadBadge(page)).toHaveText('4');
+    await expect(unreadBadge(page)).toHaveText('3');
 
     await rows(page)
       .filter({ hasText: 'ロボットデータ' })
@@ -403,7 +403,7 @@ test.describe('通知から対象を確認する（UC-05への連携）', () => 
       .click();
 
     await expect(page).toHaveURL(/\/settings\/ingestion/);
-    await expect(unreadBadge(page)).toHaveText('4');
+    await expect(unreadBadge(page)).toHaveText('3');
   });
 });
 
@@ -535,20 +535,20 @@ test.describe('シナリオ: 複数の利用者（A・B）が、同じ通知を�
     request,
     browser,
   }, testInfo) => {
-    await prepareFiveNotifications(request);
+    await prepareFourNotifications(request);
     await addUser(request, USER_B);
     // 利用者A: 2件を既読にする
     await openNotifications(page);
-    await expect(unreadBadge(page)).toHaveText('5');
+    await expect(unreadBadge(page)).toHaveText('4');
     await rows(page).nth(0).getByRole('button', { name: '既読にする' }).click();
     await rows(page).nth(1).getByRole('button', { name: '既読にする' }).click();
-    await expect(unreadBadge(page)).toHaveText('3');
+    await expect(unreadBadge(page)).toHaveText('2');
 
-    // 利用者B: 別のブラウザで、ログインする。未読は、5件のまま
+    // 利用者B: 別のブラウザで、ログインする。未読は、4件のまま
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/notifications', USER_B);
-    await expect(unreadBadge(b.page)).toHaveText('5');
-    await expect(rows(b.page)).toHaveCount(5);
+    await expect(unreadBadge(b.page)).toHaveText('4');
+    await expect(rows(b.page)).toHaveCount(4);
     for (const row of await rows(b.page).all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
     }
@@ -558,9 +558,9 @@ test.describe('シナリオ: 複数の利用者（A・B）が、同じ通知を�
     await expect(unreadBadge(b.page)).toHaveText('0');
     await shot(b.page, testInfo, 'uc22-user-b-all-read');
 
-    // 利用者A: 再読み込みしても、既読は 2 件のまま（3件は未読）
+    // 利用者A: 再読み込みしても、既読は 2 件のまま（2件は未読）
     await page.reload();
-    await expect(unreadBadge(page)).toHaveText('3');
+    await expect(unreadBadge(page)).toHaveText('2');
     await expect(rows(page).and(page.locator('[data-read-state="READ"]'))).toHaveCount(2);
     await b.context.close();
   });
@@ -701,10 +701,10 @@ for (const viewport of NOTIFICATION_VIEWPORTS) {
 
         await openNotifications(page);
 
-        await expect(rows(page)).toHaveCount(5);
+        await expect(rows(page)).toHaveCount(4);
         await expectNotificationTableNotCrushed(page);
         await expectHeaderIntact(page);
-        await expectUnreadBadgeIntact(page, '5');
+        await expectUnreadBadgeIntact(page, '4');
         await expectFilterBarIntact(page);
         // 長い名称の行でも、「既読にする」を、表示領域へ移して使える
         const longRow = rows(page).filter({ hasText: '環境適応性' }).first();

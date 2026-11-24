@@ -121,7 +121,7 @@ test.describe('基本フロー: Web Push 通知を有効にし、以降の通知
     await runJob(request, 'JB-04');
 
     const created = await listNotifications(request);
-    expect(created.length).toBeGreaterThanOrEqual(4);
+    expect(created.length).toBeGreaterThanOrEqual(3);
     const delivered = await deliveredPushes(request);
     expect(delivered.map((item) => item.notificationId).sort()).toEqual(
       created.map((item) => item.notificationId).sort(),

@@ -386,12 +386,11 @@ test.describe('保存後の通知（UC-10への連携）: 注意・異常があ�
 
     // 約10秒の更新を待たずに、通知の一覧で確認する（ヘッダーの件数は、通知の画面で更新される）
     await goToNotifications(page);
-    // 観点の評価は、ハウス・ロボットの単位で行うため、それぞれの通知が作られる
+    // 通知の単位は、設備（ロボット）。ハウスの集約の結果の通知は作られない
     const rows = page.getByTestId('notification-row').filter({ hasText: 'メンテナンス性' });
-    await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: '（ハウス1）' })).toContainText('異常');
+    await expect(rows).toHaveCount(1);
     await expect(rows.filter({ hasText: '収穫ロボット1' })).toContainText('異常');
-    await expect(unreadBadge(page)).toHaveText(String(unreadBefore + 2));
+    await expect(unreadBadge(page)).toHaveText(String(unreadBefore + 1));
   });
 
   test('正常になる記録では、メンテナンス性の通知は作られない', async ({ page, request }) => {

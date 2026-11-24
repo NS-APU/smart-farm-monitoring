@@ -13,7 +13,7 @@
  *   事後条件    農作業者に通知が送られ、未読として記録されている
  *
  * 値の同値分割: ステータスの変化（正常のまま・注意・異常・注意 → 異常・異常 → 不明・不明 → 異常）、
- * データの品質（有効・遅延・欠損・不正）、出来事の判定（再発・短い行き来・改善・不明を挟んだ継続・境界の 14 分と 15 分）、対象（ハウス・センサー）、判定の経路（保存後・定期）、農業情報基盤の停止。
+ * データの品質（有効・遅延・欠損・不正）、出来事の判定（再発・短い行き来・改善・不明を挟んだ継続・境界の 14 分と 15 分）、対象（設備ごとの通知。ハウスの集約の結果は通知しない）、判定の経路（保存後・定期）、農業情報基盤の停止。
  * 入口: 手動入力（SC-06 の画面操作と API）、取り込み（UC-08・UC-09。ファイルを置いて即時取得）、定期の評価（JB-02・スケジューラの tick）。
  * 対象: 栽培環境（温度・湿度・照度・CO2濃度の4指標の境界値）とロボット（収穫精度・収穫速度）。通知の配信の失敗と再送（JB-04）も含む。
  * 関連するユースケース: UC-07（検知の元の入力）・UC-05・UC-22（通知の確認）・UC-23（Web Push）・UC-24（取り込み失敗の通知）・UC-19。
@@ -88,7 +88,7 @@ async function openNotifications(page: Page): Promise<void> {
 }
 
 test.describe('基本フロー: 判断基準に照らして判定し、注意・異常なら通知する。通知には、ステータス・観点名・対象の設備・診断メッセージを含める', () => {
-  test('異常になる値を保存すると、通知を作る。通知は、ステータス・観点名・対象の設備（ハウス・センサー）・診断メッセージを含み、未読として記録される', async ({
+  test('異常になる値を保存すると、通知を作る。通知は、ステータス・観点名・対象の設備（センサー）・診断メッセージを含み、未読として記録される。ハウスの通知は作らない', async ({
     page,
     request,
   }, testInfo) => {
@@ -97,17 +97,15 @@ test.describe('基本フロー: 判断基準に照らして判定し、注意・
     await enterTemperature(request, 40);
 
     await openNotifications(page);
-    const house = environmentRows(page).filter({ hasText: '（ハウス1）' });
-    await expect(house).toHaveCount(1);
-    await expect(house).toContainText('状態の悪化');
-    await expect(house.locator('.status-badge')).toContainText('異常');
-    await expect(house).toContainText('環境適応性');
-    await expect(house).toContainText('【異常】環境適応性（ハウス1）');
-    await expect(house).toContainText('温度 40.0℃（異常）、湿度 60.0%（正常）');
-    await expect(house).toHaveAttribute('data-read-state', 'UNREAD');
+    // 通知の単位は、設備。ハウスの結果（配下の設備の集約）の通知は作らない（同じ事象は 1 件）
+    await expect(environmentRows(page)).toHaveCount(1);
     const sensor = environmentRows(page).filter({ hasText: '環境センサー1' });
     await expect(sensor).toHaveCount(1);
+    await expect(sensor).toContainText('状態の悪化');
+    await expect(sensor.locator('.status-badge')).toContainText('異常');
     await expect(sensor).toContainText('【異常】環境適応性（環境センサー1）');
+    await expect(sensor).toContainText('温度 40.0℃（異常）、湿度 60.0%（正常）');
+    await expect(sensor).toHaveAttribute('data-read-state', 'UNREAD');
     await expect(unreadBadge(page)).not.toHaveText('0');
     await shot(page, testInfo, 'uc10-notifications');
   });
@@ -141,7 +139,7 @@ test.describe('基本フロー: 判断基準に照らして判定し、注意・
       if (item.expected === null) {
         expect(notifications).toHaveLength(0);
       } else {
-        expect(notifications).toHaveLength(2);
+        expect(notifications).toHaveLength(1);
         await openNotifications(page);
         await expect(environmentRows(page).first().locator('.status-badge')).toContainText(
           item.expected,
@@ -187,37 +185,37 @@ test.describe('ステータスの変化と通知（変化したときだけ通�
   }) => {
     await prepareApp(request);
     const entryId = await enterTemperature(request, 40);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
 
     // データがなくなり「不明」になる → 通知しない（状態の変化の履歴は、時刻ごとに 1 件のため、時計を 1 分進めてから削除する）
     await advanceMinutes(request, 1);
     expect((await api(request, 'DELETE', `/manual-entries/${entryId}`)).status()).toBe(200);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
     // 再び異常 → 「不明」を挟んだだけの、同じ異常の継続（30 分後も、60 分後も、通知しない）
     await advanceMinutes(request, 30);
     const second = await enterTemperature(request, 40);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
     await api(request, 'DELETE', `/manual-entries/${second}`);
     await advanceMinutes(request, 60);
     await enterTemperature(request, 40);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 
   for (const item of [
-    { minutes: 14, notifications: 2, text: '14 分は、同じ出来事（通知しない）' },
-    { minutes: 15, notifications: 4, text: '15 分は、新しい出来事（通知する）' },
+    { minutes: 14, notifications: 1, text: '14 分は、同じ出来事（通知しない）' },
+    { minutes: 15, notifications: 2, text: '15 分は、新しい出来事（通知する）' },
   ]) {
     test(`再発: 異常 → 正常が続く → 異常。正常が 15 分以上続いたあとの悪化は、新しい出来事として通知する（境界: ${item.text}）`, async ({
       request,
     }) => {
       await prepareApp(request);
       const first = await enterTemperature(request, 40);
-      expect(await environmentNotifications(request)).toHaveLength(2);
+      expect(await environmentNotifications(request)).toHaveLength(1);
       // 入力を差し替えて、正常にする（異常の入力を削除 → 正常な値を入力）。履歴は時刻ごとに 1 件のため、時計を 1 分進めてから行う
       await advanceMinutes(request, 1);
       await api(request, 'DELETE', `/manual-entries/${first}`);
       const normal = await enterTemperature(request, 22);
-      expect(await environmentNotifications(request)).toHaveLength(2);
+      expect(await environmentNotifications(request)).toHaveLength(1);
 
       // 正常が、指定の分だけ続いたあとに、再び異常にする
       await advanceMinutes(request, item.minutes);
@@ -231,14 +229,14 @@ test.describe('ステータスの変化と通知（変化したときだけ通�
   test('改善（異常 → 注意）は、通知しない', async ({ request }) => {
     await prepareApp(request);
     const error = await enterTemperature(request, 40);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
 
     await advanceMinutes(request, 1);
     await api(request, 'DELETE', `/manual-entries/${error}`);
     await enterTemperature(request, 27);
 
     const notifications = await environmentNotifications(request);
-    expect(notifications).toHaveLength(2);
+    expect(notifications).toHaveLength(1);
     expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
   });
 
@@ -251,7 +249,7 @@ test.describe('ステータスの変化と通知（変化したときだけ通�
     await enterTemperature(request, 41, 2);
     await enterTemperature(request, 42, 1);
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 });
 
@@ -300,7 +298,7 @@ test.describe('代替フロー: データの欠損・異常値・遅延は、異
       ],
     });
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 });
 
@@ -310,12 +308,55 @@ test.describe('判定の経路: 保存後と、定期（データ途絶の確認
   }) => {
     await prepareApp(request);
     await enterTemperature(request, 40);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
 
     await advanceMinutes(request, 8 * 24 * 60);
     await runJob(request, 'JB-02');
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
+  });
+});
+
+test.describe('通知の単位は、設備（D-19 の論点 3。ハウスの集約の結果は通知しない）', () => {
+  test('同じハウスに環境センサーが 2 つあり、センサー 2 だけが異常のとき、通知はセンサー 2 の 1 件。ハウスの状態は、ダッシュボードで「異常」（どの設備かを示す）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'SENSOR-02',
+      equipmentType: 'SENSOR',
+      name: '環境センサー2',
+      facilityId: 'HOUSE-01',
+    });
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          observedAt: hoursAgo(1),
+          value: 22,
+        },
+        {
+          equipmentId: 'SENSOR-02',
+          itemKey: 'temperatureCelsius',
+          observedAt: hoursAgo(1),
+          value: 40,
+        },
+      ],
+    });
+
+    const notifications = await environmentNotifications(request);
+    expect(notifications.map((item) => item.equipmentId)).toEqual(['SENSOR-02']);
+    expect(notifications[0]?.message).toContain('【異常】環境適応性（環境センサー2）');
+    await openNotifications(page);
+    await expect(environmentRows(page)).toHaveCount(1);
+    await expect(environmentRows(page)).toContainText('環境センサー2');
+    // ハウスの結果（最も悪い設備の結果）は、通知せず、ダッシュボードに示す。どの設備かが、診断メッセージの先頭に入る
+    await openAs(page, '/');
+    const card = page.getByTestId('card-environmentalAdaptability');
+    await expect(card.locator('.status-badge')).toContainText('異常');
+    await expect(card.locator('.diagnostic')).toContainText('（環境センサー2）');
   });
 });
 
@@ -330,7 +371,7 @@ test.describe('通知の周辺: 農業情報基盤が停止していても通知
     await enterTemperature(request, 40);
     await runJob(request, 'JB-03');
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
     await openNotifications(page);
     await expect(environmentRows(page).first()).toBeVisible();
   });
@@ -386,9 +427,9 @@ test.describe('入口: 手動入力（SC-06）の画面で保存すると、評�
     await page.getByRole('banner').getByRole('link', { name: /未読/ }).click();
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
     const unreadRows = page.locator('[data-testid="notification-row"][data-read-state="UNREAD"]');
-    await expect(environmentRows(page)).toHaveCount(2);
+    await expect(environmentRows(page)).toHaveCount(1);
     await expect(unreadBadge(page)).toHaveText(String(await unreadRows.count()));
-    await expect(mainArea(page)).toContainText('【異常】環境適応性（ハウス1）');
+    await expect(mainArea(page)).toContainText('【異常】環境適応性（環境センサー1）');
     await shot(page, testInfo, 'uc10-notifications-from-entry');
   });
 
@@ -486,7 +527,7 @@ test.describe('基本フロー: 栽培環境の異常（4つの指標のどれ�
 
       const notifications = await environmentNotifications(request);
 
-      expect(notifications).toHaveLength(2);
+      expect(notifications).toHaveLength(1);
       for (const notification of notifications) {
         expect(notification.status).toBe(item.status === '異常' ? 'ERROR' : 'CAUTION');
         expect(notification.message).toContain(`【${item.status}】環境適応性`);
@@ -543,7 +584,7 @@ test.describe('基本フロー: ロボットの異常も、栽培環境の異常
     await seed(request, merge(harvestAccuracyData('ERROR'), environmentData({ temperature: 40 })));
 
     expect(await notificationsOfViewpoint(request, 'harvestAccuracy')).not.toHaveLength(0);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
     await expect(
@@ -569,10 +610,10 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
 
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
-    await expect(environmentRows(page).filter({ hasText: '（ハウス1）' })).toContainText(
+    await expect(environmentRows(page).filter({ hasText: '環境センサー1' })).toContainText(
       '【異常】',
     );
     await expect(unreadBadge(page)).not.toHaveText('0');
@@ -586,10 +627,10 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       sensorJson([{ hoursAgo: 0.5, temperature: 41, humidity: 60, illuminance: 30000, co2: 900 }]),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 
-  test('環境センサーのデータが正常なら、通知しない。続けて注意のデータを取り込むと、ハウスとセンサーの通知を作る', async ({
+  test('環境センサーのデータが正常なら、通知しない。続けて注意のデータを取り込むと、センサーの通知を作る（ハウスの通知は作らない）', async ({
     request,
   }) => {
     await prepareApp(request);
@@ -613,11 +654,11 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
 
     const notifications = await environmentNotifications(request);
     expect(notifications.every((item) => item.status === 'CAUTION')).toBe(true);
-    // ファイルの中の識別子（SENSOR-SAMPLE-01）は、登録済みのセンサーとハウスに対応づけられる
-    expect(notifications.map((item) => item.equipmentId).sort()).toEqual(['HOUSE-01', SENSOR_ID]);
+    // ファイルの中の識別子（SENSOR-SAMPLE-01）は、登録済みのセンサーに対応づけられる
+    expect(notifications.map((item) => item.equipmentId).sort()).toEqual([SENSOR_ID]);
   });
 
-  test('ロボットのデータ（UC-08）を取り込んで、収穫速度が異常になると、ロボットとハウスの通知を作る。ダッシュボードの状態と一致する', async ({
+  test('ロボットのデータ（UC-08）を取り込んで、収穫速度が異常になると、ロボットの通知を作る（ハウスの通知は作らない）。ダッシュボードの状態と一致する', async ({
     page,
     request,
   }, testInfo) => {
@@ -644,7 +685,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
     const notifications = await notificationsOfViewpoint(request, 'harvestSpeed');
-    expect(notifications.map((item) => item.equipmentId).sort()).toEqual(['HOUSE-01', ROBOT_ID]);
+    expect(notifications.map((item) => item.equipmentId).sort()).toEqual([ROBOT_ID]);
     expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
     expect(notifications[0]?.message).toContain('144');
     await alignBrowserClock(page);
@@ -654,7 +695,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     );
     await goToNotifications(page);
     await expect(page.getByTestId('notification-row').filter({ hasText: '収穫速度' })).toHaveCount(
-      2,
+      1,
     );
     await shot(page, testInfo, 'uc10-ingested-robot');
   });
@@ -697,9 +738,9 @@ test.describe('判定の経路: 定期の評価（JB-02・スケジューラ）'
 
     await runJob(request, 'JB-02');
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
     await runJob(request, 'JB-02');
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 
   test('データが途絶えて、短期視点（直近24時間）から外れても、長期視点が異常のままなら、通知は増えない', async ({
@@ -711,7 +752,7 @@ test.describe('判定の経路: 定期の評価（JB-02・スケジューラ）'
     await advanceMinutes(request, 25 * 60);
     await runJob(request, 'JB-02');
 
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 
   test('スケジューラの tick が、評価（JB-02）と通知の配信（JB-04）を実行し、購読している端末へ、通知を配信する', async ({
@@ -731,7 +772,7 @@ test.describe('判定の経路: 定期の評価（JB-02・スケジューラ）'
     expect((await deliveredPushes(request)).map((item) => item.notificationId).sort()).toEqual(
       created.map((item) => item.notificationId).sort(),
     );
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 });
 
@@ -753,7 +794,7 @@ test.describe('代替フロー: 通知に失敗した場合は、記録し、再
 
     expect(await deliveredPushes(request)).toHaveLength(0);
     await openNotifications(page);
-    await expect(environmentRows(page)).toHaveCount(2);
+    await expect(environmentRows(page)).toHaveCount(1);
     await expect(environmentRows(page).first()).toHaveAttribute('data-read-state', 'UNREAD');
     await shot(page, testInfo, 'uc10-delivery-failed');
     await setMock(request, 'web-push', 'UP');
@@ -783,6 +824,6 @@ test.describe('代替フロー: 通知に失敗した場合は、記録し、再
     await runJob(request, 'JB-04');
 
     expect(await deliveredPushes(request)).toHaveLength(0);
-    expect(await environmentNotifications(request)).toHaveLength(2);
+    expect(await environmentNotifications(request)).toHaveLength(1);
   });
 });
