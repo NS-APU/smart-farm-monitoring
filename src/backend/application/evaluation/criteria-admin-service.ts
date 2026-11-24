@@ -66,8 +66,12 @@ function nextVersion(current: string): string {
 /**
  * 指標の構成は、観点の既定値と同じ（指標の追加・削除・重複はできない）。
  * ステータス（ステータスコードのカテゴリ）で判定する指標は、ここでは編集できない（FR-5.7）。
+ * 保存と、影響のプレビュー（`criteria-preview-service.ts`）で、同じ検証にする。
  */
-function indicatorViolations(viewpointId: ViewpointId, input: CriteriaUpdateRequest): FieldError[] {
+export function indicatorViolations(
+  viewpointId: ViewpointId,
+  input: CriteriaUpdateRequest,
+): FieldError[] {
   const expected = getDefaultCriteria(viewpointId).criteria.map((criterion) => criterion.indicator);
   const violations: FieldError[] = [];
   const seen = new Set<string>();

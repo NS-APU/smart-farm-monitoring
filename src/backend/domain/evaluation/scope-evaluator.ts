@@ -9,7 +9,6 @@ import {
   type Horizon,
   type PeriodDays,
 } from '@smart-farm/shared/constants/status';
-import { isCumulativeItem } from '@smart-farm/shared/constants/items';
 import type { ViewpointId } from '@smart-farm/shared/constants/viewpoints';
 import type { ViewpointCriteria } from '@smart-farm/shared/schemas/criteria';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
@@ -17,7 +16,13 @@ import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-cod
 import { MS_PER_HOUR } from '@smart-farm/shared/time';
 import { evaluateHorizon, type HorizonEvaluation } from './engine.ts';
 import type { Measures } from './definition.ts';
-import { aggregateMeasures, type ExpectedStreams } from './measures.ts';
+import {
+  aggregateMeasures,
+  createBaselineIndex,
+  usableObservedMs,
+  type ExpectedStreams,
+  type Point,
+} from './measures.ts';
 import { getViewpointDefinition } from './viewpoints/registry.ts';
 
 /** 短期視点の対象期間（直近の時間）。短期の定義は未確定（Q-009）のため暫定（dev_spec.md 4章）。 */
@@ -69,28 +74,20 @@ export interface EvaluationDraft {
 export function evaluateScope(input: ScopeEvaluationInput): EvaluationDraft[] {
   const drafts: EvaluationDraft[] = [];
   const nowMs = input.now.getTime();
-  // 計測日時の解釈は、観測値ごとに1度だけ行う（窓ごと・観点ごとに、全観測値を解釈し直さない。V-072）
-  const observedMs = input.observations.map((observation) => Date.parse(observation.observedAt));
-  /**
-   * 窓（from〜to）の観測値と、累積の項目の基準にする、窓より前の観測値。元の順序を保つ
-   * （窓の外の観測値は、累積の項目の基準にだけ影響する）。
-   */
-  const observationsAround = (
-    fromMs: number,
-    toMs: number,
-  ): { within: Observation[]; prior: Observation[] } => {
-    const within: Observation[] = [];
-    const prior: Observation[] = [...(input.baselineObservations ?? [])];
-    for (const [index, observation] of input.observations.entries()) {
-      const ms = observedMs[index] ?? Number.NaN;
-      if (ms >= fromMs && ms <= toMs) {
-        within.push(observation);
-      } else if (ms < fromMs && isCumulativeItem(observation.itemKey)) {
-        prior.push(observation);
-      }
+  // 計測日時・受信日時の解釈と、評価に使えるかの判定は、観測値ごとに1度だけ行う（窓ごと・観点ごとに、全観測値を解釈し直さない。V-072）。
+  // 窓（from〜to）の点は、解釈済みの点から、計測日時の範囲で絞る（元の順序を保つ）
+  const usablePoints: Point[] = [];
+  for (const observation of input.observations) {
+    const observedMs = usableObservedMs(observation, nowMs);
+    if (observedMs !== undefined) {
+      usablePoints.push({ observation, observedMs });
     }
-    return { within, prior };
-  };
+  }
+  // 累積の項目の基準（窓より前の、最も新しい値）は、候補を 1 回だけ並べた索引から、窓の開始ごとに引く（窓ごとに、全件を走査し直さない）
+  const baselineIndex = createBaselineIndex(
+    [...(input.baselineObservations ?? []), ...input.observations],
+    nowMs,
+  );
   // 集計の結果は、観点に依存しない（観測値・視点・窓・設備の構成だけで決まる）。同じ窓は、観点をまたいで共有する（V-072）
   const measuresCache = new Map<string, Measures>();
 
@@ -102,10 +99,12 @@ export function evaluateScope(input: ScopeEvaluationInput): EvaluationDraft[] {
       const cacheKey = `${window.horizon}|${String(window.hours)}`;
       let measures = measuresCache.get(cacheKey);
       if (measures === undefined) {
-        const { within, prior } = observationsAround(from.getTime(), nowMs);
+        const fromMs = from.getTime();
         measures = aggregateMeasures({
-          observations: within,
-          priorObservations: prior,
+          usablePoints: usablePoints.filter(
+            ({ observedMs }) => observedMs >= fromMs && observedMs <= nowMs,
+          ),
+          baselines: baselineIndex.before(fromMs),
           horizon: window.horizon,
           from,
           to: input.now,

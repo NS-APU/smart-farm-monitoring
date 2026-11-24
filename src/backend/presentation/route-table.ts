@@ -70,6 +70,12 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   },
   {
     method: 'POST',
+    path: '/viewpoints/:viewpointId/criteria/preview',
+    access: 'criteria:edit',
+    useCases: ['UC-19'],
+  },
+  {
+    method: 'POST',
     path: '/viewpoints/:viewpointId/criteria/reset',
     access: 'criteria:edit',
     useCases: ['UC-19'],

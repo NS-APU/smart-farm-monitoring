@@ -838,6 +838,22 @@ textarea {
   margin: 0 0 var(--space);
 }
 
+/* 判断基準の影響の確認（SC-13-2）。入力欄の下、保存のボタンの上に置く */
+.criteria-preview {
+  margin: var(--space) 0;
+  padding-top: var(--space);
+  border-top: 1px solid var(--color-border);
+}
+
+.criteria-preview h2 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.criteria-preview .data-table {
+  margin: 8px 0;
+}
+
 /* 判断基準の帯（正常・注意・異常の区分。#358）。区分は、色と文字で示す */
 .zone-bars {
   display: grid;

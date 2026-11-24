@@ -28,6 +28,10 @@ import {
   type CriteriaAdminService,
 } from '../application/evaluation/criteria-admin-service.ts';
 import {
+  createCriteriaPreviewService,
+  type CriteriaPreviewService,
+} from '../application/evaluation/criteria-preview-service.ts';
+import {
   createIngestionAdminService,
   type IngestionAdminService,
 } from '../application/ingestion/ingestion-admin-service.ts';
@@ -177,6 +181,7 @@ export interface Container {
   readonly auditService: AuditService;
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
+  readonly criteriaPreviewService: CriteriaPreviewService;
   readonly userService: UserService;
   readonly facilityAccessService: FacilityAccessService;
   readonly facilityScope: FacilityScopeService;
@@ -552,6 +557,10 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     clock,
     logger,
   });
+  const criteriaPreviewService = createCriteriaPreviewService({
+    criteriaService: criteria,
+    repositories,
+  });
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
     settings: repositories.settings,
@@ -637,6 +646,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     auditService,
     manualEntryService,
     criteriaAdminService,
+    criteriaPreviewService,
     equipmentService,
     statusCodeService,
     userService,
@@ -783,6 +793,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     auditService: services.auditService,
     manualEntryService: services.manualEntryService,
     criteriaAdminService: services.criteriaAdminService,
+    criteriaPreviewService: services.criteriaPreviewService,
     userService: services.userService,
     facilityAccessService: services.facilityAccessService,
     facilityScope: services.facilityScope,

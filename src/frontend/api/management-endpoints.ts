@@ -24,6 +24,7 @@ import {
 } from '@smart-farm/shared/schemas/facility-access';
 import { EvaluationWriteResponseSchema } from '@smart-farm/shared/schemas/common';
 import {
+  CriteriaPreviewResponseSchema,
   CriteriaSaveResponseSchema,
   CriteriaViewSchema,
   type CriteriaUpdateRequest,
@@ -291,6 +292,15 @@ export function updateCriteria(
     body: input,
     ...(etag === undefined ? {} : { ifMatch: etag }),
     schema: CriteriaSaveResponseSchema,
+  });
+}
+
+/** 入力途中の閾値の影響（保存済みの評価結果に当てた再判定。保存しない。SC-13-2）。 */
+export function previewCriteria(api: ApiClient, viewpointId: string, input: CriteriaUpdateRequest) {
+  return api.request(API_PATHS.viewpointCriteriaPreview(viewpointId), {
+    method: 'POST',
+    body: input,
+    schema: CriteriaPreviewResponseSchema,
   });
 }
 

@@ -173,6 +173,7 @@
 |                                | `POST /equipment`・`PUT`・`DELETE /equipment/:equipmentId`                                                                          | `equipment:manage`                    |
 | ダッシュボード・評価           | `GET /dashboard`・`GET /viewpoints/:viewpointId`・`GET /viewpoints/:viewpointId/series`・`GET /viewpoints/:viewpointId/criteria`    | LOGIN                                 |
 |                                | `PUT /viewpoints/:viewpointId/criteria`・`POST /viewpoints/:viewpointId/criteria/reset`                                             | `criteria:edit`                       |
+|                                | `POST /viewpoints/:viewpointId/criteria/preview`（影響の確認。保存しない）                                                                      | `criteria:edit`                       |
 | 観測値                         | `GET /observations`                                                                                                                 | LOGIN                                 |
 | 手動入力・履歴                 | `GET /manual-entries`                                                                                                               | LOGIN                                 |
 |                                | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:entryId`                                                                    | `manual-entry:write`                  |
@@ -1145,7 +1146,7 @@ flowchart LR
 | `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
 | `status-code:manage`  | `GET /status-codes/unregistered`・`POST /status-codes`・`PUT`・`DELETE /status-codes/:code` | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
-| `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset` | SC-13        |
+| `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset`・`POST /viewpoints/:id/criteria/preview` | SC-13        |
 | `equipment:view-all`  | 権限を要求するルートはない。閲覧範囲の判定（全設備を閲覧できるか）に使う（#330）                    | -            |
 | `user:manage`         | `/users` の 4 ルート・`/facility-access` の 2 ルート                  | SC-14        |
 | `audit:read`          | `GET /audit-logs`                                                     | SC-08        |
@@ -1515,7 +1516,7 @@ sequenceDiagram
   SS-->>APP: 登録済みを除き、件数の多い順。登録できる形式か・初期値の案つき
 ```
 
-## 4.7 判断基準の編集と既定値へ戻す（`/viewpoints/:id/criteria`。UC-19）
+## 4.7 判断基準の編集・影響の確認・既定値へ戻す（`/viewpoints/:id/criteria`。UC-19）
 
 ```mermaid
 sequenceDiagram
@@ -1527,12 +1528,22 @@ sequenceDiagram
   participant REP as CriteriaRepository
   participant AU as AuditService
   participant EV as EvaluationService
+  participant PV as CriteriaPreviewService
+  participant ER as EvaluationRepository
 
   PG->>APP: GET /viewpoints/:id/criteria<br>LOGIN
   APP->>CA: get(viewpointId)
   CA->>CS: getEffective<br>変更後の基準があればそれ<br>なければ既定値
   CA-->>PG: CriteriaView usesStatusIndicator<br>を含む
-  alt 保存 PUT
+  alt 影響の確認 POST preview
+    PG->>APP: POST /viewpoints/:id/criteria/preview<br>権限 criteria:edit 保存しない
+    APP->>PV: preview(viewpointId, input, scope)<br>scope は閲覧範囲
+    PV->>PV: indicatorViolations<br>保存と同じ検証
+    PV->>CS: getEffective で現在の基準
+    PV->>ER: listLatest 対象の設備ごと<br>観測値は読まない
+    PV->>PV: rejudgeStatus<br>保存済みの metrics と statusDetail に<br>現在の基準と入力途中の基準を当てる<br>ハウスは aggregateWorstResults で再集計
+    PV-->>PG: CriteriaPreviewResponse<br>changes unevaluated unknownCount
+  else 保存 PUT
     PG->>PG: CriteriaUpdateRequestSchema<br>で検証 閾値の大小関係と条件名
     PG->>APP: PUT /viewpoints/:id/criteria 権限<br>criteria:edit
     APP->>APP: viewpointIdOf で観点を確認<br>無ければ NOT_FOUND
@@ -2204,7 +2215,7 @@ flowchart TB
   J -->|"いいえ"| L["何もしない"]
 ```
 
-**ハウスの評価（D-19。#212）**: `execute` は、評価する設備のうち、ロボット・センサーを先に、ハウスをあとに評価する。ハウスのロボットの観点・環境適応性は、観測値でなく、配下の設備の評価結果（この回に評価したもの。評価していない設備は、`evaluations.listLatest` で読む保存済みの最新の結果）から、`aggregateWorstResults`（`worst-result.ts`）が、観点・視点・期間ごとに、最も悪い結果を採る。配下に結果のない観点と、運用面の観点（データ活用度合い・満足度）だけを、ハウスと配下の観測値から、`evaluateScope` で評価する（観測値の読み取り〔直近 90 日〕は、ハウスで 1 回のままで、短期の窓の集計と、ロボットの観点の評価は、ハウスでは行わない）。状態の変化の検知・通知・連携は、ハウスの結果（集約したもの）でも、これまでどおり、設備 × 観点ごとに行う。
+**ハウスの評価（D-19。#212）**: `execute` は、評価する設備のうち、ロボット・センサーを先に、ハウスをあとに評価する。ハウスのロボットの観点・環境適応性は、観測値でなく、配下の設備の評価結果（この回に評価したもの。評価していない設備は、`evaluations.listLatest` で読む保存済みの最新の結果）から、`aggregateWorstResults`（`worst-result.ts`）が、観点・視点・期間ごとに、最も悪い結果を採る。配下に結果のない観点と、運用面の観点（データ活用度合い・満足度）だけを、ハウスと配下の観測値から、`evaluateScope` で評価する（観測値の読み取り〔直近 90 日〕は、ハウスで 1 回のままで、短期の窓の集計と、ロボットの観点の評価は、ハウスでは行わない）。**読み取りの共有（#165 の PR 3）**: 評価の対象が 1 つのハウス（と配下）だけの回は、観測値を設備ごとに読み（`readObservations`。`findForEvaluation`・`findLatestBefore` を設備ごと）、同じ回の中で、設備ごとの読み取りを共有する（ハウスの評価は、先に評価した配下の設備の読み取りを使い、同じ観測値を読み直さない。ハウスと配下の順で連結するため、1 回で読んだ場合と同じ順序）。複数のハウスをまたぐ回は、保持する量を抑えるため、共有しない。**窓ごとの集計の高速化（#165 の PR 3）**: `evaluateScope` は、観測値の計測日時・受信日時の解釈と、評価に使えるかの判定を、観測値ごとに 1 回だけ行い（`usablePoints`）、累積の項目の基準（期間の直前の値）は、候補を 1 回だけ計測日時の順に並べた索引（`createBaselineIndex`）から、窓の開始ごとに二分探索で引く（窓ごとに全件を走査し直さない）。結果は、窓ごとに全件を解釈し直す従来の手順（推移 `series` は、この手順のまま）と同じ（`scope-evaluator-equivalence.test.ts` で確認）。状態の変化の検知・通知・連携は、ハウスの結果（集約したもの）でも、これまでどおり、設備 × 観点ごとに行う。
 
 ### 1.2 窓（視点と期間）
 

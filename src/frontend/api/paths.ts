@@ -9,6 +9,8 @@ export const API_PATHS = {
   viewpoint: (viewpointId: string) => `/viewpoints/${segment(viewpointId)}`,
   viewpointSeries: (viewpointId: string) => `/viewpoints/${segment(viewpointId)}/series`,
   viewpointCriteria: (viewpointId: string) => `/viewpoints/${segment(viewpointId)}/criteria`,
+  viewpointCriteriaPreview: (viewpointId: string) =>
+    `/viewpoints/${segment(viewpointId)}/criteria/preview`,
   viewpointCriteriaReset: (viewpointId: string) =>
     `/viewpoints/${segment(viewpointId)}/criteria/reset`,
   notificationRead: (notificationId: string) => `/notifications/${segment(notificationId)}/read`,

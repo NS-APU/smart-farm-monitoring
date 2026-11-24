@@ -36,7 +36,15 @@ export interface ExpectedStreams {
 }
 
 export interface AggregationInput {
-  readonly observations: readonly Observation[];
+  /** 期間（from〜to）の観測値。`usablePoints` を渡すときは、不要（渡さなければ、ここから、使える点を選ぶ）。 */
+  readonly observations?: readonly Observation[];
+  /**
+   * 評価に使える点（`selectUsablePoints` の結果と同じ。期間内・使える・評価時刻までに受信済み）。評価の単位（`evaluateScope`）が、窓ごとに、
+   * 全件の計測日時・受信日時を解釈し直さないよう、1 回だけ解釈した点から、窓の範囲を絞って渡す。
+   */
+  readonly usablePoints?: readonly Point[];
+  /** 累積の項目の基準（`latestBaselineObservations` の結果から作る、基準のキー → 値）。省略すると、`priorObservations` から求める。 */
+  readonly baselines?: ReadonlyMap<string, number>;
   readonly horizon: Horizon;
   /** 集計期間の開始・終了（終了は評価時刻）。 */
   readonly from: Date;
@@ -99,7 +107,7 @@ export function selectUsablePoints(
 }
 
 /** 累積の項目の、取得元を決める単位・基準を引く単位（設備・項目）。 */
-function equipmentItemKey(observation: Pick<Observation, 'equipmentId' | 'itemKey'>): string {
+function equipmentItemKey(observation: { equipmentId: string; itemKey: string }): string {
   return `${observation.equipmentId}#${observation.itemKey}`;
 }
 
@@ -113,14 +121,26 @@ function baselineKey(observation: Pick<Observation, 'equipmentId' | 'itemKey' | 
  * 設備・項目（D-26）。ここにない設備・項目は、手動入力だけを使う（手動入力もなければ、値は未取得）。
  */
 export function autoCumulativeKeysOf(points: readonly Point[]): Set<string> {
-  const keys = new Set<string>();
+  // 点ごとに、キーの文字列を組み立てない（窓ごと・点ごとの組み立てが、評価の時間の大きな部分を占めたため）。設備 → 項目の入れ子で、見つけたものだけ、キーにする
+  const itemsByEquipment = new Map<string, Set<string>>();
   for (const { observation } of points) {
     if (
       observation.source === 'AUTO_IMPORT' &&
       typeof observation.value === 'number' &&
       isCumulativeItem(observation.itemKey)
     ) {
-      keys.add(equipmentItemKey(observation));
+      const items = itemsByEquipment.get(observation.equipmentId);
+      if (items === undefined) {
+        itemsByEquipment.set(observation.equipmentId, new Set([observation.itemKey]));
+      } else {
+        items.add(observation.itemKey);
+      }
+    }
+  }
+  const keys = new Set<string>();
+  for (const [equipmentId, items] of itemsByEquipment) {
+    for (const itemKey of items) {
+      keys.add(equipmentItemKey({ equipmentId, itemKey }));
     }
   }
   return keys;
@@ -175,25 +195,108 @@ export function latestBaselineObservations(
   return [...latest.values()].map(({ observation }) => observation);
 }
 
+/** 累積の項目の基準を、期間（窓）の開始ごとに引く索引（`createBaselineIndex`）。 */
+export interface BaselineIndex {
+  /** `fromMs` より前で、最も新しい基準（基準のキー → 値）。`latestBaselineObservations` から作る値と同じ。 */
+  before(fromMs: number): Map<string, number>;
+}
+
+/**
+ * 累積の項目の基準の候補（設備・項目・取得元ごと）を、計測日時の順に 1 回だけ並べ、期間の開始ごとの基準を、二分探索で引く索引にする。
+ * 窓（短期・当日〜90 日）ごとに、期間より前の全件を走査し直す（`latestBaselineObservations`）と、窓の数だけ、全件の解釈・キーの組み立てを繰り返すため。
+ * 結果は `latestBaselineObservations(observations, fromMs, knownAtMs)` と同じ（同じ計測日時が複数あるときは、先に現れたものを使う）。
+ */
+export function createBaselineIndex(
+  observations: readonly Observation[],
+  knownAtMs: number,
+): BaselineIndex {
+  interface Candidate {
+    readonly observedMs: number;
+    readonly order: number;
+    readonly value: number;
+  }
+  const groups = new Map<string, Candidate[]>();
+  for (const [order, observation] of observations.entries()) {
+    if (typeof observation.value !== 'number' || !isCumulativeItem(observation.itemKey)) {
+      continue;
+    }
+    const observedMs = usableObservedMs(observation, knownAtMs);
+    if (observedMs === undefined || Number.isNaN(observedMs)) {
+      continue;
+    }
+    const key = baselineKey(observation);
+    const candidate = { observedMs, order, value: observation.value };
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, [candidate]);
+    } else {
+      group.push(candidate);
+    }
+  }
+  for (const group of groups.values()) {
+    group.sort((left, right) => left.observedMs - right.observedMs || left.order - right.order);
+  }
+  return {
+    before(fromMs) {
+      const baselines = new Map<string, number>();
+      for (const [key, group] of groups) {
+        // fromMs より前の、最後の候補（計測日時の昇順）
+        let low = 0;
+        let high = group.length;
+        while (low < high) {
+          const middle = (low + high) >>> 1;
+          if ((group[middle]?.observedMs ?? Number.POSITIVE_INFINITY) < fromMs) {
+            low = middle + 1;
+          } else {
+            high = middle;
+          }
+        }
+        const last = group[low - 1];
+        if (last === undefined) {
+          continue;
+        }
+        // 同じ計測日時の候補は、先に現れた（order が小さい）ものを使う
+        let first = low - 1;
+        while (first > 0 && group[first - 1]?.observedMs === last.observedMs) {
+          first -= 1;
+        }
+        baselines.set(key, group[first]?.value ?? last.value);
+      }
+      return baselines;
+    },
+  };
+}
+
 /** 同じ設備・項目・計測日時に自動取り込みと手動入力がある場合は、手動入力だけを残す。 */
 function applyManualPriority(points: readonly Point[]): Point[] {
-  const manualKeys = new Set<string>();
+  // 判定する単位は、設備・項目・計測日時（取得元は含めない）。点ごとに、キーの文字列を組み立てず、設備 → 項目 → 計測日時の入れ子で引く
+  const manualTimes = new Map<string, Map<string, Set<string>>>();
   for (const { observation } of points) {
     if (observation.source === 'MANUAL') {
-      manualKeys.add(manualPriorityKey(observation));
+      let items = manualTimes.get(observation.equipmentId);
+      if (items === undefined) {
+        items = new Map();
+        manualTimes.set(observation.equipmentId, items);
+      }
+      const times = items.get(observation.itemKey);
+      if (times === undefined) {
+        items.set(observation.itemKey, new Set([observation.observedAt]));
+      } else {
+        times.add(observation.observedAt);
+      }
     }
+  }
+  if (manualTimes.size === 0) {
+    return [...points];
   }
   return points.filter(
     ({ observation }) =>
-      observation.source === 'MANUAL' || !manualKeys.has(manualPriorityKey(observation)),
+      observation.source === 'MANUAL' ||
+      !manualTimes
+        .get(observation.equipmentId)
+        ?.get(observation.itemKey)
+        ?.has(observation.observedAt),
   );
-}
-
-/** 手動入力の優先を判定する単位（設備・項目・計測日時）。取得元は含めない。 */
-function manualPriorityKey(
-  observation: Pick<Observation, 'equipmentId' | 'itemKey' | 'observedAt'>,
-): string {
-  return `${observation.equipmentId}#${observation.itemKey}#${observation.observedAt}`;
 }
 
 /** 計測日時が最も新しい点。同じ日時の点が複数あるときは、後のものを使う。 */
@@ -389,12 +492,9 @@ function computeCoverage(
 
 /** 観測値を、視点（短期・長期）に応じて集計し、評価の入力にする。 */
 export function aggregateMeasures(input: AggregationInput): Measures {
-  const usable = selectUsablePoints(
-    input.observations,
-    input.from,
-    input.to,
-    input.knownAt ?? input.to,
-  );
+  const usable =
+    input.usablePoints ??
+    selectUsablePoints(input.observations ?? [], input.from, input.to, input.knownAt ?? input.to);
   const autoKeys = input.autoCumulativeKeys ?? autoCumulativeKeysOf(usable);
   // 合計（累積）の項目は、自動があれば、手動入力を使わない（D-26）。それ以外は、同じ計測日時のときだけ、手動入力を優先する
   const preferred = applyManualPriority(
@@ -413,17 +513,19 @@ export function aggregateMeasures(input: AggregationInput): Measures {
     }
   }
 
-  const baselines = new Map(
-    latestBaselineObservations(
-      input.priorObservations ?? [],
-      input.from.getTime(),
-      (input.knownAt ?? input.to).getTime(),
-    ).flatMap((observation) =>
-      typeof observation.value === 'number'
-        ? [[baselineKey(observation), observation.value] as const]
-        : [],
-    ),
-  );
+  const baselines =
+    input.baselines ??
+    new Map(
+      latestBaselineObservations(
+        input.priorObservations ?? [],
+        input.from.getTime(),
+        (input.knownAt ?? input.to).getTime(),
+      ).flatMap((observation) =>
+        typeof observation.value === 'number'
+          ? [[baselineKey(observation), observation.value] as const]
+          : [],
+      ),
+    );
   const values: Record<string, number> = {};
   for (const [itemKey, points] of pointsByItem) {
     const definition = findItemDefinition(itemKey);
