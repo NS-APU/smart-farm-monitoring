@@ -178,7 +178,7 @@
 |                                | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:entryId`                                                                    | `manual-entry:write`                  |
 |                                | `GET /audit-logs`                                                                                                                   | `audit:read`                          |
 | ステータスコード               | `GET /status-codes`                                                                                                                 | LOGIN                                 |
-|                                | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`                                                                           | `status-code:manage`                  |
+|                                | `GET /status-codes/unregistered`（未登録のコード値。#158）・`POST /status-codes`・`PUT`・`DELETE /status-codes/:code`                | `status-code:manage`                  |
 | 通知                           | `GET /notifications`・`GET /notifications/unread-count`・`POST /notifications/read-all`・`GET /notifications/:notificationId/memos`・`POST /notifications/:notificationId/read` | LOGIN。メモの追記 `POST /notifications/:notificationId/memos`（#239）は `manual-entry:write`                                 |
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`、`POST /push-subscription/test`（テスト通知。#159）                                      | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
@@ -999,7 +999,7 @@ flowchart LR
 
 | ポート                                     | 定義                            | 実装済みのアダプタ                                                                                                                                              | 本番の想定（未実装）                          |
 | ------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Repository（13 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）、`dynamodb/dynamodb-repositories.ts`（DynamoDB。ADR-0007）                                | DynamoDB（実装済み。契約テストは共通）        |
+| Repository（15 種を束ねた `Repositories`） | `ports/repositories.ts`         | `local/local-repositories.ts`・`local/repositories/`（`LocalStore` のメモリ＋JSON ファイル）、`dynamodb/dynamodb-repositories.ts`（DynamoDB。ADR-0007）                                | DynamoDB（実装済み。契約テストは共通）        |
 | `AuthPort`                                 | `ports/auth-port.ts`            | `local/local-auth.ts`（`createLocalAuth`）、`cognito/cognito-identity.ts`（`createCognitoIdentity`。ADR-0008）                                                  | Cognito（実装済み。契約テストは共通）         |
 | `PasswordHasherPort`                       | `ports/password-hasher-port.ts` | `local/password-hasher.ts`（scrypt）。資格情報の管理は、`CredentialPort`（`local/local-credentials.ts`・`cognito/cognito-identity.ts`）が担う                    | Cognito が持つため、記録には持たない          |
 | `ClockPort`                                | `ports/clock-port.ts`           | `local/clocks.ts`（`createControllableClock`。固定・進行・実時間）。`createSystemClock` もあるが、テストでのみ使われ、`container.ts` は常に操作できる時計を使う | -                                             |
@@ -1143,7 +1143,7 @@ flowchart LR
 | `ingestion:configure` | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials` | SC-11・SC-10 |
 | `ingestion:run`       | `POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test` | SC-11・SC-10 |
 | `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
-| `status-code:manage`  | `POST /status-codes`・`PUT`・`DELETE /status-codes/:code`             | SC-12        |
+| `status-code:manage`  | `GET /status-codes/unregistered`・`POST /status-codes`・`PUT`・`DELETE /status-codes/:code` | SC-12        |
 | `manual-entry:write`  | `POST /manual-entries`・`PUT`・`DELETE /manual-entries/:id`           | SC-06・SC-07 |
 | `criteria:edit`       | `PUT /viewpoints/:id/criteria`・`POST /viewpoints/:id/criteria/reset` | SC-13        |
 | `equipment:view-all`  | 権限を要求するルートはない。閲覧範囲の判定（全設備を閲覧できるか）に使う（#330）                    | -            |
@@ -1488,6 +1488,29 @@ sequenceDiagram
     SS->>AU: record DELETE
   end
   SS->>EV: evaluateAll STATUS_CODE_CHANGE
+```
+
+### 4.6.1 未登録のコード値の記録と一覧（SC-12-5。#158）
+
+取り込み（`IngestionService`）は、1 回の実行で新しく保存した「不正」の、定義にないステータスコードの観測値を、コード値ごとに集計し（`domain/unregistered-status-code.ts`）、上限（1 回に新しい値 20 種類・全体で 50 種類・値は 100 文字）の範囲で、`UnregisteredStatusCodeRepository` に、1 コード値ずつ加算する（`ingestion/unregistered-status-codes.ts`）。記録の失敗は、ログ（件数・種類数。値は出さない）に残し、取り込みは失敗にしない。`GET /status-codes/unregistered` は、`StatusCodeService.listUnregistered` が、記録から、登録済み（論理削除でない）のコード値を除き、件数の多い順に返す。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant IS as IngestionService
+  participant UR as UnregisteredStatusCodeRepository
+  participant APP as status-code-handlers
+  participant SS as StatusCodeService
+  participant SR as StatusCodeRepository
+
+  IS->>IS: 保存した不正の観測値から、未登録のコード値を集計
+  IS->>UR: list（記録のある値）
+  IS->>UR: record(code, count, seenAt)（上限の範囲で、1 コード値ずつ）
+  Note over IS,UR: 失敗しても、取り込みは失敗にしない
+  APP->>SS: listUnregistered（status-code:manage）
+  SS->>UR: list
+  SS->>SR: list（論理削除を除く）
+  SS-->>APP: 登録済みを除き、件数の多い順。登録できる形式か・初期値の案つき
 ```
 
 ## 4.7 判断基準の編集と既定値へ戻す（`/viewpoints/:id/criteria`。UC-19）
