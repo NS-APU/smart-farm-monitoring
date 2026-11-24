@@ -109,7 +109,7 @@ describe('評価（JB-02）', () => {
     expect(result?.recommendedAction).toContain('データの取得・入力を確認');
   });
 
-  it('ハウスの評価は、配下のロボット・センサーの観測値をまとめて使う', async () => {
+  it('ハウスの環境適応性は、配下のセンサーの結果から求める（基本構成では、センサーと同じ結果）', async () => {
     const context = await setup();
     await context.container.repositories.observations.saveMany(
       generateAutoObservations({

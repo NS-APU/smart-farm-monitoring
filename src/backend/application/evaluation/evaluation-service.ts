@@ -21,6 +21,7 @@ import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { evaluateScope, type EvaluationDraft } from '../../domain/evaluation/scope-evaluator.ts';
+import { aggregateWorstResults } from '../../domain/evaluation/worst-result.ts';
 import { isNotifiableStatusChange } from '../../domain/notification-rules.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { errorLogFields } from '../error-fields.ts';
@@ -30,7 +31,7 @@ import type { AppSettings } from '../settings.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { NotificationService } from '../notification/notification-service.ts';
 import type { CriteriaService } from './criteria-service.ts';
-import { resolveEvaluationScope } from './scope.ts';
+import { memberEquipmentOf, resolveEvaluationScope } from './scope.ts';
 
 /**
  * 評価は、CPU を使う処理のため、設備ごとの区切りで、イベントループへ制御を戻す。受信した通信（ほかの利用者の参照・保存）を
@@ -151,19 +152,61 @@ function selectAffected(
   return allEquipment.filter((equipment) => included.has(equipment.equipmentId));
 }
 
+/** 評価する順: ロボット・センサーが先、ハウスが後（それぞれ、登録の順）。ハウスの結果は、配下の設備の結果から求める（D-19）。 */
+function byEvaluationOrder(targets: readonly Equipment[]): Equipment[] {
+  return [
+    ...targets.filter((equipment) => equipment.equipmentType !== 'FACILITY'),
+    ...targets.filter((equipment) => equipment.equipmentType === 'FACILITY'),
+  ];
+}
+
 export function createEvaluationService(deps: EvaluationServiceDeps): EvaluationService {
   const { repositories, criteria, notifications, federation, clock, settings, logger } = deps;
 
-  /** 設備の観点（短期・長期の各期間）を評価し、結果を保存する。 */
+  /**
+   * ハウスの結果のうち、配下の設備の最も悪い結果にする部分（D-19）。配下の設備の結果は、この回で評価したものを使い、
+   * 評価していない設備（一部の設備だけの評価のとき）は、保存済みの最新の結果を読む。設備に結果がない観点は含めない
+   * （その観点は、ハウス自身の観測値で評価する）。
+   */
+  async function aggregateFromMembers(
+    house: Equipment,
+    allEquipment: readonly Equipment[],
+    evaluatedInRun: ReadonlyMap<EquipmentId, readonly EvaluationResult[]>,
+    now: Date,
+  ): Promise<EvaluationResult[]> {
+    const members = await Promise.all(
+      memberEquipmentOf(house, allEquipment).map(async (member) => ({
+        equipmentName: member.name,
+        results:
+          evaluatedInRun.get(member.equipmentId) ??
+          (await repositories.evaluations.listLatest(member.equipmentId)),
+      })),
+    );
+    return aggregateWorstResults({ equipmentId: house.equipmentId, members, evaluatedAt: now });
+  }
+
+  /**
+   * 設備の観点（短期・長期の各期間）を評価し、結果を保存する。設備（ロボット・センサー）は、その設備の観測値だけで評価する。
+   * ハウスは、ロボットの観点・環境適応性を、配下の設備の最も悪い結果にし、運用面の観点（データ活用度合い・満足度）を、
+   * ハウスと配下の観測値で評価する（D-19）。
+   */
   async function evaluateAndSave(
     equipment: Equipment,
     allEquipment: readonly Equipment[],
+    evaluatedInRun: ReadonlyMap<EquipmentId, readonly EvaluationResult[]>,
     statusCodes: ReadonlyMap<string, StatusCodeDefinition>,
     criteriaMap: ReadonlyMap<ViewpointId, ViewpointCriteria>,
     now: Date,
   ): Promise<EvaluationResult[]> {
     const scope = resolveEvaluationScope(equipment, allEquipment);
-    const viewpointIds = viewpointsForEquipmentType(equipment.equipmentType).map((meta) => meta.id);
+    const aggregated =
+      equipment.equipmentType === 'FACILITY'
+        ? await aggregateFromMembers(equipment, allEquipment, evaluatedInRun, now)
+        : [];
+    const aggregatedViewpointIds = new Set(aggregated.map((result) => result.viewpointId));
+    const viewpointIds = viewpointsForEquipmentType(equipment.equipmentType)
+      .map((meta) => meta.id)
+      .filter((viewpointId) => !aggregatedViewpointIds.has(viewpointId));
     const readFrom = new Date(now.getTime() - LONGEST_PERIOD_DAYS * MS_PER_DAY);
     // 累積の項目の、期間の直前の値は、読んだ範囲（最長の期間）の中にあれば、それを使う。範囲より前の値だけ、別に読む（設備 × 項目の数の、少量の読み取り。D-26）
     const [observations, baselineObservations] = await Promise.all([
@@ -191,7 +234,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
       coverageSlotMinutes: settings.defaultIngestionIntervalMinutes,
     });
 
-    const results = drafts.map((draft) => toResult(draft, equipment, now));
+    const results = [...aggregated, ...drafts.map((draft) => toResult(draft, equipment, now))];
     // 結果は、観点・期間ごとに別のキーで、互いに独立のため、並列に保存する（1件ずつ待つと、DynamoDB への往復が、
     // 結果の数だけ直列になり、手動入力・取り込みの保存の応答が遅くなる。Issue #79）
     await Promise.all(results.map((result) => repositories.evaluations.saveLatest(result)));
@@ -298,7 +341,10 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   ): Promise<EvaluationRunSummary> {
     const now = clock.now();
     const allEquipment = await repositories.equipment.list();
-    const targets = only === undefined ? allEquipment : selectAffected(allEquipment, only);
+    // 配下の設備（ロボット・センサー）を先に評価し、ハウスは、そのあとに評価する（ハウスの結果は、配下の設備の結果から求める。D-19）
+    const targets = byEvaluationOrder(
+      only === undefined ? allEquipment : selectAffected(allEquipment, only),
+    );
     const statusCodeList = await repositories.statusCodes.list({ includeDeleted: true });
     const statusCodes = new Map(statusCodeList.map((definition) => [definition.code, definition]));
     const criteriaMap = await criteria.getAllEffective();
@@ -307,6 +353,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     let statusChanges = 0;
     let notificationsCreated = 0;
     const failures: unknown[] = [];
+    const evaluatedInRun = new Map<EquipmentId, readonly EvaluationResult[]>();
     for (const equipment of targets) {
       await yieldToEventLoop();
       // 1つの設備の失敗が、残りの設備の評価・通知を止めないようにする
@@ -314,10 +361,12 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         const results = await evaluateAndSave(
           equipment,
           allEquipment,
+          evaluatedInRun,
           statusCodes,
           criteriaMap,
           now,
         );
+        evaluatedInRun.set(equipment.equipmentId, results);
         const outcome = await recordStatusChanges(equipment, results, now);
         resultsSaved += results.length;
         statusChanges += outcome.changes;
