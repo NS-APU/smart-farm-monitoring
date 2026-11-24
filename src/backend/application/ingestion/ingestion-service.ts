@@ -30,6 +30,7 @@ import {
   isRejectedQuality,
   isUsableQuality,
 } from '../../domain/observation-quality.ts';
+import { countUnregisteredStatusCodes } from '../../domain/unregistered-status-code.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { NotificationService } from '../notification/notification-service.ts';
@@ -55,6 +56,7 @@ import { OperationTimeoutError, withTimeout } from '../with-timeout.ts';
 import { listDeletedExternalIds } from '../equipment/deleted-external-ids.ts';
 import { isAutoIngestionTarget } from './auto-target.ts';
 import { sourceDisplayName, type IngestionSettings } from './ingestion-settings.ts';
+import { recordUnregisteredStatusCodes } from './unregistered-status-codes.ts';
 
 /** 設備ごとの失敗の通知に載せる設備の数（それを超えた分は、「ほか N 件」）。 */
 const FAILED_EQUIPMENT_SHOWN = 3;
@@ -107,7 +109,12 @@ export interface IngestionService {
 export interface IngestionServiceDeps {
   readonly repositories: Pick<
     Repositories,
-    'equipment' | 'observations' | 'statusCodes' | 'ingestion' | 'settings'
+    | 'equipment'
+    | 'observations'
+    | 'statusCodes'
+    | 'unregisteredStatusCodes'
+    | 'ingestion'
+    | 'settings'
   >;
   readonly ingestionSettings: IngestionSettings;
   readonly fileSource: FileSourcePort;
@@ -166,6 +173,8 @@ interface FileOutcome {
   readonly unlinkedRejected: number;
   /** ハウスごとの結果（ファイルに結びつくハウスだけ。#332）。 */
   readonly facilities: readonly FacilityIngestion[];
+  /** 新しく保存した「不正」の観測値のうち、定義にないステータスコードの値の、コード値ごとの件数（SC-12-5。#158）。 */
+  readonly unregisteredStatusCodes: ReadonlyMap<string, number>;
 }
 
 function failedOutcome(
@@ -185,6 +194,7 @@ function failedOutcome(
     rejectedByEquipment: new Map(),
     unlinkedRejected: rejectedCount,
     deletedEquipmentCount: 0,
+    unregisteredStatusCodes: new Map(),
     facilities: failedFacilityIds.map((facilityId) => ({
       facilityId,
       result: 'FAILURE',
@@ -606,6 +616,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         unlinkedRejected: parsed.unlinkedRejected,
         deletedEquipmentCount: parsed.deletedEquipmentCount,
         facilities: facilityResultsOf(observations, equipmentIndex),
+        unregisteredStatusCodes: countUnregisteredStatusCodes(observations, statusCodes),
       };
     } catch (error) {
       if (!(error instanceof FormatError)) {
@@ -1025,6 +1036,24 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     };
   }
 
+  /** 1 回の取り込みで保存した、未登録のステータスコードの値を集計して、記録する（SC-12-5。#158。失敗は、取り込みに影響させない）。 */
+  async function recordUnregistered(
+    source: IngestionSource,
+    outcomes: readonly (FileOutcome | null)[],
+  ): Promise<void> {
+    const counts = new Map<string, number>();
+    for (const outcome of outcomes) {
+      for (const [code, count] of outcome?.unregisteredStatusCodes ?? []) {
+        counts.set(code, (counts.get(code) ?? 0) + count);
+      }
+    }
+    await recordUnregisteredStatusCodes(
+      { repository: repositories.unregisteredStatusCodes, clock, logger },
+      source.sourceId,
+      counts,
+    );
+  }
+
   /** 取り込み失敗を通知する。通知の失敗は、取り込みの結果に影響させない（ログに残す）。 */
   async function notifyFailureSafely(source: IngestionSource, reason: string): Promise<void> {
     try {
@@ -1173,6 +1202,8 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     } catch (error) {
       // 想定外の例外でも、取り込みログ（失敗）と通知を残してから、呼び出し元へ伝える（V-046）
       const tally = tallyOutcomes(outcomes);
+      // 例外の前に保存した観測値の分は、記録する
+      await recordUnregistered(source, outcomes);
       await writeLog(source, profile, startedAt, {
         result: 'FAILURE',
         filesProcessed: tally.filesProcessed,
@@ -1188,6 +1219,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     }
     const { failedFiles, firstFailureKind, affectedEquipmentIds, ...counts } =
       tallyOutcomes(outcomes);
+    await recordUnregistered(source, outcomes);
     // 一部の設備の一覧を取得できなかったとき: ファイルを取り込めた（取り込み済みで、変わりのないものを含む）設備があれば一部成功、なければ失敗
     // （decideResult は、ファイルが 0 件のとき成功にするため、設備ごとの失敗があるときは、別に判定する）
     const hasHealthyFile = outcomes.some((outcome) => !outcome?.failed);

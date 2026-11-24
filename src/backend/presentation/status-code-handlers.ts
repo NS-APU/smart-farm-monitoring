@@ -14,6 +14,9 @@ import type { RouteHandler } from './route-types.ts';
 
 export function createStatusCodeHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
   return {
+    async 'GET /status-codes/unregistered'(c) {
+      return c.json(await deps.statusCodeService.listUnregistered());
+    },
     async 'POST /status-codes'(c) {
       const input = await parseJsonBody(c, StatusCodeCreateRequestSchema);
       return c.json(await deps.statusCodeService.create(input, actorOf(c)), 201);

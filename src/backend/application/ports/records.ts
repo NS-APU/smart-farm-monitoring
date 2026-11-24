@@ -101,3 +101,17 @@ export const PushSubscriptionRecordSchema = z.object({
   testSentAt: IsoDateTimeSchema.optional(),
 });
 export type PushSubscriptionRecord = z.infer<typeof PushSubscriptionRecordSchema>;
+
+/**
+ * 未登録のコード値（SC-12-5。ADR-0017 の D-23。Issue #158）。取り込みで、定義にないステータスコードとして、不正の品質で保存した値の、
+ * コード値ごとの集計。コード値ごとに 1 件。登録済みかどうかは持たない（読むときに、ステータスコードの定義と照らす）。
+ */
+export const UnregisteredStatusCodeRecordSchema = z.object({
+  /** 取り込んだコード値（100 文字で切った値）。 */
+  code: z.string().min(1),
+  /** 取り込んだ観測値の件数（記録を始めてからの合計）。 */
+  count: z.number().int().positive(),
+  /** 最後に取り込んだ日時。 */
+  lastSeenAt: IsoDateTimeSchema,
+});
+export type UnregisteredStatusCodeRecord = z.infer<typeof UnregisteredStatusCodeRecordSchema>;

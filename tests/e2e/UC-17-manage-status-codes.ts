@@ -703,6 +703,91 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
   });
 });
 
+test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結果を、API で確認する。画面での確認は、別の PR。Issue #158）', () => {
+  interface UnregisteredItem {
+    code: string;
+    count: number;
+    lastSeenAt: string;
+    isRegistrable: boolean;
+    suggestedCode?: string;
+  }
+  const unregistered = async (request: Parameters<typeof prepareApp>[0]) =>
+    (await apiOk<{ items: UnregisteredItem[] }>(request, 'GET', '/status-codes/unregistered'))
+      .items;
+
+  test('定義にないコード値を取り込むと、コード値・件数・最終の日時・登録できる形式か・初期値の案を返す（件数の多い順）。登録済みのコード値は、除く。登録すると一覧から消え、削除すると戻る', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    expect(await unregistered(request)).toEqual([]);
+    const base = {
+      harvestCount: 10,
+      harvestSecondsPerFruit: 36,
+      operatingHours: 0.25,
+      harvestOperatingHours: 0.1,
+      travelStoppedHours: 0.002,
+    };
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson([
+        { hoursAgo: 0.75, fields: { ...base, statusCode: 'low battery' } },
+        { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+        { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+        // 登録済みのコード値は、記録しない
+        { hoursAgo: 0.2, fields: { ...base, statusCode: 'RUNNING' } },
+      ]),
+    );
+    await apiOk(request, 'POST', '/ingestion/robot/run');
+
+    const first = await unregistered(request);
+
+    expect(first.map((item) => item.code)).toEqual(['UNKNOWN_MODE', 'low battery']);
+    expect(first[0]).toMatchObject({
+      code: 'UNKNOWN_MODE',
+      count: 2,
+      isRegistrable: true,
+      suggestedCode: 'UNKNOWN_MODE',
+    });
+    expect(first[1]).toMatchObject({
+      code: 'low battery',
+      count: 1,
+      isRegistrable: false,
+      suggestedCode: 'LOW_BATTERY',
+    });
+    expect(Number.isNaN(Date.parse(first[0]?.lastSeenAt ?? ''))).toBe(false);
+
+    // 登録すると、一覧から消える。削除すると、戻る（記録は、消さない）
+    await apiOk(request, 'POST', '/status-codes', {
+      code: 'UNKNOWN_MODE',
+      name: '不明なモード',
+      category: 'CAUTION',
+    });
+    expect((await unregistered(request)).map((item) => item.code)).toEqual(['low battery']);
+    await apiOk(request, 'DELETE', '/status-codes/UNKNOWN_MODE');
+    expect((await unregistered(request)).map((item) => item.code)).toEqual([
+      'UNKNOWN_MODE',
+      'low battery',
+    ]);
+  });
+
+  test('変更する権限のない利用者（閲覧者）は、403。サーバー側で拒否する', async ({ request }) => {
+    await prepareApp(request);
+    await addUser(request, VIEWER);
+    const login = await request.post('/api/v1/auth/login', {
+      data: { userId: VIEWER.userId, password: VIEWER.password },
+    });
+    const { accessToken } = (await login.json()) as { accessToken: string };
+
+    const denied = await request.fetch('/api/v1/status-codes/unregistered', {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+
+    expect(denied.status()).toBe(403);
+  });
+});
+
 test.describe('古い画面の部品が取得できない場合（デプロイのあとに、古い画面を使い続けているとき。Issue #323）', () => {
   test('画面の部品の取得に失敗すると、1 回だけ自動で再読み込みし、続けて失敗するときは、「新しい版に更新されました」と、再読み込みのボタンを示す。取得できるようになれば、再読み込みで、画面が開く', async ({
     page,

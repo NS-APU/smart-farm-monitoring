@@ -39,6 +39,7 @@ import type {
   FacilityAccessRecord,
   PushSubscriptionRecord,
   StatusChangeEntry,
+  UnregisteredStatusCodeRecord,
   UserRecord,
 } from './records.ts';
 
@@ -63,6 +64,17 @@ export interface StatusCodeRepository {
   list(options?: { readonly includeDeleted?: boolean }): Promise<StatusCodeDefinition[]>;
   get(code: string): Promise<StatusCodeDefinition | undefined>;
   save(definition: StatusCodeDefinition): Promise<void>;
+}
+
+/**
+ * 未登録のコード値の記録（SC-12-5。Issue #158）。コード値ごとに 1 件（件数・最終の日時）。記録は、削除しない
+ * （登録済みかどうかは、読むときに、ステータスコードの定義と照らす）。記録の上限は、呼び出し側（取り込み）が守る。
+ */
+export interface UnregisteredStatusCodeRepository {
+  /** 記録のあるコード値のすべて（上限があるため、少量）。順序は決めない。 */
+  list(): Promise<UnregisteredStatusCodeRecord[]>;
+  /** コード値の件数を加え、最終の日時を `seenAt` にする（記録がなければ作る）。同時の加算でも、件数を取りこぼさない。 */
+  record(code: string, count: number, seenAt: Date): Promise<void>;
 }
 
 /** 判断基準の変更後の値（既定値はコードで持つため、変更がない観点は持たない）。 */
@@ -397,6 +409,7 @@ export interface SettingsRepository {
 export interface Repositories {
   readonly equipment: EquipmentRepository;
   readonly statusCodes: StatusCodeRepository;
+  readonly unregisteredStatusCodes: UnregisteredStatusCodeRepository;
   readonly criteria: CriteriaRepository;
   readonly observations: ObservationRepository;
   readonly evaluations: EvaluationRepository;
