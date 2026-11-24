@@ -17,6 +17,7 @@ import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-cod
 import { PERIOD_DAYS_OPTIONS } from '@smart-farm/shared/constants/status';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
+import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
@@ -163,8 +164,71 @@ function byEvaluationOrder(targets: readonly Equipment[]): Equipment[] {
   ];
 }
 
+/** 評価に使う観測値の読み取り（評価の期間の観測値と、累積の項目の基準にする、期間より前の値）。 */
+interface ObservationReads {
+  readonly observations: readonly Observation[];
+  readonly baselineObservations: readonly Observation[];
+}
+
+/** この回の評価で、設備ごとの観測値の読み取りを共有する入れ物（共有しない回は undefined）。 */
+type SharedReads = Map<EquipmentId, Promise<ObservationReads>>;
+
+/**
+ * 設備ごとの読み取りを、この回の評価の中で共有するか。評価の対象が、1 つのハウス（と、その配下の設備）だけのときに限る。
+ * ハウスの評価は、配下の設備の観測値も読む（運用面の観点。D-19）。配下の設備を先に評価しているため、同じ観測値（最長 90 日）を、
+ * ハウスの評価でもう一度読まずに、先に読んだ結果を使う。共有した読み取りは、回の終わりまで保持するため、複数のハウスをまたぐ回
+ * （全設備の評価など）では共有しない（保持する量が、1 つのハウスの評価で読む量を超えないようにする）。
+ */
+function shouldShareReads(targets: readonly Equipment[]): boolean {
+  const groups = new Set(
+    targets.map((equipment) =>
+      equipment.equipmentType === 'FACILITY'
+        ? equipment.equipmentId
+        : (equipment.facilityId ?? equipment.equipmentId),
+    ),
+  );
+  return groups.size <= 1;
+}
+
 export function createEvaluationService(deps: EvaluationServiceDeps): EvaluationService {
   const { repositories, criteria, notifications, federation, clock, settings, logger } = deps;
+
+  /**
+   * 評価の単位の観測値を読む。`shared` があれば、設備ごとに読み、同じ回の中で、同じ設備を読み直さない
+   * （評価の単位の設備の順に並べる。1 回の読み取りと同じ順序）。累積の項目の基準にする、期間より前の値は、設備・項目ごとの最新の 1 件のため、設備ごとの読み取りの和と同じ。
+   */
+  async function readObservations(
+    equipmentIds: readonly EquipmentId[],
+    readFrom: Date,
+    now: Date,
+    shared: SharedReads | undefined,
+  ): Promise<ObservationReads> {
+    const readOf = async (ids: readonly EquipmentId[]): Promise<ObservationReads> => {
+      const [observations, baselineObservations] = await Promise.all([
+        repositories.observations.findForEvaluation(ids, readFrom, now),
+        repositories.observations.findLatestBefore(ids, CUMULATIVE_ITEM_KEYS, readFrom),
+      ]);
+      return { observations, baselineObservations };
+    };
+    if (shared === undefined) {
+      return readOf(equipmentIds);
+    }
+    const parts = await Promise.all(
+      equipmentIds.map((equipmentId) => {
+        const cached = shared.get(equipmentId);
+        if (cached !== undefined) {
+          return cached;
+        }
+        const read = readOf([equipmentId]);
+        shared.set(equipmentId, read);
+        return read;
+      }),
+    );
+    return {
+      observations: parts.flatMap((part) => part.observations),
+      baselineObservations: parts.flatMap((part) => part.baselineObservations),
+    };
+  }
 
   /**
    * ハウスの結果のうち、配下の設備の最も悪い結果にする部分（D-19）。配下の設備の結果は、この回で評価したものを使い、
@@ -200,6 +264,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     statusCodes: ReadonlyMap<string, StatusCodeDefinition>,
     criteriaMap: ReadonlyMap<ViewpointId, ViewpointCriteria>,
     now: Date,
+    shared: SharedReads | undefined,
   ): Promise<EvaluationResult[]> {
     const scope = resolveEvaluationScope(equipment, allEquipment);
     const aggregated =
@@ -212,14 +277,12 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
       .filter((viewpointId) => !aggregatedViewpointIds.has(viewpointId));
     const readFrom = new Date(now.getTime() - LONGEST_PERIOD_DAYS * MS_PER_DAY);
     // 累積の項目の、期間の直前の値は、読んだ範囲（最長の期間）の中にあれば、それを使う。範囲より前の値だけ、別に読む（設備 × 項目の数の、少量の読み取り。D-26）
-    const [observations, baselineObservations] = await Promise.all([
-      repositories.observations.findForEvaluation(scope.equipmentIds, readFrom, now),
-      repositories.observations.findLatestBefore(
-        scope.equipmentIds,
-        CUMULATIVE_ITEM_KEYS,
-        readFrom,
-      ),
-    ]);
+    const { observations, baselineObservations } = await readObservations(
+      scope.equipmentIds,
+      readFrom,
+      now,
+      shared,
+    );
     const drafts = evaluateScope({
       observations,
       baselineObservations,
@@ -360,6 +423,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     let notificationsCreated = 0;
     const failures: unknown[] = [];
     const evaluatedInRun = new Map<EquipmentId, readonly EvaluationResult[]>();
+    const sharedReads: SharedReads | undefined = shouldShareReads(targets) ? new Map() : undefined;
     for (const equipment of targets) {
       await yieldToEventLoop();
       // 1つの設備の失敗が、残りの設備の評価・通知を止めないようにする
@@ -371,6 +435,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
           statusCodes,
           criteriaMap,
           now,
+          sharedReads,
         );
         evaluatedInRun.set(equipment.equipmentId, results);
         const outcome = await recordStatusChanges(equipment, results, now);
