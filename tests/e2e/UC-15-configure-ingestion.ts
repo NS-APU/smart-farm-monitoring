@@ -92,7 +92,7 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
       await expect(card.locator('input[type="password"]')).toHaveCount(0);
     }
     await expect(sourceCard(page, 'robot')).toContainText(
-      '解釈に使っている仕様: robot-json@0.3.0(PROVISIONAL)（仮決め）',
+      '解釈に使っている仕様: robot-json@1.0.0(CONFIRMED)（確定）',
     );
     await expect(sourceCard(page, 'environment-sensor')).toContainText(
       'environment-sensor-json@1.0.0(CONFIRMED)（確定）',
