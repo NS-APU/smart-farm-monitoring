@@ -58,6 +58,11 @@ export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   readonly query?: Readonly<Record<string, string | number | undefined>>;
   readonly body?: unknown;
+  /**
+   * 文字列を、そのまま本文にして送る（`Content-Type: application/json`。JSON.stringify しない）。ファイルの内容そのものを送る API
+   * （取り込み用のファイルを置く操作。Issue #565）に使う。`body` と同時には指定しない。
+   */
+  readonly textBody?: string;
   /** 認証トークンを付けない（ログイン・更新）。 */
   readonly anonymous?: boolean;
   /** 更新の条件（読み込んだ時点の版〔ETag〕）。現在の版と一致しなければ、サーバーは 409 を返す。 */
@@ -134,7 +139,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     if (etag !== undefined) {
       headers.set('if-none-match', etag);
     }
-    if (requestOptions.body !== undefined) {
+    if (requestOptions.body !== undefined || requestOptions.textBody !== undefined) {
       headers.set('content-type', 'application/json');
     }
     if (requestOptions.ifMatch !== undefined) {
@@ -150,7 +155,11 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         method: requestOptions.method ?? 'GET',
         headers,
         signal: controller.signal,
-        ...(requestOptions.body === undefined ? {} : { body: JSON.stringify(requestOptions.body) }),
+        ...(requestOptions.textBody !== undefined
+          ? { body: requestOptions.textBody }
+          : requestOptions.body === undefined
+            ? {}
+            : { body: JSON.stringify(requestOptions.body) }),
       });
     } catch {
       throw new ApiError(0, 'NETWORK_ERROR', MESSAGES.common.networkError);

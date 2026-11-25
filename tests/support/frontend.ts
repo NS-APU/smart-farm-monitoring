@@ -12,6 +12,10 @@ export interface FakeRequest {
   readonly path: string;
   readonly query: URLSearchParams;
   readonly body: unknown;
+  /** 本文の文字列そのもの（JSON を包まずに送る本文の確認用。本文がなければ undefined）。 */
+  readonly rawBody: string | undefined;
+  /** 本文の Content-Type。 */
+  readonly contentType: string | null;
   readonly authorization: string | null;
   /** 条件つきの GET（前回の ETag）。 */
   readonly ifNoneMatch: string | null;
@@ -32,6 +36,14 @@ export function errorResponse(status: number, code: string, message: string): Re
   return jsonResponse({ error: { code, message } }, status);
 }
 
+function parseJsonOrUndefined(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 /** API のスタブ。ハンドラが undefined を返したリクエストは、404 にする。呼び出しを記録する。 */
 export function createFakeFetch(handler: FakeHandler) {
   const calls: FakeRequest[] = [];
@@ -44,7 +56,9 @@ export function createFakeFetch(handler: FakeHandler) {
       method: init?.method ?? 'GET',
       path: url.pathname.replace(/^\/api\/v1/, ''),
       query: url.searchParams,
-      body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined,
+      body: typeof init?.body === 'string' ? parseJsonOrUndefined(init.body) : undefined,
+      rawBody: typeof init?.body === 'string' ? init.body : undefined,
+      contentType: headers.get('content-type'),
       authorization: headers.get('authorization'),
       ifNoneMatch: headers.get('if-none-match'),
       ifMatch: headers.get('if-match'),

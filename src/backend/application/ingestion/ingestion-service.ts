@@ -22,6 +22,7 @@ import type {
   IngestionSource,
 } from '@smart-farm/shared/schemas/ingestion';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
+import type { SourceFileInspection } from '@smart-farm/shared/schemas/ingestion';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
@@ -107,6 +108,15 @@ export interface IngestionService {
   testEquipmentConnection(equipmentId: string): Promise<ConnectionTestResult>;
   /** 取り込み元が実行中か（二重実行の防止。画面で、実行中を示す）。 */
   isRunning(sourceId: string): boolean;
+  /**
+   * ファイルの内容を、取り込みと同じ解釈（FormatProfile・項目の検証）で検査する。**何も保存しない**（置く前の検査。Issue #565）。
+   * 読み取れない（形式違い・計測日時がない・空）は、置けない理由（`problems`）に、取り込みで「不正」「欠損」になる項目は、警告（`warnings`。項目名だけ）にする。
+   */
+  inspectFile(
+    sourceId: string,
+    equipmentId: EquipmentId,
+    content: string,
+  ): Promise<SourceFileInspection>;
 }
 
 export interface IngestionServiceDeps {
@@ -1340,6 +1350,73 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         throw new AppError('NOT_FOUND', '設備が見つかりません');
       }
       return runConnectionTest(() => fileSource.testEquipment(equipmentId));
+    },
+
+    async inspectFile(sourceId, equipmentId, content) {
+      const source = (await ingestionSettings.listSources()).find(
+        (candidate) => candidate.sourceId === sourceId,
+      );
+      const profile = source === undefined ? undefined : profiles.get(source.profileId);
+      if (profile === undefined) {
+        throw new AppError('INTERNAL_ERROR', '取り込みの設定に誤りがあります');
+      }
+      const base = {
+        formatLabel: profile.versionLabel,
+        size: Buffer.byteLength(content, 'utf8'),
+        itemCount: 0,
+        warnings: [] as string[],
+      };
+      const unreadable = (problem: string): SourceFileInspection => ({
+        ...base,
+        ok: false,
+        problems: [problem],
+      });
+      if (content.trim() === '') {
+        return unreadable('ファイルが空です');
+      }
+      let parsed;
+      try {
+        parsed = profile.parse(content);
+      } catch (error) {
+        if (error instanceof FormatError) {
+          return unreadable(
+            `ファイルの形式が、取り込みの仕様（${profile.versionLabel}）と異なります`,
+          );
+        }
+        throw error;
+      }
+      const observedAtMs =
+        parsed.record === undefined ? Number.NaN : Date.parse(parsed.record.observedAt);
+      if (Number.isNaN(observedAtMs)) {
+        return unreadable('計測日時が読み取れません');
+      }
+      const { observations } = toObservations(
+        profile,
+        'inspection',
+        content,
+        equipmentId,
+        await loadStatusCodes(),
+        clock.now(),
+      );
+      const warnings = observations.flatMap((observation) => {
+        const label = findItemDefinition(observation.itemKey)?.label ?? observation.itemKey;
+        if (observation.quality === 'MISSING') {
+          return [`${label}: 値がないため、取り込みでは「欠損」として扱われます`];
+        }
+        return isRejectedQuality(observation.quality)
+          ? [
+              `${label}: 値が範囲外・数値でない・未登録のコード値などのため、取り込みでは「不正」として扱われます`,
+            ]
+          : [];
+      });
+      return {
+        ...base,
+        ok: true,
+        observedAt: new Date(observedAtMs).toISOString(),
+        itemCount: observations.length,
+        problems: [],
+        warnings,
+      };
     },
   };
 }

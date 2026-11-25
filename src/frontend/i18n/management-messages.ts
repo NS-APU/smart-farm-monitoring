@@ -679,6 +679,56 @@ export const MANAGEMENT_MESSAGES = {
     equipmentTest: '接続テスト',
     equipmentTesting: '接続テスト中…',
     equipmentTestLabel: (name: string) => `${name}の接続テスト`,
+    /** ブラウザから、取り込み用のファイルを置く（Issue #565。ADR-0027）。 */
+    sourceFile: {
+      button: 'ファイルを置く',
+      buttonLabel: (name: string) => `${name}のファイルを置く`,
+      title: 'ファイルを置く',
+      target: '対象の設備',
+      targetValue: (name: string, path: string) => `${name}（ファイルのパス: ${path}）`,
+      lead: '選んだファイルを、この設備のファイルのパスに置きます。置いたファイルは、取り込みが読み取ります。先に「内容を確認」で、置けるかを確かめます',
+      fileLabel: '取り込み用のファイル（JSON）',
+      fileHint: '.json のファイルを選びます。大きさは 1 MiB までです',
+      selected: (name: string, size: string) => `選んだファイル: ${name}（${size}）`,
+      tooLarge: (bytes: number) =>
+        `ファイルが大きすぎます（${bytes.toLocaleString('ja-JP')} バイト）。1 MiB を超えるファイルは、置けません（送信していません）`,
+      readFailed: 'ファイルを読み取れませんでした。選び直してください',
+      check: '内容を確認',
+      checking: '確認中…',
+      place: '置く',
+      placing: '置いています…',
+      resultHeading: '確認の結果',
+      okText: '置けます',
+      ngText: '置けません',
+      format: '解釈に使う仕様',
+      observedAt: '読み取れた計測日時',
+      observedAtNone: '読み取れませんでした',
+      itemCount: '読み取れた項目数',
+      itemCountValue: (count: number) => `${String(count)} 件`,
+      fileSize: 'ファイルの大きさ',
+      problemsHeading: '置けない理由',
+      warningsHeading:
+        '注意: 置けますが、取り込みで「不正」になる点があります（項目名だけを示します）',
+      confirm: {
+        title: 'ファイルを置きますか',
+        message: '同じパスのファイルは、置き換わります',
+        notes: [
+          '置いただけでは、取り込まれません。取り込みは、自動の取り込みか、即時取得で行います',
+        ],
+        equipment: '設備',
+        fileName: 'ファイルの名前',
+        size: '大きさ',
+        observedAt: '計測日時',
+      },
+      done: (name: string, observedAt: string | undefined, warningCount: number) =>
+        `ファイルを置きました: ${name}（${
+          observedAt === undefined ? '計測日時を読み取れませんでした' : `計測日時 ${observedAt}`
+        }${warningCount > 0 ? `、注意 ${String(warningCount)} 件` : ''}）`,
+      afterPlaced:
+        '取り込みは、まだ行っていません。自動の取り込みが有効なら、次の取り込みで読み取ります。すぐに取り込むときは、「今すぐ取り込む」を押してください',
+      afterPlacedRunNote: '（即時取得と同じ処理です。この取り込み元の設備すべてが対象です）',
+      runNow: '今すぐ取り込む',
+    },
     equipmentConfigure: '接続を設定・修正',
     equipmentConfigureLabel: (name: string) => `${name}の接続を設定・修正`,
     equipmentEmpty: '取り込みの対象の設備（ロボット・環境センサー）が登録されていません',

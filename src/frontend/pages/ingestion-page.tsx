@@ -3,6 +3,8 @@
  * 設備ごとの接続と状況の表（接続先・認証情報の状態・最後にデータが取れた日時・停止中・設備だけの接続テスト。Issue #367）、
  * 解釈に使っている仕様の版と状態、取り込みのログ、農業情報基盤への連携の状況（送信済み・失敗・保留・期限切れ）。接続・認証情報の入力は、設備のダイアログ（SC-10）で行う。
  * 認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
+ * 設定の権限がある利用者は、ファイルのパスがある設備に、ブラウザから、取り込み用のファイルを置ける（「ファイルを置く」。Issue #565。
+ * ダイアログは SourceFileDialog。置いたあとは、結果を通知し、「今すぐ取り込む」（即時取得と同じ処理）へ導く。自動では取り込まない）。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
@@ -31,6 +33,7 @@ import { FederationSettingsPanel } from '../components/federation-settings-panel
 import { FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { isoToJstDateTimeInput, jstDateToIso } from '../components/jst.ts';
+import { SourceFileDialog } from '../components/source-file-dialog.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
 import { useCursorPaging, type CursorPaging } from '../hooks/use-cursor-paging.ts';
@@ -85,6 +88,12 @@ function SourceCard(props: SourceCardProps): ReactNode {
     Readonly<Record<string, EquipmentTestResult | undefined>>
   >({});
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
+  /** 「ファイルを置く」のダイアログを開いている設備（Issue #565）。 */
+  const [placing, setPlacing] = useState<
+    { readonly equipmentId: string; readonly name: string; readonly path: string } | undefined
+  >(undefined);
+  /** ファイルを置いた結果の通知（置いた設備の名前などの文。「今すぐ取り込む」で、取り込みへ導く）。 */
+  const [placedMessage, setPlacedMessage] = useState<string | undefined>(undefined);
   const { result, onResult: setResult } = props;
   const locked = submit.busy || source.isRunning;
 
@@ -114,8 +123,19 @@ function SourceCard(props: SourceCardProps): ReactNode {
     }
   }
 
+  function handlePlaceFile(equipmentId: string): void {
+    const target = source.equipment.find((item) => item.equipmentId === equipmentId);
+    if (target?.sourceFilePath === undefined) {
+      return;
+    }
+    setResult(undefined);
+    setPlacedMessage(undefined);
+    setPlacing({ equipmentId, name: target.name, path: target.sourceFilePath });
+  }
+
   async function handleRun(): Promise<void> {
     setResult(undefined);
+    setPlacedMessage(undefined);
     setOperation('run');
     const ran = await submit.run(() => runIngestion(api, source.sourceId));
     setOperation(undefined);
@@ -171,7 +191,50 @@ function SourceCard(props: SourceCardProps): ReactNode {
         onTest={(equipmentId) => {
           void handleTestEquipment(equipmentId);
         }}
+        canPlaceFile={props.canConfigure}
+        onPlaceFile={handlePlaceFile}
       />
+      {placedMessage === undefined ? null : (
+        <div className="source-file-placed" data-testid={`source-file-placed-${source.sourceId}`}>
+          <ResultNotice message={placedMessage} testId={`source-file-result-${source.sourceId}`} />
+          <p className="muted">{TEXT.sourceFile.afterPlaced}</p>
+          {props.canRun ? (
+            <p>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={locked}
+                onClick={() => {
+                  void handleRun();
+                }}
+              >
+                {TEXT.sourceFile.runNow}
+              </button>{' '}
+              <span className="muted">{TEXT.sourceFile.afterPlacedRunNote}</span>
+            </p>
+          ) : null}
+        </div>
+      )}
+      {placing === undefined ? null : (
+        <SourceFileDialog
+          equipmentId={placing.equipmentId}
+          equipmentName={placing.name}
+          sourceFilePath={placing.path}
+          onClose={() => {
+            setPlacing(undefined);
+          }}
+          onPlaced={(placed) => {
+            setPlacedMessage(
+              TEXT.sourceFile.done(
+                placing.name,
+                placed.observedAt === undefined ? undefined : formatDateTimeJst(placed.observedAt),
+                placed.warnings.length,
+              ),
+            );
+            setPlacing(undefined);
+          }}
+        />
+      )}
       <form
         noValidate
         aria-label={`${sourceName(source.sourceId)}の設定`}

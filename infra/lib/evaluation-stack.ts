@@ -52,7 +52,7 @@ import {
 import { RetentionDays, LogGroup } from 'aws-cdk-lib/aws-logs';
 import { AaaaRecord, ARecord, HostedZone, RecordTarget } from 'aws-cdk-lib/aws-route53';
 import { CloudFrontTarget } from 'aws-cdk-lib/aws-route53-targets';
-import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { BlockPublicAccess, Bucket, BucketEncryption, type IBucket } from 'aws-cdk-lib/aws-s3';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { BucketDeployment, CacheControl, Source } from 'aws-cdk-lib/aws-s3-deployment';
 import { type Construct } from 'constructs';
@@ -164,6 +164,12 @@ export interface EvaluationStackProps extends StackProps {
    * 未設定だと、取り込みが失敗し続けるため。本番サイトは、空のまま。実サーバーのアダプタは、Issue #119）
    */
   readonly includeDemoFeed?: boolean;
+  /**
+   * 自前のファイルサーバーのバケット（独立したスタック〔file-server-stack.ts〕のもの。Issue #565。ADR-0027）。指定すると、API の Lambda が、
+   * 画面から取り込み用のファイルを置く（バケットの `files/` の下への PutObject だけ。環境変数 HOSTED_FILE_SERVER_BUCKET）。
+   * 指定しなければ、この機能は使えない（置こうとすると、503）。評価環境のスタックが、ファイルサーバーのスタックに依存する（逆は、ない）。
+   */
+  readonly hostedFileBucket?: IBucket;
   /**
    * 接続元ごとのログインの失敗の制限（API の Lambda の環境変数 LOGIN_FAILURE_LIMIT・LOGIN_FAILURE_WINDOW_MINUTES）。
    * 既定は、失敗 5 回 / 15 分（Issue #244。D-44）。一部だけを指定すると、残りは、既定の値。
@@ -300,6 +306,9 @@ export class EvaluationStack extends Stack {
         // 秘密のヘッダーの検証（API の Lambda だけ。ジョブ・デモの Lambda には、関数の URL がない）。値は、持たない。秘密の ARN だけを渡し、
         // Lambda が、コールドスタートで、Secrets Manager から読む（秘密の値を、Lambda の設定に持たない）
         ORIGIN_VERIFY_ARN: originSecret.secretArn,
+        ...(props.hostedFileBucket === undefined
+          ? {}
+          : { HOSTED_FILE_SERVER_BUCKET: props.hostedFileBucket.bucketName }),
         EVALUATION_ON_WRITE: 'deferred',
         // ログインを受けるのは、API だけ（ジョブの Lambda には、持たない）。値は、IaC のデプロイで決める（コードの変更は、要らない）
         LOGIN_FAILURE_LIMIT: String(props.loginFailurePolicy?.limit ?? LOGIN_FAILURE_LIMIT),
@@ -323,6 +332,15 @@ export class EvaluationStack extends Stack {
     apiFunction.addToRolePolicy(dataTablesPolicy());
     for (const statement of credentialPolicies(SSM_API_ACTIONS, KMS_SSM_API_ACTIONS)) {
       apiFunction.addToRolePolicy(statement);
+    }
+    // 画面から置くファイルの保管先（#565）: ファイルサーバーのバケットの `files/` の下への書き込みだけ（読み取り・削除・一覧は、付けない）
+    if (props.hostedFileBucket !== undefined) {
+      apiFunction.addToRolePolicy(
+        new PolicyStatement({
+          actions: ['s3:PutObject'],
+          resources: [props.hostedFileBucket.arnForObjects('files/*')],
+        }),
+      );
     }
     apiFunction.addToRolePolicy(
       new PolicyStatement({

@@ -184,7 +184,7 @@
 | Web Push                       | `GET`・`PUT`・`DELETE /push-subscription`、`POST /push-subscription/test`（テスト通知。#159）                                      | LOGIN                                 |
 | 取り込み・連携                 | `GET /ingestion/facility-logs`・`GET /federation/facility-logs`（ハウス別。閲覧できるハウスの分だけ。#332）                           | LOGIN                                 |
 |                                | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings`                                                            | `ingestion:read`                      |
-|                                | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`（#367） | `ingestion:configure`                 |
+|                                | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`（#367）・`POST /ingestion/equipment/:equipmentId/source-file/check`・`PUT /ingestion/equipment/:equipmentId/source-file`（#565。ファイルを置く） | `ingestion:configure`                 |
 |                                | `POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test`（#367）                                                                   | `ingestion:run`                       |
 | ユーザー                       | `GET`・`POST /users`・`PUT`・`DELETE /users/:userId`                                                                                | `user:manage`                         |
 | 閲覧の割り当て                 | `GET /facility-access`・`PUT /facility-access/:facilityId`                                                                          | `user:manage`                         |
@@ -216,6 +216,8 @@
 **デモ用の HTTP ファイル配信（Issue #344。ADR-0025）**: 上とは別に、専用の Lambda（`runtime/demo-feed-http-lambda.ts`）に、認証なしの Function URL を付け（開発サイトだけ）、`GET`・`HEAD` で、取り込み元ごとのファイル（`/robot/latest.json`・`/environment-sensor/latest.json`）を、**リクエストごとに**、現在の時刻から作って返す（`Last-Modified` は、現在の区間の開始。保管しない）。権限・環境変数は持たない（S3・DynamoDB・Cognito・秘密情報を使わない）。`pnpm demo-data use-http-feed` が、取り込み元の接続を HTTP にし、デモの設備に `sourceFilePath` を設定する（`seed` の設備は、ファイルパスを持たない）。（以前の、S3 に置く方式〔ADR-0012〕は、#344 の PR 3a で削除した。ディレクトリのモックは、PR 3b で削除した。）ローカルでは、`pnpm dev:demo-feed`（`runtime/demo-feed-server.ts`・`demo-feed-main.ts`）が、同じハンドラを、127.0.0.1 の HTTP サーバー（既定ポート 8790。`--port`・環境変数 `DEMO_FEED_PORT`）から返す。出力 `DemoFeedUrl`。
 
 **自前のファイルサーバー（Issue #298。ADR-0027）**: ファイルを置く口を持つ、実際のファイルサーバー。専用の Lambda（`runtime/hosted-file-server-lambda.ts`。Function URL）が、S3 のバケットの `files/` の下に、設備ごとのファイルパスのファイルを保管し、`PUT`（書き込み用トークン。1 MiB まで・UTF-8 の JSON）・`GET`・`HEAD`（読み取り用トークン）を受ける。処理は `application/hosted-file-server/hosted-file-server.ts`、保管先は `infrastructure/s3/s3-hosted-file-store.ts`。IaC（独立したスタック `SfmFileServer`・`SfmProductionFileServer`。`infra/lib/file-server-stack.ts`。S3 のバケット・Lambda・Function URL・最小の権限・同時実行数の上限。本番は RETAIN・スタックの削除の保護）を実装した。**開発サイトは、デプロイと、接続・取り込みの確認が済んだ**（2026-11-25。ユーザーの報告。operations.md 8.11）。**本番サイトは、未**（実証の前に、8.11 を読み替えて行う）。
+
+**画面から、取り込み用のファイルを置く（Issue #565。ADR-0027）**: 管理者（`ingestion:configure`）が、SC-11 の設備の行の「ファイルを置く」から、設備の `sourceFilePath` の場所（ロボットの `PUT` と同じ場所）に、ファイルを置ける。API は `POST /ingestion/equipment/:equipmentId/source-file/check`（取り込みと同じ解釈で、保存せずに検査）と `PUT …/source-file`（検査して置く）。本文は、ファイルそのもの（1 MiB まで）。API の Lambda に、バケットの `files/` の下への `s3:PutObject` だけを付けた（IaC。評価環境のスタックが、ファイルサーバーのスタックのバケットを参照する）。ローカル・テストは、メモリの保管先（取り込み用の HTTP とは繋がらない）。**開発サイト・本番サイトとも、デプロイ・確認は未**（operations.md 8.12）。
 
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
 
@@ -1143,7 +1145,7 @@ flowchart LR
 | 権限                  | 要求するルート                                                        | 画面         |
 | --------------------- | --------------------------------------------------------------------- | ------------ |
 | `equipment:manage`    | `POST /equipment`・`PUT`・`DELETE /equipment/:id`                     | SC-10        |
-| `ingestion:configure` | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials` | SC-11・SC-10 |
+| `ingestion:configure` | `PUT /ingestion/settings`・`PUT`・`DELETE /ingestion/equipment/:equipmentId/connection`・`PUT /ingestion/equipment/:equipmentId/credentials`・`POST …/source-file/check`・`PUT …/source-file`（#565） | SC-11・SC-10 |
 | `ingestion:run`       | `POST /ingestion/:sourceId/run`・`POST /ingestion/equipment/:equipmentId/test` | SC-11・SC-10 |
 | `ingestion:read`      | `GET /ingestion/settings`・`GET /ingestion/logs`・`GET /federation/logs`・`GET /federation/settings` | SC-11     |
 | `status-code:manage`  | `GET /status-codes/unregistered`・`POST /status-codes`・`PUT`・`DELETE /status-codes/:code` | SC-12        |
@@ -1168,7 +1170,7 @@ flowchart LR
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
 | `HTTP_FILE_SOURCE_ALLOW_PRIVATE`                                | `false`                   | `true` のとき、取り込み元の接続先に、内部のアドレス（127.0.0.1 など）を許す。ローカル・テストの確認用（`pnpm dev:demo-feed` など）。`APP_MODE=production` では、無効（ADR-0022）  |
 | `DEMO_FEED_PORT`                                                | `8790`                    | `pnpm dev:demo-feed`（バックエンドではなく、デモ用の配信のコマンド）のポート。`--port` でも指定できる（0〜65535）                               |
-| `HOSTED_FILE_SERVER_BUCKET`                                     | なし（必須）              | 自前のファイルサーバーの Lambda（`runtime/hosted-file-server-lambda.ts`）が、ファイルを保管する S3 のバケット名。同じ Lambda は、`CREDENTIAL_PATH_PREFIX`・`LOG_LEVEL` も読む。ほかの Lambda・ローカルのサーバーは、読まない（ADR-0027。IaC が設定する）                |
+| `HOSTED_FILE_SERVER_BUCKET`                                     | なし（必須）              | 自前のファイルサーバーの Lambda（`runtime/hosted-file-server-lambda.ts`）が、ファイルを保管する S3 のバケット名。同じ Lambda は、`CREDENTIAL_PATH_PREFIX`・`LOG_LEVEL` も読む。**API の Lambda も、読む**（画面から置くファイルの保管先。#565。未設定は、本番では機能なし・それ以外はメモリ）。ジョブの Lambda・ローカルのサーバーは、読まない（ADR-0027。IaC が設定する）                |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
 | `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123・#404。ADR-0014） |

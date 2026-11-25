@@ -64,6 +64,23 @@ export function createIngestionHandlers(deps: ApiDeps): Readonly<Record<string, 
       const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
       return c.json(await deps.ingestionAdminService.testEquipmentConnection(equipmentId));
     },
+    // 画面から、設備ごとの取り込み用のファイルを置く（Issue #565。ADR-0027）。本文は、ファイルそのもの（JSON のテキスト）
+    async 'POST /ingestion/equipment/:equipmentId/source-file/check'(c) {
+      const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
+      return c.json(
+        await deps.ingestionAdminService.checkSourceFile(equipmentId, await c.req.text()),
+      );
+    },
+    async 'PUT /ingestion/equipment/:equipmentId/source-file'(c) {
+      const equipmentId = parseInput(EquipmentIdSchema, pathParam(c, 'equipmentId'));
+      return c.json(
+        await deps.ingestionAdminService.placeSourceFile(
+          equipmentId,
+          await c.req.text(),
+          actorOf(c),
+        ),
+      );
+    },
     async 'POST /ingestion/:sourceId/run'(c) {
       // ローカルでは、実行を待って、結果の概要を返す（本番は非同期に実行し、結果は取り込みログで確認する）
       return c.json(await deps.ingestionService.runSource(pathParam(c, 'sourceId')), 202);

@@ -44,6 +44,8 @@ import {
   IngestionLogListResponseSchema,
   IngestionRunResponseSchema,
   IngestionSettingsResponseSchema,
+  SourceFileInspectionSchema,
+  SourceFilePlacedSchema,
   type FileServerConnection,
   type IngestionCredentialsInput,
   type IngestionSettingsUpdateRequest,
@@ -418,6 +420,27 @@ export function testEquipmentConnection(api: ApiClient, equipmentId: string) {
   return api.request(API_PATHS.ingestionEquipmentTest(equipmentId), {
     method: 'POST',
     schema: ConnectionTestResponseSchema,
+  });
+}
+
+/**
+ * 取り込み用のファイルを、置く前に検査する（保存しない。Issue #565）。本文は、ファイルの内容そのもの（JSON の包みは付けない）。
+ * 置けない内容は、エラーでなく、`ok: false` と理由（problems）で返る。
+ */
+export function checkSourceFile(api: ApiClient, equipmentId: string, content: string) {
+  return api.request(API_PATHS.ingestionSourceFileCheck(equipmentId), {
+    method: 'POST',
+    textBody: content,
+    schema: SourceFileInspectionSchema,
+  });
+}
+
+/** 取り込み用のファイルを、設備のファイルのパスに置く（検査して置く。置けない内容は 400）。 */
+export function placeSourceFile(api: ApiClient, equipmentId: string, content: string) {
+  return api.request(API_PATHS.ingestionSourceFile(equipmentId), {
+    method: 'PUT',
+    textBody: content,
+    schema: SourceFilePlacedSchema,
   });
 }
 

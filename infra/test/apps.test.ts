@@ -285,6 +285,35 @@ describe('CDK アプリの組み立て', () => {
     expect(JSON.stringify(production.template.toJSON())).not.toContain('/sfm/development/');
   });
 
+  it('画面から置くファイルの保管先（#565）: 開発・本番とも、評価環境の API の Lambda に、そのサイトのファイルサーバーのバケットを渡す（環境変数と、PutObject の権限）。評価環境が、ファイルサーバーに依存する', () => {
+    const apiOf = (env: Record<string, string>, evaluationName: string) => {
+      const app = createEvaluationApp(env, assets());
+      const stack = app.node.findChild(evaluationName) as Stack;
+      const json = Template.fromStack(stack).toJSON() as {
+        Resources: Record<string, { Type: string; Properties: Record<string, unknown> }>;
+      };
+      const api = Object.entries(json.Resources).find(
+        ([id, resource]) =>
+          id.startsWith('ApiFunction') &&
+          resource.Type === 'AWS::Lambda::Function' &&
+          !id.includes('ServiceRole'),
+      );
+      return { api, text: JSON.stringify(json), stack };
+    };
+
+    const development = apiOf({}, 'SfmEvaluation');
+    const production = apiOf({ SFM_ENVIRONMENT: 'production' }, 'SfmProductionEvaluation');
+
+    expect(JSON.stringify(development.api?.[1].Properties)).toContain('HOSTED_FILE_SERVER_BUCKET');
+    expect(development.text).toContain('SfmFileServer:');
+    expect(production.text).toContain('SfmProductionFileServer:');
+    expect(production.text).not.toContain('SfmFileServer:');
+    expect(development.stack.dependencies.map((item) => item.node.id)).toContain('SfmFileServer');
+    expect(production.stack.dependencies.map((item) => item.node.id)).toContain(
+      'SfmProductionFileServer',
+    );
+  });
+
   it('ファイルサーバーは、評価環境のスタックに含まれない（評価環境を作り直しても、URL・ファイルが変わらない）', () => {
     const app = createEvaluationApp({}, assets());
     const evaluation = Template.fromStack(app.node.findChild('SfmEvaluation') as Stack).toJSON();
