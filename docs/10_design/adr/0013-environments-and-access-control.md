@@ -8,6 +8,7 @@
 - 更新（2026-11-10。#330）: 割り当ての**画面は、設備管理（SC-10）のハウスの行**に置く（ユーザーの判断。当初は、ユーザー管理に、ハウス×一般ユーザーの表を置いたが、意図と異なったため、ハウスごとに、一般ユーザーを個別に選ぶ形に直した）。データ・API・閲覧範囲の判定は、変わらない。
 - 更新（2026-11-10。#331）: **通知の閲覧範囲**を実装した（#116 の子）。通知に、作成時のハウス（`facilityId`）を持たせ、一覧・未読の件数・既読・一括既読・メモ・Web Push の宛先を、閲覧できる利用者にだけ。ハウスに属さない通知は、管理者のみ（ユーザーの判断）。詳細は [ADR-0019](./0019-notification-rules.md)・[ADR-0007](./0007-dynamodb-table-design.md)。
 - 更新（2026-10-26。#148）: 開発サイトでの、実データによる結合確認の条件を、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md) に記録した（6 章の TODO を置き換えた）。
+- 更新（2026-11-25。#298）: 本番サイトの取り込み元は、**こちらで用意する、ファイルを置けるファイルサーバー**（S3 + Lambda の Function URL。独立したスタック。本番サイトと開発サイトで、バケット・URL・トークンを別にする）にする（[ADR-0027](./0027-self-hosted-file-server.md)）。本番サイトに、デモ用の配信を作らない方針は、変わらない。
 - 関連: [ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0008](./0008-cognito-authentication.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0010](./0010-client-ip-from-cloudfront-function.md)、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)、[security.md](../../20_development/security.md)、[functional-requirements.md](../requirements/functional-requirements.md) の FR-9
 
 目的: 評価する人が見る環境について、「どこから・どのデータで・どう更新するか」と、アクセス制御（ログイン・ロール・初期ユーザー）の方針を決めた記録を残す。

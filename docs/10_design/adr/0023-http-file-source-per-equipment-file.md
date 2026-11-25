@@ -3,6 +3,7 @@
 - ステータス: 承認（2026-11-06。ユーザーの判断。Issue #119）。暫定（宇都宮大学のファイルサーバーへの接続で見直す。#298）
 - 日付: 2026-11-06
 - 更新（2026-11-19。#367）: **接続・認証情報は、取り込み元の共通の 1 つから、設備ごとに持つ**ことにした（[ADR-0026](./0026-per-equipment-file-server-connection.md)）。ファイルのパスに加えて、設備ごとの接続で、その設備のファイルを取得する（失敗も、設備ごとに分ける）。取り込み元の共通の接続・共通の認証情報は、廃止した（実装の 2 つ目の PR）。接続がない設備の取り込みは、「接続先が設定されていません」で失敗する。以下の「取得」「接続テスト」の「接続」は、設備ごとの接続のことで、接続テストは、設備ごとの接続テスト（`POST /ingestion/equipment/{equipmentId}/test`）に置き換わった（取り込み元単位の `POST /ingestion/{sourceId}/test` は、廃止）。
+- 更新（2026-11-25。#298）: 宇都宮大学の接続先・アクセス情報が提供されない可能性が高いため、**こちらで用意するファイルサーバー**（[ADR-0027](./0027-self-hosted-file-server.md)）に、このアダプタ（設備ごとのファイルパス・Bearer）で接続する。取得の手順（`HEAD`・`GET`・404 の設備を一覧に含めない・更新日時の扱い）は、変えない。宇都宮大学の接続先が提供されたときは、別の Issue で、見直す。
 - 関連: [ADR-0022](./0022-file-server-http-connection-provisional.md)（接続の設定・接続テスト・内部のアドレスの拒否）、[ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)（取得と解釈の分離）、[ADR-0015](./0015-provisional-policy-external-specs.md)（1 ファイルを随時更新する方式）、[architecture.md](../architecture/architecture.md) 5.1、[data-dictionary.md](../data/data-dictionary.md) 2 章、[functional-specification.md](../functions/functional-specification.md) SC-10・SC-11
 
 目的: HTTP の `FileSourcePort`（一覧・取得）を作るにあたり、「どのファイルを取得するか」を、取り込み元ごとの接続設定ではなく、**設備ごとのファイルパス**で決める。あわせて、HTTP の一覧・取得・接続テストの動作を記録する。
