@@ -468,7 +468,7 @@ aws ssm delete-parameter --region $region --name /sfm/development/file-server/en
 **前提**:
 - 開発サイト: `develop`（#298 の PR 2 を含む）が、「Deploy development」でデプロイされ、スタック `SfmFileServer` ができている。本番サイト: 9 章のとおり、「Deploy production」（`SfmProductionFileServer`）。**開発サイトで、先に確認する**
 - AWS のコマンドを使う PowerShell で、プロファイルとリージョンを設定する（`$env:AWS_PROFILE = '<プロファイル名>'`・`$env:AWS_DEFAULT_REGION = 'ap-northeast-1'`）。`aws sts get-caller-identity` で、対象が大学のアカウントであることを確認する
-- **デプロイの前に、同時実行数の上限を確認する**（関数に、同時実行数の上限〔既定 10。費用の増加の対策〕を付けるため）: `aws lambda get-account-settings --query "AccountLimit.[ConcurrentExecutions,UnreservedConcurrentExecutions]"`。通常のアカウントは、上限が大きい（1,000 など）。**この値が小さい（10 など）と、予約できず、`SfmFileServer` のデプロイが失敗する**（AWS は、予約したあとに残る未予約の同時実行数に、下限を設けている。値は、AWS の公式ドキュメントで確認する）。その場合は、AWS に、上限の引き上げを依頼するか、GitHub の Environment の変数 `SFM_FILE_SERVER_RESERVED_CONCURRENCY`（1〜1000）で、予約の値を下げる。確認の結果は、Issue #298 のコメントに記録する（アカウント ID は、書かない）
+- **この PR を `develop` にマージする前に、同時実行数の上限を確認する**（`develop` へのマージで、「Deploy development」が自動で動き、`SfmFileServer` が作られる。本番サイトは、`main` へのマージ〔9.3〕。関数に、同時実行数の上限〔既定 10。費用の増加の対策〕を付けるため）: `aws lambda get-account-settings --query "AccountLimit.[ConcurrentExecutions,UnreservedConcurrentExecutions]"`。通常のアカウントは、上限が大きい（1,000 など）。**この値が小さい（10 など）と、予約できず、`SfmFileServer` のデプロイが失敗する**（ほかのスタックの更新が、巻き込まれて止まるおそれがある。AWS は、予約したあとに残る未予約の同時実行数に、下限を設けている。値は、AWS の公式ドキュメントで確認する）。その場合は、AWS に、上限の引き上げを依頼するか、GitHub の Environment の変数 `SFM_FILE_SERVER_RESERVED_CONCURRENCY`（1〜1000）で、予約の値を下げる。確認の結果は、Issue #298 のコメントに記録する（アカウント ID は、書かない）
 
 | 手順 | 操作 | 期待する結果 |
 |------|------|--------------|
