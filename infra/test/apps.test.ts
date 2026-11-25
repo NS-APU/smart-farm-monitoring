@@ -28,9 +28,9 @@ function stackNames(app: App): string[] {
 }
 
 describe('CDK アプリの組み立て', () => {
-  it('評価環境: 設定がなければ、データと評価環境のスタックだけを作る（アカウントに依存しない）', () => {
+  it('評価環境: 設定がなければ、データ・ファイルサーバー・評価環境のスタックだけを作る（アカウントに依存しない）', () => {
     const app = createEvaluationApp({}, assets());
-    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmFileServer']);
   });
 
   it('評価環境: ログインの失敗の制限（SFM_LOGIN_FAILURE_LIMIT・SFM_LOGIN_FAILURE_WINDOW_MINUTES）を、API の Lambda の環境変数に渡す。指定しなければ、5 回 / 15 分（Issue #244）', () => {
@@ -107,7 +107,7 @@ describe('CDK アプリの組み立て', () => {
 
   it('評価環境: アカウントだけを指定しても、証明書のスタックは作らない', () => {
     const app = createEvaluationApp({ CDK_DEFAULT_ACCOUNT: '111111111111' }, assets());
-    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmFileServer']);
   });
 
   it('評価環境: 独自ドメインを指定すると、証明書（us-east-1）のスタックも作る', () => {
@@ -119,7 +119,12 @@ describe('CDK アプリの組み立て', () => {
       },
       assets(),
     );
-    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmEvaluationCertificate']);
+    expect(stackNames(app)).toEqual([
+      'SfmData',
+      'SfmEvaluation',
+      'SfmEvaluationCertificate',
+      'SfmFileServer',
+    ]);
     const regions = app
       .synth()
       .stacks.map((stack) => `${stack.stackName}:${stack.environment.region}`);
@@ -127,6 +132,7 @@ describe('CDK アプリの組み立て', () => {
       'SfmData:ap-northeast-1',
       'SfmEvaluation:ap-northeast-1',
       'SfmEvaluationCertificate:us-east-1',
+      'SfmFileServer:ap-northeast-1',
     ]);
   });
 
@@ -245,10 +251,46 @@ describe('CDK アプリの組み立て', () => {
     const production = createEvaluationApp({ SFM_ENVIRONMENT: 'production' }, assets());
     const development = createEvaluationApp({}, assets());
 
-    expect(stackNames(production)).toEqual(['SfmProductionData', 'SfmProductionEvaluation']);
-    expect(stackNames(development)).toEqual(['SfmData', 'SfmEvaluation']);
+    expect(stackNames(production)).toEqual([
+      'SfmProductionData',
+      'SfmProductionEvaluation',
+      'SfmProductionFileServer',
+    ]);
+    expect(stackNames(development)).toEqual(['SfmData', 'SfmEvaluation', 'SfmFileServer']);
     const shared = stackNames(production).filter((name) => stackNames(development).includes(name));
     expect(shared).toEqual([]);
+  });
+
+  it('ファイルサーバー（Issue #298。ADR-0027）: 評価環境とは別のスタックで、環境ごとに作る。本番サイトだけ、削除の保護がある。同時実行数の上限（SFM_FILE_SERVER_RESERVED_CONCURRENCY）を、関数に渡す', () => {
+    const fileServerOf = (env: Record<string, string>, name: string) => {
+      const stack = createEvaluationApp(env, assets()).node.findChild(name) as Stack;
+      return { stack, template: Template.fromStack(stack) };
+    };
+
+    const development = fileServerOf({}, 'SfmFileServer');
+    const production = fileServerOf({ SFM_ENVIRONMENT: 'production' }, 'SfmProductionFileServer');
+    const limited = fileServerOf({ SFM_FILE_SERVER_RESERVED_CONCURRENCY: '4' }, 'SfmFileServer');
+
+    expect(development.stack.terminationProtection).toBe(false);
+    expect(production.stack.terminationProtection).toBe(true);
+    development.template.hasResourceProperties('AWS::Lambda::Function', {
+      ReservedConcurrentExecutions: 10,
+    });
+    limited.template.hasResourceProperties('AWS::Lambda::Function', {
+      ReservedConcurrentExecutions: 4,
+    });
+    // 環境ごとに、秘密情報のパスを分ける（開発サイトが、本番サイトのトークンを読めない）
+    expect(JSON.stringify(development.template.toJSON())).toContain('/sfm/development/');
+    expect(JSON.stringify(production.template.toJSON())).toContain('/sfm/production/');
+    expect(JSON.stringify(production.template.toJSON())).not.toContain('/sfm/development/');
+  });
+
+  it('ファイルサーバーは、評価環境のスタックに含まれない（評価環境を作り直しても、URL・ファイルが変わらない）', () => {
+    const app = createEvaluationApp({}, assets());
+    const evaluation = Template.fromStack(app.node.findChild('SfmEvaluation') as Stack).toJSON();
+
+    expect(JSON.stringify(evaluation)).not.toContain('hosted-file-server');
+    expect(JSON.stringify(evaluation)).not.toContain('HostedFileServer');
   });
 
   it('本番サイト: 独自ドメインを指定すると、本番用の名前の証明書（us-east-1）のスタックも作る', () => {
@@ -266,6 +308,7 @@ describe('CDK アプリの組み立て', () => {
       'SfmProductionData',
       'SfmProductionEvaluation',
       'SfmProductionEvaluationCertificate',
+      'SfmProductionFileServer',
     ]);
   });
 

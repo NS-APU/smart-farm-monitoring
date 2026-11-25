@@ -11,6 +11,9 @@
  *   API・ジョブの Lambda の環境変数 WEB_PUSH_DELIVERY=vapid・WEB_PUSH_PUBLIC_KEY・WEB_PUSH_SUBJECT になる。
  *   公開鍵は、VAPID の公開鍵（公開の値）。連絡先は、アプリの https の URL（個人のメールアドレスは使わない）。
  *   秘密鍵は、ここには指定しない（パラメータストアの `<環境のパス>web-push/vapid-private-key`。手順は、operations.md）
+ * - SFM_FILE_SERVER_RESERVED_CONCURRENCY: 自前のファイルサーバー（#298。ADR-0027）の関数の、同時実行数の上限（1〜1000）。
+ *   指定しなければ、10。アカウントの Lambda の同時実行数の上限が小さいと、設定できない（デプロイが失敗する）。その場合は、
+ *   上限を確認して、この値を調整する（手順は、operations.md）
  */
 import {
   MAX_LOGIN_FAILURE_LIMIT,
@@ -44,17 +47,22 @@ export const DEFAULT_SITE_ENVIRONMENT: SiteEnvironment = 'development';
  * 評価環境の名前に、`Evaluation` を含める（削除のコマンドが、環境を問わず、`*Evaluation*` で選ぶ）。
  */
 export const STACK_NAMES: Readonly<
-  Record<SiteEnvironment, { data: string; evaluation: string; certificate: string }>
+  Record<
+    SiteEnvironment,
+    { data: string; evaluation: string; certificate: string; fileServer: string }
+  >
 > = {
   development: {
     data: 'SfmData',
     evaluation: 'SfmEvaluation',
     certificate: 'SfmEvaluationCertificate',
+    fileServer: 'SfmFileServer',
   },
   production: {
     data: 'SfmProductionData',
     evaluation: 'SfmProductionEvaluation',
     certificate: 'SfmProductionEvaluationCertificate',
+    fileServer: 'SfmProductionFileServer',
   },
 };
 
@@ -70,6 +78,8 @@ export interface InfraConfig {
   readonly loginFailureLimit?: number;
   /** 接続元ごとのログインの失敗の制限の時間（分）。未指定は、アプリの既定（15 分）。 */
   readonly loginFailureWindowMinutes?: number;
+  /** 自前のファイルサーバーの関数の、同時実行数の上限。未指定は、スタックの既定（10）。 */
+  readonly fileServerReservedConcurrency?: number;
   /** Web Push の実配信（公開鍵と連絡先）。未指定は、ダミー（購読も受け付けない）。 */
   readonly webPush?: { readonly publicKey: string; readonly subject: string };
 }
@@ -130,6 +140,12 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): I
     MIN_LOGIN_FAILURE_WINDOW_MINUTES,
     MAX_LOGIN_FAILURE_WINDOW_MINUTES,
   );
+  const fileServerReservedConcurrency = optionalInteger(
+    env,
+    'SFM_FILE_SERVER_RESERVED_CONCURRENCY',
+    1,
+    1000,
+  );
   const webPush = readWebPush(env);
   if ((domainName === undefined) !== (hostedZoneName === undefined)) {
     throw new Error(
@@ -148,6 +164,7 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): I
     ...(existingOidcProviderArn === undefined ? {} : { existingOidcProviderArn }),
     ...(loginFailureLimit === undefined ? {} : { loginFailureLimit }),
     ...(loginFailureWindowMinutes === undefined ? {} : { loginFailureWindowMinutes }),
+    ...(fileServerReservedConcurrency === undefined ? {} : { fileServerReservedConcurrency }),
     ...(webPush === undefined ? {} : { webPush }),
   };
 }

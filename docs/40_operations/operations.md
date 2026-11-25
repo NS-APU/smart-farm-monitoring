@@ -117,9 +117,10 @@ API の Lambda の関数の URL は、認証なし（ADR-0006）で、CloudFront
 |----------|------|------|
 | `SfmData` | DynamoDB のテーブル 2 つ・Cognito のユーザープール | 状態を持つ。削除の保護あり。評価環境の更新・削除では、消えない |
 | `SfmEvaluation` | 画面（S3 + CloudFront）・API（Lambda の関数の URL）・ログ | 状態を持たない。何度でも作り直せる。出力: `SiteUrl`・`DistributionId`・`ApiFunctionName`・`JobFunctionName`・`DemoFeedUrl`（開発サイトだけ。デモ用の HTTP 配信の URL。ADR-0025） |
+| `SfmFileServer` | 自前のファイルサーバー（S3 のバケット・Lambda の Function URL。ADR-0027。#298） | 評価環境とは別（作り直しても、URL・ファイルが変わらない）。出力: `HostedFileServerUrl`・`HostedFileServerBucketName`・`HostedFileServerFunctionName`。設定・確認は 8.11 |
 | `SfmGithubOidc` | GitHub Actions 用のロール | 初回に 1 回だけ作る |
 
-`deploy` は、`SfmData` → `SfmEvaluation` の順に更新する（Lambda が、`SfmData` の出力を使うため）。
+`deploy` は、`SfmData` → `SfmEvaluation` の順に更新する（Lambda が、`SfmData` の出力を使うため）。`SfmFileServer` は、ほかのスタックに依存しない。
 
 ### 7.2 デプロイ
 
@@ -458,6 +459,36 @@ aws ssm delete-parameter --region $region --name /sfm/development/file-server/en
 - 削除したあと、取り込み・接続テストには、影響しない（設備ごとの認証情報だけを使う）
 - 設備を削除しても、その設備の認証情報（パラメータストア）は、残る（10.2）。同じ設備 ID で作り直すと、その認証情報が使われる。不要になったら、同じ手順で、ユーザーが削除する
 
+### 8.11 自前のファイルサーバーの設定と、接続・取り込みの確認（Issue #298。ADR-0027。ユーザーが実行）
+
+こちらで用意した、ファイルを置けるファイルサーバー（S3 のバケット + Lambda の Function URL。スタック `SfmFileServer`）に、ロボットが `PUT` で設備ごとのファイルを置き、取り込み（JB-01）が、設備ごとの接続（Bearer）で、`GET`・`HEAD` して読む。**AWS の操作・GitHub の設定・トークンの登録は、ユーザーが行う**（AI エージェントは、実行しない。AGENTS.md 12 章）。**サーバーの URL（ホスト名）・トークンの値は、チャット・Issue・PR・ログ・コミットに書かない。**
+
+**構成の要点**（ADR-0027）: URL は 1 つで、`PUT`（書き込み用のトークン）・`GET`・`HEAD`（読み取り用のトークン）。トークンは、2 種類で、互いの権限には使えない。`PUT` は、1 MiB まで・UTF-8 の JSON だけ（不正なら置かず、すでにあるファイルを残す）。ファイルのパスは、設備の `sourceFilePath` と同じ規則。
+
+**前提**:
+- 開発サイト: `develop`（#298 の PR 2 を含む）が、「Deploy development」でデプロイされ、スタック `SfmFileServer` ができている。本番サイト: 9 章のとおり、「Deploy production」（`SfmProductionFileServer`）。**開発サイトで、先に確認する**
+- AWS のコマンドを使う PowerShell で、プロファイルとリージョンを設定する（`$env:AWS_PROFILE = '<プロファイル名>'`・`$env:AWS_DEFAULT_REGION = 'ap-northeast-1'`）。`aws sts get-caller-identity` で、対象が大学のアカウントであることを確認する
+- **この PR を `develop` にマージする前に、同時実行数の上限を確認する**（`develop` へのマージで、「Deploy development」が自動で動き、`SfmFileServer` が作られる。本番サイトは、`main` へのマージ〔9.3〕。関数に、同時実行数の上限〔既定 10。費用の増加の対策〕を付けるため）: `aws lambda get-account-settings --query "AccountLimit.[ConcurrentExecutions,UnreservedConcurrentExecutions]"`。通常のアカウントは、上限が大きい（1,000 など）。**この値が小さい（10 など）と、予約できず、`SfmFileServer` のデプロイが失敗する**（ほかのスタックの更新が、巻き込まれて止まるおそれがある。AWS は、予約したあとに残る未予約の同時実行数に、下限を設けている。値は、AWS の公式ドキュメントで確認する）。その場合は、AWS に、上限の引き上げを依頼するか、GitHub の Environment の変数 `SFM_FILE_SERVER_RESERVED_CONCURRENCY`（1〜1000）で、予約の値を下げる。確認の結果は、Issue #298 のコメントに記録する（アカウント ID は、書かない）
+
+| 手順 | 操作 | 期待する結果 |
+|------|------|--------------|
+| A（デプロイ・URL の取得） | 「Deploy development」を実行する（7.2）。スタックの出力を取る: `aws cloudformation describe-stacks --stack-name SfmFileServer --query "Stacks[0].Outputs"`（本番サイトは `SfmProductionFileServer`）。`HostedFileServerUrl`（`https://<ホスト>/`）・`HostedFileServerBucketName`・`HostedFileServerFunctionName` が返る。ホスト部分を、`$base`（`https://` から `/` の前まで）として、手元の変数に控える（**画面のコピーを、チャット・Issue・PR に貼らない**） | デプロイが成功する。出力が 3 つ返る |
+| B（トークンの生成） | **まず、リポジトリの外の一時のディレクトリへ移る**（`Set-Location $env:TEMP`）。次を実行する（Node.js 24 以上）。値は、画面に出さず、一時のファイルに書く: `node -e "const c=require('node:crypto');const f=require('node:fs');f.writeFileSync('read-token.txt',c.randomBytes(32).toString('base64url'));f.writeFileSync('write-token.txt',c.randomBytes(32).toString('base64url'))"` | `read-token.txt`・`write-token.txt` ができる（それぞれ 43 文字。読み取り用と書き込み用は、**別の値**） |
+| C（トークンの登録） | `aws ssm put-parameter --name /sfm/development/hosted-file-server/read-token --type SecureString --tier Standard --overwrite --value file://read-token.txt` と、同じく `.../write-token`（`--value file://write-token.txt`）を実行する（本番サイトは、パスを `/sfm/production/hosted-file-server/…` にし、**本番用に、新しく作った値**を使う。開発サイトと使い回さない。10.2）。**登録しても、ファイルは、すぐには削除しない**（手順 D・F・H で使う。確認が終わったら、手順 I で削除する）。状態の確認（**`--with-decryption` を付けない**）: `aws ssm get-parameter --name /sfm/development/hosted-file-server/read-token --query "Parameter.LastModifiedDate"` | 登録に成功し、更新日時が返る。ロボット側には、**書き込み用のトークンだけ**を渡す（読み取り用は、渡さない） |
+| D（設備・接続の設定） | SC-10 で、**検証用の設備**（合成データ用。デモの設備〔`ROBOT-01` など〕は、変えない）を登録し、ファイルパスを、規約 `/<種別>/<設備を表す名前>/latest.json`（種別は `robot`・`environment-sensor`。例: `/robot/robot-a/latest.json`）にする。同じダイアログの「取り込み元の接続」で、プロトコル HTTPS、ホストを手順 A の `<ホスト>`、ポートを空、認証方式を「Bearer トークン」にして保存し、再度ダイアログを開いて、認証情報に、`read-token.txt` の**内容**（読み取り用）を登録する（内容は、`Get-Content read-token.txt -Raw` を、クリップボードへ: `Get-Content read-token.txt -Raw \| Set-Clipboard`。画面には、出さない） | 「認証情報を保存しました」→「設定済み」。SC-11 の設備の表の「接続先」に、接続が出る |
+| E（接続テスト・ファイルがない状態） | SC-11 の設備の行の「接続テスト」 | 「ファイルが見つかりません」。**これは、認証と接続（TLS・Lambda からの到達）は成功し、ファイルがまだ置かれていないことを示す**（認証に失敗すると、「認証に失敗しました」）。ファイルなしが、403 でなく、404 で返ること（`s3:ListBucket`）の確認になる |
+| F（ロボットの代わりに PUT） | 合成データのサンプル（`tests/fixtures/file-server/robot/robot-definition-sample-001.json`）を、書き込み用のトークンで置く: `$w = (Get-Content write-token.txt -Raw).Trim()` → `curl.exe -i -X PUT -H "Authorization: Bearer $w" -H "Content-Type: application/json" --data-binary "@<リポジトリのパス>\tests\fixtures\file-server\robot\robot-definition-sample-001.json" "https://<ホスト>/robot/robot-a/latest.json"`（ファイルのパスは、手順 D の設備のものと同じ。`-k` は付けない〔証明書を検証する〕） | `HTTP/1.1 204`。ファイルが置かれる。**ロボット側が、同じ形（HTTPS の `PUT`・`Authorization: Bearer`）で置けるかを、宇都宮大学に確認する**（ADR-0027 の未確認事項） |
+| G（接続テスト・取り込み） | SC-11 で、「接続テスト」→「即時取得」 | 接続テスト: 「接続できました」。即時取得: 「取得しました（成功）」。ファイル 1 件。取り込みログに成功が記録される。もう一度「即時取得」しても、ファイル 0 件（同じ内容は、取り込まない）。同じパスに、内容を変えて（計測日時・値）`PUT` し、「即時取得」すると、新しい値を取り込む（書き換えの直後 1 秒以内のファイルは、次の周期に回る） |
+| H（権限・検査の確認。任意だが、推奨） | `$r = (Get-Content read-token.txt -Raw).Trim()` のうえで、次を、1 つずつ実行し、HTTP の状態だけを確かめる（`curl.exe -s -o NUL -w "%{http_code}\n" ...`）: ①読み取り用で GET（`-H "Authorization: Bearer $r"`）→ **200**。②読み取り用で HEAD（`-I`。`Last-Modified` が返ること）→ **200**。③書き込み用で GET → **401**。④読み取り用で PUT → **401**。⑤トークンなしで GET → **401**。⑥ない設備のパスで GET → **404**。⑦`DELETE` → **405**。⑧書き込み用で、JSON でない本文（`--data-binary "{"`）を PUT → **400**。⑨1 MiB を超える本文を PUT → **413**。⑩規則に合わないパス（空白を含む）への PUT → **400** | すべて期待どおり。②の `Last-Modified` が返ることは、HEAD で更新日時を得る取り込みの前提（ADR-0023。**未確認事項**の確認） |
+| I（後片付け） | 一時のトークンのファイルを削除する: `Remove-Item read-token.txt, write-token.txt`。検証用の設備のファイルを、S3 から削除する: `aws s3 rm s3://<HostedFileServerBucketName>/files/robot/robot-a/latest.json`（検証用の設備を、SC-10 で削除する場合は、設備の削除のあとに行う）。SC-10 の検証用の設備と、その認証情報（`file-server/equipment/<ハッシュ>`。10.2）は、不要なら削除する。**実データ・合成データの設備を、混ぜない**（別の設備 ID・別のパス。ADR-0021） | 一時のファイルが残っていない。デモの設備・取り込みの設定は、変わっていない |
+
+- **トークンの更新（ローテーション。漏えいの疑い・定期）**: ①新しい値を作る（手順 B）。②**読み取り用**: パラメータの値を、`<新><カンマ><旧>`（カンマで区切って 2 つ）にして登録し（旧が、まだ使える）、SC-10 の各設備の認証情報を、新しい値に更新し、「接続テスト」で確かめてから、パラメータを、新しい値だけにして登録する。**書き込み用**: 同じく、`<新><カンマ><旧>` にしてから、ロボット側の設定（書き込み用のトークン）を、新しい値に切り替え、置けることを確かめてから、新しい値だけにする。③値の反映は、最長 5 分（アプリが、5 分、キャッシュするため）。④一時のファイルを削除する。3 つ以上を並べても、先頭の 2 つだけが有効。
+- **失敗したときの見方**: 状態の見方（HTTP）: `401` は、トークンが違う・未設定（手順 C のパス・環境〔`development`・`production`〕・値の前後の空白を確認する）。`503` は、保管先・パラメータストアの障害（ログの `errorName`。`AccessDeniedException` は IAM〔`SfmFileServer` の関数の権限。10.3 と同じ方法〕。`NoSuchBucket` は、環境変数）。`413` は、1 MiB を超えた。`400` は、JSON でない・パスが規則に合わない・本文がない。`429`（呼び出しの制限）は、同時実行数の上限に達した（上限を上げるときは、GitHub の Environment の変数 `SFM_FILE_SERVER_RESERVED_CONCURRENCY` を設定して、デプロイし直す）。取り込み側（SC-11）の表示は、8.5 の「失敗したときの見方」と同じ。
+- **ログの見方**: ロググループは、スタックの出力 `HostedFileServerFunctionName` の関数（7.6 と同じ方法。`aws logs tail /aws/lambda/<関数名> --since 1h`）。出るのは、`warn`「ファイルサーバーの認証に失敗しました」（メソッドだけ）、`error`（トークンの読み出し・保管先の失敗。`errorName` だけ）、`info`「ファイルを置きました」（大きさだけ）。**トークン・本文・ファイルパスは、ログに出ない**。
+- **費用**（ADR-0027。仮定。**実測は未確認**）: 約 50 円/月（1 環境。ロボット 1 台を 1 分ごと・センサー 1 台を 5 分ごとに更新し、取り込みが同じ頻度で `HEAD`・`GET` する想定。無料枠なし）。主な費用は、S3 の `PUT`（約 5.2 万回/月）。常時課金の部品は、ない。実測は、運用を始めて 1 か月後に、AWS のコスト管理（サービス別: S3・Lambda）で確認し、結果を、Issue #298 のコメントに記録する。
+- **本番サイトの読み替え**: スタックは `SfmProductionFileServer`。トークンのパスは `/sfm/production/hosted-file-server/…`（本番用に、新しく作る）。デプロイは「Deploy production」（9.3）。バケットは、削除の保護（RETAIN）・スタックの削除の保護つき（削除は、9.7）。本番サイトに、デモ用の配信は、ない（実データ用の設備だけ。ADR-0013・ADR-0021）。
+- **確認の結果は、Issue #298 のコメントに記録する**（成功・失敗、期待と違った点、ロボット側の対応の可否。接続先・トークン・アカウント ID を含めない）。確認できなかった項目は、その旨を記録する。
+
 ## 9. 本番サイトの運用手順（Issue #117。ADR-0013）
 
 本番サイトは、現場での実証実験に使う環境（実データ可。個人情報は不可）。開発サイト（7 章・8 章）とは、**データ・ユーザー・URL を共有しない**。**2026-10-22 に、AWS に作成した**（`main` から、承認つき。9.2・9.9）。AWS に接続する操作は、**ユーザーが実行する**（AGENTS.md 12 章）。
@@ -474,6 +505,7 @@ aws ssm delete-parameter --region $region --name /sfm/development/file-server/en
 | ワークフロー | 「Deploy development」 | 「Deploy production」（`main` 以外では動かない） |
 | データ | 基本は合成データ | 実データ可（個人情報は不可。9.8） |
 | デモ用の HTTP 配信（Lambda の Function URL。ADR-0025） | あり | **なし** |
+| 自前のファイルサーバー（S3 + Lambda の Function URL。ADR-0027） | `SfmFileServer`（削除してよい） | `SfmProductionFileServer`（バケットは RETAIN・スタックの削除の保護。トークン・URL・バケットは、開発サイトと別） |
 | `pnpm demo-data` | 使える | **使えない**（`SFM_ENVIRONMENT=production` のとき実行しない安全装置） |
 | データの保護（削除の保護・RETAIN・PITR 35 日・ログ 30 日） | あり | 同じ |
 
@@ -548,6 +580,8 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 
 **実行の前に**: `$env:SFM_ENVIRONMENT = 'production'` を設定し、`echo $env:SFM_ENVIRONMENT` で確かめ、`pnpm --filter @smart-farm/infra run diff` の `Stack` の行が、**本番の 2 スタック（`SfmProductionData`・`SfmProductionEvaluation`）だけ**であることを確認する（`SfmData`・`SfmEvaluation` が出たら、中止する。開発サイトを消してしまう）。データのスタックの削除のあとは、テーブル（RETAIN）と Cognito のユーザープールを、別に削除する（commands.md「削除と再作成」）。**2026-10-22 に、この手順で確認済み**（9.9）
 
+4. 自前のファイルサーバー（`SfmProductionFileServer`。置かれたファイルが消える）が不要になったら、保管の要否を決めてから（必要なら、バケットの中身を取り出す）、スタックの削除の保護を外し、`pnpm --filter @smart-farm/infra run destroy:file-server` で削除する。**バケットは、RETAIN のため、スタックを消しても残る**（中身ごと消すときは、バケットを、別に削除する）。トークン（パラメータストア。10.1）も、不要なら削除する
+
 **`pnpm demo-data reset` は、本番サイトでは使えない**（安全装置）。一部のデータだけを消すときは、画面の削除（手動入力・設備など）を使う。
 
 ### 9.8 実データの扱いの条件（確定。2026-10-22）
@@ -580,6 +614,7 @@ ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。I
 | パス | `/sfm/<環境>/<種類>/<名前>`。環境は、`development`（開発サイト）・`production`（本番サイト）。種類の例: `file-server`・`federation`・`web-push` |
 | 参照名（アプリ） | `<種類>/<名前>`（例: `file-server/equipment/<設備 ID の SHA-256 の先頭 32 文字（16 進）>`・`web-push/vapid-private-key`）。小文字・数字・`.`・`_`・`-` の 1〜4 階層（1 階層 64 文字まで）。それ以外は、アプリが、拒否する |
 | 権限（IaC） | API の Lambda: そのパスの下の `ssm:GetParameter`・`ssm:PutParameter`。ジョブの Lambda: `ssm:GetParameter` だけ。暗号化の鍵（AWS の管理の鍵）は、パラメータストア経由（`kms:ViaService`）の利用に限る。**開発サイトの権限では、本番のパス（`/sfm/production/`）を読めない** |
+| 自前のファイルサーバーのトークン（#298。ADR-0027） | `hosted-file-server/read-token`（読み取り用）・`hosted-file-server/write-token`（書き込み用）。値は、トークンの文字列（256 ビットのランダム値。カンマで 2 つまで並べられる〔ローテーション〕）。**画面からは登録できない**（8.11 の手順で、運用者が、AWS で登録する）。権限は、`SfmFileServer` の関数の `ssm:GetParameter`（この 2 つのパスだけ）。API・ジョブの Lambda は、読まない |
 | 環境変数（Lambda） | `CREDENTIAL_STORE=ssm`・`CREDENTIAL_PATH_PREFIX=/sfm/<環境>/`（秘密ではない。IaC が設定する） |
 | キャッシュ | アプリは、読み取りの結果を、5 分、Lambda の実行環境の中で持つ。値を更新したあと、ほかの実行環境が、新しい値を使うまで、最長 5 分。接続先の認証に失敗したときは、アプリが、すぐ取り直す |
 | 上限 | 1 つの値は、4 KB まで（標準のパラメータの上限）。空の値は、保存できない |

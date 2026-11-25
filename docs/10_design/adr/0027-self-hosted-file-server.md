@@ -1,6 +1,6 @@
 # ADR-0027 ファイルサーバーを、こちらで用意する（S3 + Lambda の Function URL。ロボットが PUT で置き、取り込みが GET・HEAD で読む）（#298）
 
-- ステータス: 承認（2026-11-25。Issue #298）。実装は 3 つの PR に分ける（下の「決定」の 9）。PR 1（このADRの 1〜6 のコード〔ハンドラ・保管先のアダプタ・テスト〕）。IaC と運用手順は PR 2、確認結果の反映は PR 3
+- ステータス: 承認（2026-11-25。Issue #298）。実装は 3 つの PR に分ける（下の「決定」の 9）。PR 1（ハンドラ・保管先のアダプタ・テスト。#577 でマージ済み）。PR 2（IaC〔独立したスタック〕・運用手順 [operations.md 8.11](../../40_operations/operations.md)・IaC のテスト。実装済み）。確認結果の反映は PR 3
 - 日付: 2026-11-25
 - 関連: [ADR-0015](./0015-provisional-policy-external-specs.md)（D-01）、[ADR-0022](./0022-file-server-http-connection-provisional.md)・[ADR-0023](./0023-http-file-source-per-equipment-file.md)・[ADR-0026](./0026-per-equipment-file-server-connection.md)（HTTP の接続・設備ごとのファイルパスと接続）、[ADR-0025](./0025-demo-http-file-feed.md)（デモ用の HTTP 配信）、[ADR-0013](./0013-environments-and-access-control.md)（環境の分離）、[ADR-0021](./0021-nonfunctional-ops-doc-rules.md)（実データの扱い）、[robot-data-definition.md](../data/robot-data-definition.md)、[security.md](../../20_development/security.md)、Issue #298・#375・#565
 
@@ -72,6 +72,8 @@
 | PR 1 | このADR・設計書、ハンドラ（中核・Lambda の入り口）、S3 の保管先のアダプタ、テスト、依存の追加（IaC なし。動作に影響しない） |
 | PR 2 | IaC（独立したスタック・バケット・関数・Function URL・権限・出力）、運用手順（トークンの生成・登録・ローテーション・接続確認）、IaC のテスト |
 | PR 3（docs のみ） | ユーザーの確認結果の反映（#119・#172・architecture.md 5.1・11.4・rfp.md Q-002）、現地訪問時のチェックリスト |
+
+**PR 2 の実装の補足**: スタックは `infra/lib/file-server-stack.ts`（`SfmFileServer`・`SfmProductionFileServer`。`cdk deploy --all` で、評価環境・データのスタックと一緒に、デプロイされる）。同時実行数の上限は、既定 10 で、環境変数 `SFM_FILE_SERVER_RESERVED_CONCURRENCY`（1〜1000。GitHub の Environment の変数）で変えられる（**アカウントの上限が小さいと、予約できず、デプロイが失敗する**。デプロイの前に、運用者が、確認する。8.11）。バケットは、`files/` を階層にし、本番は RETAIN・スタックの削除の保護。削除は `pnpm --filter @smart-farm/infra run destroy:file-server`。出力は、`HostedFileServerUrl`・`HostedFileServerBucketName`・`HostedFileServerFunctionName`。
 
 PR 2 のマージのあとの、デプロイ・トークンの登録・接続テスト・取り込みの確認は、**運用者が行う**（AWS・実際の接続先の操作は、AI が実行しない）。結果は、Issue のコメントに記録する（接続先の情報を含めない）。
 

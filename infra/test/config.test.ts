@@ -115,16 +115,36 @@ describe('IaC の設定（環境変数）', () => {
     expect(() => readConfig({ SFM_ENVIRONMENT: 'evaluation' })).toThrow('SFM_ENVIRONMENT');
   });
 
+  it('ファイルサーバーの関数の同時実行数の上限（SFM_FILE_SERVER_RESERVED_CONCURRENCY）は、1〜1000 の整数。空白・未指定は、未指定。範囲外・整数でない値は、エラー（Issue #298）', () => {
+    expect(readConfig({}).fileServerReservedConcurrency).toBeUndefined();
+    expect(
+      readConfig({ SFM_FILE_SERVER_RESERVED_CONCURRENCY: ' ' }).fileServerReservedConcurrency,
+    ).toBeUndefined();
+    expect(
+      readConfig({ SFM_FILE_SERVER_RESERVED_CONCURRENCY: '3' }).fileServerReservedConcurrency,
+    ).toBe(3);
+    expect(
+      readConfig({ SFM_FILE_SERVER_RESERVED_CONCURRENCY: '1000' }).fileServerReservedConcurrency,
+    ).toBe(1000);
+    for (const value of ['0', '1001', '1.5', 'abc']) {
+      expect(() => readConfig({ SFM_FILE_SERVER_RESERVED_CONCURRENCY: value }), value).toThrow(
+        'SFM_FILE_SERVER_RESERVED_CONCURRENCY',
+      );
+    }
+  });
+
   it('スタックの名前: 開発サイトの既存の名前は、変えない。本番サイトは、別の名前（削除のコマンドが、*Evaluation* で選ぶため、Evaluation を含む）', () => {
     expect(STACK_NAMES.development).toEqual({
       data: 'SfmData',
       evaluation: 'SfmEvaluation',
       certificate: 'SfmEvaluationCertificate',
+      fileServer: 'SfmFileServer',
     });
     expect(STACK_NAMES.production).toEqual({
       data: 'SfmProductionData',
       evaluation: 'SfmProductionEvaluation',
       certificate: 'SfmProductionEvaluationCertificate',
+      fileServer: 'SfmProductionFileServer',
     });
     const all = [
       ...Object.values(STACK_NAMES.development),
