@@ -630,6 +630,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     secrets: adapters.secrets,
     hostedFileStore: adapters.hostedFileStore,
     clock,
+    logger,
     isConnectionAllowed: (connection) =>
       config.httpFileSourceAllowPrivate || !isBlockedConnectionHost(connection.host),
     staleAfterIntervals: config.staleAfterIntervals,

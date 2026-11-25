@@ -25,6 +25,7 @@ import {
 import { fileServerEquipmentSecretReference } from '../../src/backend/application/ingestion/file-server-credentials.ts';
 import { NULL_LOGGER } from '../../src/backend/application/ports/logger-port.ts';
 import { createMemorySecretPort } from '../../src/backend/infrastructure/local/env-secret.ts';
+import { createJsonLogger } from '../../src/backend/infrastructure/logging/json-logger.ts';
 import { createHostedFileServerLambdaHandler } from '../../src/backend/runtime/hosted-file-server-lambda.ts';
 import { ROBOT_ID, SENSOR_ID } from '../support/builders.ts';
 import { FIXTURES_DIRECTORY } from '../support/fixtures-path.ts';
@@ -237,8 +238,15 @@ describe('置く（PUT …/source-file）', () => {
 
   it('保管先の障害は 503（内容・パスを含めない）。保管先が設定されていないときも、503（機能が設定されていない旨）。検査は、保管先に依存しない', async () => {
     const failing = createMemoryHostedFileStore();
-    failing.failWith(new Error('dummy-storage-down /secret/path'));
-    const withFailing = await withEquipment({ hostedFileStore: failing });
+    failing.failWith(
+      Object.assign(new Error('dummy-storage-down /secret/path'), { name: 'AccessDenied' }),
+    );
+    const logs: string[] = [];
+    const logger = createJsonLogger({
+      sink: { write: (line: string) => logs.push(line) },
+      minimumLevel: 'debug',
+    });
+    const withFailing = await withEquipment({ hostedFileStore: failing, logger });
     await withSourceFilePaths(withFailing);
     const withoutStore = await withEquipment({ hostedFileStore: null });
     await withSourceFilePaths(withoutStore);
@@ -249,6 +257,12 @@ describe('置く（PUT …/source-file）', () => {
 
     expect(failed.status).toBe(503);
     expect(JSON.stringify(await failed.json())).not.toContain('dummy-storage-down');
+    // 原因は、ログで分かる（エラーの種類の名前だけ。内容・パス・ファイルの内容は、出さない）
+    const logged = logs.join('');
+    expect(logged).toContain('ファイルを置けませんでした');
+    expect(logged).toContain('AccessDenied');
+    expect(logged).not.toContain('dummy-storage-down');
+    expect(logged).not.toContain('harvestCount');
     expect(notConfigured.status).toBe(503);
     expect(JSON.stringify(await notConfigured.json())).toContain('設定されていません');
     expect(checked.status).toBe(200);

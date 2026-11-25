@@ -30,6 +30,7 @@ import { requireActiveEquipment } from '../equipment/require-active-equipment.ts
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { FormatProfileRegistry } from '../ports/format-profile.ts';
 import type { HostedFileStorePort } from '../ports/hosted-file-store-port.ts';
+import type { Logger } from '../ports/logger-port.ts';
 import type {
   EquipmentRepository,
   FederationRepository,
@@ -123,6 +124,8 @@ export interface IngestionAdminServiceDeps {
   /** 画面から置くファイルの保管先（Issue #565）。未設定は、置く機能が使えない（SERVICE_UNAVAILABLE）。 */
   readonly hostedFileStore?: HostedFileStorePort | undefined;
   readonly clock: ClockPort;
+  /** 保管先の失敗の記録用（エラーの種類の名前だけを出す。内容・パスは出さない）。 */
+  readonly logger?: Logger | undefined;
   /** 接続設定の接続先が、許可されるか（内部のアドレスを拒否する。Issue #172）。省略は、すべて許可。 */
   readonly isConnectionAllowed?: (connection: FileServerConnection) => boolean;
   /** 「データが古い」の基準の倍数（STALE_AFTER_INTERVALS。ダッシュボードと同じ）。設備ごとの基準（分）を返すのに使う。 */
@@ -430,8 +433,11 @@ export function createIngestionAdminService(
       }
       try {
         await deps.hostedFileStore.put(target.path, content);
-      } catch {
-        // 保管先のエラーの内容・パスは、応答に出さない
+      } catch (error) {
+        // 保管先のエラーの内容・パスは、応答・ログに出さない（原因の見当を付けるため、エラーの種類の名前だけを記録する）
+        deps.logger?.warn('ファイルを置けませんでした', {
+          errorName: error instanceof Error ? error.name : 'unknown',
+        });
         throw new AppError('SERVICE_UNAVAILABLE', 'ファイルを置けませんでした');
       }
       await audit.record({
