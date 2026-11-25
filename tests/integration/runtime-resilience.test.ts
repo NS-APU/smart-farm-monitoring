@@ -116,8 +116,8 @@ describe('スケジューラのジョブの最大実行時間（V-042）', () =>
     clock.advance(6 * 60_000);
     const second = await scheduler.tick();
 
-    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
-    expect(second).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
+    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
+    expect(second).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
     expect(errors).toHaveLength(2);
     expect(errors[0]).toMatchObject({
       message: 'ジョブの実行に失敗しました',

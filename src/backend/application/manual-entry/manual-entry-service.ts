@@ -303,6 +303,11 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     if (entry === undefined || entry.isDeleted || !canViewEquipment(scope, entry.equipmentId)) {
       throw new AppError('NOT_FOUND', '入力データが見つかりません');
     }
+    // 削除中・削除済みの設備の入力は、存在しないものとして扱う（設備のデータの削除と、競合させない。D-28）
+    const equipment = await repositories.equipment.get(entry.equipmentId);
+    if (equipment === undefined || equipment.isDeleted) {
+      throw new AppError('NOT_FOUND', '入力データが見つかりません');
+    }
     return entry;
   }
 
@@ -417,6 +422,12 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       const equipmentNames = new Map(
         allEquipment.map((equipment) => [equipment.equipmentId, equipment.name]),
       );
+      // 削除中・削除済みの設備の入力は、一覧に出さない（設備のデータは、削除ジョブが消すまで残るため。D-28）
+      const deletedEquipmentIds = new Set(
+        allEquipment
+          .filter((equipment) => equipment.isDeleted)
+          .map((equipment) => equipment.equipmentId),
+      );
       // ハウスを指定したときは、配下のロボット・センサーの入力も含める（計測データ〔SC-09〕と同じ。Issue #152）。
       // 指定した設備が見つからないときは、その設備の識別子だけで絞る（従来のまま）
       const target =
@@ -436,10 +447,14 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
             from: query.from,
             to: query.to,
           }),
-          ...(keyword === '' && scope.kind === 'all' && targetIds === undefined
+          ...(keyword === '' &&
+          scope.kind === 'all' &&
+          targetIds === undefined &&
+          deletedEquipmentIds.size === 0
             ? {}
             : {
                 matches: (entry: ManualEntry) =>
+                  !deletedEquipmentIds.has(entry.equipmentId) &&
                   canViewEquipment(scope, entry.equipmentId) &&
                   (targetIds === undefined || targetIds.has(entry.equipmentId)) &&
                   (keyword === '' || entryMatchesKeyword(entry, keyword, equipmentNames)),

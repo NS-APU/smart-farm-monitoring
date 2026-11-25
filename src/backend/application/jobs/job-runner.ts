@@ -1,9 +1,13 @@
 /**
- * 非同期・定期処理（ジョブ）の実行（functional-specification.md 5章の JB-01〜JB-04）。
+ * 非同期・定期処理（ジョブ）の実行（functional-specification.md 5章の JB-01〜JB-05）。
  * スケジューラ（EventBridge、ローカルのスケジューラ、テスト、開発用 API）から、同じ入口で起動する。
  * 各ジョブは、同じ契機が重複しても結果が変わらない（冪等）ように実装する。
  */
 
+import type {
+  EquipmentDeletionRunSummary,
+  EquipmentDeletionService,
+} from '../equipment/equipment-deletion-service.ts';
 import type { EvaluationRunSummary, EvaluationService } from '../evaluation/evaluation-service.ts';
 import type { FederationRunSummary, FederationService } from '../federation/federation-service.ts';
 import type { IngestionRunSummary, IngestionService } from '../ingestion/ingestion-service.ts';
@@ -12,14 +16,15 @@ import type {
   NotificationService,
 } from '../notification/notification-service.ts';
 
-export const JOB_IDS = ['JB-01', 'JB-02', 'JB-03', 'JB-04'] as const;
+export const JOB_IDS = ['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05'] as const;
 export type JobId = (typeof JOB_IDS)[number];
 
 export type JobResult =
   | { readonly jobId: 'JB-01'; readonly summaries: readonly IngestionRunSummary[] }
   | { readonly jobId: 'JB-02'; readonly summary: EvaluationRunSummary }
   | { readonly jobId: 'JB-03'; readonly summary: FederationRunSummary }
-  | { readonly jobId: 'JB-04'; readonly summary: DeliveryRunSummary };
+  | { readonly jobId: 'JB-04'; readonly summary: DeliveryRunSummary }
+  | { readonly jobId: 'JB-05'; readonly summary: EquipmentDeletionRunSummary };
 
 export interface JobRunner {
   run(jobId: JobId): Promise<JobResult>;
@@ -30,6 +35,7 @@ export interface JobRunnerDeps {
   readonly evaluation: EvaluationService;
   readonly federation: FederationService;
   readonly notifications: NotificationService;
+  readonly equipmentDeletion: Pick<EquipmentDeletionService, 'run'>;
 }
 
 export function isJobId(value: string): value is JobId {
@@ -48,6 +54,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
           return { jobId, summary: await deps.federation.runPending() };
         case 'JB-04':
           return { jobId, summary: await deps.notifications.deliverPending() };
+        case 'JB-05':
+          return { jobId, summary: await deps.equipmentDeletion.run() };
       }
     },
   };

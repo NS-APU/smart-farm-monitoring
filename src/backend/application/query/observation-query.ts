@@ -278,10 +278,12 @@ export function createObservationQuery(deps: ObservationQueryDeps): ObservationQ
       return { empty: true };
     }
     const allEquipment = await repositories.equipment.list();
+    // 範囲の指定がなければ、削除中・削除済みの設備を除いた、登録中の設備にする（設備のデータは、削除ジョブが消すまで残るため。D-28）
     let equipmentIds: readonly EquipmentId[] | undefined =
-      scope.kind === 'limited' ? [...scope.equipmentIds] : undefined;
+      scope.kind === 'limited'
+        ? [...scope.equipmentIds]
+        : allEquipment.map((equipment) => equipment.equipmentId);
     if (params.equipmentId !== undefined) {
-      // 削除済みの設備の元データも参照できる（他の画面と違い、isDeleted を見ない。現状の判定を保つ）
       const equipment = allEquipment.find((item) => item.equipmentId === params.equipmentId);
       if (equipment === undefined) {
         throw new AppError('NOT_FOUND', EQUIPMENT_NOT_FOUND_MESSAGE);

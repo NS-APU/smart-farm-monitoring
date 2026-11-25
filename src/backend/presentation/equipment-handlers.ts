@@ -15,6 +15,9 @@ import type { RouteHandler } from './route-types.ts';
 
 export function createEquipmentHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
   return {
+    async 'GET /equipment/deletions'(c) {
+      return c.json({ items: await deps.equipmentDeletionService.list() });
+    },
     async 'POST /equipment'(c) {
       const input = await parseJsonBody(c, EquipmentCreateRequestSchema);
       return c.json(await deps.equipmentService.create(input, actorOf(c)), 201);

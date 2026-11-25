@@ -56,7 +56,7 @@ describe('POST /dev/reset（スケジューラの状態）', () => {
     await freezeAt();
     const first = await context.request('/dev/scheduler/tick', { method: 'POST', token });
     const second = await context.request('/dev/scheduler/tick', { method: 'POST', token });
-    expect(await first.json()).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04'] });
+    expect(await first.json()).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05'] });
     expect(await second.json()).toEqual({ executed: [] });
 
     await post(context, '/dev/reset', { seed: 'NONE' });
@@ -71,7 +71,7 @@ describe('POST /dev/reset（スケジューラの状態）', () => {
       token: afterReset,
     });
 
-    expect(await third.json()).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04'] });
+    expect(await third.json()).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05'] });
   });
 });
 

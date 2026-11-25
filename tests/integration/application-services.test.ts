@@ -19,6 +19,7 @@ import { createControllableClock } from '../../src/backend/infrastructure/local/
 const UNUSED_DEPS = {
   audit: { record: vi.fn(), list: vi.fn() },
   federation: { enqueue: vi.fn() },
+  deletion: { request: vi.fn(), isDeleting: vi.fn() },
   evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn() },
   evaluationOnWrite: 'sync' as const,
   clock: createControllableClock(),

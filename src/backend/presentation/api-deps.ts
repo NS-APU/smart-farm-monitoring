@@ -20,6 +20,7 @@ import type { IngestionAdminService } from '../application/ingestion/ingestion-a
 import type { IngestionService } from '../application/ingestion/ingestion-service.ts';
 import type { ManualEntryService } from '../application/manual-entry/manual-entry-service.ts';
 import type { PushSubscriptionService } from '../application/notification/push-subscription-service.ts';
+import type { EquipmentDeletionService } from '../application/equipment/equipment-deletion-service.ts';
 import type { EquipmentService } from '../application/equipment/equipment-service.ts';
 import type { StatusCodeService } from '../application/equipment/status-code-service.ts';
 import type { JobRunner } from '../application/jobs/job-runner.ts';
@@ -55,6 +56,7 @@ export interface ApiDeps {
   readonly clock: ClockPort;
   readonly authService: AuthService;
   readonly equipmentService: EquipmentService;
+  readonly equipmentDeletionService: EquipmentDeletionService;
   readonly statusCodeService: StatusCodeService;
   readonly auditService: AuditService;
   readonly manualEntryService: ManualEntryService;

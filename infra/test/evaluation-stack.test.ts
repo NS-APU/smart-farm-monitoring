@@ -22,6 +22,7 @@ import {
   KMS_SSM_API_ACTIONS,
   KMS_SSM_JOB_ACTIONS,
   SSM_API_ACTIONS,
+  SSM_DELETE_ACTIONS,
   SSM_JOB_ACTIONS,
   CLIENT_IP_HEADER,
   ORIGIN_SECRET_READ_ACTION,
@@ -670,19 +671,30 @@ describe('評価環境のスタック: API はバックエンド本体（Issue #
     }
   });
 
-  it('IAM（ジョブ）: パラメータストアは、読み取りだけ。書き込み・削除はない（#206）', () => {
+  it('IAM（ジョブ）: パラメータストアは、環境のパスの下の読み取りと、設備ごとの認証情報（file-server/equipment/）の削除だけ。書き込み・ほかの秘密情報の削除はない（#206・#229）', () => {
     const { template } = plainStack();
     const statements = roleStatements(template, 'JobFunction');
     const actions = statements.flatMap((statement) => [statement.Action].flat());
 
     expect(actions).toEqual(expect.arrayContaining([...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS]));
-    expect(actions.filter((action) => action.startsWith('ssm:'))).toEqual([...SSM_JOB_ACTIONS]);
+    expect(actions.filter((action) => action.startsWith('ssm:')).sort()).toEqual(
+      [...SSM_JOB_ACTIONS, ...SSM_DELETE_ACTIONS].sort(),
+    );
     expect(actions).not.toContain('kms:Encrypt');
     expect(actions).not.toContain('kms:GenerateDataKey');
     const ssm = statements.find((statement) =>
-      [statement.Action].flat().some((action) => action.startsWith('ssm:')),
+      [statement.Action].flat().some((action) => action === 'ssm:GetParameter'),
     );
     expect(JSON.stringify(ssm?.Resource)).toContain('parameter/sfm/development/*');
+    // 削除は、設備ごとの認証情報のパスだけ（連携先・Web Push の秘密情報は、削除できない）
+    const deletion = statements.find((statement) =>
+      [statement.Action].flat().includes('ssm:DeleteParameter'),
+    );
+    expect([deletion?.Action].flat()).toEqual([...SSM_DELETE_ACTIONS]);
+    expect(JSON.stringify(deletion?.Resource)).toContain(
+      'parameter/sfm/development/file-server/equipment/*',
+    );
+    expect(JSON.stringify(deletion?.Resource)).not.toContain('development/*"');
   });
 
   it('秘密情報（パスワード・トークン・キー・シークレット）を、環境変数に持たない。開発用 API・デモデータ・初期ユーザーの設定もない', () => {
@@ -851,14 +863,19 @@ describe('評価環境のスタック: ジョブを EventBridge から Lambda �
       [statement.Action].flat().some((action) => action.startsWith('dynamodb:')),
     );
 
-    // 許可する操作は、DynamoDB の必要な操作と、秘密情報（パラメータストア）の読み取り・復号だけ（ファイルサーバーは HTTP のため、S3 の権限はない。ADR-0025）
-    // （Cognito・書き込み・削除はない。パラメータストアの書き込みは、API だけ。#206）
+    // 許可する操作は、DynamoDB の必要な操作と、秘密情報（パラメータストア）の読み取り・復号と、設備ごとの認証情報の削除だけ
+    // （ファイルサーバーは HTTP のため、S3 の権限はない。ADR-0025）（Cognito・書き込みはない。パラメータストアの書き込みは、API だけ。#206・#229）
     expect(actions.sort()).toEqual(
-      [...DYNAMODB_ACTIONS, ...SSM_JOB_ACTIONS, ...KMS_SSM_JOB_ACTIONS].sort(),
+      [
+        ...DYNAMODB_ACTIONS,
+        ...SSM_JOB_ACTIONS,
+        ...SSM_DELETE_ACTIONS,
+        ...KMS_SSM_JOB_ACTIONS,
+      ].sort(),
     );
     expect(actions).not.toContain('dynamodb:Scan');
     expect(actions).not.toContain('ssm:PutParameter');
-    expect(statements).toHaveLength(3);
+    expect(statements).toHaveLength(4);
     expect(dynamodb).toHaveLength(1);
     expect(dynamodb[0]?.Resource).toHaveLength(4);
     for (const statement of statements) {
