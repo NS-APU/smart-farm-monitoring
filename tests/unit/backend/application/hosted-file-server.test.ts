@@ -12,7 +12,11 @@ import {
   HOSTED_FILE_WRITE_TOKEN_REFERENCE,
   type HostedFileRequest,
 } from '../../../../src/backend/application/hosted-file-server/hosted-file-server.ts';
-import type { LogFields, Logger } from '../../../../src/backend/application/ports/logger-port.ts';
+import {
+  NULL_LOGGER,
+  type LogFields,
+  type Logger,
+} from '../../../../src/backend/application/ports/logger-port.ts';
 import { createMemorySecretPort } from '../../../../src/backend/infrastructure/local/env-secret.ts';
 import { createMemoryHostedFileStore } from '../../../support/memory-hosted-file-store.ts';
 
@@ -323,5 +327,56 @@ describe('ログ', () => {
     ]) {
       expect(logged).not.toContain(secret);
     }
+  });
+});
+
+describe('保管先の応答・失敗の形', () => {
+  it('保管先が ETag を返さなければ、ETag のヘッダーを付けない（Last-Modified は付ける）', async () => {
+    const { store, secretPort } = setup();
+    const server = createHostedFileServer({
+      store: {
+        head: (path) => store.head(path),
+        get: () => Promise.resolve({ body: BODY, lastModified: MODIFIED, size: BODY.length }),
+        put: (path, body) => store.put(path, body),
+      },
+      secrets: secretPort,
+      logger: NULL_LOGGER,
+    });
+
+    const response = await server(request());
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers).not.toHaveProperty('ETag');
+    expect(response.headers['Last-Modified']).toBe(MODIFIED.toUTCString());
+  });
+
+  it('Error でない値が投げられても、503（ログには、種類が分からない旨だけを出す。値は出さない）', async () => {
+    const { store, secretPort, logger, entries } = setup();
+    const server = createHostedFileServer({
+      store: {
+        ...store,
+        get: () => Promise.reject(new Error('x', { cause: 'dummy-secret-cause' })),
+      },
+      secrets: secretPort,
+      logger,
+    });
+    const nonError = createHostedFileServer({
+      store: {
+        ...store,
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        get: () => Promise.reject('dummy-thrown-string'),
+      },
+      secrets: secretPort,
+      logger,
+    });
+
+    const first = await server(request());
+    const second = await nonError(request());
+
+    expect([first.statusCode, second.statusCode]).toEqual([503, 503]);
+    const logged = JSON.stringify(entries);
+    expect(logged).toContain('unknown');
+    expect(logged).not.toContain('dummy-thrown-string');
+    expect(logged).not.toContain('dummy-secret-cause');
   });
 });

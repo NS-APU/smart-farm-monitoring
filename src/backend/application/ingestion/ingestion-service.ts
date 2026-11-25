@@ -1390,7 +1390,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       if (Number.isNaN(observedAtMs)) {
         return unreadable('計測日時が読み取れません');
       }
-      const { observations, itemRejected } = toObservations(
+      const { observations } = toObservations(
         profile,
         'inspection',
         content,
@@ -1409,10 +1409,6 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
             ]
           : [];
       });
-      const ignored = [...itemRejected.values()].reduce((total, count) => total + count, 0);
-      if (ignored > 0) {
-        warnings.push(`取り込みの対象にない項目が ${String(ignored)} 個あります（無視されます）`);
-      }
       return {
         ...base,
         ok: true,

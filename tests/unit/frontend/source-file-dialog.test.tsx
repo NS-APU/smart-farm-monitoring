@@ -455,6 +455,95 @@ describe('SC-11: ファイルを置くダイアログ（Issue #565）', () => {
   });
 });
 
+describe('SC-11: ファイルを置くダイアログの境界の操作（Issue #565）', () => {
+  it('ファイルの選択を取り消すと（何も選ばない）、前に選んだファイルと確認の結果を消し、確認・置くを使えなくする', async () => {
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'POST /ingestion/equipment/ROBOT-1/source-file/check': () => jsonResponse(INSPECTION_OK),
+      }),
+      { login: ADMIN },
+    );
+    const dialog = await openDialog();
+    await chooseFile(dialog);
+    fireEvent.click(checkButton(dialog));
+    await within(dialog).findByTestId('source-file-inspection');
+
+    fireEvent.change(fileInput(dialog), { target: { files: [] } });
+
+    expect(within(dialog).queryByTestId('source-file-selected')).toBeNull();
+    expect(within(dialog).queryByTestId('source-file-inspection')).toBeNull();
+    expect(checkButton(dialog).disabled).toBe(true);
+    expect(placeButton(dialog).disabled).toBe(true);
+  });
+
+  it('確認の実行中は、Esc・キャンセルでは、ダイアログを閉じない（結果を見失わないため）。終わると、閉じられる', async () => {
+    let release: (response: Response) => void = () => undefined;
+    renderApp(
+      '/settings/ingestion',
+      baseRoutes({
+        'POST /ingestion/equipment/ROBOT-1/source-file/check': () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+      }),
+      { login: ADMIN },
+    );
+    const dialog = await openDialog();
+    await chooseFile(dialog);
+    fireEvent.click(checkButton(dialog));
+    await waitFor(() => {
+      expect(checkButton(dialog).textContent).toBe('確認中…');
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+    expect(screen.queryByRole('dialog', { name: 'ファイルを置く' })).not.toBeNull();
+    release(jsonResponse(INSPECTION_OK));
+    await waitFor(() => {
+      expect(checkButton(dialog).textContent).toBe('内容を確認');
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByRole('dialog', { name: 'ファイルを置く' })).toBeNull();
+  });
+
+  it('ファイルの読み取りに失敗したら、読み取れなかった旨を示し、確認・置くを使えない', async () => {
+    renderApp('/settings/ingestion', baseRoutes(), { login: ADMIN });
+    const dialog = await openDialog();
+    const unreadable = jsonFile();
+    Object.defineProperty(unreadable, 'text', {
+      value: () => Promise.reject(new Error('dummy read error')),
+    });
+
+    fireEvent.change(fileInput(dialog), { target: { files: [unreadable] } });
+
+    await within(dialog).findByText(/読み取れませんでした/);
+    expect(within(dialog).queryByTestId('source-file-selected')).toBeNull();
+    expect(checkButton(dialog).disabled).toBe(true);
+  });
+
+  it('ファイルの読み取りの途中で、別のファイルを選ぶと、前のファイルの内容は捨てる（あとから読み終わっても、反映しない）', async () => {
+    renderApp('/settings/ingestion', baseRoutes(), { login: ADMIN });
+    const dialog = await openDialog();
+    let finishFirst: (text: string) => void = () => undefined;
+    const slow = jsonFile('old-content', 'slow.json');
+    Object.defineProperty(slow, 'text', {
+      value: () =>
+        new Promise<string>((resolve) => {
+          finishFirst = resolve;
+        }),
+    });
+
+    fireEvent.change(fileInput(dialog), { target: { files: [slow] } });
+    await chooseFile(dialog, jsonFile('new-content', 'second.json'));
+    finishFirst('old-content');
+    await Promise.resolve();
+
+    expect(within(dialog).getByTestId('source-file-selected').textContent).toContain('second.json');
+  });
+});
+
 describe('SC-11: ファイルを置く（確認のダイアログ・結果の通知。Issue #565）', () => {
   /** 確認のあと、置くを押して、確認のダイアログを開く。 */
   async function openConfirm(

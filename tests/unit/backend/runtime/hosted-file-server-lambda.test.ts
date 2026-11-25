@@ -100,6 +100,14 @@ describe('Function URL のイベントの変換（createHostedFileServerLambdaHa
     expect(head.body).toBe('');
   });
 
+  it('ヘッダーがないイベントは、エラーにせず、401（認証なし）にする', async () => {
+    const { handler } = setup();
+
+    const response = await handler({ rawPath: PATH, requestContext: { http: { method: 'GET' } } });
+
+    expect(response.statusCode).toBe(401);
+  });
+
   it('メソッド・パス・本文がないイベントは、エラーにせず、405・404・400 にする', async () => {
     const { handler } = setup();
 

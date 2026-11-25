@@ -26,6 +26,16 @@ const PRODUCTION_ADAPTERS = {
 };
 
 describe('実行設定（環境変数）', () => {
+  it('画面から置くファイルの保管先のバケット（HOSTED_FILE_SERVER_BUCKET。#565）は、省略できる。形式が正しくない名前は、エラー', () => {
+    expect(parseConfig({}).hostedFileServerBucket).toBeUndefined();
+    expect(
+      parseConfig({ HOSTED_FILE_SERVER_BUCKET: 'dummy-bucket-1' }).hostedFileServerBucket,
+    ).toBe('dummy-bucket-1');
+    for (const name of ['ab', 'UPPER-case', '-dummy-bucket', 'dummy_bucket']) {
+      expect(() => parseConfig({ HOSTED_FILE_SERVER_BUCKET: name }), name).toThrow(ConfigError);
+    }
+  });
+
   it('何も指定しなければ、ローカルの既定値になる（メモリ上のデータ、初期ユーザーなし、スケジューラ無効）', () => {
     const config = parseConfig({});
 

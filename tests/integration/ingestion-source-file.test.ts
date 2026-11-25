@@ -12,6 +12,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AuditLogListResponseSchema } from '@smart-farm/shared/schemas/audit';
+import { toUserId } from '@smart-farm/shared/schemas/common';
 import {
   FileServerConnectionSchema,
   SourceFileInspectionSchema,
@@ -266,6 +267,47 @@ describe('置く（PUT …/source-file）', () => {
     expect(notConfigured.status).toBe(503);
     expect(JSON.stringify(await notConfigured.json())).toContain('設定されていません');
     expect(checked.status).toBe(200);
+  });
+});
+
+describe('サービスの境界（API の本文の上限の内側）', () => {
+  it('API の本文の上限を超える内容は、サービスも拒否する（検査・置くとも、400 の項目 content）。置かない', async () => {
+    const context = await setup();
+    const big = `{"timestamp":"2026-10-09T02:00:00Z","x":"${'a'.repeat(1024 * 1024)}"}`;
+
+    await expect(
+      context.container.ingestionAdminService.checkSourceFile(ROBOT_ID, big),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(
+      context.container.ingestionAdminService.placeSourceFile(ROBOT_ID, big, toUserId('admin-1')),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(await storedFile(context)).toBeUndefined();
+  });
+
+  it('保管先が Error でない値を投げても、503（ログには、種類が分からない旨だけを出す。値は出さない）', async () => {
+    const logs: string[] = [];
+    const logger = createJsonLogger({
+      sink: { write: (line: string) => logs.push(line) },
+      minimumLevel: 'debug',
+    });
+    const store = createMemoryHostedFileStore();
+    store.failWith('dummy-thrown-string' as never);
+    const context = await withEquipment({ hostedFileStore: store, logger });
+    await withSourceFilePaths(context);
+
+    const response = await sendFile(context, 'PUT', putPath(ROBOT_ID), VALID);
+
+    expect(response.status).toBe(503);
+    expect(logs.join('')).toContain('unknown');
+    expect(logs.join('')).not.toContain('dummy-thrown-string');
+  });
+
+  it('取り込み元の設定にない取り込み元は、検査できない（取り込みの設定の誤り）', async () => {
+    const context = await setup();
+
+    await expect(
+      context.container.ingestionService.inspectFile('no-such-source', ROBOT_ID, VALID),
+    ).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
   });
 });
 

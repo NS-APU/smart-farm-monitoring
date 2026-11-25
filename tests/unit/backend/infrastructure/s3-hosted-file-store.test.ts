@@ -121,3 +121,36 @@ describe('S3 の保管先（createS3HostedFileStore）', () => {
     expect(fake.commands).toEqual([]);
   });
 });
+
+describe('S3 の応答の項目が欠けているとき', () => {
+  /** 指定した応答を、そのまま返す偽物（更新日時・ETag・大きさ・本文が、ないことがある）。 */
+  const clientReturning = (output: unknown) => ({ send: () => Promise.resolve(output) });
+
+  it('更新日時がなければ 1970 年・ETag がなければ省略・大きさがなければ 0（head）。本文がなければ空（get）', async () => {
+    const store = createS3HostedFileStore({ client: clientReturning({}), bucket: BUCKET });
+
+    const head = await store.head('/robot/a.json');
+    const get = await store.get('/robot/a.json');
+
+    expect(head).toEqual({ lastModified: new Date(0), size: 0 });
+    expect(head).not.toHaveProperty('etag');
+    expect(get).toEqual({ lastModified: new Date(0), size: 0, body: '' });
+  });
+
+  it('大きさがなければ、本文のバイト数（get）。ETag があれば、そのまま返す', async () => {
+    const store = createS3HostedFileStore({
+      client: clientReturning({
+        ETag: '"dummy-etag"',
+        Body: { transformToString: () => Promise.resolve('{"日本語":1}') },
+      }),
+      bucket: BUCKET,
+    });
+
+    const get = await store.get('/robot/a.json');
+
+    expect(get).toMatchObject({
+      etag: '"dummy-etag"',
+      size: Buffer.byteLength('{"日本語":1}', 'utf8'),
+    });
+  });
+});
