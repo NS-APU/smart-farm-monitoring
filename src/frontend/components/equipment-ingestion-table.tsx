@@ -3,6 +3,7 @@
  * 認証情報の状態・最終の実行・結果・最後にデータが取れた日時・停止中・操作（接続テスト・接続を設定・修正）。
  * 停止中は、ダッシュボードの「データが古い」と同じ基準（取得間隔 × 倍数、最低 3 分。ADR-0016 の D-12）で判定する。
  * 接続・認証情報の入力は、設備のダイアログ（SC-10）で行う（この表には、入力欄を持たない）。
+ * 取り込みの設定の権限がある利用者には、ファイルのパスがある設備の行に、「ファイルを置く」を出す（Issue #565。ダイアログは、呼び出し側が開く）。
  */
 
 import type { ReactNode } from 'react';
@@ -38,6 +39,9 @@ export interface EquipmentIngestionTableProps {
   readonly testingId: string | undefined;
   readonly results: Readonly<Record<string, EquipmentTestResult | undefined>>;
   readonly onTest: (equipmentId: string) => void;
+  /** 「ファイルを置く」を出す（取り込みの設定の権限がある。Issue #565）。ファイルのパスがある設備の行にだけ出す。 */
+  readonly canPlaceFile: boolean;
+  readonly onPlaceFile: (equipmentId: string) => void;
   /** 判定の基準の時刻。 */
   readonly now: Date;
   readonly sourceLabel: string;
@@ -160,6 +164,20 @@ export function EquipmentIngestionTable(props: EquipmentIngestionTableProps): Re
                         {props.testingId === item.equipmentId
                           ? TEXT.equipmentTesting
                           : TEXT.equipmentTest}
+                      </button>
+                    ) : null}
+                    {props.canPlaceFile && item.sourceFilePath !== undefined ? (
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        aria-label={TEXT.sourceFile.buttonLabel(item.name)}
+                        data-testid={`equipment-place-${item.equipmentId}`}
+                        disabled={props.locked}
+                        onClick={() => {
+                          props.onPlaceFile(item.equipmentId);
+                        }}
+                      >
+                        {TEXT.sourceFile.button}
                       </button>
                     ) : null}
                     {props.canOpenEquipment ? (

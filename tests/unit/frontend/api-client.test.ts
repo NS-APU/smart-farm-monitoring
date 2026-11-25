@@ -64,6 +64,20 @@ describe('API クライアント', () => {
     expect(calls[0]).toMatchObject({ method: 'POST', body: { a: 1 } });
   });
 
+  it('textBody は、文字列を、そのまま本文にして送る（JSON の包みを付けない。JSON として解釈できない内容も変えない）', async () => {
+    const { api, calls } = setup(() => jsonResponse({ value: 1 }));
+    const text = '{ "a": 1,\n  "b": [ 1, 2 ] }\n{壊れた';
+
+    await api.request('/items', { method: 'PUT', textBody: text, schema: ItemSchema });
+
+    expect(calls[0]).toMatchObject({
+      method: 'PUT',
+      rawBody: text,
+      contentType: 'application/json',
+      authorization: 'Bearer access-token-1',
+    });
+  });
+
   it('認証が不要な呼び出し（anonymous）には、トークンを付けない', async () => {
     const { api, calls } = setup(() => jsonResponse({ value: 1 }));
 

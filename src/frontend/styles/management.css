@@ -1442,3 +1442,84 @@ textarea {
 .field-label-row > label {
   font-weight: 600;
 }
+
+/* 取り込み（SC-11）の「ファイルを置く」（Issue #565）: ダイアログの中の、選んだファイルと、確認の結果。狭い幅（375px）でも、横にはみ出さない */
+.source-file-selected {
+  margin: 0 0 var(--space);
+  overflow-wrap: anywhere;
+}
+
+.source-file-inspection h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.source-file-inspection h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.source-file-info {
+  margin: 0 0 12px;
+}
+
+.source-file-info > div {
+  display: grid;
+  grid-template-columns: 11em minmax(0, 1fr);
+  gap: 8px;
+}
+
+.source-file-info > div + div {
+  margin-top: 4px;
+}
+
+.source-file-info dt {
+  color: var(--color-muted);
+}
+
+.source-file-info dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 置けない理由: 色だけに頼らず、形のアイコンと文字で示す */
+.source-file-problems {
+  margin: 0 0 12px;
+  color: var(--status-error-text);
+}
+
+.source-file-problems ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-file-problems li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.source-file-inspection .notice ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  overflow-wrap: anywhere;
+}
+
+/* ファイルを置いたあとの通知と、取り込みへの導線（表と設定のフォームの間） */
+.source-file-placed {
+  margin: 0 0 var(--space);
+}
+
+.source-file-placed p {
+  margin: 0 0 8px;
+}
+
+@media (max-width: 900px) {
+  .source-file-info > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}

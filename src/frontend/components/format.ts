@@ -89,3 +89,16 @@ export function formatElapsed(seconds: number): string {
   }
   return `${String(rest)} 分`;
 }
+
+const BYTES_PER_KIB = 1024;
+
+/** ファイルの大きさ（バイト）を、「70 バイト」「1.5 KiB」「1.0 MiB」にする（1024 単位。KiB・MiB は小数 1 桁）。 */
+export function formatFileSize(bytes: number): string {
+  if (bytes < BYTES_PER_KIB) {
+    return `${String(bytes)} バイト`;
+  }
+  if (bytes < BYTES_PER_KIB * BYTES_PER_KIB) {
+    return `${(bytes / BYTES_PER_KIB).toFixed(1)} KiB`;
+  }
+  return `${(bytes / (BYTES_PER_KIB * BYTES_PER_KIB)).toFixed(1)} MiB`;
+}

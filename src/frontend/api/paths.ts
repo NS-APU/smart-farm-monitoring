@@ -27,4 +27,9 @@ export const API_PATHS = {
     `/ingestion/equipment/${segment(equipmentId)}/credentials`,
   ingestionEquipmentTest: (equipmentId: string) =>
     `/ingestion/equipment/${segment(equipmentId)}/test`,
+  /** 取り込み用のファイルを置く（Issue #565。ADR-0027）。検査だけ（保存しない）と、置く。 */
+  ingestionSourceFileCheck: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/source-file/check`,
+  ingestionSourceFile: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/source-file`,
 } as const;
