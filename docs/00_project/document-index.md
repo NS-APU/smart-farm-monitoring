@@ -45,7 +45,7 @@
 | | [0008-cognito-authentication.md](../10_design/adr/0008-cognito-authentication.md) | ADR-0008 認証に Amazon Cognito を使い、資格情報は Cognito、ロールは DynamoDB に持つ（承認） |
 | | [0009-lambda-production-assembly.md](../10_design/adr/0009-lambda-production-assembly.md) | ADR-0009 API の Lambda で、本番モード（DynamoDB・Cognito）の組み立てを動かす（承認。6 章は ADR-0010 で置換） |
 | | [0010-client-ip-from-cloudfront-function.md](../10_design/adr/0010-client-ip-from-cloudfront-function.md) | ADR-0010 利用者の IP は、CloudFront の Function でヘッダーに入れて、Lambda が読む（承認） |
-| | [0011-jobs-eventbridge-lambda.md](../10_design/adr/0011-jobs-eventbridge-lambda.md) | ADR-0011 ジョブ（JB-01〜JB-04）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ（承認） |
+| | [0011-jobs-eventbridge-lambda.md](../10_design/adr/0011-jobs-eventbridge-lambda.md) | ADR-0011 ジョブ（JB-01〜JB-05）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ（承認） |
 | | [0012-demo-data-and-s3-file-server-mock.md](../10_design/adr/0012-demo-data-and-s3-file-server-mock.md) | ADR-0012 評価環境のデモデータは、ファイルサーバーのモック（S3）と、手元のコマンドで用意する（承認） |
 | | [0013-environments-and-access-control.md](../10_design/adr/0013-environments-and-access-control.md) | ADR-0013 評価環境は、開発サイトと本番サイトに分け、ログイン必須・管理者／一般の 2 ロールで制御する（承認） |
 | | [0014-defer-evaluation-on-manual-entry-write.md](../10_design/adr/0014-defer-evaluation-on-manual-entry-write.md) | ADR-0014 手動入力の保存・削除の評価の再計算を、AWS では、応答から外し、定期の評価（JB-02）に任せる（承認） |

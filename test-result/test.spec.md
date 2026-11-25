@@ -130,6 +130,8 @@
 追記（2026-11-25。Issue #565）: ブラウザから、設備ごとの取り込み用のファイルを置く機能（SC-11 の設備の行の「ファイルを置く」。検査と置く API・保管先〔S3〕・API の Lambda への `s3:PutObject` だけの IaC・ダイアログ。ADR-0027）（114 章）。増分は、単体・結合・IaC +66 件（4911 件 → 4977 件。新規ファイル 3: `tests/integration/ingestion-source-file.test.ts`〔16 件〕・`tests/unit/frontend/source-file-dialog.test.tsx`〔29 件〕・`tests/unit/backend/infrastructure/memory-hosted-file-store.test.ts`〔3 件〕。`infra/test/evaluation-stack.test.ts` +4 件・`infra/test/apps.test.ts` +1 件・`tests/unit/frontend/api-client.test.ts` +1 件・`s3-hosted-file-store.test.ts` +2 件・`hosted-file-server.test.ts` +2 件・`hosted-file-server-lambda.test.ts` +1 件・`tests/unit/backend/runtime/config.test.ts` +1 件。全ルートの認可のテスト〔`tests/integration/api.test.ts`〕は、ルートが 2 つ増え、ルートごとに 3 件で +6 件）・E2E +8 件（833 件 → 841 件。新規ファイル 1: `tests/e2e/UC-15-place-source-file.ts`）。既存のテストの期待値の変更は、114.2（ルートの総数 58 → 60。承認済みの仕様追加）。削除・スキップはない。上の表の件数には含まない。
 追記（2026-11-25。Issue #375）: 一日を通して変化するデータを `PUT` で置くシミュレーション（`pnpm simulate`。標準シナリオ・倍速・再開・本番へ置けない制限）と、ローカルのファイルサーバー（`pnpm dev:file-server`）（115 章）。増分は、単体・結合 +108 件（4977 件 → 5085 件。231 ファイル。新規ファイル 5: `tests/unit/backend/application/simulation-scenario.test.ts`〔26 件〕・`simulation-simulator.test.ts`〔18 件〕・`tests/unit/backend/runtime/simulate-cli.test.ts`〔55 件〕・`tests/integration/dev-file-server.test.ts`〔8 件〕・`simulation-day-flow.test.ts`〔1 件〕）・E2E +0 件（画面の変更なし）。既存のテストの期待値の変更は、ない。削除・スキップはない。上の表の件数には含まない。
 
+追記（2026-11-26。Issue #229）: 設備の削除で、配下の設備とデータも削除する（非同期のジョブ JB-05・再登録・確認の UI・移行コマンド。D-28）（117 章）。増分は、単体・結合 +60 件（5085 件 → 5145 件。235 ファイル。新規ファイル 4: `tests/integration/equipment-data-purge-contract.test.ts`〔27 件。3 実装〕・`equipment-deletion-api.test.ts`〔8 件〕・`migrate-deleted-equipment-cli.test.ts`〔4 件〕・`tests/unit/backend/application/equipment-deletion-service.test.ts`〔6 件〕。既存ファイルへの追加・差し替えは、合計 +15 件〔秘密情報の削除 +6・確認ダイアログの名前入力 +4・設備管理ページの削除中の表示 +2 など〕）・E2E +0 件（UC-12 の 3 件を、新しい仕様に合わせて差し替え）。承認済みの仕様変更（D-28）により、既存のテストの期待値を変えた（117.2）。削除・スキップはない。上の表の件数には含まない。
+
 内訳（2026-11-12 の実測。Issue #318・#115・#330・#331・#332・#127・#102・#197〔PR 1〜3〕・#198・#201〔PR 1〜3〕・#202・#231・#200・#192〔PR 1・2〕・#177〔PR 1〜3〕・#326・#351・#352・#353・#354・#355・#356・#357・#358・#359・#360・#361〜#366・#367〔PR A・PR B〕・#344〔PR 1・PR 2a・PR 2b・PR 3a・PR 3b。PR 2b は、件数を変えない。PR 3a は、削除。PR 3b は、MOCK の削除と、未設定の取り込み元・`dev:demo-feed` の追加〕。#326 の分〔単体 6 件・E2E 4 件〕・#351 の分〔単体 5 件〕・#352 の分〔単体 39 件・E2E 15 件〕・#353 の分〔単体 正味 9 件・E2E 6 件〕・#354 の分〔単体 正味 7 件・E2E 11 件〕・#355・#356 の分〔単体 11 件・E2E 9 件〕・#357 の分〔単体 15 件・E2E 15 件〕・#358〜#360 の分〔単体・結合 63 件・E2E 15 件〕・#361〜#366 の分〔単体・結合 103 件・E2E 20 件〕は 2026-11-17 までに、#344 の PR 1 の分〔単体・結合 35 件〕・PR 2a の分〔単体・結合 13 件〕は 2026-11-18 に加算し、PR 3a の分〔単体・結合 −44 件。S3 の廃止に伴う削除〕は 2026-11-18 に差し引き、PR 3b の分〔単体・結合 +7 件・E2E −1 件。66 章〕は 2026-11-18 に加算し、#367 の PR A の分〔単体・結合 +171 件・E2E +19 件。67 章〕・PR B の分〔単体・結合 −27 件・E2E −4 件。68 章〕は 2026-11-19 に加算・差し引き、frontend の単体テストの全件〔41 ファイル・789 件成功〕と、E2E の `--list`〔943 件〕、`vitest list`〔3896 件〕で確認した。単体・結合の全件〔DynamoDB Local が必要〕は、CI で確認する）: E2E 943 件（UC ごと 855 件・25 ファイル、シナリオ 88 件・15 ファイル。`playwright test --list` の件数）、単体・結合 3896 件・163 ファイル（`vitest list` の件数。`it.each` の展開後。IaC のテスト 101 件・6 ファイルを含む）。実測（`pnpm test:unit`。`--maxWorkers=3`。DynamoDB Local あり。手元〔Windows〕）は、161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）で、カバレッジは、Statements 99.17%・Branches 95.4%・Functions 99.31%・Lines 99.15%（一覧の件数は、スキップを含めない値で、実測の成功の件数と一致した）。E2E・負荷テストは、CI（Linux。`ci:full`）で確認する（2026-11-09 の PR #327 の CI では全件成功。この変更〔#197〕の CI の結果は、PR に記載）。負荷テスト（`pnpm test:stress`）は 4 ファイル・4 件（9章）、スモークテスト（`pnpm test:smoke`）は 3 ファイル・5 件、認証のスモークテスト（`pnpm test:smoke:auth`）は 1 ファイル・2 件（13章）で、いずれも、上の件数に含めない。Sprint 3 以降の変更・追加は、14〜61 章に記録している（1.4 に索引。追加したテストの ID は、仮の ID）。
 以下は、過去の時点の実測値の経緯（現在の件数は、上の表と内訳）。この件数（以下の段落の値）は、Sprint 2 のサーバーレス化の実装（Issue #71〜#79・#123 など）を含む（Sprint1 の取り込み（Issue #30〜#39・#60・#62）以降の変更は、12 章）。以下は、Sprint1 の取り込み時点までの経緯。最終テスト（手順11。2026-10-12）の実測値（単体・結合 1511 件）から、層ごとのファイルの分割と、テストの追加（表示名のテスト 1 件、許容時間の倍率の単体テスト 14 件、トークンの更新の重なりのテスト 1 件、IaC のテスト 35 件）で変わった（12章）。参考として、最終テスト（手順11。2026-10-12）の実測値（`pnpm test` は、単体・結合 1511 件成功・2 件スキップ、E2E 764 件成功。カバレッジ: 行 99.39%・分岐 96.03%・関数 99.79%・文 99.41%）。負荷テスト（`pnpm test:stress`）は、4 件（443 操作。9章）で、上の件数に含めない。
 
@@ -15100,3 +15102,45 @@ CI の負荷テスト（`stress-02`。10 人が同時に `POST /manual-entries`�
 - E2E・負荷テスト: 画面の変更がないため、手元では実行していない。CI（`ci:full`）で実行する。
 - **確認済み**（2026-11-25）: 開発サイトの自前のファイルサーバーへの実際の投入（operations.md 8.13・simulation.md の手順 2。ロボット 1 台・環境センサー 1 台。ユーザーの報告: 特に問題なし。項目ごとの結果の報告はない）。
 - **未確認**: ローカルのバックエンド・画面での、取り込み・ダッシュボードの目視（simulation.md の手順 1）。費用の実測。`pnpm simulate` の Ctrl+C（シグナル）による中断（起動の入口 `simulate-main.ts` は、単体テストの対象外。中断の判定は、`runSimulateCli` のテストで確認済み）。
+
+## 117. 設備の削除で、配下の設備とデータも削除する（ジョブ JB-05。確認の UI。再登録。認証情報の削除。移行コマンド）（D-28）（#229）に伴う、テストの追加・更新
+
+この章は、1.2 節の追記のとおり、増分として、単体・結合 +60 件・E2E +0 件にした。方針（承認済み。ADR-0018 の D-28 と、ユーザーが追加で決めた点）: (1) 削除の操作で、設備（ハウスは配下も）を削除済みにし、削除の要求を記録する。データの削除は、ジョブ（JB-05）が行う。(2) 取り込み済みファイルの記録は、設備のパスの分だけ削除する。設備ごとの最終の取り込みは削除し、設備ごとのログは残す。ハウスの閲覧の割り当ても削除する。(3) 設備ごとの認証情報（パラメータストア）も削除する（ジョブの IAM に、設備ごとの認証情報のパスだけの削除権限を追加）。(4) PR は 1 つにまとめる。
+
+### 117.1 追加したテスト
+
+| ファイル | 内容 | 検証 |
+| -------- | ---- | ---- |
+| `tests/integration/equipment-data-purge-contract.test.ts`（27 件。新規ファイル。メモリ・ファイル永続化・DynamoDB〔DynamoDB Local〕の 3 実装 × 9 件） | 削除用の Repository のメソッドの契約 | 設備の物理削除（ない設備でも成功）。観測値（自動・手動・論理削除済み。最終の受信日時・項目の一覧も）の削除と、中断（`shouldStop`）から続きの削除。手動入力（論理削除済みも）の削除と ID の返却。変更履歴の、種類・ID を指定した削除。評価結果・ステータスの変化（最終・履歴）の削除。取り込み: 設備ごとの最終の実行と、ファイルの取り込み済みの記録の削除と、設備ごとのログが残り、設備を指定しない一覧に見えること。連携: 送信していない項目の破棄と状態ごとの件数の減算（送信済み・ほかの設備は残る）。削除の要求の保存・取得・一覧・削除。いずれも、ほかの設備のデータは残る |
+| `tests/unit/backend/application/equipment-deletion-service.test.ts`（6 件。新規ファイル） | 削除ジョブの本体（ローカルの Repository・メモリの秘密情報・操作できる時計） | 削除の要求と削除中の一覧。1 回目で、データを削除し、残すもの（設備の変更履歴・取り込みログ・送信済みの連携項目・ほかの設備）を残し、掃除の待ちになる。待ちの間は何もしない。待ちを過ぎたら、実行中に書かれたデータを掃除し、設備の記録と要求を消し、変更履歴に、件数を残す。ハウスの削除（配下・閲覧の割り当て）。失敗は、エラーの種類だけを記録し、次の実行で続きから削除する（メッセージ・ARN は記録しない）。時間の上限で止まり、次の実行で続きから |
+| `tests/integration/equipment-deletion-api.test.ts`（8 件。新規ファイル） | 削除の API・ジョブ・画面の一覧（結合） | 削除するとすぐ一覧・評価から外れ、削除中の一覧（`GET /equipment/deletions`）に出る。ジョブが、観測値・手動入力・評価結果を削除し、設備の記録を消す。ハウスの削除（配下の名前）。削除中の設備 ID は登録できない（409）。削除が終わると、再登録できる。以前の論理削除（要求がない）の設備 ID は、これまでどおり登録できない。計測データ・手動入力の一覧に、削除中の設備のデータを出さず、手動入力の修正・削除は 404。手動入力の個別の変更履歴が消える |
+| `tests/integration/migrate-deleted-equipment-cli.test.ts`（4 件。新規ファイル。DynamoDB Local） | 以前の論理削除の設備を、削除の要求にする移行コマンド | ハウスは配下と 1 件、ハウスが登録中の削除済みの設備は単独で 1 件。何度実行しても同じ。MIGRATE_DRY_RUN。メモリの拒否・AWS のエラーは名前だけ |
+| `tests/unit/backend/infrastructure/ssm-secret.test.ts`・`local-secret.test.ts`（+6 件） | 秘密情報の削除 | パラメータストアの削除（接頭辞・キャッシュ・未設定でも成功・失敗は値を含まないメッセージで SERVICE_UNAVAILABLE・不正な参照名は送らない）。メモリ・環境変数（書き込んだ値だけ消す） |
+| `tests/unit/frontend/confirm-dialog.test.tsx`（+4 件） | 名前を入力して確認する | 入力が一致するまで押せない・前後の空白は無視・全角と半角の違いは不一致・処理中は押せない・入力欄を渡さない既存の使い方は変わらない |
+| `tests/unit/frontend/equipment-page.test.tsx`（+2 件） | 削除中の設備の表示 | 表の上に、名前・配下の名前・状態（削除中・失敗は、自動で再試行する旨）を示す。なければ出ない |
+
+使用するデータ: 合成データ（明らかにダミーの ID・トークン）。実データ・接続先は使わない。実際の AWS には、接続しない。
+
+### 117.2 変更した既存のテスト（承認済みの仕様変更〔D-28。ジョブ JB-05 の追加〕による。期待値を通すためだけに書き換えていない。削除・スキップ・許容の緩和はない）
+
+| ファイル | 変更 | 理由 |
+| -------- | ---- | ---- |
+| `tests/unit/frontend/equipment-page.test.tsx`「削除: …」 | 確認のダイアログの文言（「過去のデータは残ります」→ 観測値・手動入力・評価結果などの削除・元に戻せない・送信済みは削除されない）、ハウスは名前の入力が必要、通知（「削除しました」→「削除を始めました。…」） | D-28（削除すると、データも削除。ハウスは名前の入力で確認） |
+| `tests/unit/frontend/ui-refinements.test.tsx`（2 件）・`management-deferred-evaluation.test.tsx`（1 件） | ハウスの削除の確認の、配下の説明の文言と、削除の通知の文言 | 同上 |
+| `tests/e2e/UC-12-manage-equipment.ts`（3 件）・`scenario-configuration-changes.ts`（1 件） | 削除の確認の文言・通知・「過去のデータは残る」→「設備のデータも削除される（一覧に出ない）」。削除済みの設備 ID は重複エラー → 削除中は 409・削除が終わると再登録できる。ハウスの削除に、名前の入力を追加 | D-28 |
+| `tests/stress/stress-01-single-user.ts` | ハウスの削除に、名前の入力を追加。通知の文言 | D-28 |
+| `tests/integration/api.test.ts`・`dev-seed.test.ts`・`evaluation-notification.test.ts`・`runtime-resilience.test.ts` | ジョブの一覧（JB-01〜JB-05）・実行回数・間隔ごとの実行。ルートの数 60 → 61（`GET /equipment/deletions`） | ジョブ JB-05・API の追加 |
+| `infra/test/evaluation-stack.test.ts`（2 件） | ジョブの IAM: パラメータストアの操作に、設備ごとの認証情報のパスだけの `ssm:DeleteParameter` を追加（ステートメント 3 → 4）。「削除はない」→「それ以外の削除はない」 | 設備ごとの認証情報の削除（ユーザーの指示） |
+| 手書きの偽物・補助（`routing-file-source.test.ts`・`web-push-notifier.test.ts` の SecretPort の偽物に `delete`、`application-services.test.ts` に削除の依存、`tests/support/management-frontend.ts` の既定のルート、`tests/e2e/support/app.ts` の `finishEquipmentDeletions`） | 期待値の変更ではない（新しいメソッド・ルートに合わせた補助） | ポート・API の追加 |
+
+変えた語（確認の文言・通知・「過去のデータは残ります」・ジョブの一覧）で、全種類のテスト（単体・結合・E2E・負荷・スモーク・IaC）を検索した。スモーク（`tests/smoke/`）は、設備の削除を使わず、影響はない。
+
+### 117.3 実測
+
+手元（Windows。2026-11-26）:
+
+- `pnpm format:check`・`pnpm lint`・`pnpm typecheck`: 成功（終了コード 0）
+- 単体・結合・IaC（`pnpm test:unit --maxWorkers=3`。DynamoDB Local あり）: 235 ファイル・5143 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）。終了コード 0。カバレッジ: 行 98.51%・分岐 95.16%・関数 98.70%・文 98.55%（基準は、すべて 95% 以上）
+- E2E（`pnpm test:e2e:parallel`。空きポート。UC-01・UC-12・UC-15・UC-16・UC-20・`scenario-configuration-changes`）: 145 件成功・失敗 0（終了コード 0）
+- 負荷テスト（`E2E_PORT_OFFSET=10000 pnpm test:stress`。空きポート）: 4 件成功（約 2.3 分。NG 0。ハウスの削除に、名前の入力を加えた UC-12 の手順を含む）。記録ファイル（`stresstest.result.log`）は、手元の実行で書き換わるため、コミットしていない。
+- **未確認**: AWS（DynamoDB の実データ）での、削除の時間（1 年分の約 63 万件。ジョブ 1 回の上限 240 秒で足りるか）と費用（実測は未確認。見積もりは ADR-0007 の仮定）、ジョブの IAM（設備ごとの認証情報のパスの `ssm:DeleteParameter`）・パラメータストアの削除、移行コマンド（`pnpm migrate-deleted-equipment`）の AWS での実行（operations.md 8.14）。CI（`ci:full`）の E2E（全件）・負荷テスト。
