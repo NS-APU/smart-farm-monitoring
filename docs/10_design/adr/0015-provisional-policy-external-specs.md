@@ -4,6 +4,7 @@
 - 日付: 2026-10-23
 - 更新（2026-10-24。#143）: 「ファイル仕様」の想定は、[ADR-0016](./0016-ingestion-federation-rules.md) で、「JSON 形式で、更新のたびに全体が書き換わり、中身は最新の値だけ（通常 1 MB 以内）。設備ごとにファイルパスを変えて配置する予定」と具体化した。
 - 更新（2026-11-25。#300・#302）: 環境センサーのファイル仕様（D-04）は、**「確定」**にした。本システムが定める、環境センサーの取り込み仕様で、専用の文書 [environment-sensor-data-definition.md](../data/environment-sensor-data-definition.md) に定める（形式定義 `environment-sensor-json` の版 1.0.0。項目・値の範囲は、変えない）。提供元から別の定義が示されたら、差分を洗い出して、版を上げる。環境センサーの機種・取得方式は、未確定のまま（機種は特定しない）。ロボットの仕様は、これまでどおり仮決め
+- 更新（2026-11-25。#300・#302）: ファイルは、**その時点のスナップショット 1 つ**（フラットな JSON。設備の識別子・記録の配列は持たない）とし、設備は、**設備ごとのファイルのパス（1 設備 = 1 ファイル）**で決める（[ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md) の更新）。
 - 関連: [ADR-0001](./0001-modular-monolith-ports-and-adapters.md)、[ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)、[ADR-0004](./0004-federation-outbox-standalone.md)、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)、[architecture.md](../architecture/architecture.md) 5.1・5.3、rfp.md 7 章、RQ-001〜RQ-006 / FR-1・FR-8、Issue #142（D-01〜D-05）・#119・#172〜#177
 
 目的: 発注者側（宇都宮大学）の回答が得られない事項（ファイルサーバーの接続先・ファイル仕様）と、私たちで決められる事項（農業情報基盤との連携方式）について、暫定の方針と、見直しの条件を残す。

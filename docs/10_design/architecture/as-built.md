@@ -547,7 +547,7 @@ classDiagram
   StatusCodeDefinition --> JudgedStatus
 ```
 
-- **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、ファイルの中の機体 ID・センサー ID との対応（取り込みの対応づけに使う。同じ種別の中で一意）。`sourceFilePath` は、ファイルサーバー（HTTP）の、この設備のファイルの場所（ロボット・センサーだけ。同じ種別の中で一意。[ADR-0023](../adr/0023-http-file-source-per-equipment-file.md)）。削除は論理削除（`isDeleted`）
+- **Equipment**: ハウス（`FACILITY`）が親、ロボット（`ROBOT`）・センサー（`SENSOR`）が子。スキーマの `refine` で「ハウスは親を持たず、ロボット・センサーは親のハウスが必須」を検証する。`externalId` は、データ上の識別子（取り込みの照合には使わない。ファイルの中に設備の識別子は持たず、ファイルのパスで設備を決める。同じ種別の中で一意）。`sourceFilePath` は、ファイルサーバー（HTTP）の、この設備のファイルの場所（ロボット・センサーだけ。すべての設備の中で一意〔1 設備 = 1 ファイル〕。[ADR-0023](../adr/0023-http-file-source-per-equipment-file.md)）。削除は論理削除（`isDeleted`）
 - **Observation**: 共通形式の観測値。一意キーは `設備ID#項目#計測日時#取得元`（`observationKey`）。欠損は `null`（0 で代用しない）。取り込みの観測値は `sourceFileId`・`formatProfileVersion`、手動入力の観測値は `enteredBy`・`note`・`manualEntryId` を持つ
 - **ManualEntry**: 1 回の入力（設備・カテゴリ・計測日時・項目の値・備考）。項目ごとの観測値（取得元 `MANUAL`・品質 `VALID`）としても保存される
 - **ItemDefinition**: 項目カタログ（`shared/constants/items.ts`。37 項目）。検証・集計・画面で共有する。値の型（`integer`・`number`・`string`）・範囲・集計の種類（`TOTAL`・`LEVEL`・`RATING`・`STATUS`）・取得元（自動・手動）を持つ
@@ -816,7 +816,7 @@ classDiagram
 - **IngestionSource**: 取り込み元の設定（`robot`・`environment-sensor` の 2 件が既定）。保存するのは設定（`settings` コレクションのキー `ingestion.sources`）。持つのは、`sourceId`・`kind`・`profileId`・`isEnabled` だけ。**接続・接続設定の参照名・認証情報は持たない**（接続は設備ごと。下の EquipmentConnections。取得するファイルは、設備の `sourceFilePath`。ADR-0022・ADR-0023・ADR-0026）。取得間隔も持たない（設備ごとの設定。`Equipment.intervalMinutes`。#197）。以前に保存された `connection`（接続方式 `MOCK` を含む）・`connectionRef`・`filePath`・取得間隔は、読み込むときに無視する（データは移行しない。取り込み元の共通の接続は、#367 の 2 つ目の PR で廃止した）
 - **EquipmentConnections**（設備ごとの接続。#367。ADR-0026）: 設備 ID → `FileServerConnection`。保存するのは設定（`settings` コレクションのキー `ingestion.equipment-connections`。`application/ingestion/equipment-connections.ts`。`list`・`save`・`remove`）。設備の項目には持たない（設備は、ログインした利用者のだれもが読めるため）。対象は、ロボット・センサー。設備を削除すると（`EquipmentService.delete`）、その設備の接続も削除する。認証情報の値は持たず、SecretPort の `file-server/equipment/<設備 ID の SHA-256 の先頭 32 文字>`（`file-server-credentials.ts` の `fileServerEquipmentSecretReference`）に置く（削除しても、保管先に残る）
 - **IngestedFileRecord**: 再取り込みの防止のための記録。一意キーは `取り込み元#ファイルID`（ファイルごとに、最新の版の 1 件を上書き。#201）。形式違いのファイルは `FAILURE` で記録する
-- **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.2.0(PROVISIONAL)`・`environment-sensor-json@1.0.0(CONFIRMED)`。#174・#302）
+- **FormatProfile**: ポート。実装は、設定（JSON）から作る宣言的な FormatProfile（`robot-json@0.3.0(PROVISIONAL)`・`environment-sensor-json@1.0.0(CONFIRMED)`。#174・#302）
 - **FederationItem**: 連携キューの項目（アウトボックス）。`targetType` は `OBSERVATION`（取り込み・手動入力のデータ）または `EVALUATION`（観点ステータスの変化）。`payload` は送るデータのスナップショット
 - **Session**: `createLocalAuth` がメモリ上に持つ（アクセストークン・リフレッシュトークンの SHA-256 のみ保持。平文は持たない）。永続化しないため、再起動で全員が再ログインになる
 - **AuditLogEntry**: 変更履歴。対象の種類は `manual-entry`・`criteria`・`equipment`・`status-code`・`user`・`ingestion-settings` の 6 つ。`before`・`after` は、パスワードのハッシュを含まない形で記録する
@@ -1435,7 +1435,7 @@ sequenceDiagram
     ES->>REP: get(equipmentId)<br>削除済みを含め存在すれば CONFLICT<br>409
     ES->>REP: 親のハウスが有効かを<br>assertFacility<br>ロボット・センサーのみ
     ES->>REP: list で externalId<br>が同じ種別の中で一意かを<br>assertExternalIdUnique 重複は<br>CONFLICT
-    ES->>REP: list で sourceFilePath<br>が同じ種別の中で一意かを<br>assertSourceFilePathUnique<br>重複は CONFLICT
+    ES->>REP: list で sourceFilePath<br>がすべての設備の中で一意かを<br>assertSourceFilePathUnique<br>重複は CONFLICT
     ES->>REP: save(isDeleted false createdAt)
     ES->>AU: record CREATE
     ES->>EV: evaluateAll EQUIPMENT_CHANGE<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
@@ -1933,7 +1933,7 @@ stateDiagram-v2
   Deleted --> [*]
 ```
 
-- 生成: 設備 ID（一意。削除済みの ID も重複として拒否）・種別・名称・親のハウス（ロボット・センサーは必須）・データ上の識別子（任意。同じ種別の中で一意）。`createdAt` は登録時刻
+- 生成: 設備 ID（一意。削除済みの ID も重複として拒否）・種別・名称・親のハウス（ロボット・センサーは必須）・データ上の識別子（任意。同じ種別の中で一意。取り込みの照合には使わない）・ファイルパス（任意。ロボット・センサーのみ。すべての設備の中で一意。#300・#302）。`createdAt` は登録時刻
 - 更新: 名称・親のハウス（ロボット・センサーのみ）・データ上の識別子・ファイルパス・取得間隔（`intervalMinutes`。いずれもロボット・センサーのみ。ハウスに指定すると検証エラー。#197）。設備 ID・種別は変えられない
 - 削除: `isDeleted: true`。ハウスを削除すると、配下の有効なロボット・センサーも同時に削除する。**復活の操作はない**（同じ設備 ID で再登録すると CONFLICT）。削除した設備のデータ上の識別子は、別の設備で使える（重複の検査が、削除済みを除くため）
 - いずれの変更も、変更履歴に記録し、評価を更新する。削除した設備の観測値・評価結果は残る
@@ -2406,9 +2406,9 @@ isWithinSuppression(直近の同じキーの通知の作成日時, now, 60分) =
 
 **取り込みの実行判定**（`runDueSources`。#197）: 設備（ロボット・センサー）ごとに、`now − 設備の最終の開始日時 + 5 秒 ≥ 設備の取得間隔`、または、記録がなければ、間隔が来たとする（5 秒は、ジョブの起動の時刻のずれの余裕。`DUE_TOLERANCE_MS`）。設備の取得間隔は、`effectiveIntervalMinutes`（指定がなければ、ロボット 1 分・センサー 5 分）。間隔が来た設備のファイルだけを、`FileSourcePort.listFiles(sourceId, { paths })` で問い合わせる。取り込み元に設備が 1 つもないときは、取り込み元の最終の開始日時と、種別の既定の間隔で判定する。取り込んだ設備の最終の実行（開始・終了・結果）は、実行の終わりに、設備ごとに 1 回で記録する（`IngestionRepository.recordEquipmentRuns`。DynamoDB は `EQINGEST`。新しい開始日時のときだけ更新。#201）。一覧の取得の失敗・想定外の例外でも、失敗として記録するため、間隔が来るまで再試行しない。即時取得（`runSource`）は、間隔にかかわらず、すべての設備を取り込む。「データが古い」の判定・停止の通知は、#198 まで、取り込み元ごとの取得間隔を使う。
 
-**対応づけ**: ファイルの設備の識別子（`externalId`）を、種別（ロボット／センサー）が同じ有効な設備の `externalId` に対応づける。対応する設備がない記録は、拒否として数える。ただし、**削除した設備の識別子**（設備の記録が残っている削除済みの設備と、削除のときに設定 `equipment.deletedExternalIds` に残した識別子。登録中の設備にある識別子は除く）の記録は、「削除済みの設備」として別に数え（`deletedEquipmentCount`）、保存せず、拒否にも数えない（#231。ADR-0018 の D-28）。取り込みの結果と、取り込み元単位のログ（`IngestionLog.deletedEquipmentCount`。削除済みの設備のレコードだけの実行は、ログを残さない）に持つ。
+**対応づけ**: ファイルの中に、設備の識別子は持たない。**ファイルのパス（設備の `sourceFilePath`。1 設備 = 1 ファイル。設備の間で一意）で、記録の設備を決める**（`EquipmentIndex.equipmentByFile`。取得の対象は、種別が同じ有効な設備のファイル。設備 ID の順に見て、パスの持ち主を決める）。設備の `externalId` は、照合に使わない。削除した設備のファイルは、取得しないため、「削除済みの設備」の集計（`deletedEquipmentCount`。#231）は、行わない（取り込みの結果では常に 0。`IngestionLog.deletedEquipmentCount` と設定 `equipment.deletedExternalIds` は、過去のログの表示のために残す）。
 
-**FormatProfile の解釈**: JSON は、`recordsPath` の配列と `equipmentIdPath` の設備識別子、記録ごとの `timestampField`（先頭の BOM は取り除く）。CSV は、扱わない（#174 で削除）。構造が仕様と異なるファイル全体は `FormatError`、読み取れない記録は拒否の件数に数える。**取り込みは、変わった観測値だけを保存・連携に積み**（同じ一意キーで値と品質が同じなら触らず、受信日時もそのまま）、**更新日時が 1 秒以内のファイルは次の周期に回す**（ADR-0016 の D-08。#174・#199）。
+**FormatProfile の解釈**: JSON は、ファイルのトップの `timestampField`（計測日時）と、項目の対応（`fields`。ファイルの項目名 `source` → システム内の識別子 `itemKey`）を読む（その時点のスナップショット 1 つ。`layout` は `timestampField` だけ。先頭の BOM は取り除く）。CSV は、扱わない（#174 で削除）。旧構造（`recordsPath`・`equipmentIdPath`）は、扱わない。トップが JSON のオブジェクトでない、計測日時も項目もない（旧構造を含む）、計測日時はあるが設定した項目が 1 つもないファイルは `FormatError`、計測日時がない・読めないファイルは、読み取れなかった記録（拒否の件数 1）。**取り込みは、変わった観測値だけを保存・連携に積み**（同じ一意キーで値と品質が同じなら触らず、受信日時もそのまま）、**更新日時が 1 秒以内のファイルは次の周期に回す**（ADR-0016 の D-08。#174・#199）。
 
 ## 5. 連携の再送（倍々・上限 12 時間）
 
