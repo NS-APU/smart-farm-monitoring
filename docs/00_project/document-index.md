@@ -24,6 +24,7 @@
 | [10_design/data](../10_design/data/) | [data-flow.md](../10_design/data/data-flow.md) | データの流れ |
 | | [data-model.md](../10_design/data/data-model.md) | データモデル（論理モデルと DynamoDB の物理設計の案） |
 | | [data-dictionary.md](../10_design/data/data-dictionary.md) | データ項目定義（データ辞書） |
+| | [robot-data-definition.md](../10_design/data/robot-data-definition.md) | 収穫ロボットのデータ定義（確定。項目・ファイルの構造・累積の値の扱い・ステータスコード・運用の仮定・サンプル・確認したい点） |
 | | [environment-sensor-data-definition.md](../10_design/data/environment-sensor-data-definition.md) | 環境センサーのデータ定義（確定。項目・ファイルの構造・運用の仮定・サンプル・確認したい点） |
 | | [ngsi-ld-context.jsonld](../10_design/data/ngsi-ld-context.jsonld) | 農業情報基盤の連携の context（JSON-LD。独自の型・属性の定義。ADR-0024） |
 | [10_design/functions](../10_design/functions/) | [functional-specification.md](../10_design/functions/functional-specification.md) | 機能仕様書（画面・API・非同期処理の振る舞い） |
