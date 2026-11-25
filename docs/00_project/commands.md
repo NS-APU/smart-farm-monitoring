@@ -22,6 +22,8 @@ pnpm exec playwright install chromium
 pnpm dev:backend     # バックエンド（Node サーバー。http://127.0.0.1:8787）。.env があれば読み込む
 pnpm dev:frontend    # フロントエンド（Vite。http://127.0.0.1:5173。/api/v1 をバックエンドへ中継）
 pnpm dev:demo-feed   # デモ用の合成データの HTTP 配信（ファイルサーバーの代わり。http://127.0.0.1:8790。--port N または DEMO_FEED_PORT でポート指定。ADR-0025）。使い方は「ローカルでの動かし方」
+pnpm dev:file-server # ローカルの自前のファイルサーバー（ロボットと同じ PUT で置ける。http://127.0.0.1:8791。メモリ。ダミーのトークン。--port N または DEV_FILE_SERVER_PORT でポート指定。ADR-0027。Issue #375）
+pnpm simulate --url <URL>  # 一日を通して変化するロボット・環境センサーのデータを、PUT で置く（シミュレーション。ローカル以外は --target development と環境変数 SIM_WRITE_TOKEN が必要。本番へは置けない。手順は docs/40_operations/simulation.md。Issue #375）
 
 # ビルド
 pnpm build           # フロントエンドを dist/frontend へ出力
@@ -303,6 +305,7 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
   2. `.env` に `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` を指定して、バックエンドを起動する（手元の配信など、内部のアドレスに接続するため。ローカル・テストだけ。`APP_MODE=production` では無効）
   3. 画面の SC-10（設備）で、ロボット・環境センサーの「ファイルのパス」に、上のファイルのパスを設定する（`SEED_MODE=DEMO` のデモの設備は、ファイルのパスを持たない）
   4. 同じ設備のダイアログの「取り込み元の接続」で、接続を、プロトコル HTTP・ホスト 127.0.0.1・ポート 8790・認証方式 なし にして保存する（接続は、設備ごと。ADR-0026。接続がない設備は、「接続先が設定されていません」の失敗になる）。SC-11 の設備ごとの「接続テスト」と、「即時取得」で確かめる
+  - 一日を通して変化するデータを置くには、`pnpm dev:file-server`（ローカルのファイルサーバー）と `pnpm simulate --url http://127.0.0.1:8791/`（シミュレーション）を使う（手順は [simulation.md](../40_operations/simulation.md)。Issue #375）
   - `pnpm demo-data use-http-feed --url http://127.0.0.1:8790` は、`PERSISTENCE=dynamodb` 専用（DynamoDB のデータに対して、デモの設備ごとの接続・デモの設備のパスを一括で設定する。取り込み元の共通の接続は、設定しない）。`PERSISTENCE=file` のローカルでは、上の 3・4 を画面で行う
 - 開発用 API（時計・連携・通知のモックの停止・ジョブの起動・リセット）は、既定で無効。`.env` に `DEV_API_ENABLED=true` を指定したときだけ有効（E2E の設定は、指定済み）。dev_spec.md 3.8
 
