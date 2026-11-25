@@ -150,8 +150,8 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
           item.source === 'AUTO_IMPORT' && item.sourceFileId === '/robot/robot-sample-001.json',
       ),
     ).toBe(true);
-    // 解釈に使った版（仮決め）を、観測値に残す
-    expect(observations[0]?.formatProfileVersion).toBe('robot-json@0.3.0(PROVISIONAL)');
+    // 解釈に使った版（確定）を、観測値に残す
+    expect(observations[0]?.formatProfileVersion).toBe('robot-json@1.0.0(CONFIRMED)');
     const latest = await context.container.repositories.evaluations.listLatest(FACILITY_ID);
     expect(latest.length).toBeGreaterThan(0);
   });
@@ -168,7 +168,7 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
       result: 'SUCCESS',
       filesProcessed: 1,
       recordCount: 7,
-      formatProfileVersion: 'robot-json@0.3.0(PROVISIONAL)',
+      formatProfileVersion: 'robot-json@1.0.0(CONFIRMED)',
     });
   });
 
@@ -438,6 +438,159 @@ describe('UC-08 ロボットデータの自動取り込み', () => {
       100,
     );
     expect(due.filter((item) => item.targetType === 'OBSERVATION')).toHaveLength(1);
+  });
+
+  it('データ定義（確定）の文書のサンプル 1: 7 項目とも、すべて有効な値として保存し、解釈に使った版（確定）を残す（#299・#301）', async () => {
+    const context = await setup();
+    await context.files.placeFixture('robot', 'robot/robot-definition-sample-001.json');
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({
+      result: 'SUCCESS',
+      filesProcessed: 1,
+      recordCount: 7,
+      rejectedCount: 0,
+    });
+    const observations = await observationsOf(context);
+    expect(observations).toHaveLength(7);
+    expect(observations.every((item) => item.quality === 'VALID')).toBe(true);
+    expect(
+      observations.every(
+        (item) =>
+          item.formatProfileVersion === 'robot-json@1.0.0(CONFIRMED)' &&
+          item.source === 'AUTO_IMPORT' &&
+          item.observedAt === '2026-10-09T02:00:00.000Z',
+      ),
+    ).toBe(true);
+    expect(observations.map((item) => [item.itemKey, item.value]).sort()).toEqual([
+      ['harvestCount', 128],
+      ['harvestOperatingHours', 2.5],
+      ['harvestSecondsPerFruit', 42.5],
+      ['operatingHours', 3.25],
+      ['standbyHours', 0.5],
+      ['statusCode', 'HARVESTING'],
+      ['travelStoppedHours', 0.125],
+    ]);
+  });
+
+  it('データ定義（確定）の文書のサンプル 2: タイムゾーンのない日時は日本時間・null は欠損・省略した項目は保存しない（#299・#301）', async () => {
+    const context = await setup();
+    await context.files.placeFixture('robot', 'robot/robot-definition-sample-002-partial.json');
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    // 6 項目（1 果実あたりの収穫時間は null）。走行停止時間は省略。欠損 1 件は、棄却数に数える
+    expect(summary).toMatchObject({ recordCount: 5, rejectedCount: 1 });
+    const observations = await observationsOf(context);
+    expect(observations).toHaveLength(6);
+    expect(
+      observations
+        .filter((item) => item.quality === 'MISSING')
+        .map((item) => [item.itemKey, item.observedAt]),
+    ).toEqual([['harvestSecondsPerFruit', '2026-10-09T02:10:00.000Z']]);
+    // 省略した項目（走行停止時間）は、保存しない
+    expect(observations.map((item) => item.itemKey)).not.toContain('travelStoppedHours');
+    expect(observations.find((item) => item.itemKey === 'statusCode')).toMatchObject({
+      value: 'STANDBY',
+      quality: 'VALID',
+    });
+  });
+
+  it('累積の項目（収穫数・稼働時間など）は、ファイルの値（累積のスナップショット）のまま保存する。ファイルが更新されるたびに、新しい計測日時の値が積み上がる（増分に変えない。D-26）', async () => {
+    const context = await setup();
+    await context.files.placeFixture('robot', 'robot/robot-definition-sample-001.json');
+    await context.container.ingestionService.runSource('robot');
+    // 同じファイルのパスの内容が、次の計測の値（累積が増えている）に更新される
+    await context.files.placeFixture('robot', 'robot/robot-definition-sample-002-partial.json', {
+      asName: 'robot-definition-sample-001.json',
+    });
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ filesProcessed: 1, result: 'PARTIAL' });
+    const observations = await observationsOf(context);
+    const series = (itemKey: string) =>
+      observations
+        .filter((item) => item.itemKey === itemKey)
+        .map((item) => [item.observedAt, item.value])
+        .sort();
+    expect(series('harvestCount')).toEqual([
+      ['2026-10-09T02:00:00.000Z', 128],
+      ['2026-10-09T02:10:00.000Z', 130],
+    ]);
+    expect(series('operatingHours')).toEqual([
+      ['2026-10-09T02:00:00.000Z', 3.25],
+      ['2026-10-09T02:10:00.000Z', 3.4],
+    ]);
+  });
+
+  it('値の範囲（収穫数は整数の 0 以上・1 果実あたりの収穫時間は 0〜3,600・時間は 0 以上）の外は、不正にして評価に使わず、元の値を残す。境界の値は有効（D-10）', async () => {
+    const context = await setup();
+    await addEquipment(context, 'ROBOT', ROBOT_2_ID, 'ROBOT-SAMPLE-02');
+    const timestamp = '2026-10-09T02:00:00Z';
+    context.clock.set(new Date('2026-10-09T02:05:00Z'));
+    // 境界の値（有効）
+    await context.files.placeFile(
+      'robot',
+      'boundary.json',
+      JSON.stringify({
+        timestamp,
+        harvestCount: 0,
+        harvestSecondsPerFruit: 3600,
+        operatingHours: 0,
+      }),
+    );
+    // 範囲外（不正）
+    await context.files.placeFile(
+      'robot',
+      'over.json',
+      JSON.stringify({
+        timestamp,
+        harvestCount: 12.5,
+        harvestSecondsPerFruit: 3600.5,
+        operatingHours: -0.5,
+        standbyHours: '0.5',
+      }),
+      { equipmentId: ROBOT_2_ID },
+    );
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ recordCount: 3, rejectedCount: 4 });
+    const valid = await observationsOf(context, ROBOT_ID);
+    expect(valid.every((item) => item.quality === 'VALID')).toBe(true);
+    const invalid = await observationsOf(context, ROBOT_2_ID);
+    expect(invalid.every((item) => item.quality === 'INVALID')).toBe(true);
+    expect(invalid.map((item) => [item.itemKey, item.value]).sort()).toEqual([
+      ['harvestCount', 12.5],
+      ['harvestSecondsPerFruit', 3600.5],
+      ['operatingHours', -0.5],
+      ['standbyHours', '0.5'],
+    ]);
+  });
+
+  it('ステータスコード: 未登録の値は、棄却せず、不正の品質で、元の値のまま保存する（同じファイルの、ほかの項目は有効のまま）', async () => {
+    const context = await setup();
+    await context.files.placeFile(
+      'robot',
+      'status.json',
+      JSON.stringify({
+        timestamp: '2026-10-09T02:00:00Z',
+        harvestCount: 5,
+        statusCode: 'NEW_CODE',
+      }),
+    );
+
+    const summary = await context.container.ingestionService.runSource('robot');
+
+    expect(summary).toMatchObject({ result: 'PARTIAL', recordCount: 1, rejectedCount: 1 });
+    const observations = await observationsOf(context);
+    expect(observations.find((item) => item.itemKey === 'statusCode')).toMatchObject({
+      value: 'NEW_CODE',
+      quality: 'INVALID',
+    });
+    expect(observations.find((item) => item.itemKey === 'harvestCount')?.quality).toBe('VALID');
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * 取り込みの負荷テストの、合成データのファイル（ロボット・環境センサーの JSON）の内容の生成（Issue #344。ADR-0025）。
  * ファイルは、HTTP のテスト用ファイルサーバー（http-files.ts）に置く（設備ごとに 1 ファイル。ADR-0023）。
- * 形式は、ロボットは仮決め・環境センサーは確定の仕様（FormatProfile。dev_spec.md 4.2）。実データは使わない。乱数は種つき。
+ * 形式は、ロボット・環境センサーとも確定の仕様（FormatProfile。dev_spec.md 4.2）。実データは使わない。乱数は種つき。
  */
 
 import { createRandom } from '../../../src/backend/infrastructure/local/synthetic-data.ts';

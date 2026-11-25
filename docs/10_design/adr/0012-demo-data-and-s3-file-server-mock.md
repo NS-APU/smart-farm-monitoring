@@ -54,7 +54,7 @@
 
 ## 結果・トレードオフ
 
-- 取り込み元（`robot`・`environment-sensor`）の、ファイルの形式は、ロボットは仮決めの FormatProfile（Q-001）のまま、環境センサーは確定の FormatProfile（版 1.0.0。[environment-sensor-data-definition.md](../data/environment-sensor-data-definition.md)。機種・取得方式は未確定。Q-004）。
+- 取り込み元（`robot`・`environment-sensor`）の、ファイルの形式は、ロボットは確定の FormatProfile（版 1.0.0。[robot-data-definition.md](../data/robot-data-definition.md)。提供元の定義は未入手。Q-001）、環境センサーは確定の FormatProfile（版 1.0.0。[environment-sensor-data-definition.md](../data/environment-sensor-data-definition.md)。機種・取得方式は未確定。Q-004）。
 - バケットのファイルは 3 日で消えるため、**取り込み済みのファイルが消えても、観測値は、DynamoDB に残る**（取り込み済みの記録も残る）。
 - **デモの設備が必要**: 合成データのファイルは、デモの設備（外部の識別子 `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`）に対応する。設備がない間（`reset` のあと、`seed` の前）に、取り込みが走ると、記録は、設備が見つからないとして棄却され、そのファイルは、取り込み済みの扱いになる（`seed` のあとに、同じ区間のファイルは、再び取り込まれない）。**`reset` と `seed` は、続けて実行する**。
 - 生成の Lambda は、`reset` のあとも、動き続ける。消した S3 のファイルは、次の実行（最長 15 分）で、直近 4 区間の分が、再び置かれる。

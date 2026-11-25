@@ -1879,20 +1879,20 @@ describe('取り込み（UC-15、UC-16）', () => {
     expect(robot).toMatchObject({
       isEnabled: true,
       isRunning: false,
-      formatProfile: { versionLabel: 'robot-json@0.3.0(PROVISIONAL)', status: 'PROVISIONAL' },
+      formatProfile: { versionLabel: 'robot-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' },
       lastStartedAt: TEST_NOW.toISOString(),
       lastSuccessAt: TEST_NOW.toISOString(),
     });
     expect(body.sources[1]).toMatchObject({ lastStartedAt: null, lastSuccessAt: null });
   });
 
-  it('環境センサーの形式定義は「確定」（版 1.0.0）、ロボットは「仮決め」と返す（#300・#302）', async () => {
+  it('ロボット（#299・#301）・環境センサー（#300・#302）の形式定義は、ともに「確定」（版 1.0.0）と返す', async () => {
     const context = await withHttpFiles();
 
     const body = await settings(context);
 
     expect(body.sources.map((source) => [source.sourceId, source.formatProfile])).toEqual([
-      ['robot', { versionLabel: 'robot-json@0.3.0(PROVISIONAL)', status: 'PROVISIONAL' }],
+      ['robot', { versionLabel: 'robot-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' }],
       [
         'environment-sensor',
         { versionLabel: 'environment-sensor-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' },
