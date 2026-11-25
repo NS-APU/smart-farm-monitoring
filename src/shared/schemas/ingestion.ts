@@ -366,6 +366,37 @@ export type EquipmentConnectionResponse = z.infer<typeof EquipmentConnectionResp
 export const ConnectionTestResponseSchema = z.object({ ok: z.boolean(), message: z.string() });
 export type ConnectionTestResponse = z.infer<typeof ConnectionTestResponseSchema>;
 
+/**
+ * 画面から置く、取り込み用のファイルの大きさの上限（バイト。1 MiB）。API の本文の上限と同じ（本文は、ファイルそのもの。JSON の包みは付けない）。
+ * 自前のファイルサーバーの `PUT` の上限（`HOSTED_FILE_MAX_BYTES`）とも同じ（ADR-0027）。
+ */
+export const SOURCE_FILE_MAX_BYTES = 1024 * 1024;
+
+/**
+ * 置く前の検査の結果（`POST /ingestion/equipment/{id}/source-file/check`。Issue #565）。取り込みと同じ解釈（FormatProfile・項目の検証）を、保存せずに行う。
+ * `problems`（置けない理由）が空でなければ、`ok` は false。`warnings`（置けるが、取り込みで「不正」などになる点）は、項目名だけで、値を含めない。
+ */
+export const SourceFileInspectionSchema = z.object({
+  ok: z.boolean(),
+  /** 解釈に使う仕様の版の表記（例: `robot-json@1.0.0(CONFIRMED)`）。 */
+  formatLabel: z.string(),
+  /** ファイルの大きさ（バイト）。 */
+  size: z.number().int().nonnegative(),
+  /** 読み取れた計測日時。読み取れなければ省略。 */
+  observedAt: IsoDateTimeSchema.optional(),
+  /** 読み取れた項目の数（取り込みの対象の項目）。 */
+  itemCount: z.number().int().nonnegative(),
+  problems: z.array(z.string()),
+  warnings: z.array(z.string()),
+});
+export type SourceFileInspection = z.infer<typeof SourceFileInspectionSchema>;
+
+/** ファイルを置いた結果（`PUT /ingestion/equipment/{id}/source-file`）。検査の結果と、置いた日時。 */
+export const SourceFilePlacedSchema = SourceFileInspectionSchema.extend({
+  placedAt: IsoDateTimeSchema,
+});
+export type SourceFilePlaced = z.infer<typeof SourceFilePlacedSchema>;
+
 export const IngestionRunResponseSchema = z.object({
   sourceId: z.string(),
   result: z.enum(INGESTION_RESULTS),

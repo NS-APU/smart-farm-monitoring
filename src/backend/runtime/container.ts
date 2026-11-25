@@ -93,6 +93,7 @@ import { seedInitialStatusCodes } from '../application/seed/initial-data.ts';
 import type { SeedMode } from '../application/seed/seed-modes.ts';
 import { DEFAULT_APP_SETTINGS, type AppSettings } from '../application/settings.ts';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { S3Client } from '@aws-sdk/client-s3';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { createCognitoIdentity } from '../infrastructure/cognito/cognito-identity.ts';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
@@ -128,6 +129,9 @@ import {
 import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
 import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
 import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
+import { createS3HostedFileStore } from '../infrastructure/s3/s3-hosted-file-store.ts';
+import { createMemoryHostedFileStore } from '../infrastructure/local/memory-hosted-file-store.ts';
+import type { HostedFileStorePort } from '../application/ports/hosted-file-store-port.ts';
 import { createLibrarySender } from '../infrastructure/web-push/library-sender.ts';
 import {
   createWebPushNotifier,
@@ -206,6 +210,8 @@ export interface Container {
   readonly jobLock: JobLockPort;
   /** 秘密情報の保管先（接続先の認証情報・Web Push の秘密鍵。値は、ログ・画面・履歴に出さない）。 */
   readonly secrets: SecretPort;
+  /** 画面から置く、取り込み用のファイルの保管先（#565。ADR-0027）。本番で、バケットが未設定のときは、undefined（機能なし）。 */
+  readonly hostedFileStore: HostedFileStorePort | undefined;
   readonly scheduler: Scheduler;
   /** 開発用の操作（時計・モック・リセット）。環境変数 DEV_API_ENABLED で明示した場合だけ有効（既定・本番では undefined）。 */
   readonly dev: DevApiDeps | undefined;
@@ -234,6 +240,8 @@ export interface ContainerOverrides {
   readonly webPushSender?: WebPushSender;
   /** 農業情報基盤への送信（テストで、偽物に差し替える。FEDERATION_MODE=ngsi-ld のとき使う）。 */
   readonly federationTransport?: NgsiLdTransport;
+  /** 画面から置くファイルの保管先（テストで、差し替える。null は、保管先が設定されていない状態。#565）。 */
+  readonly hostedFileStore?: HostedFileStorePort | null;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -425,6 +433,19 @@ function buildAdapters(
   const federationTransport =
     overrides.federationTransport ??
     createHttpNgsiLdTransport({ allowPrivateAddresses: config.httpFileSourceAllowPrivate });
+  // 画面から置くファイルの保管先（#565）: バケットがあれば S3、なければ、本番は機能なし・それ以外はメモリ。テストの差し替えが優先
+  const hostedFileStore: HostedFileStorePort | undefined =
+    overrides.hostedFileStore === null
+      ? undefined
+      : (overrides.hostedFileStore ??
+        (config.hostedFileServerBucket !== undefined
+          ? createS3HostedFileStore({
+              client: new S3Client({}),
+              bucket: config.hostedFileServerBucket,
+            })
+          : config.mode === 'production'
+            ? undefined
+            : createMemoryHostedFileStore(clock)));
   const federationPort: FederationPort =
     config.federationMode === 'ngsi-ld'
       ? createNgsiLdFederation({
@@ -447,6 +468,7 @@ function buildAdapters(
     federationConnection,
     webPush,
     secrets,
+    hostedFileStore,
     policy,
     auth,
     credentials,
@@ -606,6 +628,8 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     profiles,
     audit: auditService,
     secrets: adapters.secrets,
+    hostedFileStore: adapters.hostedFileStore,
+    clock,
     isConnectionAllowed: (connection) =>
       config.httpFileSourceAllowPrivate || !isBlockedConnectionHost(connection.host),
     staleAfterIntervals: config.staleAfterIntervals,
@@ -823,6 +847,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     jobRunner: services.jobRunner,
     jobLock: adapters.jobLock,
     secrets: adapters.secrets,
+    hostedFileStore: adapters.hostedFileStore,
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,

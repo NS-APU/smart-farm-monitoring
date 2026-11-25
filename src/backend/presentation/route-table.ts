@@ -192,6 +192,19 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     access: 'ingestion:run',
     useCases: ['UC-12', 'UC-15'],
   },
+  // 画面から、設備ごとの取り込み用のファイルを置く（検査と、置く。Issue #565。ADR-0027）。本文は、ファイルそのもの
+  {
+    method: 'POST',
+    path: '/ingestion/equipment/:equipmentId/source-file/check',
+    access: 'ingestion:configure',
+    useCases: ['UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/ingestion/equipment/:equipmentId/source-file',
+    access: 'ingestion:configure',
+    useCases: ['UC-15'],
+  },
   { method: 'GET', path: '/ingestion/logs', access: 'ingestion:read', useCases: ['UC-16'] },
   {
     method: 'GET',

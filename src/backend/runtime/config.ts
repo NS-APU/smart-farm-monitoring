@@ -144,6 +144,16 @@ const EnvSchema = z.object({
    * vapid: プッシュサービスへ実際に送る（VAPID。秘密鍵は、秘密情報の web-push/vapid-private-key）。公開鍵・連絡先が必要。
    */
   WEB_PUSH_DELIVERY: z.enum(['dummy', 'vapid']).default('dummy'),
+  /**
+   * 画面から、取り込み用のファイルを置く保管先の、S3 のバケット名（Issue #565。ADR-0027。自前のファイルサーバーのバケット）。
+   * 指定すると、S3 に置く。指定しなければ、本番（production）は、この機能を無効にする（置こうとすると、503）。それ以外のモードは、メモリに置く。
+   */
+  HOSTED_FILE_SERVER_BUCKET: z
+    .string()
+    .min(3)
+    .max(63)
+    .regex(/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/)
+    .optional(),
   /** Web Push の VAPID の連絡先（アプリの https の URL。個人のメールアドレスは、設定に持たない）。 */
   WEB_PUSH_SUBJECT: z
     .url({ protocol: /^https$/ })
@@ -269,6 +279,8 @@ export interface AppConfig {
   readonly webPushDelivery: 'dummy' | 'vapid';
   /** VAPID の連絡先（https の URL）。vapid のときは必ずある。 */
   readonly webPushSubject: string | undefined;
+  /** 画面から置くファイルの保管先の、S3 のバケット名（#565。ADR-0027）。未設定は、本番では機能なし・それ以外はメモリ。 */
+  readonly hostedFileServerBucket: string | undefined;
   /** 開発用の API（時計・モック・リセット）を有効にするか。環境変数で明示したときだけ有効で、本番では常に無効。 */
   readonly devApiEnabled: boolean;
   /** ファイルサーバー（HTTP）の接続先に、内部のアドレスを許可するか（本番は、常に false）。 */
@@ -489,6 +501,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     webPushDelivery: parsed.WEB_PUSH_DELIVERY,
     webPushSubject: parsed.WEB_PUSH_SUBJECT,
+    hostedFileServerBucket: parsed.HOSTED_FILE_SERVER_BUCKET,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     httpFileSourceAllowPrivate:
       parsed.HTTP_FILE_SOURCE_ALLOW_PRIVATE && parsed.APP_MODE !== 'production',

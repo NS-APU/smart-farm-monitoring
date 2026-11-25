@@ -4,6 +4,7 @@
  */
 
 import type { Hono } from 'hono';
+import type { HostedFileStorePort } from '../../src/backend/application/ports/hosted-file-store-port.ts';
 import { NULL_LOGGER, type Logger } from '../../src/backend/application/ports/logger-port.ts';
 import {
   createControllableClock,
@@ -54,6 +55,8 @@ export interface TestContextOptions {
   readonly webPushSender?: WebPushSender;
   /** 農業情報基盤への送信の偽物（FEDERATION_MODE=ngsi-ld のとき、実際の接続の代わりに使う）。 */
   readonly federationTransport?: NgsiLdTransport;
+  /** ファイルを置く保管先の差し替え（障害の再現）。null は、保管先が設定されていない状態（#565）。省略は、メモリの保管先。 */
+  readonly hostedFileStore?: HostedFileStorePort | null;
 }
 
 export async function createTestContext(options: TestContextOptions = {}): Promise<TestContext> {
@@ -77,6 +80,7 @@ export async function createTestContext(options: TestContextOptions = {}): Promi
     ...(options.federationTransport === undefined
       ? {}
       : { federationTransport: options.federationTransport }),
+    ...(options.hostedFileStore === undefined ? {} : { hostedFileStore: options.hostedFileStore }),
   });
   await container.initialize();
   const app = createApp(container);
