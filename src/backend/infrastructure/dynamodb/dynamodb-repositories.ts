@@ -6,6 +6,7 @@
 
 import type { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { Repositories } from '../../application/ports/repositories.ts';
+import { createEquipmentDeletionRepository } from './equipment-deletion-repository.ts';
 import { createEvaluationRepository } from './evaluation-repository.ts';
 import { createFederationRepository, createIngestionRepository } from './ingestion-repositories.ts';
 import {
@@ -48,6 +49,7 @@ export function createDynamoRepositories(options: DynamoRepositoriesOptions): Re
     notifications: createNotificationRepository(db),
     ingestion: createIngestionRepository(db),
     federation: createFederationRepository(db),
+    equipmentDeletions: createEquipmentDeletionRepository(db),
     auditLogs: createAuditLogRepository(db),
     manualEntries: createManualEntryRepository(db),
     users: createUserRepository(db),

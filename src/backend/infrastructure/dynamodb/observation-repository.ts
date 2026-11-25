@@ -40,6 +40,7 @@ import {
 import {
   batchGetItems,
   batchWriteItems,
+  deleteItem,
   getItem,
   mapConcurrent,
   queryAll,
@@ -376,6 +377,39 @@ export function createObservationRepository(
         observationsTable,
         [...writes.values()].map((put) => ({ put })),
       );
+    },
+    async deleteByEquipment(equipmentId, budget) {
+      // 設備の項目の一覧（レジストリ）から、パーティションごとに、キーを読んで、まとめて削除する。読む側の入口（レジストリ・最終の
+      // 受信日時）は、観測値をすべて消してから、最後に消す（途中で止まっても、続きから、同じ項目を探せる）
+      const [entry] = await registryOf([equipmentId]);
+      let deleted = 0;
+      for (const itemKey of entry?.itemKeys ?? []) {
+        for await (const items of queryPages(db, {
+          table: observationsTable,
+          hashName: 'pk',
+          hashValue: observationPartitionKey(equipmentId, itemKey),
+          sortName: 'sk',
+          forward: true,
+          pageSize: PAGE_SIZE_MAX,
+          consistent: true,
+        })) {
+          await batchWriteItems(
+            db,
+            observationsTable,
+            items.map((item) => ({ delete: { pk: item.pk, sk: item.sk } })),
+          );
+          deleted += items.length;
+          if (budget?.shouldStop() === true) {
+            return { deleted, completed: false };
+          }
+        }
+      }
+      await Promise.all(
+        [REGISTRY, RECEIVED_STATS].map((partition) =>
+          deleteItem(db, mainTable, { pk: partition, sk: equipmentId }),
+        ),
+      );
+      return { deleted, completed: true };
     },
     async findForEvaluation(equipmentIds, from, to) {
       const range = {

@@ -216,6 +216,7 @@ describe('Web Push の実配信: 秘密鍵', () => {
       secrets: {
         get: () => Promise.reject(new Error('AccessDenied: arn:aws:ssm:dummy-parameter')),
         set: () => Promise.resolve(),
+        delete: () => Promise.resolve(),
         status: () => Promise.resolve({ configured: false }),
       },
       publicKey: PUBLIC_KEY,

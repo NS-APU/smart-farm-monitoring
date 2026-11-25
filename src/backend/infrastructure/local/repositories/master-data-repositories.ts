@@ -23,6 +23,7 @@ export function createEquipmentRepository(store: LocalStore): EquipmentRepositor
     list: (listOptions) => Promise.resolve(visibleOnly(equipment.values(), listOptions)),
     get: (equipmentId) => Promise.resolve(equipment.get(equipmentId)),
     save: saverOf(equipment),
+    delete: deleterOf(equipment),
   };
 }
 

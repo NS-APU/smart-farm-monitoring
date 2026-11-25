@@ -8,7 +8,11 @@
  * - 値を、ログ・エラーに出さない。AWS のエラーの内容は、エラーの種類の名前のほかは、出さない
  */
 
-import { GetParameterCommand, PutParameterCommand } from '@aws-sdk/client-ssm';
+import {
+  DeleteParameterCommand,
+  GetParameterCommand,
+  PutParameterCommand,
+} from '@aws-sdk/client-ssm';
 import { AppError } from '@smart-farm/shared/errors';
 import type { Logger } from '../../application/ports/logger-port.ts';
 import type { SecretPort, SecretStatus } from '../../application/ports/secret-port.ts';
@@ -105,6 +109,18 @@ export function createSsmSecretPort(options: SsmSecretPortOptions): SecretPort {
         throw failure('秘密情報の保存に失敗しました', '秘密情報を保存できませんでした', error);
       }
       cache.set(name, { value, expiresAt: now() + SECRET_CACHE_TTL_MS });
+    },
+
+    async delete(reference) {
+      const name = nameOf(reference);
+      try {
+        await client.send(new DeleteParameterCommand({ Name: name }));
+      } catch (error) {
+        if (!isNotFound(error)) {
+          throw failure('秘密情報の削除に失敗しました', '秘密情報を削除できませんでした', error);
+        }
+      }
+      cache.delete(name);
     },
 
     async status(reference): Promise<SecretStatus> {

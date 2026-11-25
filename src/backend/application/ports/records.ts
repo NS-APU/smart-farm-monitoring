@@ -79,6 +79,48 @@ export const SourceIngestionStateSchema = z.object({
 });
 export type SourceIngestionState = z.infer<typeof SourceIngestionStateSchema>;
 
+/**
+ * 設備の削除の要求（D-28。Issue #229）。設備を削除すると、設備のデータを、ジョブ（JB-05）が削除する。削除が終わるまで、設備の記録は
+ * 削除済み（isDeleted）で残り、この記録が、進行の状態（画面の「削除中」・失敗の表示・やり直し）を持つ。
+ * 設備ごとではなく、削除の操作ごとに 1 件（ハウスは、配下のロボット・センサーを含む）。
+ */
+export const EquipmentDeletionTargetSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  name: z.string(),
+  equipmentType: z.string(),
+  /** 設備のファイルのパス（取り込み済みファイルの記録を、削除するために持つ）。 */
+  sourceFilePath: z.string().optional(),
+  /** 削除する設備が、ハウスに属するときの、ハウス。 */
+  facilityId: EquipmentIdSchema.optional(),
+});
+export type EquipmentDeletionTarget = z.infer<typeof EquipmentDeletionTargetSchema>;
+
+export const EquipmentDeletionSchema = z.object({
+  /** 削除を指示した設備（ハウスなら、ハウス）。記録のキー。 */
+  equipmentId: EquipmentIdSchema,
+  /** 削除する設備（指示した設備と、ハウスなら配下）。 */
+  targets: z.array(EquipmentDeletionTargetSchema).min(1),
+  requestedBy: UserIdSchema,
+  requestedAt: IsoDateTimeSchema,
+  /**
+   * データの削除中（PURGING）か、削除が終わり、実行中の取り込み・評価の書き込みを掃除するために待っている状態（SWEEPING。
+   * `sweepAfter` を過ぎたら、もう一度削除して、設備の記録を消す）。
+   */
+  phase: z.enum(['PURGING', 'SWEEPING']),
+  sweepAfter: IsoDateTimeSchema.optional(),
+  /** 実行した回数と、直近の失敗（エラーの種類の名前だけ。値・メッセージは持たない）。 */
+  attempts: z.number().int().nonnegative(),
+  lastError: z.string().optional(),
+  lastAttemptAt: IsoDateTimeSchema.optional(),
+  /** ここまでに削除した件数（変更履歴に残す）。 */
+  deleted: z.object({
+    observations: z.number().int().nonnegative(),
+    manualEntries: z.number().int().nonnegative(),
+    unsentFederationItems: z.number().int().nonnegative(),
+  }),
+});
+export type EquipmentDeletion = z.infer<typeof EquipmentDeletionSchema>;
+
 /** 観点の最終ステータスの変化の記録（通知の判定と、ステータスの推移。FR-6.10）。 */
 export const StatusChangeEntrySchema = z.object({
   equipmentId: EquipmentIdSchema,

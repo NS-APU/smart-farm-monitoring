@@ -300,6 +300,18 @@ export function createObservationRepository(
       }
       return Promise.resolve();
     },
+    deleteByEquipment(equipmentId) {
+      const removed = [...(indexOfObservations().get(equipmentId)?.keys() ?? [])];
+      for (const key of removed) {
+        observations.delete(key);
+      }
+      indexOfObservations().delete(equipmentId);
+      // 計測日時の順の索引・最終の受信日時は、次の参照で、残った観測値から作り直す
+      timeIndex = undefined;
+      pendingTimeEntries = [];
+      latestCache = new Map();
+      return Promise.resolve({ deleted: removed.length, completed: true });
+    },
     findForEvaluation(equipmentIds, from, to) {
       const fromIso = from.toISOString();
       const toIso = to.toISOString();

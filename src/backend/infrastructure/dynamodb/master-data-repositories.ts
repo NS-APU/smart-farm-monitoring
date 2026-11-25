@@ -41,6 +41,7 @@ export function createEquipmentRepository(db: Database): EquipmentRepository {
     },
     get: (equipmentId) => equipment.get(EQUIPMENT, equipmentId),
     save: (item) => equipment.put(EQUIPMENT, item.equipmentId, item),
+    delete: (equipmentId) => equipment.remove(EQUIPMENT, equipmentId),
   };
 }
 

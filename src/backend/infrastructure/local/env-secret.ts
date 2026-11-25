@@ -48,6 +48,10 @@ export function createMemorySecretPort(
       store.set(parsed, { value, updatedAt: new Date(now()).toISOString() });
     },
     // eslint-disable-next-line @typescript-eslint/require-await
+    async delete(reference) {
+      store.delete(parseSecretReference(reference));
+    },
+    // eslint-disable-next-line @typescript-eslint/require-await
     async status(reference) {
       const entry = store.get(parseSecretReference(reference));
       return entry === undefined
@@ -77,6 +81,8 @@ export function createEnvSecretPort(
       return (await written.get(parsed, options)) ?? env[envNameOf(parsed)];
     },
     set: (reference, value) => written.set(reference, value),
+    // 環境変数は、プロセスの外のため、変えない（書き込んだ値だけを消す）
+    delete: (reference) => written.delete(reference),
     async status(reference): Promise<SecretStatus> {
       const parsed = parseSecretReference(reference);
       const fromWrite = await written.status(parsed);

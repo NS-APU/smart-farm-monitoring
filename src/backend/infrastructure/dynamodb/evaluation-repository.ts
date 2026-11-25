@@ -6,9 +6,10 @@ import {
 } from '@smart-farm/shared/schemas/evaluation';
 import { StatusChangeEntrySchema } from '../../application/ports/records.ts';
 import type { EvaluationRepository } from '../../application/ports/repositories.ts';
+import { VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
 import { instantKey } from './keys.ts';
 import { mainAggregate } from './main-table.ts';
-import { transactWrite, type Database } from './operations.ts';
+import { batchWriteItems, queryAll, transactWrite, type Database } from './operations.ts';
 
 const evaluationPartition = (equipmentId: string): string => `EVAL#${equipmentId}`;
 const evaluationSortKey = (
@@ -46,5 +47,21 @@ export function createEvaluationRepository(db: Database): EvaluationRepository {
       changes.get(lastChangePartition(equipmentId), viewpointId),
     listStatusChanges: (equipmentId, viewpointId) =>
       changes.list(historyPartition(equipmentId, viewpointId)),
+    async deleteByEquipment(equipmentId) {
+      // 最新の評価結果・最終の変化・観点ごとの変化の履歴の、すべての項目（キーだけ）を集めて、まとめて削除する
+      const partitions = [
+        evaluationPartition(equipmentId),
+        lastChangePartition(equipmentId),
+        ...VIEWPOINT_IDS.map((viewpointId) => historyPartition(equipmentId, viewpointId)),
+      ];
+      const keys = (
+        await Promise.all(partitions.map((partition) => queryAll(db, db.tables.main, partition)))
+      ).flat();
+      await batchWriteItems(
+        db,
+        db.tables.main,
+        keys.map((item) => ({ delete: { pk: item.pk, sk: item.sk } })),
+      );
+    },
   };
 }
