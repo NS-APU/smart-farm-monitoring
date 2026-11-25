@@ -19,6 +19,7 @@
     "initial-user": "node --disable-warning=ExperimentalWarning src/backend/runtime/initial-user-main.ts",
     "migrate-user-roles": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-user-roles-main.ts",
     "migrate-notification-counters": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-notification-counters-main.ts",
+    "migrate-deleted-equipment": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-deleted-equipment-main.ts",
     "dev:demo-feed": "node --disable-warning=ExperimentalWarning src/backend/runtime/demo-feed-main.ts",
     "dev:file-server": "node --disable-warning=ExperimentalWarning src/backend/runtime/dev-file-server-main.ts",
     "simulate": "node --disable-warning=ExperimentalWarning src/backend/runtime/simulate-main.ts",
