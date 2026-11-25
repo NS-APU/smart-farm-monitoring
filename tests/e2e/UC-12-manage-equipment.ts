@@ -28,6 +28,7 @@ import {
   api,
   apiOk,
   confirmDialog,
+  finishEquipmentDeletions,
   goToMenu,
   newUserSession,
   openAs,
@@ -343,7 +344,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await expect(rows(page)).toHaveCount(3);
   });
 
-  test('削除済みの設備と同じ設備IDも、重複としてエラーにする（過去のデータの取り違えを防ぐ）', async ({
+  test('削除中の設備と同じ設備IDは、エラーにする。削除が終わると、同じ設備IDを再登録できる（D-28）', async ({
     page,
     request,
   }) => {
@@ -352,13 +353,22 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await rowOf(page, 'SENSOR-01').getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
     await expect(rowOf(page, 'SENSOR-01')).toHaveCount(0);
+    // 削除中の設備は、表の上に示す
+    await expect(page.getByTestId('equipment-deletions')).toContainText('環境センサー1');
 
     await addChild(page, { type: 'SENSOR', facility: 'HOUSE-01', id: 'SENSOR-01', name: '再登録' });
 
     await openChildForm(page);
     await expect(childForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
-      '同じ設備IDがすでに登録されています',
+      '同じ設備IDの設備を削除しています。削除が終わってから登録してください',
     );
+
+    // 削除（ジョブ）が終わると、同じ設備IDで、登録し直せる
+    await finishEquipmentDeletions(request);
+    await openEquipment(page);
+    await expect(page.getByTestId('equipment-deletions')).toHaveCount(0);
+    await addChild(page, { type: 'SENSOR', facility: 'HOUSE-01', id: 'SENSOR-01', name: '再登録' });
+    await expect(rowOf(page, 'SENSOR-01')).toContainText('再登録');
   });
 
   test('データ上の識別子は、同じ種別の設備の中で、重複を登録できない（ロボットとセンサーは、別の種別）', async ({
@@ -761,7 +771,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(rowOf(page, 'HOUSE-01')).toContainText('ハウス1');
   });
 
-  test('ロボットを削除すると（確認を求める。論理削除）、一覧・ヘッダーから外れ、評価の対象から外れる。過去のデータは残る', async ({
+  test('ロボットを削除すると（確認を求める）、一覧・ヘッダーから外れ、評価の対象から外れる。設備のデータも、削除される（D-28）', async ({
     page,
     request,
   }, testInfo) => {
@@ -775,20 +785,30 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
 
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('設備を削除しますか');
-    await expect(page.getByTestId('confirm-dialog')).toContainText('過去のデータは残ります');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('観測値・手動入力・評価結果');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '農業情報基盤に送信済みのデータは、削除されません',
+    );
     await shot(page, testInfo, 'uc12-confirm');
     await confirmDialog(page, '削除');
 
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(notice(page)).toHaveText(
+      '削除を始めました。データの削除には、数分かかることがあります',
+    );
     await expect(rowOf(page, 'ROBOT-01')).toHaveCount(0);
     await page.goto('/viewpoints/harvestSpeed');
     await expect(page.getByRole('main').getByLabel('対象の設備')).not.toContainText(
       '収穫ロボット1',
     );
-    // 過去のデータは、残る（計測データの一覧に、設備IDで表示される）
+    // 設備のデータは、削除中から、計測データの一覧に出ない。削除（ジョブ）が終わっても、出ない
     await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
-      1,
+      0,
+    );
+    await finishEquipmentDeletions(request);
+    await page.reload();
+    await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
+      0,
     );
     // 削除した設備のダッシュボードは、開けない
     const response = await apiOk<{ facilities: { children: unknown[] }[] }>(
@@ -835,7 +855,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(rowOf(page, 'SENSOR-01')).toHaveCount(1);
   });
 
-  test('ハウスを削除すると、配下のロボット・センサーも削除する（確認の文言で、その旨を示す）', async ({
+  test('ハウスを削除すると、配下のロボット・センサーも削除する。確認の文言で、その旨を示し、ハウスの名前を入力して確認する（D-28）', async ({
     page,
     request,
   }) => {
@@ -843,12 +863,20 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await openEquipment(page);
 
     await rowOf(page, 'HOUSE-01').getByRole('button', { name: '削除' }).click();
-    await expect(page.getByTestId('confirm-dialog')).toContainText(
-      '配下のロボット・環境センサーも含めて',
-    );
+    const dialog = page.getByTestId('confirm-dialog');
+    await expect(dialog).toContainText('配下のロボット・環境センサー');
+    await expect(dialog).toContainText('元に戻せません');
+    await expect(dialog).toContainText('農業情報基盤に送信済みのデータは、削除されません');
+    // ハウスの名前を入力するまで、削除できない
+    const confirm = dialog.getByRole('button', { name: '削除', exact: true });
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId('confirm-typed-input').fill('ハウス1');
+    await expect(confirm).toBeEnabled();
     await confirmDialog(page, '削除');
 
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(notice(page)).toHaveText(
+      '削除を始めました。データの削除には、数分かかることがあります',
+    );
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByTestId('equipment-empty')).toBeVisible();
     // ダッシュボード・データ入力は、設備がない旨を示す

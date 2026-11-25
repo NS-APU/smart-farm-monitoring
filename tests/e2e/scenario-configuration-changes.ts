@@ -6,7 +6,7 @@
  *   → UC-01・UC-04 Bが、ダッシュボードで、収穫速度の注意・コードの名称・推奨アクションを確認 → UC-20 Bが、一覧で、コードの名称を確認
  *   → UC-17 Aが、コードのカテゴリを異常へ変更 → UC-01・UC-10・UC-22 Bの画面は異常になり、通知が届く
  *   → UC-12 Aが、ロボットの名称を変更 → UC-20・UC-22 Bの一覧・通知・設備の選択に、新しい名称が現れる
- *   → UC-12 Aが、ロボットを削除 → UC-01・UC-20 評価の対象から外れ（不明）、過去のデータは残る → UC-18 Aが、変更履歴で、各操作を確認
+ *   → UC-12 Aが、ロボットを削除 → UC-01・UC-20 評価の対象から外れ（不明）、一覧にも出ない（設備のデータは削除される。D-28）→ UC-18 Aが、変更履歴で、各操作を確認
  *
  * 各ユースケースの値の同値分割は、UC-NN-*.ts が担う。ここでは、ユースケースの連なりと、利用者をまたぐ影響を確かめる。
  */
@@ -138,24 +138,26 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await expect(observationRows(b.page).filter({ hasText: '改名ロボット' }).first()).toBeVisible();
     await expect(observationRows(b.page).filter({ hasText: '収穫ロボット1' })).toHaveCount(0);
 
-    // UC-12: Aが、ロボットを削除する（確認を求める。論理削除）
+    // UC-12: Aが、ロボットを削除する（確認を求める。設備のデータも削除される。D-28）
     await advanceMinutes(request, 1);
     await goToMenu(page, 'ハウス・設備');
     await page
       .locator('[data-testid="equipment-row"][data-equipment-id="ROBOT-01"]')
       .getByRole('button', { name: '削除' })
       .click();
-    await expect(page.getByTestId('confirm-dialog')).toContainText('過去のデータは残ります');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('観測値・手動入力・評価結果');
     await confirmDialog(page, '削除');
-    await expect(page.getByTestId('equipment-notice')).toHaveText('削除しました');
+    await expect(page.getByTestId('equipment-notice')).toHaveText(
+      '削除を始めました。データの削除には、数分かかることがあります',
+    );
 
-    // UC-01・UC-20: Bの設備の選択から外れ、ハウスの収穫速度は、評価の対象がなくなって不明になる。過去のデータは、一覧に残る
+    // UC-01・UC-20: Bの設備の選択から外れ、ハウスの収穫速度は、評価の対象がなくなって不明になる。設備のデータは、一覧にも出ない
     await b.page.goto('/viewpoints/harvestSpeed');
     await expect(equipmentSelect(b.page)).not.toContainText('改名ロボット');
     await b.page.goto('/');
     await expect(speedCard(b.page).locator('.status-badge')).toContainText('不明');
     await b.page.goto(`/observations${itemListQuery()}`);
-    await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' }).first()).toBeVisible();
+    await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' })).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-config-b-deleted');
 
     // UC-18: Aが、変更履歴で、ステータスコード（登録・編集）・設備（編集・削除）の操作を確認する

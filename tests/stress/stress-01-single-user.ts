@@ -1203,13 +1203,17 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
           .first()
           .getByRole('button', { name: '削除' })
           .click();
+        // ハウスは、名前を入力して確認する（D-28）
+        await page.getByTestId('confirm-typed-input').fill('負荷試験の追加ハウス');
         await page
           .getByTestId('confirm-dialog')
           .getByRole('button', { name: '削除', exact: true })
           .click();
       },
       respond: async () => {
-        await expect(equipmentNotice).toHaveText('削除しました');
+        await expect(equipmentNotice).toHaveText(
+          '削除を始めました。データの削除には、数分かかることがあります',
+        );
         await expect(equipmentRows.filter({ hasText: 'ROBOT-ADDED' })).toHaveCount(0);
       },
     },
