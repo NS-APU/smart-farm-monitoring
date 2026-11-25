@@ -99,6 +99,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 | デプロイ（作成・更新） | `pnpm --filter @smart-farm/infra run deploy` | あり |
 | 削除（評価環境のみ。データは残す） | `pnpm --filter @smart-farm/infra run destroy` | あり |
 | 削除（データのスタック。データを失う） | `pnpm --filter @smart-farm/infra run destroy:data` | あり |
+| 削除（自前のファイルサーバーのスタック。置かれたファイルを失う。本番サイトは、スタックの削除の保護を外す。バケットは残る〔RETAIN〕。ADR-0027） | `pnpm --filter @smart-farm/infra run destroy:file-server` | あり |
 | 初回の bootstrap（東京） | `pnpm --filter @smart-farm/infra run bootstrap` | あり |
 | 初回の bootstrap（us-east-1。独自ドメインのときだけ） | `pnpm --filter @smart-farm/infra run bootstrap:certificate` | あり |
 | GitHub Actions 用のロールの作成・削除 | `pnpm --filter @smart-farm/infra run deploy:oidc` ・ `destroy:oidc` | あり |
