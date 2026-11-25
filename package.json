@@ -20,6 +20,8 @@
     "migrate-user-roles": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-user-roles-main.ts",
     "migrate-notification-counters": "node --disable-warning=ExperimentalWarning src/backend/runtime/migrate-notification-counters-main.ts",
     "dev:demo-feed": "node --disable-warning=ExperimentalWarning src/backend/runtime/demo-feed-main.ts",
+    "dev:file-server": "node --disable-warning=ExperimentalWarning src/backend/runtime/dev-file-server-main.ts",
+    "simulate": "node --disable-warning=ExperimentalWarning src/backend/runtime/simulate-main.ts",
     "demo-data": "node --disable-warning=ExperimentalWarning src/backend/runtime/demo-data-main.ts",
     "data:backup": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/backend/runtime/data-backup-main.ts",
     "test:stress": "playwright test -c playwright.stress.config.ts",
