@@ -87,6 +87,11 @@ export interface ConfirmDialogProps {
   readonly details?: readonly ConfirmDialogDetail[];
   /** 影響の説明（1 件が 1 つの箇条書き）。操作の影響を、メッセージとは別に、補足する。 */
   readonly notes?: readonly string[];
+  /**
+   * 名前などを入力して確認する（ハウスの削除など、影響の大きい操作。D-28）。入力が `expected` と一致するまで（前後の空白は無視）、
+   * 確認のボタンを押せない。渡さなければ、入力欄は出ず、確認のボタンは、すぐ押せる。
+   */
+  readonly typedConfirmation?: { readonly label: string; readonly expected: string };
   readonly confirmLabel: string;
   readonly busy?: boolean;
   readonly onConfirm: () => void;
@@ -101,13 +106,18 @@ const FOCUSABLE_SELECTOR =
  * 取り消しにくい操作（削除など）の確認。キャンセルが先に選ばれる。
  * 対象の項目（`details`）と影響の説明（`notes`）を、任意で示せる（Issue #153）。項目は、ラベルと値の並びで渡す
  * （固定の文言に、対象の名前を埋め込まない）。名前を入力して確認する形など、確認の部品を足すときは、
- * 任意の props（入力欄・確認の可否）を足し、`details`・`notes` と、既存の呼び出し側は、変えない。
+ * 任意の props（入力欄・確認の可否。`typedConfirmation`）を足し、`details`・`notes` と、既存の呼び出し側は、変えない。
  * キーボード・スクリーンリーダーの利用者が、背景の操作を誤らないよう、Tab をダイアログの中で循環させ、
  * Esc でキャンセルし、閉じたときは、開く前にフォーカスのあった要素へ戻す（V-149）。
  */
 export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
   const titleId = useId();
+  const inputId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [typed, setTyped] = useState('');
+  const confirmable =
+    props.typedConfirmation === undefined ||
+    typed.trim() === props.typedConfirmation.expected.trim();
 
   // 開く前にフォーカスのあった要素。キャンセルへの最初のフォーカス（autoFocus）より前の、最初の描画のときに控える
   const [opener] = useState(() =>
@@ -181,6 +191,21 @@ export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
             ))}
           </ul>
         )}
+        {props.typedConfirmation === undefined ? null : (
+          <div className="field">
+            <label htmlFor={inputId}>{props.typedConfirmation.label}</label>
+            <input
+              id={inputId}
+              type="text"
+              value={typed}
+              autoComplete="off"
+              data-testid="confirm-typed-input"
+              onChange={(event) => {
+                setTyped(event.target.value);
+              }}
+            />
+          </div>
+        )}
         <div className="dialog-actions">
           <button
             type="button"
@@ -194,7 +219,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
           <button
             type="button"
             className="button-danger"
-            disabled={props.busy === true}
+            disabled={props.busy === true || !confirmable}
             onClick={props.onConfirm}
           >
             {props.confirmLabel}

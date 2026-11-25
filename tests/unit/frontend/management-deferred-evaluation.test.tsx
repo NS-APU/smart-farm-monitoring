@@ -111,7 +111,7 @@ describe('設備の保存後のメッセージ（SC-10）', () => {
       within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
     );
     expect((await screen.findByTestId('equipment-notice')).textContent).toBe(
-      `削除しました。${NOTE}`,
+      `削除を始めました。データの削除には、数分かかることがあります。${NOTE}`,
     );
 
     fireEvent.click(
@@ -122,7 +122,7 @@ describe('設備の保存後のメッセージ（SC-10）', () => {
     fireEvent.click(
       within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
     );
-    await screen.findByText('削除しました');
+    await screen.findByText('削除を始めました。データの削除には、数分かかることがあります');
   });
 });
 

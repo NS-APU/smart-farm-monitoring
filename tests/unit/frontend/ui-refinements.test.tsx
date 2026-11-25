@@ -44,7 +44,9 @@ describe('ハウスの削除の確認（V-200）', () => {
     fireEvent.click(within(firstOf(rows)).getByRole('button', { name: '削除' }));
 
     const dialog = await screen.findByTestId('confirm-dialog');
-    expect(dialog.textContent).toContain('対象: 収穫ロボット1、環境センサー1の2件');
+    expect(dialog.textContent).toContain(
+      '配下のロボット・環境センサー 2 件（収穫ロボット1、環境センサー1）と、そのデータが、すべて削除されます',
+    );
   });
 
   it('配下の設備がないハウスは、その旨を示す', async () => {
@@ -59,7 +61,7 @@ describe('ハウスの削除の確認（V-200）', () => {
     fireEvent.click(within(firstOf(rows)).getByRole('button', { name: '削除' }));
 
     expect((await screen.findByTestId('confirm-dialog')).textContent).toContain(
-      '配下の設備はありません',
+      '配下のロボット・環境センサーはありません',
     );
   });
 });

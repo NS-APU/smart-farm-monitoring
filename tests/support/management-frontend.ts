@@ -48,6 +48,8 @@ export function loginWith(permissions: LoginResponse['user']['permissions']): Lo
 export function withBaseRoutes(routes: Routes = {}): FakeHandler {
   const base: Routes = {
     'GET /equipment': () => jsonResponse(equipmentTree()),
+    // 削除中の設備（SC-10。D-28）。テストごとに上書きしなければ、0 件
+    'GET /equipment/deletions': () => jsonResponse({ items: [] }),
     'GET /notifications/unread-count': () => jsonResponse({ unreadCount: 0 }),
     'GET /status-codes': () => jsonResponse(STATUS_CODES_RESPONSE),
     // 未登録のコード値（SC-12-5）。テストごとに上書きしなければ、0 件

@@ -24,6 +24,7 @@ import type { IngestionSourceStatus } from '@smart-farm/shared/schemas/ingestion
 import {
   createEquipment,
   deleteEquipment,
+  getEquipmentDeletions,
   getFacilityAccess,
   getIngestionSettings,
   updateEquipment,
@@ -63,6 +64,8 @@ const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
 /** 取り込み（SC-11。設備ごとの接続）を読み直す間隔。ダイアログを開いている間だけ読む。 */
 const INGESTION_REFRESH_MS = 60_000;
+/** 削除中の設備の表示を、読み直す間隔（ミリ秒）。削除は、ジョブが 1 分ごとに進める（D-28）。 */
+const DELETIONS_REFRESH_MS = 30_000;
 
 /** 取得間隔の選択（設備ごと。Issue #197）。空は、種別ごとの既定。 */
 function IntervalField(props: {
@@ -708,6 +711,13 @@ export function EquipmentPage(): ReactNode {
     [api, canAssign],
   );
   const access = usePolling(fetchAccess);
+  // 削除中の設備（設備を削除すると、設備はすぐ一覧から外れ、データは、ジョブが削除する。D-28）
+  const fetchDeletions = useCallback(
+    async () => (canManage ? await getEquipmentDeletions(api) : undefined),
+    [api, canManage],
+  );
+  const deletions = usePolling(fetchDeletions, DELETIONS_REFRESH_MS);
+  const { reload: reloadDeletions } = deletions;
   const submit = useSubmit();
   const query = useQueryParams();
   const [assigning, setAssigning] = useState<Equipment | undefined>(undefined);
@@ -763,6 +773,7 @@ export function EquipmentPage(): ReactNode {
     if (result.ok) {
       setNotice(withEvaluationNote(TEXT.deleted, result.value.evaluation));
       reloadEquipment();
+      reloadDeletions();
     }
   }
 
@@ -930,6 +941,27 @@ export function EquipmentPage(): ReactNode {
         </div>
       ) : null}
       <FormError message={submit.formMessage} />
+      {deletions.data === undefined || deletions.data.items.length === 0 ? null : (
+        <section
+          className="panel equipment-deletions"
+          aria-label={TEXT.deleting.heading}
+          data-testid="equipment-deletions"
+        >
+          <h2>{TEXT.deleting.heading}</h2>
+          <p className="muted">{TEXT.deleting.lead}</p>
+          <ul>
+            {deletions.data.items.map((item) => (
+              <li key={item.equipmentId} data-testid="equipment-deletion-row">
+                <strong>{item.name}</strong>
+                {item.childNames.length === 0 ? null : (
+                  <span> （{TEXT.deleting.children(item.childNames)}）</span>
+                )}
+                <span> — {TEXT.deleting.status[item.status]}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="panel" aria-label={TEXT.title}>
         {canManage ? (
           <div className="table-toolbar">
@@ -1029,10 +1061,17 @@ export function EquipmentPage(): ReactNode {
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={
-            deleting.equipmentType === 'FACILITY'
-              ? `${TEXT.deleteFacilityMessage}${TEXT.deleteTargets(childNamesOf(deleting))}`
-              : TEXT.deleteMessage
+            deleting.equipmentType === 'FACILITY' ? TEXT.deleteFacilityMessage : TEXT.deleteMessage
           }
+          details={[{ label: TEXT.name, value: deleting.name }]}
+          notes={
+            deleting.equipmentType === 'FACILITY'
+              ? [TEXT.deleteTargetsNote(childNamesOf(deleting)), ...TEXT.deleteNotes]
+              : TEXT.deleteNotes
+          }
+          {...(deleting.equipmentType === 'FACILITY'
+            ? { typedConfirmation: { label: TEXT.deleteTypedLabel, expected: deleting.name } }
+            : {})}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

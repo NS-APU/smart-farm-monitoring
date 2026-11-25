@@ -3,7 +3,7 @@
  * フォーカス・キーボード操作は、accessibility.test.tsx。
  */
 
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ConfirmDialog } from '../../../src/frontend/components/form-controls.tsx';
 import { confirmDetailsOf, confirmNotesOf } from '../../support/management-frontend.ts';
@@ -68,5 +68,66 @@ describe('確認のダイアログ: 対象の項目と影響の説明（#153）'
 
     const buttons = within(screen.getByRole('alertdialog')).getAllByRole('button');
     expect(buttons.map((button) => button.textContent)).toEqual(['キャンセル', '削除']);
+  });
+});
+
+describe('確認のダイアログ: 名前を入力して確認する（D-28。#229）', () => {
+  const CONFIRMATION = {
+    label: '確認のため、ハウスの名前を入力してください',
+    expected: '第1ハウス',
+  };
+  const type = (input: HTMLElement, value: string): void => {
+    fireEvent.change(input, { target: { value } });
+  };
+
+  it('入力欄が空のあいだは、確認のボタンを押せない。名前が一致すると、押せて、確認の操作が呼ばれる', () => {
+    const confirmed: string[] = [];
+    render(
+      <ConfirmDialog
+        {...BASE}
+        typedConfirmation={CONFIRMATION}
+        onConfirm={() => confirmed.push('ok')}
+      />,
+    );
+    const confirm = screen.getByRole('button', { name: '削除' });
+    const input = screen.getByLabelText(CONFIRMATION.label);
+
+    expect(confirm).toHaveProperty('disabled', true);
+    type(input, '第1ハウ');
+    expect(confirm).toHaveProperty('disabled', true);
+    fireEvent.click(confirm);
+    expect(confirmed).toEqual([]);
+
+    type(input, '第1ハウス');
+    expect(confirm).toHaveProperty('disabled', false);
+    fireEvent.click(confirm);
+    expect(confirmed).toEqual(['ok']);
+  });
+
+  it('前後の空白は無視して比べる。名前の途中の違い（全角と半角など）は、一致しない', () => {
+    render(<ConfirmDialog {...BASE} typedConfirmation={CONFIRMATION} />);
+    const confirm = screen.getByRole('button', { name: '削除' });
+    const input = screen.getByLabelText(CONFIRMATION.label);
+
+    type(input, '  第1ハウス ');
+    expect(confirm).toHaveProperty('disabled', false);
+
+    type(input, '第１ハウス');
+    expect(confirm).toHaveProperty('disabled', true);
+  });
+
+  it('処理中（busy）は、名前が一致していても、確認のボタンを押せない', () => {
+    render(<ConfirmDialog {...BASE} busy typedConfirmation={CONFIRMATION} />);
+
+    type(screen.getByLabelText(CONFIRMATION.label), '第1ハウス');
+
+    expect(screen.getByRole('button', { name: '削除' })).toHaveProperty('disabled', true);
+  });
+
+  it('入力欄を渡さない使い方（既存）は、確認のボタンを、すぐ押せる。入力欄は、出ない', () => {
+    render(<ConfirmDialog {...BASE} />);
+
+    expect(screen.getByRole('button', { name: '削除' })).toHaveProperty('disabled', false);
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });
