@@ -10,6 +10,7 @@
 #   本番サイトの Environment「production」のジョブは、このロールを引き受けられない）
 # - 独自のサブドメインを使うときは、Environment の変数 SFM_DOMAIN_NAME・SFM_HOSTED_ZONE_NAME を設定する（2 つとも。未設定なら cloudfront.net）
 # - ログインの失敗の制限（接続元ごと）を変えるときは、Environment の変数 SFM_LOGIN_FAILURE_LIMIT（1〜100）・SFM_LOGIN_FAILURE_WINDOW_MINUTES（1〜1440 分）を設定する（未設定なら、5 回 / 15 分。Issue #244）
+# - 自前のファイルサーバー（#298）の関数の、同時実行数の上限を変えるときは、Environment の変数 SFM_FILE_SERVER_RESERVED_CONCURRENCY（1〜1000）を設定する（未設定なら、10。アカウントの上限が小さいと、デプロイが失敗する。operations.md）
 # - Web Push の実配信（#241）を使うときは、Environment の変数 SFM_WEB_PUSH_PUBLIC_KEY（VAPID の公開鍵。公開の値）・SFM_WEB_PUSH_SUBJECT（連絡先。アプリの https の URL）を設定する（2 つとも。未設定なら、ダミー）。秘密鍵は、変数にせず、パラメータストアに置く（operations.md 8.6）
 name: Deploy development
 
@@ -68,12 +69,14 @@ jobs:
           "
       - name: デプロイ（CDK）
         env:
-          # 開発サイトのスタック（SfmData・SfmEvaluation）を作る（Issue #117）
+          # 開発サイトのスタック（SfmData・SfmFileServer・SfmEvaluation）を作る（Issue #117・#298）
           SFM_ENVIRONMENT: development
           SFM_DOMAIN_NAME: ${{ vars.SFM_DOMAIN_NAME }}
           SFM_HOSTED_ZONE_NAME: ${{ vars.SFM_HOSTED_ZONE_NAME }}
           SFM_LOGIN_FAILURE_LIMIT: ${{ vars.SFM_LOGIN_FAILURE_LIMIT }}
           SFM_LOGIN_FAILURE_WINDOW_MINUTES: ${{ vars.SFM_LOGIN_FAILURE_WINDOW_MINUTES }}
+          # 自前のファイルサーバー（#298）の関数の、同時実行数の上限（未設定は、10。operations.md）
+          SFM_FILE_SERVER_RESERVED_CONCURRENCY: ${{ vars.SFM_FILE_SERVER_RESERVED_CONCURRENCY }}
           SFM_WEB_PUSH_PUBLIC_KEY: ${{ vars.SFM_WEB_PUSH_PUBLIC_KEY }}
           SFM_WEB_PUSH_SUBJECT: ${{ vars.SFM_WEB_PUSH_SUBJECT }}
         run: pnpm --filter @smart-farm/infra run deploy
