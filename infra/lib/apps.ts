@@ -51,7 +51,7 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
   const data = new DataStack(app, names.data, stackEnv === undefined ? {} : { env: stackEnv });
   // 自前のファイルサーバー（#298。ADR-0027）も、評価環境と別のスタックにする（URL・ファイルが、評価環境の作り直しに巻き込まれない）。
   // 開発サイト・本番サイトの両方に、作る（バケット・関数・トークンは、環境ごとに別）
-  new FileServerStack(app, names.fileServer, {
+  const fileServer = new FileServerStack(app, names.fileServer, {
     ...(stackEnv === undefined ? {} : { env: stackEnv }),
     siteEnvironment: config.environment,
     ...(config.fileServerReservedConcurrency === undefined
@@ -65,6 +65,7 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
       frontendAssetPath,
       data,
       includeDemoFeed,
+      hostedFileBucket: fileServer.bucket,
       loginFailurePolicy,
       ...(config.webPush === undefined ? {} : { webPush: config.webPush }),
       siteEnvironment: config.environment,
@@ -82,6 +83,7 @@ export function createEvaluationApp(env: Env, frontendAssetPath: string): App {
     frontendAssetPath,
     data,
     includeDemoFeed,
+    hostedFileBucket: fileServer.bucket,
     loginFailurePolicy,
     ...(config.webPush === undefined ? {} : { webPush: config.webPush }),
     siteEnvironment: config.environment,

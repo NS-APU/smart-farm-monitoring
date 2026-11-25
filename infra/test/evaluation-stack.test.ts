@@ -15,6 +15,7 @@ import {
 import { ORIGIN_SECRET_HEADER } from '../../src/backend/presentation/origin-guard.ts';
 import { STATIC_CONTENT_SECURITY_POLICY } from '../lib/content-security-policy.ts';
 import { DataStack } from '../lib/data-stack.ts';
+import { FileServerStack } from '../lib/file-server-stack.ts';
 import {
   COGNITO_ACTIONS,
   DYNAMODB_ACTIONS,
@@ -1032,5 +1033,74 @@ describe('評価環境のスタック: ドメインと出力', () => {
           certificate: dummyCertificate(app),
         }),
     ).toThrow('サブドメイン');
+  });
+});
+
+describe('評価環境のスタック: 画面から置くファイルの保管先（Issue #565。ADR-0027）', () => {
+  /** ファイルサーバーのスタックのバケットを渡した、評価環境のスタック（別のスタックのバケットを参照する）。 */
+  function withFileServer(): { template: Template; fileServer: Stack } {
+    const app = newApp();
+    const fileServer = new FileServerStack(app, 'FileServer', { env: ENV });
+    const stack = new EvaluationStack(app, 'Evaluation', {
+      env: ENV,
+      frontendAssetPath: frontendAssets(),
+      data: new DataStack(app, 'Data', { env: ENV }),
+      hostedFileBucket: fileServer.bucket,
+    });
+    return { template: Template.fromStack(stack), fileServer };
+  }
+
+  function functionVariables(template: Template, functionId: string): Record<string, unknown> {
+    const resources = template.findResources('AWS::Lambda::Function') as Record<
+      string,
+      { Properties: { Environment?: { Variables: Record<string, unknown> } } }
+    >;
+    const entry = Object.entries(resources).find(([logicalId]) => logicalId.startsWith(functionId));
+    return entry?.[1].Properties.Environment?.Variables ?? {};
+  }
+
+  it('API の Lambda に、バケット名を、環境変数 HOSTED_FILE_SERVER_BUCKET で渡す。ジョブの Lambda には、渡さない', () => {
+    const { template } = withFileServer();
+
+    const api = functionVariables(template, 'ApiFunction');
+    const job = functionVariables(template, 'JobFunction');
+
+    expect(JSON.stringify(api.HOSTED_FILE_SERVER_BUCKET)).toContain('FileServer');
+    expect(job).not.toHaveProperty('HOSTED_FILE_SERVER_BUCKET');
+  });
+
+  it('API の Lambda の権限は、バケットの `files/` の下への PutObject だけ（読み取り・削除・一覧は、付けない）。ジョブの Lambda には、S3 の権限がない', () => {
+    const { template } = withFileServer();
+
+    const s3 = roleStatements(template, 'ApiFunction').filter((statement) =>
+      [statement.Action].flat().some((action) => action.startsWith('s3:')),
+    );
+
+    expect(s3).toHaveLength(1);
+    expect(s3[0]?.Action).toEqual('s3:PutObject');
+    expect(JSON.stringify(s3[0]?.Resource)).toContain('/files/*');
+    const jobActions = roleStatements(template, 'JobFunction').flatMap((statement) =>
+      [statement.Action].flat(),
+    );
+    expect(jobActions.filter((action) => action.startsWith('s3:'))).toEqual([]);
+  });
+
+  it('バケットを渡さなければ、環境変数も S3 の権限も、付けない（本番で、バケットが未設定の状態に当たる）', () => {
+    const { template } = plainStack();
+
+    expect(functionVariables(template, 'ApiFunction')).not.toHaveProperty(
+      'HOSTED_FILE_SERVER_BUCKET',
+    );
+    const actions = roleStatements(template, 'ApiFunction').flatMap((statement) =>
+      [statement.Action].flat(),
+    );
+    expect(actions.filter((action) => action.startsWith('s3:'))).toEqual([]);
+  });
+
+  it('評価環境のスタックが、ファイルサーバーのスタックに依存する（逆は、ない。ファイルサーバーは、独立のまま）', () => {
+    const { template, fileServer } = withFileServer();
+
+    expect(JSON.stringify(template.toJSON())).toContain('Fn::ImportValue');
+    expect(fileServer.dependencies).toEqual([]);
   });
 });
