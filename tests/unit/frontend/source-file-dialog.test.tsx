@@ -216,7 +216,10 @@ describe('SC-11: ファイルを置くダイアログ（Issue #565）', () => {
     expect(checkButton(dialog).disabled).toBe(true);
     expect(placeButton(dialog).disabled).toBe(true);
     // 開いたら、最初の入力欄（ファイルの選択）にフォーカスを移す
-    expect(document.activeElement).toBe(input);
+    // フォーカスの移動は、効果（描画のあと）で行う。待たずに確かめると、遅い環境（CI）で、移動の前に見てしまう
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
   });
 
   it('Esc・キャンセルで閉じ、フォーカスを、開いたボタンへ戻す', async () => {
@@ -227,7 +230,10 @@ describe('SC-11: ファイルを置くダイアログ（Issue #565）', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: 'ファイルを置く' })).toBeNull();
     });
-    expect(document.activeElement).toBe(openButton('収穫ロボット1'));
+    // 閉じたあとの、開いたボタンへのフォーカスの復帰は、効果の後処理で行う（待たずに確かめると、遅い環境で、復帰の前に見てしまう）
+    await waitFor(() => {
+      expect(document.activeElement).toBe(openButton('収穫ロボット1'));
+    });
 
     openButton('収穫ロボット1').focus();
     fireEvent.click(openButton('収穫ロボット1'));
@@ -635,8 +641,10 @@ describe('SC-11: ファイルを置く（確認のダイアログ・結果の通
     expect(sent[0]?.contentType).toBe('application/json');
     // 自動では、取り込まない
     expect(callsOf(calls, 'POST', '/ingestion/robot/run')).toHaveLength(0);
-    // 開いたボタンへ、フォーカスを戻す
-    expect(document.activeElement).toBe(openButton('収穫ロボット1'));
+    // 開いたボタンへ、フォーカスを戻す（効果の後処理で行うため、待って確かめる。CI で、通知の表示の直後に、まだ戻っておらず失敗した）
+    await waitFor(() => {
+      expect(document.activeElement).toBe(openButton('収穫ロボット1'));
+    });
   });
 
   it('警告があれば、通知に、件数を示す', async () => {
