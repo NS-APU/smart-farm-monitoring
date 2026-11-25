@@ -3,17 +3,15 @@
   "version": "1.0.0",
   "status": "CONFIRMED",
   "format": "JSON",
-  "basis": "確定（本システムが定める、環境センサーの取り込み仕様。専用文書: docs/10_design/data/environment-sensor-data-definition.md）。提供元から別の定義が示されたら、差分を洗い出して、版を上げる。環境センサーの機種・取得方式は未確定（機種は特定しない。Raspberry Pi などで自作する可能性がある）で、ファイル仕様は、ロボットデータと同じ方式・形式に合わせて定めた（ADR-0003・ADR-0015 の 2・ADR-0016 の D-08）。ファイルは 1 台のセンサーの JSON（設備の識別子 sensorId + 記録の配列）で、1 つのファイルを随時更新し、中身は最新の値（または直近の少数）だけ。項目は温度・湿度・照度・CO2濃度の 4 つ。値の範囲は ADR-0016 の D-10。値のない項目は null（欠損）。タイムゾーンのない日時は、日本時間（+09:00）として読む（utcOffsetMinutes）。以前の仮決め（environment-sensor-json@0.1.0。さらに前は environment-sensor-csv@0.1.0）から、項目・構造は変えていない。",
+  "basis": "確定（本システムが定める、環境センサーの取り込み仕様。専用文書: docs/10_design/data/environment-sensor-data-definition.md）。提供元から別の定義が示されたら、差分を洗い出して、版を上げる。環境センサーの機種・取得方式は未確定（機種は特定しない。Raspberry Pi などで自作する可能性がある）で、ファイル仕様は、ロボットデータと同じ方式・形式に合わせて定めた（ADR-0003・ADR-0015 の 2・ADR-0016 の D-08）。ファイルは 1 台のセンサーの、その時点のスナップショット 1 つ（計測日時 timestamp + 項目のフラットな JSON）。設備の識別子・記録の配列は持たず、設備は、設備ごとのファイルのパス（sourceFilePath。1 設備 = 1 ファイル）で決める。1 つのファイルを随時更新し、中身は最新の値だけ。履歴は、取得を繰り返して積み上げる。ファイルの項目名は temperature・humidity・illuminance・co2 の 4 つで、システム内の識別子（temperatureCelsius・humidityPercent・illuminanceLux・co2Ppm）に対応づける（単位は ℃・%・lx・ppm）。値の範囲は ADR-0016 の D-10。値のない項目は null（欠損）。タイムゾーンのない日時は、日本時間（+09:00）として読む（utcOffsetMinutes）。",
   "utcOffsetMinutes": 540,
   "layout": {
-    "recordsPath": "records",
-    "equipmentIdPath": "sensorId",
     "timestampField": "timestamp"
   },
   "fields": [
-    { "source": "temperatureCelsius", "itemKey": "temperatureCelsius" },
-    { "source": "humidityPercent", "itemKey": "humidityPercent" },
-    { "source": "illuminanceLux", "itemKey": "illuminanceLux" },
-    { "source": "co2Ppm", "itemKey": "co2Ppm" }
+    { "source": "temperature", "itemKey": "temperatureCelsius" },
+    { "source": "humidity", "itemKey": "humidityPercent" },
+    { "source": "illuminance", "itemKey": "illuminanceLux" },
+    { "source": "co2", "itemKey": "co2Ppm" }
   ]
 }

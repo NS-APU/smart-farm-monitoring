@@ -9,10 +9,11 @@ import { namedErrorClass } from '../named-error.ts';
 
 export type FormatProfileStatus = 'PROVISIONAL' | 'CONFIRMED';
 
-/** ファイルの1件の記録。値は検証前（型・範囲は取り込みの検証で確認する）。 */
+/**
+ * ファイルの記録（その時点のスナップショット 1 つ）。値は検証前（型・範囲は取り込みの検証で確認する）。
+ * ファイルの中に、設備の識別子は持たない（設備は、ファイルのパスで決める。設備ごとに 1 ファイル）。
+ */
 export interface ParsedRecord {
-  /** ファイルの中の設備の識別子（機体ID・センサーID）。設備の externalId に対応する。 */
-  readonly externalId: string;
   /** 計測日時（検証前の文字列）。 */
   readonly observedAt: string;
   /** 項目の識別子（itemKey）→ 値。値がない場合は null。 */
@@ -20,8 +21,9 @@ export interface ParsedRecord {
 }
 
 export interface ParsedFile {
-  readonly records: readonly ParsedRecord[];
-  /** 構造として読み取れなかった行・記録の数（形式違い。FR-1.6）。 */
+  /** 読み取れた記録。計測日時が読み取れなければ、なし。 */
+  readonly record: ParsedRecord | undefined;
+  /** 読み取れなかった記録の数（0 または 1。計測日時がない・読めない。FR-1.6）。 */
   readonly rejectedCount: number;
 }
 

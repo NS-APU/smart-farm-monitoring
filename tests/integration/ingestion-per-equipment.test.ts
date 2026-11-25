@@ -58,9 +58,9 @@ async function build(
   /** true の間は、ファイルの一覧の取得が、接続できずに失敗する。 */
   const control = { listFails: false };
   const files: Record<string, string> = options.files ?? {
-    [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01',
-    [ROBOT_2_FILE]: 'ROBOT-SAMPLE-02',
-    [SENSOR_1_FILE]: 'SENSOR-SAMPLE-01',
+    [ROBOT_1_FILE]: 'OK',
+    [ROBOT_2_FILE]: 'OK',
+    [SENSOR_1_FILE]: 'OK',
   };
   const fileSource: FileSourcePort = {
     testEquipment: () => Promise.resolve(),
@@ -92,12 +92,15 @@ async function build(
       if (options.brokenFiles?.some((broken) => marker.startsWith(`broken:${broken}`))) {
         throw new FormatError('形式が仕様と異なります');
       }
+      // 計測日時のないファイル（読み取れなかった記録）
+      if (names === 'NO-TIMESTAMP') {
+        return { record: undefined, rejectedCount: 1 };
+      }
       return {
-        records: names.split('+').map((externalId) => ({
-          externalId,
+        record: {
           observedAt: '2026-10-09T01:00:00Z',
           fields: options.fields ?? { harvestCount: 2 },
-        })),
+        },
         rejectedCount: 0,
       };
     },
@@ -388,9 +391,9 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
     );
   });
 
-  it('設備のファイルに、その設備に結びつかない記録（未登録の設備の識別子）が入るときは、棄却として、そのファイルの設備のログ（一部成功）に数える。取り込み元単位のログは、残さない', async () => {
+  it('設備のファイルが、読み取れなかった記録（計測日時がない）のときは、棄却として、そのファイルの設備のログ（失敗）に数える。取り込み元単位のログは、残さない', async () => {
     const { runAfter, repositories } = await build({
-      files: { [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01+UNKNOWN-ROBOT' },
+      files: { [ROBOT_1_FILE]: 'NO-TIMESTAMP' },
     });
 
     await runAfter(0);
@@ -399,15 +402,15 @@ describe('取り込みログは、設備ごと。空振りは残さず、設備�
     expect(robotLogs).toHaveLength(1);
     expect(robotLogs[0]).toMatchObject({
       equipmentId: ROBOT_ID,
-      result: 'PARTIAL',
-      recordCount: 1,
+      result: 'FAILURE',
+      recordCount: 0,
       rejectedCount: 1,
     });
   });
 
   it('取り込めなかった不正な値は、その設備のログに数える。同じ不正な値が続いても（新しく保存した観測値がない）、ログを増やさない', async () => {
     const { runAfter, repositories } = await build({
-      files: { [ROBOT_1_FILE]: 'ROBOT-SAMPLE-01' },
+      files: { [ROBOT_1_FILE]: 'OK' },
       // 収穫数に小数（整数の項目）は、不正
       fields: { harvestCount: 1.5 },
     });

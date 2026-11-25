@@ -71,15 +71,7 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
       travelStoppedHours: 0.002,
       statusCode: 'CHARGING_WAIT',
     };
-    await placeFile(
-      request,
-      'robot',
-      'robot.json',
-      robotJson([
-        { hoursAgo: 0.5, fields },
-        { hoursAgo: 0.25, fields },
-      ]),
-    );
+    await placeFile(request, 'robot', 'robot.json', robotJson({ hoursAgo: 0.25, fields }));
     await goToMenu(page, '取り込み');
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
 
@@ -94,7 +86,7 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     // UC-20: Bが、計測データの一覧で、ステータスコードを名称で確認する
     await goToMenu(b.page, '計測データ');
     const statusRows = measurementRows(b.page).filter({ hasText: 'ステータスコード' });
-    await expect(statusRows).toHaveCount(2);
+    await expect(statusRows).toHaveCount(1);
     await expect(statusRows.first()).toContainText('充電待ち');
     await expect(statusRows.first()).toContainText('自動取り込み');
 

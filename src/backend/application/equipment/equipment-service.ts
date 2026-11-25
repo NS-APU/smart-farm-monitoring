@@ -95,7 +95,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     }
   }
 
-  /** ファイルの中の設備の識別子（externalId）は、同じ種別の設備の中で一意（取り込みの対応づけのため）。 */
+  /** データ上の識別子（externalId）は、同じ種別の設備の中で一意。取り込みの照合には使わない（設備は、ファイルのパスで決める）。 */
   async function assertExternalIdUnique(
     equipmentType: Equipment['equipmentType'],
     externalId: string | undefined,
@@ -115,9 +115,11 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     }
   }
 
-  /** ファイルのパス（sourceFilePath）は、同じ種別の設備の中で一意（1 つのファイルを 1 つの設備に対応づけるため。ADR-0023）。削除済みは、一覧に含まれないため、数えない。 */
+  /**
+   * ファイルのパス（sourceFilePath）は、すべての設備（ロボット・センサーの種別を問わず）の中で一意
+   * （1 設備 = 1 ファイル。ファイルの中に設備の識別子を持たず、パスで設備を決めるため。ADR-0023）。削除済みは、一覧に含まれないため、数えない。
+   */
   async function assertSourceFilePathUnique(
-    equipmentType: Equipment['equipmentType'],
     sourceFilePath: string | undefined,
     ownId: EquipmentId | undefined,
   ): Promise<void> {
@@ -125,10 +127,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       return;
     }
     const duplicated = (await repository.list()).some(
-      (other) =>
-        other.equipmentType === equipmentType &&
-        other.sourceFilePath === sourceFilePath &&
-        other.equipmentId !== ownId,
+      (other) => other.sourceFilePath === sourceFilePath && other.equipmentId !== ownId,
     );
     if (duplicated) {
       throw conflictError('sourceFilePath', '同じファイルパスがすでに登録されています');
@@ -166,7 +165,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         await assertFacility(input.facilityId);
       }
       await assertExternalIdUnique(input.equipmentType, input.externalId, undefined);
-      await assertSourceFilePathUnique(input.equipmentType, input.sourceFilePath, undefined);
+      await assertSourceFilePathUnique(input.sourceFilePath, undefined);
       const created: Equipment = {
         equipmentId: input.equipmentId,
         equipmentType: input.equipmentType,
@@ -216,7 +215,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         await assertFacility(facilityId);
       }
       await assertExternalIdUnique(before.equipmentType, input.externalId, equipmentId);
-      await assertSourceFilePathUnique(before.equipmentType, input.sourceFilePath, equipmentId);
+      await assertSourceFilePathUnique(input.sourceFilePath, equipmentId);
       const updated: Equipment = {
         equipmentId: before.equipmentId,
         equipmentType: before.equipmentType,

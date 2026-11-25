@@ -139,10 +139,7 @@ describe('取り込みの HTTP のテスト用ファイルサーバーの準備�
     await created.files.placeFile(
       'environment-sensor',
       'sensor.json',
-      JSON.stringify({
-        sensorId: 'SENSOR-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temperatureCelsius: 23 }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', temperature: 23 }),
     );
 
     const robot = await created.container.repositories.equipment.get(ROBOT_ID);
@@ -151,7 +148,7 @@ describe('取り込みの HTTP のテスト用ファイルサーバーの準備�
     expect(sensor?.sourceFilePath).toBe('/environment-sensor/sensor.json');
     const robotRun = await created.container.ingestionService.runSource('robot');
     const sensorRun = await created.container.ingestionService.runSource('environment-sensor');
-    expect(robotRun).toMatchObject({ result: 'SUCCESS', filesProcessed: 1, recordCount: 14 });
+    expect(robotRun).toMatchObject({ result: 'SUCCESS', filesProcessed: 1, recordCount: 7 });
     expect(sensorRun).toMatchObject({ result: 'SUCCESS', filesProcessed: 1, recordCount: 1 });
   });
 

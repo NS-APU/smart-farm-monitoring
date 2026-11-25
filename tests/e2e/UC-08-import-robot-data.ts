@@ -13,8 +13,8 @@
  *               ・取り込みの成否は、ログとして記録する（UC-16）
  *               ・同じファイルを重複して取り込まない
  *
- * 値の同値分割: ファイルの内容（正常・一部の記録が不正・欠損・形式違い・空の記録・登録のない機体ID・遅延・未来の計測日時・
- * 複数のロボット（別のハウス））、ステータスコード
+ * 値の同値分割: ファイルの内容（正常・一部の項目が不正・欠損・形式違い・旧構造・遅延・未来の計測日時・
+ * 複数のロボット（別のハウス。設備ごとに 1 ファイル））、ステータスコード
  * （正常・注意・異常のカテゴリ、未定義）、起動の経路（即時取得・定期（JB-01）・スケジューラ）、同じファイルの再取り込み
  * （同じ内容・名前を変えた同じ内容・同じ名前で内容が変わった）、接続（成功・停止）。
  * 関連するユースケース: UC-15（設定）・UC-16（ログ）・UC-20（SC-09 で確認）・UC-01（評価）・UC-24（失敗の通知）・UC-11（連携）。
@@ -64,21 +64,20 @@ async function dashboardStatus(page: Page, viewpointId: string): Promise<string>
   return (await badge.textContent())?.replace(/[^正常注意異常不明]/g, '') ?? '';
 }
 
-/** 収穫速度の評価に必要な、15分前・30分前の2件の記録（収穫数 10 / 収穫稼働時間 0.1h = 36秒/果実、走行停止率 2%）。 */
-function speedRecords(statusCode: string) {
-  const fields = {
-    harvestCount: 10,
-    harvestSecondsPerFruit: 36,
-    operatingHours: 0.25,
-    standbyHours: 0.01,
-    harvestOperatingHours: 0.1,
-    travelStoppedHours: 0.002,
-    statusCode,
+/** 収穫速度の評価に必要な、15分前の記録（スナップショット 1 つ。収穫数 10 / 収穫稼働時間 0.1h = 36秒/果実、走行停止率 2%）。 */
+function speedRecord(statusCode: string) {
+  return {
+    hoursAgo: 0.25,
+    fields: {
+      harvestCount: 10,
+      harvestSecondsPerFruit: 36,
+      operatingHours: 0.25,
+      standbyHours: 0.01,
+      harvestOperatingHours: 0.1,
+      travelStoppedHours: 0.002,
+      statusCode,
+    },
   };
-  return [
-    { hoursAgo: 0.5, fields },
-    { hoursAgo: 0.25, fields },
-  ];
 }
 
 /** ロボットを、ハウス 1 に 1 つ追加する（HTTP は、1 設備 = 1 ファイル。複数のファイルは、複数のロボットに言い換える）。 */
@@ -113,20 +112,20 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
       request,
       'robot',
       'robot-2026-10-09.json',
-      robotJson(speedRecords('HARVESTING')),
+      robotJson(speedRecord('HARVESTING')),
     );
 
     // 2〜3. 検知・読み込み・検証・保存（SC-11 の即時取得）
     await page.goto('/settings/ingestion');
     const result = await runNow(page, 'robot');
     await expect(result).toContainText('取得しました（成功）');
-    await expect(result).toContainText('ファイル 1 件、取り込み 14 件、読み取れなかった記録 0 件');
+    await expect(result).toContainText('ファイル 1 件、取り込み 7 件、読み取れなかった記録 0 件');
     // 取り込みの成否は、ログに記録される（取り込み元・成功・ファイル数・取り込み件数・読み取れなかった記録の数。UC-16）
     const log = logRows(page).first();
     await expect(log).toHaveAttribute('data-result', 'SUCCESS');
     await expect(log).toContainText('ロボットデータ');
     await expect(log.locator('td').nth(4)).toHaveText('1');
-    await expect(log.locator('td').nth(5)).toHaveText('14');
+    await expect(log.locator('td').nth(5)).toHaveText('7');
     await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc08-ingestion');
 
@@ -141,7 +140,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
 
     // 3. ロボットに対応づけて保存されている（SC-09）
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(14);
+    await expect(observationRows(page)).toHaveCount(7);
     for (const row of await observationRows(page).all()) {
       await expect(row).toContainText('収穫ロボット1');
       await expect(row).toContainText('自動取り込み');
@@ -158,7 +157,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await expect(page.getByTestId('card-harvestSpeed')).toContainText('36.0秒/果実');
   });
 
-  test('ロボットは、データ上の識別子（機体ID）で、登録されたロボットと、そのロボットが属するハウスに対応づけて保存される（複数のハウス・ロボット）', async ({
+  test('ロボットのファイルは、設備ごとのファイルのパスで、登録されたロボットと、そのロボットが属するハウスに対応づけて保存される（複数のハウス・ロボット）', async ({
     page,
     request,
   }, testInfo) => {
@@ -180,46 +179,41 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
       request,
       'robot',
       'robot-01.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
     );
     await placeFile(
       request,
       'robot',
       'robot-02.json',
-      robotJson(
-        [
-          { hoursAgo: 1, fields: { harvestCount: 20 } },
-          { hoursAgo: 0.5, fields: { harvestCount: 30 } },
-        ],
-        'ROBOT-SAMPLE-02',
-      ),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 30 } }),
       { equipmentId: 'ROBOT-02' },
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
 
     await expect(await runNow(page, 'robot')).toContainText(
-      'ファイル 2 件、取り込み 3 件、読み取れなかった記録 0 件',
+      'ファイル 2 件、取り込み 2 件、読み取れなかった記録 0 件',
     );
 
-    // ロボットごとに、そのロボットの記録だけが、保存されている
+    // ロボットごとに、そのロボットのファイルの記録だけが、保存されている
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(3);
+    await expect(observationRows(page)).toHaveCount(2);
     await expect(observationRows(page).filter({ hasText: '収穫ロボット1' })).toHaveCount(1);
-    await expect(observationRows(page).filter({ hasText: '収穫ロボット2' })).toHaveCount(2);
+    await expect(observationRows(page).filter({ hasText: '収穫ロボット2' })).toHaveCount(1);
     // ハウスで絞り込むと、そのハウスに属するロボットの記録だけが出る
     await page.getByLabel('設備', { exact: true }).selectOption(HOUSE_ID);
     await expect(observationRows(page)).toHaveCount(1);
     await expect(observationRows(page).first()).toContainText('収穫ロボット1');
     await expect(observationRows(page).first()).toContainText('10個');
     await page.getByLabel('設備', { exact: true }).selectOption('HOUSE-02');
-    await expect(observationRows(page)).toHaveCount(2);
-    await expect(observationRows(page).filter({ hasText: '収穫ロボット2' })).toHaveCount(2);
+    await expect(observationRows(page)).toHaveCount(1);
+    await expect(observationRows(page).filter({ hasText: '収穫ロボット2' })).toHaveCount(1);
+    await expect(observationRows(page).first()).toContainText('30個');
     await shot(page, testInfo, 'uc08-by-house');
     // API（設備IDでの絞り込み）でも、同じ結果になる
     for (const [equipmentId, count] of [
       [ROBOT_ID, 1],
-      ['ROBOT-02', 2],
+      ['ROBOT-02', 1],
       ['SENSOR-01', 0],
     ] as const) {
       const body = await apiOk<{ items: { equipmentId: string }[] }>(
@@ -241,7 +235,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
       { code: 'HARVEST_ERROR', status: '異常' },
     ]) {
       await prepareApp(request);
-      await placeFile(request, 'robot', 'robot.json', robotJson(speedRecords(item.code)));
+      await placeFile(request, 'robot', 'robot.json', robotJson(speedRecord(item.code)));
       await apiOk(request, 'POST', '/ingestion/robot/run');
       await alignBrowserClock(page);
       await openAs(page, '/');
@@ -259,7 +253,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await prepareApp(request);
     // 取得間隔は、設備ごとの設定（#197。既定は、ロボット 1 分）。この検証は、15 分にする
     await setEquipmentInterval(request, ROBOT_ID, 15);
-    await placeFile(request, 'robot', 'robot.json', robotJson(speedRecords('RUNNING')));
+    await placeFile(request, 'robot', 'robot.json', robotJson(speedRecord('RUNNING')));
 
     await runJob(request, 'JB-01');
     // 同じパスを、新しいデータで置き直す（HTTP は、1 設備 = 1 ファイル）
@@ -267,7 +261,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
       request,
       'robot',
       'robot.json',
-      robotJson([{ hoursAgo: 0.1, fields: { harvestCount: 3 } }]),
+      robotJson({ hoursAgo: 0.1, fields: { harvestCount: 3 } }),
     );
     await advanceMinutes(request, 5);
     await runJob(request, 'JB-01');
@@ -280,7 +274,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(2);
     await openObservations(page);
-    await expect(observationRows(page).filter({ hasText: '収穫数' })).toHaveCount(3);
+    await expect(observationRows(page).filter({ hasText: '収穫数' })).toHaveCount(2);
   });
 
   test('スケジューラ（時計を進めて tick）でも取り込まれる（取り込み・評価・連携・通知の配信を、間隔ごとに実行する）', async ({
@@ -290,7 +284,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await prepareApp(request);
     // 取得間隔は、設備ごとの設定（#197）。ロボットは、15 分にする
     await setEquipmentInterval(request, ROBOT_ID, 15);
-    await placeFile(request, 'robot', 'a.json', robotJson(speedRecords('RUNNING')));
+    await placeFile(request, 'robot', 'a.json', robotJson(speedRecord('RUNNING')));
 
     const first = await apiOk<{ executed: string[] }>(request, 'POST', '/dev/scheduler/tick', {});
     await advanceMinutes(request, 1);
@@ -303,7 +297,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(1);
     // 取り込まれたデータが、計測データに現れる
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(14);
+    await expect(observationRows(page)).toHaveCount(7);
   });
 });
 
@@ -313,11 +307,11 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
     request,
   }) => {
     await prepareApp(request);
-    const content = robotJson(speedRecords('RUNNING'));
+    const content = robotJson(speedRecord('RUNNING'));
     await placeFile(request, 'robot', 'a.json', content);
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
-    await expect(await runNow(page, 'robot')).toContainText('ファイル 1 件、取り込み 14 件');
+    await expect(await runNow(page, 'robot')).toContainText('ファイル 1 件、取り込み 7 件');
 
     // 同じファイル → 取り込まない
     await expect(await runNow(page, 'robot')).toContainText('ファイル 0 件、取り込み 0 件');
@@ -326,7 +320,7 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
     await expect(await runNow(page, 'robot')).toContainText('ファイル 1 件、取り込み 0 件');
 
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(14);
+    await expect(observationRows(page)).toHaveCount(7);
   });
 
   test('同じ名前で、内容が変わったファイルは、新しい版として取り込む（同じ一意キーは、二重に数えず、上書きする）', async ({
@@ -338,7 +332,7 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
@@ -352,7 +346,7 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 12 } }]),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 12 } }),
     );
     await page.goto('/settings/ingestion');
     await expect(await runNow(page, 'robot')).toContainText('ファイル 1 件、取り込み 1 件');
@@ -371,7 +365,7 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 1, fields: { harvestCount: 1 } }]),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 1 } }),
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
@@ -382,7 +376,7 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
       request,
       'robot',
       'b.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 2 } }], 'ROBOT-SAMPLE-02'),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 2 } }),
       { equipmentId: 'ROBOT-02' },
     );
 
@@ -403,19 +397,15 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     await placeFixture(request, 'robot', 'robot/robot-sample-003-broken.json');
     // 形式違いのファイルは ROBOT-01、正常なファイルは、2 つ目のロボット（HTTP は、1 設備 = 1 ファイル）
     await addRobot(request, 'ROBOT-02', 'ROBOT-SAMPLE-02');
-    await placeFile(
-      request,
-      'robot',
-      'good.json',
-      robotJson(speedRecords('RUNNING'), 'ROBOT-SAMPLE-02'),
-      { equipmentId: 'ROBOT-02' },
-    );
+    await placeFile(request, 'robot', 'good.json', robotJson(speedRecord('RUNNING')), {
+      equipmentId: 'ROBOT-02',
+    });
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
 
     const first = await runNow(page, 'robot');
     await expect(first).toContainText('取得しました（一部成功）');
-    await expect(first).toContainText('ファイル 2 件、取り込み 14 件');
+    await expect(first).toContainText('ファイル 2 件、取り込み 7 件');
     // 取り込めなかったファイル（設備に結びつかない）は、取り込み元単位のログ。取り込めたファイルは、設備のログ（Issue #201）
     await expect(
       logRows(page).filter({ hasText: '1件のファイルを取り込めませんでした' }),
@@ -425,10 +415,10 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
 
     await expect(second).toContainText('ファイル 0 件');
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(14);
+    await expect(observationRows(page)).toHaveCount(7);
   });
 
-  test('一部の記録が不正（範囲外・未定義のステータスコード・欠損・時刻なし）なファイルは、不正な値を「不正」「欠損」として保持する', async ({
+  test('一部の項目が不正（範囲外・未定義のステータスコード）・欠損なファイルは、不正な値を「不正」「欠損」として保持する', async ({
     page,
     request,
   }, testInfo) => {
@@ -440,7 +430,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     const result = await runNow(page, 'robot');
 
     await expect(result).toContainText('取得しました（一部成功）');
-    await expect(result).toContainText('取り込み 7 件、読み取れなかった記録 4 件');
+    await expect(result).toContainText('取り込み 3 件、読み取れなかった記録 3 件');
     await openObservations(page);
     const invalid = observationRows(page).filter({ has: page.locator('.quality-invalid') });
     const missing = observationRows(page).filter({ has: page.locator('.quality-missing') });
@@ -448,7 +438,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     await expect(invalid.filter({ hasText: '収穫数' })).toContainText('-3');
     await expect(invalid.filter({ hasText: 'ステータスコード' })).toContainText('UNDEFINED_CODE');
     await expect(missing).toHaveCount(1);
-    await expect(missing.first()).toContainText('収穫数');
+    await expect(missing.first()).toContainText('待機時間');
     await expect(missing.first()).toContainText('—');
     await shot(page, testInfo, 'uc08-invalid-values');
   });
@@ -458,14 +448,20 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     request,
   }) => {
     await prepareApp(request);
+    // 設備ごとに 1 ファイル: 1 時間先の記録（ROBOT-01）と、3 分先の記録（2 つ目のロボット）
     await placeFile(
       request,
       'robot',
       'future.json',
-      robotJson([
-        { hoursAgo: -1, fields: { harvestCount: 7 } },
-        { hoursAgo: -0.05, fields: { harvestCount: 8 } },
-      ]),
+      robotJson({ hoursAgo: -1, fields: { harvestCount: 7 } }),
+    );
+    await addRobot(request, 'ROBOT-02', 'ROBOT-SAMPLE-02');
+    await placeFile(
+      request,
+      'robot',
+      'future-near.json',
+      robotJson({ hoursAgo: -0.05, fields: { harvestCount: 8 } }),
+      { equipmentId: 'ROBOT-02' },
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
@@ -484,7 +480,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     await expect(valid.first()).toContainText('8個');
   });
 
-  test('登録のない機体ID（robotId）のファイルは、読み取れなかった記録として数え、保存しない', async ({
+  test('旧構造（機体ID robotId + 記録の配列 records）のファイルは、読まない（形式違いとして失敗にし、保存しない）。設備は、ファイルのパスで決める', async ({
     page,
     request,
   }) => {
@@ -492,15 +488,19 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     await placeFile(
       request,
       'robot',
-      'unknown.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 5 } }], 'ROBOT-UNKNOWN-99'),
+      'old-structure.json',
+      JSON.stringify({
+        robotId: ROBOT_EXTERNAL_ID,
+        records: [{ timestamp: '2026-10-09T02:30:00Z', harvestCount: 5 }],
+      }),
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
 
     const result = await runNow(page, 'robot');
 
-    await expect(result).toContainText('ファイル 1 件、取り込み 0 件、読み取れなかった記録 1 件');
+    await expect(result).toContainText('取得しました（失敗）');
+    await expect(result).toContainText('取り込み 0 件');
     await openObservations(page);
     await expect(page.getByTestId('observations-empty')).toBeVisible();
   });
@@ -513,14 +513,14 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
       summary: '取得しました（失敗）',
     },
     {
-      name: 'records がない JSON',
+      name: '計測日時も項目もない JSON',
       content: JSON.stringify({ robotId: ROBOT_EXTERNAL_ID }),
       summary: '取得しました（失敗）',
     },
     {
-      name: '記録が0件の JSON（形式は正しい）',
-      content: JSON.stringify({ robotId: ROBOT_EXTERNAL_ID, records: [] }),
-      summary: '取得しました（成功）',
+      name: '項目名が仕様と異なる JSON（計測日時はある）',
+      content: JSON.stringify({ timestamp: '2026-10-09T02:30:00Z', harvest_total: 1 }),
+      summary: '取得しました（失敗）',
     },
   ];
 
@@ -539,14 +539,10 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
       await expect(result).toContainText(item.summary);
       // 続けて、正常なファイル（2 つ目のロボット。HTTP は、1 設備 = 1 ファイル）を取り込める
       await addRobot(request, 'ROBOT-02', 'ROBOT-SAMPLE-02');
-      await placeFile(
-        request,
-        'robot',
-        'good.json',
-        robotJson(speedRecords('RUNNING'), 'ROBOT-SAMPLE-02'),
-        { equipmentId: 'ROBOT-02' },
-      );
-      await expect(await runNow(page, 'robot')).toContainText('取り込み 14 件');
+      await placeFile(request, 'robot', 'good.json', robotJson(speedRecord('RUNNING')), {
+        equipmentId: 'ROBOT-02',
+      });
+      await expect(await runNow(page, 'robot')).toContainText('取り込み 7 件');
     });
   }
 });
@@ -577,9 +573,9 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
     // 復旧後は、取り込める
     await setFileServerMode(request, 'UP');
-    await placeFile(request, 'robot', 'a.json', robotJson(speedRecords('RUNNING')));
+    await placeFile(request, 'robot', 'a.json', robotJson(speedRecord('RUNNING')));
     await page.goto('/settings/ingestion');
-    await expect(await runNow(page, 'robot')).toContainText('取り込み 14 件');
+    await expect(await runNow(page, 'robot')).toContainText('取り込み 7 件');
   });
 
   test('再試行しても失敗した場合は、取り込み失敗の通知を作り（UC-24）、ログに失敗を記録する。置いてあったファイルは、復旧後の取り込みで取り込まれる', async ({
@@ -588,7 +584,7 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
   }) => {
     await prepareApp(request);
     await setFileServerMode(request, 'DOWN');
-    await placeFile(request, 'robot', 'a.json', robotJson(speedRecords('RUNNING')));
+    await placeFile(request, 'robot', 'a.json', robotJson(speedRecord('RUNNING')));
 
     // 再試行（最大3回）しても失敗 → 結果として FAILURE を返す
     const response = await api(request, 'POST', '/ingestion/robot/run');
@@ -610,7 +606,7 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     // 復旧後の取り込みで、置いてあったファイルが取り込まれる（失敗した間も、ファイルは取り込み済みにならない）
     await setFileServerMode(request, 'UP');
     await page.goto('/settings/ingestion');
-    await expect(await runNow(page, 'robot')).toContainText('取り込み 14 件');
+    await expect(await runNow(page, 'robot')).toContainText('取り込み 7 件');
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(2);
     await expect(logRows(page).first()).toHaveAttribute('data-result', 'SUCCESS');
     await expect(logRows(page).nth(1)).toHaveAttribute('data-result', 'FAILURE');
@@ -626,7 +622,7 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 20, humidity: 60, illuminance: 30000, co2: 800 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 20, humidity: 60, illuminance: 30000, co2: 800 }),
     );
 
     await runJob(request, 'JB-01');
@@ -651,7 +647,7 @@ test.describe('遅延したデータ（計測から受信まで60分を超える
       request,
       'robot',
       'late.json',
-      robotJson(speedRecords('RUNNING').map((record) => ({ ...record, hoursAgo: 3 }))),
+      robotJson({ ...speedRecord('RUNNING'), hoursAgo: 3 }),
     );
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await alignBrowserClock(page);
@@ -667,7 +663,7 @@ test.describe('API でも確認する（取り込みの結果）', () => {
     request,
   }) => {
     await prepareApp(request);
-    await placeFile(request, 'robot', 'a.json', robotJson(speedRecords('RUNNING')));
+    await placeFile(request, 'robot', 'a.json', robotJson(speedRecord('RUNNING')));
 
     const response = await api(request, 'POST', '/ingestion/robot/run');
 
@@ -676,7 +672,7 @@ test.describe('API でも確認する（取り込みの結果）', () => {
       sourceId: 'robot',
       result: 'SUCCESS',
       filesProcessed: 1,
-      recordCount: 14,
+      recordCount: 7,
       rejectedCount: 0,
     });
     const observations = await apiOk<{ items: unknown[] }>(
@@ -684,7 +680,7 @@ test.describe('API でも確認する（取り込みの結果）', () => {
       'GET',
       '/observations?source=AUTO_IMPORT&limit=100',
     );
-    expect(observations.items).toHaveLength(14);
+    expect(observations.items).toHaveLength(7);
   });
 });
 
@@ -715,17 +711,14 @@ test.describe('設備ごとの接続: 1 つのファイルサーバーの停止�
       request,
       'robot',
       'first.json',
-      robotJson([{ hoursAgo: 1, fields: { harvestCount: 12, statusCode: 'HARVESTING' } }]),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 12, statusCode: 'HARVESTING' } }),
     );
     await addRobot(request, 'ROBOT-02', 'ROBOT-SAMPLE-02');
     await assignFilePath(request, 'ROBOT-02', SECOND_PATH);
     await saveEquipmentConnection(request, 'ROBOT-02', second.port);
     second.put(
       SECOND_PATH,
-      robotJson(
-        [{ hoursAgo: 1, fields: { harvestCount: 7, statusCode: 'RUNNING' } }],
-        'ROBOT-SAMPLE-02',
-      ),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 7, statusCode: 'RUNNING' } }),
     );
   }
 

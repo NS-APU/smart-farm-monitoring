@@ -28,10 +28,7 @@ import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 
-const ROBOT_FILE = JSON.stringify({
-  robotId: 'ROBOT-SAMPLE-01',
-  records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount: 12 }],
-});
+const ROBOT_FILE = JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvestCount: 12 });
 
 function metaOf(name: string, sizeBytes = 1) {
   return { fileId: name, name, modifiedAt: STUB_MODIFIED_AT, sizeBytes };
@@ -46,8 +43,22 @@ async function build(
   } = {},
 ) {
   const { repositories } = createLocalRepositories();
+  // 設備は、ファイルのパスで決める（スタブの一覧のファイル名が、設備のファイルのパス）。ロボット 1 台に 'robot.json'、もう 1 台に 'ok.json'
   for (const equipment of equipmentSet()) {
-    await repositories.equipment.save(equipment);
+    await repositories.equipment.save(
+      equipment.equipmentId === ROBOT_ID
+        ? { ...equipment, sourceFilePath: 'robot.json' }
+        : equipment,
+    );
+  }
+  const robot = equipmentSet().find((equipment) => equipment.equipmentId === ROBOT_ID);
+  if (robot !== undefined) {
+    await repositories.equipment.save({
+      ...robot,
+      equipmentId: toEquipmentId('ROBOT-OK'),
+      externalId: 'ROBOT-SAMPLE-OK',
+      sourceFilePath: 'ok.json',
+    });
   }
   if (options.saveManyFails === true) {
     repositories.observations.saveMany = () => Promise.reject(new TypeError('保存に失敗'));
@@ -456,10 +467,7 @@ describe('構造の変更の検出（V-019）', () => {
     await context.files.placeFile(
       'robot',
       'renamed.json',
-      JSON.stringify({
-        robotId: 'ROBOT-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvest_total: 12, state: 'RUNNING' }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvest_total: 12, state: 'RUNNING' }),
     );
 
     const summary = await context.container.ingestionService.runSource('robot');
@@ -474,10 +482,7 @@ describe('構造の変更の検出（V-019）', () => {
     await context.files.placeFile(
       'environment-sensor',
       'renamed.json',
-      JSON.stringify({
-        sensorId: 'SENSOR-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }),
     );
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');
@@ -495,10 +500,7 @@ describe('計測日時の解釈（V-020）', () => {
       await context.files.placeFile(
         'robot',
         'local-time.json',
-        JSON.stringify({
-          robotId: 'ROBOT-SAMPLE-01',
-          records: [{ timestamp: '2026-10-09T10:00:00', harvestCount: 12 }],
-        }),
+        JSON.stringify({ timestamp: '2026-10-09T10:00:00', harvestCount: 12 }),
       );
       await context.container.ingestionService.runSource('robot');
       const saved = await context.container.repositories.observations.query(

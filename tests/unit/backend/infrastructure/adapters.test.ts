@@ -669,12 +669,12 @@ describe('Web Push のダミー', () => {
   });
 });
 
-describe('FormatProfile（仮決めのロボット JSON・確定の環境センサー JSON。1 つのファイルを随時更新する方式）', () => {
+describe('FormatProfile（仮決めのロボット JSON・確定の環境センサー JSON。1 つのファイルは、その時点のスナップショット 1 つ。設備は、ファイルの中の識別子ではなく、ファイルのパスで決める）', () => {
   const registry = createDefaultFormatProfileRegistry();
   const robot = registry.get('robot-json');
   const sensor = registry.get('environment-sensor-json');
   if (robot === undefined || sensor === undefined) {
-    throw new Error('テストの前提: 仮決めの FormatProfile がある');
+    throw new Error('テストの前提: FormatProfile がある');
   }
   const fixture = (path: string) =>
     readFileSync(join(FIXTURES_DIRECTORY, 'file-server', path), 'utf8');
@@ -682,9 +682,9 @@ describe('FormatProfile（仮決めのロボット JSON・確定の環境セン�
   it('版と状態（ロボットは仮決め・環境センサーは確定）を持ち、解釈に使った版の表記を作る', () => {
     expect(robot).toMatchObject({
       profileId: 'robot-json',
-      version: '0.2.0',
+      version: '0.3.0',
       status: 'PROVISIONAL',
-      versionLabel: 'robot-json@0.2.0(PROVISIONAL)',
+      versionLabel: 'robot-json@0.3.0(PROVISIONAL)',
     });
     expect(sensor).toMatchObject({
       profileId: 'environment-sensor-json',
@@ -695,32 +695,42 @@ describe('FormatProfile（仮決めのロボット JSON・確定の環境セン�
     expect(registry.get('none')).toBeUndefined();
   });
 
-  it('ロボットデータ（JSON）を、記録ごとに、項目の識別子へ対応づけて読む', () => {
+  it('ロボットデータ（JSON）を、項目の識別子へ対応づけて読む。設備の識別子は、読まない', () => {
     const parsed = robot.parse(fixture('robot/robot-sample-001.json'));
 
     expect(parsed.rejectedCount).toBe(0);
-    expect(parsed.records).toHaveLength(2);
-    expect(parsed.records[0]).toMatchObject({
-      externalId: 'ROBOT-SAMPLE-01',
+    expect(parsed.record).toEqual({
       observedAt: '2026-10-09T01:00:00Z',
-      fields: { harvestCount: 12, statusCode: 'HARVESTING', operatingHours: 0.25 },
+      fields: {
+        harvestCount: 12,
+        harvestSecondsPerFruit: 45,
+        operatingHours: 0.25,
+        standbyHours: 0.02,
+        harvestOperatingHours: 0.15,
+        travelStoppedHours: 0.003,
+        statusCode: 'HARVESTING',
+      },
     });
   });
 
-  it('JSON の記録に計測日時がなければ、その記録を読み取れなかった数に数える。値のない項目は含めない', () => {
-    const parsed = robot.parse(fixture('robot/robot-sample-002-partial.json'));
+  it('値が null の項目は、欠損（null）のまま渡す。計測日時がなければ、読み取れなかった数に数える', () => {
+    const partial = robot.parse(fixture('robot/robot-sample-002-partial.json'));
+    expect(partial.rejectedCount).toBe(0);
+    expect(partial.record?.fields.standbyHours).toBeNull();
 
-    expect(parsed.rejectedCount).toBe(1);
-    expect(parsed.records).toHaveLength(3);
-    expect(parsed.records[2]?.fields).toEqual({ harvestCount: null, operatingHours: 0.25 });
+    const noTimestamp = robot.parse(fixture('robot/robot-sample-004-no-timestamp.json'));
+    expect(noTimestamp).toEqual({ record: undefined, rejectedCount: 1 });
   });
 
   it.each([
     ['JSON として読み取れない', fixture('robot/robot-sample-003-broken.json')],
-    ['記録の配列がない', '{"robotId":"R","other":[]}'],
-    ['設備の識別子がない', '{"records":[]}'],
-    ['設備の識別子が空', '{"robotId":"","records":[]}'],
     ['トップが配列', '[]'],
+    ['トップが数値', '1'],
+    ['空のオブジェクト（計測日時も項目もない）', '{}'],
+    [
+      '旧構造（設備の識別子 + 記録の配列。読まない）',
+      '{"robotId":"R","records":[{"timestamp":"2026-10-09T01:00:00Z","harvestCount":1}]}',
+    ],
   ])('ロボットデータ: %s ファイルは、形式違いとして扱う', (_name, content) => {
     expect(() => robot.parse(content)).toThrow(FormatError);
   });
@@ -728,64 +738,69 @@ describe('FormatProfile（仮決めのロボット JSON・確定の環境セン�
   it('UTF-8 の BOM つきの JSON（Windows の道具の出力）も、読める。ロボットも、環境センサーも', () => {
     const bom = String.fromCodePoint(0xfeff);
 
-    expect(robot.parse(bom + fixture('robot/robot-sample-001.json')).records).toHaveLength(2);
+    expect(robot.parse(bom + fixture('robot/robot-sample-001.json')).record).toBeDefined();
     expect(
-      sensor.parse(bom + fixture('environment-sensor/sensor-sample-001.json')).records,
-    ).toHaveLength(3);
+      sensor.parse(bom + fixture('environment-sensor/sensor-sample-001.json')).record,
+    ).toBeDefined();
   });
 
-  it('JSON の記録がオブジェクトでなければ、読み取れなかった数に数える', () => {
-    const parsed = robot.parse('{"robotId":"R","records":[1,"a",null]}');
-
-    expect(parsed).toEqual({ records: [], rejectedCount: 3 });
-  });
-
-  it('環境センサー（JSON）を、記録ごとに、項目の識別子へ対応づけて読む。null は欠損（null）のまま渡す', () => {
+  it('環境センサー（JSON）を、ファイルの項目名（temperature・humidity・illuminance・co2）から、項目の識別子へ対応づけて読む。null は欠損（null）のまま渡す', () => {
     const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-001.json'));
 
     expect(parsed.rejectedCount).toBe(0);
-    expect(parsed.records).toHaveLength(3);
-    expect(parsed.records[0]).toMatchObject({
-      externalId: 'SENSOR-SAMPLE-01',
-      observedAt: '2026-10-09T01:00:00Z',
-      fields: { temperatureCelsius: 21.5, humidityPercent: 58, illuminanceLux: 30000, co2Ppm: 880 },
+    expect(parsed.record).toEqual({
+      observedAt: '2026-10-09T01:30:00Z',
+      fields: {
+        temperatureCelsius: null,
+        humidityPercent: 59,
+        illuminanceLux: 29500,
+        co2Ppm: 900,
+      },
     });
-    expect(parsed.records[2]?.fields.temperatureCelsius).toBeNull();
   });
 
-  it('環境センサー: 数値でない値は、そのまま渡し（検証で不正にする）、計測日時のない記録は読み取れなかった数に数える', () => {
+  it('環境センサー: 数値でない値は、そのまま渡す（検証で不正にする）', () => {
     const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-002-invalid.json'));
 
-    expect(parsed.rejectedCount).toBe(1);
-    expect(parsed.records).toHaveLength(2);
-    expect(parsed.records[0]?.fields.temperatureCelsius).toBe('abc');
+    expect(parsed.rejectedCount).toBe(0);
+    expect(parsed.record?.fields.temperatureCelsius).toBe('abc');
+    expect(parsed.record?.fields.humidityPercent).toBe(120);
+  });
+
+  it('環境センサー: 計測日時のない記録は、読み取れなかった数に数える', () => {
+    expect(sensor.parse('{"temperature":22}')).toEqual({ record: undefined, rejectedCount: 1 });
+  });
+
+  it('環境センサー: 内部の識別子（temperatureCelsius など）の名前の項目は、読まない（ファイルの項目名は temperature など）', () => {
+    expect(() =>
+      sensor.parse('{"timestamp":"2026-10-09T01:00:00Z","temperatureCelsius":22}'),
+    ).toThrow('項目名');
   });
 
   it.each([
     ['JSON として読み取れない', 'header,only\n1,2\n'],
     ['空の', ''],
     [
-      '構造が仕様と異なる（設備の識別子・記録の配列がない）',
+      '構造が仕様と異なる（計測日時も項目もない）',
       fixture('environment-sensor/sensor-sample-003-bad-structure.json'),
     ],
-    ['設備の識別子（sensorId）がない', '{"records":[]}'],
+    [
+      '旧構造（設備の識別子 sensorId + 記録の配列。読まない）',
+      '{"sensorId":"S","records":[{"timestamp":"2026-10-09T01:00:00Z","temperature":20}]}',
+    ],
   ])('環境センサー: %s ファイルは、形式違いとして扱う', (_name, content) => {
     expect(() => sensor.parse(content)).toThrow(FormatError);
   });
 
-  it('環境センサー: 記録にない項目は、含めない', () => {
-    const parsed = sensor.parse(
-      '{"sensorId":"S","records":[{"timestamp":"2026-10-09T01:00:00Z","temperatureCelsius":20}]}',
-    );
+  it('環境センサー: ファイルにない項目は、含めない', () => {
+    const parsed = sensor.parse('{"timestamp":"2026-10-09T01:00:00Z","temperature":20}');
 
-    expect(parsed.records[0]?.fields).toEqual({ temperatureCelsius: 20 });
+    expect(parsed.record?.fields).toEqual({ temperatureCelsius: 20 });
   });
 
   describe('計測日時の解釈（V-020）', () => {
-    const jsonWith = (timestamp: unknown) =>
-      JSON.stringify({ robotId: 'R', records: [{ timestamp, harvestCount: 1 }] });
-    const observedAtOf = (timestamp: string) =>
-      robot.parse(jsonWith(timestamp)).records[0]?.observedAt;
+    const jsonWith = (timestamp: unknown) => JSON.stringify({ timestamp, harvestCount: 1 });
+    const observedAtOf = (timestamp: string) => robot.parse(jsonWith(timestamp)).record?.observedAt;
 
     it.each([
       [
@@ -821,7 +836,7 @@ describe('FormatProfile（仮決めのロボット JSON・確定の環境セン�
     ])('%sの日時は、読み取れなかった記録として数える', (_name, text) => {
       const parsed = robot.parse(jsonWith(text));
 
-      expect(parsed).toEqual({ records: [], rejectedCount: 1 });
+      expect(parsed).toEqual({ record: undefined, rejectedCount: 1 });
     });
 
     it('タイムゾーンのない日時の解釈は、実行環境のタイムゾーン（TZ）に依存しない', () => {
@@ -851,16 +866,15 @@ describe('FormatProfile（仮決めのロボット JSON・確定の環境セン�
         format: 'JSON',
         basis: 'テスト',
         utcOffsetMinutes: 0,
-        layout: { recordsPath: 'records', equipmentIdPath: 'robotId', timestampField: 'timestamp' },
+        layout: { timestampField: 'timestamp' },
         fields: [{ source: 'harvestCount', itemKey: 'harvestCount' }],
       });
 
-      expect(utcProfile.parse(jsonWith('2026-10-09T10:00:00')).records[0]?.observedAt).toBe(
+      expect(utcProfile.parse(jsonWith('2026-10-09T10:00:00')).record?.observedAt).toBe(
         '2026-10-09T10:00:00.000Z',
       );
-      const sensorJson = (timestamp: string) =>
-        JSON.stringify({ sensorId: 'S', records: [{ timestamp, temperatureCelsius: 20 }] });
-      expect(sensor.parse(sensorJson('2026-10-09 10:00:00')).records[0]?.observedAt).toBe(
+      const sensorJson = (timestamp: string) => JSON.stringify({ timestamp, temperature: 20 });
+      expect(sensor.parse(sensorJson('2026-10-09 10:00:00')).record?.observedAt).toBe(
         '2026-10-09T01:00:00.000Z',
       );
       expect(sensor.parse(sensorJson('10/09/2026')).rejectedCount).toBe(1);
@@ -868,34 +882,25 @@ describe('FormatProfile（仮決めのロボット JSON・確定の環境セン�
   });
 
   describe('構造の変更の検出（V-019）', () => {
-    it('JSON: すべての記録で、設定した項目が1つも読み取れなければ、形式違いにする', () => {
-      const content = JSON.stringify({
-        robotId: 'R',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvest_total: 3 }],
-      });
+    it('JSON: 設定した項目が 1 つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
+      const content = JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvest_total: 3 });
 
       expect(() => robot.parse(content)).toThrow(FormatError);
     });
 
-    it('JSON: 一部の項目だけがある記録は、読める。記録がなければ（空のファイル）、形式違いにしない', () => {
+    it('JSON: 一部の項目だけがあるファイルは、読める', () => {
       const partial = robot.parse(
-        JSON.stringify({
-          robotId: 'R',
-          records: [{ timestamp: '2026-10-09T01:00:00Z', statusCode: null }],
-        }),
+        JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', statusCode: null }),
       );
 
-      expect(partial.records).toHaveLength(1);
-      expect(robot.parse('{"robotId":"R","records":[]}')).toEqual({
-        records: [],
-        rejectedCount: 0,
-      });
+      expect(partial.record?.fields).toEqual({ statusCode: null });
     });
 
-    it('環境センサー: すべての記録で、設定した項目が1つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
+    it('環境センサー: 設定した項目が 1 つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
       const content = JSON.stringify({
-        sensorId: 'S',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
+        timestamp: '2026-10-09T01:00:00Z',
+        temp: 20,
+        humid: 50,
       });
 
       expect(() => sensor.parse(content)).toThrow('項目名');

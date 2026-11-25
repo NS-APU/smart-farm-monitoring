@@ -648,15 +648,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
       travelStoppedHours: 0.002,
       statusCode: 'CHARGING_WAIT',
     };
-    await placeFile(
-      request,
-      'robot',
-      'a.json',
-      robotJson([
-        { hoursAgo: 0.5, fields },
-        { hoursAgo: 0.25, fields },
-      ]),
-    );
+    await placeFile(request, 'robot', 'a.json', robotJson({ hoursAgo: 0.25, fields }));
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
     await goToMenu(page, 'ダッシュボード');
@@ -703,6 +695,20 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
   });
 });
 
+/**
+ * ロボットのデータを、記録ごとに、ファイル（同じパスの上書き）を置いて、取り込む（1 つのファイルは、その時点のスナップショット 1 つ。
+ * 履歴は、取得を繰り返して積み上げる）。
+ */
+async function ingestRobotRecords(
+  request: Parameters<typeof prepareApp>[0],
+  records: readonly { hoursAgo: number; fields: Record<string, number | string | null> }[],
+): Promise<void> {
+  for (const record of records) {
+    await placeFile(request, 'robot', 'a.json', robotJson(record));
+    await apiOk(request, 'POST', '/ingestion/robot/run');
+  }
+}
+
 test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結果を、API で確認する。画面は、次の describe。Issue #158）', () => {
   interface UnregisteredItem {
     code: string;
@@ -727,19 +733,13 @@ test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結�
       harvestOperatingHours: 0.1,
       travelStoppedHours: 0.002,
     };
-    await placeFile(
-      request,
-      'robot',
-      'a.json',
-      robotJson([
-        { hoursAgo: 0.75, fields: { ...base, statusCode: 'low battery' } },
-        { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
-        { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
-        // 登録済みのコード値は、記録しない
-        { hoursAgo: 0.2, fields: { ...base, statusCode: 'RUNNING' } },
-      ]),
-    );
-    await apiOk(request, 'POST', '/ingestion/robot/run');
+    await ingestRobotRecords(request, [
+      { hoursAgo: 0.75, fields: { ...base, statusCode: 'low battery' } },
+      { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      // 登録済みのコード値は、記録しない
+      { hoursAgo: 0.2, fields: { ...base, statusCode: 'RUNNING' } },
+    ]);
 
     const first = await unregistered(request);
 
@@ -802,20 +802,14 @@ test.describe('未登録のコード値の画面（SC-12-5。UC-08 の取り込�
   };
   /** 定義にないコード値（UNKNOWN_MODE 2 件・low charge 1 件・日本語 1 件）を、ロボットのデータとして取り込む。 */
   async function ingestUnregistered(request: Parameters<typeof prepareApp>[0]): Promise<void> {
-    await placeFile(
-      request,
-      'robot',
-      'a.json',
-      robotJson([
-        { hoursAgo: 0.75, fields: { ...base, statusCode: 'low charge' } },
-        { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
-        { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
-        { hoursAgo: 0.2, fields: { ...base, statusCode: '充電異常' } },
-        // 登録済みのコード値は、一覧に出ない
-        { hoursAgo: 0.1, fields: { ...base, statusCode: 'RUNNING' } },
-      ]),
-    );
-    await apiOk(request, 'POST', '/ingestion/robot/run');
+    await ingestRobotRecords(request, [
+      { hoursAgo: 0.75, fields: { ...base, statusCode: 'low charge' } },
+      { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      { hoursAgo: 0.2, fields: { ...base, statusCode: '充電異常' } },
+      // 登録済みのコード値は、一覧に出ない
+      { hoursAgo: 0.1, fields: { ...base, statusCode: 'RUNNING' } },
+    ]);
   }
 
   test('0 件なら、空の状態を示す。取り込みのあと、自動では更新されず、「更新」で、件数の多い順に表示する。登録できない形式の値には、理由を示し、登録のボタンは出さない', async ({

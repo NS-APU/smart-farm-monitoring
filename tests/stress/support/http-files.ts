@@ -134,7 +134,7 @@ export async function putSeededFiles(
   request: APIRequestContext,
   userId: string,
   source: Source,
-  options: { readonly startIndex: number; readonly recordsPerFile: number },
+  options: { readonly startIndex: number },
 ): Promise<number> {
   const server = await ensureServer();
   const units = seededUnits();
@@ -158,16 +158,8 @@ export async function putSeededFiles(
     }
     const content =
       source === 'robot'
-        ? robotFileContent({
-            externalId: target.externalId,
-            index: options.startIndex + offset,
-            recordsPerFile: options.recordsPerFile,
-          })
-        : sensorFileContent({
-            externalId: target.externalId,
-            index: options.startIndex + offset,
-            recordsPerFile: options.recordsPerFile,
-          });
+        ? robotFileContent({ index: options.startIndex + offset })
+        : sensorFileContent({ index: options.startIndex + offset });
     // 更新日時は、1 分前（更新から 1 秒以内のファイルは、書き換えの最中かもしれないため、読まずに次の周期に回す。ADR-0016 の D-08）
     server.put(path, content, { modifiedAt: new Date(Date.now() - 60_000) });
   }
@@ -236,7 +228,6 @@ export async function putBulkFiles(
   options: {
     readonly count: number;
     readonly startIndex: number;
-    readonly recordsPerFile: number;
     readonly brokenCount?: number;
   },
 ): Promise<number> {
@@ -244,9 +235,7 @@ export async function putBulkFiles(
   for (let index = 0; index < options.count; index += 1) {
     const id = bulkId(source, index);
     const fileOptions = {
-      externalId: id,
       index: options.startIndex + index,
-      recordsPerFile: options.recordsPerFile,
       broken: index >= options.count - (options.brokenCount ?? 0),
     };
     server.put(

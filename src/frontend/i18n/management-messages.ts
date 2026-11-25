@@ -314,10 +314,11 @@ export const MANAGEMENT_MESSAGES = {
     id: '設備ID',
     name: '名称',
     externalId: 'データ上の識別子',
-    externalIdHint: 'ファイルの中の機体ID・センサーIDと対応づけます（任意）',
+    externalIdHint:
+      '取り込みの照合には使いません。ファイルは、ファイルパスで、設備に対応づけます（任意）',
     sourceFilePath: 'ファイルパス',
     sourceFilePathHint:
-      'ファイルサーバー（HTTP）の、この設備のファイルの場所です。例: /data/robot-01.json（任意）',
+      'ファイルサーバー（HTTP）の、この設備のファイルの場所です。設備ごとに 1 ファイルで、ほかの設備と同じパスは使えません。例: /data/robot-01.json（任意）',
     sourceFilePathGuide:
       'ファイルのパスを設定すると、取り込みの対象になります。下の「取り込み元の接続」も設定してください',
     idRule:

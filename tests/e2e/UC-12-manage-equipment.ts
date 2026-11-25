@@ -204,7 +204,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     ]);
   });
 
-  test('以降のデータ取り込み・評価は、登録した構成（データ上の識別子）にもとづく（UC-08・UC-09 への連携）', async ({
+  test('以降のデータ取り込み・評価は、登録した構成（設備ごとのファイルのパス）にもとづく（UC-08・UC-09 への連携）', async ({
     page,
     request,
   }) => {
@@ -226,21 +226,18 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       name: 'A環境センサー',
       externalId: 'SENSOR-A-FILE',
     });
-    // 構成に登録したデータ上の識別子のファイルが、その設備として取り込まれる
+    // 構成に登録した設備のファイルのパスの設備として、ファイルが取り込まれる（設備ごとに 1 ファイル）
     await placeFile(
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }], 'ROBOT-A-FILE'),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 7 } }),
     );
     await placeFile(
       request,
       'environment-sensor',
       'a.json',
-      sensorJson(
-        [{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }],
-        'SENSOR-A-FILE',
-      ),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
 
     await runJob(request, 'JB-01');
@@ -393,7 +390,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await expect(notice(page)).toHaveText('登録しました');
   });
 
-  test('ファイルパスは、同じ種別の設備の中で、重複を登録できない。形式が不正なら、登録できない', async ({
+  test('ファイルパスは、すべての設備の中で（ロボット・センサーの種別を問わず。1 設備 = 1 ファイル）、重複を登録できない。形式が不正なら、登録できない', async ({
     page,
     request,
   }) => {
@@ -430,6 +427,18 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       '同じファイルパスがすでに登録されています',
     );
     await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+    // 種別が違う（センサー）でも、ほかの設備（ロボット）と同じパスは、登録できない
+    await addChild(page, {
+      type: 'SENSOR',
+      facility: 'HOUSE-01',
+      id: 'SENSOR-02',
+      name: '2個目',
+      sourceFilePath: '/data/shared.json',
+    });
+    await expect(childForm(page).locator('[data-field="sourceFilePath"] .field-error')).toHaveText(
+      '同じファイルパスがすでに登録されています',
+    );
+    await expect(rowOf(page, 'SENSOR-02')).toHaveCount(0);
   });
 });
 
@@ -847,7 +856,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(page.getByTestId('no-equipment')).toBeVisible();
   });
 
-  test('削除したロボットのデータ上の識別子のファイルは、取り込みの対象から外れる（「削除済みの設備」として別に数え、棄却数に含めない。観測値は増えず、ログも増やさない。Issue #231）', async ({
+  test('削除したロボットのファイルは、取り込みの対象から外れる（ファイルのパスで設備を決めるため、取得しない）。ほかのロボットのファイルは、取り込む', async ({
     page,
     request,
   }) => {
@@ -860,33 +869,40 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
       facilityId: 'HOUSE-01',
       externalId: 'ROBOT-SAMPLE-02',
     });
+    // どちらのロボットにも、ファイルを置いてから、ROBOT-01 を削除する
+    await placeFile(
+      request,
+      'robot',
+      'deleted-robot.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 7 } }),
+    );
+    await placeFile(
+      request,
+      'robot',
+      'second-robot.json',
+      robotJson({ hoursAgo: 0.4, fields: { harvestCount: 3 } }),
+      { equipmentId: 'ROBOT-02' },
+    );
     await openEquipment(page);
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
     await expect(rowOf(page, 'ROBOT-01')).toHaveCount(0);
 
-    // 削除したロボット（ROBOT-SAMPLE-01）の識別子のレコードを持つファイルを、有効な 2 つ目のロボットのファイルとして置く
-    await placeFile(
-      request,
-      'robot',
-      'after-delete.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }]),
-    );
-
     await goToMenu(page, '取り込み');
-    // 削除済みの設備のレコード 1 件は、読み取れなかった記録（棄却）に数えず、別に数える
+    // 削除したロボットのファイルは、取得しない（ファイル 1 件だけ）
     await expect(await runNow(page, 'robot')).toContainText(
-      'ファイル 1 件、取り込み 0 件、読み取れなかった記録 0 件、削除済みの設備の記録 1 件',
+      'ファイル 1 件、取り込み 1 件、読み取れなかった記録 0 件',
     );
-    // 削除済みの設備のレコードだけの実行は、ログに残さない
-    await expect(logRows(page)).toHaveCount(0);
     await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       0,
     );
+    await expect(
+      page.getByTestId('observation-row').filter({ hasText: '収穫ロボット2' }),
+    ).toContainText('3個');
   });
 
-  test('データ上の識別子を修正すると、新しい識別子のファイルが、その設備として取り込まれ、古い識別子のファイルは対象から外れる', async ({
+  test('データ上の識別子を修正しても、取り込みには影響しない（ファイルは、ファイルのパスの設備として取り込まれる。識別子で照合しない）', async ({
     page,
     request,
   }) => {
@@ -908,42 +924,35 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await placeFile(
       request,
       'robot',
-      'new-id.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }], 'ROBOT-FILE-9'),
+      'first.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 7 } }),
     );
     await placeFile(
       request,
       'robot',
-      'old-id.json',
-      robotJson([{ hoursAgo: 0.4, fields: { harvestCount: 3 } }], ROBOT_EXTERNAL_ID),
+      'second.json',
+      robotJson({ hoursAgo: 0.4, fields: { harvestCount: 3 } }),
       { equipmentId: 'ROBOT-02' },
     );
     await runJob(request, 'JB-01');
 
     await goToMenu(page, '取り込み');
-    // 新しい識別子のファイル: 設備のログ（ファイル 1・取得 1・読み取れなかった 0）。古い識別子のファイル: どの設備にも結びつかず、
-    // 取り込み元単位のログ（ファイル 1・取得 0・読み取れなかった 1。Issue #201）
+    // どちらのファイルも、そのファイルのパスの設備のログ（ファイル 1・取得 1・読み取れなかった 0）
     const robotLogs = logRows(page).filter({ hasText: 'ロボット' });
     await expect(robotLogs).toHaveCount(2);
-    const linked = robotLogs.filter({ has: page.locator('.log-result', { hasText: /^成功$/ }) });
-    // 古い識別子のファイルは、2 つ目のロボットのファイルとして読むが、どの設備にも対応づかず、有効な記録が 1 件もない。HTTP は、ログが設備ごと（2 つ目のロボット）で、結果は「失敗」
-    const unlinked = robotLogs.filter({
-      has: page.locator('.log-result', { hasText: /^失敗$/ }),
-    });
-    await expect(linked.locator('td').nth(4)).toHaveText('1');
-    await expect(linked.locator('td').nth(5)).toHaveText('1');
-    await expect(linked.locator('td').nth(6)).toHaveText('0');
-    await expect(unlinked.locator('td').nth(4)).toHaveText('1');
-    await expect(unlinked.locator('td').nth(5)).toHaveText('0');
-    await expect(unlinked.locator('td').nth(6)).toHaveText('1');
+    for (const log of await robotLogs.all()) {
+      await expect(log.locator('.log-result')).toHaveText('成功');
+      await expect(log.locator('td').nth(4)).toHaveText('1');
+      await expect(log.locator('td').nth(5)).toHaveText('1');
+      await expect(log.locator('td').nth(6)).toHaveText('0');
+    }
     await page.goto(`/observations${itemListQuery()}`);
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
-    ).toHaveCount(1);
-    // 取り込まれたのは、新しい識別子のファイル（収穫数 7）
-    await expect(
-      page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
     ).toContainText('7個');
+    await expect(
+      page.getByTestId('observation-row').filter({ hasText: '収穫ロボット2' }),
+    ).toContainText('3個');
   });
 });
 
@@ -1133,18 +1142,16 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
       request,
       'robot',
       'robot.json',
-      robotJson([
-        {
-          hoursAgo: 1,
-          fields: { harvestCount: 10, operatingHours: 0.25, statusCode: 'HARVESTING' },
-        },
-      ]),
+      robotJson({
+        hoursAgo: 1,
+        fields: { harvestCount: 10, operatingHours: 0.25, statusCode: 'HARVESTING' },
+      }),
     );
     await placeFile(
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');

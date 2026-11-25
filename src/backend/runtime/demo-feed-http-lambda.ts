@@ -1,7 +1,7 @@
 /**
  * デモ用の HTTP ファイル配信の Lambda のハンドラ（擬似のロボット・環境センサーのファイル。Issue #344。ADR-0025）。
  * Lambda の Function URL（認証なし。ペイロード形式 2.0）から、`GET`・`HEAD` で、合成データのファイル（取り込み元ごとに 1 つの
- * `latest.json`）を返す。**リクエストごとに**、現在の時刻から、ファイルの内容を作る（保管しない。S3・EventBridge・書き込みの権限は、要らない）。
+ * `latest.json`。その時点のスナップショット 1 つ）を返す。**リクエストごとに**、現在の時刻から、ファイルの内容を作る（保管しない。S3・EventBridge・書き込みの権限は、要らない）。
  * 取り込み（JB-01）の HTTP アダプタ（設備の `sourceFilePath` ごとに `HEAD`・`GET`。ADR-0023）が、実際のファイルサーバーと同じ手順で、読む。
  *
  * - 内容は、`buildDemoFeedFiles`（区間の時刻から決まる。同じ区間は同じ内容）。`Last-Modified` は、現在の区間の開始（その区間に、内容が最後に変わった時刻）
@@ -12,7 +12,6 @@
 
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import {
-  DEMO_FEED_BUCKETS,
   DEMO_FEED_FILE_PATHS,
   DEMO_FEED_INTERVAL_MINUTES,
 } from '../application/demo/demo-feed-schedule.ts';
@@ -59,10 +58,9 @@ export function createDemoFeedHttpHandler(deps: DemoFeedHttpDeps = {}): DemoFeed
       return Promise.resolve(textResponse(405, 'Method Not Allowed', { Allow: 'GET, HEAD' }));
     }
     const now = clock.now();
-    const file = buildDemoFeedFiles(now, {
-      intervalMinutes: DEMO_FEED_INTERVAL_MINUTES,
-      buckets: DEMO_FEED_BUCKETS,
-    }).find((candidate) => DEMO_FEED_FILE_PATHS[candidate.sourceId] === event.rawPath);
+    const file = buildDemoFeedFiles(now, { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES }).find(
+      (candidate) => DEMO_FEED_FILE_PATHS[candidate.sourceId] === event.rawPath,
+    );
     if (file === undefined) {
       return Promise.resolve(textResponse(404, 'Not Found'));
     }

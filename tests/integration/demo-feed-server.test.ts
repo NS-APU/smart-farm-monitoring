@@ -6,7 +6,6 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  DEMO_FEED_BUCKETS,
   DEMO_FEED_FILE_PATHS,
   DEMO_FEED_INTERVAL_MINUTES,
 } from '../../src/backend/application/demo/demo-feed-schedule.ts';
@@ -41,10 +40,7 @@ describe('デモ配信の HTTP サーバー（startDemoFeedServer）', () => {
   it('GET: 取り込み元ごとのパスで、合成データを返す（HEAD は、ヘッダーだけ）', async () => {
     const server = await start();
     const base = `http://127.0.0.1:${String(server.port)}`;
-    const files = buildDemoFeedFiles(NOW, {
-      intervalMinutes: DEMO_FEED_INTERVAL_MINUTES,
-      buckets: DEMO_FEED_BUCKETS,
-    });
+    const files = buildDemoFeedFiles(NOW, { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES });
 
     for (const file of files) {
       const path = DEMO_FEED_FILE_PATHS[file.sourceId];

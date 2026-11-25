@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import { createIngestionService } from '../../src/backend/application/ingestion/ingestion-service.ts';
 import { createIngestionSettings } from '../../src/backend/application/ingestion/ingestion-settings.ts';
 import {
@@ -27,7 +28,7 @@ import { TEST_NOW } from '../support/test-context.ts';
 const ROBOT_FILE = '/robots/robot-1.json';
 const ROBOT_2_FILE = '/robots/robot-2.json';
 
-/** 2 つのハウスのロボットを読み取る、取り込み元のスタブ。ファイルの内容は、'BROKEN' のとき形式違い。 */
+/** 2 つのハウスのロボットを読み取る、取り込み元のスタブ（設備は、ファイルのパスで決まる）。ファイルの内容は、'BROKEN' のとき形式違い、それ以外は、1 項目のスナップショット。 */
 function build(options: { files: Record<string, string>; listFails?: boolean }) {
   const { repositories } = createLocalRepositories();
   const fileSource: FileSourcePort = {
@@ -55,14 +56,7 @@ function build(options: { files: Record<string, string>; listFails?: boolean }) 
         throw new FormatError('形式が違います');
       }
       return {
-        records: content
-          .split(',')
-          .filter((externalId) => externalId !== '')
-          .map((externalId) => ({
-            externalId,
-            observedAt: '2026-10-09T01:00:00Z',
-            fields: { harvestCount: 2 },
-          })),
+        record: { observedAt: '2026-10-09T01:00:00Z', fields: { harvestCount: 2 } },
         rejectedCount: 0,
       };
     },
@@ -133,9 +127,9 @@ async function facilitiesOfRobotLogs(repositories: ReturnType<typeof build>['rep
 }
 
 describe('取り込みログのハウス別の内訳（#332）', () => {
-  it('1 つのファイルに 2 つのハウスの設備のデータがあれば、ハウスごとに、取り込んだ件数を記録する', async () => {
+  it('2 つのハウスの設備のファイル（設備ごとに 1 ファイル）があれば、ハウスごとに、取り込んだ件数を記録する', async () => {
     const { service, repositories } = build({
-      files: { [ROBOT_FILE]: 'ROBOT-SAMPLE-01,ROBOT-SAMPLE-01,ROBOT-SAMPLE-02' },
+      files: { [ROBOT_FILE]: 'OK', [ROBOT_2_FILE]: 'OK' },
     });
     await seedEquipment(repositories);
 
@@ -144,7 +138,7 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
     const facilities = await facilitiesOfRobotLogs(repositories);
     expect(facilities).toEqual(
       expect.arrayContaining([
-        { facilityId: FACILITY_ID, result: 'SUCCESS', recordCount: 2 },
+        { facilityId: FACILITY_ID, result: 'SUCCESS', recordCount: 1 },
         { facilityId: FACILITY_2_ID, result: 'SUCCESS', recordCount: 1 },
       ]),
     );
@@ -153,7 +147,7 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
   it('形式違いのファイルは、そのファイルのパスをもつ設備のハウスの失敗として記録し、他のハウスの成功は、そのまま記録する', async () => {
     const { service, repositories } = build({
-      files: { [ROBOT_FILE]: 'BROKEN', [ROBOT_2_FILE]: 'ROBOT-SAMPLE-02' },
+      files: { [ROBOT_FILE]: 'BROKEN', [ROBOT_2_FILE]: 'OK' },
     });
     await seedEquipment(repositories);
 
@@ -172,9 +166,20 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
   it('同じハウスに、成功したファイルと失敗したファイルがあれば、結果は失敗、件数は成功した分', async () => {
     const { service, repositories } = build({
-      files: { [ROBOT_FILE]: 'BROKEN', '/robots/extra.json': 'ROBOT-SAMPLE-01' },
+      files: { [ROBOT_FILE]: 'BROKEN', '/robots/extra.json': 'OK' },
     });
     await seedEquipment(repositories);
+    // 同じハウスの、もう 1 台のロボット（設備ごとに 1 ファイル）
+    const robot = equipmentSet().find((equipment) => equipment.equipmentId === 'ROBOT-T1');
+    if (robot === undefined) {
+      throw new Error('テストの前提: ロボットがある');
+    }
+    await repositories.equipment.save({
+      ...robot,
+      equipmentId: toEquipmentId('ROBOT-T1B'),
+      externalId: 'ROBOT-SAMPLE-1B',
+      sourceFilePath: '/robots/extra.json',
+    });
 
     await service.runSource('robot');
 
@@ -220,7 +225,7 @@ describe('取り込みログのハウス別の内訳（#332）', () => {
 
   it('ハウス別の一覧には、ログの内訳が、そのハウスの分だけ載る', async () => {
     const { service, repositories } = build({
-      files: { [ROBOT_FILE]: 'ROBOT-SAMPLE-01', [ROBOT_2_FILE]: 'BROKEN' },
+      files: { [ROBOT_FILE]: 'OK', [ROBOT_2_FILE]: 'BROKEN' },
     });
     await seedEquipment(repositories);
 

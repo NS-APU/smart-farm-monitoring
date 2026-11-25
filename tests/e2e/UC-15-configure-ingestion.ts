@@ -92,7 +92,7 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
       await expect(card.locator('input[type="password"]')).toHaveCount(0);
     }
     await expect(sourceCard(page, 'robot')).toContainText(
-      '解釈に使っている仕様: robot-json@0.2.0(PROVISIONAL)（仮決め）',
+      '解釈に使っている仕様: robot-json@0.3.0(PROVISIONAL)（仮決め）',
     );
     await expect(sourceCard(page, 'environment-sensor')).toContainText(
       'environment-sensor-json@1.0.0(CONFIRMED)（確定）',
@@ -140,7 +140,7 @@ test.describe('基本フロー: 取り込み元ごとの設定を入力・保存
     // 4. 手動で即時に取得する
     const ran = await runNow(page, 'robot');
     await expect(ran).toContainText('取得しました（成功）');
-    await expect(ran).toContainText('ファイル 1 件、取り込み 14 件、読み取れなかった記録 0 件');
+    await expect(ran).toContainText('ファイル 1 件、取り込み 7 件、読み取れなかった記録 0 件');
     // 設備ごとの表: 最終の実行の結果・最後にデータが取れた日時
     await expect(page.getByTestId(`equipment-result-${ROBOT_ID}`)).toHaveText('成功');
     await expect(page.getByTestId(`equipment-data-${ROBOT_ID}`)).toHaveText('2026/10/09 12:00:00');
@@ -380,7 +380,7 @@ test.describe('即時取得（手動で即時に取得する）の同値分割',
 
     // 3行目の温度が空（欠損）のため、一部成功
     await expect(ran).toContainText('取得しました（一部成功）');
-    await expect(ran).toContainText('ファイル 1 件、取り込み 11 件、読み取れなかった記録 1 件');
+    await expect(ran).toContainText('ファイル 1 件、取り込み 3 件、読み取れなかった記録 1 件');
   });
 
   test('ファイルがない取り込み元でも、即時取得は成功する（ファイル 0 件・取り込み 0 件）', async ({

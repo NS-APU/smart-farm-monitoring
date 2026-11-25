@@ -38,8 +38,8 @@ import {
 const USER = STRESS_USER.userId;
 const HOUSE_1 = '負荷試験ハウス1';
 const ROBOT_NAME = '負荷試験ロボット1-1';
-/** 即時取得・定期取り込みで置くファイルの規模（設備ごとに 1 ファイル。シードのロボット・センサーの台数。1ファイル 144 記録）。 */
-const FILES = { count: seededUnits().length, recordsPerFile: 144 };
+/** 即時取得・定期取り込みで置くファイルの規模（設備ごとに 1 ファイル。シードのロボット・センサーの台数。1 ファイルは、その時点のスナップショット 1 つ）。 */
+const FILES = { count: seededUnits().length };
 
 /** 一覧の各行（テスト ID）。 */
 const rowsOf = (page: Page, testId: string): Locator => page.getByTestId(testId);
@@ -805,11 +805,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const fileServer = await useHttpFiles();
   await putSeededFiles(request, USER, 'robot', {
     startIndex: 0,
-    recordsPerFile: FILES.recordsPerFile,
   });
   await putSeededFiles(request, USER, 'environment-sensor', {
     startIndex: 0,
-    recordsPerFile: FILES.recordsPerFile,
   });
   await m(
     'UC-16',
@@ -849,7 +847,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // UC-08・UC-09 即時取得（ファイルサーバーにファイルを置き、画面の「即時取得」を押す）
   await m(
     'UC-08',
-    `ロボットのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 記録）を「即時取得」する`,
+    `ロボットのデータ（${String(FILES.count)} ファイル）を「即時取得」する`,
     '取り込み（SC-11）',
     'job',
     {
@@ -859,7 +857,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
   await m(
     'UC-09',
-    `環境センサーのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 行）を「即時取得」する`,
+    `環境センサーのデータ（${String(FILES.count)} ファイル）を「即時取得」する`,
     '取り込み（SC-11）',
     'job',
     {
@@ -888,11 +886,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await ingestionShown();
   await putSeededFiles(request, USER, 'robot', {
     startIndex: 100,
-    recordsPerFile: FILES.recordsPerFile,
   });
   await putSeededFiles(request, USER, 'environment-sensor', {
     startIndex: 100,
-    recordsPerFile: FILES.recordsPerFile,
   });
   const advanced = await api(request, USER, 'POST', '/dev/clock/advance', { minutes: 6 });
   expect(advanced.ok()).toBe(true);

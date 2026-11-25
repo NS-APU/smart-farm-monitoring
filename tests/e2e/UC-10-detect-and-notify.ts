@@ -605,7 +605,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 1, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 1, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
 
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -624,7 +624,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 41, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 41, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     expect(await environmentNotifications(request)).toHaveLength(1);
@@ -638,7 +638,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 2, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 2, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     expect(await environmentNotifications(request)).toHaveLength(0);
@@ -648,7 +648,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 1, temperature: 28, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 1, temperature: 28, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
 
@@ -672,15 +672,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
       travelStoppedHours: 0.008,
       statusCode: 'HARVESTING',
     };
-    await placeFile(
-      request,
-      'robot',
-      'robot-slow.json',
-      robotJson([
-        { hoursAgo: 0.5, fields },
-        { hoursAgo: 0.25, fields },
-      ]),
-    );
+    await placeFile(request, 'robot', 'robot-slow.json', robotJson({ hoursAgo: 0.25, fields }));
 
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
