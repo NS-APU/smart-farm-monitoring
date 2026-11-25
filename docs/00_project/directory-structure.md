@@ -11,10 +11,10 @@ smart-farm-monitoring/
 ├── src/
 │   ├── backend/   # バックエンド（Hono）
 │   │   ├── domain/          # ドメイン層（評価エンジン・通知の規則など。純粋なロジック）
-│   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）
+│   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）。simulation/ は、シミュレーション（一日を通して変化するデータの生成。Issue #375）
 │   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・ssm/（パラメータストアの秘密情報。ADR-0016 の D-55。Issue #206）・http/（ファイルサーバー〔HTTP〕の接続先の検査と接続テスト。ADR-0022。Issue #172）・s3/（自前のファイルサーバーの保管先〔S3〕。ADR-0027。Issue #298）・web-push/（Web Push の実配信。送信の関数とライブラリの型の宣言を含む。ADR-0019 の D-36。Issue #241）・format-profiles/・logging/）
 │   │   ├── presentation/    # 提示層（Hono アプリ・ルート・領域ごとのハンドラ・認証認可・共通エラー）
-│   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
+│   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口。simulate-cli.ts・simulate-main.ts は `pnpm simulate`、dev-file-server*.ts は `pnpm dev:file-server`。Issue #375）
 │   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト・アプリのアイコン・テーマの初期適用スクリプト）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts・observation-list-period.ts などの補助）
 ├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・test/ のテスト。API の Lambda は、バックエンド本体 `src/backend/runtime/lambda.ts` を、esbuild でまとめて配る。ADR-0006・ADR-0007・ADR-0009）

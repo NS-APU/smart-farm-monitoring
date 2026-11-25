@@ -217,6 +217,8 @@
 
 **自前のファイルサーバー（Issue #298。ADR-0027）**: ファイルを置く口を持つ、実際のファイルサーバー。専用の Lambda（`runtime/hosted-file-server-lambda.ts`。Function URL）が、S3 のバケットの `files/` の下に、設備ごとのファイルパスのファイルを保管し、`PUT`（書き込み用トークン。1 MiB まで・UTF-8 の JSON）・`GET`・`HEAD`（読み取り用トークン）を受ける。処理は `application/hosted-file-server/hosted-file-server.ts`、保管先は `infrastructure/s3/s3-hosted-file-store.ts`。IaC（独立したスタック `SfmFileServer`・`SfmProductionFileServer`。`infra/lib/file-server-stack.ts`。S3 のバケット・Lambda・Function URL・最小の権限・同時実行数の上限。本番は RETAIN・スタックの削除の保護）を実装した。**開発サイトは、デプロイと、接続・取り込みの確認が済んだ**（2026-11-25。ユーザーの報告。operations.md 8.11）。**本番サイトは、未**（実証の前に、8.11 を読み替えて行う）。
 
+**シミュレーション（Issue #375）**: `pnpm simulate`（`runtime/simulate-cli.ts`。実行の中核は `application/simulation/simulator.ts`。シナリオは `scenario.ts`・`standard-day.ts`）が、一日を通して変化するロボット・環境センサーのファイルを、ロボットと同じ `PUT` で、ファイルサーバーに置く。**計測日時は、置いた時刻**、**値は、シナリオの時刻**（日本時間の一日。倍速で短縮。累積は、シナリオの日の 0 時に 0 へ）。置き先は、ローカルの `pnpm dev:file-server`（`runtime/dev-file-server.ts`。メモリの保管先・ダミーのトークン。127.0.0.1 だけ）、または、開発サイトの自前のファイルサーバー。**置けるのは `sim-` で始まるパスだけ**で、ローカル以外は https と `--target development`（本番は、指定できない）。トークンは、環境変数 `SIM_WRITE_TOKEN` だけ。手順は [simulation.md](../../40_operations/simulation.md)。
+
 **画面から、取り込み用のファイルを置く（Issue #565。ADR-0027）**: 管理者（`ingestion:configure`）が、SC-11 の設備の行の「ファイルを置く」から、設備の `sourceFilePath` の場所（ロボットの `PUT` と同じ場所）に、ファイルを置ける。API は `POST /ingestion/equipment/:equipmentId/source-file/check`（取り込みと同じ解釈で、保存せずに検査）と `PUT …/source-file`（検査して置く）。本文は、ファイルそのもの（1 MiB まで）。API の Lambda に、バケットの `files/` の下への `s3:PutObject` だけを付けた（IaC。評価環境のスタックが、ファイルサーバーのスタックのバケットを参照する）。ローカル・テストは、メモリの保管先（取り込み用の HTTP とは繋がらない）。**開発サイトは、デプロイと、画面から置く確認（ボタンの表示・検査・置く・S3 での確認・取り込み・置けない内容・警告・変更履歴）が済んだ**（2026-11-25。ユーザーの報告。operations.md 8.12）。**本番サイトは、未**。
 
 評価（`evaluateAll`。取り込み後・手動入力の後は、変わった設備とハウスだけを評価する `evaluateAffected`）は、JB-02 のほかに、取り込み後（`INGESTION`）・手動入力の登録・修正・削除の後（`MANUAL_ENTRY`）・設備の変更後（`EQUIPMENT_CHANGE`）・ステータスコードの変更後（`STATUS_CODE_CHANGE`）・判断基準の変更後（`CRITERIA_CHANGE`）・初期データの投入（`SEED`）・開発用 API（`DEV`）から、同期的に呼ばれる。
@@ -263,6 +265,7 @@ pnpm dev:frontend             # Vite（http://127.0.0.1:5173。/api/v1 をバッ
 - ブラウザで `http://127.0.0.1:5173` を開き、`.env` の `INITIAL_USER_ID`・`INITIAL_USER_PASSWORD` でログインする。初期ユーザーは、ユーザーが 1 人もいないときだけ作られる（`ensureInitialUser`）
 - バックエンドの起動処理は、`runtime/main.ts` → `startNodeServer`（`parseConfig` → `createContainer` → `initialize` → `createApp` → `serve`）。`SCHEDULER_ENABLED=true` なら、`SCHEDULER_TICK_SECONDS` ごとに `scheduler.tick()` を呼ぶ。終了時（SIGINT・SIGTERM）は、未保存のデータをファイルへ書き出す
 - データは、`PERSISTENCE=file` なら `.local-data/store.json`（書き込みは、一時ファイルに書いてから置き換える）、`memory` なら保持しない。ファイルサーバーは、ローカルでは、`pnpm dev:demo-feed`（デモ用の HTTP 配信）を使う
+- 一日を通して変化するデータを置くには、`pnpm dev:file-server`（ローカルの自前のファイルサーバー。既定ポート 8791）と `pnpm simulate --url http://127.0.0.1:8791/` を使う（Issue #375。simulation.md）。
 - 取り込みを試すには、`pnpm dev:demo-feed`（合成データの HTTP 配信。127.0.0.1。既定ポート 8790）を起動し、バックエンドを `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` で起動する。画面（SC-11）で取り込み元の接続を HTTP・127.0.0.1・ポート・認証なしにして保存し、設備（SC-10）にファイルのパス（`/robot/latest.json`・`/environment-sensor/latest.json`）を設定して、「即時取得」（SC-11）を押す（接続が未設定のままでは、取り込まない）
 
 ## 本番（AWS）との差
@@ -1170,6 +1173,9 @@ flowchart LR
 | `DATA_FILE`                                                     | `.local-data/store.json`  | `file` のときの保存先                                                                                                                           |
 | `HTTP_FILE_SOURCE_ALLOW_PRIVATE`                                | `false`                   | `true` のとき、取り込み元の接続先に、内部のアドレス（127.0.0.1 など）を許す。ローカル・テストの確認用（`pnpm dev:demo-feed` など）。`APP_MODE=production` では、無効（ADR-0022）  |
 | `DEMO_FEED_PORT`                                                | `8790`                    | `pnpm dev:demo-feed`（バックエンドではなく、デモ用の配信のコマンド）のポート。`--port` でも指定できる（0〜65535）                               |
+| `DEV_FILE_SERVER_PORT` | `8791` | `pnpm dev:file-server`（ローカルのファイルサーバーのコマンド）のポート。`--port` でも指定できる（0〜65535）。バックエンドは読まない（#375） |
+| `SIM_FILE_SERVER_URL` | なし | `pnpm simulate`（シミュレーションのコマンド）の置き先の URL。`--url` が優先する（#375） |
+| `SIM_WRITE_TOKEN` | なし（ローカルは、ダミーのトークン） | `pnpm simulate` が `PUT` に使う書き込み用のトークン。ローカル以外は必須。出力しない（#375） |
 | `HOSTED_FILE_SERVER_BUCKET`                                     | なし（必須）              | 自前のファイルサーバーの Lambda（`runtime/hosted-file-server-lambda.ts`）が、ファイルを保管する S3 のバケット名。同じ Lambda は、`CREDENTIAL_PATH_PREFIX`・`LOG_LEVEL` も読む。**API の Lambda も、読む**（画面から置くファイルの保管先。#565。未設定は、本番では機能なし・それ以外はメモリ）。ジョブの Lambda・ローカルのサーバーは、読まない（ADR-0027。IaC が設定する）                |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
