@@ -236,7 +236,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 |---|-----------|------------|
 | 目的 | 開発の間の、出来栄えの評価 | 現場での実証実験 |
 | デプロイ元のブランチ | `develop`（基本）。動作確認で、ほかのブランチを使うことがある（8.3） | `main` |
-| データ | **基本は合成データ**。実際のロボット・センサーとの結合確認では、実データを取り込むことがある（個人情報は不可。条件は、ADR-0013・[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) に記録した。HTTP の接続のアダプタは、#119 で実装済み。実ファイルサーバーへの接続は #298） | **実データ可（個人情報は不可）**。扱う条件は、確定済み（ADR-0013 6 章。Issue #117） |
+| データ | **基本は合成データ**。実際のロボット・センサーとの結合確認では、実データを取り込むことがある（個人情報は不可。条件は、ADR-0013・[ADR-0021](../10_design/adr/0021-nonfunctional-ops-doc-rules.md) に記録した。HTTP の接続のアダプタは、#119 で実装済み。実データの取り込み先は、自前のファイルサーバー〔8.11。ADR-0027〕） | **実データ可（個人情報は不可）**。扱う条件は、確定済み（ADR-0013 6 章。Issue #117） |
 | 状態 | 現在の評価環境（`SfmData`・`SfmEvaluation`。7 章） | **AWS に作成した**（9 章。Issue #117。2026-10-22。`main` から、承認つき） |
 
 - 2 つのサイトは、データ・ユーザー・URL を共有しない（別のスタック・別のテーブル・別のユーザープール・別の S3）
@@ -261,7 +261,7 @@ filter @type = "REPORT" and ispresent(@initDuration)
 
 ### 8.5 ファイルサーバー（HTTP）の接続確認（公開サーバー。Issue #119。ユーザーが実行）
 
-開発サイトの Lambda から、インターネット上の公開サーバーに接続し、取り込みを確かめる（到達性・TLS・認証情報〔パラメータストア〕の読み出し・取り込みの費用）。宇都宮大学のファイルサーバーへの切り替えは、別の Issue（#298）。**開発サイトのデータを変更する操作を含むため、ユーザーが実行する**（AI エージェントは、評価環境に対して実行しない。AGENTS.md 12 章）。
+開発サイトの Lambda から、インターネット上の公開サーバーに接続し、取り込みを確かめる（到達性・TLS・認証情報〔パラメータストア〕の読み出し・取り込みの費用）。自前のファイルサーバーへの接続・取り込みの確認は 8.11（#298）。宇都宮大学のファイルサーバーへの切り替えは、提供された場合に、別の Issue。**開発サイトのデータを変更する操作を含むため、ユーザーが実行する**（AI エージェントは、評価環境に対して実行しない。AGENTS.md 12 章）。
 
 **前提**: 開発サイトに、`develop`（#119 の変更を含む）がデプロイされている。管理者でログインする。公開サーバーは、このリポジトリの**合成データ**（`tests/fixtures/file-server/robot/robot-sample-001.json`。その時点のスナップショット 1 つ。設備は、設備のファイルパスで決める）を、GitHub の raw で配信するものを使う（認証なし。`Last-Modified` を返さないため、毎回、取得される）。
 
@@ -472,16 +472,18 @@ aws ssm delete-parameter --region $region --name /sfm/development/file-server/en
 
 | 手順 | 操作 | 期待する結果 |
 |------|------|--------------|
-| A（デプロイ・URL の取得） | 「Deploy development」を実行する（7.2）。スタックの出力を取る: `aws cloudformation describe-stacks --stack-name SfmFileServer --query "Stacks[0].Outputs"`（本番サイトは `SfmProductionFileServer`）。`HostedFileServerUrl`（`https://<ホスト>/`）・`HostedFileServerBucketName`・`HostedFileServerFunctionName` が返る。ホスト部分を、`$base`（`https://` から `/` の前まで）として、手元の変数に控える（**画面のコピーを、チャット・Issue・PR に貼らない**） | デプロイが成功する。出力が 3 つ返る |
+| A（デプロイ・URL の取得） | 「Deploy development」が成功していることを確認する（`develop` へのマージで、自動で動く。手動で動かすときは 7.2）。スタックの出力を取る: `aws cloudformation describe-stacks --stack-name SfmFileServer --query "Stacks[0].Outputs"`（本番サイトは `SfmProductionFileServer`）。`HostedFileServerUrl`（`https://<ホスト>/`）・`HostedFileServerBucketName`・`HostedFileServerFunctionName` が返る。ホスト部分を、`$base`（`https://` から `/` の前まで）として、手元の変数に控える（**画面のコピーを、チャット・Issue・PR に貼らない**） | デプロイが成功する。出力が 3 つ返る |
 | B（トークンの生成） | **まず、リポジトリの外の一時のディレクトリへ移る**（`Set-Location $env:TEMP`）。次を実行する（Node.js 24 以上）。値は、画面に出さず、一時のファイルに書く: `node -e "const c=require('node:crypto');const f=require('node:fs');f.writeFileSync('read-token.txt',c.randomBytes(32).toString('base64url'));f.writeFileSync('write-token.txt',c.randomBytes(32).toString('base64url'))"` | `read-token.txt`・`write-token.txt` ができる（それぞれ 43 文字。読み取り用と書き込み用は、**別の値**） |
 | C（トークンの登録） | `aws ssm put-parameter --name /sfm/development/hosted-file-server/read-token --type SecureString --tier Standard --overwrite --value file://read-token.txt` と、同じく `.../write-token`（`--value file://write-token.txt`）を実行する（本番サイトは、パスを `/sfm/production/hosted-file-server/…` にし、**本番用に、新しく作った値**を使う。開発サイトと使い回さない。10.2）。**登録しても、ファイルは、すぐには削除しない**（手順 D・F・H で使う。確認が終わったら、手順 I で削除する）。状態の確認（**`--with-decryption` を付けない**）: `aws ssm get-parameter --name /sfm/development/hosted-file-server/read-token --query "Parameter.LastModifiedDate"` | 登録に成功し、更新日時が返る。ロボット側には、**書き込み用のトークンだけ**を渡す（読み取り用は、渡さない） |
 | D（設備・接続の設定） | SC-10 で、**検証用の設備**（合成データ用。デモの設備〔`ROBOT-01` など〕は、変えない）を登録し、ファイルパスを、規約 `/<種別>/<設備を表す名前>/latest.json`（種別は `robot`・`environment-sensor`。例: `/robot/robot-a/latest.json`）にする。同じダイアログの「取り込み元の接続」で、プロトコル HTTPS、ホストを手順 A の `<ホスト>`、ポートを空、認証方式を「Bearer トークン」にして保存し、再度ダイアログを開いて、認証情報に、`read-token.txt` の**内容**（読み取り用）を登録する（内容は、`Get-Content read-token.txt -Raw` を、クリップボードへ: `Get-Content read-token.txt -Raw \| Set-Clipboard`。画面には、出さない） | 「認証情報を保存しました」→「設定済み」。SC-11 の設備の表の「接続先」に、接続が出る |
 | E（接続テスト・ファイルがない状態） | SC-11 の設備の行の「接続テスト」 | 「ファイルが見つかりません」。**これは、認証と接続（TLS・Lambda からの到達）は成功し、ファイルがまだ置かれていないことを示す**（認証に失敗すると、「認証に失敗しました」）。ファイルなしが、403 でなく、404 で返ること（`s3:ListBucket`）の確認になる |
-| F（ロボットの代わりに PUT） | 合成データのサンプル（`tests/fixtures/file-server/robot/robot-definition-sample-001.json`）を、書き込み用のトークンで置く: `$w = (Get-Content write-token.txt -Raw).Trim()` → `curl.exe -i -X PUT -H "Authorization: Bearer $w" -H "Content-Type: application/json" --data-binary "@<リポジトリのパス>\tests\fixtures\file-server\robot\robot-definition-sample-001.json" "https://<ホスト>/robot/robot-a/latest.json"`（ファイルのパスは、手順 D の設備のものと同じ。`-k` は付けない〔証明書を検証する〕） | `HTTP/1.1 204`。ファイルが置かれる。**ロボット側が、同じ形（HTTPS の `PUT`・`Authorization: Bearer`）で置けるかを、宇都宮大学に確認する**（ADR-0027 の未確認事項） |
+| F（ロボットの代わりに PUT） | 合成データのサンプル（`tests/fixtures/file-server/robot/robot-definition-sample-001.json`）を、書き込み用のトークンで置く: `$w = (Get-Content write-token.txt -Raw).Trim()` → `curl.exe -i -X PUT -H "Authorization: Bearer $w" -H "Content-Type: application/json" --data-binary "@<リポジトリのパス>\tests\fixtures\file-server\robot\robot-definition-sample-001.json" "https://<ホスト>/robot/robot-a/latest.json"`（`<リポジトリのパス>` は、このリポジトリを手元に置いたフォルダの絶対パス〔例: `C:\Project\NS-APU\smart-farm-monitoring`〕。ファイルのパスは、手順 D の設備のものと同じ。`-k` は付けない〔証明書を検証する〕） | `HTTP/1.1 204`。ファイルが置かれる。**ロボット側が、同じ形（HTTPS の `PUT`・`Authorization: Bearer`）で置けるかを、宇都宮大学に確認する**（ADR-0027 の未確認事項） |
 | G（接続テスト・取り込み） | SC-11 で、「接続テスト」→「即時取得」 | 接続テスト: 「接続できました」。即時取得: 「取得しました（成功）」。ファイル 1 件。取り込みログに成功が記録される。もう一度「即時取得」しても、ファイル 0 件（同じ内容は、取り込まない）。同じパスに、内容を変えて（計測日時・値）`PUT` し、「即時取得」すると、新しい値を取り込む（書き換えの直後 1 秒以内のファイルは、次の周期に回る） |
 | H（権限・検査の確認。任意だが、推奨） | `$r = (Get-Content read-token.txt -Raw).Trim()` のうえで、次を、1 つずつ実行し、HTTP の状態だけを確かめる（`curl.exe -s -o NUL -w "%{http_code}\n" ...`）: ①読み取り用で GET（`-H "Authorization: Bearer $r"`）→ **200**。②読み取り用で HEAD（`-I`。`Last-Modified` が返ること）→ **200**。③書き込み用で GET → **401**。④読み取り用で PUT → **401**。⑤トークンなしで GET → **401**。⑥ない設備のパスで GET → **404**。⑦`DELETE` → **405**。⑧書き込み用で、JSON でない本文（`--data-binary "{"`）を PUT → **400**。⑨1 MiB を超える本文を PUT → **413**。⑩規則に合わないパス（空白を含む）への PUT → **400** | すべて期待どおり。②の `Last-Modified` が返ることは、HEAD で更新日時を得る取り込みの前提（ADR-0023。**未確認事項**の確認） |
 | I（後片付け） | 一時のトークンのファイルを削除する: `Remove-Item read-token.txt, write-token.txt`。検証用の設備のファイルを、S3 から削除する: `aws s3 rm s3://<HostedFileServerBucketName>/files/robot/robot-a/latest.json`（検証用の設備を、SC-10 で削除する場合は、設備の削除のあとに行う）。SC-10 の検証用の設備と、その認証情報（`file-server/equipment/<ハッシュ>`。10.2）は、不要なら削除する。**実データ・合成データの設備を、混ぜない**（別の設備 ID・別のパス。ADR-0021） | 一時のファイルが残っていない。デモの設備・取り込みの設定は、変わっていない |
 
+- **手順 H の補足**: ⑨は、1 MiB を超える JSON を一時ファイルに作って置く（例: `[IO.File]::WriteAllText("$env:TEMP\big.json", '{"x":"' + ('a' * 1100000) + '"}')` のあと、`--data-binary "@$env:TEMP\big.json"`。終わったら削除する）。⑩は、`…/robot/a%20b.json` のように、`%` を含むパスへ置く（規則に合わない）。⑧⑨⑩のあとも、置いてあったファイルは変わらない（手順 G の取り込みで確かめられる）。
+- **開発サイトでの確認の記録**（2026-11-25。#298。ユーザーの報告）: デプロイは成功した（同時実行数の予約が通った）。この手順の確認は、すべて想定どおりだった。**ロボット側（宇都宮大学）が、HTTPS の `PUT` で置けるかは、未確認**。本番サイトは、未（実証の前に、この手順を読み替えて行う。現地訪問のチェックリスト: [field-visit-checklist.md](./field-visit-checklist.md)）。
 - **トークンの更新（ローテーション。漏えいの疑い・定期）**: ①新しい値を作る（手順 B）。②**読み取り用**: パラメータの値を、`<新><カンマ><旧>`（カンマで区切って 2 つ）にして登録し（旧が、まだ使える）、SC-10 の各設備の認証情報を、新しい値に更新し、「接続テスト」で確かめてから、パラメータを、新しい値だけにして登録する。**書き込み用**: 同じく、`<新><カンマ><旧>` にしてから、ロボット側の設定（書き込み用のトークン）を、新しい値に切り替え、置けることを確かめてから、新しい値だけにする。③値の反映は、最長 5 分（アプリが、5 分、キャッシュするため）。④一時のファイルを削除する。3 つ以上を並べても、先頭の 2 つだけが有効。
 - **失敗したときの見方**: 状態の見方（HTTP）: `401` は、トークンが違う・未設定（手順 C のパス・環境〔`development`・`production`〕・値の前後の空白を確認する）。`503` は、保管先・パラメータストアの障害（ログの `errorName`。`AccessDeniedException` は IAM〔`SfmFileServer` の関数の権限。10.3 と同じ方法〕。`NoSuchBucket` は、環境変数）。`413` は、1 MiB を超えた。`400` は、JSON でない・パスが規則に合わない・本文がない。`429`（呼び出しの制限）は、同時実行数の上限に達した（上限を上げるときは、GitHub の Environment の変数 `SFM_FILE_SERVER_RESERVED_CONCURRENCY` を設定して、デプロイし直す）。取り込み側（SC-11）の表示は、8.5 の「失敗したときの見方」と同じ。
 - **ログの見方**: ロググループは、スタックの出力 `HostedFileServerFunctionName` の関数（7.6 と同じ方法。`aws logs tail /aws/lambda/<関数名> --since 1h`）。出るのは、`warn`「ファイルサーバーの認証に失敗しました」（メソッドだけ）、`error`（トークンの読み出し・保管先の失敗。`errorName` だけ）、`info`「ファイルを置きました」（大きさだけ）。**トークン・本文・ファイルパスは、ログに出ない**。
@@ -586,7 +588,7 @@ Remove-Item Env:AUTH_PROVIDER, Env:PERSISTENCE, Env:COGNITO_USER_POOL_ID, Env:CO
 
 ### 9.8 実データの扱いの条件（確定。2026-10-22）
 
-ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（#115・#102・#127 は、完了。#128 は、開発サイトが完了で、**本番サイトの独自のサブドメインも、#341 で完了**。2026-11-13）（取り込み元の実ファイルサーバーの接続 #298 も要る。HTTP のアダプタ #119 は、実装済み）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
+ADR-0013 の 6 の表のとおり（ユーザーが確定した。2026-10-22。Issue #117）。**実データを入れる前に、Issue #115・#102・#127・#128 を完了させる**（#115・#102・#127 は、完了。#128 は、開発サイトが完了で、**本番サイトの独自のサブドメインも、#341 で完了**。2026-11-13）（取り込み元の実ファイルサーバー〔自前のファイルサーバー。8.11〕の接続も要る。開発サイトでは、確認済み〔2026-11-25〕。本番サイトは、未）。保管の期間（1 年分）は、保存期間の確認後に見直す。要点: 個人情報は入れない／ユーザー名・ID は匿名の識別子／ログに実データ・個人情報・認証情報を出さない／最初は管理者だけ／バックアップは PITR 35 日 + 開始前のオンデマンド。
 
 ### 9.9 AWS での確認状況
 

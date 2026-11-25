@@ -33,7 +33,7 @@
 - 2 つのサイトは、**データ・ユーザー・URL を共有しない**（別のスタック・別のテーブル・別のユーザープール・別の S3）。
 - 開発サイトの名前（`SfmData`・`SfmEvaluation`）は、変えない。本番サイトは、環境変数 `SFM_ENVIRONMENT`（`development`（既定）・`production`）で、別の名前のスタック（`SfmProductionData`・`SfmProductionEvaluation`、独自ドメインのときは `SfmProductionEvaluationCertificate`）として作る（Issue #117）。
 - **AWS のアカウント・リージョンは、開発サイトと同じ（東京）**（ユーザーの判断）。スタックの名前で分けるため、同じアカウントでも、リソース（テーブル・ユーザープール・バケット・関数・CloudFront）が衝突しない。
-- **本番サイトは、デモ用の合成データの配信（HTTP。Lambda の Function URL）を作らない**（ファイルサーバーのモックの S3 は、#344 で廃止した。ADR-0025）。実ファイルサーバーへの切り替えは、Issue #298。`pnpm demo-data` は、本番サイトでは、実行できない（環境変数 `SFM_ENVIRONMENT=production` のとき、実行しない安全装置）。
+- **本番サイトは、デモ用の合成データの配信（HTTP。Lambda の Function URL）を作らない**（ファイルサーバーのモックの S3 は、#344 で廃止した。ADR-0025）。本番サイトの取り込み元は、自前のファイルサーバー（ADR-0027。Issue #298）。`pnpm demo-data` は、本番サイトでは、実行できない（環境変数 `SFM_ENVIRONMENT=production` のとき、実行しない安全装置）。
 - **GitHub の Environment は、開発サイトが `development`（旧 `evaluation` から改名。ユーザーの判断）、本番サイトが `production`**。GitHub Actions の OIDC のロールは、環境ごとに別（開発: `sfm-github-actions-deploy`、本番: `sfm-github-actions-deploy-production`）。それぞれ、対応する Environment のジョブだけが、引き受けられる（開発サイトのジョブは、本番のロールを引き受けられない）。ワークフローは、`deploy-development.yml`・`deploy-production.yml`（旧 `deploy-evaluation.yml` から改名）。
 
 ### 2. 評価する人・アクセス元
@@ -89,7 +89,7 @@
   | 項目 | 案 |
   |------|----|
   | 入れる時期 | 下の「前提」が、すべて済んでから。それまでは、本番サイトに、データを入れない（本番サイトは、作っただけでは、データがない） |
-  | 取り込み元 | 実際のファイルサーバー（接続は Issue #298。HTTP のアダプタは #119 で実装済み。Q-002 の回答待ち）。ファイルサーバーのモックの S3 は、空のまま |
+  | 取り込み元 | 自前のファイルサーバー（ADR-0027。Issue #298。HTTP のアダプタは #119 で実装済み。開発サイトで、接続・取り込みを確認済み）。ファイルサーバーのモックの S3 は、空のまま |
   | 保管の期間 | 1 年分（NFR-3.6）。保存期間（rfp.md 6 章。未確認）の確認後に、見直す |
   | バックアップ | ポイントインタイムリカバリ 35 日（データのスタックに設定済み）。実証実験の開始前と、大きな変更の前に、オンデマンドのバックアップを取る（backup-restore.md） |
   | 削除の方法 | 実証実験の終了後に、評価環境のスタックと、データのスタックを削除する（削除の保護を外したうえで。operations.md 9.7）。削除の前に、バックアップの要否を決める。`pnpm demo-data` は使えない |
