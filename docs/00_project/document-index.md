@@ -61,6 +61,7 @@
 | | [0024-agri-platform-federation-ngsi-ld.md](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) | ADR-0024 農業情報基盤との連携を、NGSI-LD（Orion-LD）の upsert で行う（#176。データモデル・設定・認証なし・停止中の運用） |
 | | [0025-demo-http-file-feed.md](../10_design/adr/0025-demo-http-file-feed.md) | ADR-0025 デモの取り込みを、HTTP のファイル配信（Lambda の Function URL）に置き換える（#344。認証なし・合成データだけ・3 つの PR に分ける） |
 | | [0026-per-equipment-file-server-connection.md](../10_design/adr/0026-per-equipment-file-server-connection.md) | ADR-0026 ファイルサーバーの接続を、設備ごとに持つ（#367。保存先・認証情報の参照名・権限・API・失敗の分離・移行・2 つの PR に分ける） |
+| | [0027-self-hosted-file-server.md](../10_design/adr/0027-self-hosted-file-server.md) | ADR-0027 ファイルサーバーを、こちらで用意する（S3 + Lambda の Function URL。ロボットが PUT で置き、取り込みが GET・HEAD で読む。トークン 2 種類・独立したスタック。#298） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |

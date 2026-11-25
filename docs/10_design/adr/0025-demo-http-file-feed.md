@@ -3,6 +3,7 @@
 - ステータス: 承認（2026-11-18。Issue #344）。実装は 3 つの PR に分ける（下の「決定」の 4）。PR 1 は、追加のみ（このADRの 1〜3）。PR 3b（MOCK の接続方式の廃止）まで、実装した。**PR 3 により、[ADR-0012](./0012-demo-data-and-s3-file-server-mock.md) の「ファイルサーバーのモックの S3 版」「合成データの定期生成」は、このADRに置換する**（デモデータの投入・リセットは、ADR-0012 のまま）
 - 日付: 2026-11-18
 - 更新（2026-11-19。#367）: **接続は、設備ごとに持つ**ことにした（[ADR-0026](./0026-per-equipment-file-server-connection.md)）。デモの取り込み（`demo-data use-http-feed`・`seed --url`）は、デモの設備ごとの接続とファイルのパスだけを設定する（取り込み元の共通の接続は、設定しない。共通の接続は、廃止した）。以下の「取り込み元の接続を HTTP（認証なし）にし」の記述は、この更新で置き換わる。
+- 更新（2026-11-25。#298）: **こちらで用意する、ファイルを置ける実際のファイルサーバー**（S3 + Lambda の Function URL。認証つき）は、[ADR-0027](./0027-self-hosted-file-server.md)。このデモ用の配信は、**残す**（開発サイトだけ。置き換えは、#375 で判断する）。
 - 関連: [ADR-0012](./0012-demo-data-and-s3-file-server-mock.md)（置換の対象）、[ADR-0013](./0013-environments-and-access-control.md)（本番サイトにデモを作らない）、[ADR-0022](./0022-file-server-http-connection-provisional.md)・[ADR-0023](./0023-http-file-source-per-equipment-file.md)（HTTP の接続・設備ごとのファイルパス）、[security.md](../../20_development/security.md)、Issue #344・#367
 
 目的: ファイルサーバーの接続方式を HTTP に一本化する（#344）にあたり、開発サイト（評価環境）のデモの取り込みを、S3 のモックから、**デモ用の HTTP のファイル配信**に置き換える方法を決める。
