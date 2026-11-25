@@ -53,12 +53,9 @@ afterEach(async () => {
   await Promise.all(closers.splice(0).map((close) => close()));
 });
 
-/** ロボットのファイル（合成データ。記録 1 件）。 */
-function robotFile(externalId: string): string {
-  return JSON.stringify({
-    robotId: externalId,
-    records: [{ timestamp: '2026-10-09T02:59:00Z', harvestCount: 12 }],
-  });
+/** ロボットのファイル（合成データ。その時点のスナップショット 1 つ。設備は、ファイルのパスで決める）。 */
+function robotFile(): string {
+  return JSON.stringify({ timestamp: '2026-10-09T02:59:00Z', harvestCount: 12 });
 }
 
 function connectionTo(
@@ -157,8 +154,8 @@ async function setup(): Promise<Harness> {
   }
   const serverA = await startFileServer();
   const serverB = await startFileServer();
-  serverA.put(FILE_A, robotFile('ROBOT-SAMPLE-01'), { modifiedAt: STUB_MODIFIED_AT });
-  serverB.put(FILE_B, robotFile('ROBOT-SAMPLE-02'), { modifiedAt: STUB_MODIFIED_AT });
+  serverA.put(FILE_A, robotFile(), { modifiedAt: STUB_MODIFIED_AT });
+  serverB.put(FILE_B, robotFile(), { modifiedAt: STUB_MODIFIED_AT });
   return { context, serverA, serverB, connections: createEquipmentConnections(settings) };
 }
 
@@ -263,12 +260,12 @@ describe('設備ごとの接続での取り込み', () => {
       [FILE_A]: {
         username: 'dummy-user-a',
         password: 'dummy-password-a',
-        body: robotFile('ROBOT-SAMPLE-01'),
+        body: robotFile(),
       },
       [FILE_B]: {
         username: 'dummy-user-b',
         password: 'dummy-password-b',
-        body: robotFile('ROBOT-SAMPLE-02'),
+        body: robotFile(),
       },
     });
     const basic = connectionTo(server.port, { authMethod: 'BASIC' });
@@ -345,7 +342,7 @@ describe('失敗の分離（1 台の接続の失敗が、ほかの設備の取�
       [FILE_B]: {
         username: 'dummy-user-b',
         password: 'dummy-password-b',
-        body: robotFile('ROBOT-SAMPLE-02'),
+        body: robotFile(),
       },
     });
     await connections.save(ROBOT_ID, connectionTo(serverA.port));
@@ -579,7 +576,7 @@ describe('設備の接続テスト（testEquipment・testEquipmentConnection）'
       [FILE_A]: {
         username: 'dummy-user-a',
         password: 'dummy-password-a',
-        body: robotFile('ROBOT-SAMPLE-01'),
+        body: robotFile(),
       },
     });
     await connections.save(ROBOT_ID, connectionTo(server.port, { authMethod: 'BASIC' }));
@@ -660,8 +657,7 @@ describe('一覧の再試行（スタブのファイルソース）', () => {
         calls.push(options?.paths);
         return listFiles(calls.length, options);
       },
-      readFile: (_sourceId, fileId) =>
-        Promise.resolve(robotFile(fileId === FILE_A ? 'ROBOT-SAMPLE-01' : 'ROBOT-SAMPLE-02')),
+      readFile: () => Promise.resolve(robotFile()),
     };
     const { container } = context;
     const service = createIngestionService({

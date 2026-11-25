@@ -205,7 +205,7 @@ test.describe('代替フロー: 同じ内容の通知を重複して出さない
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 1, fields: { harvestCount: 1 } }]),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 1 } }),
     );
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 10);
@@ -304,7 +304,7 @@ test.describe('シナリオ: 取り込みの失敗の通知を、別の利用者
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 8 } }]),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 8 } }),
     );
     await expect(await runNow(b.page, 'robot')).toContainText('取得しました（成功）');
     await expect(logRows(b.page).first()).toContainText('成功');

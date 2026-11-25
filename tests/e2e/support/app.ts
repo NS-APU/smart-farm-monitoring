@@ -267,31 +267,31 @@ export async function addEntryAs(
 
 // 取り込みの合成データ
 
-/** 観測値の日時を、現在（固定した時計）から相対で指定した、ロボットの JSON（合成データ）。 */
-export function robotJson(
-  records: readonly { hoursAgo: number; fields: Record<string, number | string | null> }[],
-  robotId: string = ROBOT_EXTERNAL_ID,
-): string {
+/**
+ * 観測値の日時を、現在（固定した時計）から相対で指定した、ロボットの JSON（合成データ。その時点のスナップショット 1 つ。
+ * 設備の識別子・記録の配列は持たない。設備は、設備のファイルのパスで決まる）。
+ */
+export function robotJson(record: {
+  hoursAgo: number;
+  fields: Record<string, number | string | null>;
+}): string {
   return JSON.stringify({
-    robotId,
-    records: records.map((record) => ({
-      timestamp: new Date(NOW.getTime() - record.hoursAgo * 3_600_000).toISOString(),
-      ...record.fields,
-    })),
+    timestamp: new Date(NOW.getTime() - record.hoursAgo * 3_600_000).toISOString(),
+    ...record.fields,
   });
 }
 
-/** 環境センサーの JSON（合成データ。設備の識別子 sensorId + 記録の配列）。空の文字列は欠損（null）、数値の文字列は数値にする（数値でない文字列は、そのまま）。 */
-export function sensorJson(
-  rows: readonly {
-    hoursAgo: number;
-    temperature: number | string;
-    humidity: number | string;
-    illuminance: number | string;
-    co2: number | string;
-  }[],
-  sensorId: string = SENSOR_EXTERNAL_ID,
-): string {
+/**
+ * 環境センサーの JSON（合成データ。その時点のスナップショット 1 つ。ファイルの項目名は temperature・humidity・illuminance・co2）。
+ * 空の文字列は欠損（null）、数値の文字列は数値にする（数値でない文字列は、そのまま）。
+ */
+export function sensorJson(row: {
+  hoursAgo: number;
+  temperature: number | string;
+  humidity: number | string;
+  illuminance: number | string;
+  co2: number | string;
+}): string {
   const value = (raw: number | string) => {
     if (raw === '') {
       return null;
@@ -299,14 +299,11 @@ export function sensorJson(
     return typeof raw === 'string' && Number.isFinite(Number(raw)) ? Number(raw) : raw;
   };
   return JSON.stringify({
-    sensorId,
-    records: rows.map((row) => ({
-      timestamp: new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString(),
-      temperatureCelsius: value(row.temperature),
-      humidityPercent: value(row.humidity),
-      illuminanceLux: value(row.illuminance),
-      co2Ppm: value(row.co2),
-    })),
+    timestamp: new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString(),
+    temperature: value(row.temperature),
+    humidity: value(row.humidity),
+    illuminance: value(row.illuminance),
+    co2: value(row.co2),
   });
 }
 

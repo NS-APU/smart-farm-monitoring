@@ -61,7 +61,7 @@ docs/
 ├── 10_design/        # 設計
 │   ├── requirements/   # 要件（RFP・機能・非機能・ユースケース）
 │   ├── architecture/   # アーキテクチャ・システム構成・HITL
-│   ├── data/           # データの流れ・データモデル・データ項目定義
+│   ├── data/           # データの流れ・データモデル・データ項目定義・環境センサーのデータ定義
 │   ├── functions/      # 機能（画面・API・処理の振る舞い）
 │   ├── viewpoint/      # ロボット・ハウスの健全性の評価観点・判断基準
 │   └── adr/            # 設計判断の記録（ADR）
@@ -76,7 +76,7 @@ docs/
 | [00_project](./) | プロジェクト全般・管理 | 概要、ゴール、用語集、よく使うコマンド、ディレクトリ構成、ドキュメント運用、ドキュメント一覧 |
 | [10_design/requirements](../10_design/requirements/) | 要件（何を作るか） | RFP、機能要件、非機能要件、ユースケース |
 | [10_design/architecture](../10_design/architecture/) | 基本設計・構成（どう作るか） | システム全体像、アーキテクチャ設計（設計時）、実装に基づくアーキテクチャ（as-built） |
-| [10_design/data](../10_design/data/) | データ設計 | データの流れ、データモデル、データ項目定義 |
+| [10_design/data](../10_design/data/) | データ設計 | データの流れ、データモデル、データ項目定義、環境センサーのデータ定義 |
 | [10_design/functions](../10_design/functions/) | 機能ごとの仕様（各機能がどう動くか） | 機能仕様書 |
 | [10_design/viewpoint](../10_design/viewpoint/) | ロボット・ハウスの健全性の評価観点・判断基準 | 評価観点、判断基準（閾値・区分）、基準の根拠 |
 | [10_design/adr](../10_design/adr/) | 設計判断の記録（ADR） | `NNNN-タイトル.md` |

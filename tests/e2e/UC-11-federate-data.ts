@@ -69,13 +69,13 @@ async function produceData(request: Parameters<typeof prepareApp>[0]): Promise<v
     request,
     'robot',
     'robot.json',
-    robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
+    robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
   );
   await placeFile(
     request,
     'environment-sensor',
     'sensor.json',
-    sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+    sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
   );
   await apiOk(request, 'POST', '/ingestion/robot/run');
   await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -502,7 +502,7 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');

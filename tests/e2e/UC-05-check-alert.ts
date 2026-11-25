@@ -253,7 +253,7 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
       request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
     );
     await connection.getByTestId('equipment-connection-test').click();
     await expect(connection.getByTestId('equipment-connection-result')).toHaveText(

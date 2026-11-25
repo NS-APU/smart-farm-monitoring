@@ -1504,7 +1504,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
     expect(results.map((result) => result.jobId)).toEqual([...JOB_IDS]);
     expect(results[0]).toMatchObject({
       summaries: [
-        expect.objectContaining({ sourceId: 'robot', recordCount: 14 }),
+        expect.objectContaining({ sourceId: 'robot', recordCount: 7 }),
         expect.objectContaining({ sourceId: 'environment-sensor' }),
       ],
     });

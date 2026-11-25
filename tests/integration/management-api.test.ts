@@ -1879,11 +1879,25 @@ describe('取り込み（UC-15、UC-16）', () => {
     expect(robot).toMatchObject({
       isEnabled: true,
       isRunning: false,
-      formatProfile: { versionLabel: 'robot-json@0.2.0(PROVISIONAL)', status: 'PROVISIONAL' },
+      formatProfile: { versionLabel: 'robot-json@0.3.0(PROVISIONAL)', status: 'PROVISIONAL' },
       lastStartedAt: TEST_NOW.toISOString(),
       lastSuccessAt: TEST_NOW.toISOString(),
     });
     expect(body.sources[1]).toMatchObject({ lastStartedAt: null, lastSuccessAt: null });
+  });
+
+  it('環境センサーの形式定義は「確定」（版 1.0.0）、ロボットは「仮決め」と返す（#300・#302）', async () => {
+    const context = await withHttpFiles();
+
+    const body = await settings(context);
+
+    expect(body.sources.map((source) => [source.sourceId, source.formatProfile])).toEqual([
+      ['robot', { versionLabel: 'robot-json@0.3.0(PROVISIONAL)', status: 'PROVISIONAL' }],
+      [
+        'environment-sensor',
+        { versionLabel: 'environment-sensor-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' },
+      ],
+    ]);
   });
 
   it('最終の実行・最終の成功は、設備ごとの最終の実行から求める。ログに残らない空振りでも更新し、失敗では、最終の成功を更新しない（Issue #201）', async () => {
@@ -2024,20 +2038,14 @@ describe('取り込み（UC-15、UC-16）', () => {
     await context.files.placeFile(
       'robot',
       'robot.json',
-      JSON.stringify({
-        robotId: 'ROBOT-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvestCount }),
     );
   }
   async function placeNewSensorData(context: HttpTestContext, temperature: number): Promise<void> {
     await context.files.placeFile(
       'environment-sensor',
       'sensor.json',
-      JSON.stringify({
-        sensorId: 'SENSOR-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temperatureCelsius: temperature }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', temperature }),
     );
   }
 
@@ -2296,7 +2304,7 @@ describe('取り込み（UC-15、UC-16）', () => {
     expect(logs.items[0]?.errorMessage).not.toContain(String(context.files.server.port));
     expect(logs.items[0]?.errorMessage).not.toContain('/robot/robot-sample-001.json');
     expect(logs.items[1]?.errorMessage).toBeUndefined();
-    expect(logs.items[1]?.recordCount).toBe(14);
+    expect(logs.items[1]?.recordCount).toBe(7);
   });
 
   it.each([

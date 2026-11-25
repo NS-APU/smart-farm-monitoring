@@ -76,7 +76,7 @@ async function placeNewData(
       request,
       'robot',
       'new.json',
-      robotJson([{ hoursAgo: 1, fields: { harvestCount: value } }]),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: value } }),
     );
     return;
   }
@@ -84,9 +84,13 @@ async function placeNewData(
     request,
     'environment-sensor',
     'new.json',
-    sensorJson([
-      { hoursAgo: 1, temperature: 20 + value, humidity: 60, illuminance: 30000, co2: 900 },
-    ]),
+    sensorJson({
+      hoursAgo: 1,
+      temperature: 20 + value,
+      humidity: 60,
+      illuminance: 30000,
+      co2: 900,
+    }),
   );
 }
 
@@ -125,12 +129,12 @@ test.describe('基本フロー: 取り込みのログを開き、日時・成功
     await expect(logRows(page).nth(0)).toContainText('2026/10/09 12:15:00');
     await expect(logRows(page).nth(0)).toContainText('環境センサーデータ');
     await expect(logRows(page).nth(0)).toContainText('一部成功');
-    await expect(logRows(page).nth(0).locator('td').nth(5)).toHaveText('11');
+    await expect(logRows(page).nth(0).locator('td').nth(5)).toHaveText('3');
     await expect(logRows(page).nth(0).locator('td').nth(6)).toHaveText('1');
     await expect(logRows(page).nth(1)).toContainText('ロボットデータ');
     await expect(logRows(page).nth(1)).toContainText('成功');
     await expect(logRows(page).nth(1).locator('td').nth(4)).toHaveText('1');
-    await expect(logRows(page).nth(1).locator('td').nth(5)).toHaveText('14');
+    await expect(logRows(page).nth(1).locator('td').nth(5)).toHaveText('7');
     await expect(logRows(page).nth(1).locator('td').nth(8)).toHaveText('—');
     // 取り込み元ごとの、最終の実行。設備ごとの表に、最終の実行の結果と、最後にデータが取れた日時（「最終の成功」は、廃止）
     await expect(page.getByTestId('last-started-robot')).toHaveText('2026/10/09 12:00:00');
@@ -234,7 +238,7 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       fixture: 'robot/robot-sample-001.json',
       result: '成功',
       files: '1',
-      records: '14',
+      records: '7',
       rejected: '0',
       error: '—',
     },
@@ -244,8 +248,8 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       fixture: 'robot/robot-sample-002-partial.json',
       result: '一部成功',
       files: '1',
-      records: '7',
-      rejected: '4',
+      records: '3',
+      rejected: '3',
       error: '—',
     },
     {
@@ -269,13 +273,13 @@ test.describe('取り込みの結果の同値分割（成功・一部成功・�
       error: '1件のファイルを取り込めませんでした',
     },
     {
-      name: '一部成功（不正な値・計測日時のない記録を含む JSON）',
+      name: '一部成功（不正な値を含む JSON）',
       sourceId: 'environment-sensor',
       fixture: 'environment-sensor/sensor-sample-002-invalid.json',
       result: '一部成功',
       files: '1',
-      records: '3',
-      rejected: '3',
+      records: '2',
+      rejected: '2',
       error: '—',
     },
   ];
@@ -572,7 +576,7 @@ test.describe('基本フロー 3: 連携の結果（送信済み・失敗・保�
       request,
       'robot',
       'new.json',
-      robotJson([{ hoursAgo: 1, fields: { harvestCount: value } }]),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: value } }),
     );
     await runIngestionApi(request, 'robot');
   }

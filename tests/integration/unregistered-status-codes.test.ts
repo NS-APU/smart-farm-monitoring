@@ -12,7 +12,8 @@ import {
 } from '@smart-farm/shared/schemas/status-code';
 import type { Logger } from '../../src/backend/application/ports/logger-port.ts';
 import { ROUTE_TABLE, routeKey } from '../../src/backend/presentation/route-table.ts';
-import { ROBOT_ID } from '../support/builders.ts';
+import { toEquipmentId, type EquipmentId } from '@smart-farm/shared/schemas/common';
+import { must, ROBOT_ID } from '../support/builders.ts';
 import { withHttpFiles, type HttpTestContext } from '../support/http-test-files.ts';
 import {
   addUserAndLogin,
@@ -33,16 +34,61 @@ interface RecordInput {
   readonly harvestCount?: number;
 }
 
-/** ロボットのファイルの内容（合成データ）。 */
-function robotFile(records: readonly RecordInput[]): string {
-  return JSON.stringify({ robotId: 'ROBOT-SAMPLE-01', records });
+/** ロボットのファイルの内容（合成データ。その時点のスナップショット 1 つ。設備は、ファイルのパスで決める）。 */
+function robotFile(record: RecordInput): string {
+  return JSON.stringify(record);
 }
 
 /** 読んでよい（更新から 1 秒より後）更新日時にして、ファイルを置く（同じパスの上書き）。 */
-async function place(context: HttpTestContext, records: readonly RecordInput[]): Promise<void> {
-  await context.files.placeFile('robot', FILE, robotFile(records), {
+async function placeOne(
+  context: HttpTestContext,
+  record: RecordInput,
+  options: { readonly equipmentId?: EquipmentId; readonly name?: string } = {},
+): Promise<void> {
+  await context.files.placeFile('robot', options.name ?? FILE, robotFile(record), {
     modifiedAt: new Date(context.clock.now().getTime() - 60_000),
+    ...(options.equipmentId === undefined ? {} : { equipmentId: options.equipmentId }),
   });
+}
+
+/**
+ * 取り込む記録を、順に置く予定にする（1 つのファイルは、その時点のスナップショット 1 つ。履歴は、取得を繰り返して積み上げる）。
+ * `run` が、記録ごとに、ファイル（同じパスの上書き）を置いて、取り込む（時計は、進めない）。
+ */
+const pendingRecords = new WeakMap<object, RecordInput[]>();
+function place(context: HttpTestContext, records: readonly RecordInput[]): Promise<void> {
+  pendingRecords.set(context, [...(pendingRecords.get(context) ?? []), ...records]);
+  return Promise.resolve();
+}
+
+let robotCounter = 0;
+
+/**
+ * 記録ごとに、別のロボット（設備ごとに 1 ファイル）を登録して、ファイルを置く。1 回の取り込みで、複数のファイルを読む場合に使う。
+ * 置いた設備の ID を、記録の順に返す。
+ */
+async function placeMany(
+  context: HttpTestContext,
+  records: readonly RecordInput[],
+): Promise<EquipmentId[]> {
+  const { repositories } = context.container;
+  const base = must(
+    (await repositories.equipment.list()).find((item) => item.equipmentId === ROBOT_ID),
+  );
+  const ids: EquipmentId[] = [];
+  for (const record of records) {
+    robotCounter += 1;
+    const equipmentId = toEquipmentId(`ROBOT-U${String(robotCounter)}`);
+    await repositories.equipment.save({
+      ...base,
+      equipmentId,
+      externalId: `ROBOT-U${String(robotCounter)}`,
+      sourceFilePath: undefined,
+    });
+    await placeOne(context, record, { equipmentId, name: `robot-${String(robotCounter)}.json` });
+    ids.push(equipmentId);
+  }
+  return ids;
 }
 
 /** ログの呼び出しを集めるロガー（値が、ログに出ないことの確認用）。 */
@@ -63,8 +109,30 @@ async function setup(logger?: Logger): Promise<HttpTestContext> {
   return withHttpFiles(logger === undefined ? {} : { logger });
 }
 
-async function run(context: TestContext) {
+async function runOnce(context: TestContext) {
   return context.container.ingestionService.runSource('robot');
+}
+
+/**
+ * 取り込む。`place` した記録があれば、記録ごとに、ファイルを置いて、取り込む（結果は、合計）。なければ、いまのファイルを、もう一度、取り込む。
+ */
+async function run(context: HttpTestContext) {
+  const records = pendingRecords.get(context) ?? [];
+  pendingRecords.delete(context);
+  if (records.length === 0) {
+    return runOnce(context);
+  }
+  let total = { filesProcessed: 0, recordCount: 0, rejectedCount: 0 };
+  for (const record of records) {
+    await placeOne(context, record);
+    const summary = await runOnce(context);
+    total = {
+      filesProcessed: total.filesProcessed + summary.filesProcessed,
+      recordCount: total.recordCount + summary.recordCount,
+      rejectedCount: total.rejectedCount + summary.rejectedCount,
+    };
+  }
+  return total;
 }
 
 async function recorded(context: TestContext) {
@@ -96,7 +164,8 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
 
     const summary = await run(context);
 
-    expect(summary).toMatchObject({ filesProcessed: 1, recordCount: 1, rejectedCount: 3 });
+    // 4 つの記録（スナップショット）を、順に取り込む（4 回のファイル）
+    expect(summary).toMatchObject({ filesProcessed: 4, recordCount: 1, rejectedCount: 3 });
     expect(await recorded(context)).toEqual({
       ERR_X: { count: 2, lastSeenAt: TEST_NOW.toISOString() },
       ERR_Y: { count: 1, lastSeenAt: TEST_NOW.toISOString() },
@@ -123,11 +192,8 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
     // 同じ内容（変わらない）: 取り込み済みで、観測値も増えない
     await run(context);
     context.clock.advance(10 * 60_000);
-    // 同じ計測日時の行 + 新しい計測日時の行（D-08: 変わった分だけ保存する）
-    await place(context, [
-      { timestamp: T1, statusCode: 'ERR_X' },
-      { timestamp: T2, statusCode: 'ERR_X' },
-    ]);
+    // 新しい計測日時のスナップショット（D-08: 変わった分だけ保存する）
+    await place(context, [{ timestamp: T2, statusCode: 'ERR_X' }]);
 
     await run(context);
 
@@ -140,13 +206,10 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
     const context = await setup();
     await place(context, [{ timestamp: T1, statusCode: 'ERR_X' }]);
     await run(context);
-    // ファイルの内容（ハッシュ）が変わる（別の計測日時の、登録済みのコード値を足す）が、ERR_X の行は同じ
-    await place(context, [
-      { timestamp: T1, statusCode: 'ERR_X' },
-      { timestamp: T2, statusCode: 'RUNNING' },
-    ]);
+    // ファイルの内容（ハッシュ）が変わる（ほかの項目を足す）が、ステータスコードの値（ERR_X・同じ計測日時）は同じ
+    await placeOne(context, { timestamp: T1, statusCode: 'ERR_X', harvestCount: 5 });
 
-    await run(context);
+    await runOnce(context);
 
     expect(await recorded(context)).toEqual({
       ERR_X: { count: 1, lastSeenAt: TEST_NOW.toISOString() },
@@ -209,11 +272,12 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
         { timestamp: '2026-10-09T02:00:00Z', statusCode: codeName(24) },
         { timestamp: '2026-10-09T02:05:00Z', statusCode: codeName(24) },
       );
-      await place(context, records);
+      // 設備ごとに 1 ファイル。27 台のロボットのファイルを、1 回の取り込みで読む
+      await placeMany(context, records);
 
-      const summary = await run(context);
+      const summary = await runOnce(context);
 
-      expect(summary).toMatchObject({ filesProcessed: 1, rejectedCount: 27 });
+      expect(summary).toMatchObject({ filesProcessed: 27, rejectedCount: 27 });
       const keys = Object.keys(await recorded(context));
       expect(keys).toHaveLength(20);
       expect(keys).toContain(codeName(24));
@@ -236,27 +300,27 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
         for (let index = start; index < end; index += 1) {
           records.push({ timestamp: minuteOf(index), statusCode: codeName(index) });
         }
-        await place(context, records);
+        await placeMany(context, records);
         context.clock.advance(1000);
-        await run(context);
+        await runOnce(context);
       }
       expect(Object.keys(await recorded(context))).toHaveLength(50);
 
       context.clock.advance(60_000);
-      await place(context, [
+      const [brandNewId] = await placeMany(context, [
         { timestamp: '2026-10-09T02:00:00Z', statusCode: 'BRAND_NEW' },
         { timestamp: '2026-10-09T02:05:00Z', statusCode: codeName(3) },
       ]);
-      const summary = await run(context);
+      const summary = await runOnce(context);
 
-      expect(summary).toMatchObject({ filesProcessed: 1, recordCount: 0, rejectedCount: 2 });
+      expect(summary).toMatchObject({ filesProcessed: 2, recordCount: 0, rejectedCount: 2 });
       const after = await recorded(context);
       expect(Object.keys(after)).toHaveLength(50);
       expect(after).not.toHaveProperty('BRAND_NEW');
       expect(after[codeName(3)]?.count).toBe(2);
       // 観測値は、記録とは別に、不正で保存されている
       const stored = await context.container.repositories.observations.findByKey(
-        ROBOT_ID,
+        must(brandNewId),
         'statusCode',
         new Date('2026-10-09T02:00:00Z').toISOString(),
         'AUTO_IMPORT',
@@ -286,7 +350,8 @@ describe('取り込み: 未登録のコード値の記録（UC-08）', () => {
         { timestamp: T2, statusCode: 'RUNNING' },
       ]);
       expect(summary).toEqual(await run(control));
-      expect(summary).toMatchObject({ filesProcessed: 1, recordCount: 1, rejectedCount: 1 });
+      // 2 つの記録（スナップショット）を、順に取り込む（2 回のファイル）
+      expect(summary).toMatchObject({ filesProcessed: 2, recordCount: 1, rejectedCount: 1 });
       expect(await recorded(context)).toEqual({});
       const stored = await context.container.repositories.observations.findByKey(
         ROBOT_ID,

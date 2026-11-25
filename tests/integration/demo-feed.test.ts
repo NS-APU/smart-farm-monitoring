@@ -1,21 +1,29 @@
 /**
  * デモ用の合成データのファイルの生成（擬似のロボット・環境センサー。Issue #77・#344。ADR-0012・ADR-0025）のテスト: ファイルの生成の規則。
  * 配信（HTTP のハンドラ）と、取り込みの通しは、demo-feed-http.test.ts。
+ * ファイルは、その時点のスナップショット 1 つ（フラットな JSON。設備の識別子・記録の配列は持たない）。
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  DEMO_FEED_BUCKETS,
-  DEMO_FEED_INTERVAL_MINUTES,
-} from '../../src/backend/application/demo/demo-feed-schedule.ts';
+import { DEMO_FEED_INTERVAL_MINUTES } from '../../src/backend/application/demo/demo-feed-schedule.ts';
 import { buildDemoFeedFiles } from '../../src/backend/infrastructure/local/demo-feed-files.ts';
 
-const OPTIONS = { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES, buckets: DEMO_FEED_BUCKETS };
+const OPTIONS = { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES };
 // 区間の途中の時刻（UTC 04:22）。区間の開始は、04:15
 const NOW = new Date('2026-10-20T04:22:30.000Z');
 
+interface RobotFile {
+  timestamp: string;
+  harvestCount: number;
+  operatingHours: number;
+  statusCode: string;
+}
+
+const timestampOf = (content: string | undefined) =>
+  (JSON.parse(content ?? '{}') as { timestamp: string }).timestamp;
+
 describe('合成データのファイルの生成（buildDemoFeedFiles）', () => {
-  it('取り込み元ごとに、1 つのファイル（latest.json）を作る。どちらも JSON で、直近の区間の記録を、古い順に持つ（1 つのファイルを随時上書きする方式。ADR-0016 の D-08）', () => {
+  it('取り込み元ごとに、1 つのファイル（latest.json）を作る。どちらも JSON で、現在の区間のスナップショット 1 つ（1 つのファイルを随時上書きする方式。ADR-0016 の D-08）', () => {
     const files = buildDemoFeedFiles(NOW, OPTIONS);
 
     expect(files.map((file) => `${file.sourceId}/${file.name}`)).toEqual([
@@ -23,97 +31,65 @@ describe('合成データのファイルの生成（buildDemoFeedFiles）', () =
       'environment-sensor/latest.json',
     ]);
     expect(files.every((file) => file.contentType === 'application/json')).toBe(true);
-    const timestamps = files.map((file) =>
-      (JSON.parse(file.content) as { records: { timestamp: string }[] }).records.map(
-        (record) => record.timestamp,
-      ),
-    );
-    const expected = [
-      '2026-10-20T03:30:00.000Z',
-      '2026-10-20T03:45:00.000Z',
-      '2026-10-20T04:00:00.000Z',
+    expect(files.map((file) => timestampOf(file.content))).toEqual([
       '2026-10-20T04:15:00.000Z',
-    ];
-    expect(timestamps).toEqual([expected, expected]);
+      '2026-10-20T04:15:00.000Z',
+    ]);
   });
 
-  it('内容は、区間の時刻から決まる（同じ区間は同じ内容。実行の時刻が違っても、同じ区間は同じ）。区間が変われば、最も古い記録が外れ、新しい記録が増える', () => {
+  it('内容は、区間の時刻から決まる（同じ区間は同じ内容。実行の時刻が違っても、同じ区間は同じ）。区間が変われば、計測日時が進み、内容が変わる', () => {
     const first = buildDemoFeedFiles(NOW, OPTIONS);
     const sameBucketLater = buildDemoFeedFiles(new Date('2026-10-20T04:29:59.000Z'), OPTIONS);
     const nextBucket = buildDemoFeedFiles(new Date('2026-10-20T04:31:00.000Z'), OPTIONS);
 
     expect(sameBucketLater).toEqual(first);
-    const recordsOf = (files: typeof first) =>
-      new Map(
-        (
-          JSON.parse(files[0]?.content ?? '{}') as {
-            records: { timestamp: string }[];
-          }
-        ).records.map((record) => [record.timestamp, JSON.stringify(record)]),
-      );
-    const before = recordsOf(first);
-    const after = recordsOf(nextBucket);
-    // 重なる区間（04:15 など）の記録は、同じ内容。最も古い区間（03:30）は、外れる（消えた行は、取り込みで反映しない）
-    expect(after.get('2026-10-20T04:15:00.000Z')).toBe(before.get('2026-10-20T04:15:00.000Z'));
-    expect(after.has('2026-10-20T04:30:00.000Z')).toBe(true);
-    expect(after.has('2026-10-20T03:30:00.000Z')).toBe(false);
-    expect(before.get('2026-10-20T04:00:00.000Z')).not.toBe(before.get('2026-10-20T04:15:00.000Z'));
+    expect(nextBucket.map((file) => timestampOf(file.content))).toEqual([
+      '2026-10-20T04:30:00.000Z',
+      '2026-10-20T04:30:00.000Z',
+    ]);
+    expect(nextBucket[0]?.content).not.toBe(first[0]?.content);
+    expect(nextBucket[1]?.content).not.toBe(first[1]?.content);
   });
 
   it('ロボットの収穫数・稼働時間は、「今日（日本時間）これまでの累計」（累積。日本時間の 0 時にリセット。D-26）', () => {
     // 日本時間 2026-10-21 00:15（UTC 2026-10-20T15:15Z）。0:00 の区間（15:00Z）でリセットされ、0:15 の値は、0:00 の値より大きい。
     // 前の日の最後の区間（14:45Z）の値は、0:00 の値より大きい（減る = リセット）
-    const files = buildDemoFeedFiles(new Date('2026-10-20T15:20:00.000Z'), {
-      intervalMinutes: 15,
-      buckets: 3,
-    });
-    const records = (
-      JSON.parse(files[0]?.content ?? '{}') as {
-        records: { timestamp: string; harvestCount: number; operatingHours: number }[];
-      }
-    ).records;
+    const at = (iso: string) =>
+      JSON.parse(buildDemoFeedFiles(new Date(iso), OPTIONS)[0]?.content ?? '{}') as RobotFile;
+    const last = at('2026-10-20T14:50:00.000Z');
+    const first = at('2026-10-20T15:05:00.000Z');
+    const second = at('2026-10-20T15:20:00.000Z');
 
-    expect(records.map((record) => record.timestamp)).toEqual([
+    expect([last.timestamp, first.timestamp, second.timestamp]).toEqual([
       '2026-10-20T14:45:00.000Z',
       '2026-10-20T15:00:00.000Z',
       '2026-10-20T15:15:00.000Z',
     ]);
-    const [last, first, second] = records;
     // 前日の最後 > 当日の最初（リセット）。当日は、増える。0:00 の稼働時間は、1 区間分（0.25 時間）
-    expect(last?.harvestCount).toBeGreaterThan(first?.harvestCount ?? 0);
-    expect(second?.harvestCount).toBeGreaterThan(first?.harvestCount ?? 0);
-    expect(first?.operatingHours).toBe(0.25);
-    expect(second?.operatingHours).toBe(0.5);
+    expect(last.harvestCount).toBeGreaterThan(first.harvestCount);
+    expect(second.harvestCount).toBeGreaterThan(first.harvestCount);
+    expect(first.operatingHours).toBe(0.25);
+    expect(second.operatingHours).toBe(0.5);
   });
 
-  it('累積の値は、ファイルに含める最初の区間より前の分も含む（区間の数に依らず、同じ区間は同じ値）', () => {
-    const now = new Date('2026-10-20T04:22:30.000Z');
-    const few = buildDemoFeedFiles(now, { intervalMinutes: 15, buckets: 2 });
-    const many = buildDemoFeedFiles(now, { intervalMinutes: 15, buckets: 8 });
-    const lastOf = (files: typeof few) =>
-      (JSON.parse(files[0]?.content ?? '{}') as { records: unknown[] }).records.at(-1);
+  it('ロボットも環境センサーも、設備の識別子・記録の配列を持たない。ファイルの項目名は、形式定義の項目名（FormatProfile が読める形）', () => {
+    const files = buildDemoFeedFiles(NOW, OPTIONS);
+    const robot = JSON.parse(files[0]?.content ?? '{}') as Record<string, unknown>;
+    const sensor = JSON.parse(files[1]?.content ?? '{}') as Record<string, unknown>;
 
-    expect(lastOf(few)).toEqual(lastOf(many));
-  });
-
-  it('ロボットは robotId、センサーは sensorId と、記録の配列を持つ（FormatProfile が読める形）', () => {
-    const files = buildDemoFeedFiles(NOW, { intervalMinutes: 15, buckets: 1 });
-    const robot = JSON.parse(files[0]?.content ?? '{}') as {
-      robotId: string;
-      records: Record<string, unknown>[];
-    };
-    const sensor = JSON.parse(files[1]?.content ?? '{}') as {
-      sensorId: string;
-      records: Record<string, unknown>[];
-    };
-
-    expect(robot.robotId).toBe('ROBOT-SAMPLE-01');
-    expect(robot.records).toHaveLength(1);
-    expect(robot.records[0]).toMatchObject({ timestamp: '2026-10-20T04:15:00.000Z' });
-    expect(sensor.sensorId).toBe('SENSOR-SAMPLE-01');
-    expect(sensor.records).toHaveLength(1);
-    expect(Object.keys(sensor.records[0] ?? {}).sort()).toEqual(
-      ['co2Ppm', 'humidityPercent', 'illuminanceLux', 'temperatureCelsius', 'timestamp'].sort(),
+    expect(Object.keys(robot).sort()).toEqual(
+      [
+        'harvestCount',
+        'operatingHours',
+        'standbyHours',
+        'harvestOperatingHours',
+        'travelStoppedHours',
+        'statusCode',
+        'timestamp',
+      ].sort(),
+    );
+    expect(Object.keys(sensor).sort()).toEqual(
+      ['co2', 'humidity', 'illuminance', 'temperature', 'timestamp'].sort(),
     );
   });
 });

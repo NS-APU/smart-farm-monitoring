@@ -26,11 +26,11 @@ import {
 } from './support/ui.ts';
 
 const USER = STRESS_USER.userId;
-const { robots, sensors, robotRecordsPerFile, sensorRecordsPerFile } = BULK_INGESTION;
+const { robots, sensors } = BULK_INGESTION;
 /** 形式違い（読み取れない）のファイルの数（各取り込み元）。 */
 const BROKEN = 2;
-const ROBOT_LABEL = `ロボット ${String(robots)} 台・${String(robots)} ファイル・各 ${String(robotRecordsPerFile)} 記録`;
-const SENSOR_LABEL = `センサー ${String(sensors)} 台・${String(sensors)} ファイル・各 ${String(sensorRecordsPerFile)} 記録`;
+const ROBOT_LABEL = `ロボット ${String(robots)} 台・${String(robots)} ファイル`;
+const SENSOR_LABEL = `センサー ${String(sensors)} 台・${String(sensors)} ファイル`;
 
 // 追加した設備（大量の取り込み用の専用のハウス）は、テストの終わりに（失敗したときも）、ハウスごと削除して戻す（ほかの負荷テストの計測に、影響させない）
 test.afterEach(async ({ request }) => {
@@ -73,7 +73,6 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await putBulkFiles('robot', {
     count: robots,
     startIndex: 0,
-    recordsPerFile: robotRecordsPerFile,
     brokenCount: BROKEN,
   });
   await m(
@@ -89,7 +88,6 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await putBulkFiles('environment-sensor', {
     count: sensors,
     startIndex: 0,
-    recordsPerFile: sensorRecordsPerFile,
     brokenCount: BROKEN,
   });
   await m(
@@ -122,12 +120,10 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await putBulkFiles('robot', {
     count: robots,
     startIndex: 100,
-    recordsPerFile: robotRecordsPerFile,
   });
   await putBulkFiles('environment-sensor', {
     count: sensors,
     startIndex: 100,
-    recordsPerFile: sensorRecordsPerFile,
   });
   expect((await api(request, USER, 'POST', '/dev/clock/advance', { minutes: 6 })).ok()).toBe(true);
   const firstLog = (await logRows.first().textContent()) ?? '';

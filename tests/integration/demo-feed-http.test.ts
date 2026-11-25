@@ -8,7 +8,6 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  DEMO_FEED_BUCKETS,
   DEMO_FEED_FILE_PATHS,
   DEMO_FEED_INTERVAL_MINUTES,
 } from '../../src/backend/application/demo/demo-feed-schedule.ts';
@@ -29,7 +28,7 @@ import {
   type DemoFeedHttpEvent,
 } from '../../src/backend/runtime/demo-feed-http-lambda.ts';
 
-const OPTIONS = { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES, buckets: DEMO_FEED_BUCKETS };
+const OPTIONS = { intervalMinutes: DEMO_FEED_INTERVAL_MINUTES };
 // 区間の途中の時刻（UTC 04:22）。区間の開始は、04:15
 const NOW = new Date('2026-10-20T04:22:30.000Z');
 const BUCKET_START = new Date('2026-10-20T04:15:00.000Z');
@@ -76,7 +75,7 @@ describe('デモ用の HTTP 配信のハンドラ（createDemoFeedHttpHandler）
     expect(head.headers).toEqual(get.headers);
   });
 
-  it('同じ区間では、同じ内容・同じ Last-Modified。区間が変わると、最新の区間を含む内容・新しい Last-Modified になる', async () => {
+  it('同じ区間では、同じ内容・同じ Last-Modified。区間が変わると、新しい区間のスナップショット・新しい Last-Modified になる', async () => {
     const early = setupHandler(NOW).handler;
     const sameBucket = setupHandler(new Date('2026-10-20T04:29:59.000Z')).handler;
     const nextBucket = setupHandler(new Date('2026-10-20T04:31:00.000Z')).handler;
@@ -89,8 +88,7 @@ describe('デモ用の HTTP 配信のハンドラ（createDemoFeedHttpHandler）
     expect(second).toEqual(first);
     expect(third.body).not.toBe(first.body);
     expect(third.headers['Last-Modified']).toBe(new Date('2026-10-20T04:30:00.000Z').toUTCString());
-    const lastTimestamp = (body: string) =>
-      (JSON.parse(body) as { records: { timestamp: string }[] }).records.at(-1)?.timestamp;
+    const lastTimestamp = (body: string) => (JSON.parse(body) as { timestamp: string }).timestamp;
     expect(lastTimestamp(first.body)).toBe('2026-10-20T04:15:00.000Z');
     expect(lastTimestamp(third.body)).toBe('2026-10-20T04:30:00.000Z');
   });
@@ -182,12 +180,12 @@ describe('デモ用の HTTP 配信を、取り込み（JB-01）が読む', () =>
           { limit: 200 },
         )
       ).items;
-    // 4 区間 × 項目（ロボット 6 項目・センサー 4 項目）
-    expect(await query(DEMO_ROBOT_ID)).toHaveLength(DEMO_FEED_BUCKETS * 6);
-    expect(await query(DEMO_SENSOR_ID)).toHaveLength(DEMO_FEED_BUCKETS * 4);
+    // 現在の区間のスナップショット 1 つ × 項目（ロボット 6 項目・センサー 4 項目）
+    expect(await query(DEMO_ROBOT_ID)).toHaveLength(6);
+    expect(await query(DEMO_SENSOR_ID)).toHaveLength(4);
   });
 
-  it('次の区間になると、配信のファイルに新しい区間が加わり、新しい区間の観測値だけを取り込む（古い区間は、そのまま。同じ値は保存しない）', async () => {
+  it('次の区間になると、配信のファイルが新しい区間のスナップショットに変わり、新しい区間の観測値を取り込む（古い区間の観測値は、そのまま残る）', async () => {
     const { container, clock } = await setup();
     await container.ingestionService.runSource('robot');
     const count = async () =>

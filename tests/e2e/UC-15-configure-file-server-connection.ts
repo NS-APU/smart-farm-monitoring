@@ -37,6 +37,8 @@ import { logRows, runNow, testEquipmentConnection } from './support/ingestion.ts
 import { NOW, shot } from './support/viewpoint-scenarios.ts';
 
 const FILE_PATH = '/data/robot/latest.json';
+/** センサーのファイルのパス（1 設備 = 1 ファイル。ロボットと同じパスは使えない）。 */
+const SENSOR_FILE_PATH = '/data/sensor/latest.json';
 /** 認証を要求するファイル（Basic 認証。ダミーの認証情報）。 */
 const SECURE_PATH = '/secure/data.json';
 const DUMMY_USER = 'dummy-user';
@@ -47,9 +49,10 @@ const ROBOT_2_ID = 'ROBOT-02';
 const ROBOT_2_NAME = '収穫ロボット2';
 
 /** 取り込むファイルの内容（ロボット 1 台の、1 時間前の記録 1 件。合成データ）と、更新日時（書き換えの直後ではない）。 */
-const ROBOT_FILE = robotJson([
-  { hoursAgo: 1, fields: { harvestCount: 12, statusCode: 'HARVESTING' } },
-]);
+const ROBOT_FILE = robotJson({
+  hoursAgo: 1,
+  fields: { harvestCount: 12, statusCode: 'HARVESTING' },
+});
 const LAST_MODIFIED = new Date(NOW.getTime() - 3_600_000).toUTCString();
 
 let server: Server;
@@ -61,6 +64,7 @@ test.beforeAll(async () => {
     requests.push(`${request.method ?? ''} ${request.url ?? ''}`);
     const exists =
       request.url === FILE_PATH ||
+      request.url === SENSOR_FILE_PATH ||
       (request.url === SECURE_PATH && request.headers.authorization === DUMMY_BASIC);
     if (request.url === SECURE_PATH && !exists) {
       response.writeHead(401);
@@ -567,7 +571,7 @@ test.describe('接続を未設定に戻す: 設備の接続を解除し、未設
     await prepareApp(request);
     await setRobotFilePath(request, FILE_PATH);
     await saveConnectionByApi(request, ROBOT_ID);
-    await assignFilePath(request, SENSOR_ID, FILE_PATH);
+    await assignFilePath(request, SENSOR_ID, SENSOR_FILE_PATH);
     await saveConnectionByApi(request, SENSOR_ID);
     await openEquipmentDialog(page);
     await testButton(page).click();

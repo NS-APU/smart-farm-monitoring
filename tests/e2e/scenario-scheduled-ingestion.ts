@@ -74,13 +74,13 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       request,
       'robot',
       'robot-1.json',
-      robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]),
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 10 } }),
     );
     await placeFile(
       request,
       'environment-sensor',
       'sensor-1.json',
-      sensorJson([{ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await runJob(request, 'JB-01');
     expect(await logCount(request, 'robot')).toBe(1);
@@ -115,7 +115,7 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       request,
       'environment-sensor',
       'sensor-1.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-01');
@@ -134,7 +134,7 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       request,
       'robot',
       'robot-1.json',
-      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
+      robotJson({ hoursAgo: 0.25, fields: { harvestCount: 8 } }),
     );
     await advanceMinutes(request, 10);
     await runJob(request, 'JB-01');
@@ -172,13 +172,13 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       request,
       'robot',
       'robot-1.json',
-      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 5 } }]),
+      robotJson({ hoursAgo: 0.25, fields: { harvestCount: 5 } }),
     );
     await placeFile(
       request,
       'environment-sensor',
       'sensor-1.json',
-      sensorJson([{ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await advanceMinutes(request, 20);
     await runJob(request, 'JB-01');

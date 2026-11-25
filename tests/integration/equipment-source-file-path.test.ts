@@ -1,7 +1,7 @@
 /**
  * 設備のファイルパス（Issue #119。ADR-0023）の結合テスト。
  * 設備（ロボット・センサー）ごとに、ファイルサーバー（HTTP）の、取得するファイルのパスを持つ。
- * ハウスは持てない。同じ種別の設備の中で、重複を登録できない。変更履歴に残す。
+ * ハウスは持てない。ほかの設備（ロボット・センサーの種別を問わず）と同じパスは、登録できない（1 設備 = 1 ファイル。ファイルの中に設備の識別子を持たず、パスで設備を決めるため）。変更履歴に残す。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -107,7 +107,7 @@ describe('登録', () => {
     );
   });
 
-  it('同じ種別の設備の中で、同じファイルパスは、重複して登録できない（409）。種別が違えば、登録できる。削除した設備の分は、重複としない', async () => {
+  it('ほかの設備と同じファイルパスは、種別が違っても、重複して登録できない（409。1 設備 = 1 ファイル）。削除した設備の分は、重複としない', async () => {
     const context = await setup();
     await send(
       context,
@@ -140,7 +140,10 @@ describe('登録', () => {
     expect((await errorOf(duplicated)).fields?.map((field) => field.name)).toContain(
       'sourceFilePath',
     );
-    expect(otherType.status).toBe(201);
+    expect(otherType.status).toBe(409);
+    expect((await errorOf(otherType)).fields?.map((field) => field.name)).toContain(
+      'sourceFilePath',
+    );
     expect(afterDelete.status).toBe(201);
   });
 });
@@ -179,6 +182,28 @@ describe('修正', () => {
     });
 
     expect(response.status).toBe(409);
+  });
+
+  it('ほかの設備と重複するファイルパス（別の種別）も、修正で、409（1 設備 = 1 ファイル）', async () => {
+    const context = await setup();
+    await send(
+      context,
+      'POST',
+      '/equipment',
+      child('ROBOT', 'ROBOT-F1', { sourceFilePath: '/data/a.json' }),
+    );
+    await send(context, 'POST', '/equipment', child('SENSOR', 'SENSOR-F1'));
+
+    const response = await send(context, 'PUT', '/equipment/SENSOR-F1', {
+      name: 'センサー',
+      facilityId: 'HOUSE-F1',
+      sourceFilePath: '/data/a.json',
+    });
+
+    expect(response.status).toBe(409);
+    expect((await errorOf(response)).fields?.map((field) => field.name)).toContain(
+      'sourceFilePath',
+    );
   });
 
   it('ハウスには、指定できない（400）。不正なファイルパスも、400', async () => {

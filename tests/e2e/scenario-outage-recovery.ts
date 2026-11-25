@@ -63,7 +63,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
       request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await goToMenu(page, '取り込み');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');
@@ -125,7 +125,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
       request,
       'robot',
       'robot.json',
-      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
+      robotJson({ hoursAgo: 0.25, fields: { harvestCount: 8 } }),
     );
     await goToMenu(b.page, '取り込み');
     await expect(await testEquipmentConnection(b.page, ROBOT_ID)).toHaveText('接続できました');
