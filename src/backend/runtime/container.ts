@@ -315,9 +315,11 @@ function buildDynamoStorage(
 }
 
 function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort): Storage {
+  // 時計を渡し、ログ類の期限切れ（90 日。#230）を、DynamoDB の TTL と同じく、消す
   const { repositories, store } = createLocalRepositories(
     config.persistence === 'file'
       ? {
+          clock,
           filePath: config.dataFile,
           onFlushError: (error) => {
             logger.error('データファイルの書き込みに失敗しました。再び書き込みます', {
@@ -325,7 +327,7 @@ function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort):
             });
           },
         }
-      : {},
+      : { clock },
   );
   store.load();
   return {

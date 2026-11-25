@@ -5,6 +5,7 @@
  */
 
 import { ObservationSchema, observationKey } from '@smart-farm/shared/schemas/observation';
+import type { ClockPort } from '../../application/ports/clock-port.ts';
 import type { Repositories } from '../../application/ports/repositories.ts';
 import { createLocalStore, type LocalStore, type LocalStoreOptions } from './local-store.ts';
 import { createEvaluationRepository } from './repositories/evaluation-repository.ts';
@@ -36,7 +37,12 @@ export interface LocalRepositories {
   readonly store: LocalStore;
 }
 
-export function createLocalRepositories(options: LocalStoreOptions = {}): LocalRepositories {
+export interface LocalRepositoriesOptions extends LocalStoreOptions {
+  /** 時計。渡したときだけ、ログ類の期限切れ（90 日。Issue #230）を、読み書きのときに消す。 */
+  readonly clock?: ClockPort | undefined;
+}
+
+export function createLocalRepositories(options: LocalRepositoriesOptions = {}): LocalRepositories {
   const store = createLocalStore(options);
 
   // コレクションの登録の順序は、ファイルへ書き出す順序になる（そのため、組み立ての順序を保つ）
@@ -49,7 +55,7 @@ export function createLocalRepositories(options: LocalStoreOptions = {}): LocalR
     store.collection('observations', ObservationSchema, observationKey),
   );
 
-  const ingestion = createIngestionRepository(store);
+  const ingestion = createIngestionRepository(store, options.clock);
 
   const repositories: Repositories = {
     equipment,
@@ -60,7 +66,7 @@ export function createLocalRepositories(options: LocalStoreOptions = {}): LocalR
     evaluations: createEvaluationRepository(store),
     notifications: createNotificationRepository(store),
     ingestion: ingestion.repository,
-    federation: createFederationRepository(store),
+    federation: createFederationRepository(store, options.clock),
     auditLogs: createAuditLogRepository(store),
     manualEntries: createManualEntryRepository(store),
     users: createUserRepository(store),

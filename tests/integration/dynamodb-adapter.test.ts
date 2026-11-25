@@ -620,6 +620,93 @@ describe('連携（DynamoDB）', () => {
     expect(second.items.map((entry) => entry.logId)).toEqual(['l-1']);
     expect(second.nextCursor).toBeNull();
   });
+
+  describe('保存期間（TTL。90 日。ADR-0018 の D-30。#230）', () => {
+    const NINETY_DAYS_SECONDS = 90 * 24 * 60 * 60;
+    const seconds = (iso: string): number => Date.parse(iso) / 1000;
+
+    it('連携ログ・ハウス別の連携の記録に、ログの日時の 90 日後の TTL を付ける', async () => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const db = { client: database.client, tables: database.tables };
+      const { federation } = createDynamoRepositories(db);
+      const occurredAt = '2026-10-09T01:00:00.000Z';
+
+      await federation.addLog({
+        logId: 'l-1',
+        occurredAt,
+        result: 'SENT',
+        itemCount: 3,
+        facilities: [{ facilityId: 'HOUSE-T1', itemCount: 3 }],
+      });
+
+      const expected = seconds(occurredAt) + NINETY_DAYS_SECONDS;
+      const logs = await queryAll(db, db.tables.main, 'FLOG');
+      const facilityLogs = await queryAll(db, db.tables.main, 'FLOGF#HOUSE-T1');
+      expect(logs.map((entry) => entry.ttl)).toEqual([expected]);
+      expect(facilityLogs.map((entry) => entry.ttl)).toEqual([expected]);
+    });
+
+    it('送信済みの連携項目だけに、送信済みになった時点（更新日時）の 90 日後の TTL を付ける。送信していない項目には付けない', async () => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const db = { client: database.client, tables: database.tables };
+      const { federation } = createDynamoRepositories(db);
+      const sentAt = '2026-10-10T00:00:00.000Z';
+
+      await federation.enqueue(item('f-1', 'PENDING', 1));
+      await federation.update({ ...item('f-1', 'SENT', 1), updatedAt: sentAt });
+      await federation.enqueue(item('f-2', 'FAILED', 2));
+      await federation.enqueue(item('f-3', 'HELD', 3));
+
+      const stored = new Map(
+        (await queryAll(db, db.tables.main, 'FED')).map((entry) => [String(entry.sk), entry.ttl]),
+      );
+      expect(stored.get('f-1')).toBe(seconds(sentAt) + NINETY_DAYS_SECONDS);
+      expect(stored.get('f-2')).toBeUndefined();
+      expect(stored.get('f-3')).toBeUndefined();
+    });
+
+    it('取り込みログ（設備ごと・設備なし）・ハウス別の取り込みの記録に、ログの開始日時の 90 日後の TTL を付ける。取り込み元・設備の一覧には付けない', async () => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const db = { client: database.client, tables: database.tables };
+      const { ingestion } = createDynamoRepositories(db);
+      const startedAt = '2026-10-09T01:00:00.000Z';
+      const base = {
+        sourceId: 'robot',
+        startedAt,
+        finishedAt: startedAt,
+        result: 'SUCCESS' as const,
+        filesProcessed: 1,
+        recordCount: 1,
+        rejectedCount: 0,
+        attempts: 1,
+      };
+
+      await ingestion.addLog({
+        ...base,
+        logId: 'l-1',
+        equipmentId: toEquipmentId('ROBOT-T1'),
+        facilities: [{ facilityId: 'HOUSE-T1', result: 'SUCCESS', recordCount: 1 }],
+      });
+      await ingestion.addLog({ ...base, logId: 'l-2' });
+
+      const expected = seconds(startedAt) + NINETY_DAYS_SECONDS;
+      expect(
+        (await queryAll(db, db.tables.main, 'ILOGE#ROBOT-T1')).map((entry) => entry.ttl),
+      ).toEqual([expected]);
+      expect(
+        (await queryAll(db, db.tables.main, 'ILOGF#HOUSE-T1')).map((entry) => entry.ttl),
+      ).toEqual([expected]);
+      expect((await queryAll(db, db.tables.main, 'ILOG#robot')).map((entry) => entry.ttl)).toEqual([
+        expected,
+      ]);
+      expect((await queryAll(db, db.tables.main, 'ILOGSRC')).map((entry) => entry.ttl)).toEqual([
+        undefined,
+      ]);
+    });
+  });
 });
 
 describe('取り込み（DynamoDB）', () => {

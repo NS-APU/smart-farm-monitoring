@@ -773,7 +773,8 @@ export const MANAGEMENT_MESSAGES = {
     queue: '連携キューの件数',
     queueLabels: {
       PENDING: '待機',
-      SENT: '送信済み',
+      // 90 日で消えた分も含む（D-30。#230）
+      SENT: '送信済み（累計）',
       FAILED: '失敗',
       HELD: '保留',
       EXPIRED: '期限切れ',
