@@ -1,7 +1,8 @@
 /**
  * 設備管理のユースケース（UC-12。FR-2）。ハウス → ロボット／センサーの階層を保持する。
- * 登録・変更・削除（論理削除）は、変更履歴に記録し、評価に反映する（評価の単位が変わるため）。
- * ハウスを削除した場合は、配下のロボット・センサーも削除する（暫定。dev_spec.md 4章 No.24）。
+ * 登録・変更・削除は、変更履歴に記録し、評価に反映する（評価の単位が変わるため）。
+ * 設備を削除すると、設備は、すぐに削除済みになり（画面・評価・取り込みから外れる）、設備のデータは、ジョブ（JB-05）が削除する
+ * （equipment-deletion-service.ts。D-28）。ハウスは、配下のロボット・センサーも削除する。
  */
 
 import { conflictError, validationError } from '@smart-farm/shared/errors';
@@ -24,6 +25,7 @@ import { equipmentFederationPayload } from '../../domain/federation-payload.ts';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { EquipmentConnections } from '../ingestion/equipment-connections.ts';
+import type { EquipmentDeletionService } from './equipment-deletion-service.ts';
 import { requireActiveEquipment } from './require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
@@ -45,7 +47,10 @@ export interface EquipmentService {
     input: EquipmentUpdateRequest,
     actor: UserId,
   ): Promise<EquipmentSaveResponse>;
-  /** 論理削除する（ハウスは、配下も）。存在しない（削除済みを含む）場合は NOT_FOUND。評価の状態を返す。 */
+  /**
+   * 削除する（ハウスは、配下も）。設備を削除済みにして、データの削除を、ジョブへ依頼する。存在しない（削除済みを含む）場合は NOT_FOUND。
+   * 評価の状態を返す。
+   */
   delete(equipmentId: EquipmentId, actor: UserId): Promise<EvaluationWriteResponse>;
 }
 
@@ -55,6 +60,8 @@ export interface EquipmentServiceDeps {
   readonly settings: SettingsRepository;
   /** 設備の名前・ID を、連携キューに積む（登録・修正のとき。Issue #177。ADR-0024）。 */
   readonly federation: Pick<FederationService, 'enqueue'>;
+  /** 設備のデータの削除を依頼する（D-28。Issue #229）。 */
+  readonly deletion: Pick<EquipmentDeletionService, 'request' | 'isDeleting'>;
   /** 設備を削除したとき、その設備ごとの接続を削除する（Issue #367。ADR-0026。省略は、何もしない）。 */
   readonly equipmentConnections?: Pick<EquipmentConnections, 'remove'>;
   readonly audit: AuditService;
@@ -157,7 +164,13 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     },
 
     async create(input, actor) {
-      // 削除済みの設備と同じ識別子も、重複として扱う（過去のデータの取り違えを防ぐ）
+      // 登録中の設備と、削除中（データの削除が終わっていない）の設備と同じ識別子は、重複として扱う。削除が終わった設備の識別子は、再登録できる（D-28）
+      if (await deps.deletion.isDeleting(input.equipmentId)) {
+        throw conflictError(
+          'equipmentId',
+          '同じ設備IDの設備を削除しています。削除が終わってから登録してください',
+        );
+      }
       if ((await repository.get(input.equipmentId)) !== undefined) {
         throw conflictError('equipmentId', '同じ設備IDがすでに登録されています');
       }
@@ -255,7 +268,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       await recordDeletedExternalIds(settingsRepository, [target, ...children], clock.now());
       for (const equipment of [target, ...children]) {
         await repository.save({ ...equipment, isDeleted: true });
-        // 設備ごとの接続も、削除する（認証情報は、保管先に削除の機能がないため、残す。ADR-0026）
+        // 設備ごとの接続も、削除する（認証情報は、データの削除のジョブが、削除する。D-28）
         await deps.equipmentConnections?.remove(equipment.equipmentId);
         await audit.record({
           operation: 'DELETE',
@@ -265,6 +278,8 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
           before: equipment,
         });
       }
+      // 設備のデータの削除は、ジョブ（JB-05）が行う（削除が終わるまで、設備の記録は、削除済みで残る）
+      await deps.deletion.request(target, children, actor);
       return { evaluation: await reevaluate() };
     },
   };

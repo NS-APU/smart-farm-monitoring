@@ -45,6 +45,10 @@ import {
   type EvaluationService,
 } from '../application/evaluation/evaluation-service.ts';
 import {
+  createEquipmentDeletionService,
+  type EquipmentDeletionService,
+} from '../application/equipment/equipment-deletion-service.ts';
+import {
   createEquipmentService,
   type EquipmentService,
 } from '../application/equipment/equipment-service.ts';
@@ -181,6 +185,7 @@ export interface Container {
   readonly policy: AccessPolicy;
   readonly authService: AuthService;
   readonly equipmentService: EquipmentService;
+  readonly equipmentDeletionService: EquipmentDeletionService;
   readonly statusCodeService: StatusCodeService;
   readonly auditService: AuditService;
   readonly manualEntryService: ManualEntryService;
@@ -585,9 +590,18 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     criteriaService: criteria,
     repositories,
   });
+  const equipmentDeletionService = createEquipmentDeletionService({
+    repositories,
+    secrets: adapters.secrets,
+    listSources: () => ingestionSettings.listSources(),
+    audit: auditService,
+    clock,
+    logger,
+  });
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
     settings: repositories.settings,
+    deletion: equipmentDeletionService,
     equipmentConnections,
     federation,
     audit: auditService,
@@ -658,6 +672,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     evaluation: evaluationService,
     federation,
     notifications: notificationService,
+    equipmentDeletion: equipmentDeletionService,
   });
   const scheduler = createScheduler({ runner: jobRunner, clock, plans: DEFAULT_SCHEDULE, logger });
 
@@ -675,6 +690,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     criteriaAdminService,
     criteriaPreviewService,
     equipmentService,
+    equipmentDeletionService,
     statusCodeService,
     userService,
     facilityAccessService,
@@ -816,6 +832,7 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     policy,
     authService: services.authService,
     equipmentService: services.equipmentService,
+    equipmentDeletionService: services.equipmentDeletionService,
     statusCodeService: services.statusCodeService,
     auditService: services.auditService,
     manualEntryService: services.manualEntryService,

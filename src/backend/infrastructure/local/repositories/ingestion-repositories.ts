@@ -21,6 +21,7 @@ import type {
   IngestionLogFilter,
   IngestionRepository,
 } from '../../../application/ports/repositories.ts';
+import { equipmentIdsOfPayload } from '../../../domain/federation-payload.ts';
 import { isLogExpired } from '../../common/log-retention.ts';
 import type { LocalStore } from '../local-store.ts';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
@@ -174,6 +175,13 @@ export function createIngestionRepository(
         ),
       );
     },
+    deleteEquipmentRecords(equipmentId, file) {
+      equipmentStates.delete(equipmentId);
+      if (file !== undefined) {
+        ingestedFiles.delete(`${file.sourceId}#${file.fileId}`);
+      }
+      return Promise.resolve();
+    },
     recordEquipmentRuns(runs) {
       for (const run of runs) {
         const current = equipmentStates.get(run.equipmentId);
@@ -326,6 +334,17 @@ export function createFederationRepository(
           })),
       );
       return paginated(entries.sort(byNewest), page);
+    },
+    discardUnsentByEquipment(equipmentId) {
+      const discarded = federationItems
+        .values()
+        .filter(
+          (item) => isUnsent(item) && equipmentIdsOfPayload(item.payload).includes(equipmentId),
+        );
+      for (const item of discarded) {
+        federationItems.delete(item.federationItemId);
+      }
+      return Promise.resolve(discarded.length);
     },
     countByStatus() {
       purgeExpired();

@@ -534,7 +534,7 @@ describe('設備管理（UC-12。SC-10）', () => {
     expect(screen.queryByTestId('equipment-edit')).toBeNull();
   });
 
-  it('削除: ロボットは確認のダイアログ。ハウスは、配下も対象外になる旨を示す。確定すると、削除して階層を読み直す', async () => {
+  it('削除: ロボットは、データも削除される旨の警告つきの確認のダイアログ（名前の入力はない）。ハウスは、配下とデータの削除を警告し、ハウスの名前を入力して確認する。確定すると、削除を始めて階層を読み直す（D-28）', async () => {
     const { calls } = renderApp('/settings/equipment', {
       'DELETE /equipment/ROBOT-01': () => jsonResponse({ evaluation: 'DONE' }),
       'DELETE /equipment/HOUSE-01': () => jsonResponse({ evaluation: 'DONE' }),
@@ -543,18 +543,74 @@ describe('設備管理（UC-12。SC-10）', () => {
 
     fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '削除' }));
     let dialog = await screen.findByTestId('confirm-dialog');
-    expect(dialog.textContent).toContain('過去のデータは残ります');
+    expect(dialog.textContent).toContain('観測値・手動入力・評価結果');
+    expect(dialog.textContent).toContain('元に戻せません');
+    expect(dialog.textContent).toContain('農業情報基盤に送信済みのデータは、削除されません');
     expect(dialog.textContent).not.toContain('配下の');
+    expect(within(dialog).queryByTestId('confirm-typed-input')).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
     expect(callsOf(calls, 'DELETE', '/equipment/ROBOT-01')).toHaveLength(0);
 
     fireEvent.click(within(at(rows, 0)).getByRole('button', { name: '削除' }));
     dialog = await screen.findByTestId('confirm-dialog');
-    expect(dialog.textContent).toContain('配下のロボット・環境センサーも含めて');
-    fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+    expect(dialog.textContent).toContain('配下のロボット・環境センサー');
+    expect(dialog.textContent).toContain('元に戻せません');
+    expect(dialog.textContent).toContain('農業情報基盤に送信済みのデータは、削除されません');
+    // ハウスの名前を入力するまで、削除できない
+    const confirm = within(dialog).getByRole('button', { name: '削除' });
+    expect(confirm).toHaveProperty('disabled', true);
+    fireEvent.change(within(dialog).getByTestId('confirm-typed-input'), {
+      target: { value: 'ハウス1' },
+    });
+    expect(confirm).toHaveProperty('disabled', false);
+    fireEvent.click(confirm);
 
-    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('削除しました');
+    expect((await screen.findByTestId('equipment-notice')).textContent).toContain(
+      '削除を始めました',
+    );
     expect(callsOf(calls, 'DELETE', '/equipment/HOUSE-01')).toHaveLength(1);
+  });
+
+  it('削除中の設備を、表の上に示す（名前・ハウスなら配下の名前・状態）。失敗しても、自動で再試行する旨を示す。なければ、出ない', async () => {
+    renderApp('/settings/equipment', {
+      'GET /equipment/deletions': () =>
+        jsonResponse({
+          items: [
+            {
+              equipmentId: 'HOUSE-09',
+              name: '古いハウス',
+              equipmentType: 'FACILITY',
+              childNames: ['古いロボット', '古いセンサー'],
+              requestedAt: '2026-10-09T02:00:00.000Z',
+              status: 'DELETING',
+            },
+            {
+              equipmentId: 'ROBOT-09',
+              name: '古いロボット2',
+              equipmentType: 'ROBOT',
+              childNames: [],
+              requestedAt: '2026-10-09T03:00:00.000Z',
+              status: 'FAILED',
+            },
+          ],
+        }),
+    });
+
+    const section = await screen.findByTestId('equipment-deletions');
+    const rows = within(section).getAllByTestId('equipment-deletion-row');
+
+    expect(rows[0]?.textContent).toContain('古いハウス');
+    expect(rows[0]?.textContent).toContain('古いロボット、古いセンサー');
+    expect(rows[0]?.textContent).toContain('削除しています');
+    expect(rows[1]?.textContent).toContain('古いロボット2');
+    expect(rows[1]?.textContent).toContain('自動で再試行します');
+  });
+
+  it('削除中の設備がなければ、削除中の表示は出ない', async () => {
+    renderApp('/settings/equipment');
+    await screen.findAllByTestId('equipment-row');
+
+    expect(screen.queryByTestId('equipment-deletions')).toBeNull();
   });
 
   it('削除に失敗した場合は、エラーを表示する', async () => {

@@ -62,6 +62,12 @@ function createFake(initial: Record<string, FakeParameter> = {}) {
           },
         });
       }
+      if (command.constructor.name === 'DeleteParameterCommand') {
+        if (!store.delete(command.input.Name ?? '')) {
+          return Promise.reject(notFound());
+        }
+        return Promise.resolve({});
+      }
       store.set(command.input.Name ?? '', {
         value: command.input.Value ?? '',
         lastModifiedDate: new Date('2026-11-09T01:00:00.000Z'),
@@ -304,5 +310,41 @@ describe('パラメータストアの SecretPort: 失敗と、値が出ないこ
     fake.failNextWith(undefined);
 
     expect(await port.get('file-server/robot')).toBe(DUMMY_VALUE);
+  });
+});
+
+describe('パラメータストアの SecretPort: 削除（設備の削除。D-28。Issue #229）', () => {
+  it('参照名に、パスの接頭辞をつけて削除し、以降は未設定になる。キャッシュに残った値も、返さない', async () => {
+    const { fake, port } = setup(existing());
+    await port.get('file-server/robot');
+
+    await port.delete('file-server/robot');
+
+    expect(fake.commands.at(-1)?.constructor.name).toBe('DeleteParameterCommand');
+    expect(fake.commands.at(-1)?.input).toEqual({ Name: '/sfm/development/file-server/robot' });
+    expect(await port.get('file-server/robot')).toBeUndefined();
+    expect(await port.status('file-server/robot')).toEqual({ configured: false });
+  });
+
+  it('未設定の参照名の削除は、何もせず成功する（再実行できる）', async () => {
+    const { port } = setup();
+
+    await expect(port.delete('file-server/robot')).resolves.toBeUndefined();
+  });
+
+  it('削除に失敗したら、値を含まないメッセージで、使えない状態（SERVICE_UNAVAILABLE）にする。不正な参照名は、送らず拒否する', async () => {
+    const { fake, port } = setup(existing());
+    fake.failNextWith(
+      Object.assign(new Error('arn:aws:ssm:dummy'), { name: 'AccessDeniedException' }),
+    );
+
+    await expect(port.delete('file-server/robot')).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: '秘密情報を削除できませんでした',
+    });
+    fake.failNextWith(undefined);
+    const sent = fake.commands.length;
+    await expect(port.delete('../other')).rejects.toThrow('秘密情報の参照名が正しくありません');
+    expect(fake.commands).toHaveLength(sent);
   });
 });

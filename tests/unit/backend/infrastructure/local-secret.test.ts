@@ -96,3 +96,30 @@ describe('環境変数の SecretPort', () => {
     expect(await secrets.status('file-server/none')).toEqual({ configured: false });
   });
 });
+
+describe('SecretPort の削除（設備の削除。D-28。Issue #229）', () => {
+  it('メモリ: 削除すると未設定になる。未設定の削除は、成功する', async () => {
+    const secrets = createMemorySecretPort({ 'file-server/robot': DUMMY_VALUE });
+
+    await secrets.delete('file-server/robot');
+    await secrets.delete('file-server/robot');
+
+    expect(await secrets.get('file-server/robot')).toBeUndefined();
+    expect(await secrets.status('file-server/robot')).toEqual({ configured: false });
+  });
+
+  it('環境変数: 書き込んだ値は消える。環境変数の値は、プロセスの外のため、変えない（読めるまま）', async () => {
+    const secrets = createEnvSecretPort({ SECRET_FILE_SERVER_ROBOT: DUMMY_VALUE });
+    await secrets.set('file-server/robot', 'dummy-written-value');
+
+    await secrets.delete('file-server/robot');
+
+    expect(await secrets.get('file-server/robot')).toBe(DUMMY_VALUE);
+  });
+
+  it('不正な参照名は、拒否する', async () => {
+    await expect(createMemorySecretPort().delete('../x')).rejects.toThrow(
+      '秘密情報の参照名が正しくありません',
+    );
+  });
+});

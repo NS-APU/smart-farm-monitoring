@@ -25,6 +25,8 @@ export interface SecretPort {
   get(reference: string, options?: SecretReadOptions): Promise<string | undefined>;
   /** 値を保存する（上書き）。空の値・4 KB を超える値は、拒否する。 */
   set(reference: string, value: string): Promise<void>;
+  /** 値を削除する（設備の削除。D-28）。未設定でも成功する（再実行できる）。 */
+  delete(reference: string): Promise<void>;
   /** 設定済みか、更新日時はいつか。値は、読まない・返さない。 */
   status(reference: string): Promise<SecretStatus>;
 }

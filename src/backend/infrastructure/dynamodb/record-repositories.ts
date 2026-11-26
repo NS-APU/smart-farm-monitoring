@@ -17,6 +17,7 @@ import { paginated } from '../common/pagination.ts';
 import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { mainAggregate } from './main-table.ts';
 import {
+  batchWriteItems,
   getItem,
   queryItems,
   transactWrite,
@@ -62,6 +63,33 @@ export function createManualEntryRepository(db: Database): ManualEntryRepository
       }
       await transactWrite(db, operations);
     },
+    async deleteByEquipment(equipmentId) {
+      // 手動入力は、全設備で 1 つのパーティションのため、全件を読んで、設備で絞る（件数は少ない前提）
+      const removed: { entryId: string; sortKey: string }[] = [];
+      for await (const item of queryItems(db, {
+        table,
+        hashName: 'pk',
+        hashValue: MANUAL_ENTRY,
+        sortName: 'sk',
+        forward: true,
+        pageSize: 1000,
+        consistent: true,
+      })) {
+        const entry = entries.parse(item);
+        if (entry.equipmentId === equipmentId) {
+          removed.push({ entryId: entry.entryId, sortKey: String(item.sk) });
+        }
+      }
+      await batchWriteItems(
+        db,
+        table,
+        removed.flatMap((entry) => [
+          { delete: { pk: MANUAL_ENTRY, sk: entry.sortKey } },
+          { delete: { pk: pointerPartition(entry.entryId), sk: 'P' } },
+        ]),
+      );
+      return removed.map((entry) => entry.entryId);
+    },
     async list(filter, page, sort = { key: 'observedAt', direction: 'desc' }) {
       const matched: ManualEntry[] = [];
       for await (const item of queryItems(db, {
@@ -90,6 +118,33 @@ export function createAuditLogRepository(db: Database): AuditLogRepository {
   const entries = mainAggregate(db, AuditLogEntrySchema);
   return {
     add: (entry) => entries.put(AUDIT, timedSortKey(entry.occurredAt, entry.auditId), entry),
+    async deleteByTargets(targetType, targetIds) {
+      // 索引はなく、全件を読んで絞る（変更履歴は、期限なしで増えるが、設備の削除のときだけ）
+      const ids = new Set(targetIds);
+      const keys: { pk: string; sk: string }[] = [];
+      if (ids.size > 0) {
+        for await (const item of queryItems(db, {
+          table: db.tables.main,
+          hashName: 'pk',
+          hashValue: AUDIT,
+          sortName: 'sk',
+          forward: true,
+          pageSize: 1000,
+          consistent: true,
+        })) {
+          const entry = entries.parse(item);
+          if (entry.targetType === targetType && ids.has(entry.targetId)) {
+            keys.push({ pk: AUDIT, sk: String(item.sk) });
+          }
+        }
+      }
+      await batchWriteItems(
+        db,
+        db.tables.main,
+        keys.map((key) => ({ delete: key })),
+      );
+      return keys.length;
+    },
     async list(filter, page) {
       const result = await pageBySortKey(db, {
         partitions: [AUDIT],

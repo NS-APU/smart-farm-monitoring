@@ -115,10 +115,12 @@ export const COGNITO_ACTIONS = [
 /**
  * 秘密情報（接続先の認証情報・Web Push の秘密鍵。パラメータストアの SecureString）に使う操作（Issue #206。ADR-0016 の D-55）。
  * 環境ごとのパス（`/sfm/<環境>/`）の下だけ。API の Lambda（画面の登録・接続テスト）は、読み取りと書き込み。
- * ジョブの Lambda（取り込み・連携）は、読み取りだけ。削除は、どちらにも付けない。
+ * ジョブの Lambda（取り込み・連携）は、読み取りだけ。
+ * 設備の削除のジョブ（JB-05）は、設備ごとの認証情報（`file-server/equipment/` の下）だけ、削除できる（D-28。#229）。API には、付けない。
  */
 export const SSM_API_ACTIONS = ['ssm:GetParameter', 'ssm:PutParameter'] as const;
 export const SSM_JOB_ACTIONS = ['ssm:GetParameter'] as const;
+export const SSM_DELETE_ACTIONS = ['ssm:DeleteParameter'] as const;
 /**
  * パラメータストアの暗号化（AWS の管理の鍵）に使う操作。パラメータストア経由（kms:ViaService）の利用に限る。
  * API は、復号と暗号化（書き込み）。ジョブは、復号だけ。
@@ -350,7 +352,7 @@ export class EvaluationStack extends Stack {
     );
     const apiUrl = apiFunction.addFunctionUrl({ authType: FunctionUrlAuthType.NONE });
 
-    // ジョブ（JB-01〜JB-04）の Lambda（Issue #76。ADR-0011）。EventBridge の 4 つのルールが、入力 { jobId } で起動する。
+    // ジョブ（JB-01〜JB-05）の Lambda（Issue #76。ADR-0011）。EventBridge の 5 つのルールが、入力 { jobId } で起動する。
     // 認証は使わないため、Cognito の IAM は付けない。同じジョブの重複（前回の実行が終わる前の次の起動）は、
     // DynamoDB のリース式ロックで防ぐ。Lambda の自動の再試行は、しない（失敗は、次の周期で、再び実行される。二重の配信を避ける）
     const jobFunction = new LambdaFunction(this, 'JobFunction', {
@@ -371,6 +373,20 @@ export class EvaluationStack extends Stack {
     for (const statement of credentialPolicies(SSM_JOB_ACTIONS, KMS_SSM_JOB_ACTIONS)) {
       jobFunction.addToRolePolicy(statement);
     }
+    // 設備の削除（JB-05）で、設備ごとの認証情報だけを削除する（連携先・Web Push などの秘密情報は、削除できない。D-28。#229）
+    jobFunction.addToRolePolicy(
+      new PolicyStatement({
+        actions: [...SSM_DELETE_ACTIONS],
+        resources: [
+          this.formatArn({
+            service: 'ssm',
+            resource: 'parameter',
+            resourceName: `${credentialPathPrefix.slice(1)}file-server/equipment/*`,
+            arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+          }),
+        ],
+      }),
+    );
     for (const plan of DEFAULT_SCHEDULE) {
       new Rule(this, `Schedule${plan.jobId.replace('-', '')}`, {
         description: `ジョブ ${plan.jobId} を ${String(plan.intervalMinutes)} 分ごとに起動する`,

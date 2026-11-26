@@ -337,7 +337,7 @@ describe('認証・認可（全ルート）', () => {
     const keys = ROUTE_TABLE.map(routeKey);
 
     expect(new Set(keys).size).toBe(keys.length);
-    expect(ROUTE_TABLE).toHaveLength(60);
+    expect(ROUTE_TABLE).toHaveLength(61);
     expect(keys).toContain('GET /push-subscription');
     expect(keys).toContain('GET /status-codes/unregistered');
     expect(keys).toContain('POST /viewpoints/:viewpointId/criteria/preview');
@@ -868,7 +868,7 @@ describe('開発用 API（ローカル・テストのみ）', () => {
     ).json();
     const missing = await context.request('/dev/jobs/JB-99/run', { method: 'POST', token });
 
-    expect(tick).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04'] });
+    expect(tick).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05'] });
     expect(job).toMatchObject({ jobId: 'JB-02', summary: { equipmentEvaluated: 3 } });
     expect(missing.status).toBe(404);
   });

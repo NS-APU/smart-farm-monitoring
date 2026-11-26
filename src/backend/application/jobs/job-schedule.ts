@@ -19,6 +19,7 @@ export const DEFAULT_SCHEDULE: readonly SchedulePlan[] = [
   { jobId: 'JB-02', intervalMinutes: 5 },
   { jobId: 'JB-03', intervalMinutes: 5 },
   { jobId: 'JB-04', intervalMinutes: 1 },
+  { jobId: 'JB-05', intervalMinutes: 1 },
 ];
 
 /** ジョブの Lambda のタイムアウト（秒）の初期値。実行時間の実測による調整は、Issue #79。 */

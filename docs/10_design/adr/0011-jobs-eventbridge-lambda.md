@@ -1,7 +1,8 @@
-# ADR-0011 ジョブ（JB-01〜JB-04）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ
+# ADR-0011 ジョブ（JB-01〜JB-05）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ
 
 - ステータス: 承認（2026-10-20。ユーザーの判断。Issue #76）
 - 日付: 2026-10-20
+- 更新（2026-11-26。#229）: ジョブ JB-05（設備のデータの削除。1 分ごと）を加えた。ほかのジョブと同じ入口・ロック（`job:JB-05`）で動く。
 - 関連: [ADR-0002](./0002-deployment-serverless.md)、[ADR-0006](./0006-iac-cdk-and-same-origin-delivery.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[architecture.md](../architecture/architecture.md) 3.2 節、[as-built.md](../architecture/as-built.md)「ジョブ」
 
 目的: 取り込み・評価・連携・通知の配信のジョブを、サーバーレス構成で、定期的に実行するための決定（起動・構成・重複の防止・再試行）を残す。

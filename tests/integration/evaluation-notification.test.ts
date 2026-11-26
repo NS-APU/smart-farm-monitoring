@@ -1482,7 +1482,7 @@ describe('ダッシュボード（UC-01）', () => {
   });
 });
 
-describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
+describe('ジョブ（JB-01〜JB-05）とスケジューラ', () => {
   it('ジョブの識別子を判定できる', () => {
     expect(JOB_IDS.every((jobId) => isJobId(jobId))).toBe(true);
     expect(isJobId('JB-99')).toBe(false);
@@ -1522,10 +1522,10 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
     context.clock.advance(4 * 60_000);
     const afterFiveMinutes = await scheduler.tick();
 
-    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
+    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
     expect(immediately).toEqual([]);
-    expect(afterOneMinute).toEqual(['JB-01', 'JB-04']);
-    expect(afterFiveMinutes).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
+    expect(afterOneMinute).toEqual(['JB-01', 'JB-04', 'JB-05']);
+    expect(afterFiveMinutes).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
   });
 
   it('1つのジョブが失敗しても、他のジョブは実行する', async () => {
@@ -1542,8 +1542,8 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
 
     const executed = await scheduler.tick();
 
-    expect(executed).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
-    expect(run).toHaveBeenCalledTimes(4);
+    expect(executed).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
+    expect(run).toHaveBeenCalledTimes(5);
   });
 
   it('実行中の tick に重ねて呼び出しても、二重に実行しない', async () => {
@@ -1593,7 +1593,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
     expect(run.mock.calls.length).toBe(calls);
   });
 
-  it('ジョブランナーは、4つのサービスを組み合わせて作る', () => {
+  it('ジョブランナーは、5つのサービスを組み合わせて作る', () => {
     const runner = createJobRunner({
       ingestion: {
         runSource: vi.fn(),
@@ -1630,6 +1630,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
           .fn()
           .mockResolvedValue({ notificationsProcessed: 0, delivered: 0, failed: 0 }),
       },
+      equipmentDeletion: { run: vi.fn() },
     });
 
     return expect(runner.run('JB-02')).resolves.toMatchObject({ jobId: 'JB-02' });

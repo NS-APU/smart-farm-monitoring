@@ -202,6 +202,7 @@ describe('接続方式 HTTP: 設備の接続テスト（testEquipment）', () =>
     const secrets: SecretPort = {
       get: () => Promise.reject(new Error('読まないはず')),
       set: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
       status: () => Promise.resolve({ configured: false }),
     };
     const { probes, port } = build({
@@ -228,6 +229,7 @@ describe('接続方式 HTTP: 設備の接続テスト（testEquipment）', () =>
     const secrets: SecretPort = {
       get: () => Promise.reject(new Error('AccessDeniedException: dummy-internal-detail')),
       set: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
       status: () => Promise.resolve({ configured: false }),
     };
     const { port } = build({ sources: [source('robot')], connection: HTTP_CONNECTION, secrets });
@@ -247,6 +249,7 @@ describe('接続方式 HTTP: 設備の接続テスト（testEquipment）', () =>
         return Promise.resolve(options?.refresh === true ? 'new-token' : 'old-token');
       },
       set: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
       status: () => Promise.resolve({ configured: true }),
     };
     const { probes, port } = build({
@@ -464,6 +467,7 @@ describe('接続方式 HTTP: 一覧', () => {
       get: (_reference, options) =>
         Promise.resolve(options?.refresh === true ? 'new-token' : 'old-token'),
       set: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
       status: () => Promise.resolve({ configured: true }),
     };
     const used: (string | undefined)[] = [];
@@ -543,6 +547,7 @@ describe('接続方式 HTTP: 取得', () => {
       get: (_reference, options) =>
         Promise.resolve(options?.refresh === true ? 'new-token' : 'old-token'),
       set: () => Promise.resolve(),
+      delete: () => Promise.resolve(),
       status: () => Promise.resolve({ configured: true }),
     };
     const { port } = build({
@@ -771,6 +776,7 @@ describe('設備ごとの接続（Issue #367。ADR-0026）', () => {
           return Promise.resolve(options?.refresh === true ? 'new-token' : 'old-token');
         },
         set: () => Promise.resolve(),
+        delete: () => Promise.resolve(),
         status: () => Promise.resolve({ configured: true }),
       };
       const accept = (input: { headers: Readonly<Record<string, string>> }) =>

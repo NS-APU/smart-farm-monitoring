@@ -142,6 +142,25 @@ export const EquipmentTreeResponseSchema = z.object({
 });
 export type EquipmentTreeResponse = z.infer<typeof EquipmentTreeResponseSchema>;
 
+/**
+ * GET /equipment/deletions の応答: 削除中の設備（D-28。Issue #229）。設備を削除すると、設備はすぐ一覧から外れ、データの削除は、
+ * ジョブが行う。削除が終わるまで、ここに出る。失敗（FAILED）しても、ジョブが、次の実行で、続きから削除する。
+ */
+export const EquipmentDeletionListItemSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  name: z.string(),
+  equipmentType: z.string(),
+  /** ハウスを削除するときの、配下の設備の名前。 */
+  childNames: z.array(z.string()),
+  requestedAt: IsoDateTimeSchema,
+  status: z.enum(['DELETING', 'FAILED']),
+});
+export type EquipmentDeletionListItem = z.infer<typeof EquipmentDeletionListItemSchema>;
+export const EquipmentDeletionListResponseSchema = z.object({
+  items: z.array(EquipmentDeletionListItemSchema),
+});
+export type EquipmentDeletionListResponse = z.infer<typeof EquipmentDeletionListResponseSchema>;
+
 /** POST /equipment の入力（FR-2.1、2.2）。ロボット・センサーは、親のハウス（facilityId）が必須。 */
 export const EquipmentCreateRequestSchema = z
   .object({

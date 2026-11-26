@@ -8,6 +8,7 @@ import { ObservationSchema, observationKey } from '@smart-farm/shared/schemas/ob
 import type { ClockPort } from '../../application/ports/clock-port.ts';
 import type { Repositories } from '../../application/ports/repositories.ts';
 import { createLocalStore, type LocalStore, type LocalStoreOptions } from './local-store.ts';
+import { createEquipmentDeletionRepository } from './repositories/equipment-deletion-repository.ts';
 import { createEvaluationRepository } from './repositories/evaluation-repository.ts';
 import {
   createFederationRepository,
@@ -71,6 +72,7 @@ export function createLocalRepositories(options: LocalRepositoriesOptions = {}):
     manualEntries: createManualEntryRepository(store),
     users: createUserRepository(store),
     facilityAccess: createFacilityAccessRepository(store),
+    equipmentDeletions: createEquipmentDeletionRepository(store),
     pushSubscriptions: createPushSubscriptionRepository(store),
     settings: createSettingsRepository(store),
   };

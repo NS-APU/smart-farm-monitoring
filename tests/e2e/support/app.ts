@@ -143,12 +143,22 @@ export async function setEquipmentInterval(
   });
 }
 
-/** ジョブ（JB-01〜JB-04）を起動する（開発用 API）。 */
+/** ジョブ（JB-01〜JB-05）を起動する（開発用 API）。 */
 export async function runJob(
   request: APIRequestContext,
-  jobId: 'JB-01' | 'JB-02' | 'JB-03' | 'JB-04',
+  jobId: 'JB-01' | 'JB-02' | 'JB-03' | 'JB-04' | 'JB-05',
 ): Promise<void> {
   await apiOk(request, 'POST', `/dev/jobs/${jobId}/run`, {});
+}
+
+/**
+ * 削除した設備のデータの削除（ジョブ JB-05。D-28）を、完了させる。1 回目で、データを削除し、実行中の書き込みを掃除するための待ち
+ * （ジョブのロックの期限。6 分）のあとの 2 回目で、設備の記録を消す。時計を 7 分進める。
+ */
+export async function finishEquipmentDeletions(request: APIRequestContext): Promise<void> {
+  await runJob(request, 'JB-05');
+  await advanceMinutes(request, 7);
+  await runJob(request, 'JB-05');
 }
 
 /** モック（農業情報基盤・Web Push）の状態を切り替える（開発用 API）。ファイルサーバーは、HTTP のテスト用サーバー（support/http-files.ts）。 */

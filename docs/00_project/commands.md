@@ -57,6 +57,9 @@ pnpm migrate-user-roles
 # 既存の通知の移行（ハウスの補完と、ハウスごとのカウンターの再集計。Issue #331。AWS は operations.md 8.8。ローカルのファイル〔PERSISTENCE=file〕は、ハウスの補完だけ）
 pnpm migrate-notification-counters
 
+# 以前の論理削除で、設備の記録が残っている設備を、削除の要求にする（Issue #229。D-28。AWS は operations.md 8.14。ローカルのファイル〔PERSISTENCE=file〕は、ファイルの設備を移す。MIGRATE_DRY_RUN=true で、件数だけを確認）
+pnpm migrate-deleted-equipment
+
 # Lint / 型検査 / フォーマット
 pnpm lint            # ESLint（eslint .）→ oxlint（jsx-a11y。.oxlintrc.json）
 pnpm typecheck

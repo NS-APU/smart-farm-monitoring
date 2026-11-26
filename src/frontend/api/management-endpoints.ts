@@ -30,6 +30,7 @@ import {
   type CriteriaUpdateRequest,
 } from '@smart-farm/shared/schemas/criteria';
 import {
+  EquipmentDeletionListResponseSchema,
   EquipmentSaveResponseSchema,
   type EquipmentCreateRequest,
   type EquipmentUpdateRequest,
@@ -242,7 +243,12 @@ export function updateEquipment(
   });
 }
 
-/** 設備を削除する。応答は、評価の状態（ADR-0014）。 */
+/** 削除中の設備（データの削除が終わっていない設備。D-28）。 */
+export function getEquipmentDeletions(api: ApiClient) {
+  return api.request('/equipment/deletions', { schema: EquipmentDeletionListResponseSchema });
+}
+
+/** 設備を削除する。応答は、評価の状態（ADR-0014）。設備のデータの削除は、ジョブが行う（D-28）。 */
 export function deleteEquipment(api: ApiClient, equipmentId: string) {
   return api.request(API_PATHS.equipment(equipmentId), {
     method: 'DELETE',

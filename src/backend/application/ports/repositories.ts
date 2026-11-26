@@ -35,6 +35,7 @@ import type { Notification, NotificationMemo } from '@smart-farm/shared/schemas/
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import type {
+  EquipmentDeletion,
   IngestedFileRecord,
   FacilityAccessRecord,
   PushSubscriptionRecord,
@@ -58,6 +59,20 @@ export interface EquipmentRepository {
   list(options?: { readonly includeDeleted?: boolean }): Promise<Equipment[]>;
   get(equipmentId: EquipmentId): Promise<Equipment | undefined>;
   save(equipment: Equipment): Promise<void>;
+  /** 設備の記録を、物理削除する（設備の削除ジョブの最後。D-28。ない設備でも成功する）。 */
+  delete(equipmentId: EquipmentId): Promise<void>;
+}
+
+/** 設備のデータの削除（D-28）の、1 回の実行で止める条件（時間の上限など）。 */
+export interface PurgeBudget {
+  /** true を返したら、区切りのよいところ（読み書きの 1 回の区切り）で、中断する。 */
+  readonly shouldStop: () => boolean;
+}
+
+/** 設備のデータの削除の結果。`completed: false` は、中断した（もう一度呼べば、続きから削除する）。 */
+export interface PurgeResult {
+  readonly deleted: number;
+  readonly completed: boolean;
 }
 
 export interface StatusCodeRepository {
@@ -126,6 +141,11 @@ export interface ObservationRepository {
     page: PageRequest,
     sort?: { readonly key: ObservationSortKey; readonly direction: SortDirection },
   ): Promise<Page<Observation>>;
+  /**
+   * 設備の観測値（自動・手動。論理削除済みも）を、すべて物理削除する（設備の削除。D-28）。項目の一覧・最終の受信日時も消す。
+   * 冪等で、中断しても、もう一度呼べば、続きから削除する。
+   */
+  deleteByEquipment(equipmentId: EquipmentId, budget?: PurgeBudget): Promise<PurgeResult>;
   /** 一意キー（設備・項目・計測日時の文字列・取得元）の観測値を、直接引く（論理削除済みも含む）。なければ undefined。 */
   findByKey(
     equipmentId: EquipmentId,
@@ -170,6 +190,8 @@ export interface EvaluationRepository {
     equipmentId: EquipmentId,
     viewpointId: ViewpointId,
   ): Promise<StatusChangeEntry[]>;
+  /** 設備の最新の評価結果と、ステータスの変化（最終・履歴）を、すべて削除する（設備の削除。D-28）。 */
+  deleteByEquipment(equipmentId: EquipmentId): Promise<void>;
 }
 
 export interface NotificationListFilter {
@@ -294,6 +316,14 @@ export interface IngestionRepository {
    * 更新する（古い実行で戻さない）。最後の成功・最後にデータが取れた日時は、その実行が、成功・データありのときだけ進める。空の指定は、何もしない。
    */
   recordEquipmentRuns(runs: readonly EquipmentRunRecord[]): Promise<void>;
+  /**
+   * 設備の削除（D-28）: 設備ごとの最終の実行と、設備のファイルの取り込み済みの記録（同じ設備 ID・同じパスで再登録したときに、
+   * ファイルが取り込まれないことを防ぐ）を削除する。設備ごとの取り込みログは、残す（ログの一覧から、設備が見えなくならない）。
+   */
+  deleteEquipmentRecords(
+    equipmentId: string,
+    file?: { readonly sourceId: string; readonly fileId: string },
+  ): Promise<void>;
 }
 
 /** 取り込みログの絞り込み。 */
@@ -342,6 +372,11 @@ export interface FederationRepository {
     page: PageRequest,
   ): Promise<Page<FacilityFederationLog>>;
   countByStatus(): Promise<Record<FederationItem['status'], number>>;
+  /**
+   * 設備の、送信していない項目（待機・失敗・保留）を、破棄（削除）する（設備の削除。D-28）。送信済み・期限切れの項目は、触らない。
+   * 破棄した件数を返す。
+   */
+  discardUnsentByEquipment(equipmentId: string): Promise<number>;
 }
 
 export interface AuditLogRepository {
@@ -360,6 +395,11 @@ export interface AuditLogRepository {
     },
     page: PageRequest,
   ): Promise<Page<AuditLogEntry>>;
+  /**
+   * 対象の種類・ID の変更履歴を、削除する（設備の削除で、手動入力の個別の変更履歴を消す。D-28）。削除した件数を返す。
+   * 索引はなく、全件を読んで絞る。
+   */
+  deleteByTargets(targetType: string, targetIds: readonly string[]): Promise<number>;
 }
 
 export interface ManualEntryFilter {
@@ -380,6 +420,8 @@ export interface ManualEntryRepository {
     page: PageRequest,
     sort?: { readonly key: ManualEntrySortKey; readonly direction: SortDirection },
   ): Promise<Page<ManualEntry>>;
+  /** 設備の手動入力（論理削除済みも）を、すべて物理削除し、削除した入力の ID を返す（設備の削除。D-28）。 */
+  deleteByEquipment(equipmentId: EquipmentId): Promise<string[]>;
 }
 
 export interface UserRepository {
@@ -408,6 +450,16 @@ export interface PushSubscriptionRepository {
   deleteByUser(userId: UserId): Promise<void>;
 }
 
+/** 設備の削除の要求（D-28。Issue #229）。キーは、削除を指示した設備の ID。 */
+export interface EquipmentDeletionRepository {
+  get(equipmentId: EquipmentId): Promise<EquipmentDeletion | undefined>;
+  /** 要求の一覧（設備の ID の順）。 */
+  list(): Promise<EquipmentDeletion[]>;
+  /** 同じ設備は上書きする。 */
+  save(deletion: EquipmentDeletion): Promise<void>;
+  delete(equipmentId: EquipmentId): Promise<void>;
+}
+
 /** 設定（取り込み設定など）。値は呼び出し側がスキーマで検証する。 */
 export interface SettingsRepository {
   get(key: string): Promise<unknown>;
@@ -429,6 +481,7 @@ export interface Repositories {
   readonly manualEntries: ManualEntryRepository;
   readonly users: UserRepository;
   readonly facilityAccess: FacilityAccessRepository;
+  readonly equipmentDeletions: EquipmentDeletionRepository;
   readonly pushSubscriptions: PushSubscriptionRepository;
   readonly settings: SettingsRepository;
 }
