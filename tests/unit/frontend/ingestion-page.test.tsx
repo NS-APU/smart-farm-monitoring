@@ -401,6 +401,16 @@ describe('取り込み（UC-15・UC-16。SC-11）', () => {
     expect(screen.getByTestId('queue-EXPIRED').textContent).toContain('期限切れ');
   });
 
+  it('連携キューの「送信済み」は、90 日で消えた分を含む累計であることを示す（D-30。#230）', async () => {
+    renderApp('/settings/ingestion', baseRoutes());
+
+    const sent = await screen.findByTestId('queue-SENT');
+
+    expect(sent.textContent).toContain('送信済み（累計）');
+    // 累計は、送信済みだけ。ほかの状態は、今の件数
+    expect(screen.getByTestId('queue-HELD').textContent).not.toContain('累計');
+  });
+
   it('連携の説明に、保留になる場合（農業情報基盤の停止中、接続先が未設定・無効）と、復旧後に送ること・期限を示す（#164 SC-11-10）', async () => {
     renderApp('/settings/ingestion', baseRoutes());
 
