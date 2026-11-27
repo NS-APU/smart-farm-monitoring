@@ -33,13 +33,12 @@ import {
   deleteItem,
   getItem,
   isTransactionConditionFailed,
-  mapConcurrent,
   putItem,
   queryAll,
   queryItems,
   queryPages,
+  retryOnTransactionConflict,
   transactWrite,
-  CONCURRENCY,
   type Database,
   type Item,
   type TransactItem,
@@ -49,6 +48,8 @@ import { MAIN_INDEX_1 } from './table-schema.ts';
 const NOTIFICATION = 'NOTIF';
 const UNDELIVERED = 'UNDELIVERED';
 const TOTAL_COUNTER = 'NOTIF_TOTAL';
+/** 一括既読で、1 回のトランザクションにまとめる通知の数（1 回の上限 100 操作に、カウンターの 2 項目を含めて、収まる）。 */
+const READ_CHUNK_SIZE = 25;
 /** 通知の一覧で、1 回の Query で読む件数。 */
 const LIST_PAGE_SIZE = 100;
 
@@ -105,7 +106,16 @@ export function createNotificationRepository(db: Database): NotificationReposito
     return sortKey === undefined ? undefined : notifications.get(NOTIFICATION, sortKey);
   }
 
-  /** 通知を既読にする（利用者ごとに、1 回だけ数える）。新しく既読にしたら true。 */
+  /** 既読の記録（利用者 × 通知）の Put。すでに既読なら、条件が成立せず、トランザクション全体が取り消される。 */
+  const readPut = (notificationId: string, userId: string, readAt: Date): TransactItem => ({
+    Put: {
+      TableName: table,
+      Item: { pk: readPartition(userId), sk: notificationId, readAt: readAt.toISOString() },
+      ConditionExpression: 'attribute_not_exists(pk)',
+    },
+  });
+
+  /** 通知を既読にする（利用者ごとに、1 回だけ数える）。新しく既読にしたら true。競合は、再試行する。 */
   async function markReadOnce(
     notificationId: string,
     userId: string,
@@ -113,19 +123,15 @@ export function createNotificationRepository(db: Database): NotificationReposito
     facilityId: string | undefined,
   ): Promise<boolean> {
     try {
-      await transactWrite(db, [
-        {
-          Put: {
-            TableName: table,
-            Item: { pk: readPartition(userId), sk: notificationId, readAt: readAt.toISOString() },
-            ConditionExpression: 'attribute_not_exists(pk)',
-          },
-        },
-        counterAdd(db, readCounter(userId), 1),
-        ...(facilityId === undefined
-          ? []
-          : [counterAdd(db, facilityReadCounter(facilityId, userId), 1)]),
-      ]);
+      await retryOnTransactionConflict(() =>
+        transactWrite(db, [
+          readPut(notificationId, userId, readAt),
+          counterAdd(db, readCounter(userId), 1),
+          ...(facilityId === undefined
+            ? []
+            : [counterAdd(db, facilityReadCounter(facilityId, userId), 1)]),
+        ]),
+      );
       return true;
     } catch (error) {
       if (isTransactionConditionFailed(error)) {
@@ -192,6 +198,41 @@ export function createNotificationRepository(db: Database): NotificationReposito
       }
     }
     return unread;
+  }
+
+  /**
+   * 同じハウスの通知を、1 回のトランザクションで、まとめて既読にする（カウンターは、件数の分を 1 回で加算する）。
+   * 一部がすでに既読のとき（別の操作が先に既読にした）は、取り消されるため、1 件ずつ確かめ直す。新しく既読にした件数を返す。
+   */
+  async function markReadChunk(
+    notificationIds: readonly string[],
+    userId: string,
+    readAt: Date,
+    facilityId: string | undefined,
+  ): Promise<number> {
+    try {
+      await retryOnTransactionConflict(() =>
+        transactWrite(db, [
+          ...notificationIds.map((notificationId) => readPut(notificationId, userId, readAt)),
+          counterAdd(db, readCounter(userId), notificationIds.length),
+          ...(facilityId === undefined
+            ? []
+            : [counterAdd(db, facilityReadCounter(facilityId, userId), notificationIds.length)]),
+        ]),
+      );
+      return notificationIds.length;
+    } catch (error) {
+      if (!isTransactionConditionFailed(error)) {
+        throw error;
+      }
+      let marked = 0;
+      for (const notificationId of notificationIds) {
+        if (await markReadOnce(notificationId, userId, readAt, facilityId)) {
+          marked += 1;
+        }
+      }
+      return marked;
+    }
   }
 
   const repository: NotificationRepository = {
@@ -386,10 +427,24 @@ export function createNotificationRepository(db: Database): NotificationReposito
     countUnread: async (userId, filter) => (await unreadIn(userId, filter)).length,
     async markAllRead(userId, filter, readAt) {
       const unread = await unreadIn(userId, filter);
-      const results = await mapConcurrent(unread, CONCURRENCY, ({ notificationId, facilityId }) =>
-        markReadOnce(notificationId, userId, readAt, facilityId),
-      );
-      return results.filter(Boolean).length;
+      // ハウスごとに、まとめて既読にする。トランザクションは、すべて同じカウンター（利用者の既読数）を更新するため、
+      // 並列にせず、順に実行する（並列にすると、同じ項目への同時のトランザクションが競合して取り消される。#590）
+      const byFacility = new Map<string | undefined, string[]>();
+      for (const { notificationId, facilityId } of unread) {
+        byFacility.set(facilityId, [...(byFacility.get(facilityId) ?? []), notificationId]);
+      }
+      let marked = 0;
+      for (const [facilityId, notificationIds] of byFacility) {
+        for (let start = 0; start < notificationIds.length; start += READ_CHUNK_SIZE) {
+          marked += await markReadChunk(
+            notificationIds.slice(start, start + READ_CHUNK_SIZE),
+            userId,
+            readAt,
+            facilityId,
+          );
+        }
+      }
+      return marked;
     },
     async update(notification) {
       const sortKey = await pointedSortKey(idPartition(notification.notificationId));

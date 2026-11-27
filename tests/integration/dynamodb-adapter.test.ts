@@ -13,6 +13,7 @@ import type {
   ObservationFilter,
   Repositories,
 } from '../../src/backend/application/ports/repositories.ts';
+import type { createDocumentClient } from '../../src/backend/infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../../src/backend/infrastructure/dynamodb/dynamodb-repositories.ts';
 import {
   createTables,
@@ -406,6 +407,87 @@ describe('観測値（DynamoDB）', () => {
   });
 });
 
+/**
+ * 実際の DynamoDB と同じように、進行中のトランザクションと同じ項目に触れる別のトランザクションを、
+ * `TransactionConflict`（`TransactionCanceledException`）で取り消すクライアント（DynamoDB Local は、これを再現しない。#590）。
+ * `failNext(count)` を呼ぶと、そのあとのトランザクションを、count 回、競合で取り消す（一時的な競合の再現）。
+ */
+type DocumentClient = ReturnType<typeof createDocumentClient>;
+
+interface TransactCommand {
+  readonly input: {
+    readonly TransactItems?: readonly {
+      readonly Update?: { readonly Key?: Record<string, unknown> };
+      readonly Put?: { readonly Item?: Record<string, unknown> };
+      readonly Delete?: { readonly Key?: Record<string, unknown> };
+    }[];
+  };
+}
+
+const isTransactCommand = (command: unknown): command is TransactCommand =>
+  (command as { constructor?: { name?: string } }).constructor?.name === 'TransactWriteCommand';
+
+function withTransactionConflicts(client: DocumentClient): {
+  readonly client: DocumentClient;
+  readonly transactions: () => number;
+  readonly failNext: (count: number) => void;
+} {
+  const inFlight = new Map<string, number>();
+  let remainingFailures = 0;
+  let transactions = 0;
+  const keysOf = (command: TransactCommand): string[] =>
+    (command.input.TransactItems ?? []).map((item) => {
+      const key = item.Update?.Key ?? item.Put?.Item ?? item.Delete?.Key ?? {};
+      return `${String(key.pk)}#${String(key.sk)}`;
+    });
+  const conflict = (): Error =>
+    Object.assign(new Error('Transaction cancelled, please refer cancellation reasons'), {
+      name: 'TransactionCanceledException',
+      CancellationReasons: [{ Code: 'TransactionConflict' }, { Code: 'None' }],
+    });
+  const wrapped = new Proxy(client, {
+    get(target, property, receiver) {
+      if (property !== 'send') {
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      }
+      return async (command: unknown) => {
+        if (!isTransactCommand(command)) {
+          return (target.send as (input: unknown) => Promise<unknown>)(command);
+        }
+        const keys = keysOf(command);
+        transactions += 1;
+        if (remainingFailures > 0) {
+          remainingFailures -= 1;
+          throw conflict();
+        }
+        if (keys.some((key) => (inFlight.get(key) ?? 0) > 0)) {
+          throw conflict();
+        }
+        for (const key of keys) {
+          inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
+        }
+        try {
+          // 実際の通信の時間（重なり合う時間）を作る
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          return await (target.send as (input: unknown) => Promise<unknown>)(command);
+        } finally {
+          for (const key of keys) {
+            inFlight.set(key, (inFlight.get(key) ?? 1) - 1);
+          }
+        }
+      };
+    },
+  });
+  return {
+    client: wrapped,
+    transactions: () => transactions,
+    failNext: (count) => {
+      remainingFailures = count;
+    },
+  };
+}
+
 describe('通知（DynamoDB）', () => {
   it('同じ識別子の通知を追加すると、上書きする（件数は増えない）。なければ、更新は追加になる', async () => {
     const { notifications } = await setup();
@@ -473,6 +555,104 @@ describe('通知（DynamoDB）', () => {
     expect(await notifications.markAllRead(USER, { readState: 'READ' }, new Date())).toBe(0);
     expect(await notifications.markAllRead(OTHER_USER, {}, new Date())).toBe(2);
     expect(await notifications.unreadCount(OTHER_USER)).toBe(0);
+  });
+
+  describe('既読の同時のトランザクションの競合（TransactionConflict。#590）', () => {
+    async function conflictingSetup() {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const conflicting = withTransactionConflicts(database.client);
+      const { notifications } = createDynamoRepositories({
+        client: conflicting.client,
+        tables: database.tables,
+      });
+      return {
+        notifications,
+        transactions: conflicting.transactions,
+        failNext: conflicting.failNext,
+      };
+    }
+
+    it('一括既読は、同じカウンターへの同時のトランザクションの競合でも、エラーにならず、すべて既読にする。件数・カウンターが合う', async () => {
+      const { notifications } = await conflictingSetup();
+      const houses = ['HOUSE-1', 'HOUSE-2'].map((id) => toEquipmentId(id));
+      for (let index = 1; index <= 60; index += 1) {
+        await notifications.add(
+          notification(`n-${String(index)}`, {
+            facilityId: houses[index % 2],
+            createdAt: new Date(Date.UTC(2026, 9, 9, 1, index)).toISOString(),
+          }),
+        );
+      }
+
+      const marked = await notifications.markAllRead(USER, {}, new Date());
+
+      expect(marked).toBe(60);
+      expect(await notifications.unreadCount(USER)).toBe(0);
+      expect(await notifications.unreadCount(USER, houses)).toBe(0);
+      expect(await notifications.unreadCount(OTHER_USER)).toBe(60);
+      expect(await notifications.countUnread(USER, {})).toBe(0);
+    });
+
+    it('一括既読は、通知ごとではなく、まとめて書く（トランザクションの数が、通知の件数より、ずっと少ない）', async () => {
+      const { notifications, transactions } = await conflictingSetup();
+      for (let index = 1; index <= 60; index += 1) {
+        await notifications.add(
+          notification(`n-${String(index)}`, {
+            createdAt: new Date(Date.UTC(2026, 9, 9, 1, index)).toISOString(),
+          }),
+        );
+      }
+      const before = transactions();
+
+      await notifications.markAllRead(USER, {}, new Date());
+
+      expect(transactions() - before).toBeLessThanOrEqual(6);
+    });
+
+    it('一時的な競合は、再試行して、既読にする（1 件の既読・一括既読）。競合が続くときは、エラーにする', async () => {
+      const single = await conflictingSetup();
+      await single.notifications.add(notification('n-1'));
+      single.failNext(2);
+      const id = NotificationIdSchema.parse('n-1');
+
+      expect(await single.notifications.markRead(id, USER, new Date())).toBe(true);
+      expect(await single.notifications.unreadCount(USER)).toBe(0);
+
+      const bulk = await conflictingSetup();
+      await bulk.notifications.add(notification('n-1'));
+      await bulk.notifications.add(notification('n-2'));
+      bulk.failNext(2);
+      expect(await bulk.notifications.markAllRead(USER, {}, new Date())).toBe(2);
+      expect(await bulk.notifications.unreadCount(USER)).toBe(0);
+
+      const stuck = await conflictingSetup();
+      await stuck.notifications.add(notification('n-1'));
+      stuck.failNext(1000);
+      await expect(stuck.notifications.markAllRead(USER, {}, new Date())).rejects.toMatchObject({
+        name: 'TransactionCanceledException',
+      });
+    });
+
+    it('一括既読の途中で、同じ利用者が別に既読にした通知があっても、二重に数えない', async () => {
+      const { notifications } = await conflictingSetup();
+      for (let index = 1; index <= 30; index += 1) {
+        await notifications.add(
+          notification(`n-${String(index)}`, {
+            createdAt: new Date(Date.UTC(2026, 9, 9, 1, index)).toISOString(),
+          }),
+        );
+      }
+      const unread = await notifications.countUnread(USER, {});
+      // 一括の対象を決めたあとで、別の操作が、1 件を既読にする（二重のタブなど）を、同じ流れで再現する
+      const first = notifications.markAllRead(USER, {}, new Date());
+      const second = notifications.markAllRead(USER, {}, new Date());
+      const results = await Promise.all([first, second]);
+
+      expect(unread).toBe(30);
+      expect(results[0] + results[1]).toBe(30);
+      expect(await notifications.unreadCount(USER)).toBe(0);
+    });
   });
 
   it('配信の状態が変わると、未完了の一覧に、載る・載らなくなる', async () => {
