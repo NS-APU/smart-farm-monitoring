@@ -33,12 +33,18 @@ function send(context: TestContext, method: string, path: string, body?: unknown
 async function withNotifications(): Promise<TestContext> {
   const context = await createTestContext();
   const service = context.container.notificationService;
-  await service.notifyIngestionFailure({ sourceId: 'robot', sourceName: 'ロボット', reason: 'x' });
+  await service.notifyIngestionFailure({
+    sourceId: 'robot',
+    sourceName: 'ロボット',
+    reason: 'x',
+    failureKeys: ['TEST:1'],
+  });
   context.clock.advance(10 * MINUTE_MS);
   await service.notifyIngestionFailure({
     sourceId: 'environment-sensor',
     sourceName: '環境センサー',
     reason: 'x',
+    failureKeys: ['TEST:1'],
   });
   context.clock.advance(10 * MINUTE_MS);
   await service.notifyFederationExpired({ expiryDays: 30 });
@@ -47,6 +53,7 @@ async function withNotifications(): Promise<TestContext> {
     sourceId: 'robot-2',
     sourceName: 'ロボット 2',
     reason: 'x',
+    failureKeys: ['TEST:1'],
   });
   return context;
 }

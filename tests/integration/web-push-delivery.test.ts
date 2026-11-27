@@ -61,11 +61,15 @@ async function subscribe(context: TestContext, endpoint = ENDPOINT): Promise<str
   return pushSubscriptionId(USER, endpoint);
 }
 
+/** 通知ごとに、別の失敗の項目にする（同じ項目は、再通知しないため。#589）。 */
+let failureSeq = 0;
+
 function createNotification(context: TestContext) {
   return context.container.notificationService.notifyIngestionFailure({
     sourceId: 'robot',
     sourceName: 'ロボットデータ',
     reason: '接続できません',
+    failureKeys: [`TEST:${String((failureSeq += 1))}`],
   });
 }
 

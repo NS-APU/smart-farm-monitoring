@@ -8,6 +8,7 @@
  * - ハウスごとのカウンター（Issue #331）: ハウスの通知の総数（`NFTOTAL#{ハウス}`）と、利用者ごとの、そのハウスの通知の既読数
  *   （`NFREAD#{ハウス}#{利用者}`）。閲覧範囲が限られる利用者の未読の件数は、割り当てたハウスの、その差の合計（全件を数えない）。
  *   全設備を閲覧できる利用者は、全体のカウンターの差（従来どおり）。通知の `facilityId`（作成時に固定）がない通知は、数えない
+ * - 取り込みの失敗の項目（#589。D-38）: `NFAIL#{重複抑制のキー}` / `S`（属性 `keys`。すでに通知した失敗の項目。回復したら削除）。強い整合で引く
  * - 通知の作成日時は、変えない（ソートキーに入っているため、更新では、作成時のソートキーを使う）
  */
 
@@ -29,9 +30,11 @@ import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { counterAdd, counterSet, mainAggregate, readCounters } from './main-table.ts';
 import {
   batchGetItems,
+  deleteItem,
   getItem,
   isTransactionConditionFailed,
   mapConcurrent,
+  putItem,
   queryAll,
   queryItems,
   queryPages,
@@ -51,6 +54,8 @@ const LIST_PAGE_SIZE = 100;
 
 const idPartition = (notificationId: string): string => `NID#${notificationId}`;
 const dedupPartition = (dedupKey: string): string => `DEDUP#${dedupKey}`;
+const failureKeysPartition = (dedupKey: string): string => `NFAIL#${dedupKey}`;
+const FAILURE_KEYS_SORT_KEY = 'S';
 const readPartition = (userId: string): string => `READ#${userId}`;
 const readCounter = (userId: string): string => `READ#${userId}`;
 /** ハウスごとのカウンター（Issue #331）。 */
@@ -300,6 +305,21 @@ export function createNotificationRepository(db: Database): NotificationReposito
     },
     get: (notificationId) => getByPartition(idPartition(notificationId)),
     findLatestByDedupKey: (dedupKey) => getByPartition(dedupPartition(dedupKey)),
+    async getIngestionFailureKeys(dedupKey) {
+      const item = await getItem(db, table, {
+        pk: failureKeysPartition(dedupKey),
+        sk: FAILURE_KEYS_SORT_KEY,
+      });
+      return Array.isArray(item?.keys) ? item.keys.map(String) : [];
+    },
+    async setIngestionFailureKeys(dedupKey, keys) {
+      const key = { pk: failureKeysPartition(dedupKey), sk: FAILURE_KEYS_SORT_KEY };
+      if (keys.length === 0) {
+        await deleteItem(db, table, key);
+      } else {
+        await putItem(db, table, { ...key, keys: [...keys] });
+      }
+    },
     async list(userId, filter, page): Promise<Page<NotificationWithReadState>> {
       const after = decodeKeyCursor(page.cursor, 1)?.[0];
       const collected: { sortKey: string; entry: NotificationWithReadState }[] = [];

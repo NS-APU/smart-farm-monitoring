@@ -31,6 +31,10 @@ import {
   isRejectedQuality,
   isUsableQuality,
 } from '../../domain/observation-quality.ts';
+import {
+  equipmentIdOfIngestionFailureKey,
+  ingestionFailureKey,
+} from '../../domain/notification-rules.ts';
 import { countUnregisteredStatusCodes } from '../../domain/unregistered-status-code.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
 import type { FederationService } from '../federation/federation-service.ts';
@@ -913,7 +917,7 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     };
     await writeLog(source, profile, startedAt, { ...summary, errorMessage: reason });
     // 再試行しても失敗した場合は、取り込み失敗を通知する
-    await notifyFailureSafely(source, reason);
+    await notifyFailureSafely(source, reason, [ingestionFailureKey.listing(reason)]);
     return summary;
   }
 
@@ -1009,16 +1013,46 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
     );
   }
 
-  /** 取り込み失敗を通知する。通知の失敗は、取り込みの結果に影響させない（ログに残す）。 */
-  async function notifyFailureSafely(source: IngestionSource, reason: string): Promise<void> {
+  /**
+   * 取り込み失敗を通知する。通知の失敗は、取り込みの結果に影響させない（ログに残す）。
+   * `failureKeys` は、いま失敗している項目（同じ項目が続く間は、再通知しない。D-38。#589）。
+   */
+  async function notifyFailureSafely(
+    source: IngestionSource,
+    reason: string,
+    failureKeys: readonly string[],
+  ): Promise<void> {
     try {
       await deps.notifications.notifyIngestionFailure({
         sourceId: source.sourceId,
         sourceName: sourceDisplayName(source.sourceId),
         reason,
+        failureKeys,
       });
     } catch (error) {
       logger.error('取り込み失敗の通知に失敗しました', {
+        sourceId: source.sourceId,
+        ...errorLogFields(error),
+      });
+    }
+  }
+
+  /** 回復した失敗の項目を、記録から消す（回復のあとの失敗を、新しい出来事として通知するため）。失敗は、取り込みの結果に影響させない。 */
+  async function clearRecoveredFailuresSafely(
+    source: IngestionSource,
+    activeKeys: ReadonlySet<string>,
+    covers: (key: string) => boolean,
+    situation: 'FAILURE' | 'STOPPED' = 'FAILURE',
+  ): Promise<void> {
+    try {
+      await deps.notifications.clearRecoveredIngestionFailures({
+        sourceId: source.sourceId,
+        situation,
+        activeKeys,
+        covers,
+      });
+    } catch (error) {
+      logger.error('回復した取り込み失敗の記録の更新に失敗しました', {
         sourceId: source.sourceId,
         ...errorLogFields(error),
       });
@@ -1077,22 +1111,27 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
           );
         })
         .sort((left, right) => left.equipmentId.localeCompare(right.equipmentId));
-      if (stopped.length === 0) {
-        continue;
+      // 停止している設備の項目。いま停止していない設備の項目は、回復（新しいデータが届いた）とみなして消す（D-38。#589）
+      const activeKeys = new Set(
+        stopped.map((item) => ingestionFailureKey.stoppedEquipment(item.equipmentId)),
+      );
+      if (stopped.length > 0) {
+        try {
+          await deps.notifications.notifyIngestionFailure({
+            sourceId: source.sourceId,
+            sourceName: sourceDisplayName(source.sourceId),
+            reason: `${stoppedEquipmentNames(stopped)}で、設備ごとの基準（取得間隔 × ${String(settings.stopAfterIntervals)}、最低 ${String(MIN_STALE_THRESHOLD_MINUTES)} 分）を超えて、新しいデータが届いていません。ロボット・センサーとファイルの出力を確認してください`,
+            situation: 'STOPPED',
+            failureKeys: [...activeKeys],
+          });
+        } catch (error) {
+          logger.error('データ取得の停止の通知に失敗しました', {
+            sourceId: source.sourceId,
+            ...errorLogFields(error),
+          });
+        }
       }
-      try {
-        await deps.notifications.notifyIngestionFailure({
-          sourceId: source.sourceId,
-          sourceName: sourceDisplayName(source.sourceId),
-          reason: `${stoppedEquipmentNames(stopped)}で、設備ごとの基準（取得間隔 × ${String(settings.stopAfterIntervals)}、最低 ${String(MIN_STALE_THRESHOLD_MINUTES)} 分）を超えて、新しいデータが届いていません。ロボット・センサーとファイルの出力を確認してください`,
-          situation: 'STOPPED',
-        });
-      } catch (error) {
-        logger.error('データ取得の停止の通知に失敗しました', {
-          sourceId: source.sourceId,
-          ...errorLogFields(error),
-        });
-      }
+      await clearRecoveredFailuresSafely(source, activeKeys, () => true, 'STOPPED');
     }
   }
 
@@ -1169,7 +1208,9 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         facilities: tally.facilities,
       });
       await recordEquipmentRuns(fetched, startedAt, undefined);
-      await notifyFailureSafely(source, FAILURE_REASONS.UNEXPECTED);
+      await notifyFailureSafely(source, FAILURE_REASONS.UNEXPECTED, [
+        ingestionFailureKey.unexpected(),
+      ]);
       throw error;
     }
     const { failedFiles, firstFailureKind, affectedEquipmentIds, ...counts } =
@@ -1200,8 +1241,9 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
       new Set(equipmentFailures.keys()),
     );
     await writeRunLogs(source, profile, startedAt, listing.attempts, attribution, equipmentIndex);
+    const activeFailureKeys = new Set<string>();
     if (equipmentFailures.size > 0) {
-      // 設備ごとの失敗のログと、取り込み元ごとに 1 件の通知（重複は、通知の抑制の仕組みで避ける）
+      // 設備ごとの失敗のログと、取り込み元ごとに 1 件の通知（同じ失敗が続く間は、失敗の項目で、再通知しない）
       await writeEquipmentFailureLogs(
         source,
         profile,
@@ -1210,12 +1252,35 @@ export function createIngestionService(deps: IngestionServiceDeps): IngestionSer
         equipmentFailures,
         equipmentIndex,
       );
-      await notifyFailureSafely(source, equipmentFailureReason(equipmentFailures, equipmentIndex));
+      const keys = [...equipmentFailures].map(([equipmentId, error]) =>
+        ingestionFailureKey.equipment(equipmentId, error.message),
+      );
+      for (const key of keys) {
+        activeFailureKeys.add(key);
+      }
+      await notifyFailureSafely(
+        source,
+        equipmentFailureReason(equipmentFailures, equipmentIndex),
+        keys,
+      );
     }
-    // ファイル単位の失敗（読み取り・形式違い・大きさ）は、設定で有効にした場合のみ通知する（FR-7.4。重複は抑制する。V-017）
-    if (failedFiles > 0 && firstFailureKind !== undefined && settings.notifyFileFailures) {
-      await notifyFailureSafely(source, FAILURE_REASONS[firstFailureKind]);
+    // ファイル単位の失敗（読み取り・形式違い・大きさ）は、設定で有効にした場合のみ通知する（FR-7.4。同じ失敗が続く間は、再通知しない。V-017。D-38）
+    if (failedFiles > 0 && firstFailureKind !== undefined) {
+      const key = ingestionFailureKey.file(firstFailureKind);
+      activeFailureKeys.add(key);
+      if (settings.notifyFileFailures) {
+        await notifyFailureSafely(source, FAILURE_REASONS[firstFailureKind], [key]);
+      }
     }
+    // 調べた範囲で、失敗していない項目は、回復とみなして消す。設備の項目は、今回、取得の対象だった設備（と、なくなった設備）だけ
+    const fetchedIds = new Set<string>(fetched.map((member) => member.equipmentId));
+    const memberIds = new Set<string>(equipmentIndex.members.map((member) => member.equipmentId));
+    await clearRecoveredFailuresSafely(source, activeFailureKeys, (key) => {
+      const equipmentId = equipmentIdOfIngestionFailureKey(key);
+      return (
+        equipmentId === undefined || fetchedIds.has(equipmentId) || !memberIds.has(equipmentId)
+      );
+    });
 
     if (counts.recordCount > 0) {
       // 取り込み後に評価を更新する（FR-5.4）。評価の失敗は、取り込みの結果に影響させない

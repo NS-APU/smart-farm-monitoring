@@ -183,6 +183,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
       sourceId: 'robot',
       sourceName: 'ロボット',
       reason: 'x',
+      failureKeys: ['TEST:1'],
     });
 
     const summary = await service.deliverPending();

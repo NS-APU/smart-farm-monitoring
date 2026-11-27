@@ -73,6 +73,7 @@ function build(options: { files: Record<string, string>; listFails?: boolean }) 
     notifications: {
       notifyStatusChange: vi.fn(),
       notifyIngestionFailure: vi.fn().mockResolvedValue(null),
+      clearRecoveredIngestionFailures: vi.fn().mockResolvedValue(undefined),
       notifyFederationExpired: vi.fn(),
       list: vi.fn(),
       unreadCount: vi.fn(),

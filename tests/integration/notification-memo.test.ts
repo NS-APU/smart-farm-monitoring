@@ -42,12 +42,16 @@ const ROLES_JSON = JSON.stringify(
 );
 const ROLES_ENV = { ROLE_DEFINITIONS_JSON: ROLES_JSON, INITIAL_USER_ROLE: 'admin' };
 
+/** 通知ごとに、別の失敗の項目にする（同じ項目は、再通知しないため。#589）。 */
+let failureSeq = 0;
+
 /** 通知を 1 件作って（取り込み失敗の通知）、その識別子を返す。 */
 async function createNotification(context: TestContext, sourceId = 'robot'): Promise<string> {
   const created = await context.container.notificationService.notifyIngestionFailure({
     sourceId,
     sourceName: 'ロボットデータ',
     reason: '接続できません',
+    failureKeys: [`TEST:${String((failureSeq += 1))}`],
   });
   if (created === null) {
     throw new Error('テストの前提');

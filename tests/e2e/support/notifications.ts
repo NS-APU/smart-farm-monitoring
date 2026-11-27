@@ -43,15 +43,30 @@ export async function failIngestion(
   await setFileServerMode(request, 'UP');
 }
 
-/** 抑制の期間（60分）を超えて、取り込み失敗を繰り返し、通知を count 件作る。 */
+/**
+ * 取り込みを回復させる（ファイルサーバーを復旧して、指定の取り込み元を取り込む）。
+ * 同じ失敗が続く間は再通知しないため（ADR-0019 の D-38）、次の失敗を新しい出来事として通知させるには、回復の取り込みが要る。
+ */
+export async function recoverIngestion(
+  request: APIRequestContext,
+  sourceIds: readonly string[],
+): Promise<void> {
+  await setFileServerMode(request, 'UP');
+  for (const sourceId of sourceIds) {
+    await apiOk(request, 'POST', `/ingestion/${sourceId}/run`);
+  }
+}
+
+/** 取り込み失敗と回復を繰り返し（回復のあとの失敗は、新しい出来事として通知される）、通知を count 件作る。 */
 export async function failIngestionRepeatedly(
   request: APIRequestContext,
   count: number,
 ): Promise<void> {
-  await setFileServerMode(request, 'DOWN');
   for (let index = 0; index < count; index += 1) {
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 61);
+    await recoverIngestion(request, ['robot']);
   }
   await setFileServerMode(request, 'UP');
 }

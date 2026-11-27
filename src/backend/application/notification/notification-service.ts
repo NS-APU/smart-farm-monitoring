@@ -33,6 +33,8 @@ import {
   buildStatusChangeDedupKey,
   buildStatusChangeMessage,
   isWithinSuppression,
+  newIngestionFailureKeys,
+  remainingIngestionFailureKeys,
 } from '../../domain/notification-rules.ts';
 import {
   isWebPushExpired,
@@ -85,14 +87,28 @@ export interface NotificationService {
   notifyStatusChange(input: StatusChangeNotificationInput): Promise<Notification>;
   /**
    * 取り込みの失敗（再試行後）、または、データ取得の停止（situation: 'STOPPED'。新しいデータが届かない）の通知を作る。
-   * 抑制の期間内の重複は作らず、null を返す（失敗と停止は、別々に数える）。
+   * `failureKeys` は、いま失敗している項目（種類・設備・理由。`ingestionFailureKey`）。すでに通知した項目だけなら、作らず、null を返す
+   * （同じ失敗が続く間は、再通知しない。ADR-0019 の D-38。#589）。新しい項目があれば、通知を作り、その項目を記録する。
+   * 失敗と停止は、別々に数える。
    */
   notifyIngestionFailure(input: {
     sourceId: string;
     sourceName: string;
     reason: string;
     situation?: IngestionNotificationSituation;
+    failureKeys: readonly string[];
   }): Promise<Notification | null>;
+  /**
+   * 回復した失敗の項目を、記録から消す（回復のあとの失敗を、新しい出来事として通知するため。D-38。#589）。
+   * `activeKeys` は、いま失敗している項目（消さない）。`covers` は、今回調べた範囲の項目か（省略は、すべて）。
+   * 調べた範囲で失敗していない項目を、回復とみなす。記録が変わらなければ、書き込まない。
+   */
+  clearRecoveredIngestionFailures(input: {
+    sourceId: string;
+    situation?: IngestionNotificationSituation;
+    activeKeys: ReadonlySet<string>;
+    covers?: (key: string) => boolean;
+  }): Promise<void>;
   /**
    * 連携の期限切れ（破棄の期限を過ぎて、項目を破棄した）の通知を作る。抑制の期間内の重複は作らず、null を返す
    * （抑制の間に破棄した分は、連携のログに残る）。
@@ -235,7 +251,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     return notification;
   }
 
-  /** 通知を作る。同じ鍵の通知が、抑制の期間内にあれば、作らず null を返す（取り込みの失敗・停止、連携の期限切れ。D-38）。 */
+  /** 通知を作る。同じ鍵の通知が、抑制の期間内にあれば、作らず null を返す（連携の期限切れ。D-38。取り込みの失敗・停止は、失敗の項目で判定する）。 */
   async function createIfNotSuppressed(
     fields: Omit<Notification, 'notificationId' | 'createdAt' | 'deliveries'>,
   ): Promise<Notification | null> {
@@ -409,13 +425,38 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       });
     },
 
-    notifyIngestionFailure(input) {
-      return createIfNotSuppressed({
+    async notifyIngestionFailure(input) {
+      const dedupKey = buildIngestionFailureDedupKey(input.sourceId, input.situation);
+      const known = await notifications.getIngestionFailureKeys(dedupKey);
+      const added = newIngestionFailureKeys(known, input.failureKeys);
+      if (added.length === 0) {
+        return null;
+      }
+      const created = await create({
         kind: 'INGESTION_FAILURE',
         sourceId: input.sourceId,
         message: buildIngestionFailureMessage(input.sourceName, input.reason, input.situation),
-        dedupKey: buildIngestionFailureDedupKey(input.sourceId, input.situation),
+        dedupKey,
       });
+      // 通知を作ってから、項目を記録する（通知の作成に失敗したら、記録せず、次の実行で、同じ失敗として再試行する）
+      await notifications.setIngestionFailureKeys(dedupKey, [...known, ...added]);
+      return created;
+    },
+
+    async clearRecoveredIngestionFailures(input) {
+      const dedupKey = buildIngestionFailureDedupKey(input.sourceId, input.situation);
+      const known = await notifications.getIngestionFailureKeys(dedupKey);
+      if (known.length === 0) {
+        return;
+      }
+      const remaining = remainingIngestionFailureKeys(
+        known,
+        input.activeKeys,
+        input.covers ?? (() => true),
+      );
+      if (remaining.length !== known.length) {
+        await notifications.setIngestionFailureKeys(dedupKey, remaining);
+      }
     },
 
     notifyFederationExpired(input) {

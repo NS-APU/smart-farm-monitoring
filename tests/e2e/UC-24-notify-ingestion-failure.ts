@@ -11,7 +11,7 @@
  *   事後条件    取り込み失敗の通知が送られ、未読として記録されている。取り込みの失敗が、他の機能の動作を妨げていない
  *
  * 値の同値分割: 失敗の種類（接続できない・形式違いのファイル）、取り込み元（ロボット・環境センサー）、起動の経路（即時取得・定期）、
- * 同じ失敗の繰り返し（抑制の期間内・期間後（60分）・境界）、復旧の後、利用者（通知は全員が受け取り、既読は利用者ごと）。
+ * 同じ失敗の繰り返し（続く間は、60 分・24 時間たっても再通知しない）、復旧の後の再失敗（新しい通知）、利用者（通知は全員が受け取り、既読は利用者ごと）。
  * 関連するユースケース: UC-08・UC-09（失敗の元）、UC-05・UC-22（通知の確認）、UC-16（ログの確認）、UC-15（設定の見直し）、UC-23。
  */
 
@@ -159,11 +159,8 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
   });
 });
 
-test.describe('代替フロー: 同じ内容の通知を重複して出さない（抑制の期間 60分）', () => {
-  test('抑制の期間（60分）の内に、同じ取り込み元が再び失敗しても、通知は増えない', async ({
-    page,
-    request,
-  }) => {
+test.describe('代替フロー: 同じ内容の通知を重複して出さない（同じ失敗が続く間は、再通知しない。D-38）', () => {
+  test('同じ取り込み元が再び同じ失敗をしても、通知は増えない', async ({ page, request }) => {
     await prepareApp(request);
     await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
@@ -178,23 +175,23 @@ test.describe('代替フロー: 同じ内容の通知を重複して出さない
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(2);
   });
 
-  test('抑制の期間（60分）が過ぎたあとの失敗は、新しい通知を作る（境界: 60分ちょうどは、抑制の期間の外）', async ({
-    request,
-  }) => {
+  test('同じ失敗が続く間は、60分・24時間たっても、通知は増えない', async ({ request }) => {
     await prepareApp(request);
     await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 60);
+    await apiOk(request, 'POST', '/ingestion/robot/run');
+    await advanceMinutes(request, 24 * 60);
 
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
     const failures = (await listNotifications(request)).filter(
       (item) => item.kind === 'INGESTION_FAILURE',
     );
-    expect(failures).toHaveLength(2);
+    expect(failures).toHaveLength(1);
   });
 
-  test('同じ取り込み元の失敗を、復旧後にもう一度失敗しても、60分の内は、通知を増やさない', async ({
+  test('同じ取り込み元の失敗を、復旧後にもう一度失敗したときは、新しい通知を作る。そのあと同じ失敗が続いても、増えない', async ({
     request,
   }) => {
     await prepareApp(request);
@@ -212,10 +209,11 @@ test.describe('代替フロー: 同じ内容の通知を重複して出さない
     await setFileServerMode(request, 'DOWN');
 
     await apiOk(request, 'POST', '/ingestion/robot/run');
+    await apiOk(request, 'POST', '/ingestion/robot/run');
 
     expect(
       (await listNotifications(request)).filter((item) => item.kind === 'INGESTION_FAILURE'),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 });
 

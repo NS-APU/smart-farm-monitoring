@@ -93,6 +93,7 @@ async function seedNotifications(context: TestContext) {
     sourceId: 'robot',
     sourceName: 'ロボットデータ',
     reason: '接続できません',
+    failureKeys: ['TEST:1'],
   });
   context.clock.advance(60_000);
   const expired = await context.container.notificationService.notifyFederationExpired({
@@ -331,6 +332,7 @@ describe('Web Push の宛先: 通知のハウスを閲覧できる利用者の�
       sourceId: 'robot',
       sourceName: 'ロボットデータ',
       reason: '接続できません',
+      failureKeys: ['TEST:1'],
     });
 
     await context.container.notificationService.deliverPending();

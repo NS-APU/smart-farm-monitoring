@@ -33,6 +33,7 @@ import {
 import {
   failIngestion,
   listNotifications,
+  recoverIngestion,
   seedAbnormalEnvironment,
 } from './support/notifications.ts';
 import {
@@ -136,6 +137,7 @@ test.describe('基本フロー: Web Push 通知を有効にし、以降の通知
     await expect(page.getByTestId('push-done')).toHaveText('Web Push 通知を解除しました');
     await expect(state(page)).toContainText('無効');
     await advanceMinutes(request, 61);
+    await recoverIngestion(request, ['robot']);
     await failIngestion(request, ['robot']);
     await runJob(request, 'JB-04');
     expect(await deliveredPushes(request)).toHaveLength(delivered.length);
@@ -326,6 +328,7 @@ test.describe('配信の失敗と再送（UC-10・UC-24 の通知の配信）', 
     // もう一度有効にすると、「無効になりました」の案内は消える
     await expect(page.getByTestId('push-invalidated')).toHaveCount(0);
     await advanceMinutes(request, 61);
+    await recoverIngestion(request, ['robot']);
     await failIngestion(request, ['robot']);
     await runJob(request, 'JB-04');
     const delivered = await deliveredPushes(request);

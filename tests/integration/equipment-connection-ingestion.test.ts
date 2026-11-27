@@ -187,6 +187,13 @@ async function notificationsOf(context: TestContext) {
     .filter((notification) => notification.kind === 'INGESTION_FAILURE');
 }
 
+/** 取り込みの失敗の通知だけ（データ取得の停止の通知を除く）。 */
+async function failureNotificationsOf(context: TestContext) {
+  return (await notificationsOf(context)).filter((notification) =>
+    notification.message.includes('データ取得失敗'),
+  );
+}
+
 async function runResultOf(context: TestContext, equipmentId: EquipmentId) {
   return (await context.container.repositories.ingestion.listEquipmentRuns()).get(equipmentId)
     ?.result;
@@ -422,13 +429,17 @@ describe('失敗の分離（1 台の接続の失敗が、ほかの設備の取�
     ]);
   });
 
-  it('設備ごとの失敗は、取り込み元ごとに 1 回だけ通知する（設備の名前と固定の理由。接続先・パスを含めない）。抑制の期間内は、繰り返さない', async () => {
+  it('設備ごとの失敗は、取り込み元ごとに 1 回だけ通知する（設備の名前と固定の理由。接続先・パスを含めない）。同じ失敗が続く間は、時間がたっても繰り返さない（#589）', async () => {
     const harness = await setup();
     await connectEach(harness);
     const { context, serverB } = harness;
     serverB.faults.set({ mode: 'DOWN' });
 
     await context.container.ingestionService.runSource('robot');
+    await context.container.ingestionService.runSource('robot');
+    context.clock.advance(61 * 60_000);
+    await context.container.ingestionService.runSource('robot');
+    context.clock.advance(24 * 60 * 60_000);
     await context.container.ingestionService.runSource('robot');
 
     const notifications = await notificationsOf(context);
@@ -441,6 +452,76 @@ describe('失敗の分離（1 台の接続の失敗が、ほかの設備の取�
     });
     expect(notifications[0]?.message).not.toContain(FILE_B);
     expect(notifications[0]?.message).not.toContain(String(serverB.port));
+  });
+
+  it('失敗した設備が回復して、再び失敗したときは、新しい出来事として通知する。ほかの設備が失敗し続けても、回復した設備は数え直す', async () => {
+    const harness = await setup();
+    await connectEach(harness);
+    const { context, serverB } = harness;
+    serverB.faults.set({ mode: 'DOWN' });
+    await context.container.ingestionService.runSource('robot');
+    expect(await notificationsOf(context)).toHaveLength(1);
+
+    serverB.faults.set({ mode: 'UP' });
+    const recovered = await context.container.ingestionService.runSource('robot');
+    expect(recovered.result).toBe('SUCCESS');
+    serverB.faults.set({ mode: 'DOWN' });
+    await context.container.ingestionService.runSource('robot');
+
+    expect(await notificationsOf(context)).toHaveLength(2);
+  });
+
+  it('失敗した設備が増えたときは、新しい設備の失敗を通知する。すでに通知した設備だけなら、通知しない', async () => {
+    const harness = await setup();
+    await connectEach(harness);
+    const { context, serverA, serverB } = harness;
+    serverB.faults.set({ mode: 'DOWN' });
+    await context.container.ingestionService.runSource('robot');
+    expect(await notificationsOf(context)).toHaveLength(1);
+
+    // もう 1 台（ロボット）も失敗するようになる（一部の設備の失敗のまま。取り込めるのは、接続のある別の 1 台）
+    const extra: Equipment = {
+      equipmentId: toEquipmentId('ROBOT-T3'),
+      equipmentType: 'ROBOT',
+      name: 'テストロボット3',
+      facilityId: FACILITY_ID,
+      externalId: 'ROBOT-SAMPLE-03',
+      sourceFilePath: '/robot/robot-3.json',
+      isDeleted: false,
+      createdAt: '2026-10-01T00:00:00.000Z',
+    };
+    await context.container.repositories.equipment.save(extra);
+    await context.container.ingestionService.runSource('robot');
+    await context.container.ingestionService.runSource('robot');
+
+    const notifications = await notificationsOf(context);
+    expect(notifications).toHaveLength(2);
+    expect(notifications[0]?.message).toContain('テストロボット3: 接続先が設定されていません');
+    expect(headsOf(serverA, FILE_A)).toBeGreaterThan(0);
+  });
+
+  it('取得の対象でない（取得間隔が来ていない）設備の項目は、ほかの設備の取り込みで消えない。失敗し続ける設備を、繰り返し通知しない', async () => {
+    const harness = await setup();
+    await connectEach(harness);
+    const { context, serverB } = harness;
+    // ロボット 2 は 5 分間隔（ロボットは既定の 1 分）。ロボット 2 だけが失敗する
+    const robot2 = await context.container.repositories.equipment.get(ROBOT_2_ID);
+    if (robot2 === undefined) {
+      throw new Error('テストの前提: ロボット 2 がいます');
+    }
+    await context.container.repositories.equipment.save({ ...robot2, intervalMinutes: 5 });
+    serverB.faults.set({ mode: 'DOWN' });
+
+    await context.container.ingestionService.runDueSources();
+    expect(await failureNotificationsOf(context)).toHaveLength(1);
+    // 1 分後: ロボットだけ、間隔が来る（ロボット 2 は、取得の対象でない）
+    context.clock.advance(60_000);
+    await context.container.ingestionService.runDueSources();
+    // 5 分後: ロボット 2 の間隔が来て、同じ失敗が続く
+    context.clock.advance(4 * 60_000);
+    await context.container.ingestionService.runDueSources();
+
+    expect(await failureNotificationsOf(context)).toHaveLength(1);
   });
 
   it('失敗した設備が多いときは、通知に、先頭の 3 件と「ほか N 件」を載せる', async () => {
