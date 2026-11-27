@@ -323,6 +323,7 @@ describe('通知のメモ（GET・POST /notifications/{id}/memos）の入力者�
       sourceId: 'robot',
       sourceName: 'ロボットデータ',
       reason: '接続できません',
+      failureKeys: ['TEST:1'],
     });
     if (created === null) {
       throw new Error('テストの前提');

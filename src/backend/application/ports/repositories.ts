@@ -244,6 +244,13 @@ export interface NotificationRepository {
   }): Promise<FacilityIndexRebuildResult>;
   get(notificationId: NotificationId): Promise<Notification | undefined>;
   findLatestByDedupKey(dedupKey: string): Promise<Notification | undefined>;
+  /**
+   * 取り込みの失敗・停止の通知で、すでに通知した「失敗の項目」（`dedupKey` ごと。ADR-0019 の D-38。#589）。なければ空。
+   * 同じ項目が続く間は、再通知しない。回復したら、項目を消す。
+   */
+  getIngestionFailureKeys(dedupKey: string): Promise<readonly string[]>;
+  /** 失敗の項目を置き換える（空なら、記録を削除する）。 */
+  setIngestionFailureKeys(dedupKey: string, keys: readonly string[]): Promise<void>;
   /** 新しい順。既読状態は利用者ごと（暫定）。 */
   list(
     userId: UserId,

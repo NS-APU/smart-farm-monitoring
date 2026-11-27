@@ -59,6 +59,7 @@ function build(fileSource: FileSource, profiles = createDefaultFormatProfileRegi
     notifications: {
       notifyStatusChange: vi.fn(),
       notifyIngestionFailure,
+      clearRecoveredIngestionFailures: vi.fn().mockResolvedValue(undefined),
       notifyFederationExpired: vi.fn(),
       list: vi.fn(),
       unreadCount: vi.fn(),
@@ -891,21 +892,68 @@ describe('UC-24 取り込み失敗の通知（再試行・単独稼働）', () =
     });
   });
 
-  it('同じ取り込み元の失敗は、抑制の期間内は繰り返し通知しない', async () => {
+  it('同じ種類の失敗が続く間は、時間がたっても、繰り返し通知しない（D-38。#589）', async () => {
     const context = await setup();
     await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    context.files.faults.set({ mode: 'DOWN' });
+    const unread = () =>
+      context.container.repositories.notifications.countUnread(toUserId(TEST_USER.userId), {
+        kind: 'INGESTION_FAILURE',
+      });
+
+    await context.container.ingestionService.runSource('robot');
+    await context.container.ingestionService.runSource('robot');
+    expect(await unread()).toBe(1);
+
+    // 60 分を過ぎても、24 時間たっても、同じ失敗が続いているだけなら、通知は増えない
+    context.clock.advance(61 * 60_000);
+    await context.container.ingestionService.runSource('robot');
+    context.clock.advance(24 * 60 * 60_000);
+    await context.container.ingestionService.runSource('robot');
+    expect(await unread()).toBe(1);
+  });
+
+  it('取り込みが成功して回復したあとの失敗は、新しい出来事として通知する（時間に関係なく）', async () => {
+    const context = await setup();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    const unread = () =>
+      context.container.repositories.notifications.countUnread(toUserId(TEST_USER.userId), {
+        kind: 'INGESTION_FAILURE',
+      });
+    context.files.faults.set({ mode: 'DOWN' });
+    await context.container.ingestionService.runSource('robot');
+    expect(await unread()).toBe(1);
+
+    context.files.faults.set({ mode: 'UP' });
+    const recovered = await context.container.ingestionService.runSource('robot');
+    expect(recovered.result).toBe('SUCCESS');
+    context.clock.advance(60_000);
+    context.files.faults.set({ mode: 'DOWN' });
+    await context.container.ingestionService.runSource('robot');
+
+    expect(await unread()).toBe(2);
+    // 再び失敗が続いても、増えない
+    await context.container.ingestionService.runSource('robot');
+    expect(await unread()).toBe(2);
+  });
+
+  it('別の取り込み元の失敗は、別々に数える（片方が続いていても、もう片方の最初の失敗は通知する）', async () => {
+    const context = await setup();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
     context.files.faults.set({ mode: 'DOWN' });
 
     await context.container.ingestionService.runSource('robot');
     await context.container.ingestionService.runSource('robot');
+    await context.container.ingestionService.runSource('environment-sensor');
 
     expect(
-      await context.container.repositories.notifications.unreadCount(toUserId(TEST_USER.userId)),
-    ).toBe(1);
-    context.clock.advance(61 * 60_000);
-    await context.container.ingestionService.runSource('robot');
-    expect(
-      await context.container.repositories.notifications.unreadCount(toUserId(TEST_USER.userId)),
+      await context.container.repositories.notifications.countUnread(toUserId(TEST_USER.userId), {
+        kind: 'INGESTION_FAILURE',
+      }),
     ).toBe(2);
   });
 
@@ -1139,6 +1187,7 @@ describe('取り込みの境界（スタブのファイル取得）', () => {
       sourceId: 'robot',
       sourceName: 'ロボットデータ',
       reason: 'ファイルの一覧を取得できませんでした',
+      failureKeys: ['LISTING:ファイルの一覧を取得できませんでした'],
     });
   });
 

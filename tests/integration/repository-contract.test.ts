@@ -779,6 +779,37 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       return repositories;
     }
 
+    it('取り込みの失敗の項目（通知の重複の抑制）を、重複抑制のキーごとに保存・読み出し・削除できる（空にすると削除。#589）', async () => {
+      const { repositories } = create();
+      const key = 'INGESTION_FAILURE#robot';
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual([]);
+
+      await repositories.notifications.setIngestionFailureKeys(key, [
+        'EQUIPMENT:r1:理由A',
+        'UNEXPECTED',
+      ]);
+      await repositories.notifications.setIngestionFailureKeys('INGESTION_STOPPED#robot', [
+        'EQUIPMENT:r1',
+      ]);
+
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual([
+        'EQUIPMENT:r1:理由A',
+        'UNEXPECTED',
+      ]);
+      expect(
+        await repositories.notifications.getIngestionFailureKeys('INGESTION_STOPPED#robot'),
+      ).toEqual(['EQUIPMENT:r1']);
+
+      await repositories.notifications.setIngestionFailureKeys(key, ['UNEXPECTED']);
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual(['UNEXPECTED']);
+
+      await repositories.notifications.setIngestionFailureKeys(key, []);
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual([]);
+      expect(
+        await repositories.notifications.getIngestionFailureKeys('INGESTION_STOPPED#robot'),
+      ).toEqual(['EQUIPMENT:r1']);
+    });
+
     it('新しい順に一覧でき、種別・既読／未読で絞り込める。既読は利用者ごと', async () => {
       const repositories = await seeded();
       expect(

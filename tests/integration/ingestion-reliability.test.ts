@@ -82,6 +82,7 @@ async function build(
     notifications: {
       notifyStatusChange: vi.fn(),
       notifyIngestionFailure,
+      clearRecoveredIngestionFailures: vi.fn().mockResolvedValue(undefined),
       notifyFederationExpired: vi.fn(),
       list: vi.fn(),
       unreadCount: vi.fn(),
@@ -233,7 +234,7 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
     expect(stopped[0]?.message).toContain('ロボットデータ');
   });
 
-  it('基準の期間内は通知しない。同じ停止を、抑制の期間内に繰り返し通知しない', async () => {
+  it('基準の期間内は通知しない。同じ停止が続く間は、時間がたっても、繰り返し通知しない（D-38。#589）', async () => {
     const context = await setup();
     await ingestOnce(context);
 
@@ -247,9 +248,38 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
     await context.container.ingestionService.runDueSources();
     context.clock.advance(20 * 60_000);
     await context.container.ingestionService.runDueSources();
+    context.clock.advance(61 * 60_000);
+    await context.container.ingestionService.runDueSources();
+    context.clock.advance(24 * 60 * 60_000);
+    await context.container.ingestionService.runDueSources();
     expect(
       (await notificationsOf(context)).filter((item) => item.message.includes('データ取得停止')),
     ).toHaveLength(1);
+  });
+
+  it('新しいデータが届いて回復したあと、再び止まったら、新しい出来事として通知する', async () => {
+    const context = await setup();
+    await ingestOnce(context);
+    context.clock.advance((THRESHOLD_MINUTES + 1) * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+
+    // 新しいデータが届く（ファイルの内容が変わる）。回復を確認して、再び止まる
+    await context.files.placeFile(
+      'robot',
+      'robot-sample-001.json',
+      JSON.stringify({ timestamp: context.clock.now().toISOString(), harvestCount: 13 }),
+      { modifiedAt: context.clock.now() },
+    );
+    context.clock.advance(INTERVAL_MINUTES * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+    context.clock.advance((THRESHOLD_MINUTES + 1) * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(2);
+    context.clock.advance(20 * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(2);
   });
 
   it('一度もデータを取り込んでいない取り込み元（未取得）は、通知しない', async () => {

@@ -21,6 +21,11 @@ const NotificationReadSchema = z.object({
   readAt: z.string(),
 });
 
+const IngestionFailureKeysSchema = z.object({
+  dedupKey: z.string(),
+  keys: z.array(z.string()),
+});
+
 function newestFirst<Item extends { createdAt: string }>(left: Item, right: Item): number {
   return right.createdAt.localeCompare(left.createdAt);
 }
@@ -62,6 +67,11 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
     NotificationMemoSchema,
     (item) => item.memoId,
   );
+  const ingestionFailureKeys = store.collection(
+    'ingestionFailureKeys',
+    IngestionFailureKeysSchema,
+    (item) => item.dedupKey,
+  );
   const isReadBy = (notification: Notification, userId: string): boolean =>
     notificationReads.get(readKey(notification.notificationId, userId)) !== undefined;
 
@@ -102,6 +112,16 @@ export function createNotificationRepository(store: LocalStore): NotificationRep
         }
       }
       return Promise.resolve(latest);
+    },
+    getIngestionFailureKeys: (dedupKey) =>
+      Promise.resolve(ingestionFailureKeys.get(dedupKey)?.keys ?? []),
+    setIngestionFailureKeys(dedupKey, keys) {
+      if (keys.length === 0) {
+        ingestionFailureKeys.delete(dedupKey);
+      } else {
+        ingestionFailureKeys.put({ dedupKey, keys: [...keys] });
+      }
+      return Promise.resolve();
     },
     list(userId, filter, page) {
       const matched = notifications
