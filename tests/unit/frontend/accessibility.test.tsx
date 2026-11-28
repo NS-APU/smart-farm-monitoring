@@ -216,7 +216,7 @@ describe('画面のタイトル・見出し・通知の件数（V-154・V-163・
     expect(
       screen.getByRole('heading', { level: 2, name: '観点ごとの診断と推奨アクション' }),
     ).toBeDefined();
-    expect(screen.getByTestId('summary-NORMAL').textContent).toContain('正常の観点の数');
+    expect(screen.getByTestId('summary-period-NORMAL').textContent).toContain('正常の観点の数');
   });
 
   it('評価しない観点（NOT_FOUND）を開いても、見出し・パンくずに、観点の名称を表示する', async () => {

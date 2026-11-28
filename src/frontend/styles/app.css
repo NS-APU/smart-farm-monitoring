@@ -850,10 +850,38 @@ input:not([type='radio']) {
 }
 
 .evaluated-period,
+.evaluated-at,
 .custom-criteria {
   margin: 8px 0 0;
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+/* カードの区画（「現在」「期間」）。値・状態・診断・推奨アクションは、区画ごとに、1 回の評価の結果だけから示す（#591） */
+.card-section {
+  border-top: 1px solid var(--color-border);
+  margin-top: 12px;
+  padding-top: 8px;
+}
+
+.card-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.card-section .metrics {
+  margin: 8px 0;
+}
+
+/* 状態ごとの観点の数の見出し（「現在」「期間」） */
+.summary-scope {
+  margin: 12px 0 4px;
+  font-size: 1rem;
 }
 
 /* 画面の操作の行（対象の設備・期間・更新）。下端をそろえる */

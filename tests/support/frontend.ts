@@ -3,7 +3,13 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
-import type { DashboardResponse, ViewpointCard } from '@smart-farm/shared/schemas/evaluation';
+import type { EvaluationStatus } from '@smart-farm/shared/constants/status';
+import type {
+  CurrentResult,
+  DashboardResponse,
+  StatusCounts,
+  ViewpointCard,
+} from '@smart-farm/shared/schemas/evaluation';
 import type { EquipmentTreeResponse } from '@smart-farm/shared/schemas/equipment';
 import type { SessionAccess } from '../../src/frontend/api/client.ts';
 
@@ -188,8 +194,36 @@ export function card(overrides: Partial<ViewpointCard> = {}): ViewpointCard {
     evaluatedTo: '2026-10-09T03:00:00.000Z',
     isCustomCriteria: false,
     horizonUsed: 'LONG',
+    evaluatedAt: '2026-10-09T03:00:00.000Z',
+    // 「現在」（短期の評価）は、指定がなければ、なし（短期を持たない観点と同じ）。`currentResult()` で作って渡す
+    current: null,
     ...overrides,
   };
+}
+
+/** 「現在」（短期の評価）。値・状態・診断・推奨アクションは、「期間」と別の、短期の 1 回の評価の結果。 */
+export function currentResult(overrides: Partial<CurrentResult> = {}): CurrentResult {
+  return {
+    status: 'NORMAL',
+    metrics: { emergencyStopPerHour: 0, nearMissPerHour: null },
+    metricStatuses: { emergencyStopPerHour: 'NORMAL' },
+    statusDetail: null,
+    diagnosticMessage: '安全性: 正常。緊急停止頻度 0.000回/時間（正常）',
+    recommendedAction: '現在の状態を維持し、引き続き推移を確認してください',
+    evaluatedFrom: '2026-10-08T03:05:00.000Z',
+    evaluatedTo: '2026-10-09T03:05:00.000Z',
+    evaluatedAt: '2026-10-09T03:05:00.000Z',
+    isCustomCriteria: false,
+    ...overrides,
+  };
+}
+
+function countStatuses(statuses: readonly EvaluationStatus[]): StatusCounts {
+  const counts = { NORMAL: 0, CAUTION: 0, ERROR: 0, UNKNOWN: 0 };
+  for (const status of statuses) {
+    counts[status] += 1;
+  }
+  return counts;
 }
 
 /**
@@ -207,6 +241,28 @@ export function pinClockToDashboardFixture(): void {
 }
 
 export function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardResponse {
+  const viewpoints = overrides.viewpoints ?? [
+    card(),
+    card({
+      viewpointId: 'harvestSpeed',
+      name: '収穫速度',
+      status: 'CAUTION',
+      metrics: { averageSecondsPerFruit: 72, travelStoppedRatePercent: 2 },
+      statusDetail: { code: 'HARVESTING', name: '収穫中', category: 'NORMAL' },
+      isCustomCriteria: true,
+    }),
+    card({
+      viewpointId: 'satisfaction',
+      name: '満足度',
+      status: 'UNKNOWN',
+      statuses: { short: null, long: 'UNKNOWN' },
+      metrics: {},
+      metricStatuses: {},
+      evaluatedFrom: null,
+      evaluatedTo: null,
+      evaluatedAt: null,
+    }),
+  ];
   return {
     equipmentId: toEquipmentId('HOUSE-01'),
     horizon: 'LONG',
@@ -217,27 +273,12 @@ export function dashboard(overrides: Partial<DashboardResponse> = {}): Dashboard
     staleEquipment: [],
     lastManualInputAt: null,
     summary: { NORMAL: 1, CAUTION: 1, ERROR: 0, UNKNOWN: 1 },
-    viewpoints: [
-      card(),
-      card({
-        viewpointId: 'harvestSpeed',
-        name: '収穫速度',
-        status: 'CAUTION',
-        metrics: { averageSecondsPerFruit: 72, travelStoppedRatePercent: 2 },
-        statusDetail: { code: 'HARVESTING', name: '収穫中', category: 'NORMAL' },
-        isCustomCriteria: true,
-      }),
-      card({
-        viewpointId: 'satisfaction',
-        name: '満足度',
-        status: 'UNKNOWN',
-        statuses: { short: null, long: 'UNKNOWN' },
-        metrics: {},
-        metricStatuses: {},
-        evaluatedFrom: null,
-        evaluatedTo: null,
-      }),
-    ],
+    // 「現在」「期間」の観点の数は、指定がなければ、カードから数える（別々に数える）
+    currentSummary: countStatuses(
+      viewpoints.flatMap((item) => (item.current === null ? [] : [item.current.status])),
+    ),
+    periodSummary: countStatuses(viewpoints.map((item) => item.statuses.long)),
     ...overrides,
+    viewpoints,
   };
 }
