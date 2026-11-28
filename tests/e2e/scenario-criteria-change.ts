@@ -162,7 +162,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await expect(b.page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(
-      b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      b.page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('異常');
 
     // UC-19: Aが、環境適応性の基準を、既定値へ戻す（確認を求める）

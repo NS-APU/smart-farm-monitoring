@@ -405,9 +405,9 @@ test.describe('代替フロー: 自動取り込みと手動入力で同じ項目
 
     await expectRelatedStatus(page, 'environmentalAdaptability', '注意');
     await page.goto(`/viewpoints/environmentalAdaptability?equipmentId=${SENSOR_ID}`);
-    await expect(page.getByTestId('metric-temperatureCelsius').locator('td').first()).toHaveText(
-      '25.0℃',
-    );
+    await expect(
+      page.getByTestId('metric-period-temperatureCelsius').locator('.metric-cell-value'),
+    ).toHaveText('25.0℃');
   });
 });
 
@@ -435,11 +435,16 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
   }
 
-  async function expectDamagedRate(page: Page, query: string, value: string): Promise<void> {
-    await page.goto(`/viewpoints/harvestAccuracy?equipmentId=${ROBOT_ID}&${query}`);
+  /** 果実損傷率を確認する。`current` は「現在」（短期の評価）の列、`period` は「期間の評価」（直近 7 日）の列。 */
+  async function expectDamagedRate(
+    page: Page,
+    scope: 'current' | 'period',
+    value: string,
+  ): Promise<void> {
+    await page.goto(`/viewpoints/harvestAccuracy?equipmentId=${ROBOT_ID}&periodDays=7`);
     await expect(page.getByTestId('diagnosis')).toBeVisible();
     await expect(
-      page.getByTestId('metric-damagedFruitRatePercent').locator('td').first(),
+      page.getByTestId(`metric-${scope}-damagedFruitRatePercent`).locator('.metric-cell-value'),
     ).toHaveText(value);
   }
 
@@ -466,8 +471,8 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
     );
 
     // 果実損傷数 50 ÷ 収穫数 2,400（自動だけ）= 2.1%。手動を混ぜた 4,200 なら 1.2%
-    await expectDamagedRate(page, 'horizon=SHORT', '2.1%');
-    await expectDamagedRate(page, 'horizon=LONG&periodDays=7', '2.1%');
+    await expectDamagedRate(page, 'current', '2.1%');
+    await expectDamagedRate(page, 'period', '2.1%');
     // 両方を保持する（取得元で区別できる）
     await page.goto(
       `/observations${itemListQuery('?q=%E5%8F%8E%E7%A9%AB%E6%95%B0&from=2026-10-08&to=2026-10-09')}`,
@@ -494,7 +499,7 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
     await expect(page.getByTestId('usage-notice')).toHaveCount(0);
 
     // 手動の増分の合計 500（100 + 400）。50 ÷ 500 = 10.0%
-    await expectDamagedRate(page, 'horizon=SHORT', '10.0%');
+    await expectDamagedRate(page, 'current', '10.0%');
   });
 
   test('評価の期間ごとに、取得元が決まる（短期は自動なし→手動、7 日は自動あり→自動）', async ({
@@ -524,8 +529,8 @@ test.describe('代替フロー: 合計（累積）の項目は、評価の期間
     );
 
     // 短期: 自動なし → 手動の 500。50 ÷ 500 = 10.0%。7 日: 自動あり → 自動の 1,500。50 ÷ 1,500 = 3.3%
-    await expectDamagedRate(page, 'horizon=SHORT', '10.0%');
-    await expectDamagedRate(page, 'horizon=LONG&periodDays=7', '3.3%');
+    await expectDamagedRate(page, 'current', '10.0%');
+    await expectDamagedRate(page, 'period', '3.3%');
   });
 
   test('合計の項目の入力欄に、値の意味（今日これまでの累計）を示す（ヘルプヒント）。合計でない項目には、示さない', async ({

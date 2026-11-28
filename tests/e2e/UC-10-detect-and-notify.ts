@@ -704,7 +704,7 @@ test.describe('事後条件: 異常・注意の発生が記録されている', 
     await enterTemperature(request, 40, 1);
 
     await alignBrowserClock(page, new Date('2026-10-09T03:30:00.000Z'));
-    await openAs(page, '/viewpoints/environmentalAdaptability?horizon=LONG&periodDays=30');
+    await openAs(page, '/viewpoints/environmentalAdaptability?periodDays=30');
     await expandPanel(page, 'trend');
     const history = page.getByTestId('status-history');
     await expect(history).toBeVisible();

@@ -102,9 +102,7 @@ test.describe('開く', () => {
 
     await drawer(page, '環境適応性の詳細').getByRole('link', { name: 'ページで開く' }).click();
 
-    await expect(page).toHaveURL(
-      /\/viewpoints\/environmentalAdaptability\?horizon=LONG&periodDays=30$/,
-    );
+    await expect(page).toHaveURL(/\/viewpoints\/environmentalAdaptability\?periodDays=30$/);
     await expect(page.getByRole('heading', { name: /環境適応性/, level: 1 })).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
@@ -231,7 +229,7 @@ test.describe('ドロワーの中の操作とフォーカス', () => {
     }
   });
 
-  test('ドロワーの中で、期間・視点を切り替えても、ドロワーは開いたまま。期間は、背面のダッシュボードにも反映される', async ({
+  test('ドロワーの中で、期間を切り替えても、ドロワーは開いたまま。期間は、背面のダッシュボードにも反映される', async ({
     page,
   }) => {
     await openDashboard(page);
@@ -239,16 +237,17 @@ test.describe('ドロワーの中の操作とフォーカス', () => {
     const dialog = drawer(page, '環境適応性の詳細');
     await expect(dialog.getByTestId('diagnosis')).toBeVisible();
 
-    await dialog.getByLabel('長期の期間').selectOption({ label: '直近30日' });
+    await dialog.getByLabel('期間').selectOption({ label: '直近30日' });
 
     await expect(page).toHaveURL(/viewpoint=environmentalAdaptability/);
     await expect(page).toHaveURL(/periodDays=30/);
     await expect(dialog).toBeVisible();
     await expect(page.getByLabel('期間').first()).toHaveValue('30');
 
-    await dialog.getByRole('radio', { name: '短期' }).check();
-    await expect(page).toHaveURL(/horizon=SHORT/);
-    await expect(dialog.locator('.diagnosis-horizon')).toContainText('短期（直近24時間）');
+    // 診断は、「現在」と「期間の評価」を並べて示す（視点の切り替えは、ない）
+    await expect(dialog.getByTestId('diagnosis-current')).toContainText('現在（直近24時間）');
+    await expect(dialog.getByTestId('diagnosis-period')).toContainText('期間の評価（直近30日）');
+    await expect(dialog.getByRole('radio', { name: '短期' })).toHaveCount(0);
     await expect(dialog).toBeVisible();
   });
 
@@ -262,7 +261,9 @@ test.describe('ドロワーの中の操作とフォーカス', () => {
 
     await dialog.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
 
-    await expect(dialog.getByRole('heading', { name: /収穫速度/, level: 2 })).toContainText('注意');
+    await expect(
+      dialog.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('注意');
     await page.waitForTimeout(500); // 背面のダッシュボードの動き（選択をそろえる）が、ドロワーを開いている間は、止まっていること
     await expect(dialog.getByLabel('対象の設備').locator('option:checked')).toContainText(
       '収穫ロボット1',

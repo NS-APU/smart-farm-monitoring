@@ -183,8 +183,8 @@ test.describe('ステータスの同値分割: 推奨アクションは診断結
   });
 });
 
-test.describe('視点（短期・長期）に応じた推奨アクション', () => {
-  test('短期が異常・長期が注意のとき、ダッシュボードは、長期の推奨アクションを示し、短期が悪い旨を添える。観点の詳細で、視点を切り替えると、その視点の推奨アクションに切り替わる（Issue #355）', async ({
+test.describe('「現在」（短期）と「期間の評価」（長期）に応じた推奨アクション', () => {
+  test('短期が異常・長期が注意のとき、ダッシュボードは、「現在」と「期間の評価」の推奨アクションを、別々の区画で示す。観点の詳細も、2 つの欄で並べて示す（視点の切り替えは、ない。#591）', async ({
     page,
     request,
   }, testInfo) => {
@@ -210,19 +210,15 @@ test.describe('視点（短期・長期）に応じた推奨アクション', ()
     await expect(page.getByTestId('short-worse-environmentalAdaptability')).toHaveCount(0);
     await shot(page, testInfo, 'uc04-dashboard-long');
 
-    // 観点の詳細（長期で開く）。短期に切り替えると、短期の診断結果の推奨アクションになる
+    // 観点の詳細（ドロワー）。「期間の評価」の推奨アクションと「現在」の推奨アクションが、並んで表示される（視点の切り替えは、ない）
     await card(page, 'environmentalAdaptability').locator('h3').getByRole('link').click();
     await expect(page.getByTestId('recommended-action')).toContainText(
       `${CAUTION_PREFIX}${ENVIRONMENT_ACTION}`,
     );
-    await page.getByRole('radio', { name: '短期' }).check();
-    await expect(page.getByTestId('recommended-action')).toContainText(
+    await expect(page.getByTestId('current-recommended-action')).toContainText(
       `${ERROR_PREFIX}${ENVIRONMENT_ACTION}`,
     );
-    await page.getByRole('radio', { name: '長期' }).check();
-    await expect(page.getByTestId('recommended-action')).toContainText(
-      `${CAUTION_PREFIX}${ENVIRONMENT_ACTION}`,
-    );
+    await expect(page.getByRole('radio', { name: '短期' })).toHaveCount(0);
   });
 });
 
