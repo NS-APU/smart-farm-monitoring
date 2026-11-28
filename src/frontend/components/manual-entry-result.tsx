@@ -21,11 +21,26 @@ import { StatusBadge } from './status-badge.tsx';
 /** 結果の種類（保存〔SC-06〕・修正・削除〔SC-07〕）。説明の文と、一覧へのリンクの有無を決める。 */
 export type ManualEntryResultKind = 'saved' | 'updated' | 'deleted';
 
-/** 評価の状態（DONE: 更新した／DEFERRED: 定期の評価で更新する）ごとの、説明の文。 */
+/**
+ * 評価の状態（DONE: 全期間を更新した／CURRENT: 「現在」だけ更新した。「期間の評価」は定期の評価で更新する〔#591〕／
+ * DEFERRED: 定期の評価で更新する）ごとの、説明の文。評価の状態がなければ、DONE。
+ */
 const LEADS = {
-  saved: { done: MESSAGES.entry.savedLead, deferred: MESSAGES.entry.savedLeadDeferred },
-  updated: { done: MESSAGES.entries.updatedLead, deferred: MESSAGES.entries.updatedLeadDeferred },
-  deleted: { done: MESSAGES.entries.deletedLead, deferred: MESSAGES.entries.deletedLeadDeferred },
+  saved: {
+    done: MESSAGES.entry.savedLead,
+    current: MESSAGES.entry.savedLeadCurrent,
+    deferred: MESSAGES.entry.savedLeadDeferred,
+  },
+  updated: {
+    done: MESSAGES.entries.updatedLead,
+    current: MESSAGES.entries.updatedLeadCurrent,
+    deferred: MESSAGES.entries.updatedLeadDeferred,
+  },
+  deleted: {
+    done: MESSAGES.entries.deletedLead,
+    current: MESSAGES.entries.deletedLeadCurrent,
+    deferred: MESSAGES.entries.deletedLeadDeferred,
+  },
 } as const;
 
 /** 項目ごとの説明（項目名と、評価に使われない理由）。 */
@@ -61,7 +76,11 @@ export function ManualEntryResult(props: {
     >
       <h2 id="entry-result-heading">{props.title}</h2>
       <p data-testid="entry-lead">
-        {response.evaluation === 'DEFERRED' ? lead.deferred : lead.done}
+        {response.evaluation === 'DEFERRED'
+          ? lead.deferred
+          : response.evaluation === 'CURRENT'
+            ? lead.current
+            : lead.done}
       </p>
       {autoPriorityUsages.length === 0 ? null : (
         <div className="notice notice-warning" data-testid="usage-notice">
@@ -83,7 +102,24 @@ export function ManualEntryResult(props: {
           {response.viewpointStatuses.map((item) => (
             <li key={item.viewpointId} data-testid={`related-${item.viewpointId}`}>
               <Link to={PATHS.viewpoint(item.viewpointId)}>{item.name}</Link>
-              <StatusBadge status={item.status} />
+              {/* 「現在」と「期間の評価」を、別々に示す（短期と長期の「悪い方」には、合成しない。#591）。短期を持たない観点は、「期間の評価」だけ */}
+              {item.current === null ? null : (
+                <span
+                  className="related-status"
+                  data-testid={`related-current-${item.viewpointId}`}
+                >
+                  <span className="related-label">{MESSAGES.entry.relatedCurrent}</span>
+                  <StatusBadge status={item.current} />
+                </span>
+              )}
+              <span className="related-status" data-testid={`related-period-${item.viewpointId}`}>
+                <span className="related-label">{MESSAGES.entry.relatedPeriod}</span>
+                {item.period === null ? (
+                  <span className="muted">{MESSAGES.entry.relatedNotEvaluated}</span>
+                ) : (
+                  <StatusBadge status={item.period} />
+                )}
+              </span>
             </li>
           ))}
         </ul>
