@@ -81,7 +81,7 @@
 | D-19 | 提示層とインフラ層の依存   | `api-deps.ts` の冒頭コメント: 「提示層は、インフラ層（アダプタ）を知らない」。ESLint は、domain・application・shared・frontend にのみ import の制限を課す | 開発用 API のために、`presentation/api-deps.ts`・`dev-routes.ts` が `infrastructure/local/` の型・定数・合成データ生成を import している（ESLint の制限対象外）。本番の経路（`handlers`）は、アプリケーション層のみに依存する | コードのコメントと実装が食い違う |
 | D-20 | 技術スタックの追加（ライセンス対応） | architecture.md 13.1: Formatter / Linter は Prettier・ESLint（flat config + typescript-eslint）。ビルドは Vite | ライセンス（コピーレフトの除外）の確認の結果（[.license-check/license-report.md](../../../.license-check/license-report.md)）、アクセシビリティの検査に oxlint を追加し（`eslint-plugin-jsx-a11y` を削除。axe-core が MPL-2.0）、Vite の CSS の最小化に esbuild を追加した（`build.cssMinify: 'esbuild'`。Vite 8 が必須とする lightningcss が MPL-2.0 のため、`pnpm-workspace.yaml` の `overrides` で導入しない）。architecture.md 13.1 には、Issue #40 で、Zod・oxlint・Testing Library・jsdom と、React 19.3 系を反映した | 追加（architecture.md に反映済み） |
 | D-21 | IaC・画面の配信 | architecture.md 11.2・13.1: IaC は Amplify Gen 2（または CDK）、画面は Amplify Hosting（または S3 + CloudFront）（ADR-0002） | CDK・S3 + CloudFront を採用。画面と API を CloudFront の同じオリジンで配信し、GitHub Actions + OIDC で手動デプロイする（ADR-0006。Issue #71）。architecture.md 13.1 に反映した | 追加（architecture.md に反映済み） |
-| D-22 | 手動入力・設備・ステータスコード・判断基準の保存後の評価 | 入力の保存のたびに、評価を更新する（human-in-the-loop.md。FR-4.1.5） | 設定 `EVALUATION_ON_WRITE`（`sync`・`deferred`）で切り替える。既定の `sync`（ローカル・E2E）は、設計どおり。**AWS の API の Lambda は `deferred`**: 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除・既定値へ戻す操作で評価せず、定期の評価（JB-02。5 分ごと）が更新する。手動入力の応答は、前回の評価のステータスと `evaluation: DEFERRED` を返す。設備・ステータスコード・判断基準の応答は、`evaluation: DEFERRED` を返す（削除は、200 で `{ evaluation }`）。データ量に比例して、評価（直近 90 日の読み出し）が重くなる（設備・ステータスコード・判断基準の変更は、全設備を評価するため、さらに重い）ため（Issue #79・#123・#404。ADR-0014） | 変更（意図的。AWS のみ） |
+| D-22 | 手動入力・設備・ステータスコード・判断基準の保存後の評価 | 入力の保存のたびに、評価を更新する（human-in-the-loop.md。FR-4.1.5） | 設定 `EVALUATION_ON_WRITE`（`sync`・`deferred`）で切り替える。既定の `sync`（ローカル・E2E）は、設計どおり。**AWS の API の Lambda は `deferred`**: 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除・既定値へ戻す操作で評価せず、定期の評価（JB-02。5 分ごと）が更新する。手動入力は、応答の前に、「現在」（短期の評価）だけを、直近 7 日の観測値で評価し（`evaluateCurrent`。短期の結果だけを保存。通知・連携・状態の変化の記録はしない。#591）、応答は `evaluation: CURRENT` と、関連する観点の「現在」「期間の評価」のステータス（`current`・`period`）を返す（「現在」の評価に失敗したときは `DEFERRED`）。設備・ステータスコード・判断基準の応答は、`evaluation: DEFERRED` を返す（削除は、200 で `{ evaluation }`）。データ量に比例して、評価（直近 90 日の読み出し）が重くなる（設備・ステータスコード・判断基準の変更は、全設備を評価するため、さらに重い）ため（Issue #79・#123・#404。ADR-0014） | 変更（意図的。AWS のみ） |
 
 ## 解析で気づいた課題
 
@@ -1180,7 +1180,7 @@ flowchart LR
 | `HOSTED_FILE_SERVER_BUCKET`                                     | なし（必須）              | 自前のファイルサーバーの Lambda（`runtime/hosted-file-server-lambda.ts`）が、ファイルを保管する S3 のバケット名。同じ Lambda は、`CREDENTIAL_PATH_PREFIX`・`LOG_LEVEL` も読む。**API の Lambda も、読む**（画面から置くファイルの保管先。#565。未設定は、本番では機能なし・それ以外はメモリ）。ジョブの Lambda・ローカルのサーバーは、読まない（ADR-0027。IaC が設定する）                |
 | `SEED_MODE`                                                     | `NONE`                    | `NONE`／`DEMO`（デモの設備・合成データ・評価）                                                                                                  |
 | `DEMO_SEED_DAYS`                                                | `3`                       | `SEED_MODE=DEMO` の合成データの日数（1〜31）。評価環境では、`pnpm demo-data seed --days N` が渡す（Issue #79）                                    |
-| `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、再計算せず、定期の評価（JB-02）が更新する（Issue #123・#404。ADR-0014） |
+| `EVALUATION_ON_WRITE`                                           | `sync`                    | 手動入力の保存・修正・削除と、設備・ステータスコード・判断基準の登録・修正・削除の応答の前に、評価を再計算するか。`sync`（既定。ローカル・E2E）は再計算する。`deferred`（AWS の API の Lambda。IaC が指定）は、全期間の再計算はせず、定期の評価（JB-02）が更新する。手動入力だけは、「現在」（短期の評価）を、応答の前に評価する（Issue #123・#404・#591。ADR-0014） |
 | `INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` | なし                      | 3 つそろえて指定する（一部だけは `ConfigError`）。ユーザーが 0 人のときだけ作成。パスワードは条件（8 文字以上・英大文字・英小文字・数字）を検証 |
 | `ROLE_DEFINITIONS_JSON`・`INITIAL_USER_ROLE` | 管理者 `admin`・一般 `general` の 2 ロール | ロールと権限の定義、初期ユーザーのロール（既定は、ユーザー管理の権限を持つ最初のロール＝`admin`） |
 | `SCHEDULER_ENABLED`・`SCHEDULER_TICK_SECONDS`                   | `false`・`30`             | スケジューラの有効化と tick の間隔（`.env.example` は `true`）                                                                                  |
@@ -1344,7 +1344,7 @@ sequenceDiagram
   FS->>REP: federation.enqueue status<br>PENDING
   MS->>AU: record CREATE manual-entry after<br>に entry
   AU->>REP: auditLogs.add
-  MS->>EV: evaluateAffected MANUAL_ENTRY 4.3<br>ただし EVALUATION_ON_WRITE が deferred の AWS では呼ばない ADR-0014
+  MS->>EV: evaluateAffected MANUAL_ENTRY 4.3<br>ただし EVALUATION_ON_WRITE が deferred の AWS では、evaluateCurrent（短期だけ）を呼ぶ ADR-0014・#591
   MS->>REP: relatedStatuses<br>evaluations.getLatest<br>で関連観点の現在のステータス 観点ごとに並列 Issue 79
   MS->>REP: judgeEntryUsage<br>合計の項目だけ 設備と項目の自動の観測値を<br>新しい順に 1 件 関連観点の読み出しと並列 D-26 Issue 162
   MS-->>MH: entry と viewpointStatuses と evaluation と usage
