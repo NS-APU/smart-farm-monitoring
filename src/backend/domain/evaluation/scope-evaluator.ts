@@ -28,6 +28,14 @@ import { getViewpointDefinition } from './viewpoints/registry.ts';
 /** 短期視点の対象期間（直近の時間）。短期の定義は未確定（Q-009）のため暫定（dev_spec.md 4章）。 */
 export const SHORT_HORIZON_HOURS = 24;
 
+/**
+ * 「現在」（短期の評価）だけを、手動入力の保存の直後に同期して評価するときに、読む観測値の日数（#591）。
+ * 短期の窓は直近 24 時間だが、累積の項目の基準（窓の直前の値）は、取得元（自動取り込み・手動入力）ごとに、使える品質の最新の値を使う。
+ * 24 時間分だけを読むと、基準が、全期間を読んだ評価（定期の評価）と違うことがあるため、7 日分を読む（7 日の範囲の中の基準は、同じ規則で求まる。
+ * 7 日より前の基準は、設備・項目ごとの最新の値〔取得元・品質を問わない〕。評価が 90 日を読むときの、90 日より前の基準と同じ扱い）。
+ */
+export const CURRENT_EVALUATION_READ_DAYS = 7;
+
 /** 評価の期間（窓）。短期の対象期間は 24 時間、長期は当日〜90 日（直近の時間数で表す）。 */
 export interface EvaluationWindow {
   readonly horizon: Horizon;
@@ -58,6 +66,11 @@ export interface ScopeEvaluationInput {
   readonly statusCodes: ReadonlyMap<string, StatusCodeDefinition>;
   readonly expectedStreams: ExpectedStreams;
   readonly coverageSlotMinutes: number;
+  /**
+   * 評価する視点。省略すると、短期・長期のすべて。`['SHORT']` なら、短期だけ（短期を持つ観点だけ結果が出る）。
+   * 手動入力の保存の直後に、「現在」（短期の評価）だけを、直近 24 時間の観測値で、同期して評価するために使う（#591）。
+   */
+  readonly horizons?: readonly Horizon[] | undefined;
 }
 
 export interface EvaluationDraft {
@@ -95,6 +108,9 @@ export function evaluateScope(input: ScopeEvaluationInput): EvaluationDraft[] {
     const definition = getViewpointDefinition(viewpointId);
     const criteria = input.criteriaOf(viewpointId);
     for (const window of evaluationWindows(definition.hasShortHorizon)) {
+      if (input.horizons !== undefined && !input.horizons.includes(window.horizon)) {
+        continue;
+      }
       const from = new Date(nowMs - window.hours * MS_PER_HOUR);
       const cacheKey = `${window.horizon}|${String(window.hours)}`;
       let measures = measuresCache.get(cacheKey);

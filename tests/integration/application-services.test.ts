@@ -20,7 +20,7 @@ const UNUSED_DEPS = {
   audit: { record: vi.fn(), list: vi.fn() },
   federation: { enqueue: vi.fn() },
   deletion: { request: vi.fn(), isDeleting: vi.fn() },
-  evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn() },
+  evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn(), evaluateCurrent: vi.fn() },
   evaluationOnWrite: 'sync' as const,
   clock: createControllableClock(),
   logger: NULL_LOGGER,

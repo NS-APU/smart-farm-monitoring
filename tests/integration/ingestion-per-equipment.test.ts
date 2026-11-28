@@ -128,6 +128,7 @@ async function build(
     evaluation: {
       evaluateAll: vi.fn().mockResolvedValue({}),
       evaluateAffected: vi.fn().mockResolvedValue({}),
+      evaluateCurrent: vi.fn().mockResolvedValue({}),
     },
     notifications: {
       notifyStatusChange: vi.fn(),

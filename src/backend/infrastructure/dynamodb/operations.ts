@@ -117,6 +117,39 @@ export async function getItem(
   return result.Item;
 }
 
+/**
+ * 条件つきの書き込み。条件を満たさないとき（`ConditionalCheckFailed`）は、書き込まずに false を返す（ほかのエラーは、そのまま投げる）。
+ * 条件の式は、属性の名前（`#n`）・値（`:v`）を、`names`・`values` で指定する（`data` などの予約語を使うため）。
+ */
+export async function putItemIf(
+  db: Database,
+  table: string,
+  item: Item,
+  condition: {
+    readonly expression: string;
+    readonly names?: Record<string, string>;
+    readonly values?: Item;
+  },
+): Promise<boolean> {
+  try {
+    await db.client.send(
+      new PutCommand({
+        TableName: table,
+        Item: item,
+        ConditionExpression: condition.expression,
+        ...(condition.names === undefined ? {} : { ExpressionAttributeNames: condition.names }),
+        ...(condition.values === undefined ? {} : { ExpressionAttributeValues: condition.values }),
+      }),
+    );
+    return true;
+  } catch (error) {
+    if (isConditionalCheckFailed(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export async function putItem(
   db: Database,
   table: string,

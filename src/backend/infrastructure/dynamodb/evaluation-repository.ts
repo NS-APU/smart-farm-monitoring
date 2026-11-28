@@ -9,7 +9,13 @@ import type { EvaluationRepository } from '../../application/ports/repositories.
 import { VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
 import { instantKey } from './keys.ts';
 import { mainAggregate } from './main-table.ts';
-import { batchWriteItems, queryAll, transactWrite, type Database } from './operations.ts';
+import {
+  batchWriteItems,
+  putItemIf,
+  queryAll,
+  transactWrite,
+  type Database,
+} from './operations.ts';
 
 const evaluationPartition = (equipmentId: string): string => `EVAL#${equipmentId}`;
 const evaluationSortKey = (
@@ -24,8 +30,24 @@ export function createEvaluationRepository(db: Database): EvaluationRepository {
   const changes = mainAggregate(db, StatusChangeEntrySchema);
 
   return {
-    saveLatest: (result) =>
-      evaluations.put(evaluationPartition(result.equipmentId), evaluationSortKey(result), result),
+    async saveLatest(result) {
+      // 保存済みの結果の評価の日時が、これより新しければ、保存しない（遅れて終わった古い評価が、新しい結果を上書きしない。
+      // 同じ日時は、上書きする）。評価の日時は、ISO 8601（UTC）の文字列で、辞書順が、時刻の順
+      await putItemIf(
+        db,
+        db.tables.main,
+        {
+          pk: evaluationPartition(result.equipmentId),
+          sk: evaluationSortKey(result),
+          data: result,
+        },
+        {
+          expression: 'attribute_not_exists(pk) OR #data.#evaluatedAt <= :evaluatedAt',
+          names: { '#data': 'data', '#evaluatedAt': 'evaluatedAt' },
+          values: { ':evaluatedAt': result.evaluatedAt },
+        },
+      );
+    },
     getLatest: (equipmentId, viewpointId, horizon, periodDays) =>
       evaluations.get(
         evaluationPartition(equipmentId),
