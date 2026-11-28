@@ -726,6 +726,40 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     });
   });
 
+  it('評価結果: 評価の日時が古い結果は、新しい結果を上書きしない（同じ日時は上書きする。別の視点・期間は独立。#591）', async () => {
+    const { repositories } = create();
+    const newer = evaluationResult({ status: 'ERROR', evaluatedAt: '2026-10-09T03:05:00.000Z' });
+    const older = evaluationResult({ status: 'NORMAL', evaluatedAt: '2026-10-09T03:00:00.000Z' });
+    await repositories.evaluations.saveLatest(newer);
+
+    // 遅れて終わった古い評価（別の実行・Lambda）が、新しい結果を上書きしない
+    await repositories.evaluations.saveLatest(older);
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.status,
+    ).toBe('ERROR');
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.evaluatedAt,
+    ).toBe('2026-10-09T03:05:00.000Z');
+
+    // 同じ日時は、上書きする（再保存）。さらに新しい日時も、上書きする
+    await repositories.evaluations.saveLatest({ ...newer, status: 'CAUTION' });
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.status,
+    ).toBe('CAUTION');
+    await repositories.evaluations.saveLatest(
+      evaluationResult({ status: 'NORMAL', evaluatedAt: '2026-10-09T03:10:00.000Z' }),
+    );
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.status,
+    ).toBe('NORMAL');
+
+    // 長期の結果は、別のキー（古い日時でも、まだなければ保存する）
+    await repositories.evaluations.saveLatest(
+      evaluationResult({ horizon: 'LONG', periodDays: 7, evaluatedAt: '2026-10-09T03:00:00.000Z' }),
+    );
+    expect(await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'LONG', 7)).toBeDefined();
+  });
+
   it('評価結果: 観点・視点・期間ごとの最新を上書き保存し、状態の変化を記録できる', async () => {
     const { repositories } = create();
     await repositories.evaluations.saveLatest(evaluationResult());

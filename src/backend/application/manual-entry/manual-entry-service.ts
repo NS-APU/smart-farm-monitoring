@@ -26,6 +26,7 @@ import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import {
   validateManualEntry,
   type ManualEntry,
+  type ManualEntryEvaluationState,
   type ManualEntryInput,
   type ManualEntryListItem,
   type ManualEntryListResponse,
@@ -54,6 +55,7 @@ import {
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
 import type { FederationService } from '../federation/federation-service.ts';
+import { errorLogFields } from '../error-fields.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -152,8 +154,6 @@ function entryMatchesKeyword(
 export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEntryService {
   const { repositories, audit, evaluation, evaluationOnWrite, federation, clock, ids, logger } =
     deps;
-  /** 応答に付ける、評価の状態。`deferred` では、評価は、定期の評価（JB-02）が更新する。 */
-  const evaluationState = evaluationWriteStateOf(evaluationOnWrite);
 
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);
@@ -234,19 +234,30 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
   }
 
   /**
-   * 評価の更新。失敗しても、入力の保存の結果には影響させない。
-   * `deferred` では、何もしない（データが増えると、評価の読み出しで、応答が遅くなるため。定期の評価が更新する。ADR-0014）。
+   * 評価の更新。失敗しても、入力の保存の結果には影響させない。応答に付ける、評価の状態を返す。
+   * `sync`: 全期間を評価する（`DONE`）。
+   * `deferred`: 「現在」（短期の評価）だけを、直近 7 日の観測値で評価する（`CURRENT`）。全期間の評価は、データが増えると、応答が遅くなるため、
+   * しない（「期間の評価」・状態の変化の処理は、定期の評価が行う。ADR-0014。#591）。「現在」の評価に失敗したときは、`DEFERRED`。
    */
-  const reevaluate = (affected: readonly EquipmentId[]): Promise<void> =>
-    evaluationOnWrite === 'deferred'
-      ? Promise.resolve()
-      : reevaluateSafely(
-          evaluation,
-          logger,
-          'MANUAL_ENTRY',
-          '手動入力の後の評価に失敗しました',
-          affected,
-        );
+  async function reevaluate(affected: readonly EquipmentId[]): Promise<ManualEntryEvaluationState> {
+    if (evaluationOnWrite === 'deferred') {
+      try {
+        await evaluation.evaluateCurrent('MANUAL_ENTRY', affected);
+        return 'CURRENT';
+      } catch (error) {
+        logger.error('手動入力の後の「現在」の評価に失敗しました', { ...errorLogFields(error) });
+        return 'DEFERRED';
+      }
+    }
+    await reevaluateSafely(
+      evaluation,
+      logger,
+      'MANUAL_ENTRY',
+      '手動入力の後の評価に失敗しました',
+      affected,
+    );
+    return evaluationWriteStateOf(evaluationOnWrite);
+  }
 
   /** 入力した項目に関係する観点の、最新のステータス（ハウス単位。短期・長期の悪い方）。 */
   async function relatedStatuses(entry: ManualEntry): Promise<ManualEntryViewpointStatus[]> {
@@ -272,13 +283,16 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
             ? repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
             : Promise.resolve(undefined),
         ]);
-        if (long === undefined) {
+        // 「現在」「期間の評価」のどちらもまだなければ、含めない（「現在」だけ評価済みのときは、含める）
+        if (long === undefined && short === undefined) {
           return undefined;
         }
         return {
           viewpointId,
           name: findViewpointMeta(viewpointId)?.name ?? viewpointId,
-          status: combineHorizonStatuses(short?.status ?? null, long.status),
+          status: combineHorizonStatuses(short?.status ?? null, long?.status ?? 'UNKNOWN'),
+          current: short?.status ?? null,
+          period: long?.status ?? null,
         };
       }),
     );
@@ -289,7 +303,10 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
    * 保存・修正の応答。関連する観点のステータスと、項目ごとの「評価に使われるか」（D-26）は、互いに独立のため、並列に読む
    * （保存の応答時間への影響を、増やさない。ADR-0014）。
    */
-  async function savedResponse(entry: ManualEntry): Promise<ManualEntrySaveResponse> {
+  async function savedResponse(
+    entry: ManualEntry,
+    evaluationState: ManualEntryEvaluationState,
+  ): Promise<ManualEntrySaveResponse> {
     const [viewpointStatuses, usage] = await Promise.all([
       relatedStatuses(entry),
       judgeEntryUsage(repositories.observations, entry, toObservations(entry, false), clock.now()),
@@ -346,8 +363,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         actor,
         after: entry,
       });
-      await reevaluate([entry.equipmentId]);
-      return await savedResponse(entry);
+      return await savedResponse(entry, await reevaluate([entry.equipmentId]));
     },
 
     async update(entryId, input, actor, scope = ALL_EQUIPMENT) {
@@ -383,8 +399,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         after: entry,
       });
       // 設備を変更した修正は、変更前の設備も評価し直す
-      await reevaluate([before.equipmentId, entry.equipmentId]);
-      return await savedResponse(entry);
+      return await savedResponse(entry, await reevaluate([before.equipmentId, entry.equipmentId]));
     },
 
     async delete(entryId, actor, scope = ALL_EQUIPMENT) {
@@ -405,7 +420,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         actor,
         before,
       });
-      await reevaluate([before.equipmentId]);
+      const evaluationState = await reevaluate([before.equipmentId]);
       return {
         entry: deleted,
         viewpointStatuses: await relatedStatuses(deleted),

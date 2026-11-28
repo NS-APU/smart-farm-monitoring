@@ -98,13 +98,19 @@ export function fieldError(page: Page, name: string, scope: Locator = mainArea(p
   return scope.locator(`[data-field="${name}"] .field-error`);
 }
 
-/** 保存後の結果の欄の、観点のステータスを確認する。 */
+/**
+ * 保存後の結果の欄の、観点のステータスを確認する。既定は「期間の評価」。`scope: 'current'` は「現在」（短期の評価。短期を持つ観点だけ）。
+ * 「現在」と「期間の評価」は、別々に示す（悪い方への合成はしない。#591）。
+ */
 export async function expectRelatedStatus(
   page: Page,
   viewpointId: string,
   status: string,
+  scope: 'current' | 'period' = 'period',
 ): Promise<void> {
   const row = page.getByTestId(`related-${viewpointId}`);
   await expect(row).toBeVisible();
-  await expect(row.locator('.status-badge')).toContainText(status);
+  await expect(
+    page.getByTestId(`related-${scope}-${viewpointId}`).locator('.status-badge'),
+  ).toContainText(status);
 }

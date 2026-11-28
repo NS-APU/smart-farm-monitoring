@@ -10,7 +10,6 @@ import {
 } from '../../../application/ports/records.ts';
 import type { EvaluationRepository } from '../../../application/ports/repositories.ts';
 import type { LocalStore } from '../local-store.ts';
-import { saverOf } from './collection-helpers.ts';
 
 const evaluationKey = (item: EvaluationResult): string =>
   `${item.equipmentId}#${item.viewpointId}#${item.horizon}#${item.periodDays ?? 0}`;
@@ -33,7 +32,14 @@ export function createEvaluationRepository(store: LocalStore): EvaluationReposit
   );
 
   return {
-    saveLatest: saverOf(evaluations),
+    saveLatest(result) {
+      // 保存済みの結果の評価の日時が、これより新しければ、保存しない（同じ日時は、上書きする）
+      const existing = evaluations.get(evaluationKey(result));
+      if (existing === undefined || existing.evaluatedAt <= result.evaluatedAt) {
+        evaluations.put(result);
+      }
+      return Promise.resolve();
+    },
     getLatest: (equipmentId, viewpointId, horizon, periodDays) =>
       Promise.resolve(
         evaluations.get(`${equipmentId}#${viewpointId}#${horizon}#${periodDays ?? 0}`),

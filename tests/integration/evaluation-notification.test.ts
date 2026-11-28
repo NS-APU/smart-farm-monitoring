@@ -1610,6 +1610,7 @@ describe('ジョブ（JB-01〜JB-05）とスケジューラ', () => {
           notificationsCreated: 0,
         }),
         evaluateAffected: vi.fn(),
+        evaluateCurrent: vi.fn(),
       },
       federation: {
         enqueue: vi.fn(),

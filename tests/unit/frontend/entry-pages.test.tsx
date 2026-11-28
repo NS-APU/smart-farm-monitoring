@@ -24,8 +24,21 @@ import { restoreScrollIntoView, stubScrollIntoView } from '../../support/scroll-
 const SAVED = {
   entry: manualEntry(),
   viewpointStatuses: [
-    { viewpointId: 'durability', name: '耐久性', status: 'CAUTION' },
-    { viewpointId: 'maintainability', name: 'メンテナンス性', status: 'NORMAL' },
+    // 耐久性は、短期の評価を持たない（「現在」なし。「期間の評価」だけ）。メンテナンス性は、短期を持つ
+    {
+      viewpointId: 'durability',
+      name: '耐久性',
+      status: 'CAUTION',
+      current: null,
+      period: 'CAUTION',
+    },
+    {
+      viewpointId: 'maintainability',
+      name: 'メンテナンス性',
+      status: 'CAUTION',
+      current: 'CAUTION',
+      period: 'NORMAL',
+    },
   ],
 };
 
@@ -551,6 +564,7 @@ describe('データ入力（UC-06。SC-06）', () => {
 
   it.each([
     ['DEFERRED', '数分かかります', '前回の評価のステータスです'],
+    ['CURRENT', '「現在」の評価を更新しました', '「期間の評価」の更新は、定期の評価で行われ'],
     ['DONE', '評価を更新しました', '現在のステータスです'],
     [undefined, '評価を更新しました', '現在のステータスです'],
   ])(
@@ -572,6 +586,56 @@ describe('データ入力（UC-06。SC-06）', () => {
       expect(lead).toContain(expectedStatusNote);
     },
   );
+
+  it('関連する観点のステータスは、「現在」と「期間の評価」を別々に示す（短期と長期の悪い方に合成しない）。短期を持たない観点は、「期間の評価」だけ。まだ評価がなければ、その旨（#591）', async () => {
+    renderApp('/data-entry', {
+      'POST /manual-entries': () =>
+        jsonResponse(
+          {
+            ...SAVED,
+            evaluation: 'CURRENT',
+            viewpointStatuses: [
+              ...SAVED.viewpointStatuses,
+              {
+                viewpointId: 'safety',
+                name: '安全性',
+                status: 'ERROR',
+                current: 'ERROR',
+                period: null,
+              },
+            ],
+          },
+          201,
+        ),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '1' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+    const result = await screen.findByTestId('entry-result');
+    // 短期を持つ観点: 「現在」と「期間の評価」の 2 つ（状態が違ってよい）
+    const maintainability = within(result).getByTestId('related-maintainability');
+    expect(within(maintainability).getByTestId('related-current-maintainability').textContent).toBe(
+      '現在注意',
+    );
+    expect(within(maintainability).getByTestId('related-period-maintainability').textContent).toBe(
+      '期間の評価正常',
+    );
+    // 短期を持たない観点: 「期間の評価」だけ
+    const durability = within(result).getByTestId('related-durability');
+    expect(within(durability).queryByTestId('related-current-durability')).toBeNull();
+    expect(within(durability).getByTestId('related-period-durability').textContent).toBe(
+      '期間の評価注意',
+    );
+    // 「期間の評価」がまだない観点（定期の評価が、まだ）
+    expect(within(result).getByTestId('related-current-safety').textContent).toBe('現在異常');
+    expect(within(result).getByTestId('related-period-safety').textContent).toBe(
+      '期間の評価まだ評価されていません',
+    );
+  });
 
   it('備考が空なら、備考を送らない。関連する観点がなければ、その旨を示す', async () => {
     const { calls } = renderApp('/data-entry', {

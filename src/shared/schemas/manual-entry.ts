@@ -84,16 +84,23 @@ export type ManualEntryListResponse = z.infer<typeof ManualEntryListResponseSche
 export const ManualEntryViewpointStatusSchema = z.object({
   viewpointId: ViewpointIdSchema,
   name: z.string(),
+  /** 短期・長期のうち「不明」を除いた悪い方（通知・連携の基準）。画面は、下の `current`・`period` を、別々に示す。 */
   status: z.enum(EVALUATION_STATUSES),
+  /** 「現在」（短期の評価）のステータス。短期を持たない観点、短期の評価がまだない観点は null（FR-5.6。#591）。 */
+  current: z.enum(EVALUATION_STATUSES).nullable(),
+  /** 「期間の評価」（観点の既定の期間の、長期の評価）のステータス。まだなければ null。 */
+  period: z.enum(EVALUATION_STATUSES).nullable(),
 });
 export type ManualEntryViewpointStatus = z.infer<typeof ManualEntryViewpointStatusSchema>;
 
 /**
- * 保存の応答の、評価の状態。`DONE`: 保存の前に評価を更新した（関連する観点のステータスは、最新）。
+ * 保存の応答の、評価の状態。`DONE`: 保存の前に、全期間の評価を更新した（関連する観点のステータスは、最新）。
+ * `CURRENT`: 保存の前に、「現在」（短期の評価）だけを更新した（「期間の評価」は、定期の評価が更新する。反映には、数分かかる。#591）。
  * `DEFERRED`: 評価は、定期の評価が更新する（ステータスは、前回の評価の値。反映には、数分かかる。ADR-0014）。
  * 項目がなければ、`DONE` とみなす。
  */
-export const MANUAL_ENTRY_EVALUATION_STATES = EVALUATION_WRITE_STATES;
+export const MANUAL_ENTRY_EVALUATION_STATES = [...EVALUATION_WRITE_STATES, 'CURRENT'] as const;
+export type ManualEntryEvaluationState = (typeof MANUAL_ENTRY_EVALUATION_STATES)[number];
 
 /**
  * 保存・修正の応答の、入力した項目ごとの「評価に使われるか」（D-26。Issue #162 の SC-06-5）。

@@ -170,7 +170,10 @@ export interface ObservationRepository {
 }
 
 export interface EvaluationRepository {
-  /** 観点・設備・視点・期間ごとの最新の評価結果を、上書き保存する。 */
+  /**
+   * 観点・設備・視点・期間ごとの最新の評価結果を、上書き保存する。保存済みの結果の評価の日時（`evaluatedAt`）が、これより新しいときは、
+   * 保存しない（遅れて終わった古い評価が、新しい結果を上書きしないため。同じ日時は、上書きする。#591）。
+   */
   saveLatest(result: EvaluationResult): Promise<void>;
   getLatest(
     equipmentId: EquipmentId,
