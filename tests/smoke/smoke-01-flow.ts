@@ -98,7 +98,7 @@ test('ログイン → ダッシュボード → 手動入力 → 通知 → ロ
 
     // 通知
     await m('UC-05', 'メニューから「通知」を開く', '通知（SC-05）', 'screen', {
-      act: () => menuLink(page, '通知').click(),
+      act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
       respond: async () => {
         await expect(page.getByRole('heading', { name: '通知', level: 1 })).toBeVisible();
         await expect(loadingView(page)).toHaveCount(0);
@@ -111,8 +111,9 @@ test('ログイン → ダッシュボード → 手動入力 → 通知 → ロ
   }
 
   // ログアウト
-  await m('UC-13', 'ヘッダーの「ログアウト」を押す', 'ログイン（SC-01）', 'screen', {
-    act: () => banner.getByRole('button', { name: 'ログアウト' }).click(),
+  await banner.getByRole('button', { name: /^ログイン中のユーザー/ }).click();
+  await m('UC-13', 'ユーザーメニューの「ログアウト」を選ぶ', 'ログイン（SC-01）', 'screen', {
+    act: () => page.getByRole('menuitem', { name: 'ログアウト', exact: true }).click(),
     respond: () => expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(),
   });
   await page.goto('/notifications');
@@ -159,7 +160,9 @@ async function deleteSmokeEntry(
         .click();
     },
     respond: async () => {
-      await expect(page.getByTestId('entries-notice')).toHaveText('削除しました');
+      await expect(page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+        '削除しました',
+      );
       await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
     },
   });

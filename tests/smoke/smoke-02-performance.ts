@@ -119,7 +119,7 @@ test('NFR-3.5 推移の表示・NFR-3.3 自動更新: 観点の詳細で、期�
       '観点の詳細・推移（SC-03）',
       'trend',
       {
-        act: () => page.getByLabel('長期の期間').selectOption({ label: '直近30日' }),
+        act: () => page.getByLabel('期間').last().selectOption({ label: '直近30日' }),
         respond: async () => {
           await expectDetailShown(page);
           await expect(page.getByTestId('trend')).toContainText('（日ごと）');
@@ -127,7 +127,7 @@ test('NFR-3.5 推移の表示・NFR-3.3 自動更新: 観点の詳細で、期�
       },
     );
     await m('UC-03', '推移の期間を「直近7日」に戻す', '観点の詳細・推移（SC-03）', 'trend', {
-      act: () => page.getByLabel('長期の期間').selectOption({ label: '直近7日' }),
+      act: () => page.getByLabel('期間').last().selectOption({ label: '直近7日' }),
       respond: () => expectDetailShown(page),
     });
   }

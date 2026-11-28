@@ -1,19 +1,27 @@
-/** 設備・ステータスコード・判断基準・設定の Repository（DynamoDB 実装）。少量のため、パーティションの全件を読む。 */
+/**
+ * 設備・ステータスコード・未登録のコード値・判断基準・設定の Repository（DynamoDB 実装）。少量のため、パーティションの全件を読む。
+ *
+ * - 未登録のコード値（SC-12-5。#158。ADR-0007）: `UNREGSC` / `{コード値}`。属性 `count`（件数）・`lastSeenAt`（ISO 8601）。コード値ごとに 1 件を、
+ *   1 回の更新（`ADD count`・`SET lastSeenAt`）で、加算・作成する（同時の加算でも、取りこぼさない）。全体の上限があるため、少量
+ */
 
 import { ViewpointCriteriaSchema } from '@smart-farm/shared/schemas/criteria';
 import { EquipmentSchema } from '@smart-farm/shared/schemas/equipment';
 import { StatusCodeDefinitionSchema } from '@smart-farm/shared/schemas/status-code';
+import { UnregisteredStatusCodeRecordSchema } from '../../application/ports/records.ts';
 import type {
   CriteriaRepository,
   EquipmentRepository,
   SettingsRepository,
   StatusCodeRepository,
+  UnregisteredStatusCodeRepository,
 } from '../../application/ports/repositories.ts';
 import { mainAggregate } from './main-table.ts';
-import { getItem, putItem, type Database } from './operations.ts';
+import { getItem, putItem, queryAll, updateItem, type Database } from './operations.ts';
 
 const EQUIPMENT = 'EQUIPMENT';
 const STATUS_CODE = 'STATUSCODE';
+const UNREGISTERED_STATUS_CODE = 'UNREGSC';
 const CRITERIA = 'CRITERIA';
 const SETTING = 'SETTING';
 
@@ -33,6 +41,7 @@ export function createEquipmentRepository(db: Database): EquipmentRepository {
     },
     get: (equipmentId) => equipment.get(EQUIPMENT, equipmentId),
     save: (item) => equipment.put(EQUIPMENT, item.equipmentId, item),
+    delete: (equipmentId) => equipment.remove(EQUIPMENT, equipmentId),
   };
 }
 
@@ -44,6 +53,32 @@ export function createStatusCodeRepository(db: Database): StatusCodeRepository {
     },
     get: (code) => statusCodes.get(STATUS_CODE, code),
     save: (definition) => statusCodes.put(STATUS_CODE, definition.code, definition),
+  };
+}
+
+export function createUnregisteredStatusCodeRepository(
+  db: Database,
+): UnregisteredStatusCodeRepository {
+  const table = db.tables.main;
+  return {
+    async list() {
+      return (await queryAll(db, table, UNREGISTERED_STATUS_CODE)).map((item) =>
+        UnregisteredStatusCodeRecordSchema.parse({
+          code: item.sk,
+          count: item.count,
+          lastSeenAt: item.lastSeenAt,
+        }),
+      );
+    },
+    async record(code, count, seenAt) {
+      await updateItem(db, table, {
+        key: { pk: UNREGISTERED_STATUS_CODE, sk: code },
+        // count は予約語のため、属性名のプレースホルダを使う
+        update: 'ADD #count :n SET #seen = :t',
+        names: { '#count': 'count', '#seen': 'lastSeenAt' },
+        values: { ':n': count, ':t': seenAt.toISOString() },
+      });
+    },
   };
 }
 

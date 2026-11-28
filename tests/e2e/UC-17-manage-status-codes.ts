@@ -24,17 +24,26 @@ import {
   confirmDialog,
   goToMenu,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { durabilityData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { locatorOf, rowBy } from './support/pages.ts';
+import { locatorOf, rowBy, userLabelText } from './support/pages.ts';
 
 const rows = locatorOf('status-code-row');
 const rowOf = rowBy('status-code-row', 'data-code');
 const addForm = (page: Page) => page.getByTestId('status-code-add');
+/** ステータスコードの登録は、ダイアログで行う（Issue #366）。表の上のボタンで開く。 */
+async function openAddStatusCode(page: Page): Promise<void> {
+  if (await addForm(page).isVisible()) {
+    return;
+  }
+  await page.getByRole('button', { name: 'ステータスコードの登録' }).click();
+  await expect(addForm(page)).toBeVisible();
+}
+
 const notice = locatorOf('status-codes-notice');
 
 async function openStatusCodes(page: Page, user?: Parameters<typeof openAs>[2]): Promise<void> {
@@ -48,6 +57,7 @@ async function register(
   page: Page,
   values: { code: string; name: string; category?: string; description?: string },
 ): Promise<void> {
+  await openAddStatusCode(page);
   const form = addForm(page);
   await form.getByLabel('コード値').fill(values.code);
   await form.getByLabel('名称').fill(values.name);
@@ -104,6 +114,39 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await shot(page, testInfo, 'uc17-list');
   });
 
+  test('「カテゴリの見かた」の凡例（SC-12-6）は、はじめは閉じている。開くと、正常・注意・異常の意味と対応の目安を示し、もう一度押すと閉じる。コードの説明は、凡例を開いても変わらない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openStatusCodes(page);
+    const toggle = page.getByRole('button', { name: 'カテゴリの見かた' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('status-code-legend-body')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const body = page.getByTestId('status-code-legend-body');
+    await expect(page.getByTestId('status-code-legend-NORMAL')).toContainText(
+      '判断基準を満たしています',
+    );
+    await expect(page.getByTestId('status-code-legend-CAUTION')).toContainText(
+      '農作業者の確認が望ましい',
+    );
+    await expect(page.getByTestId('status-code-legend-ERROR')).toContainText(
+      '農作業者の対応が必要',
+    );
+    await expect(page.getByTestId('status-code-legend-UNKNOWN')).toHaveCount(0);
+    await expect(body).toContainText('収穫速度・メンテナンス性・耐久性');
+    // 個々のコードの説明（初期の定義は説明なし）は、この変更では変えない
+    await expect(rowOf(page, 'STANDBY').locator('td').nth(3)).toHaveText('—');
+    await shot(page, testInfo, 'uc17-legend');
+
+    await toggle.click();
+    await expect(body).toHaveCount(0);
+  });
+
   test('登録: コード値・名称・説明・カテゴリを入力して登録すると、一覧に追加される。再読み込みしても保持される', async ({
     page,
     request,
@@ -122,12 +165,13 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await expect(rows(page)).toHaveCount(9);
     await expect(rowOf(page, 'CHARGING')).toContainText('充電中');
     await expect(rowOf(page, 'CHARGING')).toContainText('充電ステーションで充電している');
-    // 登録の直後に、入力欄はクリアされる
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、入力欄は空（Issue #366）
+    await expect(addForm(page)).toHaveCount(0);
+    await openAddStatusCode(page);
     await expect(addForm(page).getByLabel('コード値')).toHaveValue('');
     await page.reload();
     await expect(rowOf(page, 'CHARGING')).toBeVisible();
-    // 入力欄は、クリアされる
-    await expect(addForm(page).getByLabel('コード値')).toHaveValue('');
+    await expect(addForm(page)).toHaveCount(0);
   });
 
   test('編集: 名称・説明・カテゴリを変更できる。コード値は、変更できない', async ({
@@ -140,6 +184,10 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await rowOf(page, 'LOW_BATTERY').getByRole('button', { name: '修正' }).click();
     const edit = page.getByTestId('status-code-edit');
     await expect(edit.getByLabel('コード値')).toHaveCount(0);
+    // カテゴリの変更の影響（次の評価から反映・過去の評価は保持・影響する観点）を、カテゴリの欄に示す（#153）
+    await expect(edit.locator('[data-field="category"]')).toContainText(
+      'カテゴリを変えると、次の評価から反映されます。過去の評価は、そのまま保持します。影響する観点: 収穫速度・メンテナンス性・耐久性',
+    );
     await shot(page, testInfo, 'uc17-edit');
     await edit.getByLabel('名称').fill('電池残量わずか');
     await edit.getByLabel('カテゴリ').selectOption('ERROR');
@@ -194,6 +242,16 @@ test.describe('基本フロー: ステータスコードの一覧を参照し、
     await expect(page.getByTestId('confirm-dialog')).toContainText(
       'ステータスコードを削除しますか',
     );
+    // 対象（コード値・名称）と、影響の静的な説明（次の評価から反映・過去の評価は保持・影響する観点）を示す（#153）
+    await expect(page.getByTestId('confirm-dialog')).toContainText('STOPPED');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('停止中');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('次の評価から反映されます');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '過去の評価は、そのまま保持します',
+    );
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '影響する観点: 収穫速度・メンテナンス性・耐久性',
+    );
     await shot(page, testInfo, 'uc17-confirm');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'キャンセル' }).click();
     await expect(rowOf(page, 'STOPPED')).toHaveCount(1);
@@ -237,6 +295,7 @@ test.describe('カテゴリ（正常・注意・異常）の同値分割', () =>
     }) => {
       await prepareApp(request);
       await openStatusCodes(page);
+      await openAddStatusCode(page);
       await expect(addForm(page).getByLabel('カテゴリ').locator('option')).toHaveText([
         '正常',
         '注意',
@@ -263,6 +322,7 @@ test.describe('代替フロー: 入力が不正な場合は、保存しない（
 
     await register(page, { code: 'STANDBY', name: '重複' });
 
+    await openAddStatusCode(page);
     await expect(addForm(page).locator('[data-field="code"] .field-error')).toHaveText(
       '同じコード値がすでに登録されています',
     );
@@ -306,6 +366,7 @@ test.describe('代替フロー: 入力が不正な場合は、保存しない（
 
       await register(page, { code: item.code, name: '名称' });
 
+      await openAddStatusCode(page);
       await expect(addForm(page).locator('[data-field="code"] .field-error')).toHaveText(
         item.message,
       );
@@ -442,7 +503,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
   }
 
   const dashboardBadge = (page: Page) =>
-    page.getByTestId('card-maintainability').locator('.status-badge');
+    page.getByTestId('period-maintainability').locator('.status-badge');
 
   test('カテゴリを「正常」→「異常」に変更すると、そのコードを使う観点（メンテナンス性）の評価が、異常に変わる（評価に反映される）', async ({
     page,
@@ -474,7 +535,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
     await seed(request, durabilityData('NORMAL', 'STANDBY'));
     await openStatusCodes(page);
     await page.goto('/');
-    const durability = page.getByTestId('card-durability').locator('.status-badge');
+    const durability = page.getByTestId('period-durability').locator('.status-badge');
     await expect(durability).toContainText('正常');
     await goToMenu(page, 'ステータスコード');
 
@@ -518,7 +579,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
       await expect(row).toContainText(operation);
       await expect(row).toContainText('ステータスコード');
       await expect(row).toContainText('（CHARGING）');
-      await expect(row).toContainText(E2E_USER.userId);
+      await expect(row).toContainText(userLabelText(E2E_USER));
     }
     // 変更前後の定義（列: 日時・操作・対象・操作者・変更前・変更後）。ない側は「—」
     await expect(audit.nth(0).locator('td').nth(4)).toContainText('"category": "CAUTION"');
@@ -549,7 +610,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
 
     await page.goto('/viewpoints/maintainability');
 
-    await expect(page.getByTestId('metric-status').locator('td').first()).toHaveText(
+    await expect(page.getByTestId('metric-period-status').locator('.metric-cell-value')).toHaveText(
       '待機（充電待ち）',
     );
   });
@@ -587,19 +648,12 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
       travelStoppedHours: 0.002,
       statusCode: 'CHARGING_WAIT',
     };
-    placeFile(
-      'robot',
-      'a.json',
-      robotJson([
-        { hoursAgo: 0.5, fields },
-        { hoursAgo: 0.25, fields },
-      ]),
-    );
+    await placeFile(request, 'robot', 'a.json', robotJson({ hoursAgo: 0.25, fields }));
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
     await goToMenu(page, 'ダッシュボード');
 
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '注意',
     );
     await expect(page.getByTestId('card-harvestSpeed')).toContainText('充電待ち');
@@ -622,7 +676,12 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
     await expect(rows(page)).toHaveCount(8);
     await expect(page.getByRole('button', { name: '修正' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '削除' })).toHaveCount(0);
+    // 登録のボタンも、フォームも、ない（Issue #366）
+    await expect(page.getByRole('button', { name: 'ステータスコードの登録' })).toHaveCount(0);
     await expect(addForm(page)).toHaveCount(0);
+    // 凡例は、参照のみの利用者も開ける
+    await page.getByRole('button', { name: 'カテゴリの見かた' }).click();
+    await expect(page.getByTestId('status-code-legend-body')).toBeVisible();
     await shot(page, testInfo, 'uc17-readonly');
     const login = await request.post('/api/v1/auth/login', {
       data: { userId: VIEWER.userId, password: VIEWER.password },
@@ -636,6 +695,212 @@ test.describe('権限: 変更する権限のない利用者（閲覧者）は、
   });
 });
 
+/**
+ * ロボットのデータを、記録ごとに、ファイル（同じパスの上書き）を置いて、取り込む（1 つのファイルは、その時点のスナップショット 1 つ。
+ * 履歴は、取得を繰り返して積み上げる）。
+ */
+async function ingestRobotRecords(
+  request: Parameters<typeof prepareApp>[0],
+  records: readonly { hoursAgo: number; fields: Record<string, number | string | null> }[],
+): Promise<void> {
+  for (const record of records) {
+    await placeFile(request, 'robot', 'a.json', robotJson(record));
+    await apiOk(request, 'POST', '/ingestion/robot/run');
+  }
+}
+
+test.describe('未登録のコード値（SC-12-5。UC-08 の取り込みの結果を、API で確認する。画面は、次の describe。Issue #158）', () => {
+  interface UnregisteredItem {
+    code: string;
+    count: number;
+    lastSeenAt: string;
+    isRegistrable: boolean;
+    suggestedCode?: string;
+  }
+  const unregistered = async (request: Parameters<typeof prepareApp>[0]) =>
+    (await apiOk<{ items: UnregisteredItem[] }>(request, 'GET', '/status-codes/unregistered'))
+      .items;
+
+  test('定義にないコード値を取り込むと、コード値・件数・最終の日時・登録できる形式か・初期値の案を返す（件数の多い順）。登録済みのコード値は、除く。登録すると一覧から消え、削除すると戻る', async ({
+    request,
+  }) => {
+    await prepareApp(request);
+    expect(await unregistered(request)).toEqual([]);
+    const base = {
+      harvestCount: 10,
+      harvestSecondsPerFruit: 36,
+      operatingHours: 0.25,
+      harvestOperatingHours: 0.1,
+      travelStoppedHours: 0.002,
+    };
+    await ingestRobotRecords(request, [
+      { hoursAgo: 0.75, fields: { ...base, statusCode: 'low battery' } },
+      { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      // 登録済みのコード値は、記録しない
+      { hoursAgo: 0.2, fields: { ...base, statusCode: 'RUNNING' } },
+    ]);
+
+    const first = await unregistered(request);
+
+    expect(first.map((item) => item.code)).toEqual(['UNKNOWN_MODE', 'low battery']);
+    expect(first[0]).toMatchObject({
+      code: 'UNKNOWN_MODE',
+      count: 2,
+      isRegistrable: true,
+      suggestedCode: 'UNKNOWN_MODE',
+    });
+    expect(first[1]).toMatchObject({
+      code: 'low battery',
+      count: 1,
+      isRegistrable: false,
+      suggestedCode: 'LOW_BATTERY',
+    });
+    expect(Number.isNaN(Date.parse(first[0]?.lastSeenAt ?? ''))).toBe(false);
+
+    // 登録すると、一覧から消える。削除すると、戻る（記録は、消さない）
+    await apiOk(request, 'POST', '/status-codes', {
+      code: 'UNKNOWN_MODE',
+      name: '不明なモード',
+      category: 'CAUTION',
+    });
+    expect((await unregistered(request)).map((item) => item.code)).toEqual(['low battery']);
+    await apiOk(request, 'DELETE', '/status-codes/UNKNOWN_MODE');
+    expect((await unregistered(request)).map((item) => item.code)).toEqual([
+      'UNKNOWN_MODE',
+      'low battery',
+    ]);
+  });
+
+  test('変更する権限のない利用者（閲覧者）は、403。サーバー側で拒否する', async ({ request }) => {
+    await prepareApp(request);
+    await addUser(request, VIEWER);
+    const login = await request.post('/api/v1/auth/login', {
+      data: { userId: VIEWER.userId, password: VIEWER.password },
+    });
+    const { accessToken } = (await login.json()) as { accessToken: string };
+
+    const denied = await request.fetch('/api/v1/status-codes/unregistered', {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+
+    expect(denied.status()).toBe(403);
+  });
+});
+
+test.describe('未登録のコード値の画面（SC-12-5。UC-08 の取り込みの結果を、ステータスコードの画面で確認し、登録する。Issue #158）', () => {
+  const panel = locatorOf('unregistered-codes');
+  const unregisteredRows = locatorOf('unregistered-row');
+  const unregisteredRowOf = rowBy('unregistered-row', 'data-code');
+
+  const base = {
+    harvestCount: 10,
+    harvestSecondsPerFruit: 36,
+    operatingHours: 0.25,
+    harvestOperatingHours: 0.1,
+    travelStoppedHours: 0.002,
+  };
+  /** 定義にないコード値（UNKNOWN_MODE 2 件・low charge 1 件・日本語 1 件）を、ロボットのデータとして取り込む。 */
+  async function ingestUnregistered(request: Parameters<typeof prepareApp>[0]): Promise<void> {
+    await ingestRobotRecords(request, [
+      { hoursAgo: 0.75, fields: { ...base, statusCode: 'low charge' } },
+      { hoursAgo: 0.5, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      { hoursAgo: 0.25, fields: { ...base, statusCode: 'UNKNOWN_MODE' } },
+      { hoursAgo: 0.2, fields: { ...base, statusCode: '充電異常' } },
+      // 登録済みのコード値は、一覧に出ない
+      { hoursAgo: 0.1, fields: { ...base, statusCode: 'RUNNING' } },
+    ]);
+  }
+
+  test('0 件なら、空の状態を示す。取り込みのあと、自動では更新されず、「更新」で、件数の多い順に表示する。登録できない形式の値には、理由を示し、登録のボタンは出さない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openStatusCodes(page);
+    await expect(page.getByTestId('unregistered-codes-empty')).toContainText(
+      '未登録のコード値はありません',
+    );
+    await expect(panel(page)).toContainText('登録した後に取り込むデータから');
+    await expect(panel(page)).toContainText('評価し直しません');
+    await expect(panel(page)).toContainText('自動では更新しません');
+
+    await ingestUnregistered(request);
+    // 自動では、更新されない
+    await expect(unregisteredRows(page)).toHaveCount(0);
+    await panel(page).getByRole('button', { name: '更新' }).click();
+
+    await expect(unregisteredRows(page)).toHaveCount(3);
+    await expect(
+      unregisteredRows(page).evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-code')),
+      ),
+    ).resolves.toEqual(['UNKNOWN_MODE', 'low charge', '充電異常']);
+    await expect(unregisteredRowOf(page, 'UNKNOWN_MODE')).toContainText('2 件');
+    await expect(
+      unregisteredRowOf(page, 'UNKNOWN_MODE').getByRole('button', { name: '登録' }),
+    ).toBeVisible();
+    // 登録できない形式: 理由を示し、登録のボタンは出さない。案があれば、形式の例を示す
+    await expect(unregisteredRowOf(page, 'low charge')).toContainText('登録できない形式');
+    await expect(unregisteredRowOf(page, 'low charge')).toContainText(
+      '「LOW_CHARGE」のような形式なら、登録できます',
+    );
+    await expect(
+      unregisteredRowOf(page, 'low charge').getByRole('button', { name: '登録' }),
+    ).toHaveCount(0);
+    await expect(unregisteredRowOf(page, '充電異常')).toContainText('登録できない形式');
+    await expect(
+      unregisteredRowOf(page, '充電異常').getByRole('button', { name: '登録' }),
+    ).toHaveCount(0);
+    await shot(page, testInfo, 'uc17-unregistered');
+  });
+
+  test('「登録」でダイアログが開き、コード値は初期値になる。名称を入れて登録すると、定義の表に加わり、一覧から消える。削除すると、一覧に戻る', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await ingestUnregistered(request);
+    await openStatusCodes(page);
+    await expect(unregisteredRows(page)).toHaveCount(3);
+
+    await unregisteredRowOf(page, 'UNKNOWN_MODE').getByRole('button', { name: '登録' }).click();
+    await expect(page.getByRole('dialog')).toHaveAccessibleName('ステータスコードを登録');
+    await expect(addForm(page).getByLabel('コード値')).toHaveValue('UNKNOWN_MODE');
+    await expect(page.getByTestId('status-code-add-note')).toContainText('UNKNOWN_MODE');
+    await expect(page.getByTestId('status-code-add-note')).toContainText(
+      '登録した後に取り込むデータから',
+    );
+    await shot(page, testInfo, 'uc17-unregistered-register');
+    await addForm(page).getByLabel('名称').fill('不明なモード');
+    await addForm(page).getByLabel('カテゴリ').selectOption('CAUTION');
+    await addForm(page).getByRole('button', { name: '登録する' }).click();
+
+    await expect(notice(page)).toHaveText('登録しました');
+    await expect(rowOf(page, 'UNKNOWN_MODE')).toContainText('不明なモード');
+    await expect(unregisteredRows(page)).toHaveCount(2);
+    await expect(unregisteredRowOf(page, 'UNKNOWN_MODE')).toHaveCount(0);
+
+    // 登録したコードを削除すると、一覧に戻る（記録は、消えていない）
+    await rowOf(page, 'UNKNOWN_MODE').getByRole('button', { name: '削除' }).click();
+    await confirmDialog(page, '削除');
+    await expect(notice(page)).toHaveText('削除しました');
+    await expect(unregisteredRowOf(page, 'UNKNOWN_MODE')).toBeVisible();
+  });
+
+  test('変更する権限のない利用者（閲覧者）には、一覧を表示しない', async ({ page, request }) => {
+    await prepareApp(request);
+    await addUser(request, VIEWER);
+    await ingestUnregistered(request);
+
+    await openStatusCodes(page, VIEWER);
+
+    await expect(rows(page)).toHaveCount(8);
+    await expect(panel(page)).toHaveCount(0);
+    await expect(page.getByText('未登録のコード値')).toHaveCount(0);
+  });
+});
+
 test.describe('古い画面の部品が取得できない場合（デプロイのあとに、古い画面を使い続けているとき。Issue #323）', () => {
   test('画面の部品の取得に失敗すると、1 回だけ自動で再読み込みし、続けて失敗するときは、「新しい版に更新されました」と、再読み込みのボタンを示す。取得できるようになれば、再読み込みで、画面が開く', async ({
     page,
@@ -645,7 +910,8 @@ test.describe('古い画面の部品が取得できない場合（デプロイ�
     let blocked = true;
     let attempts = 0;
     // ステータスコードの画面の部品（遅延読み込み）の取得を、失敗させる（削除済みのファイルを取得しようとする状況の再現）
-    await page.route(/status-codes-page\.tsx/, async (route) => {
+    // URL は、開発サーバーでは `status-codes-page.tsx`、本番ビルドでは `status-codes-page-<ハッシュ>.js`（Issue #519）
+    await page.route(/status-codes-page(?:\.tsx|-[\w-]+\.js)/, async (route) => {
       attempts += 1;
       if (blocked) {
         await route.abort();

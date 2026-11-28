@@ -10,13 +10,18 @@
  * - ほか（429・5xx・400 台の設定の問題・接続できない）: 一時的な失敗として、NotificationDeliveryError を投げる（再送の対象。D-38）。
  */
 
-import { buildPushPayload } from '../../application/notification/push-payload.ts';
+import type { PushPayload } from '@smart-farm/shared/schemas/notification';
+import {
+  buildPushPayload,
+  buildTestPushPayload,
+} from '../../application/notification/push-payload.ts';
 import { NULL_LOGGER, type Logger } from '../../application/ports/logger-port.ts';
 import {
   NotificationDeliveryError,
   type DeliveryOutcome,
   type NotifierPort,
 } from '../../application/ports/notifier-port.ts';
+import type { PushSubscriptionRecord } from '../../application/ports/records.ts';
 import type { SecretPort } from '../../application/ports/secret-port.ts';
 
 /** VAPID の秘密鍵の、秘密情報の参照名（パラメータストアの `<接頭辞>web-push/vapid-private-key`）。 */
@@ -89,29 +94,38 @@ export function createWebPushNotifier(deps: WebPushNotifierDeps): NotifierPort {
     return privateKey;
   }
 
+  /** 購読 1 件への 1 回の送信（通知・テスト通知で共通）。鍵のない購読には、本文なしで送る。 */
+  async function sendTo(
+    subscription: PushSubscriptionRecord,
+    payload: PushPayload,
+    ttlSeconds: number,
+  ): Promise<DeliveryOutcome> {
+    const privateKey = await readPrivateKey();
+    const request: WebPushRequest = {
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+      payload: subscription.keys === undefined ? null : JSON.stringify(payload),
+      ttlSeconds: Math.max(0, ttlSeconds),
+      urgency: 'high',
+      vapid: { subject, publicKey, privateKey },
+    };
+    let statusCode: number;
+    try {
+      ({ statusCode } = await send(request));
+    } catch (error) {
+      // 例外の内容（宛先・内部の情報を含みうる）は、メッセージに含めない。種類だけを記録する
+      logger.warn('Web Push の送信で例外が起きました', {
+        errorName: error instanceof Error ? error.name : 'unknown',
+      });
+      throw new NotificationDeliveryError('Web Push の配信サービスに接続できません');
+    }
+    return outcomeOf(statusCode);
+  }
+
   return {
-    async deliver(notification, subscription, options) {
-      const privateKey = await readPrivateKey();
-      const request: WebPushRequest = {
-        endpoint: subscription.endpoint,
-        keys: subscription.keys,
-        payload:
-          subscription.keys === undefined ? null : JSON.stringify(buildPushPayload(notification)),
-        ttlSeconds: Math.max(0, options.ttlSeconds),
-        urgency: 'high',
-        vapid: { subject, publicKey, privateKey },
-      };
-      let statusCode: number;
-      try {
-        ({ statusCode } = await send(request));
-      } catch (error) {
-        // 例外の内容（宛先・内部の情報を含みうる）は、メッセージに含めない。種類だけを記録する
-        logger.warn('Web Push の送信で例外が起きました', {
-          errorName: error instanceof Error ? error.name : 'unknown',
-        });
-        throw new NotificationDeliveryError('Web Push の配信サービスに接続できません');
-      }
-      return outcomeOf(statusCode);
-    },
+    deliver: (notification, subscription, options) =>
+      sendTo(subscription, buildPushPayload(notification), options.ttlSeconds),
+    deliverTest: (subscription, options) =>
+      sendTo(subscription, buildTestPushPayload(), options.ttlSeconds),
   };
 }

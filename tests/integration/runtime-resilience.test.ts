@@ -116,8 +116,8 @@ describe('スケジューラのジョブの最大実行時間（V-042）', () =>
     clock.advance(6 * 60_000);
     const second = await scheduler.tick();
 
-    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
-    expect(second).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
+    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
+    expect(second).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
     expect(errors).toHaveLength(2);
     expect(errors[0]).toMatchObject({
       message: 'ジョブの実行に失敗しました',
@@ -154,11 +154,12 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
       notifications: repositories.notifications,
       evaluations: repositories.evaluations,
       pushSubscriptions: repositories.pushSubscriptions,
+      users: repositories.users,
       recipients: createNotificationRecipients({
         repositories,
         policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
       }),
-      webPush: { deliver: () => NEVER },
+      webPush: { deliver: () => NEVER, deliverTest: () => NEVER },
       clock,
       ids: createSequentialIdGenerator(),
       settings: { ...DEFAULT_APP_SETTINGS.notification, ioTimeoutMs: 20 },
@@ -182,6 +183,7 @@ describe('農業情報基盤・Web Push の通信のタイムアウト（V-042�
       sourceId: 'robot',
       sourceName: 'ロボット',
       reason: 'x',
+      failureKeys: ['TEST:1'],
     });
 
     const summary = await service.deliverPending();
@@ -255,11 +257,12 @@ describe('評価（V-044・V-052）', () => {
     const saved = await context.container.repositories.evaluations.listLatest(SENSOR_ID);
     expect(saved.length).toBeGreaterThan(0);
     expect(errors.filter((entry) => entry.message === '設備の評価に失敗しました')).toHaveLength(2);
+    // 評価の順は、ロボット・センサー → ハウス（ハウスの結果は、配下の設備の結果から求める。D-19）
     expect(errors.map((entry) => (entry.fields as { equipmentId: string }).equipmentId)).toEqual([
-      FACILITY_ID,
       ROBOT_ID,
+      FACILITY_ID,
     ]);
-    expect(errors[1]?.fields).toMatchObject({
+    expect(errors[0]?.fields).toMatchObject({
       equipmentId: ROBOT_ID,
       errorName: 'RangeError',
       trigger: 'DEV',

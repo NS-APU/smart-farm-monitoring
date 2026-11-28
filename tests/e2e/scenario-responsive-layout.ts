@@ -1,7 +1,7 @@
 /**
  * シナリオ: スマートフォン幅（375px）・タブレット幅（768px）で、主要な画面が、横にはみ出さず、重ならず、操作できる
  * （NFR-7.1・NFR-7.3。レビュー V-103・V-158）。デスクトップ幅（1280px）だけでは、モバイルの表示崩れを見つけられないため、
- * 現場で最もよく使う画面（ダッシュボード・観点の詳細・データ入力・通知・取り込み済みデータ・設備・取り込み設定）を、両方の幅で開く。
+ * 現場で最もよく使う画面（ダッシュボード・観点の詳細・データ入力・通知・計測データ・設備・取り込み）を、両方の幅で開く。
  * 各画面は、`shot`（横スクロール・重なり・はみ出しの検査つきのスクリーンショット）で確認する。
  * 観点の詳細の元データの表は、長い設備名（200文字）でも、列が1文字ずつ折り返すほど潰れないことを確認する（V-158）。
  */
@@ -15,6 +15,7 @@ import {
   seed,
 } from './support/viewpoint-scenarios.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const LONG_NAME = '収穫ロボットの非常に長い名称'.repeat(15).slice(0, 200);
 
@@ -23,9 +24,9 @@ const SCREENS: readonly { name: string; path: string; heading: string }[] = [
   { name: 'viewpoint', path: '/viewpoints/environmentalAdaptability', heading: '環境適応性' },
   { name: 'data-entry', path: '/data-entry', heading: 'データ入力' },
   { name: 'notifications', path: '/notifications', heading: '通知' },
-  { name: 'observations', path: '/observations', heading: '取り込み済みデータ' },
-  { name: 'equipment', path: '/settings/equipment', heading: '設備' },
-  { name: 'ingestion', path: '/settings/ingestion', heading: '取り込み設定' },
+  { name: 'observations', path: '/observations', heading: '計測データ' },
+  { name: 'equipment', path: '/settings/equipment', heading: 'ハウス・設備' },
+  { name: 'ingestion', path: '/settings/ingestion', heading: '取り込み' },
   { name: 'entry-list', path: '/data-entry/list', heading: '入力済みデータ' },
   { name: 'entry-history', path: '/data-entry/history', heading: '変更履歴' },
   { name: 'status-codes', path: '/settings/status-codes', heading: 'ステータスコード' },
@@ -82,6 +83,38 @@ for (const viewport of [
       }
     });
 
+    test('一覧の絞り込みは、折りたたまれ、条件の数と条件のクリアは見える。開閉のボタンで、項目を開閉できる（Issue #152。SC-07-3）', async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await alignBrowserClock(page);
+      await openAs(page, '/data-entry/list?category=FAILURE');
+      await expect(page.getByRole('heading', { level: 1 }).first()).toContainText('入力済みデータ');
+
+      const toggle = page.getByRole('button', { name: '絞り込みを開く' });
+      await expect(toggle).toBeVisible();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.getByLabel('キーワード')).toBeHidden();
+      await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 1 件');
+      await expect(page.getByRole('button', { name: '条件のクリア' })).toBeVisible();
+      await shot(page, testInfo, `responsive-${viewport.label}-filter-closed`);
+
+      await toggle.click();
+
+      await expect(page.getByRole('button', { name: '絞り込みを閉じる' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      await expect(page.getByLabel('キーワード')).toBeVisible();
+      await expect(page.getByLabel('カテゴリ')).toBeVisible();
+      await shot(page, testInfo, `responsive-${viewport.label}-filter-open`);
+
+      await page.getByRole('button', { name: '絞り込みを閉じる' }).click();
+      await expect(page.getByLabel('キーワード')).toBeHidden();
+    });
+
     test('観点の詳細の元データの表は、長い設備名・桁の多い値でも、列が潰れず、表の枠の中で横にスクロールできる', async ({
       page,
       request,
@@ -91,6 +124,8 @@ for (const viewport of [
       await alignBrowserClock(page);
       await openAs(page, '/viewpoints/harvestAccuracy');
       await expect(page.getByRole('heading', { level: 1 }).first()).toContainText('収穫精度');
+      // 元データの欄は、折りたたみ（既定は閉。SC-03-4）。開く
+      await expandPanel(page, 'source-data');
 
       const table = page.locator('table.source-table');
       await expect(table).toBeVisible();
@@ -104,3 +139,23 @@ for (const viewport of [
     });
   });
 }
+
+test('デスクトップ幅（1280px）: 絞り込みの項目は、常に開いていて、開閉のボタンは出ない。条件のクリアは使える（Issue #152。SC-07-3）', async ({
+  page,
+  request,
+}) => {
+  await prepareApp(request);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await alignBrowserClock(page);
+  await openAs(page, '/data-entry/list?category=FAILURE');
+  await expect(page.getByRole('heading', { level: 1 }).first()).toContainText('入力済みデータ');
+
+  await expect(page.getByRole('button', { name: '絞り込みを開く' })).toBeHidden();
+  await expect(page.getByLabel('キーワード')).toBeVisible();
+  await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 1 件');
+
+  await page.getByRole('button', { name: '条件のクリア' }).click();
+
+  await expect(page.getByLabel('カテゴリ')).toHaveValue('');
+  await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+});

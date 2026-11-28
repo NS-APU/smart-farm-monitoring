@@ -13,12 +13,14 @@ import type { UserService } from '../application/auth/user-service.ts';
 import type { FacilityAccessService } from '../application/access/facility-access-service.ts';
 import type { FacilityScopeService } from '../application/access/facility-scope.ts';
 import type { CriteriaAdminService } from '../application/evaluation/criteria-admin-service.ts';
+import type { CriteriaPreviewService } from '../application/evaluation/criteria-preview-service.ts';
 import type { FacilityLogService } from '../application/ingestion/facility-log-service.ts';
 import type { FederationAdminService } from '../application/federation/federation-admin-service.ts';
 import type { IngestionAdminService } from '../application/ingestion/ingestion-admin-service.ts';
 import type { IngestionService } from '../application/ingestion/ingestion-service.ts';
 import type { ManualEntryService } from '../application/manual-entry/manual-entry-service.ts';
 import type { PushSubscriptionService } from '../application/notification/push-subscription-service.ts';
+import type { EquipmentDeletionService } from '../application/equipment/equipment-deletion-service.ts';
 import type { EquipmentService } from '../application/equipment/equipment-service.ts';
 import type { StatusCodeService } from '../application/equipment/status-code-service.ts';
 import type { JobRunner } from '../application/jobs/job-runner.ts';
@@ -39,7 +41,6 @@ import type { MockFederation } from '../infrastructure/local/mock-federation.ts'
 export interface DevApiDeps {
   readonly clock: ControllableClock;
   readonly faults: {
-    readonly fileServer: FaultController;
     readonly federation: FaultController;
     readonly webPush: FaultController;
   };
@@ -55,10 +56,12 @@ export interface ApiDeps {
   readonly clock: ClockPort;
   readonly authService: AuthService;
   readonly equipmentService: EquipmentService;
+  readonly equipmentDeletionService: EquipmentDeletionService;
   readonly statusCodeService: StatusCodeService;
   readonly auditService: AuditService;
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
+  readonly criteriaPreviewService: CriteriaPreviewService;
   readonly userService: UserService;
   readonly facilityAccessService: FacilityAccessService;
   readonly facilityScope: FacilityScopeService;

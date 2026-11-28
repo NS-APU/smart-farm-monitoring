@@ -1,9 +1,15 @@
 /** フロントエンドのテスト用の補助: API のスタブ（fetch）、応答のデータ（合成データ）、セッション。 */
 
-import { vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
 import { toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
-import type { DashboardResponse, ViewpointCard } from '@smart-farm/shared/schemas/evaluation';
+import type { EvaluationStatus } from '@smart-farm/shared/constants/status';
+import type {
+  CurrentResult,
+  DashboardResponse,
+  StatusCounts,
+  ViewpointCard,
+} from '@smart-farm/shared/schemas/evaluation';
 import type { EquipmentTreeResponse } from '@smart-farm/shared/schemas/equipment';
 import type { SessionAccess } from '../../src/frontend/api/client.ts';
 
@@ -12,9 +18,15 @@ export interface FakeRequest {
   readonly path: string;
   readonly query: URLSearchParams;
   readonly body: unknown;
+  /** 本文の文字列そのもの（JSON を包まずに送る本文の確認用。本文がなければ undefined）。 */
+  readonly rawBody: string | undefined;
+  /** 本文の Content-Type。 */
+  readonly contentType: string | null;
   readonly authorization: string | null;
   /** 条件つきの GET（前回の ETag）。 */
   readonly ifNoneMatch: string | null;
+  /** 版つき更新の条件（読み込んだ時点の ETag）。 */
+  readonly ifMatch: string | null;
 }
 
 export type FakeHandler = (request: FakeRequest) => Response | Promise<Response> | undefined;
@@ -30,6 +42,14 @@ export function errorResponse(status: number, code: string, message: string): Re
   return jsonResponse({ error: { code, message } }, status);
 }
 
+function parseJsonOrUndefined(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 /** API のスタブ。ハンドラが undefined を返したリクエストは、404 にする。呼び出しを記録する。 */
 export function createFakeFetch(handler: FakeHandler) {
   const calls: FakeRequest[] = [];
@@ -42,9 +62,12 @@ export function createFakeFetch(handler: FakeHandler) {
       method: init?.method ?? 'GET',
       path: url.pathname.replace(/^\/api\/v1/, ''),
       query: url.searchParams,
-      body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined,
+      body: typeof init?.body === 'string' ? parseJsonOrUndefined(init.body) : undefined,
+      rawBody: typeof init?.body === 'string' ? init.body : undefined,
+      contentType: headers.get('content-type'),
       authorization: headers.get('authorization'),
       ifNoneMatch: headers.get('if-none-match'),
+      ifMatch: headers.get('if-match'),
     };
     calls.push(request);
     return Promise.resolve(handler(request) ?? errorResponse(404, 'NOT_FOUND', '見つかりません'));
@@ -124,12 +147,44 @@ export function equipmentTree(): EquipmentTreeResponse {
   };
 }
 
+/** ハウスが 2 つ（HOUSE-01・HOUSE-02。それぞれ、配下にロボットを持つ）。ダッシュボードの「対象のハウス」の確認用。 */
+export function twoFacilityTree(): EquipmentTreeResponse {
+  const createdAt = '2026-10-01T00:00:00.000Z';
+  const base = equipmentTree();
+  return {
+    facilities: [
+      ...base.facilities,
+      {
+        facility: {
+          equipmentId: toEquipmentId('HOUSE-02'),
+          equipmentType: 'FACILITY',
+          name: 'ハウス2',
+          isDeleted: false,
+          createdAt,
+        },
+        children: [
+          {
+            equipmentId: toEquipmentId('ROBOT-02'),
+            equipmentType: 'ROBOT',
+            name: '収穫ロボット2',
+            facilityId: toEquipmentId('HOUSE-02'),
+            isDeleted: false,
+            createdAt,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 export function card(overrides: Partial<ViewpointCard> = {}): ViewpointCard {
+  // 短期・長期のステータスは、指定がなければ、カードのステータスと同じにする（短期が悪い、という食い違いを、勝手に作らない）
+  const status = overrides.status ?? 'NORMAL';
   return {
     viewpointId: 'safety',
     name: '安全性',
     status: 'NORMAL',
-    statuses: { short: 'NORMAL', long: 'NORMAL' },
+    statuses: { short: status === 'UNKNOWN' ? null : status, long: status },
     metrics: { emergencyStopPerHour: 0, nearMissPerHour: null },
     metricStatuses: { emergencyStopPerHour: 'NORMAL' },
     statusDetail: null,
@@ -139,11 +194,75 @@ export function card(overrides: Partial<ViewpointCard> = {}): ViewpointCard {
     evaluatedTo: '2026-10-09T03:00:00.000Z',
     isCustomCriteria: false,
     horizonUsed: 'LONG',
+    evaluatedAt: '2026-10-09T03:00:00.000Z',
+    // 「現在」（短期の評価）は、指定がなければ、なし（短期を持たない観点と同じ）。`currentResult()` で作って渡す
+    current: null,
     ...overrides,
   };
 }
 
+/** 「現在」（短期の評価）。値・状態・診断・推奨アクションは、「期間」と別の、短期の 1 回の評価の結果。 */
+export function currentResult(overrides: Partial<CurrentResult> = {}): CurrentResult {
+  return {
+    status: 'NORMAL',
+    metrics: { emergencyStopPerHour: 0, nearMissPerHour: null },
+    metricStatuses: { emergencyStopPerHour: 'NORMAL' },
+    statusDetail: null,
+    diagnosticMessage: '安全性: 正常。緊急停止頻度 0.000回/時間（正常）',
+    recommendedAction: '現在の状態を維持し、引き続き推移を確認してください',
+    evaluatedFrom: '2026-10-08T03:05:00.000Z',
+    evaluatedTo: '2026-10-09T03:05:00.000Z',
+    evaluatedAt: '2026-10-09T03:05:00.000Z',
+    isCustomCriteria: false,
+    ...overrides,
+  };
+}
+
+function countStatuses(statuses: readonly EvaluationStatus[]): StatusCounts {
+  const counts = { NORMAL: 0, CAUTION: 0, ERROR: 0, UNKNOWN: 0 };
+  for (const status of statuses) {
+    counts[status] += 1;
+  }
+  return counts;
+}
+
+/**
+ * 現在の時刻（Date だけ。タイマーは、そのまま）を、`dashboard()` の最終の評価（2026-10-09T03:00:00Z）の 5 分後に固定する
+ * （各テストの前後で。評価が更新されていない警告〔最終の評価から 15 分以上。Issue #158〕が、実際の現在の時刻で出ないように）。
+ */
+export function pinClockToDashboardFixture(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-09T03:05:00.000Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 export function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardResponse {
+  const viewpoints = overrides.viewpoints ?? [
+    card(),
+    card({
+      viewpointId: 'harvestSpeed',
+      name: '収穫速度',
+      status: 'CAUTION',
+      metrics: { averageSecondsPerFruit: 72, travelStoppedRatePercent: 2 },
+      statusDetail: { code: 'HARVESTING', name: '収穫中', category: 'NORMAL' },
+      isCustomCriteria: true,
+    }),
+    card({
+      viewpointId: 'satisfaction',
+      name: '満足度',
+      status: 'UNKNOWN',
+      statuses: { short: null, long: 'UNKNOWN' },
+      metrics: {},
+      metricStatuses: {},
+      evaluatedFrom: null,
+      evaluatedTo: null,
+      evaluatedAt: null,
+    }),
+  ];
   return {
     equipmentId: toEquipmentId('HOUSE-01'),
     horizon: 'LONG',
@@ -154,27 +273,12 @@ export function dashboard(overrides: Partial<DashboardResponse> = {}): Dashboard
     staleEquipment: [],
     lastManualInputAt: null,
     summary: { NORMAL: 1, CAUTION: 1, ERROR: 0, UNKNOWN: 1 },
-    viewpoints: [
-      card(),
-      card({
-        viewpointId: 'harvestSpeed',
-        name: '収穫速度',
-        status: 'CAUTION',
-        metrics: { averageSecondsPerFruit: 72, travelStoppedRatePercent: 2 },
-        statusDetail: { code: 'HARVESTING', name: '収穫中', category: 'NORMAL' },
-        isCustomCriteria: true,
-      }),
-      card({
-        viewpointId: 'satisfaction',
-        name: '満足度',
-        status: 'UNKNOWN',
-        statuses: { short: null, long: 'UNKNOWN' },
-        metrics: {},
-        metricStatuses: {},
-        evaluatedFrom: null,
-        evaluatedTo: null,
-      }),
-    ],
+    // 「現在」「期間」の観点の数は、指定がなければ、カードから数える（別々に数える）
+    currentSummary: countStatuses(
+      viewpoints.flatMap((item) => (item.current === null ? [] : [item.current.status])),
+    ),
+    periodSummary: countStatuses(viewpoints.map((item) => item.statuses.long)),
     ...overrides,
+    viewpoints,
   };
 }

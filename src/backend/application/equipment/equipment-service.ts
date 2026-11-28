@@ -1,14 +1,21 @@
 /**
  * 設備管理のユースケース（UC-12。FR-2）。ハウス → ロボット／センサーの階層を保持する。
- * 登録・変更・削除（論理削除）は、変更履歴に記録し、評価に反映する（評価の単位が変わるため）。
- * ハウスを削除した場合は、配下のロボット・センサーも削除する（暫定。dev_spec.md 4章 No.24）。
+ * 登録・変更・削除は、変更履歴に記録し、評価に反映する（評価の単位が変わるため）。
+ * 設備を削除すると、設備は、すぐに削除済みになり（画面・評価・取り込みから外れる）、設備のデータは、ジョブ（JB-05）が削除する
+ * （equipment-deletion-service.ts。D-28）。ハウスは、配下のロボット・センサーも削除する。
  */
 
 import { conflictError, validationError } from '@smart-farm/shared/errors';
-import type { EquipmentId, UserId } from '@smart-farm/shared/schemas/common';
+import type {
+  EquipmentId,
+  EvaluationWriteResponse,
+  EvaluationWriteState,
+  UserId,
+} from '@smart-farm/shared/schemas/common';
 import type {
   Equipment,
   EquipmentCreateRequest,
+  EquipmentSaveResponse,
   EquipmentTreeResponse,
   EquipmentUpdateRequest,
 } from '@smart-farm/shared/schemas/equipment';
@@ -17,9 +24,12 @@ import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
 import { equipmentFederationPayload } from '../../domain/federation-payload.ts';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { FederationService } from '../federation/federation-service.ts';
+import type { EquipmentConnections } from '../ingestion/equipment-connections.ts';
+import type { EquipmentDeletionService } from './equipment-deletion-service.ts';
 import { requireActiveEquipment } from './require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
-import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
+import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
+import { reevaluateAllOnWrite } from '../evaluation/reevaluate-safely.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
 import type { EquipmentRepository, SettingsRepository } from '../ports/repositories.ts';
@@ -30,14 +40,18 @@ const EQUIPMENT_TARGET_TYPE = 'equipment' satisfies AuditTargetType;
 export interface EquipmentService {
   /** ハウス → ロボット／センサーの階層（論理削除を除く）。 */
   getTree(): Promise<EquipmentTreeResponse>;
-  create(input: EquipmentCreateRequest, actor: UserId): Promise<Equipment>;
+  /** 登録する。応答に、評価の状態を含める（`deferred` では `DEFERRED`。ADR-0014）。 */
+  create(input: EquipmentCreateRequest, actor: UserId): Promise<EquipmentSaveResponse>;
   update(
     equipmentId: EquipmentId,
     input: EquipmentUpdateRequest,
     actor: UserId,
-  ): Promise<Equipment>;
-  /** 論理削除する（ハウスは、配下も）。存在しない（削除済みを含む）場合は NOT_FOUND。 */
-  delete(equipmentId: EquipmentId, actor: UserId): Promise<void>;
+  ): Promise<EquipmentSaveResponse>;
+  /**
+   * 削除する（ハウスは、配下も）。設備を削除済みにして、データの削除を、ジョブへ依頼する。存在しない（削除済みを含む）場合は NOT_FOUND。
+   * 評価の状態を返す。
+   */
+  delete(equipmentId: EquipmentId, actor: UserId): Promise<EvaluationWriteResponse>;
 }
 
 export interface EquipmentServiceDeps {
@@ -46,8 +60,14 @@ export interface EquipmentServiceDeps {
   readonly settings: SettingsRepository;
   /** 設備の名前・ID を、連携キューに積む（登録・修正のとき。Issue #177。ADR-0024）。 */
   readonly federation: Pick<FederationService, 'enqueue'>;
+  /** 設備のデータの削除を依頼する（D-28。Issue #229）。 */
+  readonly deletion: Pick<EquipmentDeletionService, 'request' | 'isDeleting'>;
+  /** 設備を削除したとき、その設備ごとの接続を削除する（Issue #367。ADR-0026。省略は、何もしない）。 */
+  readonly equipmentConnections?: Pick<EquipmentConnections, 'remove'>;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
+  /** 変更の後の評価を、応答の前に行うか（`deferred` は、定期の評価〔JB-02〕に任せる。ADR-0014）。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   readonly clock: ClockPort;
   readonly logger: Logger;
 }
@@ -60,7 +80,7 @@ function byCreation(left: Equipment, right: Equipment): number {
 }
 
 export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentService {
-  const { equipment: repository, audit, evaluation, clock, logger } = deps;
+  const { equipment: repository, audit, evaluation, evaluationOnWrite, clock, logger } = deps;
   const settingsRepository = deps.settings;
 
   /** 設備の名前・ID を、連携キューに積む（D-35）。削除のときは、積まない（基盤のデータは、削除しない。D-28）。 */
@@ -82,7 +102,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     }
   }
 
-  /** ファイルの中の設備の識別子（externalId）は、同じ種別の設備の中で一意（取り込みの対応づけのため）。 */
+  /** データ上の識別子（externalId）は、同じ種別の設備の中で一意。取り込みの照合には使わない（設備は、ファイルのパスで決める）。 */
   async function assertExternalIdUnique(
     equipmentType: Equipment['equipmentType'],
     externalId: string | undefined,
@@ -102,9 +122,11 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     }
   }
 
-  /** ファイルのパス（sourceFilePath）は、同じ種別の設備の中で一意（1 つのファイルを 1 つの設備に対応づけるため。ADR-0023）。削除済みは、一覧に含まれないため、数えない。 */
+  /**
+   * ファイルのパス（sourceFilePath）は、すべての設備（ロボット・センサーの種別を問わず）の中で一意
+   * （1 設備 = 1 ファイル。ファイルの中に設備の識別子を持たず、パスで設備を決めるため。ADR-0023）。削除済みは、一覧に含まれないため、数えない。
+   */
   async function assertSourceFilePathUnique(
-    equipmentType: Equipment['equipmentType'],
     sourceFilePath: string | undefined,
     ownId: EquipmentId | undefined,
   ): Promise<void> {
@@ -112,19 +134,22 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       return;
     }
     const duplicated = (await repository.list()).some(
-      (other) =>
-        other.equipmentType === equipmentType &&
-        other.sourceFilePath === sourceFilePath &&
-        other.equipmentId !== ownId,
+      (other) => other.sourceFilePath === sourceFilePath && other.equipmentId !== ownId,
     );
     if (duplicated) {
       throw conflictError('sourceFilePath', '同じファイルパスがすでに登録されています');
     }
   }
 
-  /** 評価の更新。失敗しても、設備の保存の結果には影響させない。 */
-  const reevaluate = (): Promise<void> =>
-    reevaluateSafely(evaluation, logger, 'EQUIPMENT_CHANGE', '設備の変更後の評価に失敗しました');
+  /** 評価の更新（`deferred` では、しない）。失敗しても、設備の保存の結果には影響させない。 */
+  const reevaluate = (): Promise<EvaluationWriteState> =>
+    reevaluateAllOnWrite(
+      evaluationOnWrite,
+      evaluation,
+      logger,
+      'EQUIPMENT_CHANGE',
+      '設備の変更後の評価に失敗しました',
+    );
 
   return {
     async getTree() {
@@ -139,7 +164,13 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
     },
 
     async create(input, actor) {
-      // 削除済みの設備と同じ識別子も、重複として扱う（過去のデータの取り違えを防ぐ）
+      // 登録中の設備と、削除中（データの削除が終わっていない）の設備と同じ識別子は、重複として扱う。削除が終わった設備の識別子は、再登録できる（D-28）
+      if (await deps.deletion.isDeleting(input.equipmentId)) {
+        throw conflictError(
+          'equipmentId',
+          '同じ設備IDの設備を削除しています。削除が終わってから登録してください',
+        );
+      }
       if ((await repository.get(input.equipmentId)) !== undefined) {
         throw conflictError('equipmentId', '同じ設備IDがすでに登録されています');
       }
@@ -147,7 +178,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         await assertFacility(input.facilityId);
       }
       await assertExternalIdUnique(input.equipmentType, input.externalId, undefined);
-      await assertSourceFilePathUnique(input.equipmentType, input.sourceFilePath, undefined);
+      await assertSourceFilePathUnique(input.sourceFilePath, undefined);
       const created: Equipment = {
         equipmentId: input.equipmentId,
         equipmentType: input.equipmentType,
@@ -170,8 +201,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         after: created,
       });
       await enqueueFederation(created);
-      await reevaluate();
-      return created;
+      return { ...created, evaluation: await reevaluate() };
     },
 
     async update(equipmentId, input, actor) {
@@ -198,7 +228,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
         await assertFacility(facilityId);
       }
       await assertExternalIdUnique(before.equipmentType, input.externalId, equipmentId);
-      await assertSourceFilePathUnique(before.equipmentType, input.sourceFilePath, equipmentId);
+      await assertSourceFilePathUnique(input.sourceFilePath, equipmentId);
       const updated: Equipment = {
         equipmentId: before.equipmentId,
         equipmentType: before.equipmentType,
@@ -225,8 +255,7 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       if (updated.name !== before.name || updated.facilityId !== before.facilityId) {
         await enqueueFederation(updated);
       }
-      await reevaluate();
-      return updated;
+      return { ...updated, evaluation: await reevaluate() };
     },
 
     async delete(equipmentId, actor) {
@@ -239,6 +268,8 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
       await recordDeletedExternalIds(settingsRepository, [target, ...children], clock.now());
       for (const equipment of [target, ...children]) {
         await repository.save({ ...equipment, isDeleted: true });
+        // 設備ごとの接続も、削除する（認証情報は、データの削除のジョブが、削除する。D-28）
+        await deps.equipmentConnections?.remove(equipment.equipmentId);
         await audit.record({
           operation: 'DELETE',
           targetType: EQUIPMENT_TARGET_TYPE,
@@ -247,7 +278,9 @@ export function createEquipmentService(deps: EquipmentServiceDeps): EquipmentSer
           before: equipment,
         });
       }
-      await reevaluate();
+      // 設備のデータの削除は、ジョブ（JB-05）が行う（削除が終わるまで、設備の記録は、削除済みで残る）
+      await deps.deletion.request(target, children, actor);
+      return { evaluation: await reevaluate() };
     },
   };
 }

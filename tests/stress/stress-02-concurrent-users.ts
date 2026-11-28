@@ -117,25 +117,21 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         round % 2 === 0 ? ['HOUSE-02', '負荷試験ハウス2'] : ['HOUSE-03', '負荷試験ハウス3'];
       await m(
         'UC-01',
-        `対象の設備を${equipment[1] ?? ''}に切り替える（全員が同時）`,
+        `対象のハウスを${equipment[1] ?? ''}に切り替える（全員が同時）`,
         'ダッシュボード（SC-02）',
         'dashboardInitial',
         {
-          act: () =>
-            page
-              .getByRole('banner')
-              .getByLabel('対象の設備')
-              .selectOption(equipment[0] ?? ''),
+          act: () => page.getByLabel('対象のハウス').selectOption(equipment[0] ?? ''),
           respond: () => expectDashboardShown(page, equipment[1]),
         },
       );
       await m(
         'UC-01',
-        '対象の設備をハウス1に戻す（全員が同時）',
+        '対象のハウスをハウス1に戻す（全員が同時）',
         'ダッシュボード（SC-02）',
         'dashboardInitial',
         {
-          act: () => page.getByRole('banner').getByLabel('対象の設備').selectOption('HOUSE-01'),
+          act: () => page.getByLabel('対象のハウス').selectOption('HOUSE-01'),
           respond: () => expectDashboardShown(page, '負荷試験ハウス1'),
         },
       );
@@ -164,7 +160,7 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         '観点の詳細・推移（SC-03）',
         'trend',
         {
-          act: () => page.getByLabel('長期の期間').selectOption({ label: '直近30日' }),
+          act: () => page.getByLabel('期間').last().selectOption({ label: '直近30日' }),
           respond: () => expectDetailShown(page),
         },
       );
@@ -174,27 +170,30 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         '観点の詳細・推移（SC-03）',
         'trend',
         {
-          act: () => page.getByLabel('長期の期間').selectOption({ label: '直近90日' }),
+          act: () => page.getByLabel('期間').last().selectOption({ label: '直近90日' }),
           respond: () => expectDetailShown(page),
         },
       );
+      // 観点の詳細のドロワーを閉じる（次は、メニューで移る。ドロワーを開いたままでは、メニューを押せない。Issue #357）
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
       await m(
         'UC-20',
-        '取り込み済みデータの一覧を開く（全員が同時。約60万件）',
-        '取り込み済みデータ（SC-09）',
+        '計測データの一覧を開く（全員が同時。約60万件）',
+        '計測データ（SC-09）',
         'screen',
         {
-          act: () => menu('取り込み済みデータ').click(),
+          act: () => menu('計測データ').click(),
           respond: async () => {
             await expect(loadingView(page)).toHaveCount(0);
-            await expect(page.getByTestId('observation-row').first()).toBeVisible();
+            await expect(page.getByTestId('measurement-row').first()).toBeVisible();
           },
         },
       );
       await m(
         'UC-20',
-        '取り込み済みデータを、値の昇順に並べ替える（全員が同時）',
-        '取り込み済みデータ（SC-09）',
+        '計測データを、値の昇順に並べ替える（全員が同時）',
+        '計測データ（SC-09）',
         'screen',
         {
           act: async () => {
@@ -226,8 +225,11 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
       await form.getByLabel('対象の設備').selectOption('ROBOT-01');
       await form.getByLabel('カテゴリ').selectOption('FAILURE');
       await form.getByLabel('計測日時（日本時間）').fill(nextObservedAt());
-      await form.getByTestId('entry-items').getByLabel('故障回数').fill('1');
-      await form.getByTestId('entry-items').getByLabel('復旧に要した時間').fill('60');
+      await form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }).fill('1');
+      await form
+        .getByTestId('entry-items')
+        .getByRole('textbox', { name: '復旧に要した時間' })
+        .fill('60');
       await m(
         'UC-06',
         '復旧対応の結果を入力して「保存する」を押す（全員が同時）',
@@ -275,8 +277,13 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         },
       );
     }
+    // ユーザーメニューを開く操作は、計測しない（計測するのは、項目を選んでから、画面が応答するまで）
+    await page
+      .getByRole('banner')
+      .getByRole('button', { name: /^ログイン中のユーザー/ })
+      .click();
     await m('UC-13', 'ログアウトする（全員が同時）', 'ログイン（SC-01）', 'screen', {
-      act: () => page.getByRole('banner').getByRole('button', { name: 'ログアウト' }).click(),
+      act: () => page.getByRole('menuitem', { name: 'ログアウト', exact: true }).click(),
       respond: () =>
         expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(),
     });

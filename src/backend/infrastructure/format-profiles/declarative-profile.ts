@@ -4,7 +4,8 @@
  * 項目の値の型・範囲の検証は、取り込みの検証（domain/observation-quality.ts）で行う。ここは、構造の読み取りのみ。
  *
  * ファイルは、JSON（1 つのファイルを随時更新する。更新のたびに全体が書き換わり、中身は最新の値だけ。ADR-0016 の D-08・ADR-0003 の更新）。
- * ロボットも環境センサーも、同じ形（設備の識別子 + 記録の配列）。CSV は、扱わない（#174 で削除）。
+ * ロボットも環境センサーも、同じ形（その時点のスナップショット 1 つ: 計測日時 + 項目。フラットな JSON）。
+ * ファイルの中に、設備の識別子・記録の配列は持たない（設備は、設備ごとのファイルのパスで決める）。CSV は、扱わない（#174 で削除）。
  */
 
 import { z } from 'zod';
@@ -14,7 +15,6 @@ import {
   type FormatProfile,
   type FormatProfileRegistry,
   type ParsedFile,
-  type ParsedRecord,
 } from '../../application/ports/format-profile.ts';
 import environmentSensorJsonConfig from './environment-sensor-json.profile.json' with { type: 'json' };
 import robotJsonConfig from './robot-json.profile.json' with { type: 'json' };
@@ -34,10 +34,7 @@ export const FormatProfileConfigSchema = z.object({
    */
   utcOffsetMinutes: z.number().int().min(-720).max(840).default(JST_OFFSET_MINUTES),
   layout: z.object({
-    /** 記録の配列のパス（ドット区切り）。 */
-    recordsPath: z.string().min(1),
-    /** ファイル全体の設備の識別子のパス。 */
-    equipmentIdPath: z.string().min(1),
+    /** 計測日時のキー（ファイルのトップのキー）。 */
     timestampField: z.string().min(1),
   }),
   fields: z.array(FieldMappingSchema).min(1),
@@ -47,17 +44,6 @@ export type FormatProfileConfig = z.infer<typeof FormatProfileConfigSchema>;
 /** オブジェクト（配列を含む）か。キーで値を引ける形に絞り込む。 */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function valueAtPath(source: unknown, path: string): unknown {
-  let current = source;
-  for (const segment of path.split('.')) {
-    if (!isRecord(current) || !Object.hasOwn(current, segment)) {
-      return undefined;
-    }
-    current = current[segment];
-  }
-  return current;
 }
 
 const OFFSET_LESS_DATETIME =
@@ -114,38 +100,32 @@ function parseJson(config: FormatProfileConfig, content: string): ParsedFile {
   } catch (error) {
     throw new FormatError('JSON として読み取れません', { cause: error });
   }
-  const rawRecords = valueAtPath(document, config.layout.recordsPath);
-  const externalId = valueAtPath(document, config.layout.equipmentIdPath);
-  if (!Array.isArray(rawRecords) || typeof externalId !== 'string' || externalId === '') {
+  if (!isRecord(document) || Array.isArray(document)) {
     throw new FormatError('ファイルの構造が仕様と異なります');
   }
-
-  const records: ParsedRecord[] = [];
-  let rejectedCount = 0;
-  for (const rawRecord of rawRecords) {
-    const timestamp = isRecord(rawRecord) ? rawRecord[config.layout.timestampField] : undefined;
-    const observedAt =
-      typeof timestamp === 'string'
-        ? toUtcTimestamp(timestamp, config.utcOffsetMinutes)
-        : undefined;
-    if (!isRecord(rawRecord) || observedAt === undefined) {
-      rejectedCount += 1;
-      continue;
+  const timestamp = document[config.layout.timestampField];
+  const fields: Record<string, unknown> = {};
+  for (const { source, itemKey } of config.fields) {
+    const value = document[source];
+    if (value !== undefined) {
+      fields[itemKey] = value;
     }
-    const fields: Record<string, unknown> = {};
-    for (const { source, itemKey } of config.fields) {
-      const value = rawRecord[source];
-      if (value !== undefined) {
-        fields[itemKey] = value;
-      }
-    }
-    records.push({ externalId, observedAt, fields });
+  }
+  const hasFields = Object.keys(fields).length > 0;
+  // 計測日時も項目もない（旧構造の「設備の識別子 + 記録の配列」を含む）ファイルは、構造の違いとして検出する（V-019）
+  if (timestamp === undefined && !hasFields) {
+    throw new FormatError('ファイルの構造が仕様と異なります');
+  }
+  const observedAt =
+    typeof timestamp === 'string' ? toUtcTimestamp(timestamp, config.utcOffsetMinutes) : undefined;
+  if (observedAt === undefined) {
+    return { record: undefined, rejectedCount: 1 };
   }
   // 項目名が変わり、設定した項目が1つも読み取れない場合は、構造の変更として検出する（0件の「成功」にしない。V-019）
-  if (records.length > 0 && records.every((record) => Object.keys(record.fields).length === 0)) {
+  if (!hasFields) {
     throw new FormatError('項目名が仕様と異なります');
   }
-  return { records, rejectedCount };
+  return { record: { observedAt, fields }, rejectedCount: 0 };
 }
 
 export function createDeclarativeProfile(rawConfig: unknown): FormatProfile {

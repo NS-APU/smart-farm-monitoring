@@ -1,6 +1,6 @@
 /** SC-01 ログイン（FR-9.1, UC-13）。失敗時は、原因を特定できないメッセージを表示する。 */
 
-import { useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { LoginRequestSchema } from '@smart-farm/shared/schemas/auth';
 import { ApiError } from '../api/client.ts';
 import { useAuth } from '../auth/auth-context.tsx';
@@ -9,26 +9,79 @@ import { PATHS } from '../router/paths.ts';
 import { navigate, useLocation } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
 import { HouseAndStrawberry } from '../components/illustration.tsx';
+import { PasswordInput } from '../components/password-input.tsx';
 
-/** ログイン後に戻る場所。外部のサイトへ誘導されないよう、同じサイト内のパスだけを許す。 */
+/**
+ * ログイン後に戻る場所。外部のサイトへ誘導されないよう、同じサイト内のパスだけを許す。
+ * ブラウザと同じ規則（URL の解釈）で、同じ origin かを確かめる（バックスラッシュ・タブ・改行を挟んだ `//x` など、文字列の前方一致では見抜けない値を拒否する）。
+ * ログイン画面そのもの（`/login` とその下）は、戻り先にしない。許す場合は、解釈した後のパス・クエリ・ハッシュを返す。
+ */
 export function safeNextPath(next: string | null): string {
-  return next !== null && next.startsWith('/') && !next.startsWith('//') ? next : PATHS.dashboard;
+  if (next?.startsWith('/') !== true) {
+    return PATHS.dashboard;
+  }
+  let url: URL;
+  try {
+    url = new URL(next, window.location.origin);
+  } catch {
+    return PATHS.dashboard;
+  }
+  const isLoginPath = url.pathname === PATHS.login || url.pathname.startsWith(`${PATHS.login}/`);
+  if (url.origin !== window.location.origin || isLoginPath) {
+    return PATHS.dashboard;
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
-/** 未認証のアクセスを、ログイン画面へ誘導する URL（元のパスとクエリを、戻り先（next）に持つ）。 */
-export function loginRedirectPath(pathname: string, search: URLSearchParams): string {
+/** ログイン画面へ戻された理由（クエリ `reason`）。許可リストにある値だけを受け付ける（Issue #157。SC-01-1）。 */
+export type LoginReason = 'expired';
+const LOGIN_REASONS: readonly LoginReason[] = ['expired'];
+
+/** クエリの `reason` を、許可リストで検証する。許可しない値（空・大文字小文字違い・未知の値）は、undefined（無視する）。 */
+export function parseLoginReason(value: string | null): LoginReason | undefined {
+  return LOGIN_REASONS.find((reason) => reason === value);
+}
+
+/**
+ * 未認証のアクセスを、ログイン画面へ誘導する URL（元のパスとクエリを、戻り先（next）に持つ）。
+ * ログイン中にセッションが切れたときは、理由（reason=expired）も持つ（ログイン画面が、期限切れの旨を示す）。
+ */
+export function loginRedirectPath(
+  pathname: string,
+  search: URLSearchParams,
+  reason?: LoginReason,
+): string {
   const query = search.size > 0 ? `?${search.toString()}` : '';
-  return `${PATHS.login}?next=${encodeURIComponent(`${pathname}${query}`)}`;
+  const reasonQuery = reason === undefined ? '' : `&reason=${reason}`;
+  return `${PATHS.login}?next=${encodeURIComponent(`${pathname}${query}`)}${reasonQuery}`;
 }
 
 export function LoginPage(): ReactNode {
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const { search } = useLocation();
+  const next = search.get('next');
+  const reason = parseLoginReason(search.get('reason'));
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const userIdRef = useRef<HTMLInputElement>(null);
+  const passwordId = useId();
+
+  // 開いたとき、ユーザーIDの欄で、すぐ入力できるようにする（開いたときの 1 回だけ）。autoFocus 属性は、
+  // jsx-a11y の no-autofocus で禁じているため、使わない
+  useEffect(() => {
+    userIdRef.current?.focus();
+  }, []);
+
+  // ログイン後の遷移は、ここの 1 か所だけ（ログインに成功したときも、ログイン済みでログイン画面を開いたときも）。
+  // 戻り先（next）があればそこへ、なければダッシュボードへ、履歴に残さずに移る
+  useEffect(() => {
+    if (user !== null) {
+      navigate(safeNextPath(next), { replace: true });
+    }
+  }, [user, next]);
 
   async function handleSubmit(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
@@ -46,7 +99,6 @@ export function LoginPage(): ReactNode {
     setIsSubmitting(true);
     try {
       await login(parsed.data.userId, parsed.data.password);
-      navigate(safeNextPath(search.get('next')), { replace: true });
     } catch (error) {
       // 認証の失敗は、ユーザーIDの存在を推測させないよう、同じメッセージを表示する
       setFormError(
@@ -60,11 +112,17 @@ export function LoginPage(): ReactNode {
     }
   }
 
+  // ログイン済みのときは、上のエフェクトが移るまでの間、フォームを出さない
+  if (user !== null) {
+    return null;
+  }
+
   return (
     <main className="login-page">
       <div className="login-brand">
         <HouseAndStrawberry />
         <h1>{MESSAGES.appName}</h1>
+        <p className="login-purpose">{MESSAGES.login.purpose}</p>
       </div>
       <form
         className="login-form"
@@ -74,6 +132,11 @@ export function LoginPage(): ReactNode {
         }}
       >
         <h2>{MESSAGES.login.title}</h2>
+        {reason === 'expired' ? (
+          <p role="status" className="notice notice-info" data-testid="login-session-expired">
+            {MESSAGES.login.sessionExpired}
+          </p>
+        ) : null}
         {formError === undefined ? null : (
           <p role="alert" className="form-error">
             <Icon name="status-error" size={16} />
@@ -83,6 +146,7 @@ export function LoginPage(): ReactNode {
         <label>
           <span>{MESSAGES.login.userId}</span>
           <input
+            ref={userIdRef}
             name="userId"
             autoComplete="username"
             value={userId}
@@ -99,11 +163,13 @@ export function LoginPage(): ReactNode {
             {fieldErrors.userId}
           </p>
         )}
-        <label>
-          <span>{MESSAGES.login.password}</span>
-          <input
+        <div className="login-field">
+          <label htmlFor={passwordId}>
+            <span>{MESSAGES.login.password}</span>
+          </label>
+          <PasswordInput
+            id={passwordId}
             name="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             aria-invalid={fieldErrors.password !== undefined}
@@ -112,7 +178,7 @@ export function LoginPage(): ReactNode {
               setPassword(event.target.value);
             }}
           />
-        </label>
+        </div>
         {fieldErrors.password === undefined ? null : (
           <p id="password-error" className="field-error">
             <Icon name="status-error" size={14} />
@@ -122,6 +188,7 @@ export function LoginPage(): ReactNode {
         <button type="submit" disabled={isSubmitting}>
           {isSubmitting ? MESSAGES.login.submitting : MESSAGES.login.submit}
         </button>
+        <p className="field-hint">{MESSAGES.login.forgotPassword}</p>
       </form>
     </main>
   );

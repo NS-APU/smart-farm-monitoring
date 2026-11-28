@@ -27,15 +27,15 @@ import {
   apiOk,
   ROBOT_ID,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
   sensorJson,
   setMock,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { federationRows } from './support/ingestion.ts';
-import { expectNoHorizontalScroll } from './support/pages.ts';
+import { expectNoHorizontalScroll, itemListQuery } from './support/pages.ts';
 import { hoursAgo, NOW, shot } from './support/viewpoint-scenarios.ts';
 
 interface ReceivedItem {
@@ -65,11 +65,17 @@ async function queue(request: Parameters<typeof prepareApp>[0]) {
 
 /** 連携対象を用意する: ロボットデータ・環境センサーデータの取り込み、人手入力。評価の結果（派生データ）も積まれる。 */
 async function produceData(request: Parameters<typeof prepareApp>[0]): Promise<void> {
-  placeFile('robot', 'robot.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
-  placeFile(
+  await placeFile(
+    request,
+    'robot',
+    'robot.json',
+    robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
+  );
+  await placeFile(
+    request,
     'environment-sensor',
     'sensor.json',
-    sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+    sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
   );
   await apiOk(request, 'POST', '/ingestion/robot/run');
   await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
@@ -90,7 +96,7 @@ const queueCount = (page: Page, status: string) =>
   page.getByTestId(`queue-${status}`).locator('strong');
 
 test.describe('基本フロー: 連携対象のデータ（生データ・派生データ）を農業情報基盤へ送り、結果を記録する', () => {
-  test('ロボットデータ・環境センサーデータ・人手入力の生データと、評価結果の派生データを、連携キューに積み、連携ジョブ（JB-03）で送信すると、農業情報基盤が受け取り、成功を記録する', async ({
+  test('ロボットデータ・環境センサーデータ・人手入力の生データと、評価結果の派生データを、連携キューに積み、連携ジョブ（JB-03）で送信すると、農業情報基盤が受け取り、送信済みを記録する', async ({
     page,
     request,
   }, testInfo) => {
@@ -108,7 +114,7 @@ test.describe('基本フロー: 連携対象のデータ（生データ・派生
     expect(items.filter((item) => item.targetType === 'EVALUATION').length).toBeGreaterThan(0);
     await openStatus(page);
     await expect(federationRows(page)).toHaveCount(1);
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(federationRows(page).first().locator('td').nth(2)).toHaveText(
       String(pending.PENDING),
     );
@@ -235,7 +241,7 @@ test.describe('連携対象の内容: 生データ（ロボット・環境セン
     const updated = await api(request, 'PUT', `/manual-entries/${created.entry.entryId}`, entry);
     expect(updated.status()).toBe(200);
     const deleted = await api(request, 'DELETE', `/manual-entries/${created.entry.entryId}`);
-    expect(deleted.status()).toBe(204);
+    expect(deleted.status()).toBe(200);
     await runJob(request, 'JB-03');
 
     const added = (await received(request))
@@ -315,13 +321,13 @@ test.describe('代替フロー: 農業情報基盤が停止している場合は
     // 他のユースケースは継続する（UC-01〜UC-10）
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
     await page.goto('/notifications');
     await expect(page.getByTestId('notification-row').first()).toBeVisible();
     await page.goto('/data-entry/list');
     await expect(page.getByTestId('entry-row')).toHaveCount(1);
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').first()).toBeVisible();
   });
 
@@ -492,10 +498,11 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
   }, testInfo) => {
     await prepareApp(request);
     await setMock(request, 'federation', 'DOWN');
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
@@ -523,7 +530,7 @@ test.describe('シナリオ: 取り込み → 評価・通知 → 連携 → 連
     await runJob(request, 'JB-03');
     await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
 
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(queueCount(page, 'HELD')).toHaveText('0');
     const items = await received(request);
     expect(items.some((item) => item.targetType === 'EVALUATION')).toBe(true);

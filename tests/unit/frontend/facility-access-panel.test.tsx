@@ -14,6 +14,8 @@ import {
   loginWith,
   renderApp,
   type Routes,
+  at,
+  requireElement,
 } from '../../support/management-frontend.ts';
 
 function table(overrides: { facilities?: unknown[]; users?: unknown[] } = {}) {
@@ -87,17 +89,69 @@ describe('閲覧の割り当て（設備管理のハウスの行）', () => {
     });
   });
 
-  it('ボタンで、そのハウスを閲覧できる一般ユーザーを選ぶパネルが開く。割り当て済みのユーザーは、チェック済み', async () => {
+  it('ボタンで、そのハウスを閲覧できる一般ユーザーを選ぶダイアログが開く（Issue #365）。割り当て済みのユーザーは、チェック済み', async () => {
     renderApp('/settings/equipment', routes());
 
     const panel = await openPanel();
 
-    expect(within(panel).getByRole('heading').textContent).toContain('ハウス1');
+    // ダイアログの名前（見出し）が、ハウス名を含む
+    expect(screen.getByRole('dialog', { name: /ハウス1/ })).toBeDefined();
     expect(checkbox('一般ユーザーA').checked).toBe(true);
     expect(checkbox('一般ユーザーB').checked).toBe(false);
     expect(
       within(panel).getByRole<HTMLButtonElement>('button', { name: '割り当てを保存' }).disabled,
     ).toBe(true);
+  });
+
+  it('ハウスの割り当ての記録がなければ（まだ、割り当てたことがない）、どのユーザーも、選ばれていない状態で開く', async () => {
+    renderApp(
+      '/settings/equipment',
+      routes({ 'GET /facility-access': () => jsonResponse(table({ facilities: [] })) }),
+    );
+
+    await openPanel();
+
+    expect(checkbox('一般ユーザーA').checked).toBe(false);
+    expect(checkbox('一般ユーザーB').checked).toBe(false);
+  });
+
+  it('ユーザーの一覧を、表（閲覧・ユーザーID・ユーザー名）で示し、行ごとに選ぶ', async () => {
+    renderApp('/settings/equipment', routes());
+
+    const panel = await openPanel();
+
+    const table = within(panel).getByTestId('facility-access-table');
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual(['閲覧', 'ユーザーID', 'ユーザー名']);
+    const rows = within(panel).getAllByTestId('facility-access-row');
+    expect(rows.map((row) => row.getAttribute('data-user-id'))).toEqual(['general-1', 'general-2']);
+    expect(rows[0]?.textContent).toContain('一般ユーザーA');
+    // 行の中のチェックが、そのユーザーの選択
+    expect(within(at(rows, 1)).getByRole<HTMLInputElement>('checkbox').checked).toBe(false);
+  });
+
+  it('ダイアログは、✕・Esc・「閉じる」で閉じる。背面を押しても、閉じない（選択の途中を失わない）', async () => {
+    renderApp('/settings/equipment', routes());
+    await openPanel();
+    fireEvent.click(checkbox('一般ユーザーB'));
+
+    fireEvent.click(requireElement(document.querySelector('.modal-backdrop')));
+    expect(screen.getByRole('dialog', { name: /ハウス1/ })).toBeDefined();
+    expect(checkbox('一般ユーザーB').checked).toBe(true);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // 「閉じる」は 2 つある（見出しの ✕ と、パネルの「閉じる」）。どちらでも閉じる
+    await openPanel();
+    fireEvent.click(at(screen.getAllByRole('button', { name: '閉じる' }), 0));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await openPanel();
+    fireEvent.click(at(screen.getAllByRole('button', { name: '閉じる' }), 1));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('チェックを変えて保存すると、そのハウスの全ユーザー（置き換え）を送り、保存した旨を示し、パネルを閉じて、行の表示も新しくなる', async () => {
@@ -224,8 +278,8 @@ describe('閲覧の割り当て（設備管理のハウスの行）', () => {
   });
 });
 
-describe('ユーザー管理には、閲覧の割り当ての表を出さない（ハウスの画面で行う）', () => {
-  it('ユーザー管理を開いても、割り当ての表・API の呼び出しはない', async () => {
+describe('ユーザー（SC-14）には、閲覧の割り当ての表を出さない（ハウスの画面で行う）', () => {
+  it('ユーザーの画面を開いても、割り当ての表・API の呼び出しはない', async () => {
     const { calls } = renderApp('/settings/users', {
       'GET /users': () =>
         jsonResponse({

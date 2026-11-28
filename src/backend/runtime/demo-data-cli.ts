@@ -6,24 +6,26 @@
  * - `seed [--days N]`: デモの設備（ハウス 1・ロボット 1・環境センサー 1）・直近 N 日分（既定 3 日。1〜31）の合成データ・手入力の例を作り、評価する。
  *   ローカルの `SEED_MODE=DEMO` と同じ内容。設備がすでにあれば、何もしない（何度実行しても、既存のデータを上書きしない）。
  *   `--days 30` は、1 か月分の推移の表示の実測用（Issue #79。実測のあとは、reset のあと、既定の日数で投入し直せる）
+ * - `use-http-feed [--url URL]`: 取り込みを、デモ用の HTTP 配信（ADR-0025）に向ける。デモの設備（ロボット・環境センサー）ごとの接続を HTTP にし、
+ *   デモの設備に、取得するファイルのパスを設定する（何度実行しても、同じ。デモの設備がなければ、先に seed）。URL は、SfmEvaluation の出力 `DemoFeedUrl`
+ *   （`--url` または環境変数 `DEMO_FEED_URL`）。`seed` も、`--url`・`DEMO_FEED_URL` があれば、投入のあとに、同じことをする
  * - `reset`: ユーザー・ログインの試行回数の記録・ジョブのロック以外の、すべてのデータ（DynamoDB の観測値・設備・評価・通知・設定など）と、
- *   ファイルサーバーのモックの S3 のファイルを、消す。**元に戻せない**ため、`--yes` を付けないと、何も消さずに、対象の件数を示す
+ *   **元に戻せない**ため、`--yes` を付けないと、何も消さずに、対象の件数を示す
  * - AWS のエラーは、名前だけを出力する（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
  *
  * **開発サイト専用**。本番サイト（Issue #117。ADR-0013）には、使わない（合成データを入れない。`reset` は、実データを消す）。
  *   本番サイトの操作のために、環境変数 `SFM_ENVIRONMENT=production` を設定したままのシェルで、誤って実行しても、実行しない（安全装置）
  *
  * 環境変数: `PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`（値は、SfmData のスタックの出力）。
- * `reset` で S3 のファイルも消すときは、`FILE_SERVER_S3_BUCKET`（SfmEvaluation の出力 `FileServerBucketName`）。AWS_REGION の既定は ap-northeast-1。
+ * AWS_REGION の既定は ap-northeast-1。
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
 import { AppError } from '@smart-farm/shared/errors';
 import { createDocumentClient } from '../infrastructure/dynamodb/client.ts';
 import { KEPT_PARTITIONS, resetData } from '../infrastructure/dynamodb/data-reset.ts';
-import { clearBucket } from '../infrastructure/s3/clear-bucket.ts';
 import { ConfigError, MAX_DEMO_SEED_DAYS, parseConfig, type AppConfig } from './config.ts';
 import { createContainer, dynamoClientOptions, type ContainerOverrides } from './container.ts';
+import { applyDemoFeed, parseDemoFeedUrl } from './demo-feed-connection.ts';
 
 export interface CommandOutput {
   info(message: string): void;
@@ -37,7 +39,8 @@ const INITIAL_USER_KEYS = [
   'INITIAL_USER_PASSWORD',
   'INITIAL_USER_ROLE',
 ] as const;
-const USAGE = '使い方: pnpm demo-data seed [--days 日数] ／ pnpm demo-data reset [--yes]';
+const USAGE =
+  '使い方: pnpm demo-data seed [--days 日数] [--url 配信の URL] ／ pnpm demo-data use-http-feed [--url 配信の URL] ／ pnpm demo-data reset [--yes]';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -89,6 +92,52 @@ function parseDays(args: readonly string[]): string | undefined {
   return value;
 }
 
+/** デモ用の HTTP 配信の URL（`--url` または環境変数 DEMO_FEED_URL。指定がなければ、undefined）。 */
+function parseFeedUrl(args: readonly string[], env: Env): string | undefined {
+  const index = args.indexOf('--url');
+  if (index >= 0) {
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) {
+      throw new ConfigError('--url には、配信の URL を指定してください');
+    }
+    return value;
+  }
+  const fromEnv = env.DEMO_FEED_URL?.trim();
+  return fromEnv === undefined || fromEnv === '' ? undefined : fromEnv;
+}
+
+/** 取り込みを、デモ用の HTTP 配信に向け、結果を出力する（接続先は、出力しない）。 */
+async function useFeed(
+  container: Parameters<typeof applyDemoFeed>[0],
+  feedUrl: string,
+  output: CommandOutput,
+): Promise<void> {
+  const applied = await applyDemoFeed(container, parseDemoFeedUrl(feedUrl));
+  output.info(
+    `取り込みを、デモ用の HTTP 配信に向けました（接続を設定した設備 ${String(applied.connections)} 件・ファイルのパスを設定した設備 ${String(applied.equipment)} 件）`,
+  );
+}
+
+async function useHttpFeed(
+  args: readonly string[],
+  env: Env,
+  output: CommandOutput,
+  overrides: ContainerOverrides,
+): Promise<void> {
+  const feedUrl = parseFeedUrl(args, env);
+  if (feedUrl === undefined) {
+    throw new ConfigError('配信の URL が必要です（--url または環境変数 DEMO_FEED_URL）');
+  }
+  const config = loadConfig(env, 'NONE');
+  const container = createContainer(config, overrides);
+  try {
+    await container.initialize();
+    await useFeed(container, feedUrl, output);
+  } finally {
+    container.close();
+  }
+}
+
 async function seed(
   args: readonly string[],
   env: Env,
@@ -96,6 +145,10 @@ async function seed(
   overrides: ContainerOverrides,
 ): Promise<void> {
   const days = parseDays(args);
+  const feedUrl = parseFeedUrl(args, env);
+  if (feedUrl !== undefined) {
+    parseDemoFeedUrl(feedUrl); // 形式の誤りは、投入の前に、エラーにする
+  }
   const config = loadConfig(days === undefined ? env : { ...env, DEMO_SEED_DAYS: days }, 'DEMO');
   const container = createContainer(config, overrides);
   try {
@@ -108,6 +161,9 @@ async function seed(
         ? `設備がすでに ${String(before)} 件あるため、デモデータは、投入しませんでした（消して、投入し直すときは、reset のあと、seed）`
         : `デモデータを投入しました（設備 ${String(after)} 件・直近 ${String(config.demoSeedDays)} 日分の合成データ・評価）`,
     );
+    if (feedUrl !== undefined) {
+      await useFeed(container, feedUrl, output);
+    }
   } finally {
     container.close();
   }
@@ -128,19 +184,9 @@ async function reset(
       main: config.dynamodb.mainTable,
     },
   };
-  const s3 =
-    config.fileServerBucket === undefined
-      ? undefined
-      : {
-          client: overrides.s3Client ?? new S3Client({ region: DEFAULT_REGION }),
-          bucket: config.fileServerBucket,
-        };
   try {
-    // S3 のファイルを先に消す（DynamoDB を先に消すと、その間に、取り込みのジョブが、古いファイルから、観測値を作り直すため）
-    const files =
-      s3 === undefined ? 0 : await clearBucket(s3.client, s3.bucket, { dryRun: !confirmed });
     const result = await resetData(db, { dryRun: !confirmed });
-    const summary = `観測値 ${String(result.observations)} 件・そのほかのデータ ${String(result.main)} 件（${KEPT_PARTITIONS.join('・')} を除く）${s3 === undefined ? '' : `・S3 のファイル ${String(files)} 件`}`;
+    const summary = `観測値 ${String(result.observations)} 件・そのほかのデータ ${String(result.main)} 件（${KEPT_PARTITIONS.join('・')} を除く）`;
     if (!confirmed) {
       output.info(
         `reset は、${summary}を削除します。元に戻せません（必要なら、先に、バックアップを取ります）。実行するには、--yes を付けます`,
@@ -167,7 +213,7 @@ export async function runDemoDataCli(
   overrides: ContainerOverrides = {},
 ): Promise<number> {
   const [command] = args;
-  if (command !== 'seed' && command !== 'reset') {
+  if (command !== 'seed' && command !== 'reset' && command !== 'use-http-feed') {
     output.error(`コマンドを指定してください。${USAGE}`);
     return 1;
   }
@@ -180,6 +226,8 @@ export async function runDemoDataCli(
   try {
     if (command === 'seed') {
       await seed(args, env, output, overrides);
+    } else if (command === 'use-http-feed') {
+      await useHttpFeed(args, env, output, overrides);
     } else {
       await reset(args, env, output, overrides);
     }

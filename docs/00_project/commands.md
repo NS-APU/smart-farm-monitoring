@@ -9,7 +9,7 @@
 - Windows では、カレントディレクトリのドライブ文字の大文字・小文字が、モジュールの読み込みとカバレッジの計測に影響する。Git Bash から `node node_modules/vitest/vitest.mjs` を直接呼ぶ（`c:` の小文字になる）と、同じファイルが二重に読み込まれ、カバレッジが 0% になることがある。テストは、`pnpm`（`pnpm test:unit`・`pnpm exec vitest ...`）経由で実行する
 - Windows の Git Bash では、`node -e "..."` の文字列の中のバックスラッシュ（正規表現の `\p`・`\x00` など）が落ちて、意図と違う動きになる。スクリプトは、ファイル（`.mjs`）に書いて `node ファイル.mjs` で実行する。また、git の `リビジョン:パス`（例: `HEAD:src/a.ts`）は、パスが変換されるため、`MSYS_NO_PATHCONV=1` を付けて実行する
 - 単体・結合のテスト（`pnpm test:unit`）は、DynamoDB アダプタの契約テストのため、**DynamoDB Local（AWS の公式の配布物。Java で動く）が必要**。次のどちらかを、環境変数で指定する（どちらもなければ、DynamoDB のテストが、設定を促すエラーで失敗する。スキップはしない）。手順は、「DynamoDB Local」の節
-- E2E は、ポート 5173（Vite）・8787（バックエンド）を使う。空いていること（別の E2E・開発サーバーが動いていないこと）を確認してから実行する。全 E2E の所要時間は、約 45 分
+- E2E（`pnpm test:e2e`）は、ポート 5173（フロントエンド）・8787（バックエンド）を使う。空いていること（別の E2E・開発サーバーが動いていないこと）を確認してから実行する。**開発サーバーが動いているときは、`pnpm test:e2e:parallel`（別のポートを使う）を使う**。全 E2E（945 件）の所要時間は、`pnpm test:e2e:parallel` で、約 20 分（手元の Windows。詳細は「E2E の所要時間」）
 
 ```bash
 # セットアップ（依存パッケージのインストール）
@@ -21,6 +21,9 @@ pnpm exec playwright install chromium
 # 開発サーバ起動
 pnpm dev:backend     # バックエンド（Node サーバー。http://127.0.0.1:8787）。.env があれば読み込む
 pnpm dev:frontend    # フロントエンド（Vite。http://127.0.0.1:5173。/api/v1 をバックエンドへ中継）
+pnpm dev:demo-feed   # デモ用の合成データの HTTP 配信（ファイルサーバーの代わり。http://127.0.0.1:8790。--port N または DEMO_FEED_PORT でポート指定。ADR-0025）。使い方は「ローカルでの動かし方」
+pnpm dev:file-server # ローカルの自前のファイルサーバー（ロボットと同じ PUT で置ける。http://127.0.0.1:8791。メモリ。ダミーのトークン。--port N または DEV_FILE_SERVER_PORT でポート指定。ADR-0027。Issue #375）
+pnpm simulate --url <URL>  # 一日を通して変化するロボット・環境センサーのデータを、PUT で置く（シミュレーション。ローカル以外は --target development と環境変数 SIM_WRITE_TOKEN が必要。本番へは置けない。手順は docs/40_operations/simulation.md。Issue #375）
 
 # ビルド
 pnpm build           # フロントエンドを dist/frontend へ出力
@@ -33,10 +36,12 @@ pnpm exec vitest run tests/unit/shared/shared.test.ts
 pnpm exec playwright test tests/e2e/UC-06-record-recovery.ts            # E2E（ユースケースごと）
 pnpm exec playwright test tests/e2e/UC-12-manage-equipment.ts -g "運用の一連"   # E2E（テスト名で絞り込み）
 pnpm exec playwright test tests/e2e/scenario-outage-recovery.ts           # E2E（複数のユースケース・利用者をまたぐシナリオ）
+E2E_VIDEO=1 pnpm exec playwright test tests/e2e/UC-06-record-recovery.ts  # E2E（動画も撮る。既定は撮らない）
 
 # テスト（単体・結合のみ / E2E のみ）
 pnpm test:unit
 pnpm test:e2e
+pnpm test:e2e:parallel [--shards N] [Playwright の引数]   # E2E を、複数のインスタンス（既定 2）に分けて並列に実行（別のポート。開発サーバーと同時に動く）
 
 # データファイル（PERSISTENCE=file）のバックアップ・復元（手順は docs/40_operations/backup-restore.md）
 pnpm data:backup backup [--keep N]
@@ -51,6 +56,9 @@ pnpm migrate-user-roles
 
 # 既存の通知の移行（ハウスの補完と、ハウスごとのカウンターの再集計。Issue #331。AWS は operations.md 8.8。ローカルのファイル〔PERSISTENCE=file〕は、ハウスの補完だけ）
 pnpm migrate-notification-counters
+
+# 以前の論理削除で、設備の記録が残っている設備を、削除の要求にする（Issue #229。D-28。AWS は operations.md 8.14。ローカルのファイル〔PERSISTENCE=file〕は、ファイルの設備を移す。MIGRATE_DRY_RUN=true で、件数だけを確認）
+pnpm migrate-deleted-equipment
 
 # Lint / 型検査 / フォーマット
 pnpm lint            # ESLint（eslint .）→ oxlint（jsx-a11y。.oxlintrc.json）
@@ -96,6 +104,7 @@ PERSISTENCE=dynamodb DYNAMODB_ENDPOINT=http://127.0.0.1:18000   DYNAMODB_OBSERVA
 | デプロイ（作成・更新） | `pnpm --filter @smart-farm/infra run deploy` | あり |
 | 削除（評価環境のみ。データは残す） | `pnpm --filter @smart-farm/infra run destroy` | あり |
 | 削除（データのスタック。データを失う） | `pnpm --filter @smart-farm/infra run destroy:data` | あり |
+| 削除（自前のファイルサーバーのスタック。置かれたファイルを失う。本番サイトは、スタックの削除の保護を外す。バケットは残る〔RETAIN〕。ADR-0027） | `pnpm --filter @smart-farm/infra run destroy:file-server` | あり |
 | 初回の bootstrap（東京） | `pnpm --filter @smart-farm/infra run bootstrap` | あり |
 | 初回の bootstrap（us-east-1。独自ドメインのときだけ） | `pnpm --filter @smart-farm/infra run bootstrap:certificate` | あり |
 | GitHub Actions 用のロールの作成・削除 | `pnpm --filter @smart-farm/infra run deploy:oidc` ・ `destroy:oidc` | あり |
@@ -187,23 +196,24 @@ $data = aws cloudformation describe-stacks --stack-name SfmData --region ap-nort
 $evaluation = aws cloudformation describe-stacks --stack-name SfmEvaluation --region ap-northeast-1 --query "Stacks[0].Outputs" | ConvertFrom-Json
 $env:DYNAMODB_OBSERVATIONS_TABLE = ($data | Where-Object { $_.OutputKey -eq 'ObservationsTableName' }).OutputValue
 $env:DYNAMODB_MAIN_TABLE = ($data | Where-Object { $_.OutputKey -eq 'MainTableName' }).OutputValue
-$env:FILE_SERVER_S3_BUCKET = ($evaluation | Where-Object { $_.OutputKey -eq 'FileServerBucketName' }).OutputValue
+$env:DEMO_FEED_URL = ($evaluation | Where-Object { $_.OutputKey -eq 'DemoFeedUrl' }).OutputValue   # use-http-feed・seed が使う。値は、チャット・Issue・PR に貼らない
 
 pnpm demo-data seed          # 投入する（設備がすでにあれば、何もしない）。合成データは直近 3 日分
 pnpm demo-data seed --days 30   # 合成データを 30 日分にする（1 か月分の推移の実測用。1〜31。既定は 3）
+pnpm demo-data use-http-feed --url "<DemoFeedUrl の値>"   # 取り込みを、デモ用の HTTP 配信に向ける（#344。ADR-0025）。環境変数 DEMO_FEED_URL でも指定できる。seed にも --url を付けられる。値は、チャット・Issue・PR に貼らない
 pnpm demo-data reset         # 何も消さず、消す対象の件数を示す
-pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す。S3 のファイルも消す）
+pnpm demo-data reset --yes   # 消す（ユーザー・ログイン失敗の記録・ジョブのロックは、残す）
 
 # 終わったら、必ず消す（同じターミナルで、手元のバックエンドを起動したとき、AWS に向いてしまうため）
-Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:FILE_SERVER_S3_BUCKET -ErrorAction SilentlyContinue
+Remove-Item Env:PERSISTENCE, Env:DYNAMODB_OBSERVATIONS_TABLE, Env:DYNAMODB_MAIN_TABLE, Env:DEMO_FEED_URL -ErrorAction SilentlyContinue
 ```
 
-- 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`FILE_SERVER_S3_BUCKET` は、`reset` で S3 のファイルも消すときに指定する（指定しなければ、DynamoDB だけ）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
+- 必要な環境変数は、`PERSISTENCE=dynamodb`・`DYNAMODB_OBSERVATIONS_TABLE`・`DYNAMODB_MAIN_TABLE`。`DEMO_FEED_URL`（SfmEvaluation の出力 `DemoFeedUrl`）は、`use-http-feed`・`seed` が、デモ用の HTTP 配信に向けるときに使う（`--url` でも指定できる）。Cognito の設定は、要らない。リージョン（`AWS_REGION`）の既定は ap-northeast-1。`.env` は、読み込まない
 - `seed` は、設備がすでにあれば、何もしない。投入し直すときは、`reset --yes` のあとに、`seed`
 - `seed --days N`（1〜31。既定 3。範囲外・数値でない値は、何も投入せずエラー）は、合成データの日数を指定する（Issue #79）。1 か月分のデータが要る実測（推移の表示。NFR-3.5）のときに使う。30 日分は、観測値で約 3 万件を、DynamoDB に書く。測ったあとは、`reset --yes` → `seed`（既定の 3 日分）で、元に戻せる
-- `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目、S3 のファイル。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
+- `reset` が消すもの: DynamoDB の観測値のテーブルの全項目と、Main テーブルの、ユーザー（`USER`）・ログイン失敗の記録（`LOGINFAIL`）・ジョブのロック（`JOBLOCK`）以外の全項目。テーブルの定義は、変えない。消したあと、ステータスコードの初期データは、入れ直す
 - AWS のエラーは、**名前だけ**が出力される（メッセージに、アカウント ID・ARN が含まれることがあり、チャット・Issue・PR に貼らないため）
-- 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除、（S3 のファイルも消すとき）バケットの一覧と、オブジェクトの削除
+- 使う AWS のプロファイルに必要な権限: DynamoDB の 2 テーブルの読み書き・Scan・削除
 - **状態: 確認済み**（2026-10-20。`seed`・`reset`（`--yes` なし・あり）・ユーザーが残ること・投入し直し。結果は、ADR-0012 の「検証」）。S3 のファイルがある状態での `reset --yes` も、確認済み（生成の Lambda のあと。2026-10-20）。operations.md 7.5
 - **開発サイト専用**（Issue #117）。**本番サイトでは、実行できない**（環境変数 `SFM_ENVIRONMENT=production` のとき、`seed`・`reset` とも、何もせずに終了する安全装置。本番サイトは、合成データを入れず、`reset` は、実データを消すため）
 
@@ -229,6 +239,29 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 6. **接続元の制限（失敗 5 回 → 429）は、最後に確認する**。この制限は、手元のマシン全体にかかり、Cognito 自身のロックも重なるため、**約 15 分は、ログインできなくなる**
 7. **後始末**: 確認用のバックエンドを止める（自分で起動したものだけ）。確認用のユーザーは、検証用のパスワードのため、評価に使う前に、削除するか、パスワードを変える。`SfmData` は、削除しない（削除の保護がある）
 
+## E2E の所要時間（Issue #519）
+
+手元（Windows・論理コア 14）の全 E2E（943 件）は、次の 3 つの変更で、約 40 分から約 20 分になった。
+
+| 変更 | 内容 | 効果（UC-21 の 33 件での実測） |
+|------|------|-------------------------------|
+| 動画を撮らない | 既定では撮らない。必要なときは、環境変数 `E2E_VIDEO=1` | 126 秒 → 101 秒 |
+| フロントエンドを本番ビルドで配信 | `vite build` → `vite preview`。開発サーバーに戻すときは `E2E_DEV_SERVER=1`。CI も同じ | 101 秒 → 78 秒 |
+| 並列実行 | `pnpm test:e2e:parallel [--shards N]`。インスタンスごとに、ポート・出力先を分ける（`E2E_PORT_OFFSET`。`dev-ports.ts`） | 下の表 |
+
+`pnpm test:e2e:parallel`（2026-11-19。全 943 件。動画なし・本番ビルド）:
+
+| インスタンス数 | 全体の所要時間 | 結果 |
+|----------------|----------------|------|
+| 2（既定） | 約 20.1 分（1209 秒。ビルドを含む） | **943 件すべて成功** |
+| 3 | 約 19.5 分（1171 秒） | 4 件失敗（30 秒のタイムアウトなど。負荷のため。単独のインスタンスでは、同じファイルが、すべて成功） |
+| 4 | 約 18.7 分（1124 秒） | 4 件失敗（3 件は、負荷のためのタイムアウト。1 件は、UC-17 の古い画面の再現が、本番ビルドのファイル名に合っていなかったため。修正済み） |
+
+- **インスタンスを増やしても、全体の時間は、ほぼ変わらない**（手元の CPU が、頭打ちになる）。3 以上は、タイムアウトの失敗が出たため、既定は 2。CPU の多い PC では、`--shards` で増やせる（そのときは、失敗がないことを確認する）
+- 単独のインスタンス（`pnpm test:e2e`）の全体の所要時間は、動画なし・本番ビルドで、実測していない（UC-21 の実測からの推定は、約 25 分）
+- `pnpm test:e2e:parallel` は、フロントエンドを 1 回だけビルドして、全インスタンスで配信する。出力は、行ごとに `[N/M]` の印がつく。終了コードは、すべてのインスタンスが成功したときだけ 0。途中で止めるときは、Ctrl+C（Playwright が、起動したサーバーを片づける）
+- CI（`ubuntu-24.04`。4 つのシャード）の所要時間は、この変更の後の値を、PR に記載する
+
 ## 実行結果（2026-11-11。設備ごとの取得間隔〔Issue #197 の PR 1。#194 の子〕の後。`develop` の `3d7a67f`〔#342 のマージ〕に、#197 の変更を加えた状態）
 
 手元（Windows）で実行した値。E2E は、開発サーバーのポート（5173・8787）と競合しないよう、空きポート（18787・15173）で実行した（`dev-ports.ts` を一時的に変え、実行後に戻した）。GitHub Actions の結果は、PR に記載する。
@@ -237,7 +270,7 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 |----------|------|
 | `pnpm format:check` / `pnpm lint` / `pnpm typecheck` | すべて成功 |
 | `pnpm test:unit`（単体・結合。IaC のテストを含む。DynamoDB Local が要る。`--maxWorkers=3`） | 161 ファイル・3483 件成功・2 件スキップ（Windows では実行しないファイル権限のテスト）。カバレッジ: 行 99.13%・分岐 95.18%・関数 99.3%・文 99.14%（基準は、すべて 95% 以上） |
-| `pnpm test:e2e`（E2E） | 834 件（UC-01〜UC-24 の 824 件〔25 ファイル〕と、`scenario-*.ts` の 10 件〔7 ファイル〕）。手元では、権限・閲覧範囲に関わる UC（UC-01・05・07・12・13・14・16〜19・シナリオのユーザーの受け入れ。334 件）が、すべて成功し、画面の場所を設備管理に変えたあとは、UC-01・12・14・シナリオの 101 件が、すべて成功。通知の閲覧範囲（#331）では、UC-05・10・22・23・24 の 145 件が、すべて成功。取り込み・連携のログのハウス別（#332）では、UC-11・14・15・16・22 の 157 件が、すべて成功（test.spec.md 34.3・35.3・36.3）。画面の配信ヘッダー（#127）では、`pnpm test:csp` の 3 件が成功（test.spec.md 37.3） |
+| `pnpm test:e2e`（E2E） | 929 件（UC-01〜UC-24 の 841 件〔25 ファイル〕と、`scenario-*.ts` の 88 件〔15 ファイル〕）。手元では、権限・閲覧範囲に関わる UC（UC-01・05・07・12・13・14・16〜19・シナリオのユーザーの受け入れ。334 件）が、すべて成功し、画面の場所を設備管理に変えたあとは、UC-01・12・14・シナリオの 101 件が、すべて成功。通知の閲覧範囲（#331）では、UC-05・10・22・23・24 の 145 件が、すべて成功。取り込み・連携のログのハウス別（#332）では、UC-11・14・15・16・22 の 157 件が、すべて成功（test.spec.md 34.3・35.3・36.3）。画面の配信ヘッダー（#127）では、`pnpm test:csp` の 3 件が成功（test.spec.md 37.3） |
 
 ## 実行結果（2026-11-09。通知の見直し・依存の更新・古い画面への対応などの後。`develop` の `352367a` の前後）
 
@@ -270,14 +303,20 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 - `.env.example` を `.env` にコピーして使う（値はダミー。`.env` は Git 管理外）。`SEED_MODE=DEMO` で、デモの設備・合成データ・評価が入る。ログインは、`.env` の `INITIAL_USER_ID`・`INITIAL_USER_PASSWORD`
 - バックエンドとフロントエンドを、それぞれ別のターミナルで起動し、`http://127.0.0.1:5173` を開く
 - 初期ユーザーでのログイン手順は、次節
-- ファイルサーバーのモックに、合成データのファイル（`tests/fixtures/file-server/` を参考）を、`.local-data/file-server/robot/` や `.local-data/file-server/environment-sensor/` に置くと、取り込みの対象になる
-- 開発用 API（時計・モックの停止・ジョブの起動・リセット）は、既定で無効。`.env` に `DEV_API_ENABLED=true` を指定したときだけ有効（E2E の設定は、指定済み）。dev_spec.md 3.8
+- 取り込み（ファイルサーバー）をローカルで試すには、デモ用の合成データの HTTP 配信を使う（接続方式は HTTP だけ。ディレクトリのモックは廃止した。ADR-0025）:
+  1. `pnpm dev:demo-feed` を別のターミナルで起動する（127.0.0.1 だけ。既定ポート 8790。ファイルは `/robot/latest.json`・`/environment-sensor/latest.json`。停止は Ctrl+C）
+  2. `.env` に `HTTP_FILE_SOURCE_ALLOW_PRIVATE=true` を指定して、バックエンドを起動する（手元の配信など、内部のアドレスに接続するため。ローカル・テストだけ。`APP_MODE=production` では無効）
+  3. 画面の SC-10（設備）で、ロボット・環境センサーの「ファイルのパス」に、上のファイルのパスを設定する（`SEED_MODE=DEMO` のデモの設備は、ファイルのパスを持たない）
+  4. 同じ設備のダイアログの「取り込み元の接続」で、接続を、プロトコル HTTP・ホスト 127.0.0.1・ポート 8790・認証方式 なし にして保存する（接続は、設備ごと。ADR-0026。接続がない設備は、「接続先が設定されていません」の失敗になる）。SC-11 の設備ごとの「接続テスト」と、「即時取得」で確かめる
+  - 一日を通して変化するデータを置くには、`pnpm dev:file-server`（ローカルのファイルサーバー）と `pnpm simulate --url http://127.0.0.1:8791/`（シミュレーション）を使う（手順は [simulation.md](../40_operations/simulation.md)。Issue #375）
+  - `pnpm demo-data use-http-feed --url http://127.0.0.1:8790` は、`PERSISTENCE=dynamodb` 専用（DynamoDB のデータに対して、デモの設備ごとの接続・デモの設備のパスを一括で設定する。取り込み元の共通の接続は、設定しない）。`PERSISTENCE=file` のローカルでは、上の 3・4 を画面で行う
+- 開発用 API（時計・連携・通知のモックの停止・ジョブの起動・リセット）は、既定で無効。`.env` に `DEV_API_ENABLED=true` を指定したときだけ有効（E2E の設定は、指定済み）。dev_spec.md 3.8
 
 ### 初期ユーザーでのログイン手順（ローカル）
 
 1. `.env.example` を `.env` にコピーする（`.env` は Git 管理外。ダミー値のままでも動く）。`.env` に、`INITIAL_USER_ID`・`INITIAL_USER_NAME`・`INITIAL_USER_PASSWORD` の3つがそろっていること（`.env.example` のダミー値は、ユーザーID `local-user`、パスワード `Dummy-Passw0rd-local`）。パスワードは、8文字以上で英大文字・英小文字・数字を含むこと（満たさないと、バックエンドが起動しない）
 2. `pnpm dev:backend` と `pnpm dev:frontend` を、別のターミナルで起動する（バックエンドは、起動時に、ユーザーが1人もいなければ、初期ユーザーを作る。ログに「最初のユーザーを作成しました」と出る）
-3. ブラウザで `http://127.0.0.1:5173` を開く（未ログインなら、ログイン画面へ移る）。ユーザーIDとパスワードを入力して「ログイン」を押すと、ダッシュボードへ移る。利用を終えたら、ヘッダーの「ログアウト」を押す
+3. ブラウザで `http://127.0.0.1:5173` を開く（未ログインなら、ログイン画面へ移る）。ユーザーIDとパスワードを入力して「ログイン」を押すと、ダッシュボードへ移る。利用を終えたら、ヘッダーのユーザーメニューの「ログアウト」を選ぶ
 4. 失敗が同じ接続元から15分で5回続くと、しばらくログインできない（15分後に解ける。バックエンドを再起動しても解ける。接続元は、`TRUSTED_PROXY_HOPS`（既定 0）に従う。dev_spec.md 4章 No.3・33）
 
 注意:
@@ -293,7 +332,7 @@ Lambda を AWS につなぐ前（Issue #75 の前）の確認の方法として�
 | 出力 | 場所 |
 |------|------|
 | カバレッジ（HTML・lcov・サマリ） | `./test-result/coverage/`（`index.html`） |
-| E2E の動画・スクリーンショット・トレース | `./test-result/e2e/` |
+| E2E のスクリーンショット・トレース（動画は `E2E_VIDEO=1` のときだけ） | `./test-result/e2e/`（`pnpm test:e2e:parallel` は、`./test-result/e2e-<100 の倍数>/`） |
 | E2E の HTML レポート | `./test-result/playwright-report/` |
 
 `./test-result/` は Git 管理外（負荷テストのログ・レポートと、テスト仕様書 `test.spec.md` を除く）。
@@ -338,6 +377,7 @@ $env:SMOKE_COLD_START = '1'; pnpm test:smoke smoke-03   # コールドスター�
 Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE_COLD_START -ErrorAction SilentlyContinue
 ```
 
+- **本番サイトでは、`pnpm test:smoke smoke-04` だけを実行する**（読み取りのみ）。引数なしの全件は、デモデータへ書き込むため、実行しない。`smoke-04` の 3 つ目（ログイン → ダッシュボード）は、設備が未登録の本番では、失敗する（operations.md 8.9）
 - 環境変数: `SMOKE_BASE_URL`（`https://` で始まる URL。パス・末尾のスラッシュは付けない）・`SMOKE_USER_ID`・`SMOKE_PASSWORD`（すべて必須。足りなければ、実行の最初にエラー。エラーに、パスワードは出ない）。値は、コード・ログ・結果に残らない。動画・トレースも取らない（パスワードが残るため）
 - テスト（`tests/smoke/`）: `smoke-01-flow.ts`（流れの確認。環境の**センサー（`SENSOR-01`）に、正常の範囲の値（温度 23℃・湿度 60%）の手動入力を 1 件保存し、終わりに削除する**。論理削除で、変更履歴には残る。途中で失敗して残ったときは、入力済みデータで「スモークテスト」を検索して削除する）、`smoke-02-performance.ts`（初期表示 5 回・自動更新 3 回・推移 3 回・取り込みの実行時間）、`smoke-03-cold-start.ts`（`SMOKE_COLD_START=1` のときだけ動く）。デモデータ（`ROBOT-01`・`SENSOR-01`）がある環境が前提
 - **推移の実測（NFR-3.5）には、1 か月分のデータが要る**。測る前に、`pnpm demo-data reset --yes` → `pnpm demo-data seed --days 30`（上の「デモデータの投入とリセット」）で、30 日分にする。測ったあとは、`reset --yes` → `seed` で、既定（3 日分）に戻す。評価する人が使っている間は、行わない
@@ -364,7 +404,7 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 ```
 
 - **確認する内容**（`tests/smoke/auth/auth-01-password-change.ts`）: 管理者が決めたパスワードで、最初にログインすると、変更が必要（ほかの API は 403 `PASSWORD_CHANGE_REQUIRED`）→ 現在のパスワードの誤りは 400 → 本人が変更すると、新しいセッションが返り、変更が必要な旨が外れる → 古いセッション（変更に使った端末・別の端末）のアクセストークン・リフレッシュトークンは、すぐに使えなくなる → 管理者が決めたパスワードでは、ログインできない → 管理者が再設定したパスワードも、一時のもの（管理者自身のセッションは、そのまま）→ 変更履歴に、パスワードの変更が残り、パスワードは残らない。これで、Lambda の IAM の権限（`AdminSetUserPassword`・`AdminInitiateAuth`・`AdminUserGlobalSignOut`）が足りること、Cognito が、全セッションの失効を、すぐに反映することを確かめる
-- **環境に書き込む**: 確認用のユーザー（`smoke-pw-<乱数>`）を 1 人登録し、終わりに削除する（変更履歴には残る）。途中で失敗しても、削除を試みる。削除できなかったときは、ユーザー管理で、`smoke-pw-` で始まるユーザーを削除する
+- **環境に書き込む**: 確認用のユーザー（`smoke-pw-<乱数>`）を 1 人登録し、終わりに削除する（変更履歴には残る）。途中で失敗しても、削除を試みる。削除できなかったときは、ユーザーの画面で、`smoke-pw-` で始まるユーザーを削除する
 - **任意: ログインの失敗の制限（D-44）の確認**: `$env:SMOKE_LOGIN_LIMIT = '<回数>'` を指定すると、その回数の失敗のあと、429 になることを確かめる（存在しないユーザーの失敗を、接続元ごとに数える）。**この端末の接続元が、制限の時間（既定 15 分）、ログインできなくなる**ため、最後に行う（確認用のユーザーの削除のあと）。回数を変えて確かめるには、GitHub の Environment（development）の変数 `SFM_LOGIN_FAILURE_LIMIT`・`SFM_LOGIN_FAILURE_WINDOW_MINUTES` を設定し、「Deploy development」を実行したあと、同じ回数を `SMOKE_LOGIN_LIMIT` に指定する。確認したら、変数を消して（既定の 5 回 / 15 分に戻す）、もう一度デプロイする
 - **状態**: ローカル（メモリ・ローカル認証。`LOGIN_FAILURE_LIMIT=3`）で、テストの論理は確認済み（2026-11-02。2 件成功）。**AWS の評価環境での 1 回目（2026-11-02。ユーザーが実行）で、不具合を見つけた**: パスワード変更の直後に返した、新しいセッションのアクセストークンが、401 になった（Cognito が、全セッションの失効と同じ秒に発行したトークンも、失効として扱うと推定）。新しいセッションが有効になるまで、間隔を置いて、ログインし直す修正を入れた（dev_spec.md 4章。偽の Cognito に、同じ秒の失効を再現するオプションを加えて、再現・回帰のテストにした）。**修正後の再実行（2026-11-02。ユーザーが実行。PR #277 のデプロイ後）で、1 件目が成功**（1 passed・1 skipped。9.8 秒。確認した内容: 管理者が決めたパスワードの強制変更・本人による変更・古いセッションの失効・再設定後の一時のパスワード・変更履歴にパスワードを残さないこと。これで、Lambda の IAM の権限が足りること、Cognito が全セッションの失効を反映することを、確認した）。**2 件目（ログインの失敗の制限）も、AWS で確認済み**（2026-11-02。ユーザーが実行）: 既定（失敗 5 回 / 15 分。`SMOKE_LOGIN_LIMIT=5`）で、2 passed。**制限値の変更も確認済み**: GitHub の Environment（development）の変数 `SFM_LOGIN_FAILURE_LIMIT=3`・`SFM_LOGIN_FAILURE_WINDOW_MINUTES=1` を設定して「Deploy development」を実行 → `SMOKE_LOGIN_LIMIT=3` で、2 passed（3 回の失敗のあと、429）。確認後、変数を削除し、再デプロイして、既定（5 回 / 15 分）に戻した
 
@@ -395,4 +435,4 @@ Remove-Item Env:SMOKE_BASE_URL, Env:SMOKE_USER_ID, Env:SMOKE_PASSWORD, Env:SMOKE
 
 ## 外部サービス
 
-開発・テストに、外部サービスは不要（ファイルサーバー・農業情報基盤・Web Push は、ローカルのモック。dev_spec.md 3.5）。本番の接続先: ファイルサーバーは未確定（Q-002）。農業情報基盤は、NGSI-LD（`FEDERATION_MODE=ngsi-ld`。接続先は画面で設定。ADR-0024。手順は federation-platform-setup.md）。
+開発・テストに、外部サービスは不要（農業情報基盤・Web Push は、ローカルのモック。ファイルサーバーは、HTTP のテスト用サーバー・`pnpm dev:demo-feed`。dev_spec.md 3.5）。本番の接続先: ファイルサーバーは未確定（Q-002）。農業情報基盤は、NGSI-LD（`FEDERATION_MODE=ngsi-ld`。接続先は画面で設定。ADR-0024。手順は federation-platform-setup.md）。

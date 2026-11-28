@@ -44,7 +44,9 @@ describe('ハウスの削除の確認（V-200）', () => {
     fireEvent.click(within(firstOf(rows)).getByRole('button', { name: '削除' }));
 
     const dialog = await screen.findByTestId('confirm-dialog');
-    expect(dialog.textContent).toContain('対象: 収穫ロボット1、環境センサー1の2件');
+    expect(dialog.textContent).toContain(
+      '配下のロボット・環境センサー 2 件（収穫ロボット1、環境センサー1）と、そのデータが、すべて削除されます',
+    );
   });
 
   it('配下の設備がないハウスは、その旨を示す', async () => {
@@ -59,13 +61,13 @@ describe('ハウスの削除の確認（V-200）', () => {
     fireEvent.click(within(firstOf(rows)).getByRole('button', { name: '削除' }));
 
     expect((await screen.findByTestId('confirm-dialog')).textContent).toContain(
-      '配下の設備はありません',
+      '配下のロボット・環境センサーはありません',
     );
   });
 });
 
 describe('推移のグラフの数値の表（V-153）', () => {
-  it('グラフの点の値を、見えない表（スクリーンリーダー用）としても提供する。値がない時刻は「—」', async () => {
+  it('グラフの点の値を、見える折りたたみの表としても提供する（スクリーンリーダーでも読める）。値がない時刻は「—」', async () => {
     window.history.pushState(null, '', '/viewpoints/environmentalAdaptability');
     const routes = withBaseRoutes({
       'GET /equipment': () => jsonResponse(equipmentTree()),
@@ -79,12 +81,15 @@ describe('推移のグラフの数値の表（V-153）', () => {
 
     const table = await screen.findByTestId('trend-table-temperatureCelsius');
 
-    // 表は、見えない枠（div.visually-hidden）の中。表自体に付けると、行がページの下に空白を作る
-    expect(table.closest('.visually-hidden')).not.toBeNull();
-    expect(table.className).not.toContain('visually-hidden');
+    // 値の表は、見える折りたたみ（SC-03-2。以前は、見えない枠〔visually-hidden〕）
+    expect(table.closest('.visually-hidden')).toBeNull();
+    expect(table.closest('details')?.getAttribute('data-testid')).toBe(
+      'trend-values-temperatureCelsius',
+    );
     expect(within(table).getByText('温度の推移（数値）')).toBeDefined();
     expect(within(table).getAllByRole('row')).toHaveLength(8);
-    expect(within(table).getAllByText('—')).toHaveLength(1);
+    // 欠損の時刻は、値と状態の 2 つの欄が「—」（状態の列を足したため。SC-03-2）
+    expect(within(table).getAllByText('—')).toHaveLength(2);
   });
 });
 

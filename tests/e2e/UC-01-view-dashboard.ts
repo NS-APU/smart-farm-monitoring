@@ -12,9 +12,17 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { apiOk, setEquipmentInterval } from './support/app.ts';
+import { HOUSE_ID, alignBrowserClock, apiOk, setEquipmentInterval } from './support/app.ts';
+import { assignPlaceholderPaths } from './support/http-files.ts';
 import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
-import { dashboardCard as card, openDashboard } from './support/pages.ts';
+import {
+  dashboardCard as card,
+  expectEquipmentFieldIntact,
+  expectNoHorizontalScroll,
+  openDashboard,
+  dashboardCurrent,
+  dashboardPeriod,
+} from './support/pages.ts';
 import {
   MIXED_EXPECTED,
   NOW,
@@ -30,12 +38,13 @@ import {
   prepare,
   runEvaluation,
   seed,
+  setClock,
   shot,
 } from './support/viewpoint-scenarios.ts';
 
 async function summaryCount(page: Page, status: string): Promise<number> {
   return Number(
-    await page.getByTestId(`summary-${status}`).locator('.summary-count').textContent(),
+    await page.getByTestId(`summary-period-${status}`).locator('.summary-count').textContent(),
   );
 }
 
@@ -56,7 +65,7 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     );
     // 観点ごとのステータス
     for (const [viewpointId] of VIEWPOINT_ORDER) {
-      await expect(card(page, viewpointId).locator('.status-badge')).toContainText(
+      await expect(dashboardPeriod(page, viewpointId).locator('.status-badge')).toContainText(
         MIXED_EXPECTED[viewpointId],
       );
     }
@@ -66,18 +75,82 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     expect(await summaryCount(page, 'ERROR')).toBe(3);
     expect(await summaryCount(page, 'UNKNOWN')).toBe(3);
     // 診断メッセージ・推奨アクション・判定の対象期間（2026/10/02 12:00 〜 2026/10/09 12:00）
-    const accuracy = card(page, 'harvestAccuracy');
+    const accuracy = dashboardPeriod(page, 'harvestAccuracy');
     await expect(accuracy.locator('.diagnostic')).toContainText('収穫精度: 正常');
     await expect(accuracy.locator('.action')).toContainText(
       '推奨アクション: 現在の状態を維持し、引き続き推移を確認してください',
     );
-    await expect(accuracy.locator('.evaluated-period')).toContainText(
-      '判定の対象期間: 2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
+    // 判定の対象期間は、分まで。満足度を除く観点で同じなので、上部に 1 回だけ示し、カードには示さない
+    // （満足度は、既定の期間が 30 日で違うため、満足度のカードにだけ示す）
+    await expect(page.getByTestId('evaluated-period-common')).toHaveText(
+      '判定の対象期間: 2026/10/02 12:00 〜 2026/10/09 12:00',
     );
-    // 対象の設備と、最終の評価日時
-    await expect(page.locator('.page-meta')).toContainText('対象: ハウス1');
-    await expect(page.locator('.page-meta')).toContainText('最終の評価: 2026/10/09 12:00:00');
+    await expect(accuracy.locator('.evaluated-period')).toHaveCount(0);
+    await expect(dashboardPeriod(page, 'satisfaction').locator('.evaluated-period')).toHaveText(
+      '判定の対象期間: 2026/09/09 12:00 〜 2026/10/09 12:00',
+    );
+    // 詳細へのリンクは、題名の 1 つだけ
+    await expect(card(page, 'harvestAccuracy').locator('h3').getByRole('link')).toHaveCount(1);
+    // 対象のハウスと、最終の評価日時
+    await expect(page.getByLabel('対象のハウス')).toHaveValue(HOUSE_ID);
+    await expect(page.getByTestId('dashboard-meta')).toContainText(
+      '最終の評価: 2026/10/09 12:00:00',
+    );
     await shot(page, testInfo, 'dashboard-mixed');
+  });
+
+  test('ロボットが複数台のとき、ハウスの結果は、最も悪いロボットの結果になる（最新のロボットの正常で、転倒を見逃さない）。診断メッセージに、どのロボットかが示される（D-19）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: HOUSE_ID,
+      externalId: 'ROBOT-SAMPLE-02',
+    });
+    // ロボット 2 が転倒し、その 1 分後に、ロボット 1 が収穫中（ハウスの最新のステータスは、ロボット 1 の「収穫中」）
+    const manualAt = hoursAgo(1);
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: 'ROBOT-02',
+          itemKey: 'statusCode',
+          observedAt: hoursAgo(1.02),
+          value: 'FALLEN',
+        },
+        { equipmentId: ROBOT, itemKey: 'statusCode', observedAt: hoursAgo(1), value: 'HARVESTING' },
+        ...[ROBOT, 'ROBOT-02'].flatMap((equipmentId) => [
+          {
+            equipmentId,
+            itemKey: 'failureCount',
+            observedAt: manualAt,
+            value: 1,
+            source: 'MANUAL' as const,
+          },
+          {
+            equipmentId,
+            itemKey: 'recoveryMinutes',
+            observedAt: manualAt,
+            value: 90,
+            source: 'MANUAL' as const,
+          },
+        ]),
+      ],
+    });
+
+    await openDashboard(page);
+
+    const maintainability = dashboardPeriod(page, 'maintainability');
+    await expect(maintainability.locator('.status-badge')).toContainText('異常');
+    await expect(maintainability.locator('.diagnostic')).toContainText(
+      '（収穫ロボット2）メンテナンス性: 異常',
+    );
+    await expect(maintainability.locator('.diagnostic')).toContainText(
+      'ステータス 転倒（姿勢異常）',
+    );
   });
 
   test('主要メトリクスの値と、メトリクスごとの判定（アイコン・文字・色）が表示される。ステータスコードは名称で表示する', async ({
@@ -90,90 +163,108 @@ test.describe('基本フロー: ダッシュボードを開き、観点ごとの
     await openDashboard(page);
 
     // 収穫精度（正常）: 可販果率 98.7%、認識精度 98.7%
-    const accuracy = card(page, 'harvestAccuracy');
+    const accuracy = dashboardPeriod(page, 'harvestAccuracy');
     await expect(accuracy.locator('dd.metric-normal').first()).toContainText('98.7%');
     await expect(accuracy.locator('dt', { hasText: '可販果率' })).toBeVisible();
     await expect(accuracy.locator('dt', { hasText: '認識精度' })).toBeVisible();
     // 収穫速度（注意）: 平均処理時間 64.8秒/果実（注意）、走行停止率 2.0%（正常）、ステータスは名称（収穫中）
-    const speed = card(page, 'harvestSpeed');
+    const speed = dashboardPeriod(page, 'harvestSpeed');
     await expect(speed.locator('dd.metric-caution')).toContainText('64.8秒/果実');
     await expect(speed.locator('dd.metric-normal').filter({ hasText: '2.0%' })).toBeVisible();
     await expect(speed.locator('dd', { hasText: '収穫中' })).toHaveClass(/metric-normal/);
     // 環境適応性（異常）: 温度 40.0℃（異常）、湿度・照度・CO2 は正常
-    const environment = card(page, 'environmentalAdaptability');
+    const environment = dashboardPeriod(page, 'environmentalAdaptability');
     await expect(environment.locator('dd.metric-error')).toContainText('40.0℃');
     await expect(environment.locator('dd.metric-normal')).toHaveCount(3);
     await expect(environment.locator('dd', { hasText: '30000lx' })).toHaveClass(/metric-normal/);
     // 不明の観点: メトリクスは「—」
-    await expect(card(page, 'operability').locator('dd').first()).toHaveText('—');
+    await expect(dashboardPeriod(page, 'operability').locator('dd').first()).toHaveText('—');
     await shot(page, testInfo, 'dashboard-metrics');
   });
 
-  test('観点のカードを選ぶと、観点の詳細へ移る（選んだ視点・期間を引き継ぐ）。満足度は、満足度の詳細へ移る', async ({
+  test('観点のカード・観点別の状態の表を選ぶと、観点の詳細が、右からのドロワーに開く（選んだ期間を引き継ぐ）。満足度は、満足度の詳細が開く（詳しい確認は、scenario-viewpoint-drawer.ts）', async ({
     page,
     request,
   }) => {
     await prepare(request);
     await seed(request, mixedScenario());
-    await openDashboard(page, '?horizon=SHORT&periodDays=30');
+    await openDashboard(page, '?periodDays=30');
 
     await card(page, 'environmentalAdaptability').locator('h3').getByRole('link').click();
-    await expect(page).toHaveURL(
-      /\/viewpoints\/environmentalAdaptability\?horizon=SHORT&periodDays=30$/,
-    );
-    await expect(page.getByRole('heading', { name: /環境適応性/, level: 1 })).toBeVisible();
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability&periodDays=30$/);
+    const dialog = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(dialog.getByRole('heading', { name: /環境適応性/, level: 2 })).toBeVisible();
+    await dialog.getByRole('button', { name: '観点の詳細を閉じる' }).click();
+    // 閉じると、ダッシュボードの期間が残る
+    await expect(page).toHaveURL(/\/\?periodDays=30$/);
 
-    await page
-      .getByRole('navigation', { name: 'パンくず' })
-      .getByRole('link', { name: 'ダッシュボード' })
-      .click();
-    await expect(page).toHaveURL(/\/\?horizon=SHORT&periodDays=30$/);
     await card(page, 'satisfaction').locator('h3').getByRole('link').click();
-    await expect(page).toHaveURL(/\/satisfaction\?periodDays=30$/);
-    await expect(page.getByRole('heading', { name: /満足度の詳細/, level: 1 })).toBeVisible();
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction&periodDays=30$/);
+    await expect(
+      page.getByRole('dialog', { name: '満足度の詳細' }).getByRole('heading', {
+        name: /満足度の詳細/,
+        level: 2,
+      }),
+    ).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // 観点別の状態の表の行からも、同じ詳細が開く
+    await page.getByTestId('status-row-safety').getByRole('link').click();
+    await expect(page).toHaveURL(/\/\?viewpoint=safety&periodDays=30$/);
+    await expect(page.getByRole('dialog', { name: '安全性の詳細' })).toBeVisible();
   });
 });
 
-test.describe('基本フロー 3: 対象のハウス・ロボット・センサーを選んで状態を確認する（設備の種別）', () => {
-  test('ハウスは10観点、ロボットは7観点、センサーは環境適応性のみを表示し、設備ごとのデータだけで評価する', async ({
+test.describe('基本フロー 3: 対象のハウスを選んで状態を確認する。ロボット・センサーの状態は、観点の詳細で確認する（Issue #355）', () => {
+  test('ダッシュボードはハウス単位: 「対象のハウス」は、ハウスだけを選べ、10 観点を示す（ヘッダーに、対象の設備の選択はない）', async ({
     page,
     request,
   }, testInfo) => {
     await prepare(request);
     await seed(request, mixedScenario());
     await openDashboard(page);
+
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
-
-    // ロボット: ロボットの観点（収穫精度・収穫速度・操作性・メンテナンス性・コスト効率・安全性・耐久性）
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
-    await expect(page.locator('.viewpoint-card h3')).toHaveText([
-      '収穫精度',
-      '収穫速度',
-      '操作性',
-      'メンテナンス性',
-      'コスト効率',
-      '安全性',
-      '耐久性',
-    ]);
-    await expect(page.locator('.page-meta')).toContainText('対象: 収穫ロボット1');
-    await expect(card(page, 'harvestSpeed').locator('.status-badge')).toContainText('注意');
-    await expect(card(page, 'safety').locator('.status-badge')).toContainText('注意');
-    await shot(page, testInfo, 'dashboard-robot');
-
-    // センサー: 環境適応性のみ（センサーの観測値だけで評価する）
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
-    await expect(page.locator('.viewpoint-card')).toHaveCount(1);
-    await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '異常',
-    );
-    await expect(page.locator('.page-meta')).toContainText('対象: 環境センサー1');
-    await shot(page, testInfo, 'dashboard-sensor');
-
-    // ハウスへ戻す
-    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス1' });
-    await expect(page.locator('.viewpoint-card')).toHaveCount(10);
+    const select = page.getByLabel('対象のハウス');
+    await expect(select.locator('option')).toHaveText(['ハウス1']);
+    await expect(select).toHaveValue(HOUSE_ID);
+    await expect(page.getByRole('banner').getByLabel('対象の設備')).toHaveCount(0);
     await shot(page, testInfo, 'dashboard-house');
+  });
+
+  test('ロボットは、観点の詳細で「対象の設備」に選んで確認する。ロボットの観点（収穫速度など）は評価し、センサーでは評価しない（この設備では評価しない旨）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await gotoAuthenticated(page, '/viewpoints/harvestSpeed');
+    await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
+
+    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
+    await expect(
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('注意');
+    await shot(page, testInfo, 'detail-robot');
+
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
+    await expect(page.getByTestId('not-applicable')).toBeVisible();
+  });
+
+  test('センサーは、観点の詳細で選んで確認する（環境適応性。センサーの観測値だけで評価する）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
+
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
+
+    await expect(
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('異常');
+    await shot(page, testInfo, 'detail-sensor');
   });
 
   test('ロボットを選んだとき、他の設備のデータは評価に使わない（センサーのデータだけがある場合、ロボットの観点は不明）', async ({
@@ -182,12 +273,31 @@ test.describe('基本フロー 3: 対象のハウス・ロボット・センサ�
   }) => {
     await prepare(request);
     await seed(request, environmentData({ temperature: 20 }));
-    await openDashboard(page);
+    await gotoAuthenticated(page, '/viewpoints/harvestAccuracy');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
 
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
-    await expect(page.locator('.viewpoint-card .status-badge', { hasText: '不明' })).toHaveCount(7);
+    await expect(
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('不明');
+  });
+
+  test('詳細で、ロボット・センサーを選んだあと、ダッシュボードへ戻ると、その設備のハウスを対象にする（ダッシュボードはハウス単位）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
+
+    await page
+      .getByRole('navigation', { name: 'パンくず' })
+      .getByRole('link', { name: 'ダッシュボード' })
+      .click();
+
+    await expect(page.getByLabel('対象のハウス')).toHaveValue(HOUSE_ID);
+    await expect(page.locator('.viewpoint-card')).toHaveCount(10);
   });
 });
 
@@ -229,9 +339,11 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
 
       await openDashboard(page);
 
-      const environment = card(page, 'environmentalAdaptability');
-      await expect(environment).toHaveClass(new RegExp(`status-border-${item.border}`));
-      const badge = environment.locator('.status-badge');
+      // 枠の色は、カード（「現在」「期間の評価」のうち悪い方）。状態は、区画ごと（この値では、どちらも同じ）
+      await expect(card(page, 'environmentalAdaptability')).toHaveClass(
+        new RegExp(`status-border-${item.border}`),
+      );
+      const badge = dashboardPeriod(page, 'environmentalAdaptability').locator('.status-badge');
       await expect(badge).toContainText(item.expected);
       await expect(badge.locator(`[data-icon="${item.iconName}"]`)).toBeVisible();
       await expect(badge).toHaveClass(new RegExp(`status-${item.border}`));
@@ -254,7 +366,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
 
     await openDashboard(page);
 
-    const accuracy = card(page, 'harvestAccuracy');
+    const accuracy = dashboardPeriod(page, 'harvestAccuracy');
     await expect(accuracy.locator('.status-badge')).toContainText('不明');
     await expect(accuracy.locator('.status-badge [data-icon="status-unknown"]')).toBeVisible();
     await expect(accuracy.locator('.diagnostic')).toContainText('データ不足のため評価できません');
@@ -263,7 +375,7 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
     await shot(page, testInfo, 'dashboard-all-unknown');
   });
 
-  test('観点の最終ステータスは、短期・長期のうち「不明」を除いた悪い方（短期が異常・長期が注意なら異常）', async ({
+  test('「現在」（短期）が異常・「期間の評価」（長期）が注意のとき、区画ごとに、それぞれの状態を示す（悪い方への合成はしない。枠の色だけ、悪い方）', async ({
     page,
     request,
   }) => {
@@ -276,18 +388,26 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
 
     await openDashboard(page);
 
-    await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '異常',
-    );
+    await expect(
+      dashboardCurrent(page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('異常');
+    await expect(
+      dashboardPeriod(page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('注意');
+    await expect(card(page, 'environmentalAdaptability')).toHaveClass(/status-border-error/);
     // 観点の詳細で、短期（異常）と長期（注意）が、それぞれ別に示される
     await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
-    await expect(page.getByTestId('horizon-short').locator('.status-badge')).toContainText('異常');
-    await expect(page.getByTestId('horizon-long').locator('.status-badge')).toContainText('注意');
+    await expect(page.getByTestId('diagnosis-current').locator('.status-badge')).toContainText(
+      '異常',
+    );
+    await expect(page.getByTestId('diagnosis-period').locator('.status-badge')).toContainText(
+      '注意',
+    );
   });
 });
 
-test.describe('視点（短期・長期）と期間の選択', () => {
-  test('短期と長期を切り替えられる（短期は最新の観測値、長期は期間の平均）。選択は URL に反映され、再読み込みで保持される', async ({
+test.describe('期間の選択（視点〔短期・長期〕の切り替えはない。Issue #355）', () => {
+  test('ダッシュボードは、長期の評価（期間の平均）を示す。視点の切り替えはなく、古い URL の視点（?horizon=SHORT）は、使わない', async ({
     page,
     request,
   }, testInfo) => {
@@ -298,77 +418,95 @@ test.describe('視点（短期・長期）と期間の選択', () => {
       merge(environmentData({ temperature: 20 }, 48), environmentData({ temperature: 30 }, 1)),
     );
     await openDashboard(page);
-    const environment = card(page, 'environmentalAdaptability');
+    const environment = dashboardPeriod(page, 'environmentalAdaptability');
     await expect(environment.locator('dd', { hasText: '25.0℃' })).toBeVisible();
+    await expect(page.getByRole('radio', { name: '短期' })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: '長期' })).toHaveCount(0);
 
-    await page.getByRole('radio', { name: '短期' }).check();
-
-    // 期間を選んでいないため、期間は URL に付けない（観点ごとの既定の期間。満足度は 30 日。D-18）
-    await expect(page).toHaveURL(/\?horizon=SHORT$/);
-    await expect(environment.locator('dd', { hasText: '30.0℃' })).toBeVisible();
-    await expect(environment.locator('.evaluated-period')).toContainText(
-      '判定の対象期間: 2026/10/08 12:00:00 〜 2026/10/09 12:00:00',
-    );
-    await shot(page, testInfo, 'dashboard-short');
-
-    await page.reload();
-    await expect(page.getByRole('radio', { name: '短期' })).toBeChecked();
-    await expect(environment.locator('dd', { hasText: '30.0℃' })).toBeVisible();
-
-    await page.getByRole('radio', { name: '長期' }).check();
+    // 古い URL の視点は、使わない（長期の結果を示す。短期評価を持たない旨の注記も出ない）
+    await openDashboard(page, '?horizon=SHORT');
     await expect(environment.locator('dd', { hasText: '25.0℃' })).toBeVisible();
+    await expect(page.getByText('この観点は短期評価を持たないため')).toHaveCount(0);
+    await shot(page, testInfo, 'dashboard-long-only');
   });
 
-  test('短期評価を持たない観点（コスト効率・耐久性・データ活用度合い・満足度）は、短期を選んでも長期の結果を表示し、その旨を示す', async ({
+  test('期間を選ぶと、URL に反映され、再読み込みで保持される（視点は、URL に付かない）', async ({
     page,
     request,
   }) => {
     await prepare(request);
     await seed(request, mixedScenario());
-    await openDashboard(page, '?horizon=SHORT&periodDays=7');
+    await openDashboard(page);
 
-    const withoutShort = ['costEfficiency', 'durability', 'dataUtilization', 'satisfaction'];
-    for (const viewpointId of withoutShort) {
-      await expect(card(page, viewpointId)).toContainText(
-        'この観点は短期評価を持たないため、長期の結果を表示しています',
-      );
-      await expect(card(page, viewpointId).locator('.evaluated-period').first()).toContainText(
-        '2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
-      );
-    }
-    // 短期評価を持つ観点には、示さない
-    await expect(card(page, 'harvestAccuracy')).not.toContainText('短期評価を持たない');
-    // 評価前の観点（満足度・コスト効率は、データなしで「不明」と評価済み）にも、長期の期間を示す
-    await expect(card(page, 'durability').locator('.evaluated-period').first()).toContainText(
-      '2026/10/02 12:00:00 〜 2026/10/09 12:00:00',
+    await page.getByLabel('期間').selectOption({ label: '直近30日' });
+
+    await expect(page).toHaveURL(/\/\?periodDays=30$/);
+    await page.reload();
+    await expect(page.getByLabel('期間')).toHaveValue('30');
+  });
+
+  test('カードは、「現在」（短期の評価）と「期間の評価」を別々の区画で示す。現在が異常・期間が注意のとき、それぞれの状態を示し、悪い方の合成の注記は出さない。短期評価のない観点は、「現在」の区画がない（#591）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    // 2日前: 温度 20℃（正常）、直近: 温度 40℃（異常）→ 現在（短期）は異常、期間（7日）の平均 30℃ は注意
+    await seed(
+      request,
+      merge(environmentData({ temperature: 20 }, 48), environmentData({ temperature: 40 }, 1)),
+    );
+
+    await openDashboard(page);
+
+    const current = page.getByTestId('current-environmentalAdaptability');
+    const period = page.getByTestId('period-environmentalAdaptability');
+    await expect(current.locator('.status-badge')).toContainText('異常');
+    await expect(current.locator('dd', { hasText: '40.0℃' })).toBeVisible();
+    await expect(period.locator('.status-badge')).toContainText('注意');
+    await expect(period.locator('dd', { hasText: '30.0℃' })).toBeVisible();
+    await expect(
+      current.getByTestId('current-environmentalAdaptability-evaluated-at'),
+    ).toBeVisible();
+    await expect(period.getByTestId('period-environmentalAdaptability-evaluated-at')).toBeVisible();
+    // 以前の、悪い方の合成の注記は、ない
+    await expect(page.getByTestId('short-worse-environmentalAdaptability')).toHaveCount(0);
+    // 観点別の状態の表も、「現在」と「期間の評価」を別々に示す
+    const row = page.getByTestId('status-row-environmentalAdaptability');
+    await expect(row.getByTestId('status-current-environmentalAdaptability')).toContainText('異常');
+    await expect(row.getByTestId('status-period-environmentalAdaptability')).toContainText('注意');
+    // 短期評価を持たない観点には、「現在」の区画がない
+    await expect(page.getByTestId('current-durability')).toHaveCount(0);
+    await expect(page.getByTestId('period-durability')).toBeVisible();
+    await expect(page.getByTestId('status-current-durability')).toContainText(
+      '現在の評価はありません',
     );
   });
 
-  test.describe('長期の期間（当日・直近7日・30日・60日・90日）で、評価の対象期間とステータスが変わる', () => {
+  test.describe('期間（当日・直近7日・30日・60日・90日）で、評価の対象期間とステータスが変わる', () => {
     // 温度: 直近7日=20℃（正常）、7〜30日前=30℃、30〜60日前=44℃、60〜90日前=5℃（6時間ごと）
     // 期間ごとの平均: 当日 20（正常）、7日 20（正常）、30日 約27.6（注意）、60日 約35.8（異常）、90日 約25.6（注意）
     const periods = [
-      { days: 1, label: '当日', status: '正常', from: '2026/10/08 12:00:00', value: /20\.0℃/ },
-      { days: 7, label: '直近7日', status: '正常', from: '2026/10/02 12:00:00', value: /20\.0℃/ },
+      { days: 1, label: '当日', status: '正常', from: '2026/10/08 12:00', value: /20\.0℃/ },
+      { days: 7, label: '直近7日', status: '正常', from: '2026/10/02 12:00', value: /20\.0℃/ },
       {
         days: 30,
         label: '直近30日',
         status: '注意',
-        from: '2026/09/09 12:00:00',
+        from: '2026/09/09 12:00',
         value: /27\.\d℃/,
       },
       {
         days: 60,
         label: '直近60日',
         status: '異常',
-        from: '2026/08/10 12:00:00',
+        from: '2026/08/10 12:00',
         value: /35\.\d℃/,
       },
       {
         days: 90,
         label: '直近90日',
         status: '注意',
-        from: '2026/07/11 12:00:00',
+        from: '2026/07/11 12:00',
         value: /25\.\d℃/,
       },
     ] as const;
@@ -382,13 +520,15 @@ test.describe('視点（短期・長期）と期間の選択', () => {
         await seed(request, periodScenario());
         await openDashboard(page);
 
-        await page.getByLabel('長期の期間').selectOption({ label: period.label });
+        await page.getByLabel('期間').selectOption({ label: period.label });
 
-        const environment = card(page, 'environmentalAdaptability');
+        const environment = dashboardPeriod(page, 'environmentalAdaptability');
         await expect(page).toHaveURL(new RegExp(`periodDays=${String(period.days)}$`));
-        await expect(environment.locator('.evaluated-period')).toContainText(
-          `判定の対象期間: ${period.from} 〜 2026/10/09 12:00:00`,
+        // 期間を選ぶと、全観点で判定の対象期間が同じになるため、上部に 1 回だけ示す（カードには示さない）
+        await expect(page.getByTestId('evaluated-period-common')).toContainText(
+          `判定の対象期間: ${period.from} 〜 2026/10/09 12:00`,
         );
+        await expect(environment.locator('.evaluated-period')).toHaveCount(0);
         await expect(environment.locator('.status-badge')).toContainText(period.status);
         await expect(
           environment.locator('dl.metrics > div').filter({ hasText: '温度' }).locator('dd'),
@@ -420,6 +560,8 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     request,
   }, testInfo) => {
     await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+    await assignPlaceholderPaths(request);
 
     await openDashboard(page);
 
@@ -428,9 +570,10 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     );
     await expect(notice).toBeVisible();
     await expect(page.getByText('最終のデータ取得:')).toBeVisible();
-    await expect(page.locator('.header-data-status')).toContainText('未取得');
-    await expect(card(page, 'harvestAccuracy').locator('.diagnostic')).toContainText(
-      '評価がまだ行われていません',
+    await expect(page.getByTestId('data-status')).toContainText('未取得');
+    await expect(dashboardPeriod(page, 'harvestAccuracy').locator('.diagnostic')).toContainText(
+      // 設備にファイルのパスを設定した時点で、評価が 1 回行われる（データがないため、不明）
+      'データ不足のため評価できません。未取得の項目: 収穫数、果実損傷数、誤収穫数、取り残し数',
     );
     expect(await summaryCount(page, 'UNKNOWN')).toBe(10);
     await shot(page, testInfo, 'dashboard-none');
@@ -439,7 +582,7 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     await page.locator('.notice').getByRole('link', { name: 'データ入力へ' }).click();
     await expect(page).toHaveURL(/\/data-entry$/);
     await page.goBack();
-    await page.locator('.notice').getByRole('link', { name: '取り込み設定・状況へ' }).click();
+    await page.locator('.notice').getByRole('link', { name: '取り込みへ' }).click();
     await expect(page).toHaveURL(/\/settings\/ingestion$/);
   });
 
@@ -453,7 +596,8 @@ test.describe('代替フロー: データがまだ取り込まれていない・
     await loginViaUi(page);
 
     await expect(page.getByText('設備が登録されていません。設備を登録してください')).toBeVisible();
-    await expect(page.getByLabel('対象の設備')).toBeDisabled();
+    // 設備がなければ、対象のハウスの選択でなく、設備の登録の案内を示す
+    await expect(page.getByLabel('対象のハウス')).toHaveCount(0);
     await shot(page, testInfo, 'dashboard-no-equipment');
     await page.locator('main').getByRole('link', { name: '設備' }).click();
     await expect(page).toHaveURL(/\/settings\/equipment$/);
@@ -475,6 +619,8 @@ test.describe('代替フロー: データがまだ取り込まれていない・
       request,
     }, testInfo) => {
       await prepare(request);
+      // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+      await assignPlaceholderPaths(request);
       // 取得間隔は、設備ごとの設定（#197。既定は、ロボット 1 分・センサー 5 分）。この検証は、15 分にする
       await setEquipmentInterval(request, ROBOT, 15);
       await setEquipmentInterval(request, SENSOR, 15);
@@ -494,12 +640,12 @@ test.describe('代替フロー: データがまだ取り込まれていない・
       const warning = page.getByRole('alert').filter({ hasText: 'データが古くなっています' });
       if (item.stale) {
         await expect(warning).toBeVisible();
-        await expect(page.locator('.header-data-status')).toContainText('（古い）');
+        await expect(page.getByTestId('data-status')).toContainText('（古い）');
       } else {
         await expect(warning).toHaveCount(0);
-        await expect(page.locator('.header-data-status')).not.toContainText('古い');
+        await expect(page.getByTestId('data-status')).not.toContainText('古い');
       }
-      await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
+      await expect(page.getByTestId('data-status')).toContainText('最終のデータ取得');
       if (item.minutes === 46 || item.minutes === 0) {
         await shot(page, testInfo, `dashboard-freshness-${String(item.minutes)}min`);
       }
@@ -508,11 +654,13 @@ test.describe('代替フロー: データがまだ取り込まれていない・
 });
 
 test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低 3 分。#198）', () => {
-  test('ハウスは、配下のいずれかの設備が古ければ警告し、古い設備の名前を示す。新しい設備だけを選べば、警告しない。基準は、設備の取得間隔で変わる', async ({
+  test('ハウスは、配下のいずれかの設備が古ければ警告し、古い設備の名前を示す。基準は、設備の取得間隔で変わる（取得間隔を変えて「更新」すると、警告が消える）', async ({
     page,
     request,
   }, testInfo) => {
     await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+    await assignPlaceholderPaths(request);
     // 既定の取得間隔（ロボット 1 分 → 3 分・センサー 5 分 → 15 分）。どちらも、10 分前に受け取った
     const tenMinutesAgo = new Date(NOW.getTime() - 10 * 60_000).toISOString();
     await seed(request, {
@@ -533,17 +681,82 @@ test.describe('設備ごとの「古い」の基準（取得間隔 × 3、最低
     await expect(warning).toBeVisible();
     await expect(page.getByTestId('stale-equipment')).toContainText('収穫ロボット1');
     await expect(page.getByTestId('stale-equipment')).not.toContainText('環境センサー1');
+    // 警告の文は先頭の設備名だけ。開くと、設備名・最終の受信日時・基準（分）の一覧を示す（#158。ADR-0016 の D-12）
+    const details = page.getByTestId('stale-equipment-details');
+    await expect(details).not.toHaveAttribute('open', '');
+    await details.getByText('古い設備の一覧（1 件）').click();
+    await expect(details).toHaveAttribute('open', '');
+    await expect(details.getByRole('columnheader')).toHaveText([
+      '設備名',
+      '最終の受信日時',
+      '基準（分）',
+    ]);
+    const robotRow = details.getByRole('row').filter({ hasText: '収穫ロボット1' });
+    await expect(robotRow.getByRole('cell')).toHaveText(['2026/10/09 11:50:00', '3 分']);
+    await expect(details.getByRole('row').filter({ hasText: '環境センサー1' })).toHaveCount(0);
     await shot(page, testInfo, 'dashboard-stale-equipment');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
-    await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
-    await expect(warning).toHaveCount(0);
-
-    // ロボットの取得間隔を 5 分にすると、基準は 15 分になり、10 分前のデータは、古くない
+    // ロボットの取得間隔を 5 分にすると、基準は 15 分になり、10 分前のデータは、古くない（「更新」で、すぐ読み直す）
     await setEquipmentInterval(request, ROBOT, 5);
-    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス1' });
-    await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
+    await page.getByRole('button', { name: '更新' }).click();
     await expect(warning).toHaveCount(0);
+    await expect(page.getByTestId('data-status')).toContainText('最終のデータ取得');
+    await expect(page.getByTestId('data-status')).not.toContainText('古い');
+  });
+});
+
+test.describe('評価の鮮度の警告（評価の間隔 5 分 × 3 = 15 分。#158。SC-02-6）', () => {
+  test('評価が止まって（サーバーの時計が進んでも、評価の定期実行が動かない）15 分たつと、警告を出す。14 分では出さない。評価が動けば、警告は消える', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+
+    // 14 分後（サーバーとブラウザの時計を進める。評価の定期実行は、動かさない）: 警告なし
+    const after = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+    await setClock(request, after(14));
+    await openDashboard(page, '', after(14));
+    await expect(page.getByTestId('dashboard-meta')).toContainText(
+      '最終の評価: 2026/10/09 12:00:00',
+    );
+    await expect(page.getByTestId('evaluation-stale')).toHaveCount(0);
+
+    // 15 分後: 警告（最終の評価の日時を示す）
+    await setClock(request, after(15));
+    await alignBrowserClock(page, after(15));
+    await page.getByRole('button', { name: '更新' }).click();
+    const warning = page.getByTestId('evaluation-stale');
+    await expect(warning).toContainText(
+      '評価が更新されていません（最終の評価: 2026/10/09 12:00:00）',
+    );
+    await shot(page, testInfo, 'dashboard-evaluation-stale');
+
+    // 評価が動く（定期の評価 JB-02）と、最終の評価が更新され、警告は消える
+    await runEvaluation(request);
+    await page.getByRole('button', { name: '更新' }).click();
+    await expect(page.getByTestId('dashboard-meta')).toContainText(
+      '最終の評価: 2026/10/09 12:15:00',
+    );
+    await expect(warning).toHaveCount(0);
+  });
+
+  test('「最終の評価」「最終のデータ取得」の横のヘルプヒントが、反映の遅れ（最大 5 分）と、画面の更新・取得間隔の違いを説明する', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする（手動のみの運用では、「最終の手動入力」の説明になる）
+    await assignPlaceholderPaths(request);
+    await seed(request, mixedScenario());
+    await openDashboard(page);
+
+    await page.getByRole('button', { name: '最終の評価の説明' }).click();
+    await expect(page.getByTestId('help-hint-panel')).toContainText('最大 5 分');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '最終のデータ取得の説明' }).click();
+    await expect(page.getByTestId('help-hint-panel')).toContainText('10 秒ごとに更新');
+    await expect(page.getByTestId('help-hint-panel')).toContainText('取得間隔ごと');
   });
 });
 
@@ -553,6 +766,8 @@ test.describe('手動のみの運用（自動取り込みが有効でない間�
     request,
   }, testInfo) => {
     await prepare(request);
+    // 自動取り込みの運用（ファイルのパスを持つ設備がある。ADR-0023）にする
+    await assignPlaceholderPaths(request);
     // 手動入力のデータ（30 分前に入力）と、古い自動取り込みのデータ
     const at = (minutes: number) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
     await seed(request, {
@@ -571,7 +786,6 @@ test.describe('手動のみの運用（自動取り込みが有効でない間�
       apiOk(request, 'PUT', '/ingestion/settings', {
         sources: ['robot', 'environment-sensor'].map((sourceId) => ({
           sourceId,
-          connectionRef: 'FILE_SERVER_MOCK',
           isEnabled,
         })),
       });
@@ -590,10 +804,10 @@ test.describe('手動のみの運用（自動取り込みが有効でない間�
       page.getByRole('alert').filter({ hasText: 'データが古くなっています' }),
     ).toHaveCount(0);
     await expect(page.getByText('データがまだ取り込まれていません')).toHaveCount(0);
-    await expect(page.locator('.header-data-status')).toContainText('最終の手動入力');
-    await expect(page.locator('.header-data-status')).toContainText('2026/10/09 11:30');
-    await expect(page.locator('.header-data-status')).not.toContainText('古い');
-    await expect(page.locator('.header-data-status')).not.toContainText('未取得');
+    await expect(page.getByTestId('data-status')).toContainText('最終の手動入力');
+    await expect(page.getByTestId('data-status')).toContainText('2026/10/09 11:30');
+    await expect(page.getByTestId('data-status')).not.toContainText('古い');
+    await expect(page.getByTestId('data-status')).not.toContainText('未取得');
     await shot(page, testInfo, 'dashboard-manual-only');
 
     // 自動取り込みを有効に戻すと、従来どおり
@@ -603,7 +817,7 @@ test.describe('手動のみの運用（自動取り込みが有効でない間�
     await expect(
       page.getByRole('alert').filter({ hasText: 'データが古くなっています' }),
     ).toBeVisible();
-    await expect(page.locator('.header-data-status')).toContainText('最終のデータ取得');
+    await expect(page.getByTestId('data-status')).toContainText('最終のデータ取得');
   });
 });
 
@@ -617,10 +831,12 @@ test.describe('データの欠損・不正・遅延', () => {
 
     await openDashboard(page);
 
-    await expect(card(page, 'harvestAccuracy').locator('.status-badge')).toContainText('注意');
-    await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '不明',
+    await expect(dashboardPeriod(page, 'harvestAccuracy').locator('.status-badge')).toContainText(
+      '注意',
     );
+    await expect(
+      dashboardPeriod(page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('不明');
     expect(await summaryCount(page, 'CAUTION')).toBe(1);
 
     // センサーのデータだけがあるとき: 環境適応性だけを評価し、ロボットの観点は不明にする
@@ -629,10 +845,12 @@ test.describe('データの欠損・不正・遅延', () => {
 
     await openDashboard(page);
 
-    await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '注意',
+    await expect(
+      dashboardPeriod(page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('注意');
+    await expect(dashboardPeriod(page, 'harvestAccuracy').locator('.status-badge')).toContainText(
+      '不明',
     );
-    await expect(card(page, 'harvestAccuracy').locator('.status-badge')).toContainText('不明');
     expect(await summaryCount(page, 'CAUTION')).toBe(1);
   });
 
@@ -648,7 +866,7 @@ test.describe('データの欠損・不正・遅延', () => {
 
     await openDashboard(page);
 
-    const environment = card(page, 'environmentalAdaptability');
+    const environment = dashboardPeriod(page, 'environmentalAdaptability');
     await expect(environment.locator('.status-badge')).toContainText('注意');
     await expect(environment.locator('dd', { hasText: '—' })).toHaveCount(3);
     await expect(environment.locator('dd.metric-caution')).toContainText('27.0℃');
@@ -688,7 +906,7 @@ test.describe('データの欠損・不正・遅延', () => {
 
     await openDashboard(page);
 
-    const environment = card(page, 'environmentalAdaptability');
+    const environment = dashboardPeriod(page, 'environmentalAdaptability');
     // 使えるのは、遅延の照度（正常）だけ
     await expect(environment.locator('.status-badge')).toContainText('正常');
     await expect(environment.locator('dd', { hasText: '30000lx' })).toBeVisible();
@@ -706,7 +924,7 @@ test.describe('更新（FR-6.7）', () => {
     await prepare(request);
     await seed(request, environmentData({ temperature: 20 }));
     await openDashboard(page);
-    const environment = card(page, 'environmentalAdaptability');
+    const environment = dashboardCurrent(page, 'environmentalAdaptability');
     await expect(environment.locator('.status-badge')).toContainText('正常');
     await shot(page, testInfo, 'dashboard-before-refresh');
 
@@ -731,7 +949,7 @@ test.describe('更新（FR-6.7）', () => {
       }
     });
     await openDashboard(page);
-    const environment = card(page, 'environmentalAdaptability');
+    const environment = dashboardCurrent(page, 'environmentalAdaptability');
     await expect(environment.locator('.status-badge')).toContainText('正常');
 
     // 約10秒後の読み直し（1回目は 200、変化がなければ 2回目は 304）
@@ -794,27 +1012,197 @@ test.describe('画面の表示（レイアウト）', () => {
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
     await shot(page, testInfo, 'dashboard-tablet');
   });
+});
 
-  test('ロボットを選ぶと、カードが奇数（7）でも、最後のカードが横幅いっぱいに広がり、隙間ができない', async ({
+test.describe('手動の更新（Issue #355）', () => {
+  test('「更新」を押すと、約 10 秒の自動更新を待たずに、最新の評価結果を読み直す', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData({ temperature: 20 }, 3));
+    await openDashboard(page);
+    const badge = dashboardCurrent(page, 'environmentalAdaptability').locator('.status-badge');
+    await expect(badge).toContainText('正常');
+
+    // 評価結果だけを更新する（画面は、次の自動更新まで、読み直さない）
+    await seed(request, environmentData({ temperature: 40 }, 1));
+    await runEvaluation(request);
+    await page.getByRole('button', { name: '更新' }).click();
+
+    await expect(badge).toContainText('異常');
+    await expect(page.getByRole('button', { name: '更新' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
+  });
+});
+
+test.describe('観点別の状態の表（Issue #356）', () => {
+  test('正常・注意・異常・不明の件数の下に、10 観点の状態を、観点名と状態の表で示す（カードのステータスと同じ）。見出しは、3 つとも違う', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await openDashboard(page);
+
+    await expect(page.locator('main h2')).toHaveText([
+      '状態ごとの観点の数',
+      '観点別の状態',
+      '観点ごとの診断と推奨アクション',
+    ]);
+    const rows = page.getByTestId('viewpoint-status-table').locator('tbody tr');
+    await expect(rows).toHaveCount(10);
+    await expect(rows.locator('th')).toHaveText(VIEWPOINT_ORDER.map(([, name]) => name));
+    for (const [viewpointId] of VIEWPOINT_ORDER) {
+      await expect(page.getByTestId(`status-period-${viewpointId}`)).toContainText(
+        MIXED_EXPECTED[viewpointId],
+      );
+      await expect(dashboardPeriod(page, viewpointId).locator('.status-badge')).toContainText(
+        MIXED_EXPECTED[viewpointId],
+      );
+    }
+    // 件数のタイルの下、カードの上に並ぶ
+    const tiles = await page.getByTestId('summary-period-NORMAL').boundingBox();
+    const table = await page.getByTestId('viewpoint-status-table').boundingBox();
+    const firstCard = await page.locator('.viewpoint-card').first().boundingBox();
+    expect(table?.y ?? 0).toBeGreaterThan((tiles?.y ?? 0) + (tiles?.height ?? 0) - 1);
+    expect(firstCard?.y ?? 0).toBeGreaterThan((table?.y ?? 0) + (table?.height ?? 0) - 1);
+    await shot(page, testInfo, 'dashboard-status-table');
+  });
+
+  test('スマートフォン幅（375px）でも、表は、ページの幅に収まり、横スクロールが出ない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openDashboard(page);
+
+    const table = await page.getByTestId('viewpoint-status-table').boundingBox();
+    expect(table?.x ?? -1).toBeGreaterThanOrEqual(0);
+    expect((table?.x ?? 0) + (table?.width ?? 0)).toBeLessThanOrEqual(375);
+    await expectNoHorizontalScroll(page);
+    await shot(page, testInfo, 'dashboard-status-table-375');
+  });
+});
+
+for (const viewport of [
+  { name: 'デスクトップ幅（1280px）', width: 1280, height: 720 },
+  { name: 'タブレット幅（768px）', width: 768, height: 1024 },
+  { name: 'スマートフォン幅（375px）', width: 375, height: 800 },
+]) {
+  test(`長い設備名（200 文字）のハウスでも、「対象のハウス」・期間・更新が、ページの幅に収まり、ラベルが潰れない（${viewport.name}）`, async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'HOUSE-LONG',
+      equipmentType: 'FACILITY',
+      name: 'ハウス'.repeat(67).slice(0, 200),
+    });
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await openDashboard(page);
+
+    await page.getByLabel('対象のハウス').selectOption('HOUSE-LONG');
+
+    await expect(page.getByLabel('対象のハウス')).toHaveValue('HOUSE-LONG');
+    await expectEquipmentFieldIntact(page);
+    await expectNoHorizontalScroll(page);
+    const controls = await page
+      .locator('.page-controls > *')
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
+    for (const rect of controls) {
+      expect(rect.left).toBeGreaterThanOrEqual(0);
+      expect(rect.right).toBeLessThanOrEqual(viewport.width);
+    }
+    await shot(page, testInfo, `dashboard-long-name-${String(viewport.width)}`);
+  });
+}
+
+test.describe('ヘルプヒントと凡例（SC-02-7。Issue #154）', () => {
+  test('「状態の見かた」の凡例を開くと、正常・注意・異常・不明の意味が出る。はじめは閉じていて、もう一度押すと閉じる', async ({
     page,
     request,
   }) => {
     await prepare(request);
     await seed(request, mixedScenario());
     await openDashboard(page);
+    const toggle = page.getByRole('button', { name: '状態の見かた' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('status-legend-body')).toHaveCount(0);
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
+    await toggle.click();
 
-    const boxes = await page.locator('.viewpoint-card').evaluateAll((elements) =>
-      elements.map((element) => {
-        const rect = element.getBoundingClientRect();
-        return { left: Math.round(rect.left), right: Math.round(rect.right) };
-      }),
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const body = page.getByTestId('status-legend-body');
+    await expect(body.getByTestId('status-legend-NORMAL')).toContainText(
+      '判断基準を満たしています',
     );
-    const last = boxes.at(-1);
-    const first = boxes[0];
-    expect(last?.left).toBe(first?.left);
-    expect(last?.right).toBe(Math.max(...boxes.map((box) => box.right)));
+    await expect(body.getByTestId('status-legend-CAUTION')).toContainText(
+      '農作業者の確認が望ましい',
+    );
+    await expect(body.getByTestId('status-legend-ERROR')).toContainText('農作業者の対応が必要');
+    await expect(body.getByTestId('status-legend-UNKNOWN')).toContainText(
+      '評価に必要なデータが足りず、評価できません',
+    );
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByTestId('status-legend-body')).toHaveCount(0);
+  });
+
+  test('指標名の「?」を押すと説明が開き、Esc・外側のクリックで閉じる。キーボード（Enter）でも開ける', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await openDashboard(page);
+    const speed = dashboardPeriod(page, 'harvestSpeed');
+    const hint = speed.getByRole('button', { name: '走行停止率の説明' });
+    await expect(hint).toHaveAttribute('aria-expanded', 'false');
+
+    await hint.click();
+
+    await expect(hint).toHaveAttribute('aria-expanded', 'true');
+    await expect(speed.getByRole('note')).toContainText('走行が止まっていた時間の割合');
+
+    await page.keyboard.press('Escape');
+    await expect(hint).toHaveAttribute('aria-expanded', 'false');
+    await expect(hint).toBeFocused();
+
+    // キーボードだけで開く（Enter）
+    await page.keyboard.press('Enter');
+    await expect(hint).toHaveAttribute('aria-expanded', 'true');
+
+    // 外側を押すと閉じる
+    await page.getByRole('heading', { name: 'ダッシュボード', level: 1 }).click();
+    await expect(hint).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('スマートフォン幅（375px）でも、説明が画面の幅に収まり、横にスクロールしない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepare(request);
+    await seed(request, mixedScenario());
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openDashboard(page);
+
+    await dashboardPeriod(page, 'harvestSpeed')
+      .getByRole('button', { name: '走行停止率の説明' })
+      .click();
+
+    const panel = dashboardPeriod(page, 'harvestSpeed').getByRole('note');
+    await expect(panel).toBeVisible();
+    const rect = await panel.evaluate((node) => node.getBoundingClientRect());
+    expect(rect.left).toBeGreaterThanOrEqual(0);
+    expect(rect.right).toBeLessThanOrEqual(375);
+    await expectNoHorizontalScroll(page);
+    await shot(page, testInfo, 'dashboard-help-hint-375');
   });
 });

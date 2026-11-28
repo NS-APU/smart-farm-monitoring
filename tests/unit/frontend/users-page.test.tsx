@@ -5,6 +5,7 @@ import {
   READ_ONLY_LOGIN,
   at,
   callsOf,
+  confirmDetailsOf,
   errorBody,
   noContent,
   renderApp,
@@ -38,7 +39,13 @@ function routes(extra = {}) {
   return { 'GET /users': () => jsonResponse(USERS), ...extra };
 }
 
-describe('ユーザー管理（UC-14。SC-14）', () => {
+/** 登録のフォーム。登録は、ダイアログで行う（#366）。表の上のボタンで開いて、フォームを返す。 */
+function openAddForm(): HTMLElement {
+  fireEvent.click(screen.getByRole('button', { name: 'ユーザーの登録' }));
+  return screen.getByTestId('user-add');
+}
+
+describe('ユーザー（UC-14。SC-14）', () => {
   it('権限（user:manage）がなければ、その旨を示し、一覧を取得しない', async () => {
     const { calls } = renderApp('/settings/users', {}, { login: READ_ONLY_LOGIN });
     expect((await screen.findByTestId('permission-notice')).textContent).toBe(
@@ -81,7 +88,7 @@ describe('ユーザー管理（UC-14。SC-14）', () => {
       routes({ 'POST /users': () => jsonResponse(SAVED, 201) }),
     );
     await screen.findAllByTestId('user-row');
-    const form = screen.getByTestId('user-add');
+    const form = openAddForm();
 
     fireEvent.change(within(form).getByLabelText('ロール', { exact: false }), {
       target: { value: '' },
@@ -126,10 +133,10 @@ describe('ユーザー管理（UC-14。SC-14）', () => {
       password: GOOD_PASSWORD,
       role: 'viewer',
     });
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、入力は空
+    expect(screen.queryByTestId('user-add')).toBeNull();
     expect(
-      within(screen.getByTestId('user-add')).getByLabelText<HTMLInputElement>('パスワード', {
-        exact: false,
-      }).value,
+      within(openAddForm()).getByLabelText<HTMLInputElement>('パスワード', { exact: false }).value,
     ).toBe('');
   });
 
@@ -149,7 +156,7 @@ describe('ユーザー管理（UC-14。SC-14）', () => {
       }),
     );
     await screen.findAllByTestId('user-row');
-    const form = screen.getByTestId('user-add');
+    const form = openAddForm();
     fireEvent.change(within(form).getByLabelText('ユーザーID', { exact: false }), {
       target: { value: 'worker-1' },
     });
@@ -275,11 +282,100 @@ describe('ユーザー管理（UC-14。SC-14）', () => {
   });
 });
 
-describe('ユーザー管理の表の、狭い幅のカード（#151。SC-14）', () => {
+describe('ユーザーの削除の確認（#153。SC-14-2）', () => {
+  it('対象（ユーザー名・ユーザーID）を示し、Web Push 通知の購読とログイン中の状態（セッション）も削除される旨を示す。行ごとに、押した行の対象を示す', async () => {
+    renderApp('/settings/users', routes());
+    const rows = await screen.findAllByTestId('user-row');
+
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '削除' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(confirmDetailsOf(dialog)).toEqual({ ユーザー名: '閲覧者B', ユーザーID: 'viewer-1' });
+    expect(dialog.textContent).toContain('削除したユーザーは、ログインできなくなります');
+    expect(dialog.textContent).toContain('Web Push 通知の購読');
+    expect(dialog.textContent).toContain('ログイン中の状態（セッション）');
+  });
+});
+
+describe('ユーザーの表の、狭い幅のカード（#151。SC-14）', () => {
   it('各セルが、同じ列の見出しを、カードの項目名（data-label）として持つ', async () => {
     renderApp('/settings/users', routes());
     await screen.findAllByTestId('user-row');
 
     expectCardLabels();
+  });
+});
+
+describe('ユーザー: 登録・修正は、ダイアログで行う（Issue #366）', () => {
+  it('表の上に、「ユーザーの登録」のボタンがあり、押すまで、登録のフォームは出ない。キャンセル・Esc で閉じる', async () => {
+    renderApp('/settings/users', routes());
+    await screen.findAllByTestId('user-row');
+
+    expect(screen.queryByTestId('user-add')).toBeNull();
+    const button = screen.getByRole('button', { name: 'ユーザーの登録' });
+    const table = document.querySelector('table') as HTMLElement;
+    expect(button.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(button);
+    expect(screen.getByRole('dialog', { name: 'ユーザーを登録' })).toBeDefined();
+    fireEvent.click(
+      within(screen.getByTestId('user-add')).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(button);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('修正のボタンで、ダイアログが開く（名前は、「〇〇を修正」）。キャンセルで閉じる', async () => {
+    renderApp('/settings/users', routes());
+    const rows = await screen.findAllByTestId('user-row');
+
+    fireEvent.click(within(at(rows, 0)).getByRole('button', { name: '修正' }));
+
+    expect(screen.getByRole('dialog', { name: /を修正/ })).toBeDefined();
+    fireEvent.click(
+      within(screen.getByTestId('user-edit')).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('ユーザー: パスワード欄の表示切替・Caps Lock の注意（Issue #157。SC-01-4）', () => {
+  it('登録のダイアログのパスワード欄に、表示切替がある（既定は非表示）。押すと表示に切り替わる', async () => {
+    renderApp('/settings/users', routes());
+    await screen.findAllByTestId('user-row');
+    const form = openAddForm();
+    const password = within(form).getByLabelText<HTMLInputElement>('パスワード', {
+      exact: false,
+    });
+    const toggle = within(form).getByRole('button', { name: '入力した文字を表示' });
+
+    expect(password.type).toBe('password');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    expect(password.type).toBe('text');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    // 切替は、フォームを送信しない（必須のエラーも出さない）
+    expect(within(form).queryByText('ユーザーIDは必須です')).toBeNull();
+  });
+
+  it('修正（再設定）のダイアログのパスワード欄にも、表示切替と Caps Lock の注意がある', async () => {
+    renderApp('/settings/users', routes());
+    const rows = await screen.findAllByTestId('user-row');
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    const form = await screen.findByTestId('user-edit');
+    const password = within(form).getByLabelText<HTMLInputElement>('パスワード', {
+      exact: false,
+    });
+
+    fireEvent.keyDown(password, { key: 'A', modifierCapsLock: true });
+    fireEvent.click(within(form).getByRole('button', { name: '入力した文字を表示' }));
+
+    expect(password.type).toBe('text');
+    expect(within(form).getByTestId('caps-lock-notice').textContent).toContain('Caps Lock');
   });
 });

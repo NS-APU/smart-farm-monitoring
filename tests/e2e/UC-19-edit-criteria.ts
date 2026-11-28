@@ -1,8 +1,8 @@
 /**
- * UC-19 判断基準を編集する（SC-13。SC-03 の判断基準欄から。FR-5.7、FR-5.8、NFR-7.4、NFR-8.2）。
+ * UC-19 判断基準を編集する（SC-13。観点の詳細〔SC-03〕・満足度の詳細〔SC-04〕の「判断基準を編集」から。FR-5.7、FR-5.8、NFR-7.4、NFR-8.2）。
  *
  * ユースケースシナリオ（use-cases.md）:
- *   基本フロー  1. 農作業者が、判断基準の一覧を開き、現在の閾値（上限型・下限型・範囲型）を確認する
+ *   基本フロー  1. 農作業者が、観点・満足度の詳細の「判断基準を編集」から、判断基準の編集画面を開き、現在の閾値（上限型・下限型・範囲型）を確認する（実装は、一覧の画面を持たない）
  *               2. 農作業者が、閾値を編集して保存する
  *               3. システムが、入力内容を検証して保存する。変更はシステム全体に適用し、変更済みであることを識別できるようにする
  *               4. 農作業者が、必要に応じて、既定値へ戻す
@@ -40,7 +40,9 @@ import {
   shot,
 } from './support/viewpoint-scenarios.ts';
 import { listNotifications } from './support/notifications.ts';
-import { locatorOf, userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { locatorOf, userLabelText } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const card = (page: Page, indicator: string) => page.getByTestId(`criterion-edit-${indicator}`);
 const notice = locatorOf('criteria-notice');
@@ -48,6 +50,19 @@ const state = (page: Page) => page.getByTestId('criteria-state');
 const save = (page: Page) => page.getByRole('button', { name: '保存する' });
 const fieldError = (page: Page, indicator: string, name: string) =>
   card(page, indicator).locator(`[data-field="${name}"] .field-error`);
+
+/** 保存されている判断基準の内部の版（API の version。画面には示さない）。 */
+async function storedVersion(
+  request: Parameters<typeof api>[0],
+  viewpointId: string,
+): Promise<string> {
+  const body = (await (
+    await api(request, 'GET', `/viewpoints/${viewpointId}/criteria`)
+  ).json()) as {
+    version: string;
+  };
+  return body.version;
+}
 
 async function openCriteria(
   page: Page,
@@ -96,7 +111,28 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     await expect(stopped.getByLabel('異常開始値（以上で異常）')).toHaveValue('10');
   });
 
-  test('閾値を編集して保存すると、変更済み（版・変更者・日時つき）になり、現在の評価が更新され、診断メッセージで、変更した基準による判定である旨を示す', async ({
+  test('条件名の入力欄の横の説明（SC-13-5）を開くと、診断メッセージと判断基準の表で、どの条件に当てはまったかを示す名前であることを示す。Esc で閉じる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+    const temperature = card(page, 'temperatureCelsius');
+
+    await temperature.getByRole('button', { name: '条件名の説明' }).click();
+
+    const panel = page.getByTestId('help-hint-panel');
+    await expect(panel).toContainText('診断メッセージ');
+    await expect(panel).toContainText('判断基準の表');
+    await expect(panel).toContainText('どの条件に当てはまったか');
+    // 入力欄は、これまでどおり、ラベルで操作できる
+    await expect(temperature.getByLabel('条件名')).toHaveValue('温度');
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+  });
+
+  test('閾値を編集して保存すると、変更済み（最終変更の変更者・日時つき。内部の版は示さない）になり、現在の評価が更新され、診断メッセージで、変更した基準による判定である旨を示す', async ({
     page,
     request,
   }, testInfo) => {
@@ -106,7 +142,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     await alignBrowserClock(page);
     await openAs(page, '/viewpoints/environmentalAdaptability');
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('注意');
     await page.getByRole('link', { name: '判断基準を編集' }).click();
 
@@ -119,19 +155,23 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     // 3. 保存し、変更済みであることを識別できる
     await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
     await expect(state(page)).toContainText('変更済み');
-    await expect(state(page)).toContainText('版: CUSTOM-1');
-    await expect(state(page)).toContainText('変更者: e2e-user');
+    await expect(state(page)).toContainText('最終変更');
+    // 変更者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(state(page)).toContainText(`変更者: ${userLabelText(E2E_USER)}`);
     await expect(state(page)).toContainText('2026/10/09');
+    // 内部の版（CUSTOM-1）は、示さない（SC-13-5）
+    await expect(state(page)).not.toContainText('版');
+    await expect(state(page)).not.toContainText('CUSTOM');
     await shot(page, testInfo, 'uc19-saved');
     // 観点の詳細: 変更済みの判断基準・評価の更新・診断メッセージ
     await page.getByRole('link', { name: '観点の詳細へ戻る' }).click();
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
     );
-    await expect(page.getByTestId('criteria-state')).toContainText('変更済み（版: CUSTOM-1）');
+    await expect(page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(page.getByTestId('criterion-temperatureCelsius')).toContainText(
       '温度（イチゴの適温）',
     );
@@ -139,7 +179,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     // ダッシュボードにも反映される（カスタムの判断基準の表示）
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText(
       'カスタムの判断基準',
@@ -173,14 +213,14 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     );
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('注意');
     await expect(page.getByTestId('card-environmentalAdaptability')).not.toContainText(
       'カスタムの判断基準',
     );
   });
 
-  test('変更を繰り返すと、版が進む（CUSTOM-1 → CUSTOM-2）。再読み込みしても、変更後の閾値が保持される', async ({
+  test('変更を繰り返しても、画面は「変更済み」を示し、内部の版（API の version）が進む（CUSTOM-1 → CUSTOM-2）。再読み込みしても、変更後の閾値が保持される', async ({
     page,
     request,
   }) => {
@@ -191,11 +231,15 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
 
     await rate.getByLabel('注意下限（未満で注意）').fill('92');
     await save(page).click();
-    await expect(state(page)).toContainText('版: CUSTOM-1');
+    await expect(state(page)).toContainText('変更済み');
+    expect(await storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-1');
     await rate.getByLabel('注意下限（未満で注意）').fill('93');
     await save(page).click();
 
-    await expect(state(page)).toContainText('版: CUSTOM-2');
+    await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
+    await expect(state(page)).toContainText('変更済み');
+    await expect(state(page)).not.toContainText('版');
+    await expect.poll(() => storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-2');
     await page.reload();
     await expect(
       card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）'),
@@ -217,7 +261,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
     await save(page).click();
     await expect(notice(page)).toBeVisible();
     await page.goto('/');
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '正常',
     );
 
@@ -226,7 +270,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
     await save(page).click();
     await expect(notice(page)).toBeVisible();
     await page.goto('/');
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '注意',
     );
   });
@@ -245,7 +289,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
     await expect(notice(page)).toBeVisible();
 
     await page.goto('/');
-    await expect(page.getByTestId('card-harvestAccuracy').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestAccuracy').locator('.status-badge')).toContainText(
       '注意',
     );
   });
@@ -264,7 +308,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
 
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('注意');
   });
 
@@ -478,7 +522,7 @@ test.describe('代替フロー: 不正な組み合わせは、保存できない
 });
 
 test.describe('ステータスコードで判定する指標・存在しない観点', () => {
-  test('ステータスコードでも判定する観点（収穫速度・メンテナンス性・耐久性）では、ステータスの判定は、ここでは編集できない旨と、ステータスコード管理への導線を示す', async ({
+  test('ステータスコードでも判定する観点（収穫速度・メンテナンス性・耐久性）では、ステータスの判定は、ここでは編集できない旨と、ステータスコードへの導線を示す', async ({
     page,
     request,
   }) => {
@@ -495,9 +539,7 @@ test.describe('ステータスコードで判定する指標・存在しない�
         'ステータスコードのカテゴリ（正常・注意・異常）でも判定します',
       );
       await expect(
-        page
-          .getByTestId('criteria-status-note')
-          .getByRole('link', { name: 'ステータスコード管理へ' }),
+        page.getByTestId('criteria-status-note').getByRole('link', { name: 'ステータスコードへ' }),
       ).toHaveAttribute('href', '/settings/status-codes');
     }
     // ステータスを使わない観点では、表示しない
@@ -528,7 +570,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/viewpoints/environmentalAdaptability', USER_B);
     await expect(
-      b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      b.page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('注意');
     await expect(b.page.getByTestId('criteria-state')).toContainText('既定値');
 
@@ -541,14 +583,107 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     // 利用者B: 再読み込みで、変更済みの基準・評価になる
     await b.page.reload();
     await expect(
-      b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      b.page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('正常');
-    await expect(b.page.getByTestId('criteria-state')).toContainText('変更済み（版: CUSTOM-1）');
+    await expect(b.page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(b.page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
     );
     await shot(b.page, testInfo, 'uc19-user-b');
     await b.context.close();
+  });
+
+  test('同時編集の検出（SC-13-1）: 2 人の管理者が同じ判断基準を開き、先に保存すると、後から保存した人には、「他の管理者が変更しました」と示す。読み込み直せば、保存できる。先の変更は、上書きされない', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await seed(request, {});
+    const b = await newUserSession(browser, testInfo, 'user-b');
+    // 2 人とも、既定値の判断基準を開く
+    await openCriteria(page, 'environmentalAdaptability');
+    await openCriteria(b.page, 'environmentalAdaptability', USER_B);
+    await expect(state(b.page)).toContainText('既定値');
+
+    // 先に、利用者Aが保存する
+    await card(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）').fill('30');
+    await save(page).click();
+    await expect(state(page)).toContainText('変更済み');
+
+    // 後から、利用者Bが（古い画面から）保存する: 競合の案内。保存されない
+    await card(b.page, 'humidityPercent').getByLabel('正常上限（未満で正常）').fill('75');
+    await save(b.page).click();
+    const conflict = b.page.getByTestId('criteria-conflict');
+    await expect(conflict).toContainText('他の管理者が変更しました。読み込み直してください');
+    await expect(conflict.getByRole('button', { name: '読み込み直す' })).toBeVisible();
+    await expect(notice(b.page)).toHaveCount(0);
+    await shot(b.page, testInfo, 'uc19-conflict');
+    const stored = (await (
+      await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria')
+    ).json()) as {
+      version: string;
+      criteria: { indicator: string; thresholds: Record<string, number> }[];
+    };
+    expect(stored.version).toBe('CUSTOM-1');
+    expect(
+      stored.criteria.find((item) => item.indicator === 'temperatureCelsius')?.thresholds
+        .normalUpper,
+    ).toBe(30);
+    expect(
+      stored.criteria.find((item) => item.indicator === 'humidityPercent')?.thresholds.normalUpper,
+    ).not.toBe(75);
+
+    // 読み込み直すと、利用者Aの変更（変更者: 利用者A）が表示され、案内は消える。もう一度保存できる
+    await conflict.getByRole('button', { name: '読み込み直す' }).click();
+    await expect(state(b.page)).toContainText('変更済み');
+    await expect(state(b.page)).toContainText(`変更者: ${userLabelText(E2E_USER)}`);
+    await expect(conflict).toHaveCount(0);
+    await expect(
+      card(b.page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）'),
+    ).toHaveValue('30');
+    await card(b.page, 'humidityPercent').getByLabel('正常上限（未満で正常）').fill('75');
+    await save(b.page).click();
+    await expect(notice(b.page)).toBeVisible();
+    // 保存した利用者B（最終変更の変更者）に変わる
+    await expect(state(b.page)).toContainText(`変更者: ${userLabelText(USER_B)}`);
+    await expect.poll(() => storedVersion(request, 'environmentalAdaptability')).toBe('CUSTOM-2');
+    await b.context.close();
+  });
+
+  test('同時編集の検出（SC-13-1）: 既定値へ戻す操作も、他の管理者が先に変更していれば、戻さず、案内を示す', async ({
+    page,
+    request,
+    browser,
+  }, testInfo) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await seed(request, {});
+    const first = await newUserSession(browser, testInfo, 'user-b');
+    await openCriteria(page, 'harvestAccuracy');
+    await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('92');
+    await save(page).click();
+    await expect(state(page)).toContainText('変更済み');
+    expect(await storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-1');
+    // 利用者B: 変更済みの画面を開いたあと、利用者Aがさらに変更する
+    await openCriteria(first.page, 'harvestAccuracy', USER_B);
+    await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('93');
+    await save(page).click();
+    await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
+    await expect.poll(() => storedVersion(request, 'harvestAccuracy')).toBe('CUSTOM-2');
+
+    await first.page.getByRole('button', { name: '既定値へ戻す' }).click();
+    await confirmDialog(first.page, '既定値へ戻す');
+
+    await expect(first.page.getByTestId('criteria-conflict')).toContainText(
+      '他の管理者が変更しました',
+    );
+    const stored = (await (
+      await api(request, 'GET', '/viewpoints/harvestAccuracy/criteria')
+    ).json()) as { version: string; isDefault: boolean };
+    expect(stored).toMatchObject({ version: 'CUSTOM-2', isDefault: false });
+    await first.context.close();
   });
 
   test('変更・既定値へ戻す操作は、変更履歴に、変更者・変更前後とともに残る（UC-18）', async ({
@@ -571,11 +706,11 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await expect(history).toHaveCount(2);
     await expect(history.first()).toContainText('判断基準');
     await expect(history.first()).toContainText('harvestAccuracy');
-    await expect(history.first()).toContainText(userIdText('e2e-user'));
+    await expect(history.first()).toContainText(userLabelText(E2E_USER));
     await expect(history.first()).toContainText('編集');
     // 変更（1件目）と、既定値へ戻す操作（2件目）の、2件。どちらも、操作種別は「編集」
     await expect(history.nth(1)).toContainText('harvestAccuracy');
-    await expect(history.nth(1)).toContainText(userIdText('e2e-user'));
+    await expect(history.nth(1)).toContainText(userLabelText(E2E_USER));
     await expect(history.nth(1)).toContainText('編集');
     const body: unknown = await (
       await api(request, 'GET', '/audit-logs?targetType=criteria')
@@ -588,6 +723,28 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
       .map((item) => `${item.before.version}→${item.after.version}`)
       .sort();
     expect(versions).toEqual(['CUSTOM-1→DEFAULT', 'DEFAULT→CUSTOM-1']);
+  });
+
+  test('編集画面の「変更履歴を見る」から、その観点の判断基準の変更履歴だけを開く（#155。SC-13-6）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'harvestAccuracy');
+    await card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）').fill('92');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+    await shot(page, testInfo, 'uc19-history-link');
+
+    await page.getByRole('link', { name: '変更履歴を見る' }).click();
+
+    await expect
+      .poll(() => page.url())
+      .toContain('/data-entry/history?targetType=criteria&targetId=harvestAccuracy');
+    await expect(page.getByTestId('audit-row')).toHaveCount(1);
+    await expect(page.getByTestId('audit-row')).toContainText('harvestAccuracy');
+    await expect(page.getByTestId('audit-target-chip')).toContainText('対象: 判断基準（収穫精度）');
   });
 
   test('変更した基準で、状態が悪化すると（注意 → 異常）、通知を作る（UC-10への連携）', async ({
@@ -629,6 +786,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     await expect(notice(page)).toBeVisible();
 
     await page.goto('/viewpoints/environmentalAdaptability?equipmentId=SENSOR-01');
+    await expandPanel(page, 'trend');
 
     // 変更前（注意）→ 変更後（正常）の推移が、残る
     await expect(page.getByTestId('status-history').locator('.status-segment')).toHaveText([
@@ -657,6 +815,8 @@ test.describe('権限: 編集する権限のない利用者（閲覧者）は、
     await expect(
       card(page, 'marketableFruitRatePercent').getByLabel('注意下限（未満で注意）'),
     ).toHaveAttribute('readonly', '');
+    // 変更履歴の権限がないため、「変更履歴を見る」も示さない（#155。SC-13-6）
+    await expect(page.getByRole('link', { name: '変更履歴を見る' })).toHaveCount(0);
     await shot(page, testInfo, 'uc19-readonly');
     const login = await request.post('/api/v1/auth/login', {
       data: { userId: VIEWER.userId, password: VIEWER.password },
@@ -697,9 +857,10 @@ function minCardWidth(viewportWidth: number): number {
 
 /** 環境適応性のすべての指標の条件名を最大長にし、温度の異常下限を桁の多い値にして、API で保存する（温度 40℃は異常のまま）。 */
 async function saveLongCriteria(request: Parameters<typeof api>[0], label: string): Promise<void> {
-  const current = (await (
-    await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria')
-  ).json()) as {
+  const read = await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria');
+  // 判断基準の更新は、読み込んだ時点の版（ETag）を If-Match に付ける（SC-13-1）
+  const etag = read.headers().etag ?? '';
+  const current = (await read.json()) as {
     criteria: {
       indicator: string;
       kind: string;
@@ -715,9 +876,13 @@ async function saveLongCriteria(request: Parameters<typeof api>[0], label: strin
         ? { ...criterion.thresholds, errorLower: HUGE_THRESHOLD }
         : criterion.thresholds,
   }));
-  const saved = await api(request, 'PUT', '/viewpoints/environmentalAdaptability/criteria', {
-    criteria,
-  });
+  const saved = await api(
+    request,
+    'PUT',
+    '/viewpoints/environmentalAdaptability/criteria',
+    { criteria },
+    { 'if-match': etag },
+  );
   expect(saved.status(), '最大長の判断基準の保存').toBe(200);
 }
 
@@ -854,3 +1019,502 @@ for (const viewport of LAYOUT_VIEWPORTS) {
     });
   });
 }
+
+test.describe('閾値のスライダー・帯・現在値と変更後の値（Issue #358。全観点で共通の部品）', () => {
+  const slider = (page: Page, indicator: string, name: string) =>
+    card(page, indicator).getByRole('slider', { name });
+  const meta = (page: Page, indicator: string, index: number) =>
+    card(page, indicator).getByTestId('threshold-meta').nth(index);
+
+  test('閾値ごとに、スライダーと数値の欄が連動し、範囲の目安・単位・現在値と変更後の値を示す。スライダーで調整して保存すると、評価に反映される', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 15 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    const temperature = card(page, 'temperatureCelsius');
+
+    // 範囲型（温度）: 4 つのスライダー。目安の範囲・単位・現在値・変更なし
+    await expect(temperature.getByRole('slider')).toHaveCount(4);
+    await expect(slider(page, 'temperatureCelsius', '正常下限のスライダー')).toHaveValue('10');
+    await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
+      '目安の範囲: -10℃〜50℃既定: 10℃現在値: 10℃変更後: 10℃（変更なし）',
+    );
+    // 変更前は、現在の帯だけ（範囲型は 5 区分）
+    await expect(page.getByTestId('zone-current-temperatureCelsius')).toBeVisible();
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
+    await expect(
+      page.getByTestId('zone-current-temperatureCelsius').locator('.zone-seg-label'),
+    ).toHaveText(['異常', '注意', '正常', '注意', '異常']);
+
+    // スライダーを動かす → 数値の欄・変更後の値・変更後の帯が連動する
+    await slider(page, 'temperatureCelsius', '正常下限のスライダー').fill('20');
+    await expect(temperature.getByLabel('正常下限（以上で正常）')).toHaveValue('20');
+    await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
+      '目安の範囲: -10℃〜50℃既定: 10℃現在値: 10℃変更後: 20℃',
+    );
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toBeVisible();
+    await shot(page, testInfo, 'uc19-slider-changed');
+
+    // 数値の欄に入力 → スライダーが連動する
+    await temperature.getByLabel('正常下限（以上で正常）').fill('18');
+    await expect(slider(page, 'temperatureCelsius', '正常下限のスライダー')).toHaveValue('18');
+
+    // 保存すると、評価に反映される（温度 15℃ は、正常下限 18 未満で、注意）
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
+    await expect(meta(page, 'temperatureCelsius', 1)).toContainText('現在値: 18℃');
+    await expect(meta(page, 'temperatureCelsius', 1)).toContainText('既定: 10℃（変更済み）');
+    await page.goto('/');
+    await expect(
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('注意');
+  });
+
+  test('キーボード（矢印キー・Home・End）でも、スライダーを操作できる。目盛り（0.5）ごとに動く', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+    const upper = slider(page, 'temperatureCelsius', '異常上限のスライダー');
+
+    await upper.focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await expect(card(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）')).toHaveValue(
+      '36',
+    );
+    await page.keyboard.press('End');
+    await expect(card(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）')).toHaveValue(
+      '50',
+    );
+    await page.keyboard.press('Home');
+    await expect(card(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）')).toHaveValue(
+      '-10',
+    );
+    // 大小関係が成り立たない間は、変更後の帯を出さず、その旨を示す（保存の検証のエラーとは別）
+    await expect(page.getByTestId('zone-invalid-temperatureCelsius')).toBeVisible();
+    await expect(page.getByTestId('zone-after-temperatureCelsius')).toHaveCount(0);
+    await expect(page.getByTestId('criterion-error-temperatureCelsius')).toHaveCount(0);
+  });
+
+  test('すべての観点（9 観点）の判断基準の編集に、同じ部品（スライダー・帯・現在値と変更後の値）がある', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    const viewpoints = [
+      ['harvestAccuracy', 'marketableFruitRatePercent'],
+      ['harvestSpeed', 'travelStoppedRatePercent'],
+      ['environmentalAdaptability', 'co2Ppm'],
+      ['operability', 'operationMinutes'],
+      ['maintainability', 'mttrHours'],
+      ['costEfficiency', 'economicProductivity'],
+      ['safety', 'emergencyStopPerHour'],
+      ['dataUtilization', 'dataCoveragePercent'],
+      ['durability', 'mtbfHours'],
+    ] as const;
+    await alignBrowserClock(page);
+    for (const [viewpointId, indicator] of viewpoints) {
+      await openAs(page, `/viewpoints/${viewpointId}/criteria`);
+      await expect(card(page, indicator).getByRole('slider').first()).toBeVisible();
+      await expect(page.getByTestId(`zone-current-${indicator}`)).toBeVisible();
+      await expect(meta(page, indicator, 0)).toContainText('変更なし');
+      await expect(meta(page, indicator, 0)).toContainText('既定: ');
+    }
+  });
+
+  test('下限型の満足度（総合満足度）も、同じ部品で編集できる。満足度の詳細から入り、スライダーで注意下限を 3.5 にすると、総合満足度 3.9 は正常になる（Issue #359）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, satisfactionData([4, 4, 4, 4, 4, 4, 4, 4, 3]));
+    await alignBrowserClock(page);
+    await openAs(page, '/satisfaction');
+    await expect(page.getByTestId('overall-score')).toHaveText('3.9');
+    await expect(page.locator('.overall .status-badge')).toContainText('注意');
+    await expect(page.getByTestId('criteria-state')).toHaveText('既定値');
+
+    // 満足度の詳細の「判断基準を編集」から、判断基準の編集へ
+    await page.getByRole('link', { name: '判断基準を編集' }).click();
+    await expect(page.getByRole('heading', { name: /判断基準の編集/, level: 1 })).toBeVisible();
+    const overall = card(page, 'overallSatisfaction');
+    await expect(overall.getByRole('slider', { name: '注意下限のスライダー' })).toHaveValue('4');
+    await expect(meta(page, 'overallSatisfaction', 0)).toHaveText(
+      '目安の範囲: 1〜5既定: 4現在値: 4変更後: 4（変更なし）',
+    );
+    await overall.getByRole('slider', { name: '注意下限のスライダー' }).fill('3.5');
+    await expect(overall.getByLabel('注意下限（未満で注意）')).toHaveValue('3.5');
+    await expect(page.getByTestId('zone-after-overallSatisfaction')).toBeVisible();
+    await shot(page, testInfo, 'uc19-satisfaction-slider');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+
+    // 満足度の詳細へ戻ると、変更済みで、総合満足度は、変更後の基準で、正常
+    await page.getByRole('link', { name: '観点の詳細へ戻る' }).click();
+    await expect(page).toHaveURL(/\/satisfaction$/);
+    await expect(page.locator('.overall .status-badge')).toContainText('正常');
+    await expect(page.getByTestId('criteria-state')).toContainText('変更済み');
+    await expect(page.getByRole('list', { name: '判断基準' })).toContainText('3.5以上');
+  });
+
+  test('編集の権限がなければ、スライダーは操作できない（無効）。現在値・帯は見える', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await addUser(request, VIEWER);
+    await openCriteria(page, 'harvestAccuracy', VIEWER);
+
+    const sliders = card(page, 'marketableFruitRatePercent').getByRole('slider');
+    await expect(sliders).toHaveCount(2);
+    for (const index of [0, 1]) {
+      await expect(sliders.nth(index)).toBeDisabled();
+    }
+    await expect(page.getByTestId('zone-current-marketableFruitRatePercent')).toBeVisible();
+  });
+
+  for (const viewport of [
+    { name: 'デスクトップ幅（1280px）', width: 1280, height: 900 },
+    { name: 'タブレット幅（768px）', width: 768, height: 1024 },
+    { name: 'スマートフォン幅（375px）', width: 375, height: 800 },
+  ]) {
+    test(`${viewport.name}: スライダー・数値の欄・目安・帯が、はみ出さず、押せる大きさで、並ぶ`, async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      await seed(request, environmentData({ temperature: 15 }));
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await openCriteria(page, 'environmentalAdaptability');
+      await slider(page, 'temperatureCelsius', '正常下限のスライダー').fill('20');
+
+      await expectNoPageOverflow(page);
+      // スライダー・数値の欄は、潰れない（幅・高さ）
+      await expectNotCrushed(page, '.criterion-card .threshold-slider', {
+        minWidth: 90,
+        maxHeight: 60,
+      });
+      await expectNotCrushed(
+        page,
+        '.criterion-card .threshold-controls input:not([type="range"])',
+        {
+          minWidth: 70,
+          maxHeight: 60,
+        },
+      );
+      await expectNotCrushed(page, '.criterion-card .zone-bar', { minWidth: 200, maxHeight: 40 });
+      // スライダーは、指で押せる大きさ（高さ 44px 以上）
+      const box = await slider(page, 'temperatureCelsius', '異常上限のスライダー').boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await shot(page, testInfo, `uc19-slider-layout-${String(viewport.width)}`);
+    });
+  }
+});
+
+test.describe('閾値の既定値の併記（SC-13-3。Issue #165）', () => {
+  const defaults = (page: Page, indicator: string) =>
+    card(page, indicator).getByTestId('threshold-default');
+  const meta = (page: Page, indicator: string, index: number) =>
+    card(page, indicator).getByTestId('threshold-meta').nth(index);
+
+  test('閾値ごとに「既定: xx」を、単位つきで、閾値の入力の並びで示す（範囲型・下限型・上限型）。既定値のままなら、強調しない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+
+    // 範囲型（温度）: 異常下限・正常下限・正常上限・異常上限の順
+    await expect(defaults(page, 'temperatureCelsius')).toHaveText([
+      '既定: 0℃',
+      '既定: 10℃',
+      '既定: 25℃',
+      '既定: 35℃',
+    ]);
+    await expect(card(page, 'humidityPercent').getByTestId('threshold-default')).toHaveText([
+      '既定: 30%',
+      '既定: 40%',
+      '既定: 80%',
+      '既定: 90%',
+    ]);
+    await expect(page.locator('.threshold-default-changed')).toHaveCount(0);
+    await shot(page, testInfo, 'uc19-default-values');
+    // 下限型（注意下限・異常下限）・上限型（注意開始値・異常開始値）
+    await page.goto('/viewpoints/harvestAccuracy/criteria');
+    await expect(defaults(page, 'marketableFruitRatePercent')).toHaveText([
+      '既定: 90%',
+      '既定: 80%',
+    ]);
+    await page.goto('/viewpoints/harvestSpeed/criteria');
+    await expect(defaults(page, 'travelStoppedRatePercent')).toHaveText(['既定: 5%', '既定: 10%']);
+    await expect(defaults(page, 'averageSecondsPerFruit')).toHaveText([
+      '既定: 60秒/果実',
+      '既定: 120秒/果実',
+    ]);
+  });
+
+  test('既定値と違う閾値（保存した変更）は、文字とアイコンで強調する。入力の途中では、既定の表示は変わらない。既定値へ戻すと、強調は消える。権限がない利用者にも、既定を示す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await addUser(request, VIEWER);
+    await openCriteria(page, 'environmentalAdaptability');
+    const temperature = defaults(page, 'temperatureCelsius');
+
+    // 入力の途中（保存前）は、強調しない（既定は、保存されている値と比べる）
+    await card(page, 'temperatureCelsius').getByLabel('正常下限（以上で正常）').fill('15');
+    await expect(temperature.nth(1)).toHaveText('既定: 10℃');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+
+    // 保存後: 既定と違う正常下限だけ、「変更済み」と強調する（アイコンつき）
+    await expect(temperature).toHaveText([
+      '既定: 0℃',
+      '既定: 10℃（変更済み）',
+      '既定: 25℃',
+      '既定: 35℃',
+    ]);
+    await expect(page.locator('.threshold-default-changed')).toHaveCount(1);
+    await expect(temperature.nth(1).locator('svg[aria-hidden="true"]')).toHaveCount(1);
+    await expect(temperature.nth(0).locator('svg')).toHaveCount(0);
+    await expect(meta(page, 'temperatureCelsius', 1)).toHaveText(
+      '目安の範囲: -10℃〜50℃既定: 10℃（変更済み）現在値: 15℃変更後: 15℃（変更なし）',
+    );
+    await shot(page, testInfo, 'uc19-default-changed');
+
+    // 見るだけの利用者にも、既定と強調を示す
+    await openCriteria(page, 'environmentalAdaptability', VIEWER);
+    await expect(defaults(page, 'temperatureCelsius').nth(1)).toHaveText('既定: 10℃（変更済み）');
+
+    // 既定値へ戻すと、強調は消える
+    await openCriteria(page, 'environmentalAdaptability');
+    await page.getByRole('button', { name: '既定値へ戻す' }).click();
+    await confirmDialog(page, '既定値へ戻す');
+    await expect(notice(page)).toHaveText('既定値へ戻しました');
+    await expect(defaults(page, 'temperatureCelsius').nth(1)).toHaveText('既定: 10℃');
+    await expect(page.locator('.threshold-default-changed')).toHaveCount(0);
+  });
+
+  test('満足度（総合満足度）の判断基準にも、単位なしで既定を示し、変更済みを強調する（Issue #359 の部品と共通）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, satisfactionData([4, 4, 4, 4, 4, 4, 4, 4, 3]));
+    await alignBrowserClock(page);
+    await openAs(page, '/viewpoints/satisfaction/criteria');
+    await expect(defaults(page, 'overallSatisfaction')).toHaveText(['既定: 4', '既定: 3']);
+
+    await card(page, 'overallSatisfaction').getByLabel('注意下限（未満で注意）').fill('3.5');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+    await expect(defaults(page, 'overallSatisfaction')).toHaveText([
+      '既定: 4（変更済み）',
+      '既定: 3',
+    ]);
+  });
+
+  test('スマートフォン幅（375px）でも、既定と「変更済み」の強調が、はみ出さずに並ぶ', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, {});
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openCriteria(page, 'environmentalAdaptability');
+    await card(page, 'temperatureCelsius').getByLabel('正常下限（以上で正常）').fill('15');
+    await save(page).click();
+    await expect(notice(page)).toBeVisible();
+
+    await expect(defaults(page, 'temperatureCelsius').nth(1)).toHaveText('既定: 10℃（変更済み）');
+    await expectNoPageOverflow(page);
+    await shot(page, testInfo, 'uc19-default-changed-375');
+  });
+});
+
+test.describe('影響の確認（SC-13-2。Issue #165。ADR-0017 の D-24）', () => {
+  const previewButton = (page: Page) => page.getByRole('button', { name: '影響を確認' });
+  const previewNotice = (page: Page) => page.getByTestId('criteria-preview-notice');
+  const row = (page: Page, equipmentId: string) =>
+    page.getByTestId(`criteria-preview-row-${equipmentId}`);
+  const normalUpper = (page: Page) =>
+    card(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）');
+
+  test('「影響を確認」を押すまで、実行しない。押すと、入力途中の閾値で、状態が変わる設備（ハウス・センサー）を、「現在」と「変更後」で一覧にする。保存はしない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    // 温度 27℃: 既定値（正常は 10℃以上 25℃未満）では「注意」。ハウスも、配下のセンサーの最悪で「注意」
+    await seed(request, environmentData({ temperature: 27 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    // 自動では、実行しない（入力を変えても、結果を出さない）
+    await normalUpper(page).fill('30');
+    await expect(previewNotice(page)).toHaveCount(0);
+
+    await previewButton(page).click();
+
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+    await expect(row(page, 'HOUSE-01')).toContainText('ハウス1');
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(0)).toContainText('注意');
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(1)).toContainText('正常');
+    await expect(row(page, 'SENSOR-01')).toContainText('環境センサー1');
+    await expect(row(page, 'SENSOR-01').getByRole('cell').nth(0)).toContainText('注意');
+    await expect(row(page, 'SENSOR-01').getByRole('cell').nth(1)).toContainText('正常');
+    // ロボットは、環境適応性の対象外（見出しの行 + 2 行）
+    await expect(page.getByTestId('criteria-preview-table').getByRole('row')).toHaveCount(3);
+    // 保存済みの評価結果に対する影響であることを、明記する
+    const basis = page.getByTestId('criteria-preview-basis');
+    await expect(basis).toContainText('保存済みの評価結果に対する影響');
+    await expect(basis).toContainText('最大約 5 分前');
+    await expect(basis).toContainText('定期の評価');
+    await shot(page, testInfo, 'uc19-impact-preview');
+    // 保存していない: 読み込み直しても、既定値のまま
+    await page.reload();
+    await expect(state(page)).toContainText('既定値');
+    await expect(normalUpper(page)).toHaveValue('25');
+    const criteria = (await (
+      await api(request, 'GET', '/viewpoints/environmentalAdaptability/criteria')
+    ).json()) as { isDefault: boolean };
+    expect(criteria.isDefault).toBe(true);
+  });
+
+  test('確認した結果は、実際に保存して評価し直した結果と一致する（注意 → 正常）。入力を変えると、結果は消える', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 27 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('30');
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+
+    // 入力を変えると、結果を消す
+    await normalUpper(page).fill('31');
+    await expect(previewNotice(page)).toHaveCount(0);
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+    await save(page).click();
+
+    await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
+    // 保存後のダッシュボードの状態は、確認した「変更後」（正常）と同じ
+    await page.goto('/');
+    await expect(
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('正常');
+  });
+
+  test('変わる設備がないとき（現在と同じ閾値・影響のない変更）は、「変わる設備はありません」と示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 20 }));
+    await openCriteria(page, 'environmentalAdaptability');
+
+    // 変更なし
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('変わる設備はありません');
+    await expect(page.getByTestId('criteria-preview-table')).toHaveCount(0);
+    // 20℃ は、正常上限を 22℃ にしても、正常のまま
+    await normalUpper(page).fill('22');
+    await previewButton(page).click();
+    await expect(previewNotice(page)).toHaveText('変わる設備はありません');
+  });
+
+  test('状態が「不明」の設備（観測値がない）は、閾値を変えても「不明」のままで、変わる設備に含めない。その旨と件数を示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    // 環境のデータがない（ハウス・センサーの環境適応性は「不明」）
+    await seed(request, {});
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('30');
+
+    await previewButton(page).click();
+
+    await expect(previewNotice(page)).toHaveText('変わる設備はありません');
+    await expect(page.getByTestId('criteria-preview-unknown')).toContainText('「不明」のまま');
+    await expect(page.getByTestId('criteria-preview-unknown')).toContainText('2 件');
+  });
+
+  test('入力が不正なとき（大小関係が成り立たない）は、確認できず、保存と同じメッセージで示す', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 27 }));
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('5');
+
+    await previewButton(page).click();
+
+    const message = '異常下限 < 正常下限 < 正常上限 < 異常上限 になるように指定してください';
+    await expect(page.getByTestId('criterion-error-temperatureCelsius')).toHaveText(message);
+    await expect(previewNotice(page)).toHaveCount(0);
+    await save(page).click();
+    await expect(page.getByTestId('criterion-error-temperatureCelsius')).toHaveText(message);
+  });
+
+  test('権限のない利用者（閲覧者）には、「影響を確認」を出さない。サーバー側でも拒否する（403）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUser(request, VIEWER);
+    await seed(request, {});
+
+    await openCriteria(page, 'environmentalAdaptability', VIEWER);
+
+    await expect(previewButton(page)).toHaveCount(0);
+    const login = await request.post('/api/v1/auth/login', {
+      data: { userId: VIEWER.userId, password: VIEWER.password },
+    });
+    const { accessToken } = (await login.json()) as { accessToken: string };
+    const denied = await request.fetch(
+      '/api/v1/viewpoints/environmentalAdaptability/criteria/preview',
+      { method: 'POST', headers: { authorization: `Bearer ${accessToken}` }, data: {} },
+    );
+    expect(denied.status()).toBe(403);
+  });
+
+  test('スマートフォン幅（375px）でも、結果の一覧（カード）が、はみ出さずに並ぶ', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 27 }));
+    await page.setViewportSize({ width: 375, height: 800 });
+    await openCriteria(page, 'environmentalAdaptability');
+    await normalUpper(page).fill('30');
+
+    await previewButton(page).click();
+
+    await expect(previewNotice(page)).toHaveText('状態が変わる設備: 2 件');
+    await expect(row(page, 'HOUSE-01')).toBeVisible();
+    // 狭い幅では、表をカードにする（各セルの項目名は、data-label で示す）
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(0)).toHaveAttribute(
+      'data-label',
+      '現在',
+    );
+    await expect(row(page, 'HOUSE-01').getByRole('cell').nth(1)).toHaveAttribute(
+      'data-label',
+      '変更後',
+    );
+    await expectNoPageOverflow(page);
+    await shot(page, testInfo, 'uc19-impact-preview-375');
+  });
+});

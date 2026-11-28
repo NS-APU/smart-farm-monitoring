@@ -10,7 +10,7 @@ import {
   INITIAL_STATUS_CODES,
   seedInitialStatusCodes,
 } from '../../src/backend/application/seed/initial-data.ts';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
 import { equipmentSet, FACILITY_ID, ROBOT_ID } from '../support/builders.ts';
 import { createControllableClock } from '../../src/backend/infrastructure/local/clocks.ts';
@@ -19,7 +19,9 @@ import { createControllableClock } from '../../src/backend/infrastructure/local/
 const UNUSED_DEPS = {
   audit: { record: vi.fn(), list: vi.fn() },
   federation: { enqueue: vi.fn() },
-  evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn() },
+  deletion: { request: vi.fn(), isDeleting: vi.fn() },
+  evaluation: { evaluateAll: vi.fn(), evaluateAffected: vi.fn(), evaluateCurrent: vi.fn() },
+  evaluationOnWrite: 'sync' as const,
   clock: createControllableClock(),
   logger: NULL_LOGGER,
 };
@@ -112,8 +114,10 @@ describe('判断基準・設備・ステータスコードの参照', () => {
     const list = await createStatusCodeService({
       audit: UNUSED_DEPS.audit,
       evaluation: UNUSED_DEPS.evaluation,
+      evaluationOnWrite: UNUSED_DEPS.evaluationOnWrite,
       logger: UNUSED_DEPS.logger,
       statusCodes: repositories.statusCodes,
+      unregisteredStatusCodes: repositories.unregisteredStatusCodes,
     }).list();
 
     expect(list.items.map((item) => item.code)).toEqual(['A', 'A_X', 'B']);

@@ -6,7 +6,7 @@
  *   → UC-01・UC-04 Bが、ダッシュボードで、収穫速度の注意・コードの名称・推奨アクションを確認 → UC-20 Bが、一覧で、コードの名称を確認
  *   → UC-17 Aが、コードのカテゴリを異常へ変更 → UC-01・UC-10・UC-22 Bの画面は異常になり、通知が届く
  *   → UC-12 Aが、ロボットの名称を変更 → UC-20・UC-22 Bの一覧・通知・設備の選択に、新しい名称が現れる
- *   → UC-12 Aが、ロボットを削除 → UC-01・UC-20 評価の対象から外れ（不明）、過去のデータは残る → UC-18 Aが、変更履歴で、各操作を確認
+ *   → UC-12 Aが、ロボットを削除 → UC-01・UC-20 評価の対象から外れ（不明）、一覧にも出ない（設備のデータは削除される。D-28）→ UC-18 Aが、変更履歴で、各操作を確認
  *
  * 各ユースケースの値の同値分割は、UC-NN-*.ts が担う。ここでは、ユースケースの連なりと、利用者をまたぐ影響を確かめる。
  */
@@ -21,19 +21,23 @@ import {
   goToMenu,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
+import { itemListQuery, dashboardPeriod } from './support/pages.ts';
 import { runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
 const speedCard = (page: Page) => page.getByTestId('card-harvestSpeed');
+/** 項目ごとの行（並べ替え「カテゴリ」の一覧）と、1 回の計測ごとの行（日時順。既定。Issue #363）。 */
 const observationRows = (page: Page) => page.getByTestId('observation-row');
+const measurementRows = (page: Page) => page.getByTestId('measurement-row');
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
-const headerEquipment = (page: Page) => page.getByRole('banner').getByLabel('対象の設備');
+// 観点の詳細の「対象の設備」（ハウス・ロボット・センサーを選べる。以前は、ヘッダーにあった。Issue #355）
+const equipmentSelect = (page: Page) => page.getByRole('main').getByLabel('対象の設備');
 
 test.describe('シナリオ: ステータスコード・設備の構成の変更の反映（UC-17 → UC-15・08 → UC-01・04 → UC-20 → UC-17 → UC-10・22 → UC-12 → UC-20 → UC-12 → UC-18）', () => {
   test('Aがコードを登録して取り込み、Bが評価・一覧で確認する。Aがカテゴリ・ロボットの名称・削除を変更すると、Bの評価・通知・一覧・設備の選択に反映される。変更は履歴に残る', async ({
@@ -48,6 +52,8 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     // UC-17: 利用者Aが、ステータスコード「充電待ち」（注意）を登録する
     await openAs(page, '/');
     await goToMenu(page, 'ステータスコード');
+    // ステータスコードの登録は、ダイアログで行う（Issue #366）
+    await page.getByRole('button', { name: 'ステータスコードの登録' }).click();
     const addForm = page.getByTestId('status-code-add');
     await addForm.getByLabel('コード値').fill('CHARGING_WAIT');
     await addForm.getByLabel('名称').fill('充電待ち');
@@ -65,29 +71,24 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
       travelStoppedHours: 0.002,
       statusCode: 'CHARGING_WAIT',
     };
-    placeFile(
-      'robot',
-      'robot.json',
-      robotJson([
-        { hoursAgo: 0.5, fields },
-        { hoursAgo: 0.25, fields },
-      ]),
-    );
+    await placeFile(request, 'robot', 'robot.json', robotJson({ hoursAgo: 0.25, fields }));
     await goToMenu(page, '取り込み');
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
 
     // UC-01・UC-04: 利用者Bが、ダッシュボードで、収穫速度が注意であること・コードの名称・推奨アクションを確認する
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
-    await expect(speedCard(b.page).locator('.status-badge')).toContainText('注意');
+    await expect(dashboardPeriod(b.page, 'harvestSpeed').locator('.status-badge')).toContainText(
+      '注意',
+    );
     await expect(speedCard(b.page)).toContainText('充電待ち');
     await expect(speedCard(b.page)).toContainText('推奨アクション: 確認が望ましい状態です');
     await shot(b.page, testInfo, 'scenario-config-b-caution');
 
-    // UC-20: Bが、取り込み済みデータの一覧で、ステータスコードを名称で確認する
-    await goToMenu(b.page, '取り込み済みデータ');
-    const statusRows = observationRows(b.page).filter({ hasText: 'ステータスコード' });
-    await expect(statusRows).toHaveCount(2);
+    // UC-20: Bが、計測データの一覧で、ステータスコードを名称で確認する
+    await goToMenu(b.page, '計測データ');
+    const statusRows = measurementRows(b.page).filter({ hasText: 'ステータスコード' });
+    await expect(statusRows).toHaveCount(1);
     await expect(statusRows.first()).toContainText('充電待ち');
     await expect(statusRows.first()).toContainText('自動取り込み');
 
@@ -105,7 +106,9 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     // UC-01・UC-10・UC-22: Bの画面は、異常になり、異常の通知が届く
     const unreadBefore = Number(await unreadBadge(b.page).textContent());
     await b.page.goto('/');
-    await expect(speedCard(b.page).locator('.status-badge')).toContainText('異常');
+    await expect(dashboardPeriod(b.page, 'harvestSpeed').locator('.status-badge')).toContainText(
+      '異常',
+    );
     await expect(speedCard(b.page)).toContainText('推奨アクション: 対応が必要な状態です');
     await b.page.goto('/notifications');
     await expect
@@ -119,7 +122,7 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
 
     // UC-12: Aが、ロボットの名称を変更する（履歴は日時の順に並ぶため、操作の間は、時計を進める）
     await advanceMinutes(request, 1);
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await page
       .locator('[data-testid="equipment-row"][data-equipment-id="ROBOT-01"]')
       .getByRole('button', { name: '修正' })
@@ -130,31 +133,37 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
 
     // UC-20・UC-22: Bの設備の選択・一覧・通知に、新しい名称が現れる
     await b.page.reload();
-    await expect(headerEquipment(b.page)).toContainText('改名ロボット');
     await expect(
       notificationRows(b.page).filter({ hasText: '改名ロボット' }).first(),
     ).toBeVisible();
-    await b.page.goto('/observations');
+    await b.page.goto('/viewpoints/harvestSpeed');
+    await expect(equipmentSelect(b.page)).toContainText('改名ロボット');
+    await b.page.goto(`/observations${itemListQuery()}`);
     await expect(observationRows(b.page).filter({ hasText: '改名ロボット' }).first()).toBeVisible();
     await expect(observationRows(b.page).filter({ hasText: '収穫ロボット1' })).toHaveCount(0);
 
-    // UC-12: Aが、ロボットを削除する（確認を求める。論理削除）
+    // UC-12: Aが、ロボットを削除する（確認を求める。設備のデータも削除される。D-28）
     await advanceMinutes(request, 1);
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await page
       .locator('[data-testid="equipment-row"][data-equipment-id="ROBOT-01"]')
       .getByRole('button', { name: '削除' })
       .click();
-    await expect(page.getByTestId('confirm-dialog')).toContainText('過去のデータは残ります');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('観測値・手動入力・評価結果');
     await confirmDialog(page, '削除');
-    await expect(page.getByTestId('equipment-notice')).toHaveText('削除しました');
+    await expect(page.getByTestId('equipment-notice')).toHaveText(
+      '削除を始めました。データの削除には、数分かかることがあります',
+    );
 
-    // UC-01・UC-20: Bの設備の選択から外れ、ハウスの収穫速度は、評価の対象がなくなって不明になる。過去のデータは、一覧に残る
+    // UC-01・UC-20: Bの設備の選択から外れ、ハウスの収穫速度は、評価の対象がなくなって不明になる。設備のデータは、一覧にも出ない
+    await b.page.goto('/viewpoints/harvestSpeed');
+    await expect(equipmentSelect(b.page)).not.toContainText('改名ロボット');
     await b.page.goto('/');
-    await expect(headerEquipment(b.page)).not.toContainText('改名ロボット');
-    await expect(speedCard(b.page).locator('.status-badge')).toContainText('不明');
-    await b.page.goto('/observations');
-    await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' }).first()).toBeVisible();
+    await expect(dashboardPeriod(b.page, 'harvestSpeed').locator('.status-badge')).toContainText(
+      '不明',
+    );
+    await b.page.goto(`/observations${itemListQuery()}`);
+    await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' })).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-config-b-deleted');
 
     // UC-18: Aが、変更履歴で、ステータスコード（登録・編集）・設備（編集・削除）の操作を確認する
@@ -163,9 +172,11 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await expect(auditRows(page).nth(0)).toContainText('編集');
     await expect(auditRows(page).nth(1)).toContainText('登録');
     await page.goto('/data-entry/history?targetType=equipment');
-    await expect(auditRows(page)).toHaveCount(2);
+    // 準備（ファイルを置く操作）が、設備のファイルのパスを設定する（API での設備の修正）ため、「編集」は 1 件多い（HTTP のファイルサーバー）
+    await expect(auditRows(page)).toHaveCount(3);
     await expect(auditRows(page).nth(0)).toContainText('削除');
     await expect(auditRows(page).nth(1)).toContainText('編集');
+    await expect(auditRows(page).nth(2)).toContainText('編集');
     await shot(page, testInfo, 'scenario-config-a-history');
     await b.context.close();
   });

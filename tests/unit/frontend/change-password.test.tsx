@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { LoginResponse } from '@smart-farm/shared/schemas/auth';
 import { App } from '../../../src/frontend/app.tsx';
-import { errorBody, withBaseRoutes } from '../../support/management-frontend.ts';
+import { at, errorBody, withBaseRoutes } from '../../support/management-frontend.ts';
 import {
   WORKER_LOGIN,
   createFakeFetch,
@@ -219,10 +219,11 @@ describe('パスワードの変更の強制（UC-13・UC-14。SC-01。D-45）', 
 });
 
 describe('本人によるパスワードの変更（変更が必要でない利用者。FR-9.7）', () => {
-  it('ヘッダーの「パスワードの変更」から、変更の画面を開ける（共通のレイアウトの中）。変更すると、ダッシュボードへ戻る', async () => {
+  it('ヘッダーのユーザーメニューの「パスワードの変更」から、変更の画面を開ける（共通のレイアウトの中）。変更すると、ダッシュボードへ戻る', async () => {
     const { session } = renderApp({ session: WORKER_LOGIN, path: '/' });
 
-    fireEvent.click(await screen.findByRole('link', { name: 'パスワードの変更' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^ログイン中のユーザー/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'パスワードの変更' }));
 
     const main = await screen.findByRole('main');
     expect(within(main).getByRole('heading', { name: 'パスワードの変更', level: 1 })).toBeDefined();
@@ -234,5 +235,49 @@ describe('本人によるパスワードの変更（変更が必要でない利�
       expect(session.current?.accessToken).toBe('access-token-2');
     });
     expect(await screen.findByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeDefined();
+  });
+});
+
+describe('パスワードの変更: 3 つの欄の表示切替・Caps Lock の注意（Issue #157。SC-01-4）', () => {
+  it('現在・新しい・新しい（確認）の 3 欄に、表示切替がある。既定は非表示で、欄ごとに切り替わる', async () => {
+    renderApp();
+    await screen.findByRole('heading', { name: 'パスワードの変更', level: 1 });
+    const toggles = screen.getAllByRole('button', { name: '入力した文字を表示' });
+    expect(toggles).toHaveLength(3);
+    const current = screen.getByLabelText<HTMLInputElement>('現在のパスワード');
+    const next = screen.getByLabelText<HTMLInputElement>('新しいパスワード', { exact: true });
+    const confirm = screen.getByLabelText<HTMLInputElement>('新しいパスワード（確認）');
+    for (const field of [current, next, confirm]) {
+      expect(field.type).toBe('password');
+    }
+
+    fireEvent.click(at(toggles, 1));
+
+    expect(current.type).toBe('password');
+    expect(next.type).toBe('text');
+    expect(confirm.type).toBe('password');
+    expect(at(toggles, 1).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('表示切替を押しても、送信されない（変更の API を呼ばない）', async () => {
+    const { calls } = renderApp();
+    await screen.findByRole('heading', { name: 'パスワードの変更', level: 1 });
+
+    fireEvent.click(at(screen.getAllByRole('button', { name: '入力した文字を表示' }), 0));
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it('新しいパスワードの欄で、Caps Lock がオンのキー入力をすると、その欄の近くに注意を示す', async () => {
+    renderApp();
+    await screen.findByRole('heading', { name: 'パスワードの変更', level: 1 });
+
+    fireEvent.keyDown(screen.getByLabelText('新しいパスワード', { exact: true }), {
+      key: 'A',
+      modifierCapsLock: true,
+    });
+
+    const notices = screen.getAllByTestId('caps-lock-notice');
+    expect(notices.map((notice) => notice.textContent !== '')).toEqual([false, true, false]);
   });
 });

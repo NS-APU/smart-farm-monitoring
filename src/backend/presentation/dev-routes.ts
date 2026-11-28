@@ -136,7 +136,6 @@ export function createDevRoutes(deps: ApiDeps, dev: DevApiDeps): Hono<AppEnv> {
   });
 
   const mockTargets = new Map<string, FaultController>([
-    ['file-server', dev.faults.fileServer],
     ['federation', dev.faults.federation],
     ['web-push', dev.faults.webPush],
   ]);
@@ -160,6 +159,9 @@ export function createDevRoutes(deps: ApiDeps, dev: DevApiDeps): Hono<AppEnv> {
     c.json({ items: dev.mocks.federation.received() }),
   );
   routes.get('/mocks/web-push/delivered', (c) => c.json({ items: dev.mocks.webPush.delivered() }));
+  routes.get('/mocks/web-push/test-delivered', (c) =>
+    c.json({ items: dev.mocks.webPush.testDelivered() }),
+  );
 
   return routes;
 }

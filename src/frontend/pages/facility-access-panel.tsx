@@ -1,7 +1,8 @@
 /**
- * 閲覧の割り当て（ハウスごと）のパネル（設備管理 SC-10。Issue #330。ADR-0013。FR-9.8）。ハウスの行の「閲覧の割り当て」から開き、
- * そのハウスを閲覧できる一般ユーザーを、チェックボックスで選んで、保存する（そのハウスを閲覧できる全ユーザーで、置き換える）。
- * 管理者は、すべてのハウスを閲覧できるため、選択肢に含めない。
+ * 閲覧の割り当て（ハウスごと）のパネル（設備管理 SC-10。Issue #330。ADR-0013。FR-9.8）。ハウスの行の「閲覧の割り当て」から、
+ * ダイアログ（components/modal.tsx。題名は、ダイアログが持つ）で開く（Issue #365）。
+ * ユーザーの一覧を、表（選択・ユーザーID・ユーザー名）で示し、そのハウスを閲覧できる一般ユーザーを、チェックボックスで選んで、
+ * 保存する（そのハウスを閲覧できる全ユーザーで、置き換える）。管理者は、すべてのハウスを閲覧できるため、選択肢に含めない。
  */
 
 import { useState, type ReactNode } from 'react';
@@ -53,31 +54,42 @@ export function FacilityAccessPanel(props: FacilityAccessPanelProps): ReactNode 
   }
 
   return (
-    <div data-testid="facility-access" aria-labelledby="facility-access-title" role="group">
-      <h2 id="facility-access-title">{TEXT.panelTitle(facility.name)}</h2>
+    <div data-testid="facility-access">
       <p className="muted">{TEXT.lead}</p>
       {users.length === 0 ? (
         <p className="muted" data-testid="facility-access-no-users">
           {TEXT.noUsers}
         </p>
       ) : (
-        <ul className="checkbox-list">
-          {users.map((user) => (
-            <li key={user.userId}>
-              <label>
-                <input
-                  type="checkbox"
-                  aria-label={TEXT.userLabel(user.userName)}
-                  checked={selected.includes(user.userId)}
-                  onChange={() => {
-                    toggle(user.userId);
-                  }}
-                />{' '}
-                {user.userName}
-              </label>
-            </li>
-          ))}
-        </ul>
+        <div className="table-scroll">
+          <table className="data-table card-table access-table" data-testid="facility-access-table">
+            <thead>
+              <tr>
+                <th scope="col">{TEXT.selectColumn}</th>
+                <th scope="col">{TEXT.userIdColumn}</th>
+                <th scope="col">{TEXT.userNameColumn}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.userId} data-testid="facility-access-row" data-user-id={user.userId}>
+                  <td data-label={TEXT.selectColumn}>
+                    <input
+                      type="checkbox"
+                      aria-label={TEXT.userLabel(user.userName)}
+                      checked={selected.includes(user.userId)}
+                      onChange={() => {
+                        toggle(user.userId);
+                      }}
+                    />
+                  </td>
+                  <td data-label={TEXT.userIdColumn}>{user.userId}</td>
+                  <td data-label={TEXT.userNameColumn}>{user.userName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {submit.formMessage === undefined ? null : (
         <div data-testid="facility-access-error">

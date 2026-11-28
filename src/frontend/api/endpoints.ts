@@ -9,8 +9,14 @@ import {
   SeriesResponseSchema,
   ViewpointDetailResponseSchema,
 } from '@smart-farm/shared/schemas/evaluation';
-import { ObservationListResponseSchema } from '@smart-farm/shared/schemas/observation';
-import { StatusCodeListResponseSchema } from '@smart-farm/shared/schemas/status-code';
+import {
+  MeasurementListResponseSchema,
+  ObservationListResponseSchema,
+} from '@smart-farm/shared/schemas/observation';
+import {
+  StatusCodeListResponseSchema,
+  UnregisteredStatusCodeListResponseSchema,
+} from '@smart-farm/shared/schemas/status-code';
 import { EquipmentTreeResponseSchema } from '@smart-farm/shared/schemas/equipment';
 import { UnreadCountResponseSchema } from '@smart-farm/shared/schemas/notification';
 import type { ApiClient } from './client.ts';
@@ -91,6 +97,10 @@ export interface ObservationListParams {
   readonly from?: string;
   readonly to?: string;
   readonly q?: string;
+  /** 'true' なら、「問題あり」（有効でない観測値）だけ。期間（31 日以内）が必須（SC-09-3）。 */
+  readonly problemOnly?: 'true';
+  /** 'true' なら、合計の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4）。 */
+  readonly includeUsage?: 'true';
   readonly sort?: ObservationSortKey;
   readonly direction?: SortDirection;
   readonly limit?: number;
@@ -104,6 +114,37 @@ export function listObservations(api: ApiClient, params: ObservationListParams) 
   });
 }
 
+/** 計測単位の一覧の条件（日時順だけ。Issue #363）。 */
+export interface MeasurementListParams {
+  readonly equipmentId?: string;
+  readonly category?: string;
+  readonly source?: string;
+  readonly from?: string;
+  readonly to?: string;
+  readonly q?: string;
+  /** 'true' なら、有効でない項目を含む計測だけ。期間（31 日以内）が必須（SC-09-3）。 */
+  readonly problemOnly?: 'true';
+  /** 'true' なら、合計の項目の手動入力の行に、「評価に使われるか」（`usage`）を付ける（SC-09-4）。 */
+  readonly includeUsage?: 'true';
+  readonly direction?: SortDirection;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export function listMeasurements(api: ApiClient, params: MeasurementListParams) {
+  return api.request('/observations/measurements', {
+    query: { ...params },
+    schema: MeasurementListResponseSchema,
+  });
+}
+
 export function getStatusCodes(api: ApiClient) {
   return api.request('/status-codes', { schema: StatusCodeListResponseSchema });
+}
+
+/** 未登録のコード値（取り込みで、定義にないコード値として記録した値）。管理者のみ（SC-12-5）。 */
+export function getUnregisteredStatusCodes(api: ApiClient) {
+  return api.request('/status-codes/unregistered', {
+    schema: UnregisteredStatusCodeListResponseSchema,
+  });
 }

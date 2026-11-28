@@ -14,6 +14,9 @@ import type { RouteHandler } from './route-types.ts';
 
 export function createStatusCodeHandlers(deps: ApiDeps): Readonly<Record<string, RouteHandler>> {
   return {
+    async 'GET /status-codes/unregistered'(c) {
+      return c.json(await deps.statusCodeService.listUnregistered());
+    },
     async 'POST /status-codes'(c) {
       const input = await parseJsonBody(c, StatusCodeCreateRequestSchema);
       return c.json(await deps.statusCodeService.create(input, actorOf(c)), 201);
@@ -23,8 +26,8 @@ export function createStatusCodeHandlers(deps: ApiDeps): Readonly<Record<string,
       return c.json(await deps.statusCodeService.update(pathParam(c, 'code'), input, actorOf(c)));
     },
     async 'DELETE /status-codes/:code'(c) {
-      await deps.statusCodeService.delete(pathParam(c, 'code'), actorOf(c));
-      return c.body(null, 204);
+      // 評価の状態を返す（200。`DEFERRED` は、評価が定期の評価に任されること。ADR-0014）
+      return c.json(await deps.statusCodeService.delete(pathParam(c, 'code'), actorOf(c)));
     },
   };
 }

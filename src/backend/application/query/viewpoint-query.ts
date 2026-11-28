@@ -6,7 +6,7 @@
  */
 
 import { AppError } from '@smart-farm/shared/errors';
-import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
+import { CUMULATIVE_ITEM_KEYS, satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import type { Horizon, PeriodDays } from '@smart-farm/shared/constants/status';
 import {
   SATISFACTION_TARGET_VIEWPOINT_IDS,
@@ -126,12 +126,14 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
         longResult,
       );
 
-      const metrics: MetricRow[] = definition.detailMetrics.map((metricId) => ({
-        metricId,
-        value: display?.metrics[metricId] ?? null,
-        indicatorStatus: display?.indicatorStatuses[metricId] ?? null,
-        isPrimary: definition.dashboardMetrics.includes(metricId),
-      }));
+      const metricRowsOf = (result: EvaluationResult | undefined): MetricRow[] =>
+        definition.detailMetrics.map((metricId) => ({
+          metricId,
+          value: result?.metrics[metricId] ?? null,
+          indicatorStatus: result?.indicatorStatuses[metricId] ?? null,
+          isPrimary: definition.dashboardMetrics.includes(metricId),
+        }));
+      const metrics = metricRowsOf(display);
 
       return {
         equipmentId: params.equipmentId,
@@ -150,6 +152,7 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
         long: longResult === undefined ? null : toDiagnosis(longResult),
         selected: display === undefined ? null : toDiagnosis(display),
         metrics,
+        currentMetrics: shortResult === undefined ? null : metricRowsOf(shortResult),
         criteria: await criteria.getEffective(meta.id),
         usesStatusIndicator: definition.usesStatusIndicator,
         radar: meta.id === 'satisfaction' ? radarOf(display) : null,
@@ -167,15 +170,16 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
 
       const plan = planBuckets(now, horizonUsed, periodDays, JST_OFFSET_MINUTES);
       const from = plan.starts[0] ?? now;
-      const observations = await repositories.observations.findForEvaluation(
-        scope.equipmentIds,
-        from,
-        now,
-      );
+      // 累積の項目の、最初の区間の基準（期間の直前の値）も読む（設備 × 項目の数の、少量の読み取り。D-26）
+      const [observations, priorObservations] = await Promise.all([
+        repositories.observations.findForEvaluation(scope.equipmentIds, from, now),
+        repositories.observations.findLatestBefore(scope.equipmentIds, CUMULATIVE_ITEM_KEYS, from),
+      ]);
       const statusCodeList = await repositories.statusCodes.list({ includeDeleted: true });
       const result = computeMetricSeries({
         definition,
         observations,
+        priorObservations,
         now,
         horizon: horizonUsed,
         periodDays,

@@ -1,12 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@smart-farm/shared/errors';
 import { NotificationIdSchema, toUserId } from '@smart-farm/shared/schemas/common';
 import type { FederationItem } from '@smart-farm/shared/schemas/ingestion';
 import type { Notification } from '@smart-farm/shared/schemas/notification';
-import { FileSourceUnavailableError } from '../../../../src/backend/application/ports/file-source-port.ts';
 import { FormatError } from '../../../../src/backend/application/ports/format-profile.ts';
 import {
   FederationRejectedError,
@@ -34,7 +31,6 @@ import {
 } from '../../../../src/backend/infrastructure/local/local-auth.ts';
 import { createLocalRepositories } from '../../../../src/backend/infrastructure/local/local-repositories.ts';
 import { createMockFederation } from '../../../../src/backend/infrastructure/local/mock-federation.ts';
-import { createDirectoryFileSource } from '../../../../src/backend/infrastructure/local/mock-file-server.ts';
 import {
   hashPassword,
   verifyPassword,
@@ -291,6 +287,39 @@ describe('ローカルの認証（AuthPort）', () => {
     ).resolves.toBeDefined();
   });
 
+  it('ロック時のメッセージは、待ち時間（設定の時間。既定は 15 分）と、解除できないときは管理者に連絡する旨を示す（Issue #157。SC-01-3）', async () => {
+    const { auth } = await setup();
+    for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT; attempt += 1) {
+      await auth.login({ userId: 'user-a', password: 'bad' }, 'client-1').catch(() => undefined);
+    }
+
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインに失敗した回数が上限に達しました。15 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
+  it('ロック時のメッセージの待ち時間は、設定の時間から作る（30 分に変えたら、30 分）（Issue #157。SC-01-3）', async () => {
+    const { repositories, clock } = await setup();
+    const auth = createLocalAuth({
+      users: repositories.users,
+      clock,
+      loginFailurePolicy: { limit: 1, windowMinutes: 30 },
+    });
+    await auth.login({ userId: 'user-a', password: 'bad' }, 'client-1').catch(() => undefined);
+
+    await expect(
+      auth.login({ userId: 'user-a', password: 'Dummy-Passw0rd-a' }, 'client-1'),
+    ).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      message:
+        'ログインに失敗した回数が上限に達しました。30 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+    });
+  });
+
   it(`制限の時間（${String(LOGIN_FAILURE_WINDOW_MINUTES)}分）が過ぎたら、再び試行できる`, async () => {
     const { auth, clock } = await setup();
     for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT; attempt += 1) {
@@ -523,78 +552,6 @@ describe('ローカルの認証（AuthPort）', () => {
   });
 });
 
-describe('ファイルサーバーのモック', () => {
-  function setup() {
-    const rootDirectory = mkdtempSync(join(tmpdir(), 'smart-farm-fs-'));
-    mkdirSync(join(rootDirectory, 'robot'));
-    writeFileSync(join(rootDirectory, 'robot', 'b.json'), '{"b":1}');
-    writeFileSync(join(rootDirectory, 'robot', 'a.json'), '{"a":1}');
-    mkdirSync(join(rootDirectory, 'robot', 'subdir'));
-    const faults = createFaultController();
-    const clock = createControllableClock(NOW);
-    return { source: createDirectoryFileSource({ rootDirectory, faults, clock }), faults, clock };
-  }
-
-  it('取り込み元のディレクトリのファイルを、更新日時・名前の順に一覧する（ディレクトリは除く）', async () => {
-    const { source } = setup();
-
-    const files = await source.listFiles('robot');
-
-    expect(files.map((file) => file.fileId)).toEqual(expect.arrayContaining(['a.json', 'b.json']));
-    expect(files).toHaveLength(2);
-    expect(files[0]?.sizeBytes).toBeGreaterThan(0);
-  });
-
-  it('ディレクトリがない取り込み元は、空の一覧にする。接続テストは失敗する', async () => {
-    const { source } = setup();
-
-    expect(await source.listFiles('environment-sensor')).toEqual([]);
-    await expect(source.testConnection('environment-sensor')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-    await expect(source.testConnection('robot')).resolves.toBeUndefined();
-  });
-
-  it('ファイルの内容を読める。存在しない・識別子が不正なファイルは読めない', async () => {
-    const { source } = setup();
-
-    expect(await source.readFile('robot', 'a.json')).toBe('{"a":1}');
-    await expect(source.readFile('robot', 'none.json')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-    await expect(source.readFile('robot', '../x.json')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-  });
-
-  it('取り込み元の識別子で、ルートの外へ出られない', async () => {
-    const { source } = setup();
-
-    await expect(source.listFiles('../etc')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-    await expect(source.listFiles('Robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-  });
-
-  it('停止（DOWN）を再現すると、すべての操作が接続できないエラーになる', async () => {
-    const { source, faults } = setup();
-    faults.set({ mode: 'DOWN' });
-
-    await expect(source.listFiles('robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-    await expect(source.readFile('robot', 'a.json')).rejects.toBeInstanceOf(
-      FileSourceUnavailableError,
-    );
-    await expect(source.testConnection('robot')).rejects.toBeInstanceOf(FileSourceUnavailableError);
-  });
-
-  it('遅延（SLOW）を再現すると、指定した時間の経過後に応答する', async () => {
-    const { source, faults, clock } = setup();
-    faults.set({ mode: 'SLOW', delayMs: 5000 });
-
-    await source.listFiles('robot');
-
-    expect(clock.now()).toEqual(new Date(NOW.getTime() + 5000));
-  });
-});
-
 describe('農業情報基盤のモック', () => {
   const item: FederationItem = {
     federationItemId: 'f-1',
@@ -685,60 +642,95 @@ describe('Web Push のダミー', () => {
     );
     expect(push.delivered()).toEqual([]);
   });
+
+  it('テスト通知（#159 SC-15-2）: 通知の配信とは別に記録する（配信の記録には、含めない）。リセットで消える', async () => {
+    const push = createDummyWebPush({ faults: createFaultController() });
+
+    expect(await push.deliverTest(subscription, { ttlSeconds: 60 })).toBe('DELIVERED');
+
+    expect(push.testDelivered()).toEqual([{ subscriptionId: 's-1' }]);
+    expect(push.delivered()).toEqual([]);
+    push.reset();
+    expect(push.testDelivered()).toEqual([]);
+  });
+
+  it('テスト通知も、停止中は配信に失敗し、拒否中は購読が無効として扱う（記録しない）', async () => {
+    const faults = createFaultController();
+    const push = createDummyWebPush({ faults });
+
+    faults.set({ mode: 'DOWN' });
+    await expect(push.deliverTest(subscription, { ttlSeconds: 60 })).rejects.toBeInstanceOf(
+      NotificationDeliveryError,
+    );
+    faults.set({ mode: 'REJECT' });
+
+    expect(await push.deliverTest(subscription, { ttlSeconds: 60 })).toBe('SUBSCRIPTION_GONE');
+    expect(push.testDelivered()).toEqual([]);
+  });
 });
 
-describe('FormatProfile（仮決めのロボット JSON・環境センサー JSON。1 つのファイルを随時更新する方式）', () => {
+describe('FormatProfile（確定のロボット JSON・確定の環境センサー JSON。1 つのファイルは、その時点のスナップショット 1 つ。設備は、ファイルの中の識別子ではなく、ファイルのパスで決める）', () => {
   const registry = createDefaultFormatProfileRegistry();
   const robot = registry.get('robot-json');
   const sensor = registry.get('environment-sensor-json');
   if (robot === undefined || sensor === undefined) {
-    throw new Error('テストの前提: 仮決めの FormatProfile がある');
+    throw new Error('テストの前提: FormatProfile がある');
   }
   const fixture = (path: string) =>
     readFileSync(join(FIXTURES_DIRECTORY, 'file-server', path), 'utf8');
 
-  it('版と状態（仮決め）を持ち、解釈に使った版の表記を作る', () => {
+  it('版と状態（ロボット・環境センサーとも確定）を持ち、解釈に使った版の表記を作る', () => {
     expect(robot).toMatchObject({
       profileId: 'robot-json',
-      version: '0.2.0',
-      status: 'PROVISIONAL',
-      versionLabel: 'robot-json@0.2.0(PROVISIONAL)',
+      version: '1.0.0',
+      status: 'CONFIRMED',
+      versionLabel: 'robot-json@1.0.0(CONFIRMED)',
     });
     expect(sensor).toMatchObject({
       profileId: 'environment-sensor-json',
-      version: '0.1.0',
-      status: 'PROVISIONAL',
-      versionLabel: 'environment-sensor-json@0.1.0(PROVISIONAL)',
+      version: '1.0.0',
+      status: 'CONFIRMED',
+      versionLabel: 'environment-sensor-json@1.0.0(CONFIRMED)',
     });
     expect(registry.get('none')).toBeUndefined();
   });
 
-  it('ロボットデータ（JSON）を、記録ごとに、項目の識別子へ対応づけて読む', () => {
+  it('ロボットデータ（JSON）を、項目の識別子へ対応づけて読む。設備の識別子は、読まない', () => {
     const parsed = robot.parse(fixture('robot/robot-sample-001.json'));
 
     expect(parsed.rejectedCount).toBe(0);
-    expect(parsed.records).toHaveLength(2);
-    expect(parsed.records[0]).toMatchObject({
-      externalId: 'ROBOT-SAMPLE-01',
+    expect(parsed.record).toEqual({
       observedAt: '2026-10-09T01:00:00Z',
-      fields: { harvestCount: 12, statusCode: 'HARVESTING', operatingHours: 0.25 },
+      fields: {
+        harvestCount: 12,
+        harvestSecondsPerFruit: 45,
+        operatingHours: 0.25,
+        standbyHours: 0.02,
+        harvestOperatingHours: 0.15,
+        travelStoppedHours: 0.003,
+        statusCode: 'HARVESTING',
+      },
     });
   });
 
-  it('JSON の記録に計測日時がなければ、その記録を読み取れなかった数に数える。値のない項目は含めない', () => {
-    const parsed = robot.parse(fixture('robot/robot-sample-002-partial.json'));
+  it('値が null の項目は、欠損（null）のまま渡す。計測日時がなければ、読み取れなかった数に数える', () => {
+    const partial = robot.parse(fixture('robot/robot-sample-002-partial.json'));
+    expect(partial.rejectedCount).toBe(0);
+    expect(partial.record?.fields.standbyHours).toBeNull();
 
-    expect(parsed.rejectedCount).toBe(1);
-    expect(parsed.records).toHaveLength(3);
-    expect(parsed.records[2]?.fields).toEqual({ harvestCount: null, operatingHours: 0.25 });
+    const noTimestamp = robot.parse(fixture('robot/robot-sample-004-no-timestamp.json'));
+    expect(noTimestamp).toEqual({ record: undefined, rejectedCount: 1 });
   });
 
   it.each([
     ['JSON として読み取れない', fixture('robot/robot-sample-003-broken.json')],
-    ['記録の配列がない', '{"robotId":"R","other":[]}'],
-    ['設備の識別子がない', '{"records":[]}'],
-    ['設備の識別子が空', '{"robotId":"","records":[]}'],
     ['トップが配列', '[]'],
+    ['トップが数値', '1'],
+    ['空のオブジェクト（計測日時も項目もない）', '{}'],
+    [
+      '旧構造（設備の識別子 + 記録の配列。読まない）',
+      '{"robotId":"R","records":[{"timestamp":"2026-10-09T01:00:00Z","harvestCount":1}]}',
+    ],
   ])('ロボットデータ: %s ファイルは、形式違いとして扱う', (_name, content) => {
     expect(() => robot.parse(content)).toThrow(FormatError);
   });
@@ -746,64 +738,69 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー JSO
   it('UTF-8 の BOM つきの JSON（Windows の道具の出力）も、読める。ロボットも、環境センサーも', () => {
     const bom = String.fromCodePoint(0xfeff);
 
-    expect(robot.parse(bom + fixture('robot/robot-sample-001.json')).records).toHaveLength(2);
+    expect(robot.parse(bom + fixture('robot/robot-sample-001.json')).record).toBeDefined();
     expect(
-      sensor.parse(bom + fixture('environment-sensor/sensor-sample-001.json')).records,
-    ).toHaveLength(3);
+      sensor.parse(bom + fixture('environment-sensor/sensor-sample-001.json')).record,
+    ).toBeDefined();
   });
 
-  it('JSON の記録がオブジェクトでなければ、読み取れなかった数に数える', () => {
-    const parsed = robot.parse('{"robotId":"R","records":[1,"a",null]}');
-
-    expect(parsed).toEqual({ records: [], rejectedCount: 3 });
-  });
-
-  it('環境センサー（JSON）を、記録ごとに、項目の識別子へ対応づけて読む。null は欠損（null）のまま渡す', () => {
+  it('環境センサー（JSON）を、ファイルの項目名（temperature・humidity・illuminance・co2）から、項目の識別子へ対応づけて読む。null は欠損（null）のまま渡す', () => {
     const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-001.json'));
 
     expect(parsed.rejectedCount).toBe(0);
-    expect(parsed.records).toHaveLength(3);
-    expect(parsed.records[0]).toMatchObject({
-      externalId: 'SENSOR-SAMPLE-01',
-      observedAt: '2026-10-09T01:00:00Z',
-      fields: { temperatureCelsius: 21.5, humidityPercent: 58, illuminanceLux: 30000, co2Ppm: 880 },
+    expect(parsed.record).toEqual({
+      observedAt: '2026-10-09T01:30:00Z',
+      fields: {
+        temperatureCelsius: null,
+        humidityPercent: 59,
+        illuminanceLux: 29500,
+        co2Ppm: 900,
+      },
     });
-    expect(parsed.records[2]?.fields.temperatureCelsius).toBeNull();
   });
 
-  it('環境センサー: 数値でない値は、そのまま渡し（検証で不正にする）、計測日時のない記録は読み取れなかった数に数える', () => {
+  it('環境センサー: 数値でない値は、そのまま渡す（検証で不正にする）', () => {
     const parsed = sensor.parse(fixture('environment-sensor/sensor-sample-002-invalid.json'));
 
-    expect(parsed.rejectedCount).toBe(1);
-    expect(parsed.records).toHaveLength(2);
-    expect(parsed.records[0]?.fields.temperatureCelsius).toBe('abc');
+    expect(parsed.rejectedCount).toBe(0);
+    expect(parsed.record?.fields.temperatureCelsius).toBe('abc');
+    expect(parsed.record?.fields.humidityPercent).toBe(120);
+  });
+
+  it('環境センサー: 計測日時のない記録は、読み取れなかった数に数える', () => {
+    expect(sensor.parse('{"temperature":22}')).toEqual({ record: undefined, rejectedCount: 1 });
+  });
+
+  it('環境センサー: 内部の識別子（temperatureCelsius など）の名前の項目は、読まない（ファイルの項目名は temperature など）', () => {
+    expect(() =>
+      sensor.parse('{"timestamp":"2026-10-09T01:00:00Z","temperatureCelsius":22}'),
+    ).toThrow('項目名');
   });
 
   it.each([
     ['JSON として読み取れない', 'header,only\n1,2\n'],
     ['空の', ''],
     [
-      '構造が仕様と異なる（設備の識別子・記録の配列がない）',
+      '構造が仕様と異なる（計測日時も項目もない）',
       fixture('environment-sensor/sensor-sample-003-bad-structure.json'),
     ],
-    ['設備の識別子（sensorId）がない', '{"records":[]}'],
+    [
+      '旧構造（設備の識別子 sensorId + 記録の配列。読まない）',
+      '{"sensorId":"S","records":[{"timestamp":"2026-10-09T01:00:00Z","temperature":20}]}',
+    ],
   ])('環境センサー: %s ファイルは、形式違いとして扱う', (_name, content) => {
     expect(() => sensor.parse(content)).toThrow(FormatError);
   });
 
-  it('環境センサー: 記録にない項目は、含めない', () => {
-    const parsed = sensor.parse(
-      '{"sensorId":"S","records":[{"timestamp":"2026-10-09T01:00:00Z","temperatureCelsius":20}]}',
-    );
+  it('環境センサー: ファイルにない項目は、含めない', () => {
+    const parsed = sensor.parse('{"timestamp":"2026-10-09T01:00:00Z","temperature":20}');
 
-    expect(parsed.records[0]?.fields).toEqual({ temperatureCelsius: 20 });
+    expect(parsed.record?.fields).toEqual({ temperatureCelsius: 20 });
   });
 
   describe('計測日時の解釈（V-020）', () => {
-    const jsonWith = (timestamp: unknown) =>
-      JSON.stringify({ robotId: 'R', records: [{ timestamp, harvestCount: 1 }] });
-    const observedAtOf = (timestamp: string) =>
-      robot.parse(jsonWith(timestamp)).records[0]?.observedAt;
+    const jsonWith = (timestamp: unknown) => JSON.stringify({ timestamp, harvestCount: 1 });
+    const observedAtOf = (timestamp: string) => robot.parse(jsonWith(timestamp)).record?.observedAt;
 
     it.each([
       [
@@ -839,7 +836,7 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー JSO
     ])('%sの日時は、読み取れなかった記録として数える', (_name, text) => {
       const parsed = robot.parse(jsonWith(text));
 
-      expect(parsed).toEqual({ records: [], rejectedCount: 1 });
+      expect(parsed).toEqual({ record: undefined, rejectedCount: 1 });
     });
 
     it('タイムゾーンのない日時の解釈は、実行環境のタイムゾーン（TZ）に依存しない', () => {
@@ -869,16 +866,15 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー JSO
         format: 'JSON',
         basis: 'テスト',
         utcOffsetMinutes: 0,
-        layout: { recordsPath: 'records', equipmentIdPath: 'robotId', timestampField: 'timestamp' },
+        layout: { timestampField: 'timestamp' },
         fields: [{ source: 'harvestCount', itemKey: 'harvestCount' }],
       });
 
-      expect(utcProfile.parse(jsonWith('2026-10-09T10:00:00')).records[0]?.observedAt).toBe(
+      expect(utcProfile.parse(jsonWith('2026-10-09T10:00:00')).record?.observedAt).toBe(
         '2026-10-09T10:00:00.000Z',
       );
-      const sensorJson = (timestamp: string) =>
-        JSON.stringify({ sensorId: 'S', records: [{ timestamp, temperatureCelsius: 20 }] });
-      expect(sensor.parse(sensorJson('2026-10-09 10:00:00')).records[0]?.observedAt).toBe(
+      const sensorJson = (timestamp: string) => JSON.stringify({ timestamp, temperature: 20 });
+      expect(sensor.parse(sensorJson('2026-10-09 10:00:00')).record?.observedAt).toBe(
         '2026-10-09T01:00:00.000Z',
       );
       expect(sensor.parse(sensorJson('10/09/2026')).rejectedCount).toBe(1);
@@ -886,34 +882,25 @@ describe('FormatProfile（仮決めのロボット JSON・環境センサー JSO
   });
 
   describe('構造の変更の検出（V-019）', () => {
-    it('JSON: すべての記録で、設定した項目が1つも読み取れなければ、形式違いにする', () => {
-      const content = JSON.stringify({
-        robotId: 'R',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvest_total: 3 }],
-      });
+    it('JSON: 設定した項目が 1 つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
+      const content = JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvest_total: 3 });
 
       expect(() => robot.parse(content)).toThrow(FormatError);
     });
 
-    it('JSON: 一部の項目だけがある記録は、読める。記録がなければ（空のファイル）、形式違いにしない', () => {
+    it('JSON: 一部の項目だけがあるファイルは、読める', () => {
       const partial = robot.parse(
-        JSON.stringify({
-          robotId: 'R',
-          records: [{ timestamp: '2026-10-09T01:00:00Z', statusCode: null }],
-        }),
+        JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', statusCode: null }),
       );
 
-      expect(partial.records).toHaveLength(1);
-      expect(robot.parse('{"robotId":"R","records":[]}')).toEqual({
-        records: [],
-        rejectedCount: 0,
-      });
+      expect(partial.record?.fields).toEqual({ statusCode: null });
     });
 
-    it('環境センサー: すべての記録で、設定した項目が1つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
+    it('環境センサー: 設定した項目が 1 つも読み取れなければ（項目名が変わった）、形式違いにする', () => {
       const content = JSON.stringify({
-        sensorId: 'S',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
+        timestamp: '2026-10-09T01:00:00Z',
+        temp: 20,
+        humid: 50,
       });
 
       expect(() => sensor.parse(content)).toThrow('項目名');

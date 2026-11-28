@@ -22,20 +22,13 @@ import {
   SENSOR_ID,
   secondHouseSet,
 } from '../support/builders.ts';
-import {
-  createTestContext,
-  TEST_NOW,
-  TEST_USER,
-  type TestContext,
-} from '../support/test-context.ts';
+import { withHttpFiles, type HttpTestContext } from '../support/http-test-files.ts';
+import { TEST_NOW, TEST_USER, type TestContext } from '../support/test-context.ts';
 import { STUB_MODIFIED_AT } from '../support/test-constants.ts';
 
 type FileSource = Parameters<typeof createIngestionService>[0]['fileSource'];
 
-const ROBOT_FILE = JSON.stringify({
-  robotId: 'ROBOT-SAMPLE-01',
-  records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount: 12 }],
-});
+const ROBOT_FILE = JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvestCount: 12 });
 
 function metaOf(name: string, sizeBytes = 1) {
   return { fileId: name, name, modifiedAt: STUB_MODIFIED_AT, sizeBytes };
@@ -50,8 +43,22 @@ async function build(
   } = {},
 ) {
   const { repositories } = createLocalRepositories();
+  // 設備は、ファイルのパスで決める（スタブの一覧のファイル名が、設備のファイルのパス）。ロボット 1 台に 'robot.json'、もう 1 台に 'ok.json'
   for (const equipment of equipmentSet()) {
-    await repositories.equipment.save(equipment);
+    await repositories.equipment.save(
+      equipment.equipmentId === ROBOT_ID
+        ? { ...equipment, sourceFilePath: 'robot.json' }
+        : equipment,
+    );
+  }
+  const robot = equipmentSet().find((equipment) => equipment.equipmentId === ROBOT_ID);
+  if (robot !== undefined) {
+    await repositories.equipment.save({
+      ...robot,
+      equipmentId: toEquipmentId('ROBOT-OK'),
+      externalId: 'ROBOT-SAMPLE-OK',
+      sourceFilePath: 'ok.json',
+    });
   }
   if (options.saveManyFails === true) {
     repositories.observations.saveMany = () => Promise.reject(new TypeError('保存に失敗'));
@@ -71,10 +78,12 @@ async function build(
     evaluation: {
       evaluateAll: vi.fn().mockResolvedValue({}),
       evaluateAffected: vi.fn().mockResolvedValue({}),
+      evaluateCurrent: vi.fn().mockResolvedValue({}),
     },
     notifications: {
       notifyStatusChange: vi.fn(),
       notifyIngestionFailure,
+      clearRecoveredIngestionFailures: vi.fn().mockResolvedValue(undefined),
       notifyFederationExpired: vi.fn(),
       list: vi.fn(),
       unreadCount: vi.fn(),
@@ -99,7 +108,7 @@ async function build(
 
 function stubSource(overrides: Partial<FileSource> = {}): FileSource {
   return {
-    testConnection: () => Promise.resolve(),
+    testEquipment: () => Promise.resolve(),
     listFiles: () => Promise.resolve([metaOf('robot.json')]),
     readFile: () => Promise.resolve(ROBOT_FILE),
     ...overrides,
@@ -108,12 +117,9 @@ function stubSource(overrides: Partial<FileSource> = {}): FileSource {
 
 const NEVER = new Promise<never>(() => undefined);
 
-async function setup(env: Record<string, string> = {}): Promise<TestContext> {
-  const context = await createTestContext({ env });
-  for (const equipment of equipmentSet()) {
-    await context.container.repositories.equipment.save(equipment);
-  }
-  return context;
+/** 設備の一式を登録し、HTTP のテスト用ファイルサーバーに接続した組み立て（Issue #344）。 */
+async function setup(env: Record<string, string> = {}): Promise<HttpTestContext> {
+  return withHttpFiles({ env });
 }
 
 async function notificationsOf(context: TestContext) {
@@ -129,7 +135,7 @@ async function stoppedNotificationsOf(context: TestContext) {
 describe('取り込み失敗の通知（V-017。FR-7.4）', () => {
   it('形式が仕様と異なるファイルだけの取り込み（失敗）でも、取り込み失敗を通知する', async () => {
     const context = await setup({ INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: 'true' });
-    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-003-broken.json');
 
     const summary = await context.container.ingestionService.runSource('robot');
 
@@ -142,7 +148,7 @@ describe('取り込み失敗の通知（V-017。FR-7.4）', () => {
 
   it('既定（設定なし）でも、ファイル単位の失敗（形式違い）を、取り込み失敗として通知する（ADR-0019 の D-37。Issue #236）', async () => {
     const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-003-broken.json');
 
     await context.container.ingestionService.runSource('robot');
 
@@ -153,7 +159,7 @@ describe('取り込み失敗の通知（V-017。FR-7.4）', () => {
 
   it('設定（INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED=false）で、ファイル単位の失敗の通知を、オフにできる', async () => {
     const context = await setup({ INGESTION_FILE_FAILURE_NOTIFICATION_ENABLED: 'false' });
-    context.placeFixture('robot', 'robot/robot-sample-003-broken.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-003-broken.json');
 
     await context.container.ingestionService.runSource('robot');
 
@@ -200,7 +206,7 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
   const INTERVAL_MINUTES = 15;
   const THRESHOLD_MINUTES = INTERVAL_MINUTES * DEFAULT_APP_SETTINGS.staleAfterIntervals;
 
-  async function ingestOnce(context: TestContext) {
+  async function ingestOnce(context: HttpTestContext) {
     // 取得間隔は、設備ごとの設定（Issue #197）。停止の基準は、その種別の設備の最長の取得間隔 × 倍数
     const robot = await context.container.repositories.equipment.get(ROBOT_ID);
     if (robot === undefined) {
@@ -210,7 +216,7 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
       ...robot,
       intervalMinutes: INTERVAL_MINUTES,
     });
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await context.container.ingestionService.runSource('robot');
   }
 
@@ -229,7 +235,7 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
     expect(stopped[0]?.message).toContain('ロボットデータ');
   });
 
-  it('基準の期間内は通知しない。同じ停止を、抑制の期間内に繰り返し通知しない', async () => {
+  it('基準の期間内は通知しない。同じ停止が続く間は、時間がたっても、繰り返し通知しない（D-38。#589）', async () => {
     const context = await setup();
     await ingestOnce(context);
 
@@ -243,9 +249,38 @@ describe('データ供給の停止の検知（V-018。無音の停止）', () =>
     await context.container.ingestionService.runDueSources();
     context.clock.advance(20 * 60_000);
     await context.container.ingestionService.runDueSources();
+    context.clock.advance(61 * 60_000);
+    await context.container.ingestionService.runDueSources();
+    context.clock.advance(24 * 60 * 60_000);
+    await context.container.ingestionService.runDueSources();
     expect(
       (await notificationsOf(context)).filter((item) => item.message.includes('データ取得停止')),
     ).toHaveLength(1);
+  });
+
+  it('新しいデータが届いて回復したあと、再び止まったら、新しい出来事として通知する', async () => {
+    const context = await setup();
+    await ingestOnce(context);
+    context.clock.advance((THRESHOLD_MINUTES + 1) * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+
+    // 新しいデータが届く（ファイルの内容が変わる）。回復を確認して、再び止まる
+    await context.files.placeFile(
+      'robot',
+      'robot-sample-001.json',
+      JSON.stringify({ timestamp: context.clock.now().toISOString(), harvestCount: 13 }),
+      { modifiedAt: context.clock.now() },
+    );
+    context.clock.advance(INTERVAL_MINUTES * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(1);
+    context.clock.advance((THRESHOLD_MINUTES + 1) * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(2);
+    context.clock.advance(20 * 60_000);
+    await context.container.ingestionService.runDueSources();
+    expect(await stoppedNotificationsOf(context)).toHaveLength(2);
   });
 
   it('一度もデータを取り込んでいない取り込み元（未取得）は、通知しない', async () => {
@@ -286,12 +321,20 @@ describe('データ供給の停止の検知: 設備ごとの基準（Issue #198�
   const minutesAgo = (context: TestContext, minutes: number) =>
     new Date(context.clock.now().getTime() - minutes * 60_000).toISOString();
 
-  /** 設備のデータを、「分前に受け取った」ことにして保存する（自動取り込み）。 */
+  /**
+   * 設備のデータを、「分前に受け取った」ことにして保存する（自動取り込み）。HTTP では、設備ごとのファイルのパスがある設備だけが、
+   * 自動取り込みの対象（停止の通知の対象。Issue #202）なので、既定で、パスを設定する（ファイルは置かない。置かれていないファイルは、取り込みの対象外）。
+   * `hasFilePath: false` は、パスのない設備（手動のみの運用）。
+   */
   async function receive(
-    context: TestContext,
+    context: HttpTestContext,
     equipmentId: EquipmentId,
     minutes: number,
+    { hasFilePath = true }: { hasFilePath?: boolean } = {},
   ): Promise<void> {
+    if (hasFilePath) {
+      await context.files.assignPath(equipmentId, `/stop-check/${equipmentId}.json`);
+    }
     await context.container.repositories.observations.saveMany([
       observation({
         equipmentId,
@@ -302,7 +345,7 @@ describe('データ供給の停止の検知: 設備ごとの基準（Issue #198�
     ]);
   }
 
-  async function withSecondRobot(): Promise<TestContext> {
+  async function withSecondRobot(): Promise<HttpTestContext> {
     const context = await setup();
     for (const equipment of secondHouseSet()) {
       await context.container.repositories.equipment.save(equipment);
@@ -337,7 +380,7 @@ describe('データ供給の停止の検知: 設備ごとの基準（Issue #198�
         },
       })),
     );
-    await receive(context, ROBOT_ID, 10);
+    await receive(context, ROBOT_ID, 10, { hasFilePath: false });
 
     await context.container.ingestionService.runDueSources();
     const withoutPath = await stoppedNotificationsOf(context);
@@ -452,13 +495,10 @@ describe('データ供給の停止の検知: 設備ごとの基準（Issue #198�
 describe('構造の変更の検出（V-019）', () => {
   it('項目名がすべて変わり、1つも読み取れないファイルは、形式違いとして失敗にする（0件の成功にしない）', async () => {
     const context = await setup();
-    context.placeFile(
+    await context.files.placeFile(
       'robot',
       'renamed.json',
-      JSON.stringify({
-        robotId: 'ROBOT-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvest_total: 12, state: 'RUNNING' }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvest_total: 12, state: 'RUNNING' }),
     );
 
     const summary = await context.container.ingestionService.runSource('robot');
@@ -470,13 +510,10 @@ describe('構造の変更の検出（V-019）', () => {
 
   it('項目名が変わった JSON も、形式違いとして失敗にする', async () => {
     const context = await setup();
-    context.placeFile(
+    await context.files.placeFile(
       'environment-sensor',
       'renamed.json',
-      JSON.stringify({
-        sensorId: 'SENSOR-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }],
-      }),
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', temp: 20, humid: 50 }),
     );
 
     const summary = await context.container.ingestionService.runSource('environment-sensor');
@@ -491,13 +528,10 @@ describe('計測日時の解釈（V-020）', () => {
     const observedAtUnder = async (timeZone: string) => {
       process.env.TZ = timeZone;
       const context = await setup();
-      context.placeFile(
+      await context.files.placeFile(
         'robot',
         'local-time.json',
-        JSON.stringify({
-          robotId: 'ROBOT-SAMPLE-01',
-          records: [{ timestamp: '2026-10-09T10:00:00', harvestCount: 12 }],
-        }),
+        JSON.stringify({ timestamp: '2026-10-09T10:00:00', harvestCount: 12 }),
       );
       await context.container.ingestionService.runSource('robot');
       const saved = await context.container.repositories.observations.query(

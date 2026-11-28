@@ -11,12 +11,14 @@
  *   事後条件    取り込み失敗の通知が送られ、未読として記録されている。取り込みの失敗が、他の機能の動作を妨げていない
  *
  * 値の同値分割: 失敗の種類（接続できない・形式違いのファイル）、取り込み元（ロボット・環境センサー）、起動の経路（即時取得・定期）、
- * 同じ失敗の繰り返し（抑制の期間内・期間後（60分）・境界）、復旧の後、利用者（通知は全員が受け取り、既読は利用者ごと）。
+ * 同じ失敗の繰り返し（続く間は、60 分・24 時間たっても再通知しない）、復旧の後の再失敗（新しい通知）、利用者（通知は全員が受け取り、既読は利用者ごと）。
  * 関連するユースケース: UC-08・UC-09（失敗の元）、UC-05・UC-22（通知の確認）、UC-16（ログの確認）、UC-15（設定の見直し）、UC-23。
  */
 
 import { expect, test, type Page } from '@playwright/test';
 import {
+  ROBOT_ID,
+  SENSOR_ID,
   USER_B,
   addUser,
   advanceMinutes,
@@ -24,15 +26,19 @@ import {
   apiOk,
   newUserSession,
   openAs,
-  placeFile,
-  placeFixture,
   prepareApp,
   robotJson,
   runJob,
   setMock,
   unreadBadge,
 } from './support/app.ts';
-import { logRows, runNow, sourceCard } from './support/ingestion.ts';
+import {
+  assignFilePath,
+  placeFile,
+  placeFixture,
+  setFileServerMode,
+} from './support/http-files.ts';
+import { logRows, runNow } from './support/ingestion.ts';
 import { listNotifications } from './support/notifications.ts';
 import { deliveredPushes } from './support/push.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -47,7 +53,7 @@ test.describe('基本フロー: 取り込みを再試行し、再試行しても
     request,
   }, testInfo) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
     await expect(unreadBadge(page)).toHaveText('0');
 
@@ -75,7 +81,7 @@ test.describe('基本フロー: 取り込みを再試行し、再試行しても
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     const before = await apiOk<{ now: string }>(request, 'GET', '/dev/clock');
 
     await apiOk(request, 'POST', '/ingestion/robot/run');
@@ -98,7 +104,7 @@ test.describe('基本フロー: 取り込みを再試行し、再試行しても
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
@@ -118,7 +124,7 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await alignBrowserClock(page);
@@ -134,7 +140,11 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-structure.json');
+    await placeFixture(
+      request,
+      'environment-sensor',
+      'environment-sensor/sensor-sample-003-bad-structure.json',
+    );
     // ロボットは、接続でき、ファイルがなくても成功する
     const robot = await apiOk<{ result: string }>(request, 'POST', '/ingestion/robot/run');
     expect(robot.result).toBe('SUCCESS');
@@ -149,13 +159,10 @@ test.describe('取り込み元ごとの通知（取り込み元ごとに独立�
   });
 });
 
-test.describe('代替フロー: 同じ内容の通知を重複して出さない（抑制の期間 60分）', () => {
-  test('抑制の期間（60分）の内に、同じ取り込み元が再び失敗しても、通知は増えない', async ({
-    page,
-    request,
-  }) => {
+test.describe('代替フロー: 同じ内容の通知を重複して出さない（同じ失敗が続く間は、再通知しない。D-38）', () => {
+  test('同じ取り込み元が再び同じ失敗をしても、通知は増えない', async ({ page, request }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 59);
     await apiOk(request, 'POST', '/ingestion/robot/run');
@@ -168,46 +175,52 @@ test.describe('代替フロー: 同じ内容の通知を重複して出さない
     await expect(logRows(page).filter({ hasText: 'ロボットデータ' })).toHaveCount(2);
   });
 
-  test('抑制の期間（60分）が過ぎたあとの失敗は、新しい通知を作る（境界: 60分ちょうどは、抑制の期間の外）', async ({
-    request,
-  }) => {
+  test('同じ失敗が続く間は、60分・24時間たっても、通知は増えない', async ({ request }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 60);
+    await apiOk(request, 'POST', '/ingestion/robot/run');
+    await advanceMinutes(request, 24 * 60);
 
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
     const failures = (await listNotifications(request)).filter(
       (item) => item.kind === 'INGESTION_FAILURE',
     );
-    expect(failures).toHaveLength(2);
+    expect(failures).toHaveLength(1);
   });
 
-  test('同じ取り込み元の失敗を、復旧後にもう一度失敗しても、60分の内は、通知を増やさない', async ({
+  test('同じ取り込み元の失敗を、復旧後にもう一度失敗したときは、新しい通知を作る。そのあと同じ失敗が続いても、増えない', async ({
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
-    await setMock(request, 'file-server', 'UP');
-    placeFile('robot', 'a.json', robotJson([{ hoursAgo: 1, fields: { harvestCount: 1 } }]));
+    await setFileServerMode(request, 'UP');
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 1 } }),
+    );
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await advanceMinutes(request, 10);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
 
+    await apiOk(request, 'POST', '/ingestion/robot/run');
     await apiOk(request, 'POST', '/ingestion/robot/run');
 
     expect(
       (await listNotifications(request)).filter((item) => item.kind === 'INGESTION_FAILURE'),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 });
 
 test.describe('起動の経路: 定期の取り込み（JB-01・スケジューラ）でも、失敗を通知する', () => {
   test('定期の取り込み（JB-01）で失敗しても、同じように通知する', async ({ page, request }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
 
     await runJob(request, 'JB-01');
 
@@ -221,7 +234,7 @@ test.describe('起動の経路: 定期の取り込み（JB-01・スケジュー�
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
 
     await apiOk(request, 'POST', '/dev/scheduler/tick', {});
 
@@ -237,7 +250,7 @@ test.describe('取り込みの失敗が、他の機能の動作を妨げない',
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await alignBrowserClock(page);
     await openAs(page, '/');
@@ -247,7 +260,7 @@ test.describe('取り込みの失敗が、他の機能の動作を妨げない',
     await page.goto('/data-entry');
     await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
     await page.getByRole('main').getByLabel('カテゴリ').selectOption('SAFETY');
-    await page.getByTestId('entry-items').getByLabel('緊急停止回数').fill('0');
+    await page.getByTestId('entry-items').getByRole('textbox', { name: '緊急停止回数' }).fill('0');
     await page.getByRole('main').getByRole('button', { name: '保存する' }).click();
     await expect(page.getByTestId('entry-result')).toBeVisible();
     // 評価が更新され、関連する観点（安全性）のステータスが、保存結果に示される
@@ -267,7 +280,7 @@ test.describe('シナリオ: 取り込みの失敗の通知を、別の利用者
   }, testInfo) => {
     await prepareApp(request);
     await addUser(request, USER_B);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     // 利用者A: 取り込みが失敗する
     await openIngestion(page);
     await expect(await runNow(page, 'robot')).toContainText('取得しました（失敗）');
@@ -284,8 +297,13 @@ test.describe('シナリオ: 取り込みの失敗の通知を、別の利用者
     await expect(unreadBadge(b.page)).toHaveText('0');
 
     // 復旧（システム外）→ 利用者B: 設定を確認し、即時取得で、取り込む
-    await setMock(request, 'file-server', 'UP');
-    placeFile('robot', 'a.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 8 } }]));
+    await setFileServerMode(request, 'UP');
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 8 } }),
+    );
     await expect(await runNow(b.page, 'robot')).toContainText('取得しました（成功）');
     await expect(logRows(b.page).first()).toContainText('成功');
     await shot(b.page, testInfo, 'uc24-recovered');
@@ -312,7 +330,7 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     await apiOk(request, 'PUT', '/push-subscription', {
       endpoint: 'https://push.example.invalid/e2e/uc24-retry',
     });
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     const [created] = (await listNotifications(request)).filter(
       (item) => item.kind === 'INGESTION_FAILURE',
@@ -347,7 +365,7 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
     await apiOk(request, 'PUT', '/push-subscription', {
       endpoint: 'https://push.example.invalid/e2e/uc24-limit',
     });
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await apiOk(request, 'POST', '/ingestion/robot/run');
     await setMock(request, 'web-push', 'DOWN');
     // 失敗のたびに、次の試行の日時まで進めて、再送する（0・1・3・7・15・31 分後の 6 回。次の試行の間隔は、1・2・4・8・16・32 分）。6 回目の失敗のあとの次の試行は、63 分後
@@ -373,10 +391,10 @@ test.describe('代替フロー: 通知（Web Push）の配信に失敗した場�
 // ---------------------------------------------------------------------------
 // 画面の幅（1280px・768px・375px）でも、失敗の通知（SC-05）と、失敗の取り込みの状況（SC-11）が、潰れず、はみ出さない（NFR-7.3）。
 // 取り込み元の名称・失敗の理由は、固定の短い文言（取り込み元は「ロボットデータ」「環境センサーデータ」の2つ。取り込み元の追加・名称の変更はない）。
-// 長い値になりうるのは、接続先の参照名（100 文字。英数字・記号のみで、区切りがない）と、失敗のログの件数。
+// 長い値になりうるのは、設備ごとの表のファイルのパス（100 文字。区切りがない。接続先の参照名の入力欄は、設備ごとの接続への移行で、なくなった。Issue #367）と、失敗のログの件数。
 // ---------------------------------------------------------------------------
 
-const LONG_CONNECTION_REF = `${'ConnectionRef-'.repeat(7)}XX`;
+const LONG_FILE_PATH = `/robot/${'LongPathSegment_'.repeat(5)}x.json`;
 const VIEWPORTS = [
   { name: 'デスクトップ幅（1280px）', width: 1280, height: 720 },
   { name: 'タブレット幅（768px。NFR-7.3）', width: 768, height: 1024 },
@@ -431,7 +449,7 @@ for (const viewport of VIEWPORTS) {
       request,
     }, testInfo) => {
       await prepareApp(request);
-      await setMock(request, 'file-server', 'DOWN');
+      await setFileServerMode(request, 'DOWN');
       await apiOk(request, 'POST', '/ingestion/robot/run');
       await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -466,21 +484,20 @@ for (const viewport of VIEWPORTS) {
       await shot(page, testInfo, `uc24-notifications-${String(viewport.width)}`);
     });
 
-    test('SC-11: 失敗の取り込み（長い接続先の参照名100文字・失敗のログ23件・2ページ）でも、取り込み元のカード・結果の表示・ログの表が崩れない', async ({
+    test('SC-11: 失敗の取り込み（長いファイルのパス・失敗のログ23件・2ページ）でも、取り込み元のカード・設備ごとの表・結果の表示・ログの表が崩れない', async ({
       page,
       request,
     }, testInfo) => {
       await prepareApp(request);
-      expect(LONG_CONNECTION_REF).toHaveLength(100);
-      await apiOk(request, 'PUT', '/ingestion/settings', {
-        sources: ['robot', 'environment-sensor'].map((sourceId) => ({
-          sourceId,
-          connectionRef: LONG_CONNECTION_REF,
-          intervalMinutes: 5,
-          isEnabled: true,
-        })),
-      });
-      await setMock(request, 'file-server', 'DOWN');
+      expect(LONG_FILE_PATH.length).toBeGreaterThan(85);
+      // 設備のファイルのパスを長くする（ファイルは置かない。停止の再現が、設備ごとの接続を、テスト用サーバーに向ける）
+      await assignFilePath(request, ROBOT_ID, LONG_FILE_PATH);
+      await assignFilePath(
+        request,
+        SENSOR_ID,
+        LONG_FILE_PATH.replace('/robot/', '/environment-sensor/'),
+      );
+      await setFileServerMode(request, 'DOWN');
       // 1 ページは 20 件（Issue #201）。22 件 + 即時取得 1 件 = 23 件で、2 ページになる
       for (let index = 0; index < 11; index += 1) {
         await apiOk(request, 'POST', '/ingestion/robot/run');
@@ -489,9 +506,7 @@ for (const viewport of VIEWPORTS) {
       }
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await openIngestion(page);
-      await expect(sourceCard(page, 'robot').getByLabel('接続先（接続設定の参照名）')).toHaveValue(
-        LONG_CONNECTION_REF,
-      );
+      await expect(page.getByTestId(`equipment-path-${ROBOT_ID}`)).toHaveText(LONG_FILE_PATH);
 
       const result = await runNow(page, 'robot');
 
@@ -517,7 +532,7 @@ for (const viewport of VIEWPORTS) {
           expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
         }
       }
-      // 取り込み元のカードの中身（参照名の入力欄・ボタン・結果の表示）が、カードの枠に収まる
+      // 取り込み元のカードの中身（ボタン・結果の表示。設備ごとの表の中は、表の枠の中で横にスクロールできるため、表の枠が、カードに収まることを確かめる）が、カードの枠に収まる
       for (const sourceId of ['robot', 'environment-sensor'] as const) {
         const card = await page.getByTestId(`source-${sourceId}`).boundingBox();
         const left = card?.x ?? -1;
@@ -529,11 +544,22 @@ for (const viewport of VIEWPORTS) {
           .locator('input, select, button, [role="status"], .tag')
           .evaluateAll((nodes) =>
             nodes
+              .filter((node) => node.closest('.table-scroll') === null)
               .map((node) => node.getBoundingClientRect())
               .filter((rect) => rect.width > 0)
               .map((rect) => ({ left: rect.left, right: rect.right })),
           );
-        for (const rect of inner) {
+        const tableFrames = await page
+          .getByTestId(`source-${sourceId}`)
+          .locator('.table-scroll')
+          .evaluateAll((nodes) =>
+            nodes.map((node) => {
+              const rect = node.getBoundingClientRect();
+              return { left: rect.left, right: rect.right };
+            }),
+          );
+        expect(tableFrames.length, `${sourceId} の設備ごとの表`).toBeGreaterThan(0);
+        for (const rect of [...inner, ...tableFrames]) {
           expect(rect.left, `${sourceId} の内側の左端`).toBeGreaterThanOrEqual(left - 1);
           expect(rect.right, `${sourceId} の内側の右端`).toBeLessThanOrEqual(right + 1);
         }

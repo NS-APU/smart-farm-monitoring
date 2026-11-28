@@ -7,6 +7,7 @@ import {
   MAX_EXPANDED_OBSERVATIONS,
   buildSeededObservation,
   expandSeededSeries,
+  generateAutoObservations,
 } from '../../../../src/backend/infrastructure/local/synthetic-data.ts';
 import {
   observationMatchesKeyword,
@@ -98,7 +99,20 @@ describe('expandSeededSeries', () => {
       '2026-10-09T01:45:00.000Z',
       '2026-10-09T02:00:00.000Z',
     ]);
-    expect(result.every((item) => item.value === 0.25)).toBe(true);
+    // 累積の項目（稼働時間）は、value を 1 件ごとの増分として、累積の値に積み上げる（D-26）
+    expect(result.map((item) => item.value)).toEqual([0.25, 0.5, 0.75, 1, 1.25]);
+  });
+
+  it('累積でない項目（状態値）は、同じ値を並べる', () => {
+    const result = expandSeededSeries({
+      ...series,
+      itemKey: 'temperatureCelsius',
+      value: 20,
+      from: AT,
+      to: new Date(AT.getTime() + 30 * 60_000),
+    });
+
+    expect(result.map((item) => item.value)).toEqual([20, 20, 20]);
   });
 
   it('from と to が同じなら1件。to が from より前なら、空', () => {
@@ -150,5 +164,46 @@ describe('observationMatchesKeyword', () => {
 
     expect(observationMatchesKeyword(item, 'ロボット', names)).toBe(false);
     expect(observationMatchesKeyword(item, 'unknown_code', names)).toBe(true);
+  });
+});
+
+describe('generateAutoObservations: 累積の項目（D-26）', () => {
+  const options = {
+    robotId: ROBOT_ID,
+    sensorId: toEquipmentId('SENSOR-T1'),
+    intervalMinutes: 60,
+    seed: 1,
+  };
+  const valuesOf = (list: ReturnType<typeof generateAutoObservations>, itemKey: string) =>
+    list.filter((item) => item.itemKey === itemKey).map((item) => item.value as number);
+
+  it('収穫数・稼働時間などは、「今日（日本時間）これまでの累計」。日本時間の 0 時に、リセット（減る）', () => {
+    // 日本時間 2026-10-09 22:00〜10-10 02:00（UTC 13:00〜17:00）。0 時は、UTC 15:00
+    const list = generateAutoObservations({
+      ...options,
+      from: new Date('2026-10-09T13:00:00.000Z'),
+      to: new Date('2026-10-09T17:00:00.000Z'),
+    });
+
+    const harvest = valuesOf(list, 'harvestCount');
+    const hours = valuesOf(list, 'operatingHours');
+    expect(harvest).toHaveLength(5);
+    // 22:00・23:00 は増え、0:00 でリセット（前より小さい）、その後は増える
+    expect(harvest[1]).toBeGreaterThan(harvest[0] ?? 0);
+    expect(harvest[2]).toBeLessThan(harvest[1] ?? 0);
+    expect(harvest[4]).toBeGreaterThan(harvest[3] ?? 0);
+    expect(hours).toEqual([1, 2, 1, 2, 3]);
+  });
+
+  it('状態値（温度など）は、累積にしない', () => {
+    const list = generateAutoObservations({
+      ...options,
+      from: new Date('2026-10-09T01:00:00.000Z'),
+      to: new Date('2026-10-09T03:00:00.000Z'),
+    });
+
+    expect(valuesOf(list, 'temperatureCelsius').every((value) => value >= 20 && value < 25)).toBe(
+      true,
+    );
   });
 });

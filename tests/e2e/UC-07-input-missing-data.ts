@@ -3,14 +3,15 @@
  *
  * ユースケースシナリオ（use-cases.md）:
  *   基本フロー  1. 農作業者が、入力画面を開き、対象のハウス・ロボット・センサーと、補完する項目を選ぶ
- *               2. 農作業者が、値と対象の期間・時刻を入力する
+ *               2. 農作業者が、値と対象の時刻を入力する
  *               3. システムが、入力内容を検証して保存する
  *               4. システムが、手動入力であることを区別できる形でデータを保持する
  *               5. システムが、評価を更新し、「注意」「異常」があれば通知につなげる（UC-10）
- *   代替フロー  自動取り込みと手動入力で同じ項目・時刻の値が重なる場合の扱い（暫定: 手動入力を評価に使い、両方を保持する）
+ *   代替フロー  自動取り込みと手動入力で同じ項目・時刻の値が重なる場合の扱い（状態値は、同じ時刻なら手動入力を評価に使う。
+ *               合計〔累積〕の項目は、評価の期間に自動があれば、自動だけを評価に使い、手動入力は使わない。D-26。どちらも両方を保持する）
  *               入力内容が不正な場合は、UC-06 と同様にエラーを表示する
  *
- * 値の同値分割: カテゴリ（手動入力できる7カテゴリ）、設備の種別（ハウス・ロボット・センサー）、環境の値の範囲（湿度 0〜100・温度 −50〜100・照度 0〜200,000・CO2 濃度 0〜10,000 の境界、
+ * 値の同値分割: 合計（累積）の項目の取得元（期間に自動あり・なし。短期と長期で違う場合）、カテゴリ（手動入力できる7カテゴリ）、設備の種別（ハウス・ロボット・センサー）、環境の値の範囲（湿度 0〜100・温度 −50〜100・照度 0〜200,000・CO2 濃度 0〜10,000 の境界、
  * 温度の正常・注意・異常）、満足度（1〜5 の境界）、自動取り込みとの重なり（同じ時刻・別の時刻）。
  * 関連するユースケース: UC-20（取得元の区別を一覧で確認）、UC-10（保存後の通知）、UC-01（評価の反映）。
  */
@@ -25,6 +26,7 @@ import {
   alignBrowserClock,
   api,
   goToMenu,
+  goToNotifications,
   openAs,
   prepareApp,
 } from './support/app.ts';
@@ -40,8 +42,15 @@ import {
   starGroup,
   type EntryFormValues,
 } from './support/entry.ts';
-import { expectNoHorizontalScroll } from './support/pages.ts';
-import { environmentData, hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
+import { expectNoHorizontalScroll, itemListQuery } from './support/pages.ts';
+import {
+  daysAgo,
+  environmentData,
+  hoursAgo,
+  seed,
+  shot,
+  type SeededObservation,
+} from './support/viewpoint-scenarios.ts';
 
 async function openEntry(page: Page): Promise<void> {
   await alignBrowserClock(page);
@@ -78,15 +87,17 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await expectRelatedStatus(page, 'environmentalAdaptability', '注意');
     await shot(page, testInfo, 'uc07-saved');
 
-    // 4. 手動入力であることを区別できる形で保持する（取り込み済みデータの一覧の取得元）
-    await goToMenu(page, '取り込み済みデータ');
-    const rows = page.getByTestId('observation-row');
-    await expect(rows).toHaveCount(4);
-    for (const row of await rows.all()) {
-      await expect(row).toContainText('手動入力');
-      await expect(row).toContainText('環境センサー1');
-    }
-    await expect(rows.filter({ hasText: '温度' })).toContainText('27℃');
+    // 4. 手動入力であることを区別できる形で保持する（計測データの一覧の取得元）
+    // 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
+    await goToMenu(page, '計測データ');
+    const rows = page.getByTestId('measurement-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toContainText('手動入力');
+    await expect(rows).toContainText('環境センサー1');
+    await expect(rows.getByTestId('measurement-item')).toHaveCount(4);
+    await expect(rows.getByTestId('measurement-item').filter({ hasText: '温度' })).toContainText(
+      '27℃',
+    );
     await shot(page, testInfo, 'uc07-observations');
   });
 
@@ -101,8 +112,8 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await expect(equipment.locator('option')).toHaveText([
       '選択してください',
       'ハウス1',
-      '　収穫ロボット1',
-      '　環境センサー1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
     ]);
     for (const id of [HOUSE_ID, ROBOT_ID, SENSOR_ID]) {
       await equipment.selectOption(id);
@@ -164,8 +175,8 @@ test.describe('基本フロー: センサーから取得できない環境の値
       count: 2,
     },
     {
-      name: '環境情報（ハウスへの入力）',
-      equipment: HOUSE_ID,
+      name: '環境情報（環境センサーへの入力）',
+      equipment: SENSOR_ID,
       category: 'ENVIRONMENT',
       items: { 温度: '22', 湿度: '60' },
       count: 2,
@@ -202,7 +213,7 @@ test.describe('基本フロー: センサーから取得できない環境の値
       await saveEntry(page);
 
       await expect(page.getByTestId('entry-result')).toContainText('保存しました');
-      await page.goto('/observations?source=MANUAL');
+      await page.goto(`/observations${itemListQuery('?source=MANUAL')}`);
       await expect(page.getByTestId('observation-row')).toHaveCount(item.count);
     });
   }
@@ -213,19 +224,24 @@ test.describe('基本フロー: センサーから取得できない環境の値
   }) => {
     await prepareApp(request);
     await openEntry(page);
-    await fillEntryForm(page, { category: 'FAILURE', items: { 故障回数: '3' } });
+    // カテゴリは、対象の設備の種別に合うものだけ選べるため、先に、ロボットを選ぶ（Issue #360）
+    await fillEntryForm(page, {
+      equipment: ROBOT_ID,
+      category: 'FAILURE',
+      items: { 故障回数: '3' },
+    });
     const items = mainArea(page).getByTestId('entry-items');
-    await expect(items.getByLabel('故障回数')).toHaveValue('3');
+    await expect(items.getByRole('textbox', { name: '故障回数' })).toHaveValue('3');
 
     await fillEntryForm(page, { category: 'SAFETY' });
 
-    await expect(items.getByLabel('故障回数')).toHaveCount(0);
-    await expect(items.getByLabel('緊急停止回数')).toHaveValue('');
+    await expect(items.getByRole('textbox', { name: '故障回数' })).toHaveCount(0);
+    await expect(items.getByRole('textbox', { name: '緊急停止回数' })).toHaveValue('');
     await expect(items.getByRole('textbox')).toHaveCount(2);
 
     // カテゴリを戻しても、以前に入力した値は残っていない
     await fillEntryForm(page, { category: 'FAILURE' });
-    await expect(items.getByLabel('故障回数')).toHaveValue('');
+    await expect(items.getByRole('textbox', { name: '故障回数' })).toHaveValue('');
   });
 
   test('項目の一部だけを入力して保存できる（入力した項目だけを保持する）', async ({
@@ -244,7 +260,7 @@ test.describe('基本フロー: センサーから取得できない環境の値
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toBeVisible();
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row')).toHaveCount(1);
     await expect(page.getByTestId('observation-row')).toContainText('CO2濃度');
   });
@@ -278,7 +294,7 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     });
   }
 
-  test('異常になる値を保存すると、未読の通知が作られる（ハウスとセンサーの単位）', async ({
+  test('異常になる値を保存すると、未読の通知が作られる（センサーの単位。ハウスの通知は作られない）', async ({
     page,
     request,
   }) => {
@@ -294,10 +310,10 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
-    await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('異常');
+    // 通知の単位は、設備（センサー）。ハウスの集約の結果の通知は作られない
+    await expect(rows).toHaveCount(1);
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('異常');
     for (const row of await rows.all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
@@ -317,11 +333,11 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     await fillEntryForm(page, { ...environment, items: { 温度: '20', ...allItems } });
     await saveEntry(page);
     await expectRelatedStatus(page, 'environmentalAdaptability', '正常');
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     const rows = page.getByTestId('notification-row').filter({ hasText: '環境適応性' });
     await expect(rows).toHaveCount(0);
 
-    // 注意: ハウスとセンサーの単位で、「注意」の通知が作られる（修正せず、別の計測日時で入力する）
+    // 注意: センサーの単位で、「注意」の通知が作られる（修正せず、別の計測日時で入力する）
     await goToMenu(page, 'データ入力');
     await fillEntryForm(page, {
       ...environment,
@@ -330,9 +346,8 @@ test.describe('評価の更新と通知（UC-10への連携）: 環境の値の�
     });
     await saveEntry(page);
     await expect(page.getByTestId('entry-result')).toBeVisible();
-    await goToMenu(page, '通知');
-    await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('注意');
+    await goToNotifications(page);
+    await expect(rows).toHaveCount(1);
     await expect(rows.filter({ hasText: '環境センサー1' })).toContainText('注意');
     for (const row of await rows.all()) {
       await expect(row).toHaveAttribute('data-read-state', 'UNREAD');
@@ -362,7 +377,9 @@ test.describe('代替フロー: 自動取り込みと手動入力で同じ項目
     // 手動入力が評価に使われる（異常）
     await expectRelatedStatus(page, 'environmentalAdaptability', '異常');
     // 両方を保持する（取得元で区別できる）
-    await page.goto('/observations?q=%E6%B8%A9%E5%BA%A6&from=2026-10-08&to=2026-10-09');
+    await page.goto(
+      `/observations${itemListQuery('?q=%E6%B8%A9%E5%BA%A6&from=2026-10-08&to=2026-10-09')}`,
+    );
     const rows = page.getByTestId('observation-row');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: '自動取り込み' })).toContainText('20℃');
@@ -388,9 +405,153 @@ test.describe('代替フロー: 自動取り込みと手動入力で同じ項目
 
     await expectRelatedStatus(page, 'environmentalAdaptability', '注意');
     await page.goto(`/viewpoints/environmentalAdaptability?equipmentId=${SENSOR_ID}`);
-    await expect(page.getByTestId('metric-temperatureCelsius').locator('td').first()).toHaveText(
-      '25.0℃',
+    await expect(
+      page.getByTestId('metric-period-temperatureCelsius').locator('.metric-cell-value'),
+    ).toHaveText('25.0℃');
+  });
+});
+
+test.describe('代替フロー: 合計（累積）の項目は、評価の期間に自動取り込みがあれば、自動だけを評価に使う（D-26）', () => {
+  /** 収穫精度の、手動専用の件数（果実損傷数 50・誤収穫数 0・取り残し数 0。1 時間前）。 */
+  const manualCounts: readonly SeededObservation[] = [
+    ['damagedFruitCount', 50],
+    ['wrongHarvestCount', 0],
+    ['missedFruitCount', 0],
+  ].map(([itemKey, value]) => ({
+    equipmentId: ROBOT_ID,
+    itemKey: String(itemKey),
+    value: Number(value),
+    observedAt: hoursAgo(1),
+    source: 'MANUAL' as const,
+  }));
+
+  async function enterHarvestCount(page: Page, value: string, observedAt: string): Promise<void> {
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'HARVEST', observedAt });
+    await mainArea(page)
+      .locator('[data-field="items.harvestCount"]')
+      .getByRole('textbox')
+      .fill(value);
+    await saveEntry(page);
+    await expect(page.getByTestId('entry-result')).toContainText('保存しました');
+  }
+
+  /** 果実損傷率を確認する。`current` は「現在」（短期の評価）の列、`period` は「期間の評価」（直近 7 日）の列。 */
+  async function expectDamagedRate(
+    page: Page,
+    scope: 'current' | 'period',
+    value: string,
+  ): Promise<void> {
+    await page.goto(`/viewpoints/harvestAccuracy?equipmentId=${ROBOT_ID}&periodDays=7`);
+    await expect(page.getByTestId('diagnosis')).toBeVisible();
+    await expect(
+      page.getByTestId(`metric-${scope}-damagedFruitRatePercent`).locator('.metric-cell-value'),
+    ).toHaveText(value);
+  }
+
+  test('自動の 1,800 → 手動の 1,700 → 自動の 2,400 は、自動だけで 2,400 として評価に使い（手動を混ぜると 4,200）、手動入力は両方とも保持する', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 1800, observedAt: hoursAgo(4) },
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 2400, observedAt: hoursAgo(2) },
+        ...manualCounts,
+      ],
+    });
+    await openEntry(page);
+
+    // 3 時間前（日本時間 09:00）に、手動で収穫数 1,700 を入力する
+    await enterHarvestCount(page, '1700', '2026-10-09T09:00');
+    // 保存はできるが、自動取り込みの値を使うため、評価に使われない旨を、項目名とともに示す（SC-06-5）
+    await expect(page.getByTestId('usage-notice')).toContainText('評価に使われない項目があります');
+    await expect(page.getByTestId('usage-harvestCount')).toHaveText(
+      '収穫数: この期間は自動取り込みの値を使うため、この入力は評価に使われません',
     );
+
+    // 果実損傷数 50 ÷ 収穫数 2,400（自動だけ）= 2.1%。手動を混ぜた 4,200 なら 1.2%
+    await expectDamagedRate(page, 'current', '2.1%');
+    await expectDamagedRate(page, 'period', '2.1%');
+    // 両方を保持する（取得元で区別できる）
+    await page.goto(
+      `/observations${itemListQuery('?q=%E5%8F%8E%E7%A9%AB%E6%95%B0&from=2026-10-08&to=2026-10-09')}`,
+    );
+    const rows = page.getByTestId('observation-row');
+    await expect(rows.filter({ hasText: '自動取り込み' })).toHaveCount(2);
+    await expect(rows.filter({ hasText: '手動入力' }).filter({ hasText: '1,700個' })).toHaveCount(
+      1,
+    );
+  });
+
+  test('評価の期間に自動がなければ、手動入力だけを使う（手動のみの運用）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, { observations: manualCounts });
+    await openEntry(page);
+
+    await enterHarvestCount(page, '100', '2026-10-09T09:00');
+    await enterHarvestCount(page, '500', '2026-10-09T10:00');
+    // 自動がないので、手動が評価に使われる。「使われない」旨は示さない
+    await expect(page.getByTestId('entry-result')).toBeVisible();
+    await expect(page.getByTestId('usage-notice')).toHaveCount(0);
+
+    // 手動の増分の合計 500（100 + 400）。50 ÷ 500 = 10.0%
+    await expectDamagedRate(page, 'current', '10.0%');
+  });
+
+  test('評価の期間ごとに、取得元が決まる（短期は自動なし→手動、7 日は自動あり→自動）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    // 自動は、3 日前だけ（短期の 24 時間の外。7 日の中）
+    await seed(request, {
+      observations: [
+        {
+          equipmentId: ROBOT_ID,
+          itemKey: 'harvestCount',
+          value: 1000,
+          observedAt: new Date(Date.parse(daysAgo(3)) - 6 * 3_600_000).toISOString(),
+        },
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 1500, observedAt: daysAgo(3) },
+        ...manualCounts,
+      ],
+    });
+    await openEntry(page);
+
+    await enterHarvestCount(page, '500', '2026-10-09T09:00');
+    // 一部の期間（長期視点の 7 日以上）だけ、自動取り込みの値を使うため、その期間を示す
+    await expect(page.getByTestId('usage-harvestCount')).toContainText(
+      '長期視点（直近7日）・長期視点（直近30日）・長期視点（直近60日）・長期視点（直近90日）の評価では、自動取り込みの値を使うため、この入力は使われません',
+    );
+
+    // 短期: 自動なし → 手動の 500。50 ÷ 500 = 10.0%。7 日: 自動あり → 自動の 1,500。50 ÷ 1,500 = 3.3%
+    await expectDamagedRate(page, 'current', '10.0%');
+    await expectDamagedRate(page, 'period', '3.3%');
+  });
+
+  test('合計の項目の入力欄に、値の意味（今日これまでの累計）を示す（ヘルプヒント）。合計でない項目には、示さない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'HARVEST' });
+
+    await mainArea(page).getByRole('button', { name: '収穫数（個）の説明', exact: true }).click();
+
+    await expect(page.getByRole('note')).toContainText('今日これまでの累計');
+    await expect(page.getByRole('note')).toContainText(
+      '自動取り込みの値がある期間は、評価に使われません',
+    );
+    await page.keyboard.press('Escape');
+    await mainArea(page)
+      .getByRole('button', { name: '1果実あたりの収穫時間（秒/果実）の説明' })
+      .click();
+    await expect(page.getByRole('note')).not.toContainText('累計');
   });
 });
 
@@ -532,7 +693,7 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
 
   // 自動取り込みの項目は、すべて、手動でも入力できる（予備の入口。#192。ADR-0016 の D-10）
   const itemInput = (page: Page, key: string) =>
-    mainArea(page).locator(`[data-field="items.${key}"] input`);
+    mainArea(page).locator(`[data-field="items.${key}"] input:not([type="range"])`);
 
   test('稼働情報（稼働時間・待機時間・収穫稼働時間・走行停止時間）を、ロボットに、手動で入力して保存できる。手動入力として保持する', async ({
     page,
@@ -550,13 +711,13 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
-    await goToMenu(page, '取り込み済みデータ');
-    const rows = page.getByTestId('observation-row');
-    await expect(rows).toHaveCount(4);
-    for (const row of await rows.all()) {
-      await expect(row).toContainText('手動入力');
-      await expect(row).toContainText('収穫ロボット1');
-    }
+    // 1 回の入力（稼働情報の 4 項目）は、1 回の計測として、1 行にまとめて示す（Issue #363）
+    await goToMenu(page, '計測データ');
+    const rows = page.getByTestId('measurement-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows).toContainText('手動入力');
+    await expect(rows).toContainText('収穫ロボット1');
+    await expect(rows.getByTestId('measurement-item')).toHaveCount(4);
     await expect(rows.filter({ hasText: '待機時間' })).toContainText('1');
   });
 
@@ -578,8 +739,8 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await saveEntry(page);
 
     await expect(page.getByTestId('entry-result')).toContainText('保存しました');
-    await goToMenu(page, '取り込み済みデータ');
-    const rows = page.getByTestId('observation-row');
+    await goToMenu(page, '計測データ');
+    const rows = page.getByTestId('measurement-row');
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText('手動入力');
     await expect(rows.first()).toContainText('ステータスコード');

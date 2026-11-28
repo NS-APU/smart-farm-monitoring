@@ -10,6 +10,7 @@ import {
 import {
   EquipmentIdSchema,
   EquipmentTypeSchema,
+  EvaluationWriteStateSchema,
   IsoDateTimeSchema,
   type EquipmentId,
 } from './common.ts';
@@ -22,7 +23,7 @@ const EquipmentNameSchema = z
   .min(1, '名称は必須です')
   .max(200, '名称は200文字以内で指定してください');
 
-/** ファイルサーバーのデータ上の識別子（機体ID・センサーID）。仮（Q-001, Q-004）。 */
+/** データ上の識別子。取り込みの照合には使わない（設備は、ファイルのパスで決める）。項目は残す（将来の廃止は別に判断）。 */
 const ExternalIdSchema = z
   .string()
   .trim()
@@ -92,6 +93,16 @@ export const EquipmentSchema = z
   .refine(hasValidInterval, INTERVAL_RULE_ISSUE);
 export type Equipment = z.infer<typeof EquipmentSchema>;
 
+/**
+ * POST・PUT /equipment の応答: 設備と、評価の状態（ADR-0014。`DEFERRED` は、評価が定期の評価に任されること）。
+ * 項目がなければ、`DONE` とみなす。
+ */
+export const EquipmentSaveResponseSchema = z.intersection(
+  EquipmentSchema,
+  z.object({ evaluation: EvaluationWriteStateSchema.optional() }),
+);
+export type EquipmentSaveResponse = z.infer<typeof EquipmentSaveResponseSchema>;
+
 /** 設備の取得間隔の、実際の値（分）。指定がなければ、種別ごとの既定。ハウスは、持たない（undefined）。 */
 export function effectiveIntervalMinutes(equipment: {
   readonly equipmentType: EquipmentType;
@@ -130,6 +141,25 @@ export const EquipmentTreeResponseSchema = z.object({
   ),
 });
 export type EquipmentTreeResponse = z.infer<typeof EquipmentTreeResponseSchema>;
+
+/**
+ * GET /equipment/deletions の応答: 削除中の設備（D-28。Issue #229）。設備を削除すると、設備はすぐ一覧から外れ、データの削除は、
+ * ジョブが行う。削除が終わるまで、ここに出る。失敗（FAILED）しても、ジョブが、次の実行で、続きから削除する。
+ */
+export const EquipmentDeletionListItemSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  name: z.string(),
+  equipmentType: z.string(),
+  /** ハウスを削除するときの、配下の設備の名前。 */
+  childNames: z.array(z.string()),
+  requestedAt: IsoDateTimeSchema,
+  status: z.enum(['DELETING', 'FAILED']),
+});
+export type EquipmentDeletionListItem = z.infer<typeof EquipmentDeletionListItemSchema>;
+export const EquipmentDeletionListResponseSchema = z.object({
+  items: z.array(EquipmentDeletionListItemSchema),
+});
+export type EquipmentDeletionListResponse = z.infer<typeof EquipmentDeletionListResponseSchema>;
 
 /** POST /equipment の入力（FR-2.1、2.2）。ロボット・センサーは、親のハウス（facilityId）が必須。 */
 export const EquipmentCreateRequestSchema = z

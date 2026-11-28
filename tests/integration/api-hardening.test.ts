@@ -13,6 +13,7 @@ import {
   TEST_USER,
   THREE_ROLES_JSON,
   withEquipment,
+  withSourceFilePaths,
 } from '../support/test-context.ts';
 
 describe('セキュリティヘッダー（V-015）', () => {
@@ -82,6 +83,14 @@ describe('対象の種類の検証（V-117）', () => {
 
     expect((await context.request('/audit-logs?targetType=user')).status).toBe(200);
     expect((await context.request('/audit-logs?targetType=unknown-type')).status).toBe(400);
+  });
+
+  it('変更履歴の対象の ID は、空・長すぎる値を 400 で拒否する（#155）', async () => {
+    const context = await createTestContext();
+
+    expect((await context.request('/audit-logs?targetType=user&targetId=abc-1')).status).toBe(200);
+    expect((await context.request('/audit-logs?targetId=')).status).toBe(400);
+    expect((await context.request(`/audit-logs?targetId=${'a'.repeat(201)}`)).status).toBe(400);
   });
 });
 
@@ -184,6 +193,7 @@ describe('データの新しさ（V-024）', () => {
 
   it('手動入力だけがある場合は、データを受信していない（NONE）。自動取り込みの観測値があれば、新しさを判定する', async () => {
     const context = await withEquipment();
+    await withSourceFilePaths(context);
     const received = context.clock.now().toISOString();
     await context.container.repositories.observations.saveMany([
       observation({
@@ -224,6 +234,7 @@ describe('データの新しさ（V-024）', () => {
 
   it('削除済みの観測値は、データの新しさに数えない', async () => {
     const context = await withEquipment();
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       observation({
         equipmentId: ROBOT_ID,

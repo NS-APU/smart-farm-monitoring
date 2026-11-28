@@ -13,12 +13,13 @@ import { createControllableClock } from '../../src/backend/infrastructure/local/
 import { createSequentialIdGenerator } from '../../src/backend/infrastructure/local/ids.ts';
 import { createDynamoRepositories } from '../../src/backend/infrastructure/dynamodb/dynamodb-repositories.ts';
 import { createLocalRepositories } from '../../src/backend/infrastructure/local/local-repositories.ts';
-import { equipmentSet, ROBOT_ID, SENSOR_EXTERNAL_ID } from '../support/builders.ts';
+import { ROBOT_ID } from '../support/builders.ts';
 import {
   createDynamoTestDatabase,
   dropDynamoTestTables,
 } from '../support/dynamodb-test-database.ts';
-import { createTestContext, TEST_NOW } from '../support/test-context.ts';
+import { withHttpFiles } from '../support/http-test-files.ts';
+import { TEST_NOW } from '../support/test-context.ts';
 
 afterAll(dropDynamoTestTables);
 
@@ -104,43 +105,35 @@ describe('連携キューの 1 項目の大きさ（#205）', () => {
     expect(sent[0]?.payload).not.toHaveProperty('part');
   });
 
-  it('取り込み: 観測値が多いファイル（環境センサーの JSON。700 記録 × 4 項目 = 2,800 件）は、複数の項目に分けて積み、農業情報基盤へ、すべての観測値を送る', async () => {
-    const context = await createTestContext();
-    for (const equipment of equipmentSet()) {
-      await context.container.repositories.equipment.save(equipment);
-    }
-    const records = Array.from({ length: 700 }, (_, minute) => ({
-      timestamp: new Date(TEST_NOW.getTime() - (minute + 1) * 60_000).toISOString(),
-      temperatureCelsius: 25 + (minute % 5),
-      humidityPercent: 60,
-      illuminanceLux: 30000,
-      co2Ppm: 900,
-    }));
-    context.placeFile(
+  it('取り込み: 環境センサーのファイル（その時点のスナップショット 1 つ。4 項目）は、1 つの項目として積み、農業情報基盤へ、すべての観測値を送る（分割は、1 つのファイルの観測値が上限を超えるときだけ。設備ごとに 1 ファイルのため、取り込みでは起きない）', async () => {
+    const context = await withHttpFiles();
+    await context.files.placeFile(
       'environment-sensor',
       'big.json',
-      JSON.stringify({ sensorId: SENSOR_EXTERNAL_ID, records }),
+      JSON.stringify({
+        timestamp: new Date(TEST_NOW.getTime() - 60_000).toISOString(),
+        temperature: 25,
+        humidity: 60,
+        illuminance: 30000,
+        co2: 900,
+      }),
     );
 
     const ingestion = await context.container.ingestionService.runSource('environment-sensor');
     const queue = await context.container.repositories.federation.countByStatus();
     await context.container.jobRunner.run('JB-03');
 
-    expect(ingestion).toMatchObject({ result: 'SUCCESS', recordCount: 2800 });
-    // 取り込みの観測値の項目: 1 つのファイル → 1,000・1,000・800 件の 3 項目（評価の結果の項目を除く）
+    expect(ingestion).toMatchObject({ result: 'SUCCESS', recordCount: 4 });
+    // HTTP のファイルの識別子（fileId）は、設備ごとのファイルのパス（/<取り込み元>/<名前>）。分割しない（part の印がない）
     const received = context.container.dev?.mocks.federation.received() ?? [];
-    const parts = received.filter((item) =>
-      item.targetRef.startsWith('environment-sensor#big.json'),
+    const sent = received.filter((item) =>
+      item.targetRef.startsWith('environment-sensor#/environment-sensor/big.json'),
     );
-    expect(parts.map((item) => item.targetRef)).toEqual([
-      'environment-sensor#big.json#part-1-of-3',
-      'environment-sensor#big.json#part-2-of-3',
-      'environment-sensor#big.json#part-3-of-3',
+    expect(sent.map((item) => item.targetRef)).toEqual([
+      'environment-sensor#/environment-sensor/big.json',
     ]);
-    expect(parts.map((item) => (item.payload.observations as unknown[]).length)).toEqual([
-      1000, 1000, 800,
-    ]);
-    expect(queue.PENDING).toBeGreaterThanOrEqual(3);
+    expect((sent[0]?.payload.observations as unknown[]).length).toBe(4);
+    expect(queue.PENDING).toBeGreaterThanOrEqual(1);
     expect(await context.container.repositories.federation.countByStatus()).toMatchObject({
       PENDING: 0,
       FAILED: 0,

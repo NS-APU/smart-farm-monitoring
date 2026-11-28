@@ -2,34 +2,48 @@
  * SC-08 変更履歴（UC-18。FR-4.2.3）。入力・変更・削除の履歴（操作種別、対象データ、変更者、変更前後の値、日時）。
  * 操作種別・変更者・対象・期間で絞り込み、日時の並べ替え（新しい順・古い順）とページ分割ができる。
  * 変更履歴を参照する権限（audit:read）が必要。
+ * 対象の種類と ID（URL のクエリ `targetType`・`targetId`）を指定して開ける（入力済みデータ・計測データ・判断基準の編集画面からの導線。
+ * #155。SC-08-4）。ID は、入力欄を設けず、チップ「対象: …（解除）」で示す。対象を絞った表示は、読み取りの量を抑えるため、
+ * 自動では更新せず、手動の「更新」で取り直す（ADR-0007）。
  */
 
-import { useCallback, type ReactNode } from 'react';
-import { CATEGORY_LABELS, findItemDefinition } from '@smart-farm/shared/constants/items';
-import { formatThreshold } from '@smart-farm/shared/criteria-text';
+import { useCallback, useState, type ReactNode } from 'react';
+import { findItemDefinition } from '@smart-farm/shared/constants/items';
+import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import {
   AUDIT_OPERATIONS,
   AUDIT_TARGET_TYPES,
-  type AuditLogEntry,
+  type AuditLogListItem,
 } from '@smart-farm/shared/schemas/audit';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { listAuditLogs } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
+import { useAppState } from '../components/app-state.tsx';
+import { AuditValue } from '../components/audit-value.tsx';
+import { Icon } from '../components/icon.tsx';
 import { Pager, PermissionNotice } from '../components/form-controls.tsx';
-import { formatDateTimeJst } from '../components/format.ts';
+import { formatDateTimeJst, formatDateTimeMinutesJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
-import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import { FilterPanel, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { recordOf } from '../lib/audit-diff.ts';
+import { userLabel } from '../lib/user-label.ts';
 import { usePermission } from '../hooks/use-permission.ts';
-import { usePolling } from '../hooks/use-polling.ts';
-import { readSortDirection, useQueryParams } from '../hooks/use-query-params.ts';
+import { POLLING_INTERVAL_MS, usePolling } from '../hooks/use-polling.ts';
+import {
+  countActiveConditions,
+  readSortDirection,
+  useQueryParams,
+} from '../hooks/use-query-params.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.history;
+/** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
+const CONDITION_NAMES = ['operation', 'targetType', 'targetId', 'actor', 'from', 'to', 'direction'];
 
 /** 対象の種類の表示名。未知の種類は、そのまま表示する。 */
 function targetTypeLabel(targetType: string): string {
@@ -37,92 +51,80 @@ function targetTypeLabel(targetType: string): string {
   return labels[targetType] ?? targetType;
 }
 
-/** 手動入力の、項目の値以外の内容（計測日時・設備・カテゴリ・備考）。修正で、これらだけが変わった場合も、履歴で分かるようにする。 */
-function entryMetaOf(record: Readonly<Record<string, unknown>>): { label: string; text: string }[] {
-  const { observedAt, equipmentId, category, note } = record;
-  const meta: { label: string; text: string }[] = [];
-  if (typeof observedAt === 'string') {
-    meta.push({ label: TEXT.metaObservedAt, text: formatDateTimeJst(observedAt) });
+/**
+ * チップに示す、対象の名前（名前を解決できなければ undefined。種類だけを示す）。
+ * 手動入力は、計測日時・設備名・項目（履歴の変更前後の内容から。新しい履歴を優先する）、判断基準は観点名、設備は設備名。
+ */
+function targetNameOf(
+  targetType: string,
+  targetId: string,
+  items: readonly AuditLogListItem[],
+  equipmentNames: ReadonlyMap<string, string>,
+): string | undefined {
+  if (targetType === 'criteria') {
+    return findViewpointMeta(targetId)?.name;
   }
-  if (typeof equipmentId === 'string') {
-    meta.push({ label: TEXT.metaEquipment, text: equipmentId });
+  if (targetType === 'equipment') {
+    return equipmentNames.get(targetId);
   }
-  if (typeof category === 'string') {
-    const labels: Readonly<Record<string, string>> = CATEGORY_LABELS;
-    meta.push({ label: TEXT.metaCategory, text: labels[category] ?? category });
+  if (targetType !== 'manual-entry') {
+    return undefined;
   }
-  if (typeof note === 'string' && note !== '') {
-    meta.push({ label: TEXT.metaNote, text: note });
+  const newestFirst = items
+    .filter((entry) => entry.targetId === targetId)
+    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+  for (const entry of newestFirst) {
+    for (const value of [entry.after, entry.before]) {
+      const record = recordOf(value);
+      const itemRecord = recordOf(record?.items);
+      if (record === undefined || itemRecord === undefined) {
+        continue;
+      }
+      const { observedAt, equipmentId } = record;
+      const parts = [
+        typeof observedAt === 'string' ? formatDateTimeMinutesJst(observedAt) : undefined,
+        typeof equipmentId === 'string'
+          ? (equipmentNames.get(equipmentId) ?? equipmentId)
+          : undefined,
+        Object.keys(itemRecord)
+          .map((itemKey) => findItemDefinition(itemKey)?.label ?? itemKey)
+          .join('・'),
+      ].filter((part) => part !== undefined && part !== '');
+      if (parts.length > 0) {
+        return parts.join(' / ');
+      }
+    }
   }
-  return meta;
-}
-
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null
-    ? Object.fromEntries(Object.entries(value))
-    : undefined;
-}
-
-/** 変更前後の値の表示。手動入力は、項目と値（単位つき）。その他は、内容を開いて確認できる。 */
-export function AuditValue(props: {
-  readonly targetType: string;
-  readonly value: unknown;
-}): ReactNode {
-  if (props.value === undefined) {
-    return <span className="muted">{MESSAGES.common.missingValue}</span>;
-  }
-  const record = props.targetType === 'manual-entry' ? recordOf(props.value) : undefined;
-  const items = record === undefined ? undefined : recordOf(record.items);
-  if (record !== undefined && items !== undefined) {
-    const meta = entryMetaOf(record);
-    return (
-      <div>
-        <ul className="entry-values">
-          {Object.entries(items).map(([itemKey, value]) => {
-            const item = findItemDefinition(itemKey);
-            return (
-              <li key={itemKey}>
-                {item?.label ?? itemKey}:{' '}
-                <strong>
-                  {typeof value === 'number' ? formatThreshold(value) : String(value)}
-                  {item?.unit ?? ''}
-                </strong>
-              </li>
-            );
-          })}
-        </ul>
-        {meta.length === 0 ? null : (
-          <dl className="audit-meta">
-            {meta.map(({ label, text }) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd className={label === TEXT.metaNote ? 'entry-note' : undefined}>{text}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </div>
-    );
-  }
-  return (
-    <details>
-      <summary>{TEXT.showDetail}</summary>
-      <pre className="audit-json">{JSON.stringify(props.value, null, 2)}</pre>
-    </details>
-  );
+  return undefined;
 }
 
 export function EntryHistoryPage(): ReactNode {
   const { api } = useAuth();
   const canRead = usePermission('audit:read');
+  const { equipmentNames } = useAppState();
   const query = useQueryParams();
   const operation = AUDIT_OPERATIONS.find((value) => value === query.get('operation')) ?? '';
   const targetType = AUDIT_TARGET_TYPES.find((value) => value === query.get('targetType')) ?? '';
+  // 対象の ID は、種類とあわせて指定したときだけ使う（種類のない ID は、無視する）
+  const targetId = query.get('targetId').trim();
+  const hasTarget = targetType !== '' && targetId !== '';
   const actor = query.get('actor').trim();
   const from = query.get('from');
   const to = query.get('to');
   const direction = readSortDirection(query);
-  const paging = useCursorPaging([operation, targetType, actor, from, to, direction].join('|'));
+  const paging = useCursorPaging(
+    [operation, targetType, targetId, actor, from, to, direction].join('|'),
+  );
+
+  const activeCount = countActiveConditions([
+    operation !== '',
+    targetType !== '',
+    hasTarget,
+    actor !== '',
+    from !== '',
+    to !== '',
+    direction !== 'desc',
+  ]);
 
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
@@ -134,6 +136,7 @@ export function EntryHistoryPage(): ReactNode {
     return listAuditLogs(api, {
       ...(operation === '' ? {} : { operation }),
       ...(targetType === '' ? {} : { targetType }),
+      ...(hasTarget ? { targetId } : {}),
       ...(actor === '' ? {} : { actor }),
       ...(fromIso === null ? {} : { from: fromIso }),
       ...(toIso === null ? {} : { to: toIso }),
@@ -141,10 +144,37 @@ export function EntryHistoryPage(): ReactNode {
       limit: PAGE_SIZE,
       ...omitUndefined({ cursor }),
     });
-  }, [api, canRead, operation, targetType, actor, fromIso, toIso, direction, cursor]);
-  const { data, error, reload } = usePolling(fetchPage);
+  }, [
+    api,
+    canRead,
+    operation,
+    targetType,
+    targetId,
+    hasTarget,
+    actor,
+    fromIso,
+    toIso,
+    direction,
+    cursor,
+  ]);
+  // 対象を絞った表示は、期間内の履歴を読んだ後に絞るため（読み取りが多い）、自動では更新しない（手動の「更新」）
+  const { data, error, reload, version } = usePolling(
+    fetchPage,
+    hasTarget ? null : POLLING_INTERVAL_MS,
+  );
+  const [refreshFrom, setRefreshFrom] = useState<number | null>(null);
+  const refreshing = refreshFrom !== null && refreshFrom === version;
+  const refresh = (): void => {
+    if (!refreshing) {
+      setRefreshFrom(version);
+      reload();
+    }
+  };
+  const targetName = hasTarget
+    ? targetNameOf(targetType, targetId, data?.items ?? [], equipmentNames)
+    : undefined;
 
-  function row(entry: AuditLogEntry): ReactNode {
+  function row(entry: AuditLogListItem): ReactNode {
     return (
       <tr key={entry.auditId} data-testid="audit-row">
         <td data-label={TEXT.occurredAt}>
@@ -155,12 +185,22 @@ export function EntryHistoryPage(): ReactNode {
           {targetTypeLabel(entry.targetType)}
           <span className="muted category-note">（{entry.targetId}）</span>
         </td>
-        <td data-label={TEXT.actor}>{entry.actor}</td>
+        <td data-label={TEXT.actor}>{userLabel(entry.actor, entry.actorName)}</td>
         <td data-label={TEXT.before}>
-          <AuditValue targetType={entry.targetType} value={entry.before} />
+          <AuditValue
+            targetType={entry.targetType}
+            value={entry.before}
+            counterpart={entry.after}
+            side="before"
+          />
         </td>
         <td data-label={TEXT.after}>
-          <AuditValue targetType={entry.targetType} value={entry.after} />
+          <AuditValue
+            targetType={entry.targetType}
+            value={entry.after}
+            counterpart={entry.before}
+            side="after"
+          />
         </td>
       </tr>
     );
@@ -207,6 +247,8 @@ export function EntryHistoryPage(): ReactNode {
               paging.goNext(data.nextCursor);
             }
           }}
+          pageSize={PAGE_SIZE}
+          itemCount={data.items.length}
         />
       </>
     );
@@ -223,7 +265,12 @@ export function EntryHistoryPage(): ReactNode {
       <p className="muted">{TEXT.lead}</p>
       {canRead ? (
         <section className="panel" aria-label={MESSAGES.form.search}>
-          <div className="filter-bar">
+          <FilterPanel
+            activeCount={activeCount}
+            onClear={() => {
+              query.clear(CONDITION_NAMES);
+            }}
+          >
             <SelectFilter
               label={TEXT.operation}
               value={operation}
@@ -282,7 +329,42 @@ export function EntryHistoryPage(): ReactNode {
                 query.set({ direction: value });
               }}
             />
-          </div>
+          </FilterPanel>
+          {hasTarget ? (
+            <>
+              <div className="filter-chips">
+                <span className="filter-chip" data-testid="audit-target-chip">
+                  <span>
+                    {TEXT.targetType}: {targetTypeLabel(targetType)}
+                    {targetName === undefined ? '' : `（${targetName}）`}
+                  </span>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    aria-label={TEXT.clearTargetLabel}
+                    onClick={() => {
+                      query.set({ targetId: undefined });
+                    }}
+                  >
+                    {TEXT.clearTarget}
+                  </button>
+                </span>
+                <button
+                  type="button"
+                  className="refresh-button"
+                  aria-disabled={refreshing}
+                  aria-busy={refreshing}
+                  onClick={refresh}
+                >
+                  <Icon name="refresh" size={16} />
+                  {refreshing ? TEXT.refreshing : TEXT.refresh}
+                </button>
+              </div>
+              <p className="muted" data-testid="audit-manual-refresh-note">
+                {TEXT.manualRefreshNote}
+              </p>
+            </>
+          ) : null}
         </section>
       ) : null}
       <section className="panel" aria-label={TEXT.title}>

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MANUAL_INPUT_CATEGORIES,
   findItemDefinition,
   itemsOfCategory,
+  manualCategoriesOfEquipmentType,
   type ItemDefinition,
 } from '../../../src/shared/constants/items.ts';
 import { FUTURE_TOLERANCE_MINUTES, MAX_NOTE_LENGTH } from '../../../src/shared/constants/limits.ts';
@@ -340,5 +342,31 @@ describe('validateManualEntry（手動入力の検証）', () => {
     expect(
       validateManualEntry(draft({ note: 'あ'.repeat(MAX_NOTE_LENGTH + 1) }), NOW),
     ).toContainEqual({ name: 'note', message: '備考は2000文字以内で入力してください' });
+  });
+});
+
+describe('対象の設備の種別ごとの、手動入力のカテゴリ（Issue #360）', () => {
+  it('ハウスは満足度情報だけ、環境センサーは環境情報だけ、ロボットは、環境情報・満足度情報以外（手動入力のカテゴリの順）', () => {
+    expect(manualCategoriesOfEquipmentType('FACILITY')).toEqual(['SATISFACTION']);
+    expect(manualCategoriesOfEquipmentType('SENSOR')).toEqual(['ENVIRONMENT']);
+    expect(manualCategoriesOfEquipmentType('ROBOT')).toEqual([
+      'OPERABILITY',
+      'HARVEST',
+      'OPERATION',
+      'STATUS',
+      'SAFETY',
+      'COST',
+      'FAILURE',
+    ]);
+  });
+
+  it('手動入力のカテゴリは、どれも、いずれかの種別で選べる。1 つのカテゴリは、1 つの種別だけ', () => {
+    const types = ['FACILITY', 'ROBOT', 'SENSOR'] as const;
+    for (const category of MANUAL_INPUT_CATEGORIES) {
+      const owners = types.filter((type) =>
+        manualCategoriesOfEquipmentType(type).includes(category),
+      );
+      expect(owners, category).toHaveLength(1);
+    }
   });
 });

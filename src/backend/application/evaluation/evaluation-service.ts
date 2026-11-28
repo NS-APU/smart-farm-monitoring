@@ -6,6 +6,7 @@
  * 定期（データ途絶の確認）、初期データの投入後、開発用 API からの再評価。
  */
 
+import { CUMULATIVE_ITEM_KEYS } from '@smart-farm/shared/constants/items';
 import {
   defaultPeriodDays,
   viewpointsForEquipmentType,
@@ -13,14 +14,23 @@ import {
 } from '@smart-farm/shared/constants/viewpoints';
 import type { ViewpointCriteria } from '@smart-farm/shared/schemas/criteria';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
-import { PERIOD_DAYS_OPTIONS } from '@smart-farm/shared/constants/status';
+import { PERIOD_DAYS_OPTIONS, type Horizon } from '@smart-farm/shared/constants/status';
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
+import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { EvaluationResult } from '@smart-farm/shared/schemas/evaluation';
 import { MS_PER_DAY } from '@smart-farm/shared/time';
 import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
-import { evaluateScope, type EvaluationDraft } from '../../domain/evaluation/scope-evaluator.ts';
-import { isNotifiableStatusChange } from '../../domain/notification-rules.ts';
+import {
+  CURRENT_EVALUATION_READ_DAYS,
+  evaluateScope,
+  type EvaluationDraft,
+} from '../../domain/evaluation/scope-evaluator.ts';
+import { aggregateWorstResults } from '../../domain/evaluation/worst-result.ts';
+import {
+  isNotifiableStatusChange,
+  isStatusChangeNotificationUnit,
+} from '../../domain/notification-rules.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import { errorLogFields } from '../error-fields.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -29,7 +39,7 @@ import type { AppSettings } from '../settings.ts';
 import type { FederationService } from '../federation/federation-service.ts';
 import type { NotificationService } from '../notification/notification-service.ts';
 import type { CriteriaService } from './criteria-service.ts';
-import { resolveEvaluationScope } from './scope.ts';
+import { memberEquipmentOf, resolveEvaluationScope } from './scope.ts';
 
 /**
  * 評価は、CPU を使う処理のため、設備ごとの区切りで、イベントループへ制御を戻す。受信した通信（ほかの利用者の参照・保存）を
@@ -55,6 +65,23 @@ export const EVALUATION_TRIGGERS = [
 ] as const;
 export type EvaluationTrigger = (typeof EVALUATION_TRIGGERS)[number];
 
+/** 状態の変化の処理の段階（失敗の原因の切り分けのため、ログに残す）。 */
+type StatusChangeStage = 'NOTIFICATION' | 'FEDERATION' | 'RECORD';
+
+/** 状態の変化の処理の失敗に、設備の中の観点と段階を添える（呼び出し元へは、元のエラーを伝える）。 */
+class StatusChangeStageError extends Error {
+  readonly viewpointId: ViewpointId;
+  readonly stage: StatusChangeStage;
+  readonly original: unknown;
+
+  constructor(viewpointId: ViewpointId, stage: StatusChangeStage, original: unknown) {
+    super('状態の変化の処理に失敗しました', { cause: original });
+    this.viewpointId = viewpointId;
+    this.stage = stage;
+    this.original = original;
+  }
+}
+
 export interface EvaluationRunSummary {
   readonly equipmentEvaluated: number;
   readonly resultsSaved: number;
@@ -76,6 +103,17 @@ export interface EvaluationService {
    * 定期の評価 JB-02 が更新する）。実行中に重なった要求は、全設備の評価も含めて、1回にまとめる。
    */
   evaluateAffected(
+    trigger: EvaluationTrigger,
+    equipmentIds: readonly EquipmentId[],
+  ): Promise<EvaluationRunSummary>;
+  /**
+   * 指定した設備と、その設備を含むハウスの、「現在」（短期の評価）だけを評価し、短期の結果だけを保存する（Issue #591）。
+   * 手動入力の保存の直後（AWS の `EVALUATION_ON_WRITE=deferred`）に、同期して実行する。読む観測値は、直近 7 日分（定期の評価は 90 日分）。
+   * 長期の結果（「期間の評価」）は、触らない（定期の評価が更新する）。状態の変化の処理（通知・連携・変化の記録）は、行わない
+   * （同じ回の長期の結果を起点にするため。定期の評価に任せる）。結果の保存は、評価の日時が新しいときだけ（古い評価が、新しい結果を上書きしない）。
+   * 実行中に重なった要求は、1 回にまとめる（全期間の評価〔`evaluateAll`・`evaluateAffected`〕とは、別の鎖）。
+   */
+  evaluateCurrent(
     trigger: EvaluationTrigger,
     equipmentIds: readonly EquipmentId[],
   ): Promise<EvaluationRunSummary>;
@@ -133,26 +171,148 @@ function selectAffected(
   return allEquipment.filter((equipment) => included.has(equipment.equipmentId));
 }
 
+/** 評価する順: ロボット・センサーが先、ハウスが後（それぞれ、登録の順）。ハウスの結果は、配下の設備の結果から求める（D-19）。 */
+function byEvaluationOrder(targets: readonly Equipment[]): Equipment[] {
+  return [
+    ...targets.filter((equipment) => equipment.equipmentType !== 'FACILITY'),
+    ...targets.filter((equipment) => equipment.equipmentType === 'FACILITY'),
+  ];
+}
+
+/** 評価に使う観測値の読み取り（評価の期間の観測値と、累積の項目の基準にする、期間より前の値）。 */
+interface ObservationReads {
+  readonly observations: readonly Observation[];
+  readonly baselineObservations: readonly Observation[];
+}
+
+/** この回の評価で、設備ごとの観測値の読み取りを共有する入れ物（共有しない回は undefined）。 */
+type SharedReads = Map<EquipmentId, Promise<ObservationReads>>;
+
+/**
+ * 設備ごとの読み取りを、この回の評価の中で共有するか。評価の対象が、1 つのハウス（と、その配下の設備）だけのときに限る。
+ * ハウスの評価は、配下の設備の観測値も読む（運用面の観点。D-19）。配下の設備を先に評価しているため、同じ観測値（最長 90 日）を、
+ * ハウスの評価でもう一度読まずに、先に読んだ結果を使う。共有した読み取りは、回の終わりまで保持するため、複数のハウスをまたぐ回
+ * （全設備の評価など）では共有しない（保持する量が、1 つのハウスの評価で読む量を超えないようにする）。
+ */
+function shouldShareReads(targets: readonly Equipment[]): boolean {
+  const groups = new Set(
+    targets.map((equipment) =>
+      equipment.equipmentType === 'FACILITY'
+        ? equipment.equipmentId
+        : (equipment.facilityId ?? equipment.equipmentId),
+    ),
+  );
+  return groups.size <= 1;
+}
+
 export function createEvaluationService(deps: EvaluationServiceDeps): EvaluationService {
   const { repositories, criteria, notifications, federation, clock, settings, logger } = deps;
 
-  /** 設備の観点（短期・長期の各期間）を評価し、結果を保存する。 */
+  /**
+   * 評価の単位の観測値を読む。`shared` があれば、設備ごとに読み、同じ回の中で、同じ設備を読み直さない
+   * （評価の単位の設備の順に並べる。1 回の読み取りと同じ順序）。累積の項目の基準にする、期間より前の値は、設備・項目ごとの最新の 1 件のため、設備ごとの読み取りの和と同じ。
+   */
+  async function readObservations(
+    equipmentIds: readonly EquipmentId[],
+    readFrom: Date,
+    now: Date,
+    shared: SharedReads | undefined,
+  ): Promise<ObservationReads> {
+    const readOf = async (ids: readonly EquipmentId[]): Promise<ObservationReads> => {
+      const [observations, baselineObservations] = await Promise.all([
+        repositories.observations.findForEvaluation(ids, readFrom, now),
+        repositories.observations.findLatestBefore(ids, CUMULATIVE_ITEM_KEYS, readFrom),
+      ]);
+      return { observations, baselineObservations };
+    };
+    if (shared === undefined) {
+      return readOf(equipmentIds);
+    }
+    const parts = await Promise.all(
+      equipmentIds.map((equipmentId) => {
+        const cached = shared.get(equipmentId);
+        if (cached !== undefined) {
+          return cached;
+        }
+        const read = readOf([equipmentId]);
+        shared.set(equipmentId, read);
+        return read;
+      }),
+    );
+    return {
+      observations: parts.flatMap((part) => part.observations),
+      baselineObservations: parts.flatMap((part) => part.baselineObservations),
+    };
+  }
+
+  /**
+   * ハウスの結果のうち、配下の設備の最も悪い結果にする部分（D-19）。配下の設備の結果は、この回で評価したものを使い、
+   * 評価していない設備（一部の設備だけの評価のとき）は、保存済みの最新の結果を読む。設備に結果がない観点は含めない
+   * （その観点は、ハウス自身の観測値で評価する）。
+   */
+  async function aggregateFromMembers(
+    house: Equipment,
+    allEquipment: readonly Equipment[],
+    evaluatedInRun: ReadonlyMap<EquipmentId, readonly EvaluationResult[]>,
+    now: Date,
+    /** 集約する視点。省略は、すべて。保存済みの結果から読むときも、この視点だけ（別の視点の、古い結果を、新しい日時で保存しないため）。 */
+    horizons?: readonly Horizon[],
+  ): Promise<EvaluationResult[]> {
+    const members = await Promise.all(
+      memberEquipmentOf(house, allEquipment).map(async (member) => {
+        const results =
+          evaluatedInRun.get(member.equipmentId) ??
+          (await repositories.evaluations.listLatest(member.equipmentId));
+        return {
+          equipmentName: member.name,
+          results:
+            horizons === undefined
+              ? results
+              : results.filter((result) => horizons.includes(result.horizon)),
+        };
+      }),
+    );
+    return aggregateWorstResults({ equipmentId: house.equipmentId, members, evaluatedAt: now });
+  }
+
+  /**
+   * 設備の観点（短期・長期の各期間）を評価し、結果を保存する。設備（ロボット・センサー）は、その設備の観測値だけで評価する。
+   * ハウスは、ロボットの観点・環境適応性を、配下の設備の最も悪い結果にし、運用面の観点（データ活用度合い・満足度）を、
+   * ハウスと配下の観測値で評価する（D-19）。
+   */
   async function evaluateAndSave(
     equipment: Equipment,
     allEquipment: readonly Equipment[],
+    evaluatedInRun: ReadonlyMap<EquipmentId, readonly EvaluationResult[]>,
     statusCodes: ReadonlyMap<string, StatusCodeDefinition>,
     criteriaMap: ReadonlyMap<ViewpointId, ViewpointCriteria>,
     now: Date,
+    shared: SharedReads | undefined,
+    /** 評価する視点（省略は、すべて）と、読む観測値の日数。「現在」だけの評価（#591）は、短期だけを、直近 7 日分。 */
+    mode: { readonly horizons?: readonly Horizon[]; readonly readDays: number } = {
+      readDays: LONGEST_PERIOD_DAYS,
+    },
   ): Promise<EvaluationResult[]> {
     const scope = resolveEvaluationScope(equipment, allEquipment);
-    const viewpointIds = viewpointsForEquipmentType(equipment.equipmentType).map((meta) => meta.id);
-    const observations = await repositories.observations.findForEvaluation(
+    const aggregated =
+      equipment.equipmentType === 'FACILITY'
+        ? await aggregateFromMembers(equipment, allEquipment, evaluatedInRun, now, mode.horizons)
+        : [];
+    const aggregatedViewpointIds = new Set(aggregated.map((result) => result.viewpointId));
+    const viewpointIds = viewpointsForEquipmentType(equipment.equipmentType)
+      .map((meta) => meta.id)
+      .filter((viewpointId) => !aggregatedViewpointIds.has(viewpointId));
+    const readFrom = new Date(now.getTime() - mode.readDays * MS_PER_DAY);
+    // 累積の項目の、期間の直前の値は、読んだ範囲（最長の期間）の中にあれば、それを使う。範囲より前の値だけ、別に読む（設備 × 項目の数の、少量の読み取り。D-26）
+    const { observations, baselineObservations } = await readObservations(
       scope.equipmentIds,
-      new Date(now.getTime() - LONGEST_PERIOD_DAYS * MS_PER_DAY),
+      readFrom,
       now,
+      shared,
     );
     const drafts = evaluateScope({
       observations,
+      baselineObservations,
       now,
       viewpointIds,
       criteriaOf: (viewpointId) => {
@@ -165,9 +325,10 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
       statusCodes,
       expectedStreams: scope.expectedStreams,
       coverageSlotMinutes: settings.defaultIngestionIntervalMinutes,
+      horizons: mode.horizons,
     });
 
-    const results = drafts.map((draft) => toResult(draft, equipment, now));
+    const results = [...aggregated, ...drafts.map((draft) => toResult(draft, equipment, now))];
     // 結果は、観点・期間ごとに別のキーで、互いに独立のため、並列に保存する（1件ずつ待つと、DynamoDB への往復が、
     // 結果の数だけ直列になり、手動入力・取り込みの保存の応答が遅くなる。Issue #79）
     await Promise.all(results.map((result) => repositories.evaluations.saveLatest(result)));
@@ -175,9 +336,14 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   }
 
   /**
-   * 観点の最終ステータス（短期・長期のうち「不明」を除いた悪い方）の変化を記録し、
-   * 変化があれば、連携キューに積む。「注意」「異常」への悪化は、状態の変化の履歴から、
-   * 新しい出来事か（正常が一定時間続いたあとか）・より重い重大度かを判定して、通知する（D-37・D-38・D-42）。
+   * 観点の最終ステータス（短期・長期のうち「不明」を除いた悪い方）の変化を、通知・連携キュー・記録に反映する。
+   * 「注意」「異常」への悪化は、状態の変化の履歴から、新しい出来事か（正常が一定時間続いたあとか）・より重い重大度かを
+   * 判定して、通知する（D-37・D-38・D-42）。通知の単位は、設備（ハウスの集約の結果は通知しない。ADR-0019 の「通知の単位」）。
+   * 通知しない変化も、連携キューへの積み込みと、状態の変化の記録は行う。
+   * 順序は、通知の作成 → 連携キューへの積み込み → 状態の変化の記録。**記録を、完了の印として、最後に行う**。
+   * どれかが失敗したら、記録しないため、次の評価で、同じ変化として再試行される（通知・連携が、永久に失われない。Issue #561）。
+   * 記録の前に、通知・連携が済んでいる場合は、再試行で、通知・連携の項目が重複しうる（取りこぼしより重複を許容する。
+   * 連携の重複は、ADR-0016 の D-06・ADR-0024 の 5 章のとおり、受け入れる）。
    */
   async function recordStatusChanges(
     equipment: Equipment,
@@ -192,7 +358,7 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         result.horizon === 'LONG' && result.periodDays === defaultPeriodDays(result.viewpointId),
     );
     // 観点ごとの、直前のステータスの変化は、互いに独立のため、先に、まとめて並列に読む（Issue #79）。
-    // 変化の記録・連携・通知は、観点の順に、1件ずつ行う（通知・連携の順序と重複の抑制を、変えない）
+    // 通知・連携・変化の記録は、観点の順に、1件ずつ行う（通知・連携の順序と重複の抑制を、変えない）
     const previousChanges = await Promise.all(
       defaultLongResults.map((longResult) =>
         repositories.evaluations.getLastStatusChange(equipment.equipmentId, longResult.viewpointId),
@@ -210,47 +376,56 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         continue;
       }
       changes += 1;
-      // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）
-      const notifiable =
-        (status === 'CAUTION' || status === 'ERROR') &&
-        isNotifiableStatusChange({
-          history: await repositories.evaluations.listStatusChanges(
-            equipment.equipmentId,
+      let stage: StatusChangeStage = 'NOTIFICATION';
+      try {
+        // 通知の判定は、今回の変化を記録する前の履歴で行う。履歴は、「注意」「異常」への変化のときだけ読む（変化のときだけの、まれな読み取り）。
+        // 通知の単位は、設備（ハウスの集約の結果は、通知しない。D-19 の論点 3）。通知しない変化も、連携・記録は行う
+        const notifiable =
+          isStatusChangeNotificationUnit(equipment.equipmentType, viewpointId) &&
+          (status === 'CAUTION' || status === 'ERROR') &&
+          isNotifiableStatusChange({
+            history: await repositories.evaluations.listStatusChanges(
+              equipment.equipmentId,
+              viewpointId,
+            ),
+            next: status,
+            now,
+            recurrenceMinutes: settings.notification.recurrenceAfterNormalMinutes,
+          });
+        const basis =
+          [longResult, shortResult].find((result) => result?.status === status) ?? longResult;
+        if (notifiable) {
+          await notifications.notifyStatusChange({
+            equipment,
             viewpointId,
-          ),
-          next: status,
-          now,
-          recurrenceMinutes: settings.notification.recurrenceAfterNormalMinutes,
+            status,
+            diagnosticMessage: basis.diagnosticMessage,
+          });
+          notified += 1;
+        }
+        stage = 'FEDERATION';
+        await federation.enqueue({
+          targetType: 'EVALUATION',
+          targetRef: `${equipment.equipmentId}#${viewpointId}`,
+          payload: {
+            equipmentId: equipment.equipmentId,
+            viewpointId,
+            status,
+            metrics: basis.metrics,
+            diagnosticMessage: basis.diagnosticMessage,
+            recommendedAction: basis.recommendedAction,
+            evaluatedAt: basis.evaluatedAt,
+          },
         });
-      await repositories.evaluations.appendStatusChange({
-        equipmentId: equipment.equipmentId,
-        viewpointId,
-        status,
-        changedAt: now.toISOString(),
-      });
-      const basis =
-        [longResult, shortResult].find((result) => result?.status === status) ?? longResult;
-      await federation.enqueue({
-        targetType: 'EVALUATION',
-        targetRef: `${equipment.equipmentId}#${viewpointId}`,
-        payload: {
+        stage = 'RECORD';
+        await repositories.evaluations.appendStatusChange({
           equipmentId: equipment.equipmentId,
           viewpointId,
           status,
-          metrics: basis.metrics,
-          diagnosticMessage: basis.diagnosticMessage,
-          recommendedAction: basis.recommendedAction,
-          evaluatedAt: basis.evaluatedAt,
-        },
-      });
-      if (notifiable) {
-        await notifications.notifyStatusChange({
-          equipment,
-          viewpointId,
-          status,
-          diagnosticMessage: basis.diagnosticMessage,
+          changedAt: now.toISOString(),
         });
-        notified += 1;
+      } catch (error) {
+        throw new StatusChangeStageError(viewpointId, stage, error);
       }
     }
     return { changes, notified };
@@ -263,7 +438,10 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
   ): Promise<EvaluationRunSummary> {
     const now = clock.now();
     const allEquipment = await repositories.equipment.list();
-    const targets = only === undefined ? allEquipment : selectAffected(allEquipment, only);
+    // 配下の設備（ロボット・センサー）を先に評価し、ハウスは、そのあとに評価する（ハウスの結果は、配下の設備の結果から求める。D-19）
+    const targets = byEvaluationOrder(
+      only === undefined ? allEquipment : selectAffected(allEquipment, only),
+    );
     const statusCodeList = await repositories.statusCodes.list({ includeDeleted: true });
     const statusCodes = new Map(statusCodeList.map((definition) => [definition.code, definition]));
     const criteriaMap = await criteria.getAllEffective();
@@ -272,6 +450,8 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     let statusChanges = 0;
     let notificationsCreated = 0;
     const failures: unknown[] = [];
+    const evaluatedInRun = new Map<EquipmentId, readonly EvaluationResult[]>();
+    const sharedReads: SharedReads | undefined = shouldShareReads(targets) ? new Map() : undefined;
     for (const equipment of targets) {
       await yieldToEventLoop();
       // 1つの設備の失敗が、残りの設備の評価・通知を止めないようにする
@@ -279,20 +459,28 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
         const results = await evaluateAndSave(
           equipment,
           allEquipment,
+          evaluatedInRun,
           statusCodes,
           criteriaMap,
           now,
+          sharedReads,
         );
+        evaluatedInRun.set(equipment.equipmentId, results);
         const outcome = await recordStatusChanges(equipment, results, now);
         resultsSaved += results.length;
         statusChanges += outcome.changes;
         notificationsCreated += outcome.notified;
       } catch (error) {
-        failures.push(error);
+        // 状態の変化の処理の失敗は、観点と段階（通知・連携・記録）をログに残し、呼び出し元へは、元のエラーを伝える
+        const original = error instanceof StatusChangeStageError ? error.original : error;
+        failures.push(original);
         logger.error('設備の評価に失敗しました', {
           trigger,
           equipmentId: equipment.equipmentId,
-          ...errorLogFields(error),
+          ...(error instanceof StatusChangeStageError
+            ? { viewpointId: error.viewpointId, stage: error.stage }
+            : {}),
+          ...errorLogFields(original),
         });
       }
     }
@@ -300,6 +488,8 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
       trigger,
       equipmentEvaluated: targets.length,
       resultsSaved,
+      statusChanges,
+      notificationsCreated,
       equipmentFailed: failures.length,
     });
     if (failures.length > 0) {
@@ -313,52 +503,130 @@ export function createEvaluationService(deps: EvaluationServiceDeps): Evaluation
     };
   }
 
+  /**
+   * 「現在」だけの評価（#591）。`execute` と同じく、配下の設備を先に評価し、ハウスは、そのあとに、配下の設備の短期の結果から求める。
+   * 状態の変化の処理は、行わない。
+   */
+  async function executeCurrent(
+    trigger: EvaluationTrigger,
+    only: ReadonlySet<EquipmentId> | undefined,
+  ): Promise<EvaluationRunSummary> {
+    const now = clock.now();
+    const allEquipment = await repositories.equipment.list();
+    const targets = byEvaluationOrder(
+      only === undefined ? allEquipment : selectAffected(allEquipment, only),
+    );
+    const statusCodeList = await repositories.statusCodes.list({ includeDeleted: true });
+    const statusCodes = new Map(statusCodeList.map((definition) => [definition.code, definition]));
+    const criteriaMap = await criteria.getAllEffective();
+    const mode = { horizons: ['SHORT'] as const, readDays: CURRENT_EVALUATION_READ_DAYS };
+
+    let resultsSaved = 0;
+    const failures: unknown[] = [];
+    const evaluatedInRun = new Map<EquipmentId, readonly EvaluationResult[]>();
+    const sharedReads: SharedReads | undefined = shouldShareReads(targets) ? new Map() : undefined;
+    for (const equipment of targets) {
+      await yieldToEventLoop();
+      try {
+        const results = await evaluateAndSave(
+          equipment,
+          allEquipment,
+          evaluatedInRun,
+          statusCodes,
+          criteriaMap,
+          now,
+          sharedReads,
+          mode,
+        );
+        evaluatedInRun.set(equipment.equipmentId, results);
+        resultsSaved += results.length;
+      } catch (error) {
+        failures.push(error);
+        logger.error('設備の「現在」の評価に失敗しました', {
+          trigger,
+          equipmentId: equipment.equipmentId,
+          ...errorLogFields(error),
+        });
+      }
+    }
+    logger.info('「現在」の評価を実行しました', {
+      trigger,
+      equipmentEvaluated: targets.length,
+      resultsSaved,
+      equipmentFailed: failures.length,
+    });
+    if (failures.length > 0) {
+      throw failures[0];
+    }
+    return {
+      equipmentEvaluated: targets.length,
+      resultsSaved,
+      statusChanges: 0,
+      notificationsCreated: 0,
+    };
+  }
+
   // 実行中の評価の完了を待つ鎖と、まだ始まっていない待機中の1回分（重なった要求は、これにまとめる）
   interface Pending {
     readonly promise: Promise<EvaluationRunSummary>;
     /** 待機中の1回分に、評価する設備を加える（undefined は、全設備）。 */
     readonly widen: (more: readonly EquipmentId[] | undefined) => void;
   }
-  let chain: Promise<unknown> = Promise.resolve();
-  let pending: Pending | undefined;
 
-  function request(
+  /**
+   * 評価の依頼の鎖を作る。同時に 1 つだけ実行し、実行中に重なった要求は、実行が終わってから、1 回にまとめる。
+   * 全期間の評価と、「現在」だけの評価は、別の鎖（互いの待ちで、保存の応答を遅らせない。保存は、評価の日時が新しいときだけ）。
+   */
+  function createQueue(
+    run: (
+      trigger: EvaluationTrigger,
+      scope: ReadonlySet<EquipmentId> | undefined,
+    ) => Promise<EvaluationRunSummary>,
+  ): (
     trigger: EvaluationTrigger,
     only: readonly EquipmentId[] | undefined,
-  ): Promise<EvaluationRunSummary> {
-    if (pending !== undefined) {
-      pending.widen(only);
-      return pending.promise;
-    }
-    // 評価する設備。undefined なら、全設備（全設備の要求が重なったら、全設備にする）
-    let scope = only === undefined ? undefined : new Set(only);
-    const promise = chain.then(async () => {
-      // 開始の直前に届いた要求を、この回にまとめる
-      await yieldToEventLoop();
-      pending = undefined;
-      return execute(trigger, scope);
-    });
-    pending = {
-      promise,
-      widen(more) {
-        if (more === undefined) {
-          scope = undefined;
-        } else if (scope !== undefined) {
-          for (const equipmentId of more) {
-            scope.add(equipmentId);
+  ) => Promise<EvaluationRunSummary> {
+    let chain: Promise<unknown> = Promise.resolve();
+    let pending: Pending | undefined;
+    return (trigger, only) => {
+      if (pending !== undefined) {
+        pending.widen(only);
+        return pending.promise;
+      }
+      // 評価する設備。undefined なら、全設備（全設備の要求が重なったら、全設備にする）
+      let scope = only === undefined ? undefined : new Set(only);
+      const promise = chain.then(async () => {
+        // 開始の直前に届いた要求を、この回にまとめる
+        await yieldToEventLoop();
+        pending = undefined;
+        return run(trigger, scope);
+      });
+      pending = {
+        promise,
+        widen(more) {
+          if (more === undefined) {
+            scope = undefined;
+          } else if (scope !== undefined) {
+            for (const equipmentId of more) {
+              scope.add(equipmentId);
+            }
           }
-        }
-      },
+        },
+      };
+      chain = promise.then(
+        () => undefined,
+        () => undefined,
+      );
+      return promise;
     };
-    chain = promise.then(
-      () => undefined,
-      () => undefined,
-    );
-    return promise;
   }
+
+  const request = createQueue(execute);
+  const requestCurrent = createQueue(executeCurrent);
 
   return {
     evaluateAll: (trigger) => request(trigger, undefined),
     evaluateAffected: (trigger, equipmentIds) => request(trigger, equipmentIds),
+    evaluateCurrent: (trigger, equipmentIds) => requestCurrent(trigger, equipmentIds),
   };
 }

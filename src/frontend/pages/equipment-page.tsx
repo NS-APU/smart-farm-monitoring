@@ -4,6 +4,8 @@
  * 設備を変更する権限（equipment:manage）がなければ、参照のみ。
  * ハウスの行には、ユーザーを管理する権限（user:manage）があれば、閲覧できる一般ユーザーを示し、割り当てる操作を出す（Issue #330。
  * ハウス側から、一般ユーザーを個別に割り当てる。管理者は、すべてのハウスを閲覧できる）。
+ * ロボット・環境センサーの登録・修正のダイアログには、「取り込み元の接続」の欄を持つ（取り込みの参照権限 ingestion:read がある利用者だけ。
+ * 設備ごとの接続。Issue #367。ADR-0026）。設備を保存してから、接続を保存する。
  */
 
 import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
@@ -16,27 +18,54 @@ import {
   EquipmentUpdateRequestSchema,
   effectiveIntervalMinutes,
   type Equipment,
+  type EquipmentUpdateRequest,
 } from '@smart-farm/shared/schemas/equipment';
+import type { IngestionSourceStatus } from '@smart-farm/shared/schemas/ingestion';
 import {
   createEquipment,
   deleteEquipment,
+  getEquipmentDeletions,
   getFacilityAccess,
+  getIngestionSettings,
   updateEquipment,
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
+import {
+  copyCandidatesOf,
+  findEquipmentStatus,
+  type CopyCandidate,
+} from '../components/equipment-connection.ts';
+import { EquipmentConnectionSection } from '../components/equipment-connection-section.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
+import {
+  NO_CONNECTION_STATE,
+  serverStateOf,
+  useEquipmentConnection,
+  type EquipmentConnectionController,
+  type PrepareResult,
+} from '../components/use-equipment-connection.ts';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
+import { useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { withEvaluationNote } from '../lib/evaluation-note.ts';
+import { PATHS } from '../router/paths.ts';
+import { Link } from '../router/router.tsx';
 import { Icon } from '../components/icon.tsx';
+import { Modal } from '../components/modal.tsx';
 import { FacilityAccessPanel } from './facility-access-panel.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.equipment;
 const CHILD_TYPES = EQUIPMENT_TYPES.filter((type) => type !== 'FACILITY');
+/** 取り込み（SC-11。設備ごとの接続）を読み直す間隔。ダイアログを開いている間だけ読む。 */
+const INGESTION_REFRESH_MS = 60_000;
+/** 削除中の設備の表示を、読み直す間隔（ミリ秒）。削除は、ジョブが 1 分ごとに進める（D-28）。 */
+const DELETIONS_REFRESH_MS = 30_000;
 
 /** 取得間隔の選択（設備ごと。Issue #197）。空は、種別ごとの既定。 */
 function IntervalField(props: {
@@ -82,13 +111,84 @@ function intervalCell(equipment: Equipment): string {
     : TEXT.intervalOption(effective);
 }
 
-interface FormProps {
-  readonly facilities: readonly Equipment[];
-  readonly onDone: (message: string) => void;
+/** 登録・修正の後に、次にすることの案内（SC-10-9）。 */
+type NextStep = 'registerChild' | 'dataEntry';
+
+/** ダイアログに出す「取り込み元の接続」の欄の前提（取り込みの参照権限がない利用者には、欄を出さないため、undefined）。 */
+interface ConnectionContext {
+  /** 取り込み（SC-11。設備ごとの接続を含む）。読み込み中・失敗は undefined。 */
+  readonly sources: readonly IngestionSourceStatus[] | undefined;
+  readonly loadFailed: boolean;
+  readonly canConfigure: boolean;
+  readonly canRun: boolean;
+  /** 接続を変更したあとに、取り込み（SC-11）を読み直す。 */
+  readonly reload: () => void;
 }
 
-/** ハウスの登録。 */
-function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
+interface FormProps {
+  readonly facilities: readonly Equipment[];
+  readonly onDone: (message: string, next?: NextStep) => void;
+  readonly connection: ConnectionContext | undefined;
+}
+
+/** 設備の登録・修正のダイアログの、接続の状態・操作。取り込み元の設備の状況から、保存済みの接続を読み込む。 */
+function useConnectionOf(
+  equipmentType: Equipment['equipmentType'],
+  equipmentId: string | undefined,
+  context: ConnectionContext | undefined,
+): {
+  readonly controller: EquipmentConnectionController;
+  readonly copyCandidates: readonly CopyCandidate[];
+} {
+  const sources = context?.sources;
+  // 新規の登録は、接続がない状態から始める。修正は、取り込み（SC-11）の、その設備の状況から始める（読み込めるまで待つ）
+  const initial =
+    equipmentId === undefined
+      ? NO_CONNECTION_STATE
+      : sources === undefined
+        ? undefined
+        : (() => {
+            const status = findEquipmentStatus(sources, equipmentId);
+            return status === undefined ? NO_CONNECTION_STATE : serverStateOf(status);
+          })();
+  const controller = useEquipmentConnection(initial, context?.reload ?? noop);
+  return {
+    controller,
+    copyCandidates:
+      sources === undefined ? [] : copyCandidatesOf(sources, equipmentType, equipmentId),
+  };
+}
+
+function noop(): void {
+  // 取り込みの参照権限がない利用者は、接続を変更しない
+}
+
+/** 設備のダイアログの、「取り込み元の接続」の欄（ロボット・環境センサー。取り込みの参照権限があるときだけ）。 */
+function ConnectionBlock(props: {
+  readonly context: ConnectionContext | undefined;
+  readonly controller: EquipmentConnectionController;
+  readonly copyCandidates: readonly CopyCandidate[];
+  readonly equipmentId: string | undefined;
+}): ReactNode {
+  if (props.context === undefined) {
+    return null;
+  }
+  return (
+    <EquipmentConnectionSection
+      controller={props.controller}
+      equipmentId={props.equipmentId}
+      canConfigure={props.context.canConfigure}
+      canRun={props.context.canRun}
+      loadFailed={props.context.loadFailed}
+      copyCandidates={props.copyCandidates}
+    />
+  );
+}
+
+/** ハウスの登録（ダイアログの中に置く）。 */
+function FacilityForm(
+  props: Pick<FormProps, 'onDone'> & { readonly onCancel: () => void },
+): ReactNode {
   const { api } = useAuth();
   const { reloadEquipment } = useAppState();
   const submit = useSubmit();
@@ -114,7 +214,7 @@ function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
       setEquipmentId('');
       setName('');
       reloadEquipment();
-      props.onDone(TEXT.created);
+      props.onDone(withEvaluationNote(TEXT.created, result.value.evaluation), 'registerChild');
     }
   }
 
@@ -127,7 +227,9 @@ function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{TEXT.addFacility}</h3>
+      <p className="field-note muted" data-testid="equipment-id-rule">
+        {TEXT.idRule}
+      </p>
       <div className="form-grid">
         <Field label={TEXT.id} name="equipmentId" error={errors.equipmentId} required>
           {(control) => (
@@ -157,13 +259,16 @@ function FacilityForm(props: Pick<FormProps, 'onDone'>): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {TEXT.addSubmit}
         </button>
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );
 }
 
-/** ロボット・環境センサーの登録（ハウスに紐づける）。 */
-function ChildForm(props: FormProps): ReactNode {
+/** ロボット・環境センサーの登録（ハウスに紐づける。ダイアログの中に置く）。設備を登録してから、接続（入力があれば）を保存する。 */
+function ChildForm(props: FormProps & { readonly onCancel: () => void }): ReactNode {
   const { api } = useAuth();
   const { reloadEquipment } = useAppState();
   const submit = useSubmit();
@@ -175,10 +280,16 @@ function ChildForm(props: FormProps): ReactNode {
   const [sourceFilePath, setSourceFilePath] = useState('');
   const [interval, setInterval] = useState('');
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
+  // 設備は登録できたが、接続の保存に失敗したときの、登録した設備の ID（やり直しでは、設備を登録し直さず、修正する）
+  const [createdId, setCreatedId] = useState<string | undefined>(undefined);
+  const [partialMessage, setPartialMessage] = useState<string | undefined>(undefined);
   const errors = { ...clientErrors, ...submit.fieldErrors };
+  const kind = equipmentType === 'SENSOR' ? 'SENSOR' : 'ROBOT';
+  const { controller, copyCandidates } = useConnectionOf(kind, undefined, props.connection);
 
   async function handleSubmit(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
+    setPartialMessage(undefined);
     const parsed = EquipmentCreateRequestSchema.safeParse({
       equipmentId,
       equipmentType,
@@ -188,23 +299,45 @@ function ChildForm(props: FormProps): ReactNode {
       ...(sourceFilePath.trim() === '' ? {} : { sourceFilePath: sourceFilePath.trim() }),
       ...(interval === '' ? {} : { intervalMinutes: Number(interval) }),
     });
+    // 設備と接続の入力を、両方検証して、項目ごとにエラーを示す
+    const prepared = controller.prepare();
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
       return;
     }
-    setClientErrors({});
-    const result = await submit.run(() => createEquipment(api, parsed.data));
-    if (result.ok) {
-      setEquipmentId('');
-      setName('');
-      setExternalId('');
-      setSourceFilePath('');
-      setInterval('');
-      reloadEquipment();
-      props.onDone(TEXT.created);
+    if (!prepared.ok) {
+      setClientErrors({});
+      return;
     }
+    setClientErrors({});
+    const result = await submit.run(() =>
+      createdId === undefined
+        ? createEquipment(api, parsed.data)
+        : // 接続の保存に失敗したあとのやり直しは、登録済みの設備を修正する（設備ID・種別は、変更できない）
+          updateEquipment(api, createdId, EquipmentUpdateRequestSchema.parse(parsed.data)),
+    );
+    if (!result.ok) {
+      return;
+    }
+    const savedId = createdId ?? parsed.data.equipmentId;
+    setCreatedId(savedId);
+    reloadEquipment();
+    if (prepared.connection !== undefined) {
+      const saved = await controller.commit(savedId, prepared.connection);
+      if (!saved) {
+        setPartialMessage(TEXT.createdConnectionFailed);
+        return;
+      }
+    }
+    setEquipmentId('');
+    setName('');
+    setExternalId('');
+    setSourceFilePath('');
+    setInterval('');
+    props.onDone(withEvaluationNote(TEXT.created, result.value.evaluation), 'dataEntry');
   }
 
+  const busy = submit.busy || controller.busy;
   return (
     <form
       className="inline-form"
@@ -214,13 +347,16 @@ function ChildForm(props: FormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{TEXT.addChild}</h3>
+      <p className="field-note muted" data-testid="equipment-id-rule">
+        {TEXT.idRule}
+      </p>
       <div className="form-grid">
         <Field label={TEXT.type} name="equipmentType" error={errors.equipmentType} required>
           {(control) => (
             <select
               {...control}
               value={equipmentType}
+              disabled={createdId !== undefined}
               onChange={(event) => {
                 setEquipmentType(event.target.value);
               }}
@@ -256,6 +392,7 @@ function ChildForm(props: FormProps): ReactNode {
             <input
               {...control}
               value={equipmentId}
+              readOnly={createdId !== undefined}
               onChange={(event) => {
                 setEquipmentId(event.target.value);
               }}
@@ -305,19 +442,45 @@ function ChildForm(props: FormProps): ReactNode {
             />
           )}
         </Field>
+        <p className="field-note muted" data-testid="equipment-file-path-guide">
+          {TEXT.sourceFilePathGuide}
+        </p>
         <IntervalField value={interval} error={errors.intervalMinutes} onChange={setInterval} />
       </div>
+      <ConnectionBlock
+        context={props.connection}
+        controller={controller}
+        copyCandidates={copyCandidates}
+        equipmentId={createdId}
+      />
+      {partialMessage === undefined ? null : (
+        <p role="status" className="form-error" data-testid="equipment-partial">
+          {partialMessage}
+        </p>
+      )}
       <FormError message={submit.formMessage} />
       <div className="form-actions">
-        <button type="submit" disabled={submit.busy}>
+        <button type="submit" disabled={busy}>
           {TEXT.addSubmit}
+        </button>
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
         </button>
       </div>
     </form>
   );
 }
 
-/** 設備の修正（名称・データ上の識別子・親のハウス）。設備IDと種別は変更できない。 */
+/** 親のハウスの付け替えの確認を待っている保存（確定したら、この内容で保存する）。 */
+interface PendingSave {
+  readonly data: EquipmentUpdateRequest;
+  readonly connection: Extract<PrepareResult, { readonly ok: true }>['connection'];
+}
+
+/**
+ * 設備の修正（名称・データ上の識別子・親のハウス）。設備IDと種別は変更できない。保存は、設備を保存してから、接続（変更があれば）を保存する。
+ * 親のハウスを変えるときは、保存の前に、影響を示す確認を挟む（Issue #163。SC-10-7）。キャンセルは、保存せず、修正に戻る。
+ */
 function EditForm(
   props: FormProps & { readonly equipment: Equipment; readonly onCancel: () => void },
 ): ReactNode {
@@ -333,11 +496,21 @@ function EditForm(
     equipment.intervalMinutes === undefined ? '' : String(equipment.intervalMinutes),
   );
   const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
+  const [partialMessage, setPartialMessage] = useState<string | undefined>(undefined);
+  const [pendingParentChange, setPendingParentChange] = useState<PendingSave | undefined>(
+    undefined,
+  );
   const errors = { ...clientErrors, ...submit.fieldErrors };
   const isFacility = equipment.equipmentType === 'FACILITY';
+  const { controller, copyCandidates } = useConnectionOf(
+    equipment.equipmentType,
+    equipment.equipmentId,
+    isFacility ? undefined : props.connection,
+  );
 
   async function handleSubmit(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
+    setPartialMessage(undefined);
     const parsed = EquipmentUpdateRequestSchema.safeParse({
       name,
       ...(isFacility || facilityId === '' ? {} : { facilityId }),
@@ -347,18 +520,49 @@ function EditForm(
         : { sourceFilePath: sourceFilePath.trim() }),
       ...(isFacility || interval === '' ? {} : { intervalMinutes: Number(interval) }),
     });
+    // 設備と接続の入力を、両方検証して、項目ごとにエラーを示す
+    const prepared = controller.prepare();
     if (!parsed.success) {
       setClientErrors(fieldErrorsOfZod(parsed.error));
       return;
     }
-    setClientErrors({});
-    const result = await submit.run(() => updateEquipment(api, equipment.equipmentId, parsed.data));
-    if (result.ok) {
-      reloadEquipment();
-      props.onDone(TEXT.updated);
+    if (!prepared.ok) {
+      setClientErrors({});
+      return;
     }
+    setClientErrors({});
+    const input = { data: parsed.data, connection: prepared.connection };
+    // 親のハウスを変えるときは、保存の前に、影響を示して確認する（親を変えない修正は、確認しない）
+    if (!isFacility && facilityId !== '' && facilityId !== (equipment.facilityId ?? '')) {
+      setPendingParentChange(input);
+      return;
+    }
+    await save(input);
   }
 
+  /** 設備を保存してから、接続（変更があれば）を保存する。 */
+  async function save(input: PendingSave): Promise<void> {
+    const result = await submit.run(() => updateEquipment(api, equipment.equipmentId, input.data));
+    if (!result.ok) {
+      return;
+    }
+    reloadEquipment();
+    if (input.connection !== undefined) {
+      const saved = await controller.commit(equipment.equipmentId, input.connection);
+      if (!saved) {
+        setPartialMessage(TEXT.updatedConnectionFailed);
+        return;
+      }
+    }
+    props.onDone(withEvaluationNote(TEXT.updated, result.value.evaluation));
+  }
+
+  /** ハウスの名称（確認で、ID でなく名称を示す。分からなければ ID）。 */
+  function facilityNameOf(id: string): string {
+    return props.facilities.find((facility) => facility.equipmentId === id)?.name ?? id;
+  }
+
+  const busy = submit.busy || controller.busy;
   return (
     <form
       className="inline-form"
@@ -369,9 +573,6 @@ function EditForm(
         void handleSubmit(event);
       }}
     >
-      <h3>
-        {TEXT.typeLabels[equipment.equipmentType]}（{equipment.equipmentId}）を{TEXT.edit}
-      </h3>
       <div className="form-grid">
         <Field label={TEXT.name} name="name" error={errors.name} required>
           {(control) => (
@@ -420,36 +621,81 @@ function EditForm(
           )}
         </Field>
         {isFacility ? null : (
-          <Field
-            label={TEXT.sourceFilePath}
-            name="sourceFilePath"
-            error={errors.sourceFilePath}
-            hint={TEXT.sourceFilePathHint}
-          >
-            {(control) => (
-              <input
-                {...control}
-                value={sourceFilePath}
-                onChange={(event) => {
-                  setSourceFilePath(event.target.value);
-                }}
-              />
-            )}
-          </Field>
+          <>
+            <Field
+              label={TEXT.sourceFilePath}
+              name="sourceFilePath"
+              error={errors.sourceFilePath}
+              hint={TEXT.sourceFilePathHint}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  value={sourceFilePath}
+                  onChange={(event) => {
+                    setSourceFilePath(event.target.value);
+                  }}
+                />
+              )}
+            </Field>
+            <p className="field-note muted" data-testid="equipment-file-path-guide">
+              {TEXT.sourceFilePathGuide}
+            </p>
+          </>
         )}
         {isFacility ? null : (
           <IntervalField value={interval} error={errors.intervalMinutes} onChange={setInterval} />
         )}
       </div>
+      {isFacility ? null : (
+        <ConnectionBlock
+          context={props.connection}
+          controller={controller}
+          copyCandidates={copyCandidates}
+          equipmentId={equipment.equipmentId}
+        />
+      )}
+      {partialMessage === undefined ? null : (
+        <p role="status" className="form-error" data-testid="equipment-partial">
+          {partialMessage}
+        </p>
+      )}
       <FormError message={submit.formMessage} />
       <div className="form-actions">
-        <button type="submit" disabled={submit.busy}>
-          {submit.busy ? MESSAGES.form.saving : MESSAGES.form.save}
+        <button type="submit" disabled={busy}>
+          {busy ? MESSAGES.form.saving : MESSAGES.form.save}
         </button>
         <button type="button" className="button-secondary" onClick={props.onCancel}>
           {MESSAGES.form.cancel}
         </button>
       </div>
+      {pendingParentChange === undefined ? null : (
+        <ConfirmDialog
+          title={TEXT.parentChange.title}
+          message={TEXT.parentChange.message(
+            facilityNameOf(equipment.facilityId ?? ''),
+            facilityNameOf(facilityId),
+          )}
+          details={[
+            { label: TEXT.parentChange.targetLabel, value: equipment.name },
+            {
+              label: TEXT.parentChange.fromLabel,
+              value: facilityNameOf(equipment.facilityId ?? ''),
+            },
+            { label: TEXT.parentChange.toLabel, value: facilityNameOf(facilityId) },
+          ]}
+          notes={TEXT.parentChange.notes}
+          confirmLabel={TEXT.parentChange.confirm}
+          busy={busy}
+          onConfirm={() => {
+            setPendingParentChange(undefined);
+            void save(pendingParentChange);
+          }}
+          onCancel={() => {
+            setPendingParentChange(undefined);
+          }}
+        />
+      )}
     </form>
   );
 }
@@ -465,11 +711,50 @@ export function EquipmentPage(): ReactNode {
     [api, canAssign],
   );
   const access = usePolling(fetchAccess);
+  // 削除中の設備（設備を削除すると、設備はすぐ一覧から外れ、データは、ジョブが削除する。D-28）
+  const fetchDeletions = useCallback(
+    async () => (canManage ? await getEquipmentDeletions(api) : undefined),
+    [api, canManage],
+  );
+  const deletions = usePolling(fetchDeletions, DELETIONS_REFRESH_MS);
+  const { reload: reloadDeletions } = deletions;
   const submit = useSubmit();
+  const query = useQueryParams();
   const [assigning, setAssigning] = useState<Equipment | undefined>(undefined);
-  const [editing, setEditing] = useState<Equipment | undefined>(undefined);
+  const [editingChosen, setEditingChosen] = useState<Equipment | undefined>(undefined);
+  // 登録のダイアログ（ハウス／ロボット・環境センサー）
+  const [adding, setAdding] = useState<'facility' | 'child' | undefined>(undefined);
   const [deleting, setDeleting] = useState<Equipment | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [nextStep, setNextStep] = useState<NextStep | undefined>(undefined);
+  // 取り込み（SC-11）の画面から、設備の修正のダイアログを開くリンク（?edit=設備ID。取り込み元の接続を設定・修正する。Issue #367）
+  const editParam = query.get('edit');
+  const editing =
+    editingChosen ??
+    (canManage && editParam !== ''
+      ? equipmentList.find((item) => item.equipmentId === editParam)
+      : undefined);
+  // 「取り込み元の接続」の欄は、取り込みの参照権限がある利用者だけ（設備ごとの接続は、取り込みの設定）
+  const canReadIngestion = usePermission('ingestion:read');
+  const canConfigureIngestion = usePermission('ingestion:configure');
+  const canRunIngestion = usePermission('ingestion:run');
+  const connectionDialogOpen = editing !== undefined || adding === 'child';
+  const fetchIngestion = useCallback(
+    async () =>
+      canReadIngestion && connectionDialogOpen ? await getIngestionSettings(api) : undefined,
+    [api, canReadIngestion, connectionDialogOpen],
+  );
+  const ingestion = usePolling(fetchIngestion, INGESTION_REFRESH_MS);
+  const { reload: reloadIngestion } = ingestion;
+  const connectionContext: ConnectionContext | undefined = canReadIngestion
+    ? {
+        sources: ingestion.data?.sources,
+        loadFailed: ingestion.error !== undefined,
+        canConfigure: canConfigureIngestion,
+        canRun: canRunIngestion,
+        reload: reloadIngestion,
+      }
+    : undefined;
 
   const facilities = equipmentTree?.facilities.map((entry) => entry.facility) ?? [];
 
@@ -486,14 +771,24 @@ export function EquipmentPage(): ReactNode {
     const result = await submit.run(() => deleteEquipment(api, target.equipmentId));
     setDeleting(undefined);
     if (result.ok) {
-      setNotice(TEXT.deleted);
+      setNotice(withEvaluationNote(TEXT.deleted, result.value.evaluation));
       reloadEquipment();
+      reloadDeletions();
     }
   }
 
-  function done(message: string): void {
-    setEditing(undefined);
+  function closeEditing(): void {
+    setEditingChosen(undefined);
+    if (editParam !== '') {
+      query.set({ edit: undefined });
+    }
+  }
+
+  function done(message: string, next?: NextStep): void {
+    closeEditing();
+    setAdding(undefined);
     setNotice(message);
+    setNextStep(next);
   }
 
   /** ハウスを閲覧できる一般ユーザーの表示（行の列）。 */
@@ -540,7 +835,8 @@ export function EquipmentPage(): ReactNode {
                   className="button-secondary"
                   onClick={() => {
                     setNotice(undefined);
-                    setEditing(equipment);
+                    setNextStep(undefined);
+                    setEditingChosen(equipment);
                   }}
                 >
                   {TEXT.edit}
@@ -617,18 +913,91 @@ export function EquipmentPage(): ReactNode {
       </div>
       <p className="muted">{TEXT.lead}</p>
       {canManage ? null : <PermissionNotice message={TEXT.readOnly} />}
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="equipment-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
-      )}
+      <ResultNotice message={notice} testId="equipment-notice" />
+      {nextStep === 'registerChild' && canManage ? (
+        <div className="notice notice-info" data-testid="equipment-next-step">
+          <Icon name="info" size={18} />
+          <p>{TEXT.nextAfterFacility}</p>
+          <button
+            type="button"
+            data-testid="equipment-next-register-child"
+            onClick={() => {
+              setNotice(undefined);
+              setNextStep(undefined);
+              setAdding('child');
+            }}
+          >
+            {TEXT.nextRegisterChild}
+          </button>
+        </div>
+      ) : null}
+      {nextStep === 'dataEntry' ? (
+        <div className="notice notice-info" data-testid="equipment-next-step">
+          <Icon name="info" size={18} />
+          <p>{TEXT.nextAfterChild}</p>
+          <Link to={PATHS.dataEntry} data-testid="equipment-next-data-entry">
+            {TEXT.nextGoDataEntry}
+          </Link>
+        </div>
+      ) : null}
       <FormError message={submit.formMessage} />
+      {deletions.data === undefined || deletions.data.items.length === 0 ? null : (
+        <section
+          className="panel equipment-deletions"
+          aria-label={TEXT.deleting.heading}
+          data-testid="equipment-deletions"
+        >
+          <h2>{TEXT.deleting.heading}</h2>
+          <p className="muted">{TEXT.deleting.lead}</p>
+          <ul>
+            {deletions.data.items.map((item) => (
+              <li key={item.equipmentId} data-testid="equipment-deletion-row">
+                <strong>{item.name}</strong>
+                {item.childNames.length === 0 ? null : (
+                  <span> （{TEXT.deleting.children(item.childNames)}）</span>
+                )}
+                <span> — {TEXT.deleting.status[item.status]}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="panel" aria-label={TEXT.title}>
+        {canManage ? (
+          <div className="table-toolbar">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setNextStep(undefined);
+                setAdding('facility');
+              }}
+            >
+              {TEXT.openAddFacility}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setNextStep(undefined);
+                setAdding('child');
+              }}
+            >
+              {TEXT.openAddChild}
+            </button>
+          </div>
+        ) : null}
         {body}
       </section>
       {canAssign && assigning !== undefined && access.data !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={TEXT.facilityAccess.panelTitle(assigning.name)}
+          size="wide"
+          testId="facility-access-dialog"
+          onClose={() => {
+            setAssigning(undefined);
+          }}
+        >
           <FacilityAccessPanel
             key={assigning.equipmentId}
             facility={assigning}
@@ -643,37 +1012,66 @@ export function EquipmentPage(): ReactNode {
               setAssigning(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
       {canManage && editing !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={`${TEXT.typeLabels[editing.equipmentType]}（${editing.equipmentId}）を${TEXT.edit}`}
+          testId="equipment-edit-dialog"
+          onClose={closeEditing}
+        >
           <EditForm
             key={editing.equipmentId}
             equipment={editing}
             facilities={facilities}
+            connection={connectionContext}
             onDone={done}
-            onCancel={() => {
-              setEditing(undefined);
-            }}
+            onCancel={closeEditing}
           />
-        </section>
+        </Modal>
       ) : null}
-      {canManage ? (
-        <section className="panel">
-          <div className="forms-row">
-            <FacilityForm onDone={done} />
-            <ChildForm facilities={facilities} onDone={done} />
-          </div>
-        </section>
+      {canManage && adding !== undefined ? (
+        <Modal
+          title={adding === 'facility' ? TEXT.addFacility : TEXT.addChild}
+          testId="equipment-add-dialog"
+          onClose={() => {
+            setAdding(undefined);
+          }}
+        >
+          {adding === 'facility' ? (
+            <FacilityForm
+              onDone={done}
+              onCancel={() => {
+                setAdding(undefined);
+              }}
+            />
+          ) : (
+            <ChildForm
+              facilities={facilities}
+              connection={connectionContext}
+              onDone={done}
+              onCancel={() => {
+                setAdding(undefined);
+              }}
+            />
+          )}
+        </Modal>
       ) : null}
       {deleting === undefined ? null : (
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={
-            deleting.equipmentType === 'FACILITY'
-              ? `${TEXT.deleteFacilityMessage}${TEXT.deleteTargets(childNamesOf(deleting))}`
-              : TEXT.deleteMessage
+            deleting.equipmentType === 'FACILITY' ? TEXT.deleteFacilityMessage : TEXT.deleteMessage
           }
+          details={[{ label: TEXT.name, value: deleting.name }]}
+          notes={
+            deleting.equipmentType === 'FACILITY'
+              ? [TEXT.deleteTargetsNote(childNamesOf(deleting)), ...TEXT.deleteNotes]
+              : TEXT.deleteNotes
+          }
+          {...(deleting.equipmentType === 'FACILITY'
+            ? { typedConfirmation: { label: TEXT.deleteTypedLabel, expected: deleting.name } }
+            : {})}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

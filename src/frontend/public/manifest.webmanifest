@@ -1,10 +1,14 @@
 {
-  "name": "稼働モニタリング",
-  "short_name": "稼働モニタリング",
+  "name": "Greenhouse Monitor",
+  "short_name": "Greenhouse Monitor",
   "description": "収穫ロボット・スマートハウスの稼働状況を確認し、異常に早く気づくための画面",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f5f7fa",
   "theme_color": "#1a5fb4",
-  "lang": "ja"
+  "lang": "ja",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
 }

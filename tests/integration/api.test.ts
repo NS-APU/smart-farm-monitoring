@@ -14,6 +14,7 @@ import { ROUTE_TABLE, routeKey } from '../../src/backend/presentation/route-tabl
 import { LOGIN_FAILURE_LIMIT } from '../../src/backend/infrastructure/local/local-auth.ts';
 import { createJsonLogger } from '../../src/backend/infrastructure/logging/json-logger.ts';
 import { FACILITY_ID, observation, SENSOR_ID } from '../support/builders.ts';
+import { HTTP_FILES_ENV, useHttpFileServer } from '../support/http-test-files.ts';
 import {
   addUserAndLogin,
   createTestContext,
@@ -22,6 +23,7 @@ import {
   TEST_USER,
   THREE_ROLES_JSON,
   withEquipment,
+  withSourceFilePaths,
 } from '../support/test-context.ts';
 
 function json(body: unknown): RequestInit {
@@ -34,9 +36,9 @@ function json(body: unknown): RequestInit {
 
 describe('共通事項', () => {
   it('ヘルスチェックは認証なしで応答し、外部の状態に依存しない', async () => {
-    const context = await createTestContext();
+    const context = await useHttpFileServer(await createTestContext({ env: HTTP_FILES_ENV }));
     context.container.dev?.faults.federation.set({ mode: 'DOWN' });
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
 
     const response = await context.app.request('/health');
 
@@ -184,6 +186,42 @@ describe('認証（UC-13）', () => {
     expect(otherClient.status).toBe(200);
   });
 
+  it('ロック時（429）のメッセージは、待ち時間（設定の時間。既定は 15 分）と、管理者に連絡する旨を示す。応答の形・エラーコードは変えない（Issue #157。SC-01-3）', async () => {
+    const context = await createTestContext();
+    const attempt = (password: string) =>
+      context.app.request('/api/v1/auth/login', json({ userId: TEST_USER.userId, password }));
+    for (let count = 0; count < LOGIN_FAILURE_LIMIT; count += 1) {
+      await attempt('wrong');
+    }
+
+    const blocked = await attempt(TEST_USER.password);
+
+    expect(blocked.status).toBe(429);
+    expect(await blocked.json()).toEqual({
+      error: {
+        code: 'RATE_LIMITED',
+        message:
+          'ログインに失敗した回数が上限に達しました。15 分ほどしてから、やり直してください。解除できないときは、管理者に連絡してください',
+      },
+    });
+  });
+
+  it('ロック時のメッセージの待ち時間は、環境変数 LOGIN_FAILURE_WINDOW_MINUTES から作る（失敗 2 回 / 30 分）（Issue #157。SC-01-3）', async () => {
+    const context = await createTestContext({
+      env: { LOGIN_FAILURE_LIMIT: '2', LOGIN_FAILURE_WINDOW_MINUTES: '30' },
+    });
+    const attempt = (password: string) =>
+      context.app.request('/api/v1/auth/login', json({ userId: TEST_USER.userId, password }));
+    await attempt('wrong');
+    await attempt('wrong');
+
+    const blocked = await attempt(TEST_USER.password);
+
+    expect(blocked.status).toBe(429);
+    const body = (await blocked.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('30 分ほどしてから');
+  });
+
   it('リフレッシュトークンでセッションを更新でき、ログアウトでトークンが無効になる', async () => {
     const context = await createTestContext();
     const login = LoginResponseSchema.parse(
@@ -295,17 +333,30 @@ describe('認証・認可（全ルート）', () => {
   const fill = (path: string) => path.replace(/:[A-Za-z]+/g, 'x');
   const protectedRoutes = ROUTE_TABLE.filter((spec) => spec.access !== 'PUBLIC');
 
-  it('ルート一覧は、機能仕様書 4.1 の API（39件）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・本人のパスワード変更・ユーザー名の編集（POST /auth/password・PUT /auth/profile。Issue #245・#115）・閲覧の割り当て（GET・PUT /facility-access。Issue #330）・認証情報の登録（PUT /ingestion/{sourceId}/credentials。Issue #207）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）・ハウス別の取り込み・連携のログ（GET /ingestion/facility-logs・GET /federation/facility-logs。Issue #332）・連携先の設定（GET・PUT /federation/settings・POST /federation/test。Issue #177）を網羅している（重複なし）', () => {
+  it('ルート一覧は、機能仕様書 4.1 の API（38件。取り込み元ごとの接続テスト POST /ingestion/{sourceId}/test は、設備ごとの接続に移して、廃止した）と、購読の状態の取得（GET /push-subscription。端末ごとの状態を示すため追加）・この端末へのテスト通知（POST /push-subscription/test。Issue #159）・本人のパスワード変更・ユーザー名の編集（POST /auth/password・PUT /auth/profile。Issue #245・#115）・閲覧の割り当て（GET・PUT /facility-access。Issue #330）・通知のメモの追記と一覧（POST・GET /notifications/{id}/memos。Issue #239）・ハウス別の取り込み・連携のログ（GET /ingestion/facility-logs・GET /federation/facility-logs。Issue #332）・連携先の設定（GET・PUT /federation/settings・POST /federation/test。Issue #177）・計測単位の観測値の一覧（GET /observations/measurements。Issue #363）・設備ごとの接続の保存・削除・認証情報の登録・接続テスト（PUT・DELETE /ingestion/equipment/{equipmentId}/connection・PUT .../credentials・POST .../test。Issue #367）・取り込み用のファイルを置く検査と置く操作（POST .../source-file/check・PUT .../source-file。Issue #565）・未登録のコード値の一覧（GET /status-codes/unregistered。Issue #158）・判断基準の影響のプレビュー（POST /viewpoints/{viewpointId}/criteria/preview。Issue #165）を網羅している（重複なし）', () => {
     const keys = ROUTE_TABLE.map(routeKey);
 
     expect(new Set(keys).size).toBe(keys.length);
-    expect(ROUTE_TABLE).toHaveLength(52);
+    expect(ROUTE_TABLE).toHaveLength(61);
     expect(keys).toContain('GET /push-subscription');
+    expect(keys).toContain('GET /status-codes/unregistered');
+    expect(keys).toContain('POST /viewpoints/:viewpointId/criteria/preview');
+    expect(keys).toContain('POST /push-subscription/test');
+    expect(keys).toContain('GET /observations/measurements');
     expect(keys).toContain('POST /auth/password');
     expect(keys).toContain('PUT /auth/profile');
     expect(keys).toContain('GET /facility-access');
     expect(keys).toContain('PUT /facility-access/:facilityId');
-    expect(keys).toContain('PUT /ingestion/:sourceId/credentials');
+    // 取り込み元ごとの認証情報の登録・接続テスト（共通の接続の廃止。ADR-0026）は、ない
+    expect(keys).not.toContain('PUT /ingestion/:sourceId/credentials');
+    expect(keys).not.toContain('POST /ingestion/:sourceId/test');
+    expect(keys).toContain('PUT /ingestion/equipment/:equipmentId/connection');
+    expect(keys).toContain('DELETE /ingestion/equipment/:equipmentId/connection');
+    expect(keys).toContain('PUT /ingestion/equipment/:equipmentId/credentials');
+    expect(keys).toContain('POST /ingestion/equipment/:equipmentId/test');
+    // 画面から、取り込み用のファイルを置く（検査と置く。Issue #565）
+    expect(keys).toContain('POST /ingestion/equipment/:equipmentId/source-file/check');
+    expect(keys).toContain('PUT /ingestion/equipment/:equipmentId/source-file');
     expect(keys).toContain('POST /notifications/:notificationId/memos');
     expect(keys).toContain('GET /notifications/:notificationId/memos');
     expect(keys).toContain('GET /ingestion/facility-logs');
@@ -462,6 +513,7 @@ describe('設備・ステータスコード（UC-12, UC-17 の参照）', () => 
 describe('ダッシュボード（UC-01）', () => {
   it('設備を省略すると、最初のハウスの全観点を、スキーマに合う形で返す', async () => {
     const context = await withEquipment();
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       observation({
         equipmentId: SENSOR_ID,
@@ -625,21 +677,21 @@ describe('通知（UC-05, UC-22）', () => {
     );
     const count = await (await context.request('/notifications/unread-count')).json();
 
-    expect(list.items).toHaveLength(3);
+    expect(list.items).toHaveLength(2);
     expect(list.items.every((item) => item.readState === 'UNREAD')).toBe(true);
     expect(list.items[0]).toMatchObject({ kind: 'STATUS_CHANGE' });
     expect(list.items[0]).not.toHaveProperty('dedupKey');
-    expect(count).toEqual({ unreadCount: 3 });
+    expect(count).toEqual({ unreadCount: 2 });
   });
 
   it('種別・既読／未読で絞り込め、ページ分割できる', async () => {
     const context = await withNotifications();
     const first = NotificationListResponseSchema.parse(
-      await (await context.request('/notifications?limit=2')).json(),
+      await (await context.request('/notifications?limit=1')).json(),
     );
     const second = NotificationListResponseSchema.parse(
       await (
-        await context.request(`/notifications?limit=2&cursor=${first.nextCursor ?? ''}`)
+        await context.request(`/notifications?limit=1&cursor=${first.nextCursor ?? ''}`)
       ).json(),
     );
     const environment = NotificationListResponseSchema.parse(
@@ -649,12 +701,12 @@ describe('通知（UC-05, UC-22）', () => {
       await (await context.request('/notifications?readState=UNREAD')).json(),
     );
 
-    expect(first.items).toHaveLength(2);
+    expect(first.items).toHaveLength(1);
     expect(first.nextCursor).not.toBeNull();
     expect(second.items).toHaveLength(1);
     expect(second.nextCursor).toBeNull();
     expect(environment.items).toEqual([]);
-    expect(unread.items).toHaveLength(3);
+    expect(unread.items).toHaveLength(2);
   });
 
   it.each([['limit=0'], ['limit=101'], ['kind=OTHER'], ['readState=SEEN'], ['cursor=%21%21']])(
@@ -682,7 +734,7 @@ describe('通知（UC-05, UC-22）', () => {
     expect(read.status).toBe(204);
     expect(missing.status).toBe(404);
     expect(await (await context.request('/notifications/unread-count', { token })).json()).toEqual({
-      unreadCount: 2,
+      unreadCount: 1,
     });
     const readList = NotificationListResponseSchema.parse(
       await (await context.request('/notifications?readState=READ', { token })).json(),
@@ -714,9 +766,9 @@ describe('通知（UC-05, UC-22）', () => {
 
     expect(filtered.status).toBe(200);
     expect(await filtered.json()).toEqual({ markedCount: 0 });
-    expect(countAfterFilter).toEqual({ unreadCount: 3 });
+    expect(countAfterFilter).toEqual({ unreadCount: 2 });
     expect(all.status).toBe(200);
-    expect(await all.json()).toEqual({ markedCount: 3 });
+    expect(await all.json()).toEqual({ markedCount: 2 });
     expect(countAfterAll).toEqual({ unreadCount: 0 });
   });
 
@@ -816,17 +868,17 @@ describe('開発用 API（ローカル・テストのみ）', () => {
     ).json();
     const missing = await context.request('/dev/jobs/JB-99/run', { method: 'POST', token });
 
-    expect(tick).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04'] });
+    expect(tick).toEqual({ executed: ['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05'] });
     expect(job).toMatchObject({ jobId: 'JB-02', summary: { equipmentEvaluated: 3 } });
     expect(missing.status).toBe(404);
   });
 
-  it('モック（ファイルサーバー・農業情報基盤・Web Push）の停止・遅延を再現できる', async () => {
+  it('モック（農業情報基盤・Web Push）の停止・遅延を再現できる。ファイルサーバーのモックは、廃止した（ADR-0025）', async () => {
     const context = await withEquipment();
     const token = await context.login();
 
     const down = await (
-      await context.request('/dev/mocks/file-server', {
+      await context.request('/dev/mocks/federation', {
         method: 'PUT',
         token,
         body: { mode: 'DOWN' },
@@ -848,14 +900,19 @@ describe('開発用 API（ローカル・テストのみ）', () => {
       token,
       body: { mode: 'BROKEN' },
     });
-    const ingestion = await context.container.ingestionService.runSource('robot');
+    // ファイルサーバーのモックは、廃止した（ファイルサーバーは、HTTP のテスト用サーバーで再現する）
+    const fileServer = await context.request('/dev/mocks/file-server', {
+      method: 'PUT',
+      token,
+      body: { mode: 'DOWN' },
+    });
 
     expect(down).toEqual({ mode: 'DOWN', delayMs: 0 });
     expect(slow).toEqual({ mode: 'SLOW', delayMs: 2000 });
     expect(push).toEqual({ mode: 'UP', delayMs: 0 });
     expect(unknown.status).toBe(404);
     expect(invalid.status).toBe(400);
-    expect(ingestion.result).toBe('FAILURE');
+    expect(fileServer.status).toBe(404);
   });
 
   it('モックが受け取った連携・配信の内容を確認できる', async () => {

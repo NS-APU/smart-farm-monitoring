@@ -5,6 +5,7 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { MESSAGES } from '../i18n/messages.ts';
+import { HelpHint, type HelpHintProps } from './help-hint.tsx';
 import { Icon } from './icon.tsx';
 
 export interface FieldControlProps {
@@ -20,6 +21,8 @@ export interface FieldProps {
   readonly error?: string | undefined;
   readonly hint?: string | undefined;
   readonly required?: boolean;
+  /** ラベルの横に置く、ヘルプヒント（意味・入力例。対象の名前は、ラベル）。 */
+  readonly help?: Omit<HelpHintProps, 'name'> | undefined;
   readonly children: (control: FieldControlProps) => ReactNode;
 }
 
@@ -27,20 +30,30 @@ export function Field(props: FieldProps): ReactNode {
   const id = useId();
   const messageId = `${id}-message`;
   const hasMessage = props.error !== undefined || props.hint !== undefined;
+  const label = (
+    <label htmlFor={id}>
+      {props.label}
+      {props.required === true ? (
+        <span className="required-mark" aria-hidden="true">
+          {' '}
+          *
+        </span>
+      ) : null}
+    </label>
+  );
   return (
     <div
       className={`field${props.error === undefined ? '' : ' field-invalid'}`}
       data-field={props.name}
     >
-      <label htmlFor={id}>
-        {props.label}
-        {props.required === true ? (
-          <span className="required-mark" aria-hidden="true">
-            {' '}
-            *
-          </span>
-        ) : null}
-      </label>
+      {props.help === undefined ? (
+        label
+      ) : (
+        <div className="field-label-row">
+          {label}
+          <HelpHint name={props.label} {...props.help} />
+        </div>
+      )}
       {props.children({
         id,
         'aria-invalid': props.error !== undefined,
@@ -61,9 +74,24 @@ export function Field(props: FieldProps): ReactNode {
   );
 }
 
+/** 確認の対象の 1 項目（ラベルと値。例: 「コード値」と「CHARGING」）。 */
+export interface ConfirmDialogDetail {
+  readonly label: string;
+  readonly value: string;
+}
+
 export interface ConfirmDialogProps {
   readonly title: string;
   readonly message: string;
+  /** 対象の項目（ラベルと値の並び）。どのデータを操作するかを示す。渡した順に表示する。 */
+  readonly details?: readonly ConfirmDialogDetail[];
+  /** 影響の説明（1 件が 1 つの箇条書き）。操作の影響を、メッセージとは別に、補足する。 */
+  readonly notes?: readonly string[];
+  /**
+   * 名前などを入力して確認する（ハウスの削除など、影響の大きい操作。D-28）。入力が `expected` と一致するまで（前後の空白は無視）、
+   * 確認のボタンを押せない。渡さなければ、入力欄は出ず、確認のボタンは、すぐ押せる。
+   */
+  readonly typedConfirmation?: { readonly label: string; readonly expected: string };
   readonly confirmLabel: string;
   readonly busy?: boolean;
   readonly onConfirm: () => void;
@@ -76,12 +104,20 @@ const FOCUSABLE_SELECTOR =
 
 /**
  * 取り消しにくい操作（削除など）の確認。キャンセルが先に選ばれる。
+ * 対象の項目（`details`）と影響の説明（`notes`）を、任意で示せる（Issue #153）。項目は、ラベルと値の並びで渡す
+ * （固定の文言に、対象の名前を埋め込まない）。名前を入力して確認する形など、確認の部品を足すときは、
+ * 任意の props（入力欄・確認の可否。`typedConfirmation`）を足し、`details`・`notes` と、既存の呼び出し側は、変えない。
  * キーボード・スクリーンリーダーの利用者が、背景の操作を誤らないよう、Tab をダイアログの中で循環させ、
  * Esc でキャンセルし、閉じたときは、開く前にフォーカスのあった要素へ戻す（V-149）。
  */
 export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
   const titleId = useId();
+  const inputId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [typed, setTyped] = useState('');
+  const confirmable =
+    props.typedConfirmation === undefined ||
+    typed.trim() === props.typedConfirmation.expected.trim();
 
   // 開く前にフォーカスのあった要素。キャンセルへの最初のフォーカス（autoFocus）より前の、最初の描画のときに控える
   const [opener] = useState(() =>
@@ -137,7 +173,39 @@ export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
         onKeyDown={handleKeyDown}
       >
         <h2 id={titleId}>{props.title}</h2>
+        {props.details === undefined || props.details.length === 0 ? null : (
+          <dl className="dialog-details">
+            {props.details.map((detail) => (
+              <div key={detail.label}>
+                <dt>{detail.label}</dt>
+                <dd>{detail.value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
         <p>{props.message}</p>
+        {props.notes === undefined || props.notes.length === 0 ? null : (
+          <ul className="dialog-notes">
+            {props.notes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        )}
+        {props.typedConfirmation === undefined ? null : (
+          <div className="field">
+            <label htmlFor={inputId}>{props.typedConfirmation.label}</label>
+            <input
+              id={inputId}
+              type="text"
+              value={typed}
+              autoComplete="off"
+              data-testid="confirm-typed-input"
+              onChange={(event) => {
+                setTyped(event.target.value);
+              }}
+            />
+          </div>
+        )}
         <div className="dialog-actions">
           <button
             type="button"
@@ -151,7 +219,7 @@ export function ConfirmDialog(props: ConfirmDialogProps): ReactNode {
           <button
             type="button"
             className="button-danger"
-            disabled={props.busy === true}
+            disabled={props.busy === true || !confirmable}
             onClick={props.onConfirm}
           >
             {props.confirmLabel}
@@ -170,11 +238,22 @@ export interface PagerProps {
   readonly onNext: () => void;
   /** ページ番号の要素のテスト ID（同じ画面に複数あるときや、既存の識別子を保つときに指定する）。 */
   readonly pageTestId?: string;
+  /** 1 ページの件数。`itemCount` とあわせて渡すと、「21〜40 件目」の形で、表示範囲を示す（総件数・総ページは、カーソル方式のため示さない）。 */
+  readonly pageSize?: number;
+  /** このページの件数（0 件のときは、範囲を示さない）。 */
+  readonly itemCount?: number;
 }
 
 export function Pager(props: PagerProps): ReactNode {
+  const { pageSize, itemCount } = props;
+  const first = pageSize === undefined ? 0 : (props.pageNumber - 1) * pageSize + 1;
   return (
     <div className="pager">
+      {itemCount === undefined || itemCount === 0 || pageSize === undefined ? null : (
+        <span className="muted pager-range" data-testid="pager-range">
+          {MESSAGES.form.pagerRange(first, first + itemCount - 1)}
+        </span>
+      )}
       <button
         type="button"
         className="button-secondary"

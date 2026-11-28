@@ -34,6 +34,7 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'PUT', path: '/auth/profile', access: 'LOGIN', useCases: ['UC-14'] },
   // 設備（SC-10）
   { method: 'GET', path: '/equipment', access: 'LOGIN', useCases: ['UC-01', 'UC-12'] },
+  { method: 'GET', path: '/equipment/deletions', access: 'equipment:manage', useCases: ['UC-12'] },
   { method: 'POST', path: '/equipment', access: 'equipment:manage', useCases: ['UC-12'] },
   {
     method: 'PUT',
@@ -70,12 +71,19 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   },
   {
     method: 'POST',
+    path: '/viewpoints/:viewpointId/criteria/preview',
+    access: 'criteria:edit',
+    useCases: ['UC-19'],
+  },
+  {
+    method: 'POST',
     path: '/viewpoints/:viewpointId/criteria/reset',
     access: 'criteria:edit',
     useCases: ['UC-19'],
   },
   // 観測値（SC-09）
   { method: 'GET', path: '/observations', access: 'LOGIN', useCases: ['UC-02', 'UC-20'] },
+  { method: 'GET', path: '/observations/measurements', access: 'LOGIN', useCases: ['UC-20'] },
   // 手動入力（SC-06, SC-07, SC-08）
   {
     method: 'POST',
@@ -99,6 +107,13 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'GET', path: '/audit-logs', access: 'audit:read', useCases: ['UC-18'] },
   // ステータスコード（SC-12）
   { method: 'GET', path: '/status-codes', access: 'LOGIN', useCases: ['UC-17'] },
+  // 未登録のコード値（取り込みで、定義にないコード値として記録した値。SC-12-5。#158）
+  {
+    method: 'GET',
+    path: '/status-codes/unregistered',
+    access: 'status-code:manage',
+    useCases: ['UC-17'],
+  },
   { method: 'POST', path: '/status-codes', access: 'status-code:manage', useCases: ['UC-17'] },
   { method: 'PUT', path: '/status-codes/:code', access: 'status-code:manage', useCases: ['UC-17'] },
   {
@@ -138,6 +153,7 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
   { method: 'GET', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'PUT', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
   { method: 'DELETE', path: '/push-subscription', access: 'LOGIN', useCases: ['UC-23'] },
+  { method: 'POST', path: '/push-subscription/test', access: 'LOGIN', useCases: ['UC-23'] },
   // 取り込み・連携（SC-11）
   { method: 'GET', path: '/ingestion/settings', access: 'ingestion:read', useCases: ['UC-15'] },
   {
@@ -147,22 +163,48 @@ export const ROUTE_TABLE: readonly RouteSpec[] = [
     useCases: ['UC-15'],
   },
   {
-    method: 'PUT',
-    path: '/ingestion/:sourceId/credentials',
-    access: 'ingestion:configure',
-    useCases: ['UC-15'],
-  },
-  {
-    method: 'POST',
-    path: '/ingestion/:sourceId/test',
-    access: 'ingestion:run',
-    useCases: ['UC-15'],
-  },
-  {
     method: 'POST',
     path: '/ingestion/:sourceId/run',
     access: 'ingestion:run',
     useCases: ['UC-08', 'UC-09', 'UC-15', 'UC-24'],
+  },
+  // 設備ごとの接続（Issue #367。ADR-0026）。パスの段数が、取り込み元のルート（/ingestion/:sourceId/...）と違うため、衝突しない
+  {
+    method: 'PUT',
+    path: '/ingestion/equipment/:equipmentId/connection',
+    access: 'ingestion:configure',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  {
+    method: 'DELETE',
+    path: '/ingestion/equipment/:equipmentId/connection',
+    access: 'ingestion:configure',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/ingestion/equipment/:equipmentId/credentials',
+    access: 'ingestion:configure',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  {
+    method: 'POST',
+    path: '/ingestion/equipment/:equipmentId/test',
+    access: 'ingestion:run',
+    useCases: ['UC-12', 'UC-15'],
+  },
+  // 画面から、設備ごとの取り込み用のファイルを置く（検査と、置く。Issue #565。ADR-0027）。本文は、ファイルそのもの
+  {
+    method: 'POST',
+    path: '/ingestion/equipment/:equipmentId/source-file/check',
+    access: 'ingestion:configure',
+    useCases: ['UC-15'],
+  },
+  {
+    method: 'PUT',
+    path: '/ingestion/equipment/:equipmentId/source-file',
+    access: 'ingestion:configure',
+    useCases: ['UC-15'],
   },
   { method: 'GET', path: '/ingestion/logs', access: 'ingestion:read', useCases: ['UC-16'] },
   {

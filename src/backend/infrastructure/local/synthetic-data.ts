@@ -3,12 +3,16 @@
  * 乱数は、種（seed）を指定でき、同じ種で同じデータになる（テストの再現性）。
  */
 
-import { STATUS_CODE_ITEM_KEY, findItemDefinition } from '@smart-farm/shared/constants/items';
+import {
+  STATUS_CODE_ITEM_KEY,
+  findItemDefinition,
+  isCumulativeItem,
+} from '@smart-farm/shared/constants/items';
 import { AppError } from '@smart-farm/shared/errors';
 import { toEquipmentId, type EquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import type { Observation } from '@smart-farm/shared/schemas/observation';
-import { MS_PER_MINUTE } from '@smart-farm/shared/time';
+import { JST_OFFSET_MINUTES, MS_PER_DAY, MS_PER_MINUTE } from '@smart-farm/shared/time';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 
 const DEMO_FACILITY_ID = toEquipmentId('HOUSE-01');
@@ -171,21 +175,66 @@ export function generateAutoSample(
   };
 }
 
-/** ロボット・環境センサーの自動取り込み相当の合成データ（正常な範囲）。 */
+/** 累積の項目（収穫数・稼働時間など。D-26）の値の組。合成データの累積は、「今日（日本時間）これまでの累計」にする。 */
+export type CumulativeTotals = Pick<
+  AutoSample,
+  | 'harvestCount'
+  | 'operatingHours'
+  | 'harvestOperatingHours'
+  | 'travelStoppedHours'
+  | 'standbyHours'
+>;
+
+export const ZERO_TOTALS: CumulativeTotals = {
+  harvestCount: 0,
+  operatingHours: 0,
+  harvestOperatingHours: 0,
+  travelStoppedHours: 0,
+  standbyHours: 0,
+};
+
+/** 累積の値に、1 回分の増分を足す（小数の誤差を残さないよう、小数第 6 位に丸める）。 */
+export function addToTotals(totals: CumulativeTotals, sample: CumulativeTotals): CumulativeTotals {
+  return {
+    harvestCount: totals.harvestCount + sample.harvestCount,
+    operatingHours: round(totals.operatingHours + sample.operatingHours, 6),
+    harvestOperatingHours: round(totals.harvestOperatingHours + sample.harvestOperatingHours, 6),
+    travelStoppedHours: round(totals.travelStoppedHours + sample.travelStoppedHours, 6),
+    standbyHours: round(totals.standbyHours + sample.standbyHours, 6),
+  };
+}
+
+/** 日本時間の日の番号（日本時間の 0 時で、累積の値をリセットする）。 */
+export function japanDayOf(ms: number): number {
+  return Math.floor((ms + JST_OFFSET_MINUTES * MS_PER_MINUTE) / MS_PER_DAY);
+}
+
+/**
+ * ロボット・環境センサーの自動取り込み相当の合成データ（正常な範囲）。
+ * 収穫数・稼働時間などの累積の項目は、「今日（日本時間）これまでの累計」（日本時間の 0 時にリセット。D-26）。期間の値（増分の合計）は、
+ * 1 回ごとの増分（generateAutoSample）の合計と同じになる。
+ */
 export function generateAutoObservations(options: SyntheticOptions): Observation[] {
   const random = createRandom(options.seed);
   const result: Observation[] = [];
   const stepMs = options.intervalMinutes * MS_PER_MINUTE;
   const temperatureBase = options.temperatureBaseCelsius ?? 20;
+  let totals = ZERO_TOTALS;
+  let day: number | undefined;
   for (let at = options.from.getTime(); at <= options.to.getTime(); at += stepMs) {
     const time = new Date(at);
     const sample = generateAutoSample(random, options.intervalMinutes, temperatureBase);
+    if (japanDayOf(at) !== day) {
+      day = japanDayOf(at);
+      totals = ZERO_TOTALS;
+    }
+    totals = addToTotals(totals, sample);
     const rows: readonly (readonly [EquipmentId, string, number | string])[] = [
-      [options.robotId, 'harvestCount', sample.harvestCount],
-      [options.robotId, 'operatingHours', sample.operatingHours],
-      [options.robotId, 'harvestOperatingHours', sample.harvestOperatingHours],
-      [options.robotId, 'travelStoppedHours', sample.travelStoppedHours],
-      [options.robotId, 'standbyHours', sample.standbyHours],
+      [options.robotId, 'harvestCount', totals.harvestCount],
+      [options.robotId, 'operatingHours', totals.operatingHours],
+      [options.robotId, 'harvestOperatingHours', totals.harvestOperatingHours],
+      [options.robotId, 'travelStoppedHours', totals.travelStoppedHours],
+      [options.robotId, 'standbyHours', totals.standbyHours],
       [options.robotId, STATUS_CODE_ITEM_KEY, sample.statusCode],
       [options.sensorId, 'temperatureCelsius', sample.temperatureCelsius],
       [options.sensorId, 'humidityPercent', sample.humidityPercent],
@@ -266,17 +315,26 @@ export interface SeededSeriesInput extends Omit<
   readonly intervalMinutes: number;
 }
 
-/** 一定の間隔（from 以上 to 以下）で、同じ値の観測値を並べる。 */
+/**
+ * 一定の間隔（from 以上 to 以下）で、同じ値の観測値を並べる。
+ * 累積の項目（収穫数・稼働時間など。D-26）は、`value` を 1 件ごとの増分として、累積の値（`value` × 件数）に積み上げる
+ * （期間の値が、`value` × 件数になる。累積の値が、同じ値の繰り返し〔増分 0〕にならない）。
+ */
 export function expandSeededSeries(input: SeededSeriesInput): Observation[] {
   const stepMs = input.intervalMinutes * MS_PER_MINUTE;
   const count = Math.floor((input.to.getTime() - input.from.getTime()) / stepMs) + 1;
   if (count > MAX_EXPANDED_OBSERVATIONS) {
     throw new AppError('VALIDATION_ERROR', '展開する観測値が多すぎます');
   }
+  const isCumulative = isCumulativeItem(input.itemKey);
   return Array.from({ length: Math.max(0, count) }, (_, index) =>
     buildSeededObservation({
       ...input,
       observedAt: new Date(input.from.getTime() + index * stepMs),
+      value:
+        isCumulative && typeof input.value === 'number'
+          ? round(input.value * (index + 1), 6)
+          : input.value,
     }),
   );
 }

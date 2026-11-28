@@ -5,7 +5,12 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { clearSourceFiles, placeRobotFiles, placeSensorFiles } from './support/files.ts';
+import {
+  createBulkEquipment,
+  putBulkFiles,
+  removeBulkEquipment,
+  useHttpFiles,
+} from './support/http-files.ts';
 import type { LimitKey } from './support/limits.ts';
 import { measure, trackApi, type ActionSteps } from './support/recorder.ts';
 import { BULK_INGESTION, STRESS_USER } from './support/scale.ts';
@@ -21,10 +26,16 @@ import {
 } from './support/ui.ts';
 
 const USER = STRESS_USER.userId;
-const { filesPerSource, recordsPerFile } = BULK_INGESTION;
+const { robots, sensors } = BULK_INGESTION;
 /** 形式違い（読み取れない）のファイルの数（各取り込み元）。 */
-const BROKEN = 5;
-const TOTAL_LABEL = `${String(filesPerSource)} ファイル・各 ${String(recordsPerFile)} 記録`;
+const BROKEN = 2;
+const ROBOT_LABEL = `ロボット ${String(robots)} 台・${String(robots)} ファイル`;
+const SENSOR_LABEL = `センサー ${String(sensors)} 台・${String(sensors)} ファイル`;
+
+// 追加した設備（大量の取り込み用の専用のハウス）は、テストの終わりに（失敗したときも）、ハウスごと削除して戻す（ほかの負荷テストの計測に、影響させない）
+test.afterEach(async ({ request }) => {
+  await removeBulkEquipment(request, USER);
+});
 
 test('取り込みの大量実行: 数百ファイルの即時取得・定期取り込み・連携を行う', async ({
   page,
@@ -46,44 +57,48 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   const logRows = page.getByTestId('ingestion-log-row');
 
   // 取得間隔は、設備ごとの設定（Issue #197。既定: ロボット 1 分・センサー 5 分）。定期取り込みは、時計を 6 分進めて起動する
-  clearSourceFiles('robot');
-  clearSourceFiles('environment-sensor');
+  // ファイルサーバー（HTTP）は、設備ごとに 1 ファイル（ADR-0023）。大量の取り込み用に、専用のハウスと、その配下のロボット・センサーを追加する
+  await useHttpFiles();
+  await createBulkEquipment(request, USER, { robots, sensors });
 
   await page.goto('/login');
   await fillLogin(page, USER);
   await page.getByRole('button', { name: 'ログイン' }).click();
   await expectDashboardShown(page);
   await menu('取り込み').click();
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
   await expect(logRows.first()).toBeVisible();
 
   // 1. 即時取得（画面の操作）: ロボット・センサー、それぞれ数百ファイル
-  placeRobotFiles({ startIndex: 1000, count: filesPerSource, recordsPerFile, brokenCount: BROKEN });
+  await putBulkFiles('robot', {
+    count: robots,
+    startIndex: 0,
+    brokenCount: BROKEN,
+  });
   await m(
     'UC-08',
-    `ロボットのデータ（${TOTAL_LABEL}。形式違い ${String(BROKEN)} ファイルを含む）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    `ロボットのデータ（${ROBOT_LABEL}。形式違い ${String(BROKEN)} ファイルを含む）を「即時取得」する`,
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
-      respond: () => expect(result('robot')).toContainText(`ファイル ${String(filesPerSource)} 件`),
+      respond: () => expect(result('robot')).toContainText(`ファイル ${String(robots)} 件`),
     },
   );
-  placeSensorFiles({
-    startIndex: 1000,
-    count: filesPerSource,
-    recordsPerFile,
+  await putBulkFiles('environment-sensor', {
+    count: sensors,
+    startIndex: 0,
     brokenCount: BROKEN,
   });
   await m(
     'UC-09',
-    `環境センサーのデータ（${TOTAL_LABEL}。形式違い ${String(BROKEN)} ファイルを含む）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    `環境センサーのデータ（${SENSOR_LABEL}。形式違い ${String(BROKEN)} ファイルを含む）を「即時取得」する`,
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('environment-sensor').getByRole('button', { name: '即時取得' }).click(),
       respond: () =>
-        expect(result('environment-sensor')).toContainText(`ファイル ${String(filesPerSource)} 件`),
+        expect(result('environment-sensor')).toContainText(`ファイル ${String(sensors)} 件`),
     },
   );
   await screenshot(page, '30-bulk-ingestion-result');
@@ -91,8 +106,8 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   // 2. 取り込み済みのファイルが数百ある状態での、再度の即時取得（新しいファイルなし。取り込み済みの判定のみ）
   await m(
     'UC-08',
-    `取り込み済みの ${String(filesPerSource)} ファイルがある状態で、もう一度「即時取得」する（新しいファイルなし）`,
-    '取り込み設定・状況（SC-11）',
+    `取り込み済みの ${String(robots)} ファイルがある状態で、もう一度「即時取得」する（新しいファイルなし）`,
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
@@ -101,14 +116,21 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   );
 
   // 3. 定期取り込み（JB-01）: 新しいファイルを数百置き、取得間隔が過ぎたことにして、ジョブを起動する
-  placeRobotFiles({ startIndex: 2000, count: filesPerSource, recordsPerFile });
-  placeSensorFiles({ startIndex: 2000, count: filesPerSource, recordsPerFile });
+  // 同じパスのファイルを、新しい内容（計測日時・値）に置き直す（設備ごとに 1 ファイル）
+  await putBulkFiles('robot', {
+    count: robots,
+    startIndex: 100,
+  });
+  await putBulkFiles('environment-sensor', {
+    count: sensors,
+    startIndex: 100,
+  });
   expect((await api(request, USER, 'POST', '/dev/clock/advance', { minutes: 6 })).ok()).toBe(true);
   const firstLog = (await logRows.first().textContent()) ?? '';
   await m(
     'UC-08',
-    `定期取り込み（JB-01）で、ロボット・センサー合わせて ${String(filesPerSource * 2)} ファイル（さらに ${String(filesPerSource * 2)}）を処理し、取り込みのログで確認する`,
-    '取り込み設定・状況（SC-11）',
+    `定期取り込み（JB-01）で、ロボット・センサー合わせて ${String(robots + sensors)} ファイル（さらに ${String(robots + sensors)}）を処理し、取り込みのログで確認する`,
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-01 の実行 ${String(await runJob(request, USER, 'JB-01'))} ms`,
@@ -123,7 +145,7 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await m(
     'UC-11',
     '大量の取り込みのあとに、連携（JB-03）を起動し、連携の状況で結果を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -148,18 +170,36 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
     },
   );
   await screenshot(page, '31-dashboard-after-bulk');
+  // 設備ごとの接続と状況の表（Issue #367）: 大量の設備（ロボット・センサー合わせて数十台。シードを含む）の行を示す
+  const equipmentRunRows = page.locator('[data-testid^="equipment-run-"]');
+  await m(
+    'UC-16',
+    `大量の取り込みのあとに、取り込み（設備ごとの接続と状況の表。ロボット・センサー合わせて ${String(robots + sensors)} 台以上）を開く`,
+    '取り込み（SC-11）',
+    'screen',
+    {
+      act: () => menu('取り込み').click(),
+      respond: async () => {
+        await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
+        await expect(equipmentRunRows.first()).toBeVisible();
+        await expect(loadingView(page)).toHaveCount(0);
+        expect(await equipmentRunRows.count()).toBeGreaterThanOrEqual(robots + sensors);
+      },
+    },
+  );
+  await screenshot(page, '31-ingestion-equipment-table-after-bulk');
 
   // 5. 大量の取り込みのあとの、画面の表示・保存
   await m(
     'UC-20',
-    '大量の取り込みのあとに、取り込み済みデータの一覧を開く',
-    '取り込み済みデータ（SC-09）',
+    '大量の取り込みのあとに、計測データの一覧を開く',
+    '計測データ（SC-09）',
     'screen',
     {
-      act: () => menu('取り込み済みデータ').click(),
+      act: () => menu('計測データ').click(),
       respond: async () => {
         await expect(loadingView(page)).toHaveCount(0);
-        await expect(page.getByTestId('observation-row').first()).toBeVisible();
+        await expect(page.getByTestId('measurement-row').first()).toBeVisible();
       },
     },
   );
@@ -177,8 +217,11 @@ test('取り込みの大量実行: 数百ファイルの即時取得・定期取
   await form.getByLabel('対象の設備').selectOption('ROBOT-01');
   await form.getByLabel('カテゴリ').selectOption('FAILURE');
   await form.getByLabel('計測日時（日本時間）').fill(jstInput(new Date(Date.now() - 200 * 60_000)));
-  await form.getByTestId('entry-items').getByLabel('故障回数').fill('1');
-  await form.getByTestId('entry-items').getByLabel('復旧に要した時間').fill('45');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }).fill('1');
+  await form
+    .getByTestId('entry-items')
+    .getByRole('textbox', { name: '復旧に要した時間' })
+    .fill('45');
   await m(
     'UC-06',
     '大量の取り込みのあとに、復旧対応の結果を入力して保存する',

@@ -1,8 +1,11 @@
 /** グラフの幾何（純粋関数）と、折れ線グラフ・レーダーチャートの描画の単体テスト。 */
 
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatBucketLabel } from '../../../src/frontend/components/bucket-label.ts';
+import {
+  formatBucketFullLabel,
+  formatBucketLabel,
+} from '../../../src/frontend/components/bucket-label.ts';
 import {
   computeDomain,
   estimateTextWidth,
@@ -21,7 +24,15 @@ import {
 import { LineChart } from '../../../src/frontend/components/line-chart.tsx';
 import { RadarChart } from '../../../src/frontend/components/radar-chart.tsx';
 import { criterionBands } from '../../../src/shared/criteria-text.ts';
-import { getDefaultCriteria } from '../../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../../src/shared/constants/default-criteria.ts';
+
+/** 存在を前提とする要素・値を取り出す（なければ、テストを失敗させる）。 */
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error('テストの前提: 要素がある');
+  }
+  return value;
+}
 
 describe('computeDomain', () => {
   it('値の範囲の上下に、1割の余白を付ける', () => {
@@ -128,6 +139,13 @@ describe('formatBucketLabel', () => {
   });
 });
 
+describe('formatBucketFullLabel', () => {
+  it('1時間ごとは日本時間の「年/月/日 時:分」、日ごとは「年/月/日」', () => {
+    expect(formatBucketFullLabel('2026-10-09T03:00:00.000Z', 'HOUR')).toBe('2026/10/09 12:00');
+    expect(formatBucketFullLabel('2026-10-08T15:00:00.000Z', 'DAY')).toBe('2026/10/09');
+  });
+});
+
 describe('LineChart', () => {
   const temperatureBands = criterionBands(
     getDefaultCriteria('environmentalAdaptability').criteria[0] ??
@@ -219,6 +237,58 @@ describe('LineChart', () => {
     expect(plotLeft(large) - plotLeft(small)).toBe(4 * 7);
     // 目盛りの文字の右端（軸の 8px 左）より左に、文字が収まる
     expect(plotLeft(small)).toBeGreaterThanOrEqual(2 * 7 + 8);
+  });
+
+  describe('点の選択（SC-03-2）。日時・値・状態を、グラフの下に表示する', () => {
+    const readout = (container: HTMLElement): HTMLElement | null =>
+      container.querySelector<HTMLElement>('[data-testid="chart-readout"]');
+
+    it('選ぶ前は、点を選ぶ案内を示す', () => {
+      const { container } = renderChart();
+
+      expect(readout(container)?.textContent).toContain('点を選ぶと');
+    });
+
+    it('点をタップ（クリック）すると、日時・値・状態を表示する（title 属性に頼らない）', () => {
+      const { container } = renderChart();
+      const dots = container.querySelectorAll('g.chart-point');
+      expect(dots).toHaveLength(3);
+
+      fireEvent.click(must(dots[0]));
+      expect(readout(container)?.textContent).toContain('2026/10/06');
+      expect(readout(container)?.textContent).toContain('20℃');
+      expect(readout(container)?.textContent).toContain('正常');
+
+      fireEvent.click(must(dots[2]));
+      expect(readout(container)?.textContent).toContain('2026/10/09');
+      expect(readout(container)?.textContent).toContain('30℃');
+      expect(readout(container)?.textContent).toContain('注意');
+    });
+
+    it('点にフォーカスすると、同じ内容を表示する。矢印キーで、前後の点へ移る（欠損の区間は飛ばす）', () => {
+      const { container } = renderChart();
+      const dots = [...container.querySelectorAll<SVGGElement>('g.chart-point')];
+
+      fireEvent.focus(dots[0] as Element);
+      expect(readout(container)?.textContent).toContain('20℃');
+      // Tab の停止は、1 つの点だけ（点が多くても、Tab で何度も進まない）
+      expect(dots.filter((dot) => dot.getAttribute('tabindex') === '0')).toHaveLength(1);
+
+      fireEvent.keyDown(dots[0] as Element, { key: 'ArrowRight' });
+      expect(readout(container)?.textContent).toContain('22℃');
+      fireEvent.keyDown(dots[1] as Element, { key: 'ArrowRight' });
+      expect(readout(container)?.textContent).toContain('30℃');
+      fireEvent.keyDown(dots[2] as Element, { key: 'Home' });
+      expect(readout(container)?.textContent).toContain('20℃');
+    });
+
+    it('判断基準のない指標は、状態を「判定なし」とする', () => {
+      const { container } = renderChart({ bands: [] });
+
+      fireEvent.click(must(container.querySelector('g.chart-point')));
+
+      expect(readout(container)?.textContent).toContain('判定なし');
+    });
   });
 
   it('1時間ごとの横軸は、日本時間の時刻', () => {

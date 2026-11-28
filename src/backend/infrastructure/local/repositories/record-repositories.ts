@@ -20,6 +20,16 @@ export function createManualEntryRepository(store: LocalStore): ManualEntryRepos
   return {
     get: (entryId) => Promise.resolve(manualEntries.get(entryId)),
     save: saverOf(manualEntries),
+    deleteByEquipment(equipmentId) {
+      const removed = manualEntries
+        .values()
+        .filter((entry) => entry.equipmentId === equipmentId)
+        .map((entry) => entry.entryId);
+      for (const entryId of removed) {
+        manualEntries.delete(entryId);
+      }
+      return Promise.resolve(removed);
+    },
     list(filter, page, sort = { key: 'observedAt', direction: 'desc' }) {
       const matched = manualEntries
         .values()
@@ -34,6 +44,16 @@ export function createAuditLogRepository(store: LocalStore): AuditLogRepository 
   const auditLogs = store.collection('auditLogs', AuditLogEntrySchema, (item) => item.auditId);
   return {
     add: saverOf(auditLogs),
+    deleteByTargets(targetType, targetIds) {
+      const ids = new Set(targetIds);
+      const removed = auditLogs
+        .values()
+        .filter((entry) => entry.targetType === targetType && ids.has(entry.targetId));
+      for (const entry of removed) {
+        auditLogs.delete(entry.auditId);
+      }
+      return Promise.resolve(removed.length);
+    },
     list(filter, page) {
       const fromIso = filter.from?.toISOString();
       const toIso = filter.to?.toISOString();
@@ -44,6 +64,7 @@ export function createAuditLogRepository(store: LocalStore): AuditLogRepository 
             (filter.operation === undefined || entry.operation === filter.operation) &&
             (filter.actor === undefined || entry.actor === filter.actor) &&
             (filter.targetType === undefined || entry.targetType === filter.targetType) &&
+            (filter.targetId === undefined || entry.targetId === filter.targetId) &&
             (fromIso === undefined || compareIsoInstants(entry.occurredAt, fromIso) >= 0) &&
             (toIso === undefined || compareIsoInstants(entry.occurredAt, toIso) <= 0),
         )

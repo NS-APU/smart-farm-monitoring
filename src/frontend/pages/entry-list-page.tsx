@@ -1,6 +1,7 @@
 /**
  * SC-07 入力データ一覧（UC-18。FR-4.2.1、FR-4.2.2）。手動入力したデータの一覧・検索・絞り込み・並べ替え・
- * ページ分割と、修正・削除（論理削除。確認を求める）。修正・削除の後は、評価を更新する（サーバー側）。
+ * ページ分割と、修正・削除（論理削除。確認を求める）。修正は、ダイアログで行う（#150。SC-07-2）。
+ * 修正・削除の後は、評価を更新し（サーバー側）、評価の更新（AWS: 数分かかる／ローカル: 関連する観点のステータス）を示す（D-27）。
  * 条件は URL のクエリに反映する（再読み込みで保持）。
  */
 
@@ -12,7 +13,7 @@ import {
 } from '@smart-farm/shared/constants/items';
 import { MANUAL_ENTRY_SORT_KEYS } from '@smart-farm/shared/constants/sorting';
 import { formatThreshold } from '@smart-farm/shared/criteria-text';
-import type { ManualEntry } from '@smart-farm/shared/schemas/manual-entry';
+import type { ManualEntry, ManualEntrySaveResponse } from '@smart-farm/shared/schemas/manual-entry';
 import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { deleteManualEntry, listManualEntries } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
@@ -21,17 +22,32 @@ import { ConfirmDialog, FormError, Pager } from '../components/form-controls.tsx
 import { formatDateTimeJst } from '../components/format.ts';
 import { jstDateToIso } from '../components/jst.ts';
 import { ManualEntryForm } from '../components/manual-entry-form.tsx';
-import { DIRECTION_OPTIONS, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import {
+  ManualEntryResult,
+  type ManualEntryResultKind,
+} from '../components/manual-entry-result.tsx';
+import { Modal } from '../components/modal.tsx';
+import {
+  DIRECTION_OPTIONS,
+  FilterPanel,
+  InputFilter,
+  SelectFilter,
+} from '../components/filter-controls.tsx';
+import { equipmentOptionLabel } from '../components/equipment-options.ts';
 import { EmptyState, ErrorView, LoadingView } from '../components/state-views.tsx';
 import { useCursorPaging } from '../hooks/use-cursor-paging.ts';
+import { userLabel } from '../lib/user-label.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { readSortParams, useQueryParams } from '../hooks/use-query-params.ts';
+import {
+  countActiveConditions,
+  readSortParams,
+  useQueryParams,
+} from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link } from '../router/router.tsx';
-import { Icon } from '../components/icon.tsx';
 
 const PAGE_SIZE = 20;
 const TEXT = MESSAGES.entries;
@@ -40,22 +56,42 @@ const SORT_LABELS = {
   category: TEXT.sortCategory,
   enteredBy: TEXT.sortEnteredBy,
 } as const;
+/** 条件のクリアで、初期値に戻す条件（URL のクエリ）。 */
+const CONDITION_NAMES = ['q', 'category', 'equipmentId', 'from', 'to', 'sort', 'direction'];
+
+/** 修正・削除の結果（SC-07。評価の更新を示す）。 */
+interface EntryResult {
+  readonly kind: ManualEntryResultKind;
+  readonly response: ManualEntrySaveResponse;
+}
+
+/** 入力項目の値の表示（値・単位）。 */
+function formatItemValue(itemKey: string, value: number | string): string {
+  return `${typeof value === 'number' ? formatThreshold(value) : value}${findItemDefinition(itemKey)?.unit ?? ''}`;
+}
 
 /** 入力項目と値の表示（項目の名称・値・単位）。 */
 export function EntryValues(props: { readonly entry: ManualEntry }): ReactNode {
   return (
     <ul className="entry-values">
-      {Object.entries(props.entry.items).map(([itemKey, value]) => {
-        const item = findItemDefinition(itemKey);
-        return (
-          <li key={itemKey}>
-            {item?.label ?? itemKey}:{' '}
-            <strong>{`${typeof value === 'number' ? formatThreshold(value) : value}${item?.unit ?? ''}`}</strong>
-          </li>
-        );
-      })}
+      {Object.entries(props.entry.items).map(([itemKey, value]) => (
+        <li key={itemKey}>
+          {findItemDefinition(itemKey)?.label ?? itemKey}:{' '}
+          <strong>{formatItemValue(itemKey, value)}</strong>
+        </li>
+      ))}
     </ul>
   );
+}
+
+/** 削除の確認で示す、入力項目と値（「項目名: 値単位」を、読点でつなぐ）。 */
+function entryItemsText(entry: ManualEntry): string {
+  return Object.entries(entry.items)
+    .map(
+      ([itemKey, value]) =>
+        `${findItemDefinition(itemKey)?.label ?? itemKey}: ${formatItemValue(itemKey, value)}`,
+    )
+    .join('、');
 }
 
 export function EntryListPage(): ReactNode {
@@ -63,11 +99,13 @@ export function EntryListPage(): ReactNode {
   const { equipmentList, equipmentNames } = useAppState();
   const canWrite = usePermission('manual-entry:write');
   const canReadAudit = usePermission('audit:read');
+  // 操作の列: 修正・削除（入力の権限）と、その入力の変更履歴へのリンク（変更履歴の権限。SC-07-10）
+  const showActions = canWrite || canReadAudit;
   const query = useQueryParams();
   const submit = useSubmit();
   const [editing, setEditing] = useState<ManualEntry | undefined>(undefined);
   const [deleting, setDeleting] = useState<ManualEntry | undefined>(undefined);
-  const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [result, setResult] = useState<EntryResult | undefined>(undefined);
 
   const keyword = query.get('q').trim();
   const category = MANUAL_INPUT_CATEGORIES.find((value) => value === query.get('category')) ?? '';
@@ -78,6 +116,16 @@ export function EntryListPage(): ReactNode {
   const paging = useCursorPaging(
     [keyword, category, equipmentId, from, to, sort, direction].join('|'),
   );
+
+  const activeCount = countActiveConditions([
+    keyword !== '',
+    category !== '',
+    equipmentId !== '',
+    from !== '',
+    to !== '',
+    sort !== 'observedAt',
+    direction !== 'desc',
+  ]);
 
   const { cursor } = paging;
   const fromIso = jstDateToIso(from, 'start');
@@ -100,10 +148,10 @@ export function EntryListPage(): ReactNode {
   const { data, error, reload } = usePolling(fetchPage);
 
   async function confirmDelete(entry: ManualEntry): Promise<void> {
-    const result = await submit.run(() => deleteManualEntry(api, entry.entryId));
+    const deleted = await submit.run(() => deleteManualEntry(api, entry.entryId));
     setDeleting(undefined);
-    if (result.ok) {
-      setNotice(TEXT.deleted);
+    if (deleted.ok) {
+      setResult({ kind: 'deleted', response: deleted.value });
       reload();
     }
   }
@@ -134,7 +182,7 @@ export function EntryListPage(): ReactNode {
                 <th scope="col">{TEXT.values}</th>
                 <th scope="col">{TEXT.enteredBy}</th>
                 <th scope="col">{TEXT.note}</th>
-                {canWrite ? <th scope="col">{TEXT.actions}</th> : null}
+                {showActions ? <th scope="col">{TEXT.actions}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -150,7 +198,9 @@ export function EntryListPage(): ReactNode {
                   <td data-label={TEXT.values}>
                     <EntryValues entry={entry} />
                   </td>
-                  <td data-label={TEXT.enteredBy}>{entry.enteredBy}</td>
+                  <td data-label={TEXT.enteredBy}>
+                    {userLabel(entry.enteredBy, entry.enteredByName)}
+                  </td>
                   <td data-label={TEXT.note}>
                     {entry.note === undefined ? (
                       MESSAGES.common.missingValue
@@ -158,29 +208,38 @@ export function EntryListPage(): ReactNode {
                       <div className="entry-note">{entry.note}</div>
                     )}
                   </td>
-                  {canWrite ? (
+                  {showActions ? (
                     <td data-label={TEXT.actions}>
                       <div className="row-actions">
-                        <button
-                          type="button"
-                          className="button-secondary"
-                          onClick={() => {
-                            setNotice(undefined);
-                            setEditing(entry);
-                          }}
-                        >
-                          {MESSAGES.form.edit}
-                        </button>
-                        <button
-                          type="button"
-                          className="button-danger-outline"
-                          onClick={() => {
-                            setNotice(undefined);
-                            setDeleting(entry);
-                          }}
-                        >
-                          {MESSAGES.form.delete}
-                        </button>
+                        {canWrite ? (
+                          <>
+                            <button
+                              type="button"
+                              className="button-secondary"
+                              onClick={() => {
+                                setResult(undefined);
+                                setEditing(entry);
+                              }}
+                            >
+                              {MESSAGES.form.edit}
+                            </button>
+                            <button
+                              type="button"
+                              className="button-danger-outline"
+                              onClick={() => {
+                                setResult(undefined);
+                                setDeleting(entry);
+                              }}
+                            >
+                              {MESSAGES.form.delete}
+                            </button>
+                          </>
+                        ) : null}
+                        {canReadAudit ? (
+                          <Link to={PATHS.historyOf('manual-entry', entry.entryId)}>
+                            {TEXT.rowHistory}
+                          </Link>
+                        ) : null}
                       </div>
                     </td>
                   ) : null}
@@ -199,6 +258,8 @@ export function EntryListPage(): ReactNode {
               paging.goNext(data.nextCursor);
             }
           }}
+          pageSize={PAGE_SIZE}
+          itemCount={data.items.length}
         />
       </>
     );
@@ -219,9 +280,17 @@ export function EntryListPage(): ReactNode {
         </p>
       </div>
       <p className="muted">{TEXT.lead}</p>
+      <p className="muted" data-testid="entries-keyword-note">
+        {TEXT.keywordNote}
+      </p>
 
       <section className="panel" aria-label={MESSAGES.form.search}>
-        <div className="filter-bar">
+        <FilterPanel
+          activeCount={activeCount}
+          onClear={() => {
+            query.clear(CONDITION_NAMES);
+          }}
+        >
           <InputFilter
             label={MESSAGES.form.keyword}
             type="search"
@@ -248,7 +317,7 @@ export function EntryListPage(): ReactNode {
             withAll
             options={equipmentList.map((item) => ({
               value: item.equipmentId,
-              label: item.name,
+              label: equipmentOptionLabel(item),
             }))}
             onChange={(value) => {
               query.set({ equipmentId: value });
@@ -286,42 +355,58 @@ export function EntryListPage(): ReactNode {
               query.set({ direction: value });
             }}
           />
-        </div>
+        </FilterPanel>
       </section>
 
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="entries-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
+      {result === undefined ? null : (
+        <ManualEntryResult
+          response={result.response}
+          kind={result.kind}
+          title={result.kind === 'deleted' ? TEXT.deleted : TEXT.updated}
+          testId="entries-notice"
+        />
       )}
       <FormError message={submit.formMessage} />
 
+      <section className="panel" aria-label={TEXT.title}>
+        {body}
+      </section>
+
       {editing === undefined ? null : (
-        <section className="panel" aria-labelledby="entry-edit-heading" data-testid="entry-edit">
-          <h2 id="entry-edit-heading">{MESSAGES.entry.editTitle}</h2>
+        <Modal
+          title={MESSAGES.entry.editTitle}
+          size="wide"
+          testId="entry-edit"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <ManualEntryForm
             entry={editing}
-            onSaved={() => {
+            onSaved={(response) => {
               setEditing(undefined);
-              setNotice(TEXT.updated);
+              setResult({ kind: 'updated', response });
               reload();
             }}
             onCancel={() => {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       )}
-
-      <section className="panel" aria-label={TEXT.title}>
-        {body}
-      </section>
 
       {deleting === undefined ? null : (
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={TEXT.deleteMessage}
+          details={[
+            { label: TEXT.observedAt, value: formatDateTimeJst(deleting.observedAt) },
+            {
+              label: TEXT.equipment,
+              value: equipmentNames.get(deleting.equipmentId) ?? deleting.equipmentId,
+            },
+            { label: TEXT.deleteItems, value: entryItemsText(deleting) },
+          ]}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

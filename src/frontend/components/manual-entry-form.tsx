@@ -16,9 +16,11 @@ import {
   CATEGORY_LABELS,
   MANUAL_INPUT_CATEGORIES,
   SATISFACTION_MAX_STARS,
+  manualCategoriesOfEquipmentType,
   type Category,
   type ItemDefinition,
 } from '@smart-farm/shared/constants/items';
+import { CATEGORY_HELP, findItemHelp } from '@smart-farm/shared/constants/item-help';
 import {
   ManualEntryInputSchema,
   describeRange,
@@ -40,6 +42,7 @@ import { isoToJstDateTimeInput, jstDateTimeToIso } from './jst.ts';
 import { normalizeNumberText } from './number-text.ts';
 import { notifyUnreadChanged } from './unread-events.ts';
 import { Icon } from './icon.tsx';
+import { EntryValueInput } from './entry-value-input.tsx';
 import { StarRating } from './star-rating.tsx';
 
 const TEXT = MESSAGES.entry;
@@ -81,6 +84,11 @@ function writeRemembered(value: Remembered): void {
 export interface ManualEntryFormProps {
   /** 修正する入力。なければ、新規の入力。 */
   readonly entry?: ManualEntry | undefined;
+  /**
+   * リンクで明示された対象の設備（「対応の結果を記録する」から。SC-02-10）。新規の入力で、一覧にある設備のときだけ、
+   * 直前に入力した設備より優先して、初期値にする。
+   */
+  readonly initialEquipmentId?: string | undefined;
   readonly onSaved: (response: ManualEntrySaveResponse) => void;
   readonly onCancel?: (() => void) | undefined;
 }
@@ -119,6 +127,7 @@ function StatusCodeField(props: {
       name={`items.${props.item.itemKey}`}
       error={props.error}
       hint={TEXT.statusCodeHint}
+      help={findItemHelp(props.item.itemKey)}
     >
       {(control) => (
         <select
@@ -144,16 +153,26 @@ function StatusCodeField(props: {
 }
 
 export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
-  const { entry } = props;
+  const { entry, initialEquipmentId } = props;
   const { api } = useAuth();
   const { equipmentList, selectedEquipmentId } = useAppState();
   const submit = useSubmit();
 
   const [remembered] = useState(() => (entry === undefined ? readRemembered() : undefined));
   const [equipmentId, setEquipmentId] = useState(
-    entry?.equipmentId ?? remembered?.equipmentId ?? selectedEquipmentId ?? '',
+    entry?.equipmentId ??
+      (equipmentList.some((item) => item.equipmentId === initialEquipmentId)
+        ? initialEquipmentId
+        : undefined) ??
+      remembered?.equipmentId ??
+      selectedEquipmentId ??
+      '',
   );
-  const [category, setCategory] = useState<string>(entry?.category ?? remembered?.category ?? '');
+  const [chosenCategory, setCategory] = useState<string>(
+    entry?.category ?? remembered?.category ?? '',
+  );
+  // 対象の設備を変えて、カテゴリを空にしたときの案内（カテゴリを選ぶと消える）
+  const [categoryCleared, setCategoryCleared] = useState(false);
   const [observedAt, setObservedAt] = useState(() =>
     isoToJstDateTimeInput(entry?.observedAt ?? new Date().toISOString()),
   );
@@ -172,6 +191,24 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
       formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
     }
   }, [focusRequest]);
+
+  // 選べるカテゴリは、対象の設備の種別で決まる（Issue #360）。修正では、その入力のカテゴリも残す（対象を変えない間）
+  function selectableCategoriesOf(targetId: string): readonly Category[] | undefined {
+    const type = equipmentList.find((item) => item.equipmentId === targetId)?.equipmentType;
+    if (type === undefined) {
+      return undefined;
+    }
+    const allowed = manualCategoriesOfEquipmentType(type);
+    const legacy =
+      entry?.equipmentId === targetId && !allowed.includes(entry.category) ? [entry.category] : [];
+    return [...allowed, ...legacy];
+  }
+  const selectableCategories = selectableCategoriesOf(equipmentId);
+  // 記憶したカテゴリが、設備の一覧を読み込んだあとに、選べないと分かったときは、空として扱う
+  const category =
+    selectableCategories?.some((candidate) => candidate === chosenCategory) === false
+      ? ''
+      : chosenCategory;
 
   const selectedCategory = categoryOf(category);
   const items = selectedCategory === undefined ? [] : manualItemsOfCategory(selectedCategory);
@@ -261,7 +298,14 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
               {...control}
               value={equipmentId}
               onChange={(event) => {
-                setEquipmentId(event.target.value);
+                const next = event.target.value;
+                setEquipmentId(next);
+                // 対象を変えて、選べないカテゴリになるときは、カテゴリと入力値を空にして、案内する
+                if (selectableCategoriesOf(next)?.some((value) => value === category) === false) {
+                  setCategory('');
+                  setValues({});
+                  setCategoryCleared(true);
+                }
               }}
             >
               <option value="">{TEXT.selectPlaceholder}</option>
@@ -273,18 +317,39 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
             </select>
           )}
         </Field>
-        <Field label={TEXT.category} name="category" error={errors.category} required>
+        <Field
+          label={TEXT.category}
+          name="category"
+          error={errors.category}
+          hint={
+            selectableCategories === undefined
+              ? TEXT.categoryHintNoEquipment
+              : categoryCleared
+                ? TEXT.categoryCleared
+                : undefined
+          }
+          help={{
+            help: TEXT.categoryHelp,
+            terms: (selectableCategories ?? []).map((value) => ({
+              term: CATEGORY_LABELS[value],
+              description: CATEGORY_HELP[value],
+            })),
+          }}
+          required
+        >
           {(control) => (
             <select
               {...control}
               value={category}
+              disabled={selectableCategories === undefined}
               onChange={(event) => {
                 setCategory(event.target.value);
                 setValues({});
+                setCategoryCleared(false);
               }}
             >
               <option value="">{TEXT.selectPlaceholder}</option>
-              {MANUAL_INPUT_CATEGORIES.map((value) => (
+              {(selectableCategories ?? []).map((value) => (
                 <option key={value} value={value}>
                   {CATEGORY_LABELS[value]}
                 </option>
@@ -292,7 +357,13 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
             </select>
           )}
         </Field>
-        <Field label={TEXT.observedAt} name="observedAt" error={errors.observedAt} required>
+        <Field
+          label={TEXT.observedAt}
+          name="observedAt"
+          error={errors.observedAt}
+          help={{ help: TEXT.observedAtHelp }}
+          required
+        >
           {(control) => (
             <input
               {...control}
@@ -322,58 +393,63 @@ export function ManualEntryForm(props: ManualEntryFormProps): ReactNode {
               </p>
             </div>
           )}
-          <div className="form-grid">
-            {items.map((item) =>
-              selectedCategory === 'SATISFACTION' ? (
-                // 満足度は、数値の文字入力ではなく、スターで選ぶ（D-18。9観点すべてが必須）
-                <StarRating
-                  key={item.itemKey}
-                  label={item.label}
-                  name={`items.${item.itemKey}`}
-                  max={SATISFACTION_MAX_STARS}
-                  value={starValue(values[item.itemKey])}
-                  error={errors[`items.${item.itemKey}`]}
-                  onChange={(stars) => {
-                    setValues({ ...values, [item.itemKey]: String(stars) });
-                  }}
-                />
-              ) : item.valueType === 'string' ? (
-                <StatusCodeField
-                  key={item.itemKey}
-                  item={item}
-                  value={values[item.itemKey] ?? ''}
-                  error={errors[`items.${item.itemKey}`]}
-                  onChange={(value) => {
-                    setValues({ ...values, [item.itemKey]: value });
-                  }}
-                />
-              ) : (
-                <Field
-                  key={item.itemKey}
-                  label={item.unit === '' ? item.label : `${item.label}（${item.unit}）`}
-                  name={`items.${item.itemKey}`}
-                  error={errors[`items.${item.itemKey}`]}
-                  hint={describeRange(item)}
-                >
-                  {(control) => (
-                    <input
-                      {...control}
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={values[item.itemKey] ?? ''}
-                      onChange={(event) => {
-                        setValues({ ...values, [item.itemKey]: event.target.value });
-                      }}
-                    />
-                  )}
-                </Field>
-              ),
-            )}
+          {/* 満足度の 9 観点は、広い幅では、3 つずつ（3 列）、狭い幅では、1 列に並べる（#361） */}
+          <div
+            className={selectedCategory === 'SATISFACTION' ? 'satisfaction-grid-frame' : undefined}
+          >
+            <div className="form-grid">
+              {items.map((item) =>
+                selectedCategory === 'SATISFACTION' ? (
+                  // 満足度は、数値の文字入力ではなく、スターで選ぶ（D-18。9観点すべてが必須）
+                  <StarRating
+                    key={item.itemKey}
+                    label={item.label}
+                    name={`items.${item.itemKey}`}
+                    max={SATISFACTION_MAX_STARS}
+                    value={starValue(values[item.itemKey])}
+                    error={errors[`items.${item.itemKey}`]}
+                    onChange={(stars) => {
+                      setValues({ ...values, [item.itemKey]: String(stars) });
+                    }}
+                  />
+                ) : item.valueType === 'string' ? (
+                  <StatusCodeField
+                    key={item.itemKey}
+                    item={item}
+                    value={values[item.itemKey] ?? ''}
+                    error={errors[`items.${item.itemKey}`]}
+                    onChange={(value) => {
+                      setValues({ ...values, [item.itemKey]: value });
+                    }}
+                  />
+                ) : (
+                  <Field
+                    key={item.itemKey}
+                    label={item.unit === '' ? item.label : `${item.label}（${item.unit}）`}
+                    name={`items.${item.itemKey}`}
+                    error={errors[`items.${item.itemKey}`]}
+                    hint={describeRange(item)}
+                    help={findItemHelp(item.itemKey)}
+                  >
+                    {(control) => (
+                      <EntryValueInput
+                        control={control}
+                        item={item}
+                        text={values[item.itemKey] ?? ''}
+                        onChange={(text) => {
+                          setValues({ ...values, [item.itemKey]: text });
+                        }}
+                      />
+                    )}
+                  </Field>
+                ),
+              )}
+            </div>
           </div>
         </fieldset>
       )}
 
-      <Field label={TEXT.note} name="note" error={errors.note}>
+      <Field label={TEXT.note} name="note" error={errors.note} help={{ help: TEXT.noteHelp }}>
         {(control) => (
           <textarea
             {...control}

@@ -4,7 +4,7 @@ import { CriterionSchema } from '@smart-farm/shared/schemas/criteria';
 import {
   getDefaultCriteria,
   DEFAULT_CRITERIA_VERSION,
-} from '../../../../src/backend/domain/evaluation/default-criteria.ts';
+} from '../../../../src/shared/constants/default-criteria.ts';
 import {
   evaluateScope,
   SHORT_HORIZON_HOURS,
@@ -21,6 +21,7 @@ import {
   buildIngestionFailureMessage,
   buildStatusChangeDedupKey,
   buildStatusChangeMessage,
+  isStatusChangeNotificationUnit,
   isWithinSuppression,
 } from '../../../../src/backend/domain/notification-rules.ts';
 import { describeRobotState } from '../../../../src/backend/domain/status-code.ts';
@@ -105,6 +106,79 @@ describe('評価の単位の全観点の評価', () => {
   });
 });
 
+describe('評価の単位の評価: 累積の項目の期間の値（D-26）', () => {
+  const NOW = new Date('2026-10-09T03:00:00Z');
+  const DAY = 86_400_000;
+  const operating = (value: number, msBefore: number) =>
+    observation({
+      itemKey: 'operatingHours',
+      value,
+      observedAt: new Date(NOW.getTime() - msBefore).toISOString(),
+    });
+
+  function operatingByPeriod(
+    observationList: ReturnType<typeof operating>[],
+    baselineObservations?: ReturnType<typeof operating>[],
+  ): Record<string, number | null | undefined> {
+    const drafts = evaluateScope({
+      observations: observationList,
+      ...(baselineObservations === undefined ? {} : { baselineObservations }),
+      now: NOW,
+      viewpointIds: ['durability'],
+      criteriaOf: getDefaultCriteria,
+      statusCodes: statusCodeMap(),
+      expectedStreams: { robot: true, sensor: false },
+      coverageSlotMinutes: 15,
+    });
+    return Object.fromEntries(
+      drafts.map((draft) => [String(draft.periodDays), draft.evaluation.metrics.operatingHours]),
+    );
+  }
+
+  it('各期間の値は、その期間の直前の値を基準にした、増分の合計にする（期間より前の値は、基準に使う）', () => {
+    const periods = operatingByPeriod([
+      operating(100, 10 * DAY),
+      operating(130, 3 * DAY),
+      operating(150, 3_600_000),
+    ]);
+
+    // 当日: 基準は 3 日前の 130 → 20。7 日: 基準は 10 日前の 100 → 30 + 20。30・60・90 日: 基準なし（0 から）→ 100 + 30 + 20
+    expect(periods).toMatchObject({ '1': 20, '7': 50, '30': 150, '60': 150, '90': 150 });
+  });
+
+  it('期間ごとに、取得元を決める（当日は自動なし→手動、7 日以上は自動あり→自動）。手動の基準は、手動の値から選ぶ', () => {
+    const at = (msBefore: number) => new Date(NOW.getTime() - msBefore).toISOString();
+    const auto = (value: number, msBefore: number) =>
+      observation({ itemKey: 'operatingHours', value, observedAt: at(msBefore) });
+    const manual = (value: number, msBefore: number) =>
+      observation({
+        itemKey: 'operatingHours',
+        value,
+        source: 'MANUAL',
+        observedAt: at(msBefore),
+      });
+
+    const periods = operatingByPeriod([
+      auto(1000, 3 * DAY + 6 * 3_600_000),
+      auto(1500, 3 * DAY),
+      manual(300, 2 * 3_600_000),
+      manual(450, 3_600_000),
+    ]);
+
+    // 当日: 自動なし → 手動だけ（基準なし）→ 450。7・30・60・90 日: 自動あり → 自動だけ → 1,500（手動は使わない）
+    expect(periods).toMatchObject({ '1': 450, '7': 1500, '30': 1500, '60': 1500, '90': 1500 });
+  });
+
+  it('読んだ範囲より前の値（baselineObservations）も、期間の基準に使う', () => {
+    const periods = operatingByPeriod(
+      [operating(130, 3 * DAY), operating(150, 3_600_000)],
+      [operating(100, 100 * DAY)],
+    );
+
+    expect(periods).toMatchObject({ '1': 20, '7': 50, '30': 50, '60': 50, '90': 50 });
+  });
+});
+
 describe('ステータスコードの状態判定', () => {
   const codes = statusCodeMap();
 
@@ -146,6 +220,18 @@ describe('ステータスコードの状態判定', () => {
 });
 
 describe('通知の規則', () => {
+  it('通知の単位は、設備（ロボット・センサー）。ハウスは、運用面の観点（データ活用度合い・満足度）だけ通知する（D-19 の論点 3）', () => {
+    // 設備（ロボット・センサー）の結果は、観点によらず通知の単位
+    expect(isStatusChangeNotificationUnit('ROBOT', 'safety')).toBe(true);
+    expect(isStatusChangeNotificationUnit('SENSOR', 'environmentalAdaptability')).toBe(true);
+    // ハウスの、ロボットの観点・環境適応性は、配下の設備の集約のため、通知しない
+    expect(isStatusChangeNotificationUnit('FACILITY', 'harvestAccuracy')).toBe(false);
+    expect(isStatusChangeNotificationUnit('FACILITY', 'environmentalAdaptability')).toBe(false);
+    // 運用面の観点は、ハウス単位の評価で、ハウスの結果そのものを通知する
+    expect(isStatusChangeNotificationUnit('FACILITY', 'dataUtilization')).toBe(true);
+    expect(isStatusChangeNotificationUnit('FACILITY', 'satisfaction')).toBe(true);
+  });
+
   it('重複抑制のキーは、観点・対象・ステータスから作る', () => {
     expect(buildStatusChangeDedupKey('safety', 'ROBOT-1', 'ERROR')).toBe(
       'STATUS_CHANGE#safety#ROBOT-1#ERROR',

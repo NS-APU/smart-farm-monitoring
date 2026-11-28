@@ -22,17 +22,22 @@ import {
   FacilityAccessEntrySchema,
   FacilityAccessResponseSchema,
 } from '@smart-farm/shared/schemas/facility-access';
+import { EvaluationWriteResponseSchema } from '@smart-farm/shared/schemas/common';
 import {
+  CriteriaPreviewResponseSchema,
+  CriteriaSaveResponseSchema,
   CriteriaViewSchema,
   type CriteriaUpdateRequest,
 } from '@smart-farm/shared/schemas/criteria';
 import {
-  EquipmentSchema,
+  EquipmentDeletionListResponseSchema,
+  EquipmentSaveResponseSchema,
   type EquipmentCreateRequest,
   type EquipmentUpdateRequest,
 } from '@smart-farm/shared/schemas/equipment';
 import {
   ConnectionTestResponseSchema,
+  EquipmentConnectionResponseSchema,
   FacilityFederationLogListResponseSchema,
   FacilityIngestionLogListResponseSchema,
   FederationLogListResponseSchema,
@@ -40,6 +45,9 @@ import {
   IngestionLogListResponseSchema,
   IngestionRunResponseSchema,
   IngestionSettingsResponseSchema,
+  SourceFileInspectionSchema,
+  SourceFilePlacedSchema,
+  type FileServerConnection,
   type IngestionCredentialsInput,
   type IngestionSettingsUpdateRequest,
 } from '@smart-farm/shared/schemas/ingestion';
@@ -50,13 +58,16 @@ import {
 } from '@smart-farm/shared/schemas/manual-entry';
 import {
   NotificationListResponseSchema,
+  NotificationMemoListResponseSchema,
+  NotificationMemoViewSchema,
   PushStatusResponseSchema,
   ReadAllResponseSchema,
   UnreadCountResponseSchema,
+  type NotificationMemoInput,
   type ReadAllRequest,
 } from '@smart-farm/shared/schemas/notification';
 import {
-  StatusCodeDefinitionSchema,
+  StatusCodeSaveResponseSchema,
   type StatusCodeCreateRequest,
   type StatusCodeUpdateRequest,
 } from '@smart-farm/shared/schemas/status-code';
@@ -82,6 +93,26 @@ export function listNotifications(api: ApiClient, params: NotificationListParams
 export function markNotificationRead(api: ApiClient, notificationId: string) {
   return api.command(API_PATHS.notificationRead(notificationId), {
     method: 'POST',
+  });
+}
+
+/** 通知のメモ（入力の古い順。全件。共有。ADR-0019 の D-42）。 */
+export function listNotificationMemos(api: ApiClient, notificationId: string) {
+  return api.request(API_PATHS.notificationMemos(notificationId), {
+    schema: NotificationMemoListResponseSchema,
+  });
+}
+
+/** 通知にメモを追記する（追記のみ。編集・削除はない。手動入力と同じ権限）。 */
+export function addNotificationMemo(
+  api: ApiClient,
+  notificationId: string,
+  input: NotificationMemoInput,
+) {
+  return api.request(API_PATHS.notificationMemos(notificationId), {
+    method: 'POST',
+    body: input,
+    schema: NotificationMemoViewSchema,
   });
 }
 
@@ -117,6 +148,11 @@ export function getPushStatus(api: ApiClient, endpoint?: string) {
 /** 購読を登録する。暗号鍵（keys）は、サーバーが本文つきで配信するために保存する（なければ、本文なし）。 */
 export function subscribePush(api: ApiClient, subscription: PushSubscriptionDetails) {
   return api.command('/push-subscription', { method: 'PUT', body: subscription });
+}
+
+/** この端末（購読の宛先）へ、テスト通知を送る（通知の記録は作らない。1 分に 1 回まで。#159 SC-15-2）。 */
+export function sendTestPush(api: ApiClient, endpoint: string) {
+  return api.command('/push-subscription/test', { method: 'POST', body: { endpoint } });
 }
 
 export function unsubscribePush(api: ApiClient, endpoint?: string) {
@@ -156,7 +192,10 @@ export function updateManualEntry(api: ApiClient, entryId: string, input: Manual
 }
 
 export function deleteManualEntry(api: ApiClient, entryId: string) {
-  return api.command(API_PATHS.manualEntry(entryId), { method: 'DELETE' });
+  return api.request(API_PATHS.manualEntry(entryId), {
+    method: 'DELETE',
+    schema: ManualEntrySaveResponseSchema,
+  });
 }
 
 export function listManualEntries(api: ApiClient, params: ManualEntryListParams) {
@@ -170,6 +209,8 @@ export interface AuditLogListParams {
   readonly operation?: AuditOperation;
   readonly actor?: string;
   readonly targetType?: string;
+  /** 対象の ID（その対象の履歴だけを返す。#155）。 */
+  readonly targetId?: string;
   readonly from?: string;
   readonly to?: string;
   readonly direction?: SortDirection;
@@ -183,7 +224,11 @@ export function listAuditLogs(api: ApiClient, params: AuditLogListParams) {
 
 // 設備（SC-10）
 export function createEquipment(api: ApiClient, input: EquipmentCreateRequest) {
-  return api.request('/equipment', { method: 'POST', body: input, schema: EquipmentSchema });
+  return api.request('/equipment', {
+    method: 'POST',
+    body: input,
+    schema: EquipmentSaveResponseSchema,
+  });
 }
 
 export function updateEquipment(
@@ -194,12 +239,21 @@ export function updateEquipment(
   return api.request(API_PATHS.equipment(equipmentId), {
     method: 'PUT',
     body: input,
-    schema: EquipmentSchema,
+    schema: EquipmentSaveResponseSchema,
   });
 }
 
+/** 削除中の設備（データの削除が終わっていない設備。D-28）。 */
+export function getEquipmentDeletions(api: ApiClient) {
+  return api.request('/equipment/deletions', { schema: EquipmentDeletionListResponseSchema });
+}
+
+/** 設備を削除する。応答は、評価の状態（ADR-0014）。設備のデータの削除は、ジョブが行う（D-28）。 */
 export function deleteEquipment(api: ApiClient, equipmentId: string) {
-  return api.command(API_PATHS.equipment(equipmentId), { method: 'DELETE' });
+  return api.request(API_PATHS.equipment(equipmentId), {
+    method: 'DELETE',
+    schema: EvaluationWriteResponseSchema,
+  });
 }
 
 // ステータスコード（SC-12）
@@ -207,7 +261,7 @@ export function createStatusCode(api: ApiClient, input: StatusCodeCreateRequest)
   return api.request('/status-codes', {
     method: 'POST',
     body: input,
-    schema: StatusCodeDefinitionSchema,
+    schema: StatusCodeSaveResponseSchema,
   });
 }
 
@@ -215,33 +269,54 @@ export function updateStatusCode(api: ApiClient, code: string, input: StatusCode
   return api.request(API_PATHS.statusCode(code), {
     method: 'PUT',
     body: input,
-    schema: StatusCodeDefinitionSchema,
+    schema: StatusCodeSaveResponseSchema,
   });
 }
 
+/** ステータスコードを削除する。応答は、評価の状態（ADR-0014）。 */
 export function deleteStatusCode(api: ApiClient, code: string) {
-  return api.command(API_PATHS.statusCode(code), { method: 'DELETE' });
+  return api.request(API_PATHS.statusCode(code), {
+    method: 'DELETE',
+    schema: EvaluationWriteResponseSchema,
+  });
 }
 
 // 判断基準（SC-13）
+/** 判断基準と、その版（ETag）。版は、更新・既定値へ戻す操作の If-Match に付ける（同時編集の検出。SC-13-1）。 */
 export function getCriteria(api: ApiClient, viewpointId: string) {
-  return api.request(API_PATHS.viewpointCriteria(viewpointId), {
+  return api.requestWithEtag(API_PATHS.viewpointCriteria(viewpointId), {
     schema: CriteriaViewSchema,
   });
 }
 
-export function updateCriteria(api: ApiClient, viewpointId: string, input: CriteriaUpdateRequest) {
+export function updateCriteria(
+  api: ApiClient,
+  viewpointId: string,
+  input: CriteriaUpdateRequest,
+  etag: string | undefined,
+) {
   return api.request(API_PATHS.viewpointCriteria(viewpointId), {
     method: 'PUT',
     body: input,
-    schema: CriteriaViewSchema,
+    ...(etag === undefined ? {} : { ifMatch: etag }),
+    schema: CriteriaSaveResponseSchema,
   });
 }
 
-export function resetCriteria(api: ApiClient, viewpointId: string) {
+/** 入力途中の閾値の影響（保存済みの評価結果に当てた再判定。保存しない。SC-13-2）。 */
+export function previewCriteria(api: ApiClient, viewpointId: string, input: CriteriaUpdateRequest) {
+  return api.request(API_PATHS.viewpointCriteriaPreview(viewpointId), {
+    method: 'POST',
+    body: input,
+    schema: CriteriaPreviewResponseSchema,
+  });
+}
+
+export function resetCriteria(api: ApiClient, viewpointId: string, etag: string | undefined) {
   return api.request(API_PATHS.viewpointCriteriaReset(viewpointId), {
     method: 'POST',
-    schema: CriteriaViewSchema,
+    ...(etag === undefined ? {} : { ifMatch: etag }),
+    schema: CriteriaSaveResponseSchema,
   });
 }
 
@@ -299,7 +374,7 @@ export function testFederation(api: ApiClient) {
   });
 }
 
-// 取り込み設定・状況（SC-11）
+// 取り込み（SC-11）
 export function getIngestionSettings(api: ApiClient) {
   return api.request('/ingestion/settings', { schema: IngestionSettingsResponseSchema });
 }
@@ -312,23 +387,66 @@ export function updateIngestionSettings(api: ApiClient, input: IngestionSettings
   });
 }
 
-/** 認証情報を登録・上書きする（書き込み専用。応答は、状態だけ）。 */
-export function saveIngestionCredentials(
+/** 設備ごとの接続を保存する（Issue #367。ADR-0026）。認証情報の値は含めない。 */
+export function saveEquipmentConnection(
   api: ApiClient,
-  sourceId: string,
+  equipmentId: string,
+  connection: FileServerConnection,
+) {
+  return api.request(API_PATHS.ingestionEquipmentConnection(equipmentId), {
+    method: 'PUT',
+    body: { connection },
+    schema: EquipmentConnectionResponseSchema,
+  });
+}
+
+/** 設備ごとの接続を削除する（削除のあとは、未設定。応答の接続は省略）。 */
+export function deleteEquipmentConnection(api: ApiClient, equipmentId: string) {
+  return api.request(API_PATHS.ingestionEquipmentConnection(equipmentId), {
+    method: 'DELETE',
+    schema: EquipmentConnectionResponseSchema,
+  });
+}
+
+/** 設備ごとの認証情報を登録・上書きする（書き込み専用。応答は、状態だけ）。 */
+export function saveEquipmentCredentials(
+  api: ApiClient,
+  equipmentId: string,
   input: IngestionCredentialsInput,
 ) {
-  return api.request(API_PATHS.ingestionCredentials(sourceId), {
+  return api.request(API_PATHS.ingestionEquipmentCredentials(equipmentId), {
     method: 'PUT',
     body: input,
     schema: IngestionCredentialStatusSchema,
   });
 }
 
-export function testIngestionConnection(api: ApiClient, sourceId: string) {
-  return api.request(API_PATHS.ingestionTest(sourceId), {
+/** その設備だけの接続テスト。 */
+export function testEquipmentConnection(api: ApiClient, equipmentId: string) {
+  return api.request(API_PATHS.ingestionEquipmentTest(equipmentId), {
     method: 'POST',
     schema: ConnectionTestResponseSchema,
+  });
+}
+
+/**
+ * 取り込み用のファイルを、置く前に検査する（保存しない。Issue #565）。本文は、ファイルの内容そのもの（JSON の包みは付けない）。
+ * 置けない内容は、エラーでなく、`ok: false` と理由（problems）で返る。
+ */
+export function checkSourceFile(api: ApiClient, equipmentId: string, content: string) {
+  return api.request(API_PATHS.ingestionSourceFileCheck(equipmentId), {
+    method: 'POST',
+    textBody: content,
+    schema: SourceFileInspectionSchema,
+  });
+}
+
+/** 取り込み用のファイルを、設備のファイルのパスに置く（検査して置く。置けない内容は 400）。 */
+export function placeSourceFile(api: ApiClient, equipmentId: string, content: string) {
+  return api.request(API_PATHS.ingestionSourceFile(equipmentId), {
+    method: 'PUT',
+    textBody: content,
+    schema: SourceFilePlacedSchema,
   });
 }
 

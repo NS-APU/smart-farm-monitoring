@@ -83,7 +83,7 @@ describe('Web Push の実配信: 送る内容', () => {
     expect(request?.endpoint).toBe(ENDPOINT);
     expect(request?.keys).toEqual(KEYS);
     expect(JSON.parse(request?.payload ?? 'null')).toEqual({
-      title: '異常検知',
+      title: '状態の悪化',
       message: '【異常】安全性（ハウス1）: 転倒を検知しました',
       notificationId: 'n-1',
     });
@@ -97,7 +97,7 @@ describe('Web Push の実配信: 送る内容', () => {
   });
 
   it.each([
-    ['STATUS_CHANGE', '異常検知'],
+    ['STATUS_CHANGE', '状態の悪化'],
     ['INGESTION_FAILURE', 'データ取得失敗'],
     ['FEDERATION_EXPIRED', '連携の期限切れ'],
   ] as const)('見出しは、通知の種別（%s）の表示名（%s）', async (kind, title) => {
@@ -216,6 +216,7 @@ describe('Web Push の実配信: 秘密鍵', () => {
       secrets: {
         get: () => Promise.reject(new Error('AccessDenied: arn:aws:ssm:dummy-parameter')),
         set: () => Promise.resolve(),
+        delete: () => Promise.resolve(),
         status: () => Promise.resolve({ configured: false }),
       },
       publicKey: PUBLIC_KEY,
@@ -247,5 +248,70 @@ describe('Web Push の実配信: 秘密鍵', () => {
       expect(text).not.toContain(KEYS.auth);
       expect(text).not.toContain(ENDPOINT);
     });
+  });
+});
+
+describe('Web Push の実配信: テスト通知（deliverTest。#159 SC-15-2）', () => {
+  it('購読の宛先・鍵へ、テスト通知の本文を送る。通知の記録（通知の識別子）は、持たない。VAPID と有効期限を付ける', async () => {
+    const { notifier, requests } = setup();
+
+    const outcome = await notifier.deliverTest(subscription(), { ttlSeconds: 60 });
+
+    expect(outcome).toBe('DELIVERED');
+    expect(requests).toHaveLength(1);
+    const [request] = requests;
+    expect(request?.endpoint).toBe(ENDPOINT);
+    expect(request?.keys).toEqual(KEYS);
+    expect(JSON.parse(request?.payload ?? 'null')).toEqual({
+      title: 'テスト通知',
+      message: 'これは、通知の設定の確認のための、テスト通知です。この端末に届いています',
+      notificationId: 'test',
+    });
+    expect(request?.ttlSeconds).toBe(60);
+    expect(request?.urgency).toBe('high');
+    expect(request?.vapid).toEqual({
+      subject: SUBJECT,
+      publicKey: PUBLIC_KEY,
+      privateKey: DUMMY_PRIVATE_KEY,
+    });
+  });
+
+  it('鍵を持たない購読には、本文なしで送る', async () => {
+    const { notifier, requests } = setup();
+    const { keys, ...withoutKeys } = subscription();
+    expect(keys).toBeDefined();
+
+    await notifier.deliverTest(withoutKeys, { ttlSeconds: 60 });
+
+    expect(requests[0]?.payload).toBeNull();
+    expect(requests[0]?.keys).toBeUndefined();
+  });
+
+  it.each([404, 410])('HTTP %i は、購読が無効（SUBSCRIPTION_GONE）', async (statusCode) => {
+    const { notifier } = setup({ respond: respondWith(statusCode) });
+
+    expect(await notifier.deliverTest(subscription(), { ttlSeconds: 60 })).toBe(
+      'SUBSCRIPTION_GONE',
+    );
+  });
+
+  it('HTTP 503・例外・秘密鍵の未設定は、配信の失敗（NotificationDeliveryError）。メッセージに、宛先・鍵を含めない', async () => {
+    const unavailable = setup({ respond: respondWith(503) });
+    const refused = setup({
+      respond: () => Promise.reject(new Error(`connect ECONNREFUSED ${ENDPOINT}`)),
+    });
+    const withoutSecret = setup({ secrets: {} });
+
+    for (const { notifier } of [unavailable, refused, withoutSecret]) {
+      const failure = notifier.deliverTest(subscription(), { ttlSeconds: 60 });
+      await expect(failure).rejects.toBeInstanceOf(NotificationDeliveryError);
+      await failure.catch((error: unknown) => {
+        const text = String(error);
+        expect(text).not.toContain(ENDPOINT);
+        expect(text).not.toContain(KEYS.auth);
+        expect(text).not.toContain(DUMMY_PRIVATE_KEY);
+      });
+    }
+    expect(withoutSecret.requests).toHaveLength(0);
   });
 });

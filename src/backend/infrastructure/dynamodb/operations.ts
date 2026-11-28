@@ -61,6 +61,50 @@ export function isTransactionConditionFailed(error: unknown): boolean {
   return reasons?.some((reason) => reason.Code === 'ConditionalCheckFailed') ?? false;
 }
 
+/**
+ * トランザクションが、同じ項目への別のトランザクションと競合して取り消されたか（`TransactionConflict`）。
+ * 条件の不成立（`ConditionalCheckFailed`）が含まれるときは、競合ではない（条件の結果を優先する）。
+ */
+export function isTransactionConflict(error: unknown): boolean {
+  if (errorName(error) !== 'TransactionCanceledException') {
+    return false;
+  }
+  const reasons = (error as { CancellationReasons?: readonly { Code?: string }[] })
+    .CancellationReasons;
+  return (
+    (reasons?.some((reason) => reason.Code === 'TransactionConflict') ?? false) &&
+    !(reasons?.some((reason) => reason.Code === 'ConditionalCheckFailed') ?? false)
+  );
+}
+
+/** 競合の再試行の回数の上限（初回を含む）。 */
+const CONFLICT_MAX_ATTEMPTS = 8;
+const CONFLICT_BASE_DELAY_MS = 10;
+const CONFLICT_MAX_DELAY_MS = 500;
+
+/**
+ * トランザクションが、同じ項目への同時のトランザクションと競合して取り消されたとき（`TransactionConflict`）、
+ * 待ち時間（倍々。ばらつきつき）を置いて、再試行する。DynamoDB は、この取り消しを、再試行すべき一時的なものとしている。
+ * 上限の回数を超えたときは、最後のエラーを投げる。競合以外のエラーは、そのまま投げる。
+ */
+export async function retryOnTransactionConflict<Result>(
+  action: () => Promise<Result>,
+  options: { readonly attempts?: number } = {},
+): Promise<Result> {
+  const attempts = options.attempts ?? CONFLICT_MAX_ATTEMPTS;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      if (!isTransactionConflict(error) || attempt >= attempts) {
+        throw error;
+      }
+      const ceiling = Math.min(CONFLICT_MAX_DELAY_MS, CONFLICT_BASE_DELAY_MS * 2 ** attempt);
+      await sleep(Math.random() * ceiling);
+    }
+  }
+}
+
 export async function getItem(
   db: Database,
   table: string,
@@ -71,6 +115,39 @@ export async function getItem(
     new GetCommand({ TableName: table, Key: key, ConsistentRead: options.consistent ?? true }),
   );
   return result.Item;
+}
+
+/**
+ * 条件つきの書き込み。条件を満たさないとき（`ConditionalCheckFailed`）は、書き込まずに false を返す（ほかのエラーは、そのまま投げる）。
+ * 条件の式は、属性の名前（`#n`）・値（`:v`）を、`names`・`values` で指定する（`data` などの予約語を使うため）。
+ */
+export async function putItemIf(
+  db: Database,
+  table: string,
+  item: Item,
+  condition: {
+    readonly expression: string;
+    readonly names?: Record<string, string>;
+    readonly values?: Item;
+  },
+): Promise<boolean> {
+  try {
+    await db.client.send(
+      new PutCommand({
+        TableName: table,
+        Item: item,
+        ConditionExpression: condition.expression,
+        ...(condition.names === undefined ? {} : { ExpressionAttributeNames: condition.names }),
+        ...(condition.values === undefined ? {} : { ExpressionAttributeValues: condition.values }),
+      }),
+    );
+    return true;
+  } catch (error) {
+    if (isConditionalCheckFailed(error)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function putItem(

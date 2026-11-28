@@ -50,6 +50,35 @@ export type EvaluationResult = z.infer<typeof EvaluationResultSchema>;
 export const DATA_FRESHNESS_VALUES = ['FRESH', 'STALE', 'NONE', 'MANUAL'] as const;
 export type DataFreshness = (typeof DATA_FRESHNESS_VALUES)[number];
 
+/**
+ * 「現在」: 観点の短期の評価（直近 24 時間。温度などの水準は直近値、ステータスコードは最新のコード）の結果。
+ * 値・状態・診断・推奨アクションは、短期の 1 回の評価から作る（「期間」の結果と混ぜない）。評価の時刻は、「期間」と別に持つ（FR-5.6。#591）。
+ */
+export const CurrentResultSchema = z.object({
+  status: EvaluationStatusSchema,
+  /** 主要メトリクス（名前 → 値。欠損は null）。 */
+  metrics: MetricValuesSchema,
+  metricStatuses: z.record(z.string(), EvaluationStatusSchema),
+  statusDetail: StatusDetailSchema.nullable(),
+  diagnosticMessage: z.string(),
+  recommendedAction: z.string(),
+  evaluatedFrom: IsoDateTimeSchema,
+  evaluatedTo: IsoDateTimeSchema,
+  /** この結果を評価した日時（「期間」の評価の日時とは、別）。 */
+  evaluatedAt: IsoDateTimeSchema,
+  isCustomCriteria: z.boolean(),
+});
+export type CurrentResult = z.infer<typeof CurrentResultSchema>;
+
+/** ステータスごとの観点の数。 */
+export const StatusCountsSchema = z.object({
+  NORMAL: z.number(),
+  CAUTION: z.number(),
+  ERROR: z.number(),
+  UNKNOWN: z.number(),
+});
+export type StatusCounts = z.infer<typeof StatusCountsSchema>;
+
 /** ダッシュボードの観点のカード。 */
 export const ViewpointCardSchema = z.object({
   viewpointId: ViewpointIdSchema,
@@ -72,6 +101,10 @@ export const ViewpointCardSchema = z.object({
   isCustomCriteria: z.boolean(),
   /** 実際に表示に使った視点（短期評価を持たない観点で SHORT を指定された場合は LONG）。 */
   horizonUsed: HorizonSchema,
+  /** 「期間」（上の値・診断・推奨アクション。選んだ期間の評価）を評価した日時。評価前の観点は null。 */
+  evaluatedAt: IsoDateTimeSchema.nullable(),
+  /** 「現在」（短期の評価）。短期を持たない観点、または、短期の評価がまだない観点は null（FR-5.6。#591）。 */
+  current: CurrentResultSchema.nullable(),
 });
 export type ViewpointCard = z.infer<typeof ViewpointCardSchema>;
 
@@ -104,12 +137,12 @@ export const DashboardResponseSchema = z.object({
       thresholdMinutes: z.number(),
     }),
   ),
-  summary: z.object({
-    NORMAL: z.number(),
-    CAUTION: z.number(),
-    ERROR: z.number(),
-    UNKNOWN: z.number(),
-  }),
+  /** 短期・長期のうち悪い方（通知・連携の基準）の観点の数。画面は、下の 2 つを、別々に示す。 */
+  summary: StatusCountsSchema,
+  /** 「現在」（短期の評価）の観点の数。短期を持たない観点は、数えない。 */
+  currentSummary: StatusCountsSchema,
+  /** 「期間」（選んだ期間の評価）の観点の数。 */
+  periodSummary: StatusCountsSchema,
   viewpoints: z.array(ViewpointCardSchema),
 });
 export type DashboardResponse = z.infer<typeof DashboardResponseSchema>;
@@ -175,6 +208,11 @@ export const ViewpointDetailResponseSchema = z.object({
   selected: HorizonDiagnosisSchema.nullable(),
   /** 表示に使った視点の、全メトリクス（定義の順）。 */
   metrics: z.array(MetricRowSchema),
+  /**
+   * 「現在」（短期の評価）の、全メトリクス（`metrics` と同じ行・順。値と指標の判定は、短期の結果）。
+   * 短期を持たない観点、短期の評価がまだない観点は null（FR-5.6。#591）。
+   */
+  currentMetrics: z.array(MetricRowSchema).nullable(),
   /** 判定に使う判断基準（既定値、または変更後）。 */
   criteria: ViewpointCriteriaSchema,
   /** ステータスコードのカテゴリでも判定するか（判断基準は編集できない。FR-5.7）。 */

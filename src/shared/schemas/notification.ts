@@ -99,6 +99,15 @@ export const NotificationMemoSchema = z.object({
 });
 export type NotificationMemo = z.infer<typeof NotificationMemoSchema>;
 
+/**
+ * 通知のメモの API の応答（追記・一覧）。入力者の表示名（`enteredByName`）を、読み取り時に、現在のユーザー名から付ける
+ * （保存しない。削除済みの利用者は、項目を出さない。画面は、「ユーザー名（ID）」で表示する。Issue #154 の SC-07-7）。
+ */
+export const NotificationMemoViewSchema = NotificationMemoSchema.extend({
+  enteredByName: z.string().optional(),
+});
+export type NotificationMemoView = z.infer<typeof NotificationMemoViewSchema>;
+
 /** POST /notifications/:id/memos の入力。前後の空白を除き、1〜2000 文字（手動入力のメモと同じ上限）。 */
 export const NotificationMemoInputSchema = z.object({
   body: z
@@ -111,7 +120,7 @@ export type NotificationMemoInput = z.infer<typeof NotificationMemoInputSchema>;
 
 /** GET /notifications/:id/memos の応答（入力の古い順。全件）。 */
 export const NotificationMemoListResponseSchema = z.object({
-  items: z.array(NotificationMemoSchema),
+  items: z.array(NotificationMemoViewSchema),
 });
 export type NotificationMemoListResponse = z.infer<typeof NotificationMemoListResponseSchema>;
 
@@ -190,6 +199,10 @@ export const PushSubscriptionRequestSchema = z.object({
 });
 export type PushSubscriptionRequest = z.infer<typeof PushSubscriptionRequestSchema>;
 
+/** POST /push-subscription/test の入力（この端末の購読の宛先。#159 SC-15-2）。 */
+export const PushTestRequestSchema = z.object({ endpoint: PushEndpointSchema });
+export type PushTestRequest = z.infer<typeof PushTestRequestSchema>;
+
 /** GET /push-subscription の応答。 */
 export const PushStatusResponseSchema = z.object({
   /** サーバーが Web Push の配信を使える（公開鍵の設定がある）か。 */
@@ -198,6 +211,11 @@ export const PushStatusResponseSchema = z.object({
   publicKey: z.string().nullable(),
   /** ログイン中の利用者が、有効な購読を持つか。 */
   isSubscribed: z.boolean(),
+  /**
+   * 購読が、配信の結果（購読の解除・期限切れ）で、サーバーに無効にされたか（#159 SC-15-6）。画面は、「無効になりました。もう一度有効にしてください」と示す。
+   * 宛先を指定したときは、その端末の購読。指定しないときは、有効な購読がなく、無効にされた購読がある利用者。有効な購読があれば false。
+   */
+  isInvalidated: z.boolean(),
 });
 export type PushStatusResponse = z.infer<typeof PushStatusResponseSchema>;
 

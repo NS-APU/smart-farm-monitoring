@@ -1,7 +1,7 @@
 /**
  * 組み立て（コンポジションルート）。設定に応じて、ポートの実装（アダプタ）を選び、サービスを組み立てる。
  * 本番（production）は、DynamoDB の Repository・Cognito の認証を使う（設定で必須。ADR-0009）。ファイルサーバー・農業情報基盤・
- * Web Push は、評価環境では、モックのまま（実ファイルサーバーなどは未実装。ファイルサーバーのモックの S3 版は Issue #77）。
+ * Web Push は、評価環境では、モックのまま（農業情報基盤は NGSI-LD のアダプタ。ファイルサーバーは HTTP。ADR-0025）。
  * ローカル（local）・テスト（test）では、メモリ／ファイルの Repository、ファイルサーバーと農業情報基盤の
  * モック、Web Push のダミー、アプリ内の認証、操作できる時計を使う（AWS なしで E2E・負荷テストを動かす）。
  */
@@ -28,6 +28,10 @@ import {
   type CriteriaAdminService,
 } from '../application/evaluation/criteria-admin-service.ts';
 import {
+  createCriteriaPreviewService,
+  type CriteriaPreviewService,
+} from '../application/evaluation/criteria-preview-service.ts';
+import {
   createIngestionAdminService,
   type IngestionAdminService,
 } from '../application/ingestion/ingestion-admin-service.ts';
@@ -40,6 +44,10 @@ import {
   createEvaluationService,
   type EvaluationService,
 } from '../application/evaluation/evaluation-service.ts';
+import {
+  createEquipmentDeletionService,
+  type EquipmentDeletionService,
+} from '../application/equipment/equipment-deletion-service.ts';
 import {
   createEquipmentService,
   type EquipmentService,
@@ -115,14 +123,19 @@ import { createLocalCredentials } from '../infrastructure/local/local-credential
 import { createLocalRepositories } from '../infrastructure/local/local-repositories.ts';
 import type { LocalStore } from '../infrastructure/local/local-store.ts';
 import { hashPassword } from '../infrastructure/local/password-hasher.ts';
-import { createDirectoryFileSource } from '../infrastructure/local/mock-file-server.ts';
-import { createS3FileSource } from '../infrastructure/s3/s3-file-source.ts';
 import { isBlockedConnectionHost } from '../infrastructure/http/address-guard.ts';
 import { readHttpFile, statHttpFile } from '../infrastructure/http/http-file-reader.ts';
 import { probeHttpFile } from '../infrastructure/http/http-probe.ts';
+import {
+  createEquipmentConnections,
+  type EquipmentConnections,
+} from '../application/ingestion/equipment-connections.ts';
 import { createRoutingFileSource } from '../application/ingestion/routing-file-source.ts';
 import { createMemorySecretPort } from '../infrastructure/local/env-secret.ts';
 import { createSsmSecretPort, type SsmCommandSender } from '../infrastructure/ssm/ssm-secret.ts';
+import { createS3HostedFileStore } from '../infrastructure/s3/s3-hosted-file-store.ts';
+import { createMemoryHostedFileStore } from '../infrastructure/local/memory-hosted-file-store.ts';
+import type { HostedFileStorePort } from '../application/ports/hosted-file-store-port.ts';
 import { createLibrarySender } from '../infrastructure/web-push/library-sender.ts';
 import {
   createWebPushNotifier,
@@ -172,10 +185,12 @@ export interface Container {
   readonly policy: AccessPolicy;
   readonly authService: AuthService;
   readonly equipmentService: EquipmentService;
+  readonly equipmentDeletionService: EquipmentDeletionService;
   readonly statusCodeService: StatusCodeService;
   readonly auditService: AuditService;
   readonly manualEntryService: ManualEntryService;
   readonly criteriaAdminService: CriteriaAdminService;
+  readonly criteriaPreviewService: CriteriaPreviewService;
   readonly userService: UserService;
   readonly facilityAccessService: FacilityAccessService;
   readonly facilityScope: FacilityScopeService;
@@ -193,11 +208,15 @@ export interface Container {
   /** 農業情報基盤との連携（連携キューへの追加・送信。Issue #177）。 */
   readonly federationService: FederationService;
   readonly ingestionSettings: IngestionSettings;
+  /** 設備ごとのファイルサーバーの接続（Issue #367。ADR-0026）。 */
+  readonly equipmentConnections: EquipmentConnections;
   readonly jobRunner: JobRunner;
   /** ジョブの排他（EventBridge からの起動。ジョブの Lambda が使う。Issue #76）。 */
   readonly jobLock: JobLockPort;
   /** 秘密情報の保管先（接続先の認証情報・Web Push の秘密鍵。値は、ログ・画面・履歴に出さない）。 */
   readonly secrets: SecretPort;
+  /** 画面から置く、取り込み用のファイルの保管先（#565。ADR-0027）。本番で、バケットが未設定のときは、undefined（機能なし）。 */
+  readonly hostedFileStore: HostedFileStorePort | undefined;
   readonly scheduler: Scheduler;
   /** 開発用の操作（時計・モック・リセット）。環境変数 DEV_API_ENABLED で明示した場合だけ有効（既定・本番では undefined）。 */
   readonly dev: DevApiDeps | undefined;
@@ -220,14 +239,14 @@ export interface ContainerOverrides {
   readonly settings?: Partial<AppSettings>;
   /** Cognito のクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly cognitoClient?: Pick<CognitoIdentityProviderClient, 'send'>;
-  /** S3 のクライアント（テストで、偽のクライアントに差し替える）。 */
-  readonly s3Client?: Pick<S3Client, 'send'>;
   /** パラメータストアのクライアント（テストで、偽のクライアントに差し替える）。 */
   readonly ssmClient?: SsmCommandSender;
   /** Web Push の送信の関数（テストで、偽物に差し替える。WEB_PUSH_DELIVERY=vapid のとき使う）。 */
   readonly webPushSender?: WebPushSender;
   /** 農業情報基盤への送信（テストで、偽物に差し替える。FEDERATION_MODE=ngsi-ld のとき使う）。 */
   readonly federationTransport?: NgsiLdTransport;
+  /** 画面から置くファイルの保管先（テストで、差し替える。null は、保管先が設定されていない状態。#565）。 */
+  readonly hostedFileStore?: HostedFileStorePort | null;
 }
 
 /** 設定の既定値に、環境変数の設定と、テストの上書きを重ねる。 */
@@ -301,9 +320,11 @@ function buildDynamoStorage(
 }
 
 function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort): Storage {
+  // 時計を渡し、ログ類の期限切れ（90 日。#230）を、DynamoDB の TTL と同じく、消す
   const { repositories, store } = createLocalRepositories(
     config.persistence === 'file'
       ? {
+          clock,
           filePath: config.dataFile,
           onFlushError: (error) => {
             logger.error('データファイルの書き込みに失敗しました。再び書き込みます', {
@@ -311,7 +332,7 @@ function buildLocalStorage(config: AppConfig, logger: Logger, clock: ClockPort):
             });
           },
         }
-      : {},
+      : { clock },
   );
   store.load();
   return {
@@ -334,6 +355,7 @@ function buildCognitoIdentity(
   storage: Storage,
   clock: ClockPort,
   overrides: ContainerOverrides,
+  loginFailurePolicy: LoginFailurePolicy,
 ): Identity {
   return createCognitoIdentity({
     client:
@@ -346,6 +368,7 @@ function buildCognitoIdentity(
     users: storage.repositories.users,
     clock,
     throttle: storage.loginThrottle,
+    loginFailurePolicy,
   });
 }
 
@@ -363,7 +386,6 @@ function buildAdapters(
   const { repositories, store, prepare } = storage;
 
   const faults = {
-    fileServer: createFaultController(),
     federation: createFaultController(),
     webPush: createFaultController(),
   };
@@ -371,19 +393,6 @@ function buildAdapters(
     federation: createMockFederation({ faults: faults.federation, clock }),
     webPush: createDummyWebPush({ faults: faults.webPush }),
   };
-  // ファイルサーバーのモック: S3 のバケットを指定したとき（Lambda）は S3、そうでなければ、ローカルのディレクトリ。
-  // S3 版には、停止・遅延の再現（faults）は、ない（開発用 API は、本番で無効）
-  const fileSource =
-    config.fileServerBucket === undefined
-      ? createDirectoryFileSource({
-          rootDirectory: config.fileServerDirectory,
-          faults: faults.fileServer,
-          clock,
-        })
-      : createS3FileSource({
-          client: overrides.s3Client ?? new S3Client({}),
-          bucket: config.fileServerBucket,
-        });
   // 秘密情報の保管先: パラメータストア（本番・開発サイト）、または、メモリ（ローカル・テスト）。使う場所は、#119・#207・#241 など
   // メモリの保管先は、開発用のリセットで消すため、変数に持つ（パラメータストアのときは、使わない）
   const memorySecrets = createMemorySecretPort();
@@ -419,7 +428,7 @@ function buildAdapters(
           }),
           credentials: createLocalCredentials({ hash: hashPassword }),
         }
-      : buildCognitoIdentity(config.cognito, storage, clock, overrides);
+      : buildCognitoIdentity(config.cognito, storage, clock, overrides, config.loginFailurePolicy);
   // 取り込みの解釈の仕様（FormatProfile）は、不変のため、取り込みと設定の参照で共有する
   const profiles = createDefaultFormatProfileRegistry();
   // 農業情報基盤への連携: FEDERATION_MODE=ngsi-ld のとき、NGSI-LD のアダプタ（接続先・テナント・context は、設定から読む。ADR-0024）。
@@ -431,6 +440,19 @@ function buildAdapters(
   const federationTransport =
     overrides.federationTransport ??
     createHttpNgsiLdTransport({ allowPrivateAddresses: config.httpFileSourceAllowPrivate });
+  // 画面から置くファイルの保管先（#565）: バケットがあれば S3、なければ、本番は機能なし・それ以外はメモリ。テストの差し替えが優先
+  const hostedFileStore: HostedFileStorePort | undefined =
+    overrides.hostedFileStore === null
+      ? undefined
+      : (overrides.hostedFileStore ??
+        (config.hostedFileServerBucket !== undefined
+          ? createS3HostedFileStore({
+              client: new S3Client({}),
+              bucket: config.hostedFileServerBucket,
+            })
+          : config.mode === 'production'
+            ? undefined
+            : createMemoryHostedFileStore(clock)));
   const federationPort: FederationPort =
     config.federationMode === 'ngsi-ld'
       ? createNgsiLdFederation({
@@ -452,8 +474,8 @@ function buildAdapters(
     federationTransport,
     federationConnection,
     webPush,
-    fileSource,
     secrets,
+    hostedFileStore,
     policy,
     auth,
     credentials,
@@ -474,7 +496,7 @@ interface ServiceDeps {
 
 /** アプリケーション層のサービスを、アダプタに結び付けて組み立てる。 */
 function buildServices({ config, settings, adapters, logger, clock, ids }: ServiceDeps) {
-  const { repositories, webPush, fileSource, policy, auth, credentials, profiles } = adapters;
+  const { repositories, webPush, policy, auth, credentials, profiles } = adapters;
   const authService = createAuthService({ auth, policy, logger });
 
   const criteria = createCriteriaService({ criteria: repositories.criteria });
@@ -482,6 +504,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
+    users: repositories.users,
     recipients: createNotificationRecipients({ repositories, policy }),
     webPush,
     clock,
@@ -509,11 +532,12 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     logger,
   });
   const ingestionSettings = createIngestionSettings(repositories.settings);
-  // 取り込み元の接続方式で振り分ける（MOCK は、モック・S3。HTTP は、設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
+  // HTTP のファイルサーバーのファイルソース（設備ごとのファイルパスで、接続テスト・一覧・取得。Issue #172・#119）
   const allowPrivateAddresses = config.httpFileSourceAllowPrivate;
+  const equipmentConnections = createEquipmentConnections(repositories.settings);
   const routedFileSource = createRoutingFileSource({
-    base: fileSource,
     ingestionSettings,
+    equipmentConnections,
     equipment: repositories.equipment,
     secrets: adapters.secrets,
     maxFileBytes: settings.ingestion.maxFileBytes,
@@ -536,7 +560,12 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     settings: settings.ingestion,
     logger,
   });
-  const auditService = createAuditService({ auditLogs: repositories.auditLogs, clock, ids });
+  const auditService = createAuditService({
+    auditLogs: repositories.auditLogs,
+    users: repositories.users,
+    clock,
+    ids,
+  });
   const manualEntryService = createManualEntryService({
     repositories,
     audit: auditService,
@@ -550,24 +579,43 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const criteriaAdminService = createCriteriaAdminService({
     criteriaService: criteria,
     criteriaRepository: repositories.criteria,
+    users: repositories.users,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
+    clock,
+    logger,
+  });
+  const criteriaPreviewService = createCriteriaPreviewService({
+    criteriaService: criteria,
+    repositories,
+  });
+  const equipmentDeletionService = createEquipmentDeletionService({
+    repositories,
+    secrets: adapters.secrets,
+    listSources: () => ingestionSettings.listSources(),
+    audit: auditService,
     clock,
     logger,
   });
   const equipmentService = createEquipmentService({
     equipment: repositories.equipment,
     settings: repositories.settings,
+    deletion: equipmentDeletionService,
+    equipmentConnections,
     federation,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     clock,
     logger,
   });
   const statusCodeService = createStatusCodeService({
     statusCodes: repositories.statusCodes,
+    unregisteredStatusCodes: repositories.unregisteredStatusCodes,
     audit: auditService,
     evaluation: evaluationService,
+    evaluationOnWrite: config.evaluationOnWrite,
     logger,
   });
   const userService = createUserService({
@@ -588,6 +636,7 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
   const facilityScope = createFacilityScopeService({ repositories });
   const ingestionAdminService = createIngestionAdminService({
     ingestionSettings,
+    equipmentConnections,
     ingestion: repositories.ingestion,
     equipment: repositories.equipment,
     federation: repositories.federation,
@@ -595,10 +644,12 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     profiles,
     audit: auditService,
     secrets: adapters.secrets,
+    hostedFileStore: adapters.hostedFileStore,
+    clock,
+    logger,
     isConnectionAllowed: (connection) =>
-      connection.type !== 'HTTP' ||
-      config.httpFileSourceAllowPrivate ||
-      !isBlockedConnectionHost(connection.host),
+      config.httpFileSourceAllowPrivate || !isBlockedConnectionHost(connection.host),
+    staleAfterIntervals: config.staleAfterIntervals,
   });
   const facilityLogService = createFacilityLogService({ repositories });
   const federationAdminService = createFederationAdminService({
@@ -613,12 +664,15 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     subscriptions: repositories.pushSubscriptions,
     clock,
     publicKey: config.webPushPublicKey,
+    webPush,
+    ioTimeoutMs: settings.notification.ioTimeoutMs,
   });
   const jobRunner = createJobRunner({
     ingestion: ingestionService,
     evaluation: evaluationService,
     federation,
     notifications: notificationService,
+    equipmentDeletion: equipmentDeletionService,
   });
   const scheduler = createScheduler({ runner: jobRunner, clock, plans: DEFAULT_SCHEDULE, logger });
 
@@ -628,12 +682,15 @@ function buildServices({ config, settings, adapters, logger, clock, ids }: Servi
     notificationService,
     evaluationService,
     ingestionSettings,
+    equipmentConnections,
     ingestionService,
     federation,
     auditService,
     manualEntryService,
     criteriaAdminService,
+    criteriaPreviewService,
     equipmentService,
+    equipmentDeletionService,
     statusCodeService,
     userService,
     facilityAccessService,
@@ -704,7 +761,6 @@ function buildDevControls(
       mocks.webPush.reset();
       // 連携先の接続先など、メモリの秘密情報も、初期の状態に戻す（設定の保管は、データのリセットで戻る）
       adapters.memorySecrets.clear();
-      faults.fileServer.reset();
       faults.federation.reset();
       faults.webPush.reset();
       clock.unfreeze();
@@ -776,10 +832,12 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
     policy,
     authService: services.authService,
     equipmentService: services.equipmentService,
+    equipmentDeletionService: services.equipmentDeletionService,
     statusCodeService: services.statusCodeService,
     auditService: services.auditService,
     manualEntryService: services.manualEntryService,
     criteriaAdminService: services.criteriaAdminService,
+    criteriaPreviewService: services.criteriaPreviewService,
     userService: services.userService,
     facilityAccessService: services.facilityAccessService,
     facilityScope: services.facilityScope,
@@ -799,15 +857,17 @@ export function createContainer(config: AppConfig, overrides: ContainerOverrides
       settings,
       clock,
     }),
-    observationQuery: createObservationQuery({ repositories }),
+    observationQuery: createObservationQuery({ repositories, clock }),
     notificationService: services.notificationService,
     evaluationService: services.evaluationService,
     ingestionService: services.ingestionService,
     federationService: services.federation,
     ingestionSettings: services.ingestionSettings,
+    equipmentConnections: services.equipmentConnections,
     jobRunner: services.jobRunner,
     jobLock: adapters.jobLock,
     secrets: adapters.secrets,
+    hostedFileStore: adapters.hostedFileStore,
     scheduler: services.scheduler,
     dev,
     trustedProxyHops: config.trustedProxyHops,

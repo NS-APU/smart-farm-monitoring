@@ -2,7 +2,7 @@
  * シナリオ: 手動入力のデータが、別の利用者に共有され、修正・削除が、全員の画面に反映される（複数の利用者。利用者A・Bのブラウザを切り替える）。
  *
  * 通るユースケース（use-cases.md）:
- *   UC-07 Aが、センサーの値を手動で補完（異常な温度） → UC-10 異常の通知 → UC-22 Bが、通知を確認 → UC-20 Bが、取り込み済みデータの一覧で、手動入力として閲覧
+ *   UC-07 Aが、センサーの値を手動で補完（異常な温度） → UC-10 異常の通知 → UC-22 Bが、通知を確認 → UC-20 Bが、計測データの一覧で、手動入力として閲覧
  *   → UC-02・UC-04 Bが、診断・根拠（手動入力のデータ）・推奨アクションを確認 → UC-18 Bが、Aの入力を修正（正しい値へ）
  *   → UC-01 Aが、ダッシュボードで改善を確認 → UC-20 Aが、一覧で修正後の値を確認 → UC-18 Aが、変更履歴で、登録（A）・編集（B）を確認
  *   → UC-18 Aが、入力を削除 → UC-20・UC-01 Bの一覧・ダッシュボードから消え、観点は不明になる → UC-18 Bが、履歴で削除を確認
@@ -19,6 +19,7 @@ import {
   alignBrowserClock,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   prepareApp,
@@ -26,14 +27,18 @@ import {
 } from './support/app.ts';
 import { fillEntryForm, saveEntry } from './support/entry.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
-import { userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { userLabelText, itemListQuery } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const notificationRows = (page: Page) => page.getByTestId('notification-row');
+/** 項目ごとの行（並べ替え「カテゴリ」の一覧）と、1 回の計測ごとの行（日時順。既定。Issue #363）。 */
 const observationRows = (page: Page) => page.getByTestId('observation-row');
+const measurementRows = (page: Page) => page.getByTestId('measurement-row');
 const entryRows = (page: Page) => page.getByTestId('entry-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
 const environmentBadge = (page: Page) =>
-  page.getByTestId('card-environmentalAdaptability').locator('.status-badge');
+  page.getByTestId('period-environmentalAdaptability').locator('.status-badge');
 
 test.describe('シナリオ: 手動入力のデータの共有・修正・削除（UC-07 → UC-10 → UC-22 → UC-20 → UC-02・04 → UC-18 → UC-01 → UC-20 → UC-18）', () => {
   test('Aが入力した異常な値を、Bが通知・一覧・診断で確認して修正し、Aが改善と履歴を確認する。Aが削除すると、Bの画面からも消え、観点は不明になる', async ({
@@ -56,7 +61,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     });
     await saveEntry(page);
     await expect(
-      page.getByTestId('related-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('related-period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
 
     // UC-22: 利用者Bが、ログインして、未読の通知を確認する
@@ -64,36 +69,43 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await openAs(b.page, '/', USER_B);
     await expect(unreadBadge(b.page)).not.toHaveText('0');
     const unreadForB = Number(await unreadBadge(b.page).textContent());
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     const alert = notificationRows(b.page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: 'ハウス1' });
+      .filter({ hasText: '環境センサー1' });
     await expect(alert).toContainText('異常');
     await expect(alert).toHaveAttribute('data-read-state', 'UNREAD');
 
-    // UC-20: Bが、取り込み済みデータの一覧で、Aの入力を、手動入力として閲覧する
-    await goToMenu(b.page, '取り込み済みデータ');
-    await expect(observationRows(b.page)).toHaveCount(4);
-    const temperature = observationRows(b.page).filter({ hasText: '温度' });
-    await expect(temperature).toContainText('40℃');
-    await expect(temperature).toContainText('手動入力');
-    await expect(temperature).toContainText('環境センサー1');
+    // UC-20: Bが、計測データの一覧で、Aの入力を、手動入力として閲覧する
+    // Aの 1 回の入力（4 項目）は、1 回の計測として、1 行にまとめて示す
+    await goToMenu(b.page, '計測データ');
+    await expect(measurementRows(b.page)).toHaveCount(1);
+    const measurement = measurementRows(b.page);
+    await expect(measurement.getByTestId('measurement-item')).toHaveCount(4);
+    await expect(measurement).toContainText('手動入力');
+    await expect(measurement).toContainText('環境センサー1');
+    await expect(
+      measurement.getByTestId('measurement-item').filter({ hasText: '温度' }),
+    ).toContainText('40℃');
     await shot(b.page, testInfo, 'scenario-entry-b-observations');
 
     // UC-02・UC-04: Bが、通知から、診断・根拠のデータ（手動入力）・推奨アクションを確認する。確認した通知は、Bの既読になる
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     await alert.getByRole('link', { name: '詳細を確認' }).click();
+    await expect(b.page.getByRole('dialog', { name: /の詳細$/ })).toBeVisible();
     await expect(b.page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
+    await expandPanel(b.page, 'source-data');
     await expect(b.page.getByTestId('source-data')).toContainText('手動入力');
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(unreadBadge(b.page)).toHaveText(String(unreadForB - 1));
     await shot(b.page, testInfo, 'scenario-entry-b-detail');
+    await b.page.keyboard.press('Escape');
 
     // UC-18: Bが、入力済みデータの一覧で、Aの入力を、正しい値（22℃）へ修正する（入力者は、Aのまま）
     await advanceMinutes(request, 1);
     await b.page.goto('/data-entry/list');
     await expect(entryRows(b.page)).toHaveCount(1);
-    await expect(entryRows(b.page).first()).toContainText(userIdText('e2e-user'));
+    await expect(entryRows(b.page).first()).toContainText(userLabelText(E2E_USER));
     await entryRows(b.page).first().getByRole('button', { name: '修正' }).click();
     const editor = b.page.getByTestId('entry-edit');
     await fillEntryForm(
@@ -103,7 +115,9 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     );
     await shot(b.page, testInfo, 'scenario-entry-b-edit');
     await editor.getByRole('button', { name: '保存', exact: true }).click();
-    await expect(b.page.getByTestId('entries-notice')).toHaveText('修正しました');
+    await expect(b.page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+      '修正しました',
+    );
     await b.page.goto('/');
     await expect(environmentBadge(b.page)).toContainText('正常');
 
@@ -115,19 +129,24 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     );
 
     // UC-20: Aが、一覧で、修正後の値を確認する（値は1件のまま。元の値は残らない）
-    await goToMenu(page, '取り込み済みデータ');
-    await expect(observationRows(page)).toHaveCount(4);
-    await expect(observationRows(page).filter({ hasText: '温度' })).toContainText('22℃');
-    await expect(observationRows(page).filter({ hasText: '温度' })).not.toContainText('40℃');
+    await goToMenu(page, '計測データ');
+    await expect(measurementRows(page)).toHaveCount(1);
+    await expect(measurementRows(page).getByTestId('measurement-item')).toHaveCount(4);
+    const temperatureItem = measurementRows(page)
+      .getByTestId('measurement-item')
+      .filter({ hasText: '温度' });
+    await expect(temperatureItem).toContainText('22℃');
+    await expect(temperatureItem).not.toContainText('40℃');
 
     // UC-18: Aが、入力済みデータの一覧・変更履歴で、Bによる修正を確認する
     await page.goto('/data-entry/list');
     await expect(entryRows(page).first()).toContainText('Bが再確認し、22℃に訂正した');
     await expect(entryRows(page).first()).not.toContainText('e2e-user-b');
+    await expect(entryRows(page).first()).not.toContainText(USER_B.userName);
     await page.goto('/data-entry/history?targetType=manual-entry');
     await expect(auditRows(page)).toHaveCount(2);
     await expect(auditRows(page).nth(0)).toContainText('編集');
-    await expect(auditRows(page).nth(0)).toContainText('e2e-user-b');
+    await expect(auditRows(page).nth(0)).toContainText(userLabelText(USER_B));
     await expect(auditRows(page).nth(1)).toContainText('登録');
     await shot(page, testInfo, 'scenario-entry-a-history');
 
@@ -137,11 +156,13 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await entryRows(page).first().getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('入力データを削除しますか');
     await confirmDialog(page, '削除');
-    await expect(page.getByTestId('entries-notice')).toHaveText('削除しました');
+    await expect(page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+      '削除しました',
+    );
     await expect(entryRows(page)).toHaveCount(0);
 
     // UC-20・UC-01: Bの一覧・ダッシュボードからも消え、観点は、データなしの「不明」になる
-    await b.page.goto('/observations');
+    await b.page.goto(`/observations${itemListQuery()}`);
     await expect(observationRows(b.page)).toHaveCount(0);
     await expect(b.page.getByTestId('observations-empty')).toBeVisible();
     await b.page.goto('/');
@@ -152,14 +173,14 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     await b.page.goto('/data-entry/history?targetType=manual-entry');
     await expect(auditRows(b.page)).toHaveCount(3);
     await expect(auditRows(b.page).nth(0)).toContainText('削除');
-    await expect(auditRows(b.page).nth(0)).toContainText(userIdText('e2e-user'));
+    await expect(auditRows(b.page).nth(0)).toContainText(userLabelText(E2E_USER));
     await expect(auditRows(b.page).nth(1)).toContainText('編集');
     await expect(auditRows(b.page).nth(2)).toContainText('登録');
 
     // UC-22: Aの通知の既読は、Bの既読とは独立（Bが確認した通知も、Aには未読のまま）
     await page.goto('/notifications');
     await expect(
-      notificationRows(page).filter({ hasText: '環境適応性' }).filter({ hasText: 'ハウス1' }),
+      notificationRows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
     ).toHaveAttribute('data-read-state', 'UNREAD');
     await b.context.close();
   });

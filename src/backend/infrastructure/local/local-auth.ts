@@ -27,7 +27,7 @@ import {
   LOGIN_FAILED_MESSAGE,
   LOGIN_FAILURE_LIMIT,
   LOGIN_FAILURE_WINDOW_MINUTES,
-  LOGIN_LOCKED_MESSAGE,
+  loginLockedMessage,
   REFRESH_TOKEN_TTL_DAYS,
   SESSION_INVALID_MESSAGE,
   type LoginFailurePolicy,
@@ -164,7 +164,7 @@ export function createLocalAuth(deps: LocalAuthDeps): AuthPort {
   return {
     async login(credentials, clientKey) {
       if (recentFailures(clientKey).length >= failurePolicy.limit) {
-        throw new AppError('RATE_LIMITED', LOGIN_LOCKED_MESSAGE);
+        throw new AppError('RATE_LIMITED', loginLockedMessage(failurePolicy));
       }
       const parsedUserId = UserIdSchema.safeParse(credentials.userId);
       const user = parsedUserId.success ? await users.get(parsedUserId.data) : undefined;

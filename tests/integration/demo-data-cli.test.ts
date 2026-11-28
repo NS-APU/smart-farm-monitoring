@@ -1,6 +1,6 @@
 /**
  * 評価環境のデモデータを、投入・リセットするコマンド（`pnpm demo-data`。Issue #77。ADR-0012）の結合テスト。
- * DynamoDB は DynamoDB Local、S3 は偽の S3（実際の AWS には、接続しない）。
+ * DynamoDB は DynamoDB Local（実際の AWS には、接続しない）。
  */
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -13,7 +13,6 @@ import { createSystemClock } from '../../src/backend/infrastructure/local/clocks
 import { parseConfig } from '../../src/backend/runtime/config.ts';
 import { createContainer } from '../../src/backend/runtime/container.ts';
 import { runDemoDataCli } from '../../src/backend/runtime/demo-data-cli.ts';
-import { createFakeS3 } from '../support/fake-s3.ts';
 import {
   createDynamoTestDatabase,
   dropDynamoTestTables,
@@ -21,8 +20,6 @@ import {
 } from '../support/dynamodb-test-database.ts';
 
 afterAll(dropDynamoTestTables);
-
-const BUCKET = 'dummy-file-server';
 
 function output() {
   const lines: string[] = [];
@@ -33,22 +30,24 @@ function output() {
   };
 }
 
-async function setup(withBucket = true) {
+async function setup() {
   const database = createDynamoTestDatabase();
   await database.ready;
-  const s3 = createFakeS3({ bucket: BUCKET });
   const env: Record<string, string> = {
     PERSISTENCE: 'dynamodb',
     DYNAMODB_ENDPOINT: dynamoTestClientOptions().endpoint ?? '',
     DYNAMODB_OBSERVATIONS_TABLE: database.tables.observations,
     DYNAMODB_MAIN_TABLE: database.tables.main,
-    ...(withBucket ? { FILE_SERVER_S3_BUCKET: BUCKET } : {}),
   };
   // 結果の確認用の、コマンドとは別のコンテナ
   const container = createContainer(parseConfig({ ...env, AWS_REGION: 'ap-northeast-1' }));
-  const run = (args: string[], overrides: Parameters<typeof runDemoDataCli>[3] = {}) => {
+  const run = (
+    args: string[],
+    overrides: Parameters<typeof runDemoDataCli>[3] = {},
+    extraEnv: Record<string, string> = {},
+  ) => {
     const out = output();
-    return runDemoDataCli(args, env, out, { s3Client: s3, ...overrides }).then((exitCode) => ({
+    return runDemoDataCli(args, { ...env, ...extraEnv }, out, overrides).then((exitCode) => ({
       exitCode,
       lines: out.lines,
     }));
@@ -58,7 +57,7 @@ async function setup(withBucket = true) {
     statusCodes: (await container.repositories.statusCodes.list()).length,
     users: (await container.repositories.users.list()).length,
   });
-  return { database, s3, container, run, counts };
+  return { database, container, run, counts };
 }
 
 describe('pnpm demo-data seed', () => {
@@ -134,9 +133,7 @@ describe('pnpm demo-data seed', () => {
       };
       const out = output();
 
-      const exitCode = await runDemoDataCli([command, '--yes'], env, out, {
-        s3Client: createFakeS3({ bucket: BUCKET }),
-      });
+      const exitCode = await runDemoDataCli([command, '--yes'], env, out);
 
       expect(exitCode).toBe(1);
       expect(out.lines).toHaveLength(1);
@@ -165,6 +162,144 @@ describe('pnpm demo-data seed', () => {
   });
 });
 
+describe('pnpm demo-data use-http-feed（デモ用の HTTP 配信。Issue #344。ADR-0025）', () => {
+  const FEED_URL = 'https://demo-feed.example.com/';
+  const APPLIED = '取り込みを、デモ用の HTTP 配信に向けました';
+
+  /** 設備ごとの接続（設備 ID の順）。 */
+  async function equipmentConnectionsOf(container: Awaited<ReturnType<typeof setup>>['container']) {
+    const saved = await container.equipmentConnections.list();
+    return [...saved].sort(([left], [right]) => left.localeCompare(right));
+  }
+
+  it('seed のあとに、デモの設備ごとの接続を HTTP にする（--url）。接続先は、出力しない。何度実行しても、同じ', async () => {
+    const { run, container } = await setup();
+    await run(['seed']);
+
+    const first = await run(['use-http-feed', '--url', FEED_URL]);
+    const second = await run(['use-http-feed', '--url', FEED_URL]);
+
+    expect(first).toEqual({
+      exitCode: 0,
+      lines: [`info: ${APPLIED}（接続を設定した設備 2 件・ファイルのパスを設定した設備 2 件）`],
+    });
+    expect(second).toEqual({
+      exitCode: 0,
+      lines: [`info: ${APPLIED}（接続を設定した設備 2 件・ファイルのパスを設定した設備 0 件）`],
+    });
+    expect(first.lines.join('')).not.toContain('demo-feed.example.com');
+    expect(await equipmentConnectionsOf(container)).toEqual([
+      [
+        'ROBOT-01',
+        expect.objectContaining({ type: 'HTTP', protocol: 'HTTPS', host: 'demo-feed.example.com' }),
+      ],
+      ['SENSOR-01', expect.objectContaining({ type: 'HTTP', host: 'demo-feed.example.com' })],
+    ]);
+  });
+
+  it('設備ごとの接続も、デモの設備（ロボット・環境センサー）に保存する。何度実行しても、同じ（Issue #367。ADR-0026）', async () => {
+    const { run, container } = await setup();
+    await run(['seed']);
+
+    await run(['use-http-feed', '--url', FEED_URL]);
+    await run(['use-http-feed', '--url', FEED_URL]);
+
+    const saved = await container.equipmentConnections.list();
+    expect([...saved.keys()].sort()).toEqual(['ROBOT-01', 'SENSOR-01']);
+    for (const connection of saved.values()) {
+      expect(connection).toMatchObject({
+        type: 'HTTP',
+        protocol: 'HTTPS',
+        host: 'demo-feed.example.com',
+        authMethod: 'NONE',
+      });
+    }
+  });
+
+  it('seed の設備（ファイルのパスを持たない。以前に投入したものも同じ）に、ファイルのパスを設定する。環境変数 DEMO_FEED_URL でも指定できる', async () => {
+    const { run, container } = await setup();
+    await run(['seed']);
+    expect(
+      (await container.repositories.equipment.get(toEquipmentId('ROBOT-01')))?.sourceFilePath,
+    ).toBeUndefined();
+
+    const result = await run(['use-http-feed'], {}, { DEMO_FEED_URL: FEED_URL });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines[0]).toContain('ファイルのパスを設定した設備 2 件');
+    expect(
+      (await container.repositories.equipment.get(toEquipmentId('ROBOT-01')))?.sourceFilePath,
+    ).toBe('/robot/latest.json');
+    expect(
+      (await container.repositories.equipment.get(toEquipmentId('SENSOR-01')))?.sourceFilePath,
+    ).toBe('/environment-sensor/latest.json');
+  });
+
+  it('seed に --url を付けると、投入のあとに、同じ設定をする', async () => {
+    const { run, container } = await setup();
+
+    const result = await run(['seed', '--url', FEED_URL]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toHaveLength(2);
+    expect(result.lines[0]).toContain('デモデータを投入しました');
+    expect(result.lines[1]).toContain(APPLIED);
+    expect(await equipmentConnectionsOf(container)).toEqual([
+      ['ROBOT-01', expect.objectContaining({ type: 'HTTP' })],
+      ['SENSOR-01', expect.objectContaining({ type: 'HTTP' })],
+    ]);
+  });
+
+  it.each([
+    [['use-http-feed'], '配信の URL が必要です'],
+    [['use-http-feed', '--url'], '--url には、配信の URL を指定してください'],
+    [['use-http-feed', '--url', '--yes'], '--url には、配信の URL を指定してください'],
+    [
+      ['use-http-feed', '--url', 'https://demo-feed.example.com/a'],
+      '接続先の URL が正しくありません',
+    ],
+  ])(
+    'URL がない・正しくなければ、何も変えず、エラー（終了コード 1）: %j',
+    async (args, message) => {
+      const { run, container } = await setup();
+      await run(['seed']);
+
+      const result = await run(args);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines[0]).toContain(message);
+      // 何も変えない = 既定のまま（設備ごとの接続は、未設定）
+      expect(await equipmentConnectionsOf(container)).toEqual([]);
+    },
+  );
+
+  it('デモの設備がなければ、先に seed を実行するよう、エラー（終了コード 1）。seed の URL が正しくなければ、投入しない', async () => {
+    const { run, counts } = await setup();
+
+    const noEquipment = await run(['use-http-feed', '--url', FEED_URL]);
+    const badUrl = await run(['seed', '--url', 'ftp://demo-feed.example.com/']);
+
+    expect(noEquipment.exitCode).toBe(1);
+    expect(noEquipment.lines[0]).toContain('pnpm demo-data seed');
+    expect(badUrl.exitCode).toBe(1);
+    expect(badUrl.lines[0]).toContain('接続先の URL が正しくありません');
+    expect((await counts()).equipment).toBe(0);
+  });
+
+  it('本番サイト（SFM_ENVIRONMENT=production）では、実行しない', async () => {
+    const { run } = await setup();
+
+    const result = await run(
+      ['use-http-feed', '--url', FEED_URL],
+      {},
+      { SFM_ENVIRONMENT: 'production' },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]).toContain('開発サイト専用');
+  });
+});
+
 describe('pnpm demo-data reset', () => {
   async function seeded() {
     const context = await setup();
@@ -183,13 +318,11 @@ describe('pnpm demo-data reset', () => {
     };
     await createLoginThrottle(db, clock).recordFailure('203.0.113.10');
     await createJobLock(db, clock).tryAcquire('job:JB-04', 600_000);
-    context.s3.putObject('robot/robot-20261020T0000Z.json', '{}', new Date());
-    context.s3.putObject('environment-sensor/latest.json', 'x', new Date());
     return { ...context, throttle: createLoginThrottle(db, clock), lock: createJobLock(db, clock) };
   }
 
   it('--yes がなければ、何も消さず、消す対象の件数と、実行の方法を示す', async () => {
-    const { run, counts, s3 } = await seeded();
+    const { run, counts } = await seeded();
 
     const result = await run(['reset']);
 
@@ -197,13 +330,12 @@ describe('pnpm demo-data reset', () => {
     expect(result.lines).toHaveLength(1);
     expect(result.lines[0]).toContain('を削除します。元に戻せません');
     expect(result.lines[0]).toContain('--yes を付けます');
-    expect(result.lines[0]).toContain('S3 のファイル 2 件');
+    expect(result.lines[0]).not.toContain('S3');
     expect((await counts()).equipment).toBe(3);
-    expect(s3.keys()).toHaveLength(2);
   });
 
-  it('--yes で、設備・観測値・評価・S3 のファイルを消し、ユーザー・ログイン失敗の記録・ジョブのロックは残す。ステータスコードは、入れ直す', async () => {
-    const { run, counts, s3, container, throttle, lock } = await seeded();
+  it('--yes で、設備・観測値・評価を消し、ユーザー・ログイン失敗の記録・ジョブのロックは残す。ステータスコードは、入れ直す', async () => {
+    const { run, counts, container, throttle, lock } = await seeded();
 
     const result = await run(['reset', '--yes']);
 
@@ -213,7 +345,6 @@ describe('pnpm demo-data reset', () => {
     );
     expect(result.lines[0]).toContain(KEPT_PARTITIONS.join('・'));
     expect(await counts()).toEqual({ equipment: 0, statusCodes: 8, users: 1 });
-    expect(s3.keys()).toEqual([]);
     const observations = await container.repositories.observations.query(
       { equipmentIds: ['ROBOT-01'] as never, includeDeleted: true },
       { limit: 10 },
@@ -222,6 +353,22 @@ describe('pnpm demo-data reset', () => {
     // 残すもの
     expect(await throttle.isLocked('203.0.113.10')).toBe(false);
     expect(await lock.tryAcquire('job:JB-04', 600_000)).toBeNull();
+  });
+
+  it('未登録のコード値の記録（UNREGSC。Issue #158）も、消す（残すパーティションに含めない）', async () => {
+    const { run, container } = await seeded();
+    await container.repositories.unregisteredStatusCodes.record(
+      'ERR_X',
+      3,
+      new Date('2026-11-01T01:00:00.000Z'),
+    );
+    expect(KEPT_PARTITIONS).not.toContain('UNREGSC');
+    expect(await container.repositories.unregisteredStatusCodes.list()).toHaveLength(1);
+
+    const result = await run(['reset', '--yes']);
+
+    expect(result.exitCode).toBe(0);
+    expect(await container.repositories.unregisteredStatusCodes.list()).toEqual([]);
   });
 
   it('リセットのあとに、もう一度、投入できる', async () => {
@@ -234,48 +381,24 @@ describe('pnpm demo-data reset', () => {
     expect((await counts()).equipment).toBe(3);
   });
 
-  it('S3 のバケットを指定しなければ、DynamoDB のデータだけを消す', async () => {
-    const context = await setup(false);
-    await context.run(['seed']);
-    context.s3.putObject('robot/a.json', '{}', new Date());
-
-    const result = await context.run(['reset', '--yes']);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.lines[0]).not.toContain('S3 のファイル');
-    expect((await context.counts()).equipment).toBe(0);
-    expect(context.s3.keys()).toEqual(['robot/a.json']);
-  });
-
-  it('AWS のエラーは、名前だけを出力する（メッセージの、アカウント ID・ARN を、出力しない）。DynamoDB のデータは、消さない', async () => {
-    const { run, counts } = await seeded();
-    const failing = {
-      send: () =>
-        Promise.reject(
-          Object.assign(
-            new Error('User: arn:aws:sts::123456789012:assumed-role/example is not authorized'),
-            { name: 'AccessDenied' },
-          ),
-        ),
+  it('AWS のエラーは、名前だけを出力する（メッセージの、アカウント ID・ARN・接続先を、出力しない）。到達できない接続先の DynamoDB で、reset が失敗しても、同じ', async () => {
+    // 閉じているポート（DynamoDB Local は、使わない）。SDK の失敗の内容は、メッセージに接続先を含む
+    const env = {
+      PERSISTENCE: 'dynamodb',
+      DYNAMODB_ENDPOINT: 'http://127.0.0.1:1',
+      DYNAMODB_OBSERVATIONS_TABLE: 'dummy-observations',
+      DYNAMODB_MAIN_TABLE: 'dummy-main',
+      AWS_ACCESS_KEY_ID: 'dummyaccesskeyid',
+      AWS_SECRET_ACCESS_KEY: 'dummysecretaccesskey',
+      AWS_MAX_ATTEMPTS: '1',
     };
+    const out = output();
 
-    const result = await run(['reset', '--yes'], { s3Client: failing as never });
+    const exitCode = await runDemoDataCli(['reset', '--yes'], env, out);
 
-    expect(result.exitCode).toBe(1);
-    expect(result.lines.join('\n')).toContain('AccessDenied');
-    expect(result.lines.join('\n')).not.toContain('123456789012');
-    // S3 の削除に失敗したので、DynamoDB の削除には、進まない
-    expect((await counts()).equipment).toBe(3);
-  });
-
-  it('S3 のファイルの一部を消せなかったときは、エラーにして、DynamoDB のデータは、消さない', async () => {
-    const { run, counts, s3 } = await seeded();
-    s3.failDeletes();
-
-    const result = await run(['reset', '--yes']);
-
-    expect(result.exitCode).toBe(1);
-    expect(result.lines.join('\n')).toContain('demo-data reset に失敗しました');
-    expect((await counts()).equipment).toBe(3);
+    expect(exitCode).toBe(1);
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0]).toContain('demo-data reset に失敗しました: AWS の操作に失敗しました（');
+    expect(out.lines[0]).not.toContain('127.0.0.1');
   });
 });

@@ -1,5 +1,5 @@
 /**
- * 取り込み設定（取り込み元ごとの接続先の参照名・有効／無効）。認証情報の値は持たない（NFR-5.4）。
+ * 取り込み設定（取り込み元ごとの有効／無効。接続・認証情報は、設備ごと。#367）。認証情報の値は持たない（NFR-5.4）。
  * 設定の変更（UC-15）は IngestionAdminService が行い、ここに保存する。保存がなければ、既定の取り込み元を返す。
  */
 
@@ -33,23 +33,21 @@ const LEGACY_PROFILE_IDS: Readonly<Record<string, string>> = {
   'environment-sensor-csv': 'environment-sensor-json',
 };
 
-/** 既定の取り込み元。接続先は、ローカルではファイルサーバーのモック（Q-002 が確定するまで）。 */
+/**
+ * 既定の取り込み元。接続は、設備ごと（画面・API で、HTTP の接続先を設定する。ADR-0025・ADR-0026）。
+ */
 function defaultIngestionSources(): IngestionSource[] {
   return [
     {
       sourceId: ROBOT_SOURCE_ID,
       kind: 'ROBOT',
       profileId: 'robot-json',
-      connectionRef: 'FILE_SERVER_MOCK',
-      connection: { type: 'MOCK' },
       isEnabled: true,
     },
     {
       sourceId: ENVIRONMENT_SENSOR_SOURCE_ID,
       kind: 'SENSOR',
       profileId: 'environment-sensor-json',
-      connectionRef: 'FILE_SERVER_MOCK',
-      connection: { type: 'MOCK' },
       isEnabled: true,
     },
   ];

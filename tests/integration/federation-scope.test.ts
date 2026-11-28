@@ -55,39 +55,47 @@ describe('農業情報基盤へ連携するデータの範囲', () => {
       name: '範囲確認のコード',
       category: 'NORMAL',
     });
-    await send(context, 'PUT', '/viewpoints/environmentalAdaptability/criteria', {
-      criteria: [
-        {
-          indicator: 'temperatureCelsius',
-          kind: 'RANGE',
-          thresholds: { errorLower: 0, normalLower: 10, normalUpper: 25, errorUpper: 35 },
-          label: '範囲確認の温度',
-        },
-        {
-          indicator: 'humidityPercent',
-          kind: 'RANGE',
-          thresholds: { errorLower: 30, normalLower: 40, normalUpper: 80, errorUpper: 90 },
-          label: '湿度',
-        },
-        {
-          indicator: 'illuminanceLux',
-          kind: 'RANGE',
-          thresholds: {
-            errorLower: 10000,
-            normalLower: 20000,
-            normalUpper: 40000,
-            errorUpper: 50000,
+    // 判断基準の更新は、現在の版（ETag）を If-Match に付ける（SC-13-1）
+    const criteriaPath = '/viewpoints/environmentalAdaptability/criteria';
+    const criteriaEtag = (await send(context, 'GET', criteriaPath)).headers.get('etag') ?? '';
+    const criteriaUpdate = await context.request(criteriaPath, {
+      method: 'PUT',
+      headers: { 'if-match': criteriaEtag },
+      body: {
+        criteria: [
+          {
+            indicator: 'temperatureCelsius',
+            kind: 'RANGE',
+            thresholds: { errorLower: 0, normalLower: 10, normalUpper: 25, errorUpper: 35 },
+            label: '範囲確認の温度',
           },
-          label: '照度',
-        },
-        {
-          indicator: 'co2Ppm',
-          kind: 'RANGE',
-          thresholds: { errorLower: 200, normalLower: 800, normalUpper: 1000, errorUpper: 3000 },
-          label: 'CO2濃度',
-        },
-      ],
+          {
+            indicator: 'humidityPercent',
+            kind: 'RANGE',
+            thresholds: { errorLower: 30, normalLower: 40, normalUpper: 80, errorUpper: 90 },
+            label: '湿度',
+          },
+          {
+            indicator: 'illuminanceLux',
+            kind: 'RANGE',
+            thresholds: {
+              errorLower: 10000,
+              normalLower: 20000,
+              normalUpper: 40000,
+              errorUpper: 50000,
+            },
+            label: '照度',
+          },
+          {
+            indicator: 'co2Ppm',
+            kind: 'RANGE',
+            thresholds: { errorLower: 200, normalLower: 800, normalUpper: 1000, errorUpper: 3000 },
+            label: 'CO2濃度',
+          },
+        ],
+      },
     });
+    expect(criteriaUpdate.status).toBe(200);
     context.clock.advance(DAY_MS);
     await context.container.jobRunner.run('JB-03');
 

@@ -2,6 +2,7 @@
 
 - ステータス: 承認（2026-10-20。ユーザーの判断。Issue #77）
 - 日付: 2026-10-20
+- 更新（2026-11-18。#344）: **一部を置換した**（[ADR-0025](./0025-demo-http-file-feed.md)）。「1. ファイルサーバーのモックの S3 版」と「3. 合成データの定期生成」（S3 のバケット・S3 に置く Lambda・EventBridge のルール）は、デモ用の HTTP 配信に置き換え、削除した（#344 の PR 3a）。「2. デモデータの投入とリセット」は、有効（`reset` の S3 のファイルの削除は、S3 の廃止に伴い、なくなった）。ローカルのディレクトリのファイルサーバーのモックと、接続方式 MOCK も、廃止した（#344 の PR 3b。接続方式は HTTP の 1 つだけ。ローカルのデモは、`pnpm dev:demo-feed`）。以下の本文は、決定の時点（2026-10-20）の記録として残す
 - 関連: [ADR-0003](./0003-ingestion-adapter-and-provisional-spec.md)、[ADR-0007](./0007-dynamodb-table-design.md)、[ADR-0009](./0009-lambda-production-assembly.md)、[ADR-0011](./0011-jobs-eventbridge-lambda.md)、[security.md](../../20_development/security.md)
 
 目的: 顧客に評価いただく環境で、ログイン直後から画面を評価できるようにするための、ファイルサーバーのモック・デモデータ・リセットの決定を残す。
@@ -53,11 +54,11 @@
 
 ## 結果・トレードオフ
 
-- 取り込み元（`robot`・`environment-sensor`）の、ファイルの形式は、仮決めの FormatProfile（Q-001・Q-004）のまま。
+- 取り込み元（`robot`・`environment-sensor`）の、ファイルの形式は、ロボットは確定の FormatProfile（版 1.0.0。[robot-data-definition.md](../data/robot-data-definition.md)。提供元の定義は未入手。Q-001）、環境センサーは確定の FormatProfile（版 1.0.0。[environment-sensor-data-definition.md](../data/environment-sensor-data-definition.md)。機種・取得方式は未確定。Q-004）。
 - バケットのファイルは 3 日で消えるため、**取り込み済みのファイルが消えても、観測値は、DynamoDB に残る**（取り込み済みの記録も残る）。
 - **デモの設備が必要**: 合成データのファイルは、デモの設備（外部の識別子 `ROBOT-SAMPLE-01`・`SENSOR-SAMPLE-01`）に対応する。設備がない間（`reset` のあと、`seed` の前）に、取り込みが走ると、記録は、設備が見つからないとして棄却され、そのファイルは、取り込み済みの扱いになる（`seed` のあとに、同じ区間のファイルは、再び取り込まれない）。**`reset` と `seed` は、続けて実行する**。
 - 生成の Lambda は、`reset` のあとも、動き続ける。消した S3 のファイルは、次の実行（最長 15 分）で、直近 4 区間の分が、再び置かれる。
-- ファイルサーバーのモックが S3 になっても、実際のファイルサーバーのアダプタ（Q-002）は、別。同じ契約テストを適用して追加する（HTTP のアダプタは、#119 で追加し、同じ契約テストを適用した。[ADR-0023](./0023-http-file-source-per-equipment-file.md)。宇都宮大学のサーバーへの接続は #298）。
+- ファイルサーバーのモックが S3 になっても、実際のファイルサーバーのアダプタ（Q-002）は、別。同じ契約テストを適用して追加する（HTTP のアダプタは、#119 で追加し、同じ契約テストを適用した。[ADR-0023](./0023-http-file-source-per-equipment-file.md)。自前のファイルサーバーは ADR-0027。宇都宮大学のサーバーへの接続は、提供された場合に、別の Issue）。
 
 ## 検証（AWS）
 

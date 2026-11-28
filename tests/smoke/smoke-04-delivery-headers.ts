@@ -34,12 +34,23 @@ test('画面の応答: CSP・X-Frame-Options など。API の応答は、画面�
   expect(health.headers()['content-security-policy']).not.toBe(STATIC_CONTENT_SECURITY_POLICY);
 });
 
-test('画面の Cache-Control: index.html・sw.js・マニフェストは no-cache、assets/ は長期（immutable）', async ({
+test('画面の Cache-Control: index.html・sw.js・マニフェスト・アイコンは no-cache、assets/ は長期（immutable）', async ({
   request,
 }) => {
   const index = await request.get('/');
   expect(index.headers()['cache-control']).toBe('no-cache');
-  for (const path of ['/sw.js', '/manifest.webmanifest']) {
+  const staticFiles = [
+    '/sw.js',
+    '/manifest.webmanifest',
+    // アプリのアイコン（Issue #326）。favicon.ico は、ブラウザが自動で取得する（403 にならないこと）
+    '/icon.svg',
+    '/favicon.ico',
+    '/apple-touch-icon.png',
+    '/icon-192.png',
+    '/icon-512.png',
+    '/badge-72.png',
+  ];
+  for (const path of staticFiles) {
     const response = await request.get(path);
     expect(response.status(), path).toBe(200);
     expect(response.headers()['cache-control'], path).toBe('no-cache');

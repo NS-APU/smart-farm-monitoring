@@ -1,6 +1,6 @@
 /**
  * ファイルサーバーの接続設定（Issue #172。ADR-0022）のスキーマの単体テスト。
- * 接続方式（MOCK／HTTP）、プロトコル・ホスト・ポート・認証方式の検証。ファイルパスは、設備が持つ（ADR-0023。設備のテストで検証する）。認証情報の値は持たない（NFR-5.4）。
+ * 接続方式（HTTP のみ。MOCK は ADR-0025 で廃止）、プロトコル・ホスト・ポート・認証方式の検証。ファイルパスは、設備が持つ（ADR-0023。設備のテストで検証する）。認証情報の値は持たない（NFR-5.4）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -19,9 +19,9 @@ const VALID_HTTP = {
   authMethod: 'BASIC',
 } as const;
 
-describe('接続設定 MOCK', () => {
-  it('type だけで有効', () => {
-    expect(FileServerConnectionSchema.parse({ type: 'MOCK' })).toEqual({ type: 'MOCK' });
+describe('接続設定: 接続方式', () => {
+  it('MOCK（廃止した接続方式）は、不正', () => {
+    expect(FileServerConnectionSchema.safeParse({ type: 'MOCK' }).success).toBe(false);
   });
 });
 
@@ -117,17 +117,6 @@ describe('接続設定 HTTP: ファイルパス（設備ごとに移した。ADR
     const parsed = FileServerConnectionSchema.parse({ ...VALID_HTTP, filePath: '/data/old.json' });
 
     expect(parsed).not.toHaveProperty('filePath');
-    expect(
-      IngestionSourceSchema.parse({
-        sourceId: 'robot',
-        kind: 'ROBOT',
-        profileId: 'robot-json',
-        connectionRef: 'FILE_SERVER_MOCK',
-        connection: { ...VALID_HTTP, filePath: '/data/old.json' },
-        intervalMinutes: 15,
-        isEnabled: true,
-      }).connection,
-    ).not.toHaveProperty('filePath');
   });
 });
 
@@ -190,51 +179,54 @@ describe('接続設定 HTTP: 認証方式', () => {
   });
 });
 
-describe('取り込み元の設定（connection の追加）', () => {
+describe('取り込み元の設定（共通の接続の廃止。ADR-0026）', () => {
   const base = {
     sourceId: 'robot',
     kind: 'ROBOT',
     profileId: 'robot-json',
-    connectionRef: 'FILE_SERVER_MOCK',
-    intervalMinutes: 30,
     isEnabled: true,
   } as const;
 
-  it('connection がない既存の設定は、MOCK として読める（移行不要）', () => {
-    expect(IngestionSourceSchema.parse(base).connection).toEqual({ type: 'MOCK' });
+  it('取り込み元の設定は、接続・接続設定の参照名を持たない（有効／無効だけ）', () => {
+    expect(IngestionSourceSchema.parse(base)).toEqual(base);
   });
 
-  it('connection を持つ設定を読める', () => {
-    const parsed = IngestionSourceSchema.parse({ ...base, connection: VALID_HTTP });
-    expect(parsed.connection).toMatchObject({ type: 'HTTP', host: 'fileserver.example.ac.jp' });
+  it.each([
+    ['接続方式 MOCK（廃止）', { type: 'MOCK' }],
+    ['HTTP の接続', VALID_HTTP],
+    ['不正な HTTP の接続（読み込みは、失敗しない）', { ...VALID_HTTP, host: 'http://x' }],
+  ])(
+    '以前に保存された取り込み元の connection（%s）・connectionRef・intervalMinutes は、読み込むときに無視する',
+    (_name, connection) => {
+      const parsed = IngestionSourceSchema.parse({
+        ...base,
+        connectionRef: 'FILE_SERVER_MOCK',
+        connection,
+        intervalMinutes: 30,
+      });
+
+      expect(parsed).toEqual(base);
+    },
+  );
+
+  it('変更の入力は、{ sourceId, isEnabled } だけで足りる', () => {
+    expect(IngestionSourceUpdateSchema.parse({ sourceId: 'robot', isEnabled: false })).toEqual({
+      sourceId: 'robot',
+      isEnabled: false,
+    });
+    expect(IngestionSourceUpdateSchema.safeParse({ sourceId: 'robot' }).success).toBe(false);
   });
 
-  it('変更の入力: connection は省略できる（省略は、現在の接続設定を保つ）', () => {
+  it('変更の入力に、旧項目（connection・connectionRef・intervalMinutes）を含めても、無視する（不正な接続設定でも、拒否しない）', () => {
     const parsed = IngestionSourceUpdateSchema.parse({
       sourceId: 'robot',
       connectionRef: 'FILE_SERVER_MOCK',
+      connection: { ...VALID_HTTP, host: 'http://x' },
       intervalMinutes: 30,
       isEnabled: true,
     });
-    expect(parsed.connection).toBeUndefined();
-  });
 
-  it('変更の入力: connection を指定できる。不正な接続設定は、拒否する', () => {
-    const input = {
-      sourceId: 'robot',
-      connectionRef: 'FILE_SERVER_MOCK',
-      intervalMinutes: 30,
-      isEnabled: true,
-    };
-    expect(
-      IngestionSourceUpdateSchema.safeParse({ ...input, connection: VALID_HTTP }).success,
-    ).toBe(true);
-    expect(
-      IngestionSourceUpdateSchema.safeParse({
-        ...input,
-        connection: { ...VALID_HTTP, host: 'http://x' },
-      }).success,
-    ).toBe(false);
+    expect(parsed).toEqual({ sourceId: 'robot', isEnabled: true });
   });
 });
 
@@ -253,7 +245,7 @@ describe('接続先の表示（describeConnectionTarget）', () => {
     ).toBe('http://fileserver.example.ac.jp');
   });
 
-  it('MOCK は、undefined（接続先を持たない）', () => {
-    expect(describeConnectionTarget({ type: 'MOCK' })).toBeUndefined();
+  it('未設定（undefined）は、undefined（接続先を持たない）', () => {
+    expect(describeConnectionTarget(undefined)).toBeUndefined();
   });
 });

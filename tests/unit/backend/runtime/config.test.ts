@@ -26,6 +26,16 @@ const PRODUCTION_ADAPTERS = {
 };
 
 describe('実行設定（環境変数）', () => {
+  it('画面から置くファイルの保管先のバケット（HOSTED_FILE_SERVER_BUCKET。#565）は、省略できる。形式が正しくない名前は、エラー', () => {
+    expect(parseConfig({}).hostedFileServerBucket).toBeUndefined();
+    expect(
+      parseConfig({ HOSTED_FILE_SERVER_BUCKET: 'dummy-bucket-1' }).hostedFileServerBucket,
+    ).toBe('dummy-bucket-1');
+    for (const name of ['ab', 'UPPER-case', '-dummy-bucket', 'dummy_bucket']) {
+      expect(() => parseConfig({ HOSTED_FILE_SERVER_BUCKET: name }), name).toThrow(ConfigError);
+    }
+  });
+
   it('何も指定しなければ、ローカルの既定値になる（メモリ上のデータ、初期ユーザーなし、スケジューラ無効）', () => {
     const config = parseConfig({});
 
@@ -157,7 +167,6 @@ describe('実行設定（環境変数）', () => {
       PORT: '9000',
       PERSISTENCE: 'file',
       DATA_FILE: 'x/store.json',
-      FILE_SERVER_DIR: 'x/fs',
       SEED_MODE: 'DEMO',
       SCHEDULER_ENABLED: 'true',
       SCHEDULER_TICK_SECONDS: '5',
@@ -172,7 +181,6 @@ describe('実行設定（環境変数）', () => {
       port: 9000,
       persistence: 'file',
       dataFile: 'x/store.json',
-      fileServerDirectory: 'x/fs',
       seedMode: 'DEMO',
       schedulerEnabled: true,
       schedulerTickSeconds: 5,
@@ -504,19 +512,6 @@ describe('実行設定（環境変数）', () => {
 
     it('真偽値でない指定は、設定エラーにする', () => {
       expect(() => parseConfig({ DEV_API_ENABLED: 'yes' })).toThrow('DEV_API_ENABLED');
-    });
-  });
-
-  describe('ファイルサーバーのモックの S3 のバケット（FILE_SERVER_S3_BUCKET。Issue #77）', () => {
-    it('既定は、指定なし（ローカルのディレクトリ）。指定すれば、読み込む', () => {
-      expect(parseConfig({}).fileServerBucket).toBeUndefined();
-      expect(parseConfig({ FILE_SERVER_S3_BUCKET: 'dummy-file-server' }).fileServerBucket).toBe(
-        'dummy-file-server',
-      );
-    });
-
-    it('空の指定は、設定エラーにする', () => {
-      expect(() => parseConfig({ FILE_SERVER_S3_BUCKET: '' })).toThrow('FILE_SERVER_S3_BUCKET');
     });
   });
 

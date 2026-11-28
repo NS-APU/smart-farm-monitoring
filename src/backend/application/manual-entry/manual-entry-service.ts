@@ -3,14 +3,17 @@
  * 入力 → 検証 → 保存（1回の入力と、項目ごとの観測値）→ 変更履歴 → 評価の更新（→ 通知）。
  * 修正・削除は、論理削除を基本とし、観測値も削除済みにして、集計の対象から外す。
  * 修正・削除の後も、保存後と同じく評価を更新する（暫定。dev_spec.md 4章 No.21）。
+ * 一覧の応答には、入力者の表示名（現在のユーザー名。保存しない）を付ける（Issue #154 の SC-07-7）。
  */
 
 import {
   CATEGORY_LABELS,
   STATUS_CODE_ITEM_KEY,
   findItemDefinition,
+  manualCategoriesOfEquipmentType,
   type Category,
 } from '@smart-farm/shared/constants/items';
+import { EQUIPMENT_TYPE_LABELS } from '@smart-farm/shared/constants/status';
 import type { ManualEntrySortKey, SortDirection } from '@smart-farm/shared/constants/sorting';
 import {
   VIEWPOINT_IDS,
@@ -23,7 +26,9 @@ import type { Equipment } from '@smart-farm/shared/schemas/equipment';
 import {
   validateManualEntry,
   type ManualEntry,
+  type ManualEntryEvaluationState,
   type ManualEntryInput,
+  type ManualEntryListItem,
   type ManualEntryListResponse,
   type ManualEntrySaveResponse,
   type ManualEntryViewpointStatus,
@@ -35,15 +40,22 @@ import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { viewpointSourceItemKeys } from '../../domain/evaluation/viewpoints/source-items.ts';
 import type { AuditService } from '../audit/audit-service.ts';
+import { loadUserNames } from '../auth/user-display-names.ts';
+import { judgeEntryUsage } from './manual-entry-usage.ts';
 import { ALL_EQUIPMENT, canViewEquipment, type EquipmentScope } from '../access/facility-scope.ts';
 import {
   EQUIPMENT_NOT_FOUND_MESSAGE,
   requireActiveEquipment,
 } from '../equipment/require-active-equipment.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
-import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
+import {
+  evaluationWriteStateOf,
+  type EvaluationOnWrite,
+} from '../evaluation/evaluation-on-write.ts';
 import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
+import { resolveEvaluationScope } from '../evaluation/scope.ts';
 import type { FederationService } from '../federation/federation-service.ts';
+import { errorLogFields } from '../error-fields.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -81,15 +93,15 @@ export interface ManualEntryService {
     actor: UserId,
     scope?: EquipmentScope,
   ): Promise<ManualEntrySaveResponse>;
-  /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。 */
-  delete(entryId: string, actor: UserId, scope?: EquipmentScope): Promise<void>;
+  /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。応答は、保存・修正と同じ形（entry は、削除済みの入力。Issue #150）。 */
+  delete(entryId: string, actor: UserId, scope?: EquipmentScope): Promise<ManualEntrySaveResponse>;
   list(query: ManualEntryListQuery): Promise<ManualEntryListResponse>;
 }
 
 export interface ManualEntryServiceDeps {
   readonly repositories: Pick<
     Repositories,
-    'manualEntries' | 'observations' | 'equipment' | 'evaluations' | 'statusCodes'
+    'manualEntries' | 'observations' | 'equipment' | 'evaluations' | 'statusCodes' | 'users'
   >;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
@@ -142,11 +154,21 @@ function entryMatchesKeyword(
 export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEntryService {
   const { repositories, audit, evaluation, evaluationOnWrite, federation, clock, ids, logger } =
     deps;
-  /** 応答に付ける、評価の状態。`deferred` では、評価は、定期の評価（JB-02）が更新する。 */
-  const evaluationState = evaluationOnWrite === 'sync' ? 'DONE' : 'DEFERRED';
 
   const findActiveEquipment = (equipmentId: EquipmentId): Promise<Equipment> =>
     requireActiveEquipment(repositories.equipment, equipmentId);
+
+  /** 対象の設備の種別に合わないカテゴリは、受けない（Issue #360。新しい入力・対象かカテゴリを変える修正だけ）。 */
+  function assertCategoryFitsEquipment(equipment: Equipment, category: Category): void {
+    if (!manualCategoriesOfEquipmentType(equipment.equipmentType).includes(category)) {
+      throw validationError([
+        {
+          name: 'category',
+          message: `このカテゴリ（${CATEGORY_LABELS[category]}）は、${EQUIPMENT_TYPE_LABELS[equipment.equipmentType]}には入力できません`,
+        },
+      ]);
+    }
+  }
 
   async function assertValid(input: ManualEntryInput): Promise<void> {
     const fields = validateManualEntry({ ...input, note: input.note ?? '' }, clock.now());
@@ -212,19 +234,30 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
   }
 
   /**
-   * 評価の更新。失敗しても、入力の保存の結果には影響させない。
-   * `deferred` では、何もしない（データが増えると、評価の読み出しで、応答が遅くなるため。定期の評価が更新する。ADR-0014）。
+   * 評価の更新。失敗しても、入力の保存の結果には影響させない。応答に付ける、評価の状態を返す。
+   * `sync`: 全期間を評価する（`DONE`）。
+   * `deferred`: 「現在」（短期の評価）だけを、直近 7 日の観測値で評価する（`CURRENT`）。全期間の評価は、データが増えると、応答が遅くなるため、
+   * しない（「期間の評価」・状態の変化の処理は、定期の評価が行う。ADR-0014。#591）。「現在」の評価に失敗したときは、`DEFERRED`。
    */
-  const reevaluate = (affected: readonly EquipmentId[]): Promise<void> =>
-    evaluationOnWrite === 'deferred'
-      ? Promise.resolve()
-      : reevaluateSafely(
-          evaluation,
-          logger,
-          'MANUAL_ENTRY',
-          '手動入力の後の評価に失敗しました',
-          affected,
-        );
+  async function reevaluate(affected: readonly EquipmentId[]): Promise<ManualEntryEvaluationState> {
+    if (evaluationOnWrite === 'deferred') {
+      try {
+        await evaluation.evaluateCurrent('MANUAL_ENTRY', affected);
+        return 'CURRENT';
+      } catch (error) {
+        logger.error('手動入力の後の「現在」の評価に失敗しました', { ...errorLogFields(error) });
+        return 'DEFERRED';
+      }
+    }
+    await reevaluateSafely(
+      evaluation,
+      logger,
+      'MANUAL_ENTRY',
+      '手動入力の後の評価に失敗しました',
+      affected,
+    );
+    return evaluationWriteStateOf(evaluationOnWrite);
+  }
 
   /** 入力した項目に関係する観点の、最新のステータス（ハウス単位。短期・長期の悪い方）。 */
   async function relatedStatuses(entry: ManualEntry): Promise<ManualEntryViewpointStatus[]> {
@@ -250,23 +283,46 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
             ? repositories.evaluations.getLatest(facilityId, viewpointId, 'SHORT', null)
             : Promise.resolve(undefined),
         ]);
-        if (long === undefined) {
+        // 「現在」「期間の評価」のどちらもまだなければ、含めない（「現在」だけ評価済みのときは、含める）
+        if (long === undefined && short === undefined) {
           return undefined;
         }
         return {
           viewpointId,
           name: findViewpointMeta(viewpointId)?.name ?? viewpointId,
-          status: combineHorizonStatuses(short?.status ?? null, long.status),
+          status: combineHorizonStatuses(short?.status ?? null, long?.status ?? 'UNKNOWN'),
+          current: short?.status ?? null,
+          period: long?.status ?? null,
         };
       }),
     );
     return found.filter((status): status is ManualEntryViewpointStatus => status !== undefined);
   }
 
+  /**
+   * 保存・修正の応答。関連する観点のステータスと、項目ごとの「評価に使われるか」（D-26）は、互いに独立のため、並列に読む
+   * （保存の応答時間への影響を、増やさない。ADR-0014）。
+   */
+  async function savedResponse(
+    entry: ManualEntry,
+    evaluationState: ManualEntryEvaluationState,
+  ): Promise<ManualEntrySaveResponse> {
+    const [viewpointStatuses, usage] = await Promise.all([
+      relatedStatuses(entry),
+      judgeEntryUsage(repositories.observations, entry, toObservations(entry, false), clock.now()),
+    ]);
+    return { entry, viewpointStatuses, evaluation: evaluationState, usage };
+  }
+
   async function findEntry(entryId: string, scope: EquipmentScope): Promise<ManualEntry> {
     const entry = await repositories.manualEntries.get(entryId);
     // 範囲外の設備の入力は、存在しないものとして扱う（設備の有無を、漏らさない）
     if (entry === undefined || entry.isDeleted || !canViewEquipment(scope, entry.equipmentId)) {
+      throw new AppError('NOT_FOUND', '入力データが見つかりません');
+    }
+    // 削除中・削除済みの設備の入力は、存在しないものとして扱う（設備のデータの削除と、競合させない。D-28）
+    const equipment = await repositories.equipment.get(entry.equipmentId);
+    if (equipment === undefined || equipment.isDeleted) {
       throw new AppError('NOT_FOUND', '入力データが見つかりません');
     }
     return entry;
@@ -283,7 +339,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
     async create(input, actor, scope = ALL_EQUIPMENT) {
       await assertValid(input);
       assertInScope(scope, input.equipmentId);
-      await findActiveEquipment(input.equipmentId);
+      assertCategoryFitsEquipment(await findActiveEquipment(input.equipmentId), input.category);
       const entryId = ids.next();
       await assertNoConflict(input, entryId);
 
@@ -307,19 +363,18 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         actor,
         after: entry,
       });
-      await reevaluate([entry.equipmentId]);
-      return {
-        entry,
-        viewpointStatuses: await relatedStatuses(entry),
-        evaluation: evaluationState,
-      };
+      return await savedResponse(entry, await reevaluate([entry.equipmentId]));
     },
 
     async update(entryId, input, actor, scope = ALL_EQUIPMENT) {
       const before = await findEntry(entryId, scope);
       await assertValid(input);
       assertInScope(scope, input.equipmentId);
-      await findActiveEquipment(input.equipmentId);
+      const equipment = await findActiveEquipment(input.equipmentId);
+      // 対象・カテゴリを変えないなら、既存の組み合わせは、そのまま修正できる
+      if (before.equipmentId !== input.equipmentId || before.category !== input.category) {
+        assertCategoryFitsEquipment(equipment, input.category);
+      }
       await assertNoConflict(input, entryId);
 
       const entry: ManualEntry = {
@@ -344,12 +399,7 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         after: entry,
       });
       // 設備を変更した修正は、変更前の設備も評価し直す
-      await reevaluate([before.equipmentId, entry.equipmentId]);
-      return {
-        entry,
-        viewpointStatuses: await relatedStatuses(entry),
-        evaluation: evaluationState,
-      };
+      return await savedResponse(entry, await reevaluate([before.equipmentId, entry.equipmentId]));
     },
 
     async delete(entryId, actor, scope = ALL_EQUIPMENT) {
@@ -370,7 +420,12 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
         actor,
         before,
       });
-      await reevaluate([before.equipmentId]);
+      const evaluationState = await reevaluate([before.equipmentId]);
+      return {
+        entry: deleted,
+        viewpointStatuses: await relatedStatuses(deleted),
+        evaluation: evaluationState,
+      };
     },
 
     async list(query) {
@@ -378,33 +433,58 @@ export function createManualEntryService(deps: ManualEntryServiceDeps): ManualEn
       if (query.equipmentId !== undefined) {
         assertInScope(scope, query.equipmentId);
       }
+      const allEquipment = await repositories.equipment.list({ includeDeleted: true });
       const equipmentNames = new Map(
-        (await repositories.equipment.list({ includeDeleted: true })).map((equipment) => [
-          equipment.equipmentId,
-          equipment.name,
-        ]),
+        allEquipment.map((equipment) => [equipment.equipmentId, equipment.name]),
       );
+      // 削除中・削除済みの設備の入力は、一覧に出さない（設備のデータは、削除ジョブが消すまで残るため。D-28）
+      const deletedEquipmentIds = new Set(
+        allEquipment
+          .filter((equipment) => equipment.isDeleted)
+          .map((equipment) => equipment.equipmentId),
+      );
+      // ハウスを指定したときは、配下のロボット・センサーの入力も含める（計測データ〔SC-09〕と同じ。Issue #152）。
+      // 指定した設備が見つからないときは、その設備の識別子だけで絞る（従来のまま）
+      const target =
+        query.equipmentId === undefined
+          ? undefined
+          : allEquipment.find((equipment) => equipment.equipmentId === query.equipmentId);
+      const targetIds =
+        target === undefined
+          ? undefined
+          : new Set(resolveEvaluationScope(target, allEquipment).equipmentIds);
       const keyword = query.keyword?.trim().toLowerCase() ?? '';
       const page = await repositories.manualEntries.list(
         {
           ...omitUndefined({
             category: query.category,
-            equipmentId: query.equipmentId,
+            equipmentId: targetIds === undefined ? query.equipmentId : undefined,
             from: query.from,
             to: query.to,
           }),
-          ...(keyword === '' && scope.kind === 'all'
+          ...(keyword === '' &&
+          scope.kind === 'all' &&
+          targetIds === undefined &&
+          deletedEquipmentIds.size === 0
             ? {}
             : {
                 matches: (entry: ManualEntry) =>
+                  !deletedEquipmentIds.has(entry.equipmentId) &&
                   canViewEquipment(scope, entry.equipmentId) &&
+                  (targetIds === undefined || targetIds.has(entry.equipmentId)) &&
                   (keyword === '' || entryMatchesKeyword(entry, keyword, equipmentNames)),
               }),
         },
         { limit: query.limit, cursor: query.cursor },
         { key: query.sort, direction: query.direction },
       );
-      return { items: page.items, nextCursor: page.nextCursor };
+      // 入力者の表示名（現在のユーザー名）。一覧が空のときは、利用者の一覧を読まない
+      const nameOf = page.items.length === 0 ? undefined : await loadUserNames(repositories.users);
+      const items: ManualEntryListItem[] = page.items.map((entry) => ({
+        ...entry,
+        ...omitUndefined({ enteredByName: nameOf?.(entry.enteredBy) }),
+      }));
+      return { items, nextCursor: page.nextCursor };
     },
   };
 }

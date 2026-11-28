@@ -47,6 +47,64 @@ textarea {
   font-size: 0.85rem;
 }
 
+/* パスワード欄（PasswordInput。Issue #157）: 入力欄の右に、表示切替のボタン。下に、Caps Lock の注意 */
+.password-field {
+  min-width: 0;
+}
+
+.password-input {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.password-input input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.password-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+}
+
+/* 注意の文字は、状態の色（正常・注意・異常）を使わず、本文の色と、アイコン・文字で示す（状態の色は、状態だけに使う） */
+.password-caps-notice {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* 中身がないときは、場所をとらない（領域は、読み上げのために残す。display: none にしない） */
+.password-caps-notice:not(:empty) {
+  margin-top: 4px;
+}
+
+.password-caps-notice > .icon {
+  flex: none;
+  margin-top: 0.3em;
+}
+
+@media (max-width: 900px) {
+  /* 指で押せる大きさ（44px） */
+  .password-input input,
+  .password-toggle {
+    min-height: 44px;
+  }
+
+  .password-toggle {
+    min-width: 44px;
+  }
+}
+
 .required-mark {
   color: var(--status-error-text);
 }
@@ -131,6 +189,21 @@ textarea {
   border-radius: 8px;
 }
 
+/* 満足度の入力（9 観点のスター）: 枠の幅が、3 列分（約 760px）あれば、3 つずつ。狭いときは、1 列（スターの 1 組は、約 220px） */
+.satisfaction-grid-frame {
+  container-type: inline-size;
+}
+
+.satisfaction-grid-frame > .form-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@container (min-width: 760px) {
+  .satisfaction-grid-frame > .form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .entry-items legend {
   padding: 0 8px;
   font-weight: 700;
@@ -182,6 +255,33 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* 未登録のコード値の表（SC-12-5）: 長いコード値（最大 100 文字）は、枠の中で折り返す。案・理由の文は、値の下に置く */
+.unregistered-table {
+  table-layout: fixed;
+  min-width: 640px;
+}
+
+.unregistered-table th:nth-child(2) {
+  width: 90px;
+}
+
+.unregistered-table th:nth-child(3) {
+  width: 180px;
+}
+
+.unregistered-table th:nth-child(4) {
+  width: 340px;
+}
+
+.unregistered-table td {
+  overflow-wrap: anywhere;
+}
+
+.unregistered-table .category-note {
+  display: block;
+  margin-left: 0;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -192,6 +292,46 @@ textarea {
 .row-actions button {
   min-height: 32px;
   padding: 2px 12px;
+}
+
+.row-actions a {
+  align-self: center;
+}
+
+/* 計測データの、手動入力の行の導線（入力データを開く・履歴。#155） */
+.source-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 0.875rem;
+}
+
+/* 絞り込み条件のチップ（変更履歴の「対象: …（解除）」。#155） */
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px var(--space);
+  margin-top: 12px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 2px 4px 2px 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+
+.filter-chip button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
 }
 
 /* 絞り込み */
@@ -207,11 +347,60 @@ textarea {
   max-width: 260px;
 }
 
+/* チェックボックスの絞り込み（ラベルが長い。例: 計測データの「問題あり」）は、ラベルが 1 行に収まる幅にする */
+.filter-bar .field-checkbox {
+  flex: 1 1 320px;
+  max-width: 380px;
+}
+
 .filter-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
+}
+
+/* 絞り込みの枠の下に置く操作（通知の「既読にする」）は、右に寄せる */
+.filter-panel + .filter-actions {
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+/* 絞り込みの枠: 適用中の条件の数と、条件のクリアを、項目の上に示す。狭い幅では、項目を折りたたむ（条件の数とクリアは見える） */
+.filter-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.filter-panel-head .filter-clear {
+  margin-left: auto;
+}
+
+.filter-count {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* 開閉のボタンは、狭い幅だけ（広い幅では、項目を常に開く） */
+.filter-panel-head .filter-toggle {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .filter-panel-head .filter-toggle {
+    display: inline-flex;
+  }
+
+  .filter-panel[data-open='false'] .filter-body {
+    display: none;
+  }
+
+  .filter-panel[data-open='false'] .filter-panel-head {
+    margin-bottom: 0;
+  }
 }
 
 /* 確認のダイアログ */
@@ -242,10 +431,115 @@ textarea {
   margin: 0 0 var(--space);
 }
 
+/* 確認の対象の項目（ラベルと値）と、影響の説明（#153） */
+.dialog-details {
+  margin: 0 0 var(--space);
+  padding: 12px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.dialog-details > div {
+  display: grid;
+  grid-template-columns: 8em 1fr;
+  gap: 8px;
+}
+
+.dialog-details > div + div {
+  margin-top: 4px;
+}
+
+.dialog-details dt {
+  color: var(--color-muted);
+}
+
+.dialog-details dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dialog-notes {
+  margin: 0 0 var(--space);
+  padding-left: 1.4em;
+  color: var(--color-muted);
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+/* フォームを入れるダイアログ（登録・修正・割り当て。#364〜#366。components/modal.tsx）。確認のダイアログ（.dialog-backdrop。z-index 20）より、前面 */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space);
+  background: var(--color-scrim);
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: 100%;
+  background: var(--color-surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-dialog);
+}
+
+.modal-wide {
+  width: min(880px, 100%);
+}
+
+.modal-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space);
+  padding: 12px var(--space);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.modal-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space);
+  overflow-y: auto;
+}
+
+/* 登録のボタンを並べる行（表の上） */
+.table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: var(--space);
 }
 
 /* 通知 */
@@ -262,22 +556,82 @@ textarea {
   vertical-align: top;
 }
 
-/* 通知の表（SC-05）: 長い値（設備名 200 文字を含む対象・メッセージ）や狭い幅でも、列が 1 文字幅へ潰れない。
-   日時・種別・観点・ステータス・状態は折り返さず（最小の幅を保つ）、長くなりうる対象・メッセージだけを、枠の中で折り返す。
+/* 通知ごとの、回復日時と、経過・メモの欄（開閉。#159） */
+.notification-recovery {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.notification-details {
+  margin: 0 0 4px;
+}
+
+.notification-details summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.notification-progress {
+  margin: 4px 0;
+  font-weight: 400;
+}
+
+.notification-memo-list {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-memo-list li {
+  padding: 4px 0;
+  border-top: 1px solid var(--color-border);
+  font-weight: 400;
+}
+
+.notification-memo-meta {
+  font-size: 0.85rem;
+}
+
+.notification-memo-body {
+  white-space: pre-wrap;
+}
+
+.notification-memo-form {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  font-weight: 400;
+}
+
+.notification-memo-form textarea {
+  width: 100%;
+}
+
+.notification-memo-form button {
+  justify-self: start;
+}
+
+/* 通知の表（SC-05）: 長い値（名称 200 文字を含む対象・設備・メッセージ）や狭い幅でも、列が 1 文字幅へ潰れない。
+   列は、日時・種別・観点・対象（ハウス）・設備・ステータス・メッセージ・状態の 8 つ（#362）。
+   日時・種別・観点・ステータス・状態は折り返さず（最小の幅を保つ）、長くなりうる対象・設備・メッセージだけを、枠の中で折り返す。
    表が枠より広い場合は、表の枠の中で横にスクロールする */
 .notification-table {
-  min-width: 960px;
+  min-width: 1100px;
 }
 
 .notification-table th {
   white-space: nowrap;
 }
 
-.notification-table td:nth-child(-n + 5) {
+.notification-table td:nth-child(-n + 3),
+.notification-table td:nth-child(6) {
   white-space: nowrap;
 }
 
-.notification-table td:nth-child(4) {
+.notification-table td:nth-child(4),
+.notification-table td:nth-child(5) {
   min-width: 9em;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -330,8 +684,10 @@ textarea {
   }
 
   .notification-table td,
-  .notification-table td:nth-child(-n + 5),
+  .notification-table td:nth-child(-n + 3),
+  .notification-table td:nth-child(6),
   .notification-table td:nth-child(4),
+  .notification-table td:nth-child(5),
   .notification-table td.notification-message {
     display: grid;
     grid-template-columns: 6em minmax(0, 1fr);
@@ -434,6 +790,12 @@ textarea {
   gap: 8px;
 }
 
+/* 保存・修正の結果の、評価に使われない項目（D-26。Issue #162） */
+.entry-result .notice ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+}
+
 .audit-json {
   max-height: 160px;
   max-width: 320px;
@@ -462,9 +824,9 @@ textarea {
 }
 
 .criterion-card .form-grid {
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  /* 入力欄の高さをそろえる（ラベルの行数が違っても、入力欄の位置がずれない） */
-  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  /* 入力の部品（ラベル・スライダー・数値の欄・目安）は、上端をそろえる（ラベルの行数が違っても、並びが乱れない） */
+  align-items: start;
 }
 
 .criterion-card legend {
@@ -476,7 +838,140 @@ textarea {
   margin: 0 0 var(--space);
 }
 
-/* 取り込み設定・状況 */
+/* 判断基準の影響の確認（SC-13-2）。入力欄の下、保存のボタンの上に置く */
+.criteria-preview {
+  margin: var(--space) 0;
+  padding-top: var(--space);
+  border-top: 1px solid var(--color-border);
+}
+
+.criteria-preview h2 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.criteria-preview .data-table {
+  margin: 8px 0;
+}
+
+/* 判断基準の帯（正常・注意・異常の区分。#358）。区分は、色と文字で示す */
+.zone-bars {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.zone-bar-title {
+  margin: 0 0 2px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.zone-bar {
+  display: flex;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-control);
+  border-radius: 6px;
+}
+
+.zone-seg {
+  display: flex;
+  flex-basis: 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  container-type: inline-size;
+}
+
+.zone-seg + .zone-seg {
+  border-left: 2px solid var(--color-surface);
+}
+
+.zone-normal {
+  background: var(--status-normal-soft);
+  color: var(--status-normal-soft-on);
+}
+
+.zone-caution {
+  background: var(--status-caution-soft);
+  color: var(--status-caution-soft-on);
+}
+
+.zone-error {
+  background: var(--status-error-soft);
+  color: var(--status-error-soft-on);
+}
+
+/* 幅の狭い区分は、文字を出さない（見切れた文字を出さない）。区分は、帯全体の説明（条件の文章）でも示す */
+@container (max-width: 2.5rem) {
+  .zone-seg-label {
+    display: none;
+  }
+}
+
+.zone-scale {
+  display: flex;
+  justify-content: space-between;
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+.zone-invalid {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* 閾値の入力（スライダーと数値の欄。#358） */
+.threshold-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.threshold-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(5rem, 8rem);
+  gap: 12px;
+  align-items: center;
+}
+
+/* 入力欄の共通の高さ（40px）より優先する（指で押せる大きさ 44px。詳細度を合わせ、あとに書く） */
+.threshold-controls input.threshold-slider[type='range'] {
+  width: 100%;
+  min-height: 44px;
+  accent-color: var(--color-primary);
+}
+
+.threshold-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.threshold-default-changed {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.threshold-default > .icon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.threshold-changed {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+/* 取り込み（SC-11） */
 .panel-head h3 {
   margin: 0;
 }
@@ -655,6 +1150,53 @@ textarea {
   }
 }
 
+/* 取り込み（SC-11）の、設備ごとの接続と状況の表（SC-11。.equipment-runs）: 7 列。列が 1 文字幅へ潰れず、見出し・タグが縦に伸びない。
+   設備名・日時・認証情報・見出しは折り返さず（最小の幅を保つ）、長くなりうるファイルのパス・接続先だけを、枠の中で折り返す。
+   表が枠より広い場合は、表の枠（.table-scroll）の中で横にスクロールする。900px 以下は、card-table で、設備ごとのカードにする */
+.equipment-runs {
+  min-width: 900px;
+}
+
+.equipment-runs th {
+  white-space: nowrap;
+}
+
+.equipment-runs td:nth-child(1),
+.equipment-runs td:nth-child(4),
+.equipment-runs td:nth-child(5),
+.equipment-runs td:nth-child(6) {
+  white-space: nowrap;
+}
+
+.equipment-runs td:nth-child(1) {
+  min-width: 8em;
+}
+
+.equipment-runs td:nth-child(2),
+.equipment-runs td:nth-child(3) {
+  min-width: 11em;
+  overflow-wrap: anywhere;
+}
+
+.equipment-runs .tag,
+.equipment-runs .log-result {
+  white-space: nowrap;
+}
+
+/* 1 つのセルに、値と、そのタグ（出どころ・結果・停止中）を、縦に並べる */
+.cell-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* 取り込みのログの失敗の行の、設備のファイルのパス（長いことがある）は、折り返す */
+.log-file-path {
+  overflow-wrap: anywhere;
+  font-size: 0.85em;
+}
+
 /* 設備の表: 狭い幅でも、列が 1 文字ずつ折り返すほど押しつぶされないよう、最小の幅を保つ（表の枠の中で横にスクロールする） */
 .equipment-table {
   min-width: 760px;
@@ -791,6 +1333,52 @@ textarea {
   min-width: 16em;
 }
 
+/* 変更点の印（編集の変更前後。#190。SC-08-5）。文字のタグ + 太字 + 枠線。色だけに頼らない。状態（正常・注意・異常）の色は使わず、
+   中立のトークンだけにする（ライト・ダークの両方で、文字 4.5:1・枠 3:1 以上。design-tokens.test.ts）。「なし」は、破線の枠 */
+.diff-mark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.diff-mark-removed {
+  border-style: dashed;
+}
+
+/* 狭い幅（カード）でも、印のタグが枠から出ないよう、行の折り返しを許す */
+.audit-table .entry-values li,
+.audit-table .audit-meta dd {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* 内容を開いて確認する種類: 閉じた状態でも見える、変わった項目名の 1 行と、項目ごとの区切り */
+.audit-changes {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.audit-field-head {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  white-space: normal;
+}
+
+.audit-field-head + .audit-json {
+  margin-top: 2px;
+}
+
 @media (min-width: 901px) {
   .audit-table td:nth-child(5),
   .audit-table td:nth-child(6) {
@@ -842,4 +1430,96 @@ textarea {
   outline: 2px solid var(--status-error-main);
   outline-offset: 2px;
   border-radius: 8px;
+}
+
+/* 入力欄のラベルと、ヘルプヒント（「?」）を、1 行に並べる（Issue #154） */
+.field-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.field-label-row > label {
+  font-weight: 600;
+}
+
+/* 取り込み（SC-11）の「ファイルを置く」（Issue #565）: ダイアログの中の、選んだファイルと、確認の結果。狭い幅（375px）でも、横にはみ出さない */
+.source-file-selected {
+  margin: 0 0 var(--space);
+  overflow-wrap: anywhere;
+}
+
+.source-file-inspection h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.source-file-inspection h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.source-file-info {
+  margin: 0 0 12px;
+}
+
+.source-file-info > div {
+  display: grid;
+  grid-template-columns: 11em minmax(0, 1fr);
+  gap: 8px;
+}
+
+.source-file-info > div + div {
+  margin-top: 4px;
+}
+
+.source-file-info dt {
+  color: var(--color-muted);
+}
+
+.source-file-info dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* 置けない理由: 色だけに頼らず、形のアイコンと文字で示す */
+.source-file-problems {
+  margin: 0 0 12px;
+  color: var(--status-error-text);
+}
+
+.source-file-problems ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-file-problems li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.source-file-inspection .notice ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  overflow-wrap: anywhere;
+}
+
+/* ファイルを置いたあとの通知と、取り込みへの導線（表と設定のフォームの間） */
+.source-file-placed {
+  margin: 0 0 var(--space);
+}
+
+.source-file-placed p {
+  margin: 0 0 8px;
+}
+
+@media (max-width: 900px) {
+  .source-file-info > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
 }

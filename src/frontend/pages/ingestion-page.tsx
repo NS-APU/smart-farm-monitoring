@@ -1,27 +1,16 @@
 /**
- * SC-11 取り込み設定・状況（UC-15、UC-16。FR-1.4〜1.8、FR-8.3）。取り込み元ごとの接続先（参照名）・取得間隔・有効／無効の設定、
- * 接続テスト、即時取得（実行中は二重実行を防ぐ）、解釈に使っている仕様の版と状態、取り込みのログ、農業情報基盤への連携の
- * 状況（成功・失敗・保留）。認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
+ * SC-11 取り込み（UC-15、UC-16。FR-1.4〜1.8、FR-8.3）。取り込み元ごとの有効／無効の設定、即時取得（実行中は二重実行を防ぐ）、
+ * 設備ごとの接続と状況の表（接続先・認証情報の状態・最後にデータが取れた日時・停止中・設備だけの接続テスト。Issue #367）、
+ * 解釈に使っている仕様の版と状態、取り込みのログ、農業情報基盤への連携の状況（送信済み・失敗・保留・期限切れ）。接続・認証情報の入力は、設備のダイアログ（SC-10）で行う。
+ * 認証情報は、画面に表示しない。設定・実行の権限（ingestion:configure・ingestion:run）がなければ、参照のみ。
+ * 設定の権限がある利用者は、ファイルのパスがある設備に、ブラウザから、取り込み用のファイルを置ける（「ファイルを置く」。Issue #565。
+ * ダイアログは SourceFileDialog。置いたあとは、結果を通知し、「今すぐ取り込む」（即時取得と同じ処理）へ導く。自動では取り込まない）。
  */
 
+import { useCallback, useState, type ReactNode, type SyntheticEvent } from 'react';
 import {
-  useCallback,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-  type SyntheticEvent,
-} from 'react';
-import {
-  DEFAULT_API_KEY_HEADER_NAME,
-  FILE_SERVER_AUTH_METHODS,
-  FILE_SERVER_PROTOCOLS,
-  IngestionCredentialsInputSchema,
-  IngestionSourceUpdateSchema,
-  defaultHttpPort,
   type FederationLogListResponse,
-  type FileServerAuthMethod,
-  type FileServerConnection,
-  type FileServerProtocol,
+  type IngestionLog,
   type IngestionLogListResponse,
   type IngestionSourceStatus,
 } from '@smart-farm/shared/schemas/ingestion';
@@ -30,65 +19,46 @@ import {
   listFederationLogs,
   listIngestionLogs,
   runIngestion,
-  saveIngestionCredentials,
-  testIngestionConnection,
+  testEquipmentConnection,
   updateIngestionSettings,
   getIngestionSettings,
 } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
-import { InputFilter, SelectFilter } from '../components/filter-controls.tsx';
+import {
+  EquipmentIngestionTable,
+  type EquipmentTestResult,
+} from '../components/equipment-ingestion-table.tsx';
+import { FilterPanel, InputFilter, SelectFilter } from '../components/filter-controls.tsx';
 import { FederationSettingsPanel } from '../components/federation-settings-panel.tsx';
-import { Field, FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
+import { FormError, Pager, PermissionNotice } from '../components/form-controls.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
-import { Icon } from '../components/icon.tsx';
-import { jstDateToIso } from '../components/jst.ts';
+import { isoToJstDateTimeInput, jstDateToIso } from '../components/jst.ts';
+import { SourceFileDialog } from '../components/source-file-dialog.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { notifyUnreadChanged } from '../components/unread-events.ts';
-import { fieldErrorsOfZod } from '../components/zod-errors.ts';
 import { useCursorPaging, type CursorPaging } from '../hooks/use-cursor-paging.ts';
 import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
-import { useQueryParams } from '../hooks/use-query-params.ts';
+import { countActiveConditions, useQueryParams } from '../hooks/use-query-params.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { PATHS } from '../router/paths.ts';
+import { Link } from '../router/router.tsx';
 import { FacilityIngestionView } from './facility-ingestion-view.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.ingestion;
 /** 一覧の 1 ページの件数（共通の一覧のルール。ADR-0016 の D-48）。 */
 const LOG_PAGE_SIZE = 20;
+/** ログの条件のクリアで、初期値に戻す条件（URL のクエリ。ほかのクエリは残す）。 */
+const LOG_CONDITION_NAMES = ['equipment', 'result', 'from', 'to'];
 
 function sourceName(sourceId: string): string {
   const names: Readonly<Record<string, string>> = TEXT.sourceNames;
   return names[sourceId] ?? sourceId;
 }
 
-/** 接続設定の内容が同じか（保存済みの接続設定を変えていないときは、送らない）。 */
-function isSameConnection(a: FileServerConnection, b: FileServerConnection): boolean {
-  if (a.type === 'HTTP' && b.type === 'HTTP') {
-    return (
-      a.protocol === b.protocol &&
-      a.host === b.host &&
-      a.port === b.port &&
-      a.authMethod === b.authMethod &&
-      a.apiKeyHeaderName === b.apiKeyHeaderName
-    );
-  }
-  return a.type === b.type;
-}
-
-/** ポートの入力が、数字でない（空は、省略として、有効）。 */
-function portIsInvalid(port: string): boolean {
-  return port.trim() !== '' && !/^[0-9]+$/.test(port.trim());
-}
-
-/** 項目のエラーのキー（`sources.0.connectionRef` → `connectionRef`）。 */
-function withoutSourcePrefix(errors: Readonly<Record<string, string>>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(errors).map(([name, message]) => [name.replace(/^sources\.\d+\./, ''), message]),
-  );
-}
-
-/** 操作（保存・接続テスト・即時取得）の結果の表示。設定の保存で、カードが作り直されても、残す。 */
+/** 操作（保存・即時取得）の結果の表示。設定の保存で、カードが作り直されても、残す。 */
 interface OperationResult {
   readonly ok: boolean;
   readonly text: string;
@@ -100,6 +70,8 @@ interface SourceCardProps {
   readonly onResult: (result: OperationResult | undefined) => void;
   readonly canConfigure: boolean;
   readonly canRun: boolean;
+  /** 設備のダイアログ（SC-10）へのリンクを出す（設備を変更する権限がある）。 */
+  readonly canOpenEquipment: boolean;
   /** 設定の保存・即時取得の後に、画面の表示を更新する。 */
   readonly onChanged: () => void;
 }
@@ -109,129 +81,61 @@ function SourceCard(props: SourceCardProps): ReactNode {
   const { api } = useAuth();
   const submit = useSubmit();
   /** 実行中の操作（実行中の表示を、その操作のボタンだけに出す）。 */
-  const [operation, setOperation] = useState<'test' | 'run' | undefined>(undefined);
-  const [connectionRef, setConnectionRef] = useState(source.connectionRef);
-  const saved = source.connection;
-  const savedHttp = saved.type === 'HTTP' ? saved : undefined;
-  const [connectionType, setConnectionType] = useState<FileServerConnection['type']>(saved.type);
-  const [protocol, setProtocol] = useState<FileServerProtocol>(savedHttp?.protocol ?? 'HTTPS');
-  const [host, setHost] = useState(savedHttp?.host ?? '');
-  const [port, setPort] = useState(savedHttp?.port === undefined ? '' : String(savedHttp.port));
-  const [authMethod, setAuthMethod] = useState<FileServerAuthMethod>(
-    savedHttp?.authMethod ?? 'NONE',
-  );
-  const [apiKeyHeaderName, setApiKeyHeaderName] = useState(
-    savedHttp?.apiKeyHeaderName ?? DEFAULT_API_KEY_HEADER_NAME,
-  );
-  // 認証情報の入力（書き込み専用。保存したら、空に戻す。保存済みの値は、受け取らない）
-  const [credentialUsername, setCredentialUsername] = useState('');
-  const [credentialPassword, setCredentialPassword] = useState('');
-  const [credentialSecret, setCredentialSecret] = useState('');
-  const [credentialErrors, setCredentialErrors] = useState<Readonly<Record<string, string>>>({});
+  const [operation, setOperation] = useState<'run' | undefined>(undefined);
+  /** 接続テストを実行している設備と、設備ごとの接続テストの結果。 */
+  const [testingId, setTestingId] = useState<string | undefined>(undefined);
+  const [testResults, setTestResults] = useState<
+    Readonly<Record<string, EquipmentTestResult | undefined>>
+  >({});
   const [isEnabled, setIsEnabled] = useState(source.isEnabled);
-  const [clientErrors, setClientErrors] = useState<Readonly<Record<string, string>>>({});
+  /** 「ファイルを置く」のダイアログを開いている設備（Issue #565）。 */
+  const [placing, setPlacing] = useState<
+    { readonly equipmentId: string; readonly name: string; readonly path: string } | undefined
+  >(undefined);
+  /** ファイルを置いた結果の通知（置いた設備の名前などの文。「今すぐ取り込む」で、取り込みへ導く）。 */
+  const [placedMessage, setPlacedMessage] = useState<string | undefined>(undefined);
   const { result, onResult: setResult } = props;
-  const errors = { ...clientErrors, ...withoutSourcePrefix(submit.fieldErrors) };
-  const isHttp = connectionType === 'HTTP';
-  const canEdit = props.canConfigure;
-  // 認証情報の登録は、保存済みの設定の認証方式で行う（サーバーが、保存済みの設定と照合する）
-  const savedAuthMethod =
-    saved.type === 'HTTP' && saved.authMethod !== 'NONE' ? saved.authMethod : undefined;
-  const credentialsBlocked = !(isHttp && authMethod === savedAuthMethod);
-  const credentialStatus = source.credentials;
-  const credentialErrorsShown = { ...credentialErrors, ...errors };
   const locked = submit.busy || source.isRunning;
 
   async function handleSave(event: SyntheticEvent): Promise<void> {
     event.preventDefault();
     setResult(undefined);
-    const portText = port.trim();
-    const connection =
-      connectionType === 'MOCK'
-        ? { type: 'MOCK' }
-        : {
-            type: 'HTTP',
-            protocol,
-            host,
-            ...(portText === ''
-              ? {}
-              : { port: portIsInvalid(portText) ? Number.NaN : Number(portText) }),
-            authMethod,
-            apiKeyHeaderName,
-          };
-    const parsed = IngestionSourceUpdateSchema.safeParse({
-      sourceId: source.sourceId,
-      connectionRef,
-      connection,
-      isEnabled,
-    });
-    if (!parsed.success) {
-      setClientErrors(fieldErrorsOfZod(parsed.error));
-      return;
-    }
-    setClientErrors({});
-    // 接続設定を変えていないときは、送らない（現在の接続設定を保つ）
-    const { connection: changed, ...unchanged } = parsed.data;
-    const payload =
-      changed === undefined || isSameConnection(changed, saved) ? unchanged : parsed.data;
-    const result = await submit.run(() => updateIngestionSettings(api, { sources: [payload] }));
-    if (result.ok) {
+    // 接続は、設備ごとに設定する（この画面では送らない。取り込み元ごとの設定は、有効／無効だけ）
+    const saved = await submit.run(() =>
+      updateIngestionSettings(api, { sources: [{ sourceId: source.sourceId, isEnabled }] }),
+    );
+    if (saved.ok) {
       setResult({ ok: true, text: TEXT.saved });
       props.onChanged();
     }
   }
 
-  /** 認証情報の入力で Enter を押したときは、設定のフォームを送らず、認証情報を保存する。 */
-  function handleCredentialEnter(event: KeyboardEvent<HTMLInputElement>): void {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      if (!credentialsBlocked) {
-        void handleSaveCredentials();
-      }
-    }
-  }
-
-  async function handleSaveCredentials(): Promise<void> {
-    if (savedAuthMethod === undefined) {
-      return;
-    }
+  async function handleTestEquipment(equipmentId: string): Promise<void> {
     setResult(undefined);
-    const candidate =
-      savedAuthMethod === 'BASIC'
-        ? { authMethod: 'BASIC', username: credentialUsername, password: credentialPassword }
-        : savedAuthMethod === 'BEARER'
-          ? { authMethod: 'BEARER', token: credentialSecret }
-          : { authMethod: 'API_KEY', apiKey: credentialSecret };
-    const parsed = IngestionCredentialsInputSchema.safeParse(candidate);
-    if (!parsed.success) {
-      setCredentialErrors(fieldErrorsOfZod(parsed.error));
-      return;
-    }
-    setCredentialErrors({});
-    const result = await submit.run(() =>
-      saveIngestionCredentials(api, source.sourceId, parsed.data),
-    );
-    if (result.ok) {
-      setCredentialUsername('');
-      setCredentialPassword('');
-      setCredentialSecret('');
-      setResult({ ok: true, text: TEXT.credentialsSaved });
-      props.onChanged();
-    }
-  }
-
-  async function handleTest(): Promise<void> {
-    setResult(undefined);
-    setOperation('test');
-    const tested = await submit.run(() => testIngestionConnection(api, source.sourceId));
-    setOperation(undefined);
+    setTestingId(equipmentId);
+    const tested = await submit.run(() => testEquipmentConnection(api, equipmentId));
+    setTestingId(undefined);
     if (tested.ok) {
-      setResult({ ok: tested.value.ok, text: tested.value.message });
+      setTestResults((current) => ({
+        ...current,
+        [equipmentId]: { ok: tested.value.ok, text: tested.value.message },
+      }));
     }
+  }
+
+  function handlePlaceFile(equipmentId: string): void {
+    const target = source.equipment.find((item) => item.equipmentId === equipmentId);
+    if (target?.sourceFilePath === undefined) {
+      return;
+    }
+    setResult(undefined);
+    setPlacedMessage(undefined);
+    setPlacing({ equipmentId, name: target.name, path: target.sourceFilePath });
   }
 
   async function handleRun(): Promise<void> {
     setResult(undefined);
+    setPlacedMessage(undefined);
     setOperation('run');
     const ran = await submit.run(() => runIngestion(api, source.sourceId));
     setOperation(undefined);
@@ -274,57 +178,62 @@ function SourceCard(props: SourceCardProps): ReactNode {
               : formatDateTimeJst(source.lastStartedAt)}
           </dd>
         </div>
-        <div>
-          <dt>{TEXT.lastSuccess}</dt>
-          <dd data-testid={`last-success-${source.sourceId}`}>
-            {source.lastSuccessAt === null
-              ? TEXT.neverRun
-              : formatDateTimeJst(source.lastSuccessAt)}
-          </dd>
-        </div>
       </dl>
-      {source.equipment.length === 0 ? null : (
-        <div className="table-scroll">
-          <table
-            className="data-table card-table equipment-runs"
-            aria-label={`${sourceName(source.sourceId)}の${TEXT.equipmentRuns}`}
-          >
-            <thead>
-              <tr>
-                <th scope="col">{TEXT.logEquipment}</th>
-                <th scope="col">{TEXT.lastStarted}</th>
-                <th scope="col">{TEXT.logResult}</th>
-                <th scope="col">{TEXT.equipmentRunData}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {source.equipment.map((item) => (
-                <tr key={item.equipmentId} data-testid={`equipment-run-${item.equipmentId}`}>
-                  <td data-label={TEXT.logEquipment}>{item.name}</td>
-                  <td data-label={TEXT.lastStarted}>
-                    {item.lastStartedAt === null
-                      ? TEXT.neverRun
-                      : formatDateTimeJst(item.lastStartedAt)}
-                  </td>
-                  <td data-label={TEXT.logResult}>
-                    {item.lastResult === null ? (
-                      MESSAGES.common.missingValue
-                    ) : (
-                      <span className={`log-result log-result-${item.lastResult.toLowerCase()}`}>
-                        {TEXT.runResultLabels[item.lastResult]}
-                      </span>
-                    )}
-                  </td>
-                  <td data-label={TEXT.equipmentRunData}>
-                    {item.lastDataAt === null
-                      ? MESSAGES.common.missingValue
-                      : formatDateTimeJst(item.lastDataAt)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <EquipmentIngestionTable
+        source={source}
+        sourceLabel={sourceName(source.sourceId)}
+        canRun={props.canRun}
+        canOpenEquipment={props.canOpenEquipment}
+        locked={locked}
+        testingId={testingId}
+        results={testResults}
+        now={new Date()}
+        onTest={(equipmentId) => {
+          void handleTestEquipment(equipmentId);
+        }}
+        canPlaceFile={props.canConfigure}
+        onPlaceFile={handlePlaceFile}
+      />
+      {placedMessage === undefined ? null : (
+        <div className="source-file-placed" data-testid={`source-file-placed-${source.sourceId}`}>
+          <ResultNotice message={placedMessage} testId={`source-file-result-${source.sourceId}`} />
+          <p className="muted">{TEXT.sourceFile.afterPlaced}</p>
+          {props.canRun ? (
+            <p>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={locked}
+                onClick={() => {
+                  void handleRun();
+                }}
+              >
+                {TEXT.sourceFile.runNow}
+              </button>{' '}
+              <span className="muted">{TEXT.sourceFile.afterPlacedRunNote}</span>
+            </p>
+          ) : null}
         </div>
+      )}
+      {placing === undefined ? null : (
+        <SourceFileDialog
+          equipmentId={placing.equipmentId}
+          equipmentName={placing.name}
+          sourceFilePath={placing.path}
+          onClose={() => {
+            setPlacing(undefined);
+          }}
+          onPlaced={(placed) => {
+            setPlacedMessage(
+              TEXT.sourceFile.done(
+                placing.name,
+                placed.observedAt === undefined ? undefined : formatDateTimeJst(placed.observedAt),
+                placed.warnings.length,
+              ),
+            );
+            setPlacing(undefined);
+          }}
+        />
       )}
       <form
         noValidate
@@ -334,156 +243,6 @@ function SourceCard(props: SourceCardProps): ReactNode {
         }}
       >
         <div className="form-grid">
-          <Field
-            label={TEXT.connectionRef}
-            name="connectionRef"
-            error={errors.connectionRef}
-            hint={TEXT.connectionRefHint}
-            required
-          >
-            {(control) => (
-              <input
-                {...control}
-                value={connectionRef}
-                readOnly={!props.canConfigure}
-                autoComplete="off"
-                onChange={(event) => {
-                  setConnectionRef(event.target.value);
-                }}
-              />
-            )}
-          </Field>
-          <Field label={TEXT.connectionType} name="connectionType" required>
-            {(control) => (
-              <select
-                {...control}
-                value={connectionType}
-                disabled={!canEdit}
-                onChange={(event) => {
-                  setConnectionType(event.target.value === 'HTTP' ? 'HTTP' : 'MOCK');
-                }}
-              >
-                {(['MOCK', 'HTTP'] as const).map((type) => (
-                  <option key={type} value={type}>
-                    {TEXT.connectionTypeLabels[type]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          {isHttp ? (
-            <>
-              <Field
-                label={TEXT.protocol}
-                name="connection.protocol"
-                error={errors['connection.protocol']}
-              >
-                {(control) => (
-                  <select
-                    {...control}
-                    value={protocol}
-                    disabled={!canEdit}
-                    onChange={(event) => {
-                      setProtocol(event.target.value === 'HTTP' ? 'HTTP' : 'HTTPS');
-                    }}
-                  >
-                    {FILE_SERVER_PROTOCOLS.map((value) => (
-                      <option key={value} value={value}>
-                        {TEXT.protocolLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </Field>
-              <Field
-                label={TEXT.host}
-                name="connection.host"
-                error={errors['connection.host']}
-                hint={TEXT.hostHint}
-                required
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    value={host}
-                    readOnly={!canEdit}
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(event) => {
-                      setHost(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
-              <Field
-                label={TEXT.port}
-                name="connection.port"
-                error={errors['connection.port']}
-                hint={TEXT.portHint}
-              >
-                {(control) => (
-                  <input
-                    {...control}
-                    inputMode="numeric"
-                    value={port}
-                    placeholder={String(defaultHttpPort(protocol))}
-                    readOnly={!canEdit}
-                    autoComplete="off"
-                    onChange={(event) => {
-                      setPort(event.target.value);
-                    }}
-                  />
-                )}
-              </Field>
-              <p className="field-note muted">{TEXT.filePathNotice}</p>
-              <Field
-                label={TEXT.authMethod}
-                name="connection.authMethod"
-                error={errors['connection.authMethod']}
-              >
-                {(control) => (
-                  <select
-                    {...control}
-                    value={authMethod}
-                    disabled={!canEdit}
-                    onChange={(event) => {
-                      setAuthMethod(
-                        FILE_SERVER_AUTH_METHODS.find((value) => value === event.target.value) ??
-                          'NONE',
-                      );
-                    }}
-                  >
-                    {FILE_SERVER_AUTH_METHODS.map((value) => (
-                      <option key={value} value={value}>
-                        {TEXT.authMethodLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </Field>
-              {authMethod === 'API_KEY' ? (
-                <Field
-                  label={TEXT.apiKeyHeaderName}
-                  name="connection.apiKeyHeaderName"
-                  error={errors['connection.apiKeyHeaderName']}
-                  hint={TEXT.apiKeyHeaderNameHint}
-                >
-                  {(control) => (
-                    <input
-                      {...control}
-                      value={apiKeyHeaderName}
-                      readOnly={!canEdit}
-                      autoComplete="off"
-                      spellCheck={false}
-                      onChange={(event) => {
-                        setApiKeyHeaderName(event.target.value);
-                      }}
-                    />
-                  )}
-                </Field>
-              ) : null}
-            </>
-          ) : null}
           <p className="muted" data-testid={`interval-moved-${source.sourceId}`}>
             {TEXT.intervalMoved}
           </p>
@@ -493,139 +252,22 @@ function SourceCard(props: SourceCardProps): ReactNode {
                 type="checkbox"
                 checked={isEnabled}
                 disabled={!props.canConfigure}
+                aria-describedby={`enabled-impact-${source.sourceId}`}
                 onChange={(event) => {
                   setIsEnabled(event.target.checked);
                 }}
               />
               {TEXT.enabled}
             </label>
+            <p
+              id={`enabled-impact-${source.sourceId}`}
+              className="field-hint"
+              data-testid={`enabled-impact-${source.sourceId}`}
+            >
+              {TEXT.enabledImpact}
+            </p>
           </div>
         </div>
-        {isHttp && protocol === 'HTTP' ? (
-          <p
-            role="alert"
-            className="notice notice-warning"
-            data-testid={`plaintext-warning-${source.sourceId}`}
-          >
-            <Icon name="status-caution" size={18} />
-            {TEXT.plaintextWarning}
-          </p>
-        ) : null}
-        {isHttp && authMethod !== 'NONE' && savedAuthMethod === undefined ? (
-          <p className="muted" data-testid={`credentials-note-${source.sourceId}`}>
-            {TEXT.credentialsAfterSave}
-          </p>
-        ) : null}
-        {savedAuthMethod === undefined ? null : (
-          <fieldset className="credentials-section" data-testid={`credentials-${source.sourceId}`}>
-            <legend>{TEXT.credentialsHeading}</legend>
-            <p data-testid={`credentials-status-${source.sourceId}`}>
-              {TEXT.credentialsStatusLabel}:{' '}
-              {credentialStatus.state === 'CONFIGURED'
-                ? credentialStatus.updatedAt === undefined
-                  ? TEXT.credentialsConfigured
-                  : TEXT.credentialsUpdatedAt(formatDateTimeJst(credentialStatus.updatedAt))
-                : credentialStatus.state === 'UNAVAILABLE'
-                  ? TEXT.credentialsStatus.UNAVAILABLE
-                  : TEXT.credentialsStatus.NOT_CONFIGURED}
-            </p>
-            {props.canConfigure ? (
-              <>
-                <p className="muted">{TEXT.credentialsLead}</p>
-                {credentialsBlocked ? (
-                  <p className="muted" data-testid={`credentials-unsaved-${source.sourceId}`}>
-                    {TEXT.credentialsUnsaved}
-                  </p>
-                ) : null}
-                <div className="form-grid">
-                  {savedAuthMethod === 'BASIC' ? (
-                    <>
-                      <Field
-                        label={TEXT.credentialsUsername}
-                        name="username"
-                        error={credentialErrorsShown.username}
-                      >
-                        {(control) => (
-                          <input
-                            {...control}
-                            value={credentialUsername}
-                            autoComplete="off"
-                            spellCheck={false}
-                            disabled={credentialsBlocked}
-                            onKeyDown={handleCredentialEnter}
-                            onChange={(event) => {
-                              setCredentialUsername(event.target.value);
-                            }}
-                          />
-                        )}
-                      </Field>
-                      <Field
-                        label={TEXT.credentialsPassword}
-                        name="password"
-                        error={credentialErrorsShown.password}
-                      >
-                        {(control) => (
-                          <input
-                            {...control}
-                            type="password"
-                            value={credentialPassword}
-                            autoComplete="new-password"
-                            disabled={credentialsBlocked}
-                            onKeyDown={handleCredentialEnter}
-                            onChange={(event) => {
-                              setCredentialPassword(event.target.value);
-                            }}
-                          />
-                        )}
-                      </Field>
-                    </>
-                  ) : (
-                    <Field
-                      label={
-                        savedAuthMethod === 'BEARER'
-                          ? TEXT.credentialsToken
-                          : TEXT.credentialsApiKey
-                      }
-                      name={savedAuthMethod === 'BEARER' ? 'token' : 'apiKey'}
-                      error={
-                        credentialErrorsShown[savedAuthMethod === 'BEARER' ? 'token' : 'apiKey']
-                      }
-                    >
-                      {(control) => (
-                        <input
-                          {...control}
-                          type="password"
-                          value={credentialSecret}
-                          autoComplete="new-password"
-                          spellCheck={false}
-                          disabled={credentialsBlocked}
-                          onKeyDown={handleCredentialEnter}
-                          onChange={(event) => {
-                            setCredentialSecret(event.target.value);
-                          }}
-                        />
-                      )}
-                    </Field>
-                  )}
-                </div>
-                {credentialErrorsShown.authMethod === undefined ? null : (
-                  <p className="field-error">{credentialErrorsShown.authMethod}</p>
-                )}
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    disabled={locked || credentialsBlocked}
-                    onClick={() => {
-                      void handleSaveCredentials();
-                    }}
-                  >
-                    {TEXT.credentialsSave}
-                  </button>
-                </div>
-              </>
-            ) : null}
-          </fieldset>
-        )}
         <FormError message={submit.formMessage} />
         {props.canConfigure || props.canRun ? (
           <div className="form-actions">
@@ -635,51 +277,75 @@ function SourceCard(props: SourceCardProps): ReactNode {
               </button>
             ) : null}
             {props.canRun ? (
-              <>
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={locked}
-                  onClick={() => {
-                    void handleTest();
-                  }}
-                >
-                  {operation === 'test' ? TEXT.testing : TEXT.test}
-                </button>
-                <button
-                  type="button"
-                  disabled={locked}
-                  onClick={() => {
-                    void handleRun();
-                  }}
-                >
-                  {operation === 'run' || source.isRunning ? TEXT.running : TEXT.run}
-                </button>
-              </>
+              <button
+                type="button"
+                disabled={locked}
+                onClick={() => {
+                  void handleRun();
+                }}
+              >
+                {operation === 'run' || source.isRunning ? TEXT.running : TEXT.run}
+              </button>
             ) : null}
           </div>
         ) : null}
-        {result === undefined ? null : (
-          <p
-            role="status"
-            className={result.ok ? 'form-success' : 'form-error'}
-            data-testid={`result-${source.sourceId}`}
-          >
-            {result.text}
-          </p>
-        )}
+        <ResultNotice message={result?.text} ok={result?.ok} testId={`result-${source.sourceId}`} />
       </form>
     </section>
+  );
+}
+
+/** ログの設備の表示用の情報（名前・ファイルのパス）。 */
+interface LogEquipment {
+  readonly name: string;
+  readonly sourceFilePath: string | undefined;
+}
+
+/**
+ * ログの設備の列。設備に結びつかないログは「—」。失敗の行には、設備名の下に、その設備のファイルのパスを示す
+ * （管理者の画面だけ。接続先のホスト名・認証情報は示さない。ログにはパスの記録がないため、設備の現在の設定を示す）。
+ * 設備の一覧にない設備は「（削除済みの設備）」（識別子・パスは示さない）。一覧を取得するまでは、識別子のまま。
+ */
+function EquipmentCell(props: {
+  readonly log: IngestionLog;
+  readonly equipment: ReadonlyMap<string, LogEquipment> | undefined;
+}): ReactNode {
+  const { log, equipment } = props;
+  if (log.equipmentId === undefined) {
+    return MESSAGES.common.missingValue;
+  }
+  if (equipment === undefined) {
+    return log.equipmentId;
+  }
+  const found = equipment.get(log.equipmentId);
+  if (found === undefined) {
+    return TEXT.logEquipmentDeleted;
+  }
+  if (log.result !== 'FAILURE') {
+    return found.name;
+  }
+  return (
+    <div className="cell-stack">
+      <span>{found.name}</span>
+      <span className="muted log-file-path" data-testid="ingestion-log-path">
+        {found.sourceFilePath === undefined
+          ? TEXT.logFilePathNone
+          : TEXT.logFilePath(found.sourceFilePath)}
+      </span>
+    </div>
   );
 }
 
 function LogTable(props: {
   readonly data: IngestionLogListResponse;
   readonly paging: CursorPaging;
-  /** 設備の識別子 → 名前（設備ごとのログの表示。登録にない設備は、識別子のまま）。 */
-  readonly equipmentNames: ReadonlyMap<string, string>;
+  /**
+   * 設備の識別子 → 名前・ファイルのパス（設備の状況の応答から。現在の設定）。応答を取得するまでは、undefined。
+   * 一覧にない設備は、削除済みの設備として示す（Issue #164）。
+   */
+  readonly equipment: ReadonlyMap<string, LogEquipment> | undefined;
 }): ReactNode {
-  const { data, paging, equipmentNames } = props;
+  const { data, paging, equipment } = props;
   if (data.items.length === 0) {
     return (
       <p className="state-view" data-testid="ingestion-logs-empty">
@@ -710,6 +376,7 @@ function LogTable(props: {
                 {TEXT.logDeleted}
               </th>
               <th scope="col">{TEXT.logError}</th>
+              <th scope="col">{TEXT.logData}</th>
             </tr>
           </thead>
           <tbody>
@@ -720,9 +387,7 @@ function LogTable(props: {
                 </td>
                 <td data-label={TEXT.logSource}>{sourceName(log.sourceId)}</td>
                 <td data-label={TEXT.logEquipment}>
-                  {log.equipmentId === undefined
-                    ? MESSAGES.common.missingValue
-                    : (equipmentNames.get(log.equipmentId) ?? log.equipmentId)}
+                  <EquipmentCell log={log} equipment={equipment} />
                 </td>
                 <td data-label={TEXT.logResult}>
                   <span className={`log-result log-result-${log.result.toLowerCase()}`}>
@@ -744,6 +409,13 @@ function LogTable(props: {
                 <td data-label={TEXT.logError}>
                   {log.errorMessage ?? MESSAGES.common.missingValue}
                 </td>
+                <td data-label={TEXT.logData}>
+                  {log.recordCount === 0 ? (
+                    MESSAGES.common.missingValue
+                  ) : (
+                    <Link to={loggedDataPath(log)}>{TEXT.logDataLink}</Link>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -759,6 +431,8 @@ function LogTable(props: {
             paging.goNext(data.nextCursor);
           }
         }}
+        pageSize={LOG_PAGE_SIZE}
+        itemCount={data.items.length}
       />
     </>
   );
@@ -829,6 +503,8 @@ function FederationTable(props: {
                 paging.goNext(data.nextCursor);
               }
             }}
+            pageSize={LOG_PAGE_SIZE}
+            itemCount={data.items.length}
           />
         </>
       )}
@@ -840,6 +516,21 @@ function FederationTable(props: {
  * 取り込みの設定・状況・ログ。閲覧の権限（ingestion:read）がない利用者（一般）には、閲覧できるハウスの、取り込み・連携の記録だけを示す
  * （設定・接続先・失敗の理由・全体の件数は、取得も表示もしない。ADR-0013。Issue #332）。
  */
+/**
+ * 取り込みのログから、取得したデータ（計測データの一覧）へのリンク（Issue #363）。設備（あれば）・自動取り込み・
+ * 実行の期間（日本時間の日付）で絞る。一覧は日付単位の絞り込みのため、同じ日の、ほかの取り込みのデータも含む。
+ */
+function loggedDataPath(log: IngestionLog): string {
+  const jstDate = (iso: string): string => isoToJstDateTimeInput(iso).slice(0, 10);
+  const params = new URLSearchParams({ source: 'AUTO_IMPORT' });
+  if (log.equipmentId !== undefined) {
+    params.set('equipmentId', log.equipmentId);
+  }
+  params.set('from', jstDate(log.startedAt));
+  params.set('to', jstDate(log.finishedAt));
+  return `${PATHS.observations}?${params.toString()}`;
+}
+
 export function IngestionPage(): ReactNode {
   return usePermission('ingestion:read') ? <IngestionContent /> : <FacilityIngestionView />;
 }
@@ -849,6 +540,7 @@ function IngestionContent(): ReactNode {
   const [results, setResults] = useState<Readonly<Record<string, OperationResult | undefined>>>({});
   const canConfigure = usePermission('ingestion:configure');
   const canRun = usePermission('ingestion:run');
+  const canOpenEquipment = usePermission('equipment:manage');
   const query = useQueryParams();
   // ログの絞り込み（設備・結果・期間〔日本時間の日付〕。条件は URL に反映する。Issue #201）
   const logEquipment = query.get('equipment');
@@ -865,6 +557,12 @@ function IngestionContent(): ReactNode {
   const { cursor: logCursor } = logPaging;
   const logFromIso = jstDateToIso(logFrom, 'start');
   const logToIso = jstDateToIso(logTo, 'end');
+  const logActiveCount = countActiveConditions([
+    logEquipment !== '',
+    logResultFilter !== '',
+    logFrom !== '',
+    logTo !== '',
+  ]);
   const fetchLogs = useCallback(
     () =>
       listIngestionLogs(api, {
@@ -902,13 +600,25 @@ function IngestionContent(): ReactNode {
     reloadFederation();
   }, [reloadSettings, reloadLogs, reloadFederation]);
 
-  // 設備の選択肢・名前は、取り込み元ごとの設備（設定・状況の応答）から作る
-  const equipmentNames = new Map(
-    (settings.data?.sources ?? []).flatMap((source) =>
-      source.equipment.map((item) => [item.equipmentId, item.name] as const),
-    ),
-  );
-  const equipmentOptions = [...equipmentNames].map(([value, label]) => ({ value, label }));
+  // 設備の選択肢・名前・ファイルのパスは、取り込み元ごとの設備（設定・状況の応答）から作る
+  const equipmentInfo =
+    settings.data === undefined
+      ? undefined
+      : new Map<string, LogEquipment>(
+          settings.data.sources.flatMap((source) =>
+            source.equipment.map(
+              (item) =>
+                [
+                  item.equipmentId,
+                  { name: item.name, sourceFilePath: item.sourceFilePath },
+                ] as const,
+            ),
+          ),
+        );
+  const equipmentOptions = [...(equipmentInfo ?? [])].map(([value, item]) => ({
+    value,
+    label: item.name,
+  }));
 
   return (
     <div className="ingestion-page">
@@ -921,6 +631,9 @@ function IngestionContent(): ReactNode {
         </p>
       </div>
       <p className="muted">{TEXT.lead}</p>
+      <p className="muted" data-testid="ingestion-connection-lead">
+        <strong>{TEXT.connectionHeading}</strong> {TEXT.connectionLead}
+      </p>
       {canConfigure || canRun ? null : <PermissionNotice message={TEXT.readOnly} />}
 
       <h2>{TEXT.sources}</h2>
@@ -931,7 +644,7 @@ function IngestionContent(): ReactNode {
       ) : (
         settings.data.sources.map((source) => (
           <SourceCard
-            key={`${source.sourceId}|${source.connectionRef}|${JSON.stringify(source.connection)}|${String(source.isEnabled)}`}
+            key={`${source.sourceId}|${String(source.isEnabled)}`}
             source={source}
             result={results[source.sourceId]}
             onResult={(result) => {
@@ -939,6 +652,7 @@ function IngestionContent(): ReactNode {
             }}
             canConfigure={canConfigure}
             canRun={canRun}
+            canOpenEquipment={canOpenEquipment}
             onChanged={refreshAll}
           />
         ))
@@ -952,7 +666,12 @@ function IngestionContent(): ReactNode {
         <div className="panel-head">
           <h2 id="ingestion-logs-heading">{TEXT.logs}</h2>
         </div>
-        <div className="filter-bar">
+        <FilterPanel
+          activeCount={logActiveCount}
+          onClear={() => {
+            query.clear(LOG_CONDITION_NAMES);
+          }}
+        >
           <SelectFilter
             label={TEXT.logEquipment}
             value={logEquipment}
@@ -990,13 +709,13 @@ function IngestionContent(): ReactNode {
               query.set({ to: value });
             }}
           />
-        </div>
+        </FilterPanel>
         {logs.error !== undefined ? (
           <ErrorView error={logs.error} onRetry={logs.reload} />
         ) : logs.data === undefined ? (
           <LoadingView />
         ) : (
-          <LogTable data={logs.data} paging={logPaging} equipmentNames={equipmentNames} />
+          <LogTable data={logs.data} paging={logPaging} equipment={equipmentInfo} />
         )}
       </section>
 

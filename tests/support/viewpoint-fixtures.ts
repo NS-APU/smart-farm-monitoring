@@ -7,7 +7,7 @@ import type {
   ViewpointDetailResponse,
 } from '../../src/shared/schemas/evaluation.ts';
 import type { ObservationListResponse } from '../../src/shared/schemas/observation.ts';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 
 const HOUSE = toEquipmentId('HOUSE-01');
 
@@ -57,6 +57,13 @@ export function detail(overrides: Partial<ViewpointDetailResponse> = {}): Viewpo
       { metricId: 'illuminanceLux', value: null, indicatorStatus: 'UNKNOWN', isPrimary: true },
       { metricId: 'co2Ppm', value: 900, indicatorStatus: null, isPrimary: false },
     ],
+    // 「現在」（短期の評価）の指標: 温度は直近値（20℃。期間は平均 27℃）
+    currentMetrics: [
+      { metricId: 'temperatureCelsius', value: 20, indicatorStatus: 'NORMAL', isPrimary: true },
+      { metricId: 'humidityPercent', value: 58, indicatorStatus: 'NORMAL', isPrimary: true },
+      { metricId: 'illuminanceLux', value: null, indicatorStatus: 'UNKNOWN', isPrimary: true },
+      { metricId: 'co2Ppm', value: 880, indicatorStatus: null, isPrimary: false },
+    ],
     criteria: getDefaultCriteria('environmentalAdaptability'),
     usesStatusIndicator: false,
     radar: null,
@@ -77,6 +84,7 @@ export function speedDetail(
     short: null,
     long,
     selected: long,
+    currentMetrics: null,
     metrics: [
       { metricId: 'averageSecondsPerFruit', value: 36, indicatorStatus: 'NORMAL', isPrimary: true },
     ],
@@ -121,6 +129,7 @@ export function satisfactionDetail(
     short: null,
     long,
     selected: long,
+    currentMetrics: null,
     metrics: [
       {
         metricId: 'overallSatisfaction',

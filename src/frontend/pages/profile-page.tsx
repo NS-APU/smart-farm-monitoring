@@ -8,6 +8,7 @@ import { useAuth } from '../auth/auth-context.tsx';
 import { Field, FormError } from '../components/form-controls.tsx';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.profile;
 const USER_NAME_MAX_LENGTH = 200;
@@ -71,11 +72,7 @@ export function ProfilePage(): ReactNode {
           )}
         </Field>
         <FormError message={submit.formMessage} />
-        {saved ? (
-          <p role="status" className="notice notice-success" data-testid="profile-saved">
-            {TEXT.saved}
-          </p>
-        ) : null}
+        <ResultNotice message={saved ? TEXT.saved : undefined} testId="profile-saved" />
         <div className="form-actions">
           <button type="submit" disabled={submit.busy}>
             {submit.busy ? TEXT.submitting : TEXT.submit}

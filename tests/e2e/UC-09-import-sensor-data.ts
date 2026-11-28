@@ -3,20 +3,19 @@
  * UI を持たないユースケースのため、UC-08 と同じ方法（dev_spec.md 5.1）で、SC-11 の即時取得と開発用 API から、取り込みを起動し、
  * 結果を SC-09・SC-02・SC-11 で確認する。
  *
- * ユースケースシナリオ: UC-08 と同様（対象がロボットデータではなく、環境センサーデータ（JSON。1 つのファイルを随時更新する方式））。
+ * ユースケースシナリオ: UC-08 と同様（対象がロボットデータではなく、環境センサーデータ（JSON。1 つのファイルを随時更新する方式。その時点のスナップショット 1 つ。設備は、設備ごとのファイルのパスで決める））。
  *   基本フロー  ファイルサーバー上の新しいセンサーデータを検知し、検証して、センサーとハウスに対応づけて保存し、評価を更新する
  *   代替フロー  形式・項目が仕様と異なる場合はエラーとして記録し継続／接続できない場合は再試行し、失敗を通知（UC-24）／ログ（UC-16）／重複して取り込まない
  *
  * 値の同値分割: 温度（正常・注意・異常）、湿度の境界（0・100・100.1・-1）、欠損（null の値）、不正（数値でない・項目の不足・構造の違い・
- * 登録のないセンサーID・ロボットの機体ID・未来の計測日時）、遅延、複数のハウス・センサー、起動の経路（即時取得・定期）、
+ * 旧構造・未来の計測日時）、遅延、複数のハウス・センサー、起動の経路（即時取得・定期）、
  * 同じファイルの再取り込み、接続（成功・停止）。
  * 関連するユースケース: UC-08（同じ仕組みの取り込み）・UC-15・UC-16・UC-20・UC-01・UC-10（異常の通知）・UC-24。
  */
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import {
   HOUSE_ID,
-  ROBOT_EXTERNAL_ID,
   SENSOR_EXTERNAL_ID,
   SENSOR_ID,
   advanceMinutes,
@@ -24,35 +23,46 @@ import {
   api,
   apiOk,
   openAs,
-  placeFile,
-  placeFixture,
   prepareApp,
   robotJson,
   runJob,
   sensorJson,
   setEquipmentInterval,
-  setMock,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile, placeFixture, setFileServerMode } from './support/http-files.ts';
 import { logRows, runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
-import { openIngestion, openObservationsPage as openObservations } from './support/pages.ts';
+import {
+  openIngestion,
+  openObservationsPage as openObservations,
+  itemListQuery,
+} from './support/pages.ts';
 
 const observationRows = (page: Page) => page.getByTestId('observation-row');
 
-/** 15分前・30分前の2行（計測から受信まで60分以内）。 */
-function rows(temperature: number | string, humidity: number | string = 60) {
-  return [0.5, 0.25].map((hoursAgo) => ({
-    hoursAgo,
-    temperature,
-    humidity,
-    illuminance: 30_000,
-    co2: 900,
-  }));
+/** 15分前の記録（スナップショット 1 つ。計測から受信まで60分以内）。 */
+function row(temperature: number | string, humidity: number | string = 60) {
+  return { hoursAgo: 0.25, temperature, humidity, illuminance: 30_000, co2: 900 };
+}
+
+/** センサーを、ハウス 1 に 1 つ追加する（HTTP は、1 設備 = 1 ファイル。複数のファイルは、複数のセンサーに言い換える）。 */
+async function addSensor(
+  request: APIRequestContext,
+  equipmentId: string,
+  externalId: string,
+): Promise<void> {
+  await apiOk(request, 'POST', '/equipment', {
+    equipmentId,
+    equipmentType: 'SENSOR',
+    name: `環境センサー（${equipmentId}）`,
+    facilityId: HOUSE_ID,
+    externalId,
+  });
 }
 
 test.describe('基本フロー: 新しいセンサーデータを検知し、検証して、センサーとハウスに対応づけて保存し、評価を更新する', () => {
-  test('ファイルサーバーに置いたセンサーデータ（JSON）を取り込むと、取り込み済みデータ（自動取り込み・有効）に保存され、ログに記録され、環境適応性が更新される', async ({
+  test('ファイルサーバーに置いたセンサーデータ（JSON）を取り込むと、計測データ（自動取り込み・有効）に保存され、ログに記録され、環境適応性が更新される', async ({
     page,
     request,
   }, testInfo) => {
@@ -60,25 +70,25 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await alignBrowserClock(page);
     await openAs(page, '/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('不明');
-    placeFile('environment-sensor', 'sensor.json', sensorJson(rows(22)));
+    await placeFile(request, 'environment-sensor', 'sensor.json', sensorJson(row(22)));
 
     await page.goto('/settings/ingestion');
     const result = await runNow(page, 'environment-sensor');
     await expect(result).toContainText('取得しました（成功）');
-    await expect(result).toContainText('ファイル 1 件、取り込み 8 件、読み取れなかった記録 0 件');
+    await expect(result).toContainText('ファイル 1 件、取り込み 4 件、読み取れなかった記録 0 件');
     // 取り込みの成否は、ログに記録される（取り込み元・成功・ファイル数・取り込み件数・読み取れなかった記録の数。UC-16）
     const log = logRows(page).first();
     await expect(log).toHaveAttribute('data-result', 'SUCCESS');
     await expect(log).toContainText('環境センサーデータ');
     await expect(log.locator('td').nth(4)).toHaveText('1');
-    await expect(log.locator('td').nth(5)).toHaveText('8');
+    await expect(log.locator('td').nth(5)).toHaveText('4');
     await expect(log.locator('td').nth(6)).toHaveText('0');
     await shot(page, testInfo, 'uc09-ingestion');
 
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(8);
+    await expect(observationRows(page)).toHaveCount(4);
     for (const row of await observationRows(page).all()) {
       await expect(row).toContainText('環境センサー1');
       await expect(row).toContainText('自動取り込み');
@@ -90,7 +100,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
 
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText('22.0℃');
   });
@@ -107,20 +117,25 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
       request,
     }) => {
       await prepareApp(request);
-      placeFile('environment-sensor', 'sensor.json', sensorJson(rows(item.temperature)));
+      await placeFile(
+        request,
+        'environment-sensor',
+        'sensor.json',
+        sensorJson(row(item.temperature)),
+      );
       await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
       await alignBrowserClock(page);
       await openAs(page, '/');
 
       await expect(
-        page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+        page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
       ).toContainText(item.status);
     });
   }
 
   test('異常なデータを取り込むと、異常の通知（UC-10）が作られる', async ({ page, request }) => {
     await prepareApp(request);
-    placeFile('environment-sensor', 'sensor.json', sensorJson(rows(40)));
+    await placeFile(request, 'environment-sensor', 'sensor.json', sensorJson(row(40)));
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await alignBrowserClock(page);
     await openAs(page, '/notifications');
@@ -140,27 +155,29 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await prepareApp(request);
     // 取得間隔は、設備ごとの設定（#197。既定は、環境センサー 5 分）。この検証は、15 分にする
     await setEquipmentInterval(request, SENSOR_ID, 15);
-    placeFile('environment-sensor', 'a.json', sensorJson(rows(22)));
+    await placeFile(request, 'environment-sensor', 'sensor.json', sensorJson(row(22)));
     await runJob(request, 'JB-01');
-    placeFile(
+    // 同じパスを、新しいデータで置き直す（HTTP は、1 設備 = 1 ファイル）
+    await placeFile(
+      request,
       'environment-sensor',
-      'b.json',
-      sensorJson([{ hoursAgo: 0.1, temperature: 23, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor.json',
+      sensorJson({ hoursAgo: 0.1, temperature: 23, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await advanceMinutes(request, 5);
     await runJob(request, 'JB-01');
     await alignBrowserClock(page);
-    await openAs(page, '/observations');
-    await expect(observationRows(page).filter({ hasText: '温度' })).toHaveCount(2);
+    await openAs(page, `/observations${itemListQuery()}`);
+    await expect(observationRows(page).filter({ hasText: '温度' })).toHaveCount(1);
 
     await advanceMinutes(request, 11);
     await runJob(request, 'JB-01');
     await page.reload();
 
-    await expect(observationRows(page).filter({ hasText: '温度' })).toHaveCount(3);
+    await expect(observationRows(page).filter({ hasText: '温度' })).toHaveCount(2);
   });
 
-  test('センサーは、データ上の識別子（sensor_id）で、登録されたセンサーと、そのセンサーが属するハウスに対応づけて保存される（複数のハウス・センサー）。評価はハウスごとに行う', async ({
+  test('センサーのファイルは、設備ごとのファイルのパスで、登録されたセンサーと、そのセンサーが属するハウスに対応づけて保存される（複数のハウス・センサー）。評価はハウスごとに行う', async ({
     page,
     request,
   }, testInfo) => {
@@ -178,30 +195,29 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
       facilityId: 'HOUSE-02',
       externalId: 'SENSOR-SAMPLE-02',
     });
-    placeFile('environment-sensor', 'sensor-01.json', sensorJson(rows(22)));
-    placeFile(
+    await placeFile(request, 'environment-sensor', 'sensor-01.json', sensorJson(row(22)));
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor-02.json',
-      sensorJson(
-        [{ hoursAgo: 0.25, temperature: 40, humidity: 60, illuminance: 30_000, co2: 900 }],
-        'SENSOR-SAMPLE-02',
-      ),
+      sensorJson({ hoursAgo: 0.25, temperature: 40, humidity: 60, illuminance: 30_000, co2: 900 }),
+      { equipmentId: 'SENSOR-02' },
     );
     await openIngestion(page);
 
     await expect(await runNow(page, 'environment-sensor')).toContainText(
-      'ファイル 2 件、取り込み 12 件、読み取れなかった記録 0 件',
+      'ファイル 2 件、取り込み 8 件、読み取れなかった記録 0 件',
     );
 
     // センサーごとに、そのセンサーの記録だけが保存されている
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(12);
-    await expect(observationRows(page).filter({ hasText: '環境センサー1' })).toHaveCount(8);
+    await expect(observationRows(page)).toHaveCount(8);
+    await expect(observationRows(page).filter({ hasText: '環境センサー1' })).toHaveCount(4);
     await expect(observationRows(page).filter({ hasText: '環境センサー2' })).toHaveCount(4);
     // ハウスで絞り込むと、そのハウスに属するセンサーの記録だけが出る
     await page.getByLabel('設備', { exact: true }).selectOption(HOUSE_ID);
-    await expect(observationRows(page)).toHaveCount(8);
-    await expect(observationRows(page).filter({ hasText: '環境センサー1' })).toHaveCount(8);
+    await expect(observationRows(page)).toHaveCount(4);
+    await expect(observationRows(page).filter({ hasText: '環境センサー1' })).toHaveCount(4);
     await page.getByLabel('設備', { exact: true }).selectOption('HOUSE-02');
     await expect(observationRows(page)).toHaveCount(4);
     await expect(observationRows(page).filter({ hasText: '環境センサー2' })).toHaveCount(4);
@@ -209,7 +225,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await shot(page, testInfo, 'uc09-by-house');
     // API（設備IDでの絞り込み）でも、同じ結果になる
     for (const [equipmentId, count] of [
-      [SENSOR_ID, 8],
+      [SENSOR_ID, 4],
       ['SENSOR-02', 4],
       ['ROBOT-01', 0],
     ] as const) {
@@ -224,13 +240,13 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
 
     // 評価は、ハウスごとに行われる（ハウス1: 22℃ → 正常、ハウス2: 40℃ → 異常）
     await page.goto('/');
-    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス1' });
+    await page.getByLabel('対象のハウス').selectOption({ label: 'ハウス1' });
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
-    await page.getByLabel('対象の設備').selectOption({ label: 'ハウス2' });
+    await page.getByLabel('対象のハウス').selectOption({ label: 'ハウス2' });
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText('40.0℃');
   });
@@ -241,24 +257,27 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
   }) => {
     await prepareApp(request);
     await alignBrowserClock(page);
-    placeFile('environment-sensor', 'a.json', sensorJson(rows(22)));
+    await placeFile(request, 'environment-sensor', 'sensor.json', sensorJson(row(22)));
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await openAs(page, '/');
-    const badge = page.getByTestId('card-environmentalAdaptability').locator('.status-badge');
+    const badge = page.getByTestId('period-environmentalAdaptability').locator('.status-badge');
     await expect(badge).toContainText('正常');
 
-    placeFile(
+    // 同じパスを、新しいデータで置き直す（HTTP は、1 設備 = 1 ファイル）
+    await placeFile(
+      request,
       'environment-sensor',
-      'b.json',
-      sensorJson([
-        { hoursAgo: 0.05, temperature: 40, humidity: 60, illuminance: 30_000, co2: 900 },
-      ]),
+      'sensor.json',
+      sensorJson({ hoursAgo: 0.05, temperature: 40, humidity: 60, illuminance: 30_000, co2: 900 }),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await page.reload();
 
-    // カードのステータスは、短期（最新の 40℃）と長期（期間の平均）のうち、悪い方（evaluation.md 5章）
-    await expect(badge).toContainText('異常');
+    // 「現在」（短期）は、最新の 40℃ で異常。「期間の評価」（長期）は、期間の平均で、異常ではない（別々の結果。evaluation.md 5章）
+    await expect(
+      page.getByTestId('current-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('異常');
+    await expect(badge).not.toContainText('異常');
   });
 });
 
@@ -268,28 +287,31 @@ test.describe('代替フロー: 同じファイルを重複して取り込まな
     request,
   }) => {
     await prepareApp(request);
-    const content = sensorJson(rows(22));
-    placeFile('environment-sensor', 'a.json', content);
+    const content = sensorJson(row(22));
+    await placeFile(request, 'environment-sensor', 'a.json', content);
     await openIngestion(page);
     await expect(await runNow(page, 'environment-sensor')).toContainText(
-      'ファイル 1 件、取り込み 8 件',
+      'ファイル 1 件、取り込み 4 件',
     );
     await expect(await runNow(page, 'environment-sensor')).toContainText('ファイル 0 件');
-    placeFile('environment-sensor', 'copy.json', content);
-    // 別のファイル（名前が違う）として読むが、同じ値（同じ計測日時・同じ値）は、触らない（取り込み 0 件）
+    // 設備のファイルのパスを、別のパスに修正し、同じ内容のファイルを置く（HTTP は、1 設備 = 1 ファイル）
+    await placeFile(request, 'environment-sensor', 'copy.json', content, { reassign: true });
+    // 別のファイル（パスが違う）として読むが、同じ値（同じ計測日時・同じ値）は、触らない（取り込み 0 件）
     await expect(await runNow(page, 'environment-sensor')).toContainText(
       'ファイル 1 件、取り込み 0 件',
     );
 
-    // 同じ名前で、温度が訂正されたファイル
-    placeFile('environment-sensor', 'a.json', sensorJson(rows(23)));
-    // 変わった観測値（温度の 2 件）だけを取り込む（同じ値の湿度・照度・CO2 は、触らない。ADR-0016 の D-08）
+    // もとのパスに戻して、温度が訂正されたファイル
+    await placeFile(request, 'environment-sensor', 'a.json', sensorJson(row(23)), {
+      reassign: true,
+    });
+    // 変わった観測値（温度の 1 件）だけを取り込む（同じ値の湿度・照度・CO2 は、触らない。ADR-0016 の D-08）
     await expect(await runNow(page, 'environment-sensor')).toContainText(
-      'ファイル 1 件、取り込み 2 件',
+      'ファイル 1 件、取り込み 1 件',
     );
 
     await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(8);
+    await expect(observationRows(page)).toHaveCount(4);
     await expect(observationRows(page).filter({ hasText: '温度' }).first()).toContainText('23℃');
   });
 });
@@ -300,14 +322,22 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-structure.json');
-    placeFile('environment-sensor', 'good.json', sensorJson(rows(22)));
+    await placeFixture(
+      request,
+      'environment-sensor',
+      'environment-sensor/sensor-sample-003-bad-structure.json',
+    );
+    // 形式違いのファイルは SENSOR-01、正常なファイルは、もう 1 つのセンサー（HTTP は、1 設備 = 1 ファイル）
+    await addSensor(request, 'SENSOR-02', 'SENSOR-SAMPLE-02');
+    await placeFile(request, 'environment-sensor', 'good.json', sensorJson(row(22)), {
+      equipmentId: 'SENSOR-02',
+    });
     await openIngestion(page);
 
     const first = await runNow(page, 'environment-sensor');
 
     await expect(first).toContainText('取得しました（一部成功）');
-    await expect(first).toContainText('ファイル 2 件、取り込み 8 件');
+    await expect(first).toContainText('ファイル 2 件、取り込み 4 件');
     // 取り込めなかったファイル（設備に結びつかない）は、取り込み元単位のログ。取り込めたファイルは、設備のログ（Issue #201）
     await expect(
       logRows(page).filter({ hasText: '1件のファイルを取り込めませんでした' }),
@@ -321,10 +351,11 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     request,
   }, testInfo) => {
     await prepareApp(request);
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'missing.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: '', humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: '', humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await openIngestion(page);
 
@@ -339,25 +370,29 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     await shot(page, testInfo, 'uc09-missing');
     // 温度が欠損でも、取得できた指標（湿度・照度・CO2濃度）だけで評価する（温度は「—」）
     await page.goto('/');
-    const card = page.getByTestId('card-environmentalAdaptability');
+    const card = page.getByTestId('period-environmentalAdaptability');
     await expect(card.locator('.status-badge')).toContainText('正常');
     await expect(
       card.locator('dt', { hasText: '温度' }).locator('xpath=following-sibling::dd[1]'),
     ).toContainText('—');
   });
 
-  test('サンプルの不正なデータ（数値でない・範囲外・計測日時のない記録）を、「不正」として保持する', async ({
+  test('サンプルの不正なデータ（数値でない・範囲外）を、「不正」として保持する', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-002-invalid.json');
+    await placeFixture(
+      request,
+      'environment-sensor',
+      'environment-sensor/sensor-sample-002-invalid.json',
+    );
     await openIngestion(page);
 
     const result = await runNow(page, 'environment-sensor');
 
     await expect(result).toContainText('取得しました（一部成功）');
-    await expect(result).toContainText('取り込み 3 件、読み取れなかった記録 3 件');
+    await expect(result).toContainText('取り込み 2 件、読み取れなかった記録 2 件');
     await openObservations(page);
     const invalid = observationRows(page).filter({ has: page.locator('.quality-invalid') });
     await expect(invalid).toHaveCount(2);
@@ -375,12 +410,17 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
   for (const item of humidity) {
     test(`湿度の境界値: ${item.value}% は「${item.quality}」`, async ({ page, request }) => {
       await prepareApp(request);
-      placeFile(
+      await placeFile(
+        request,
         'environment-sensor',
         'humidity.json',
-        sensorJson([
-          { hoursAgo: 0.5, temperature: 22, humidity: item.value, illuminance: 30000, co2: 900 },
-        ]),
+        sensorJson({
+          hoursAgo: 0.5,
+          temperature: 22,
+          humidity: item.value,
+          illuminance: 30000,
+          co2: 900,
+        }),
       );
       await openIngestion(page);
       await runNow(page, 'environment-sensor');
@@ -397,10 +437,11 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     request,
   }) => {
     await prepareApp(request);
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'future.json',
-      sensorJson([{ hoursAgo: -1, temperature: 22, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: -1, temperature: 22, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await openIngestion(page);
     await runNow(page, 'environment-sensor');
@@ -413,18 +454,27 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     }
   });
 
-  test('登録のないセンサーID の行は、読み取れなかった記録として数え、保存しない', async ({
+  test('旧構造（センサーID sensorId + 記録の配列 records）のファイルは、読まない（形式違いとして失敗にし、保存しない）。設備は、ファイルのパスで決める', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
-    placeFile('environment-sensor', 'unknown.json', sensorJson(rows(22), 'SENSOR-UNKNOWN-99'));
+    await placeFile(
+      request,
+      'environment-sensor',
+      'old-structure.json',
+      JSON.stringify({
+        sensorId: SENSOR_EXTERNAL_ID,
+        records: [{ timestamp: '2026-10-09T02:30:00Z', temperature: 22 }],
+      }),
+    );
     await openIngestion(page);
 
     const result = await runNow(page, 'environment-sensor');
 
-    await expect(result).toContainText('取り込み 0 件、読み取れなかった記録 2 件');
-    // 保存しない（取り込み済みデータに現れない）
+    await expect(result).toContainText('取得しました（失敗）');
+    await expect(result).toContainText('取り込み 0 件');
+    // 保存しない（計測データに現れない）
     await openObservations(page);
     await expect(observationRows(page)).toHaveCount(0);
   });
@@ -434,32 +484,38 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     request,
   }) => {
     await prepareApp(request);
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'excel.json',
-      `${String.fromCharCode(0xfeff)}${JSON.stringify(JSON.parse(sensorJson(rows(22))), null, 2).replaceAll('\n', '\r\n')}\r\n`,
+      `${String.fromCharCode(0xfeff)}${JSON.stringify(JSON.parse(sensorJson(row(22))), null, 2).replaceAll('\n', '\r\n')}\r\n`,
     );
     await openIngestion(page);
 
     const result = await runNow(page, 'environment-sensor');
 
     await expect(result).toContainText('取得しました（成功）');
-    await expect(result).toContainText('ファイル 1 件、取り込み 8 件、読み取れなかった記録 0 件');
+    await expect(result).toContainText('ファイル 1 件、取り込み 4 件、読み取れなかった記録 0 件');
   });
 
-  test('ロボットの機体ID（データ上の識別子）の行は、センサーの取り込みでは対応づけず、読み取れなかった記録として数える（設備の種別をまたがない）', async ({
-    page,
+  test('設備のファイルのパスは、ロボットと同じパスをセンサーに設定できない（1 設備 = 1 ファイル。ほかの設備と同じパスは、検証エラー）', async ({
     request,
   }) => {
     await prepareApp(request);
-    placeFile('environment-sensor', 'robot-id.json', sensorJson(rows(22), ROBOT_EXTERNAL_ID));
-    await openIngestion(page);
+    await placeFile(
+      request,
+      'robot',
+      'shared.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
+    );
 
-    const result = await runNow(page, 'environment-sensor');
+    const response = await api(request, 'PUT', `/equipment/${SENSOR_ID}`, {
+      name: '環境センサー1',
+      facilityId: HOUSE_ID,
+      sourceFilePath: '/robot/shared.json',
+    });
 
-    await expect(result).toContainText('取り込み 0 件、読み取れなかった記録 2 件');
-    await openObservations(page);
-    await expect(observationRows(page)).toHaveCount(0);
+    expect(response.status()).toBe(409);
   });
 
   test('受信が遅れたデータ（計測から受信まで60分を超える）は「遅延」として保持し、評価には使う', async ({
@@ -468,14 +524,15 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
   }) => {
     await prepareApp(request);
     // 計測は3時間前、受信は現在（3時間遅れ）
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'late.json',
-      sensorJson([{ hoursAgo: 3, temperature: 22, humidity: 60, illuminance: 30_000, co2: 900 }]),
+      sensorJson({ hoursAgo: 3, temperature: 22, humidity: 60, illuminance: 30_000, co2: 900 }),
     );
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await alignBrowserClock(page);
-    await openAs(page, '/observations');
+    await openAs(page, `/observations${itemListQuery()}`);
 
     await expect(observationRows(page)).toHaveCount(4);
     for (const row of await observationRows(page).all()) {
@@ -483,26 +540,20 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     }
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText('22.0℃');
   });
 
-  test('記録がない（空の配列の）JSON は、成功（0 件）。空のファイルは、失敗', async ({
-    page,
-    request,
-  }) => {
+  test('空のファイルは、形式違いとして失敗にする', async ({ page, request }) => {
     await prepareApp(request);
-    placeFile('environment-sensor', 'header-only.json', sensorJson([]));
-    placeFile('environment-sensor', 'empty.json', '');
+    await placeFile(request, 'environment-sensor', 'empty.json', '');
     await openIngestion(page);
 
     const result = await runNow(page, 'environment-sensor');
 
-    // 記録がないファイルは、形式として正しい（0 件）。空のファイルは、形式違い。全体では、取り込めた記録がないため、失敗
     await expect(result).toContainText('取得しました（失敗）');
-    await expect(result).toContainText('ファイル 2 件');
-    // 取り込めなかったのは、1件のファイル（空のファイル）だけ。記録がないファイルは、成功
+    await expect(result).toContainText('ファイル 1 件');
     await expect(logRows(page).first()).toContainText('1件のファイルを取り込めませんでした');
   });
 });
@@ -513,17 +564,23 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    // HTTP は、ファイルのパスを持つ設備だけが取得の対象。ファイルを置いてから、停止する
+    await placeFile(request, 'environment-sensor', 'a.json', sensorJson(row(22)));
+    await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（失敗）');
     await expect(logRows(page).first()).toContainText('ファイルサーバーに接続できませんでした');
 
-    await setMock(request, 'file-server', 'UP');
-    placeFile('environment-sensor', 'a.json', sensorJson(rows(22)));
-    await expect(await runNow(page, 'environment-sensor')).toContainText('取り込み 8 件');
+    await setFileServerMode(request, 'UP');
+    await expect(await runNow(page, 'environment-sensor')).toContainText('取り込み 4 件');
 
     // ロボットデータの取り込みは、別に、実行できる
-    placeFile('robot', 'a.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
+    );
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
   });
 
@@ -532,8 +589,8 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
-    placeFile('environment-sensor', 'a.json', sensorJson(rows(22)));
+    await placeFile(request, 'environment-sensor', 'a.json', sensorJson(row(22)));
+    await setFileServerMode(request, 'DOWN');
 
     // 再試行（最大3回）しても失敗 → 結果として FAILURE を返す
     const response = await api(request, 'POST', '/ingestion/environment-sensor/run');
@@ -553,9 +610,9 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     await expect(notification).toContainText('ファイルサーバーに接続できませんでした');
 
     // 復旧後の取り込みで、置いてあったファイルが取り込まれる（失敗した間も、ファイルは取り込み済みにならない）
-    await setMock(request, 'file-server', 'UP');
+    await setFileServerMode(request, 'UP');
     await page.goto('/settings/ingestion');
-    await expect(await runNow(page, 'environment-sensor')).toContainText('取り込み 8 件');
+    await expect(await runNow(page, 'environment-sensor')).toContainText('取り込み 4 件');
     await expect(logRows(page).filter({ hasText: '環境センサーデータ' })).toHaveCount(2);
     await expect(logRows(page).first()).toHaveAttribute('data-result', 'SUCCESS');
     await expect(logRows(page).nth(1)).toHaveAttribute('data-result', 'FAILURE');
@@ -566,7 +623,9 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     request,
   }) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    // HTTP は、ファイルのパスを持つ設備だけが取得の対象。ファイルを置いてから、停止する
+    await placeFile(request, 'environment-sensor', 'a.json', sensorJson(row(22)));
+    await setFileServerMode(request, 'DOWN');
     await openIngestion(page);
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（失敗）');
 
@@ -583,8 +642,17 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     request,
   }) => {
     await prepareApp(request);
-    placeFixture('environment-sensor', 'environment-sensor/sensor-sample-003-bad-structure.json');
-    placeFile('robot', 'robot.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
+    await placeFixture(
+      request,
+      'environment-sensor',
+      'environment-sensor/sensor-sample-003-bad-structure.json',
+    );
+    await placeFile(
+      request,
+      'robot',
+      'robot.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
+    );
 
     await runJob(request, 'JB-01');
 
@@ -599,11 +667,11 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
     );
   });
 
-  test('センサーの識別子（sensor_id）は、設備に登録した「データ上の識別子」と対応づけられる', async ({
+  test('センサーのファイルは、設備のファイルのパスで、その設備に対応づけられる（ファイルの中に設備の識別子はない）', async ({
     request,
   }) => {
     await prepareApp(request);
-    placeFile('environment-sensor', 'a.json', sensorJson(rows(22), SENSOR_EXTERNAL_ID));
+    await placeFile(request, 'environment-sensor', 'a.json', sensorJson(row(22)));
 
     const response = await apiOk<{ recordCount: number }>(
       request,
@@ -611,6 +679,12 @@ test.describe('代替フロー: 接続できない場合は、再試行し、失
       '/ingestion/environment-sensor/run',
     );
 
-    expect(response.recordCount).toBe(8);
+    expect(response.recordCount).toBe(4);
+    const observations = await apiOk<{ items: { equipmentId: string }[] }>(
+      request,
+      'GET',
+      `/observations?equipmentId=${SENSOR_ID}&limit=100`,
+    );
+    expect(observations.items).toHaveLength(4);
   });
 });

@@ -28,9 +28,9 @@ function stackNames(app: App): string[] {
 }
 
 describe('CDK アプリの組み立て', () => {
-  it('評価環境: 設定がなければ、データと評価環境のスタックだけを作る（アカウントに依存しない）', () => {
+  it('評価環境: 設定がなければ、データ・ファイルサーバー・評価環境のスタックだけを作る（アカウントに依存しない）', () => {
     const app = createEvaluationApp({}, assets());
-    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmFileServer']);
   });
 
   it('評価環境: ログインの失敗の制限（SFM_LOGIN_FAILURE_LIMIT・SFM_LOGIN_FAILURE_WINDOW_MINUTES）を、API の Lambda の環境変数に渡す。指定しなければ、5 回 / 15 分（Issue #244）', () => {
@@ -107,7 +107,7 @@ describe('CDK アプリの組み立て', () => {
 
   it('評価環境: アカウントだけを指定しても、証明書のスタックは作らない', () => {
     const app = createEvaluationApp({ CDK_DEFAULT_ACCOUNT: '111111111111' }, assets());
-    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation']);
+    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmFileServer']);
   });
 
   it('評価環境: 独自ドメインを指定すると、証明書（us-east-1）のスタックも作る', () => {
@@ -119,7 +119,12 @@ describe('CDK アプリの組み立て', () => {
       },
       assets(),
     );
-    expect(stackNames(app)).toEqual(['SfmData', 'SfmEvaluation', 'SfmEvaluationCertificate']);
+    expect(stackNames(app)).toEqual([
+      'SfmData',
+      'SfmEvaluation',
+      'SfmEvaluationCertificate',
+      'SfmFileServer',
+    ]);
     const regions = app
       .synth()
       .stacks.map((stack) => `${stack.stackName}:${stack.environment.region}`);
@@ -127,6 +132,7 @@ describe('CDK アプリの組み立て', () => {
       'SfmData:ap-northeast-1',
       'SfmEvaluation:ap-northeast-1',
       'SfmEvaluationCertificate:us-east-1',
+      'SfmFileServer:ap-northeast-1',
     ]);
   });
 
@@ -245,10 +251,75 @@ describe('CDK アプリの組み立て', () => {
     const production = createEvaluationApp({ SFM_ENVIRONMENT: 'production' }, assets());
     const development = createEvaluationApp({}, assets());
 
-    expect(stackNames(production)).toEqual(['SfmProductionData', 'SfmProductionEvaluation']);
-    expect(stackNames(development)).toEqual(['SfmData', 'SfmEvaluation']);
+    expect(stackNames(production)).toEqual([
+      'SfmProductionData',
+      'SfmProductionEvaluation',
+      'SfmProductionFileServer',
+    ]);
+    expect(stackNames(development)).toEqual(['SfmData', 'SfmEvaluation', 'SfmFileServer']);
     const shared = stackNames(production).filter((name) => stackNames(development).includes(name));
     expect(shared).toEqual([]);
+  });
+
+  it('ファイルサーバー（Issue #298。ADR-0027）: 評価環境とは別のスタックで、環境ごとに作る。本番サイトだけ、削除の保護がある。同時実行数の上限（SFM_FILE_SERVER_RESERVED_CONCURRENCY）を、関数に渡す', () => {
+    const fileServerOf = (env: Record<string, string>, name: string) => {
+      const stack = createEvaluationApp(env, assets()).node.findChild(name) as Stack;
+      return { stack, template: Template.fromStack(stack) };
+    };
+
+    const development = fileServerOf({}, 'SfmFileServer');
+    const production = fileServerOf({ SFM_ENVIRONMENT: 'production' }, 'SfmProductionFileServer');
+    const limited = fileServerOf({ SFM_FILE_SERVER_RESERVED_CONCURRENCY: '4' }, 'SfmFileServer');
+
+    expect(development.stack.terminationProtection).toBe(false);
+    expect(production.stack.terminationProtection).toBe(true);
+    development.template.hasResourceProperties('AWS::Lambda::Function', {
+      ReservedConcurrentExecutions: 10,
+    });
+    limited.template.hasResourceProperties('AWS::Lambda::Function', {
+      ReservedConcurrentExecutions: 4,
+    });
+    // 環境ごとに、秘密情報のパスを分ける（開発サイトが、本番サイトのトークンを読めない）
+    expect(JSON.stringify(development.template.toJSON())).toContain('/sfm/development/');
+    expect(JSON.stringify(production.template.toJSON())).toContain('/sfm/production/');
+    expect(JSON.stringify(production.template.toJSON())).not.toContain('/sfm/development/');
+  });
+
+  it('画面から置くファイルの保管先（#565）: 開発・本番とも、評価環境の API の Lambda に、そのサイトのファイルサーバーのバケットを渡す（環境変数と、PutObject の権限）。評価環境が、ファイルサーバーに依存する', () => {
+    const apiOf = (env: Record<string, string>, evaluationName: string) => {
+      const app = createEvaluationApp(env, assets());
+      const stack = app.node.findChild(evaluationName) as Stack;
+      const json = Template.fromStack(stack).toJSON() as {
+        Resources: Record<string, { Type: string; Properties: Record<string, unknown> }>;
+      };
+      const api = Object.entries(json.Resources).find(
+        ([id, resource]) =>
+          id.startsWith('ApiFunction') &&
+          resource.Type === 'AWS::Lambda::Function' &&
+          !id.includes('ServiceRole'),
+      );
+      return { api, text: JSON.stringify(json), stack };
+    };
+
+    const development = apiOf({}, 'SfmEvaluation');
+    const production = apiOf({ SFM_ENVIRONMENT: 'production' }, 'SfmProductionEvaluation');
+
+    expect(JSON.stringify(development.api?.[1].Properties)).toContain('HOSTED_FILE_SERVER_BUCKET');
+    expect(development.text).toContain('SfmFileServer:');
+    expect(production.text).toContain('SfmProductionFileServer:');
+    expect(production.text).not.toContain('SfmFileServer:');
+    expect(development.stack.dependencies.map((item) => item.node.id)).toContain('SfmFileServer');
+    expect(production.stack.dependencies.map((item) => item.node.id)).toContain(
+      'SfmProductionFileServer',
+    );
+  });
+
+  it('ファイルサーバーは、評価環境のスタックに含まれない（評価環境を作り直しても、URL・ファイルが変わらない）', () => {
+    const app = createEvaluationApp({}, assets());
+    const evaluation = Template.fromStack(app.node.findChild('SfmEvaluation') as Stack).toJSON();
+
+    expect(JSON.stringify(evaluation)).not.toContain('hosted-file-server');
+    expect(JSON.stringify(evaluation)).not.toContain('HostedFileServer');
   });
 
   it('本番サイト: 独自ドメインを指定すると、本番用の名前の証明書（us-east-1）のスタックも作る', () => {
@@ -266,10 +337,11 @@ describe('CDK アプリの組み立て', () => {
       'SfmProductionData',
       'SfmProductionEvaluation',
       'SfmProductionEvaluationCertificate',
+      'SfmProductionFileServer',
     ]);
   });
 
-  it('本番サイトは、合成データを生成する Lambda・ルールを作らない。開発サイトは、作る（実データを扱う環境に、合成データを入れない。ADR-0013）', () => {
+  it('本番サイトは、デモ用の HTTP 配信の Lambda を作らない。開発サイトは、作る（実データを扱う環境に、合成データを入れない。ADR-0013）', () => {
     const resourcesOf = (environment: 'development' | 'production') => {
       const app = createEvaluationApp({ SFM_ENVIRONMENT: environment }, assets());
       const stack = app.synth().stacks.find((item) => item.stackName.endsWith('Evaluation'));
@@ -289,11 +361,14 @@ describe('CDK アプリの組み立て', () => {
     const production = resourcesOf('production');
 
     expect(development.demoIds.length).toBeGreaterThan(0);
-    expect(development.outputs).toContain('DemoFeedFunctionName');
+    expect(development.outputs).toContain('DemoFeedUrl');
     expect(production.demoIds).toEqual([]);
-    expect(production.outputs).not.toContain('DemoFeedFunctionName');
-    // ファイルサーバーのモックのバケット（空のまま）は、どちらにもある（Lambda の取り込みの失敗を避ける）
-    expect(production.outputs).toContain('FileServerBucketName');
+    expect(production.outputs).not.toContain('DemoFeedUrl');
+    // ファイルサーバーのモックの S3（バケット・デモ用の S3 に置く Lambda）は、どちらにもない（ADR-0025）
+    for (const result of [development, production]) {
+      expect(result.outputs).not.toContain('FileServerBucketName');
+      expect(result.outputs).not.toContain('DemoFeedFunctionName');
+    }
     expect(production.buckets).toBe(development.buckets);
   });
 

@@ -13,7 +13,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { gotoAuthenticated, loginViaUi } from './support/helpers.ts';
+import { expandPanel, gotoAuthenticated, loginViaUi } from './support/helpers.ts';
 import {
   ROBOT,
   SENSOR,
@@ -43,21 +43,28 @@ async function openDetail(page: Page, viewpointId: string, query = ''): Promise<
   await expect(page.getByTestId('diagnosis')).toBeVisible();
 }
 
-/** 根拠のメトリクスの1行（値と判定）を確認する。 */
+/**
+ * 根拠のメトリクスの1行（値と判定）を確認する。既定は「期間の評価」の列。`scope: 'current'` は「現在」（短期の評価）の列。
+ */
 async function expectMetric(
   page: Page,
   metricId: string,
   expected: { value: string | RegExp; judgement: string },
+  scope: 'current' | 'period' = 'period',
 ): Promise<void> {
-  const row = page.getByTestId(`metric-${metricId}`);
-  await expect(row).toBeVisible();
-  await expect(row.locator('td').first()).toHaveText(expected.value);
-  await expect(row.locator('td').nth(1)).toContainText(expected.judgement);
+  const cell = page.getByTestId(`metric-${scope}-${metricId}`);
+  await expect(cell).toBeVisible();
+  await expect(cell.locator('.metric-cell-value')).toHaveText(expected.value);
+  await expect(cell.locator('.metric-cell-judgement')).toContainText(expected.judgement);
 }
 
 const heading = (page: Page) => page.getByRole('heading', { level: 1 });
+/** 「期間の評価」の欄の状態のバッジ。 */
 const badge = (page: Page) =>
-  page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge');
+  page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge');
+/** 「現在」（短期の評価）の欄の状態のバッジ。 */
+const currentBadge = (page: Page) =>
+  page.getByTestId('diagnosis-current').locator('.diagnosis-block-head .status-badge');
 
 test.describe('基本フロー: 評価観点を選び、診断結果と根拠のメトリクスを確認する', () => {
   test('ダッシュボードで観点を選ぶと、診断結果・根拠のメトリクス・判断基準・推移・元データが表示される', async ({
@@ -76,10 +83,17 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
       .getByRole('link')
       .click();
 
+    // ダッシュボードの上の右からのドロワーに開く（Issue #357）。ここでは、全画面のページで、内容を確認する
+    await expect(page.getByRole('dialog', { name: /環境適応性/ })).toBeVisible();
+    await page.getByRole('dialog').getByRole('link', { name: 'ページで開く' }).click();
+    await expect(page).toHaveURL(/\/viewpoints\/environmentalAdaptability/);
+
     // 2. その観点の診断結果と、根拠となるメトリクスを表示する
     await expect(heading(page)).toContainText('環境適応性');
-    await expect(heading(page)).toContainText('異常');
-    await expect(page.locator('.page-meta')).toContainText('対象: ハウス1');
+    await expect(badge(page)).toContainText('異常');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('ハウス1');
     await expect(badge(page)).toContainText('異常');
     await expect(page.getByTestId('diagnostic-message')).toContainText(
       '環境適応性: 異常。温度 40.0℃（異常）',
@@ -87,7 +101,7 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
     await expect(page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(
       page
-        .locator('.diagnosis')
+        .getByTestId('diagnosis-period')
         .getByText('判定の対象期間: 2026/10/02 12:00:00 〜 2026/10/09 12:00:00'),
     ).toBeVisible();
     // 3. メトリクスの良否を確認する（値と、指標ごとの判定）
@@ -109,7 +123,34 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
     await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
   });
 
-  test('短期と長期の判定を並べて表示し、それぞれの判定の対象期間を示す', async ({
+  test('観点の詳細は、上から、診断・根拠の指標・推移・元データ・判断基準の順。推移と元データは、折りたたみ（既定は閉）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData({ temperature: 40 }, 1));
+
+    await openDetail(page, 'environmentalAdaptability');
+
+    const order = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid]')]
+        .map((element) => element.getAttribute('data-testid') ?? '')
+        .filter((id) => ['diagnosis', 'basis', 'trend', 'source-data', 'criteria'].includes(id)),
+    );
+    expect(order).toEqual(['diagnosis', 'basis', 'trend', 'source-data', 'criteria']);
+    for (const id of ['trend', 'source-data'] as const) {
+      await expect(page.getByTestId(id)).not.toHaveAttribute('open', '');
+      await expandPanel(page, id);
+      await page.getByTestId(id).locator('summary').first().click();
+      await expect(page.getByTestId(id)).not.toHaveAttribute('open', '');
+    }
+    // 同じ内容（視点ごとの判定とフィードバック）は、1 箇所だけ
+    await expect(page.getByTestId('diagnosis-current')).toContainText('診断メッセージ');
+    await expect(page.getByTestId('diagnosis-current')).toContainText('推奨アクション');
+    await expect(page.getByText('視点ごとのフィードバック')).toHaveCount(0);
+  });
+
+  test('「現在」（短期の評価）と「期間の評価」（長期の評価）を並べて表示し、それぞれの判定の対象期間・評価の時刻を示す。悪い方への合成は示さない', async ({
     page,
     request,
   }, testInfo) => {
@@ -122,16 +163,24 @@ test.describe('基本フロー: 評価観点を選び、診断結果と根拠の
 
     await openDetail(page, 'environmentalAdaptability');
 
-    const short = page.getByTestId('horizon-short');
-    const long = page.getByTestId('horizon-long');
-    await expect(short).toContainText('短期（直近24時間）');
+    const short = page.getByTestId('diagnosis-current');
+    const long = page.getByTestId('diagnosis-period');
+    await expect(short).toContainText('現在（直近24時間）');
     await expect(short).toContainText('異常');
     await expect(short).toContainText('判定の対象期間: 2026/10/08 12:00:00 〜 2026/10/09 12:00:00');
-    await expect(long).toContainText('長期（直近7日）');
+    await expect(long).toContainText('期間の評価（直近7日）');
     await expect(long).toContainText('注意');
     await expect(long).toContainText('判定の対象期間: 2026/10/02 12:00:00 〜 2026/10/09 12:00:00');
-    // 観点の最終ステータスは、短期・長期のうち悪い方（異常）
-    await expect(heading(page)).toContainText('異常');
+    await expect(short).toContainText('評価: 2026/10/09 12:00:00');
+    await expect(long).toContainText('評価: 2026/10/09 12:00:00');
+    // 見出しは、観点名だけ（短期・長期の悪い方への合成のステータスは、示さない）
+    await expect(heading(page)).not.toContainText('異常');
+    await expect(currentBadge(page)).toContainText('異常');
+    await expect(badge(page)).toContainText('注意');
+    // 異常・注意のときの「対応の結果を記録する」は、1 つ（どちらかが異常・注意のとき）
+    await expect(
+      page.getByTestId('diagnosis').getByRole('link', { name: '対応の結果を記録する' }),
+    ).toHaveCount(1);
     await shot(page, testInfo, 'detail-horizons');
   });
 });
@@ -257,7 +306,6 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await openDetail(page, 'harvestAccuracy');
 
     await expect(badge(page)).toContainText('不明');
-    await expect(heading(page)).toContainText('不明');
     await expect(page.getByTestId('diagnostic-message')).toContainText(
       'データ不足のため評価できません',
     );
@@ -275,18 +323,17 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
       'missedFruitRatePercent',
       'damagedFruitRatePercent',
     ]) {
-      await expect(page.getByTestId(`metric-${metricId}`).locator('td').first()).toHaveText('—');
+      await expect(
+        page.getByTestId(`metric-period-${metricId}`).locator('.metric-cell-value'),
+      ).toHaveText('—');
     }
     await shot(page, testInfo, 'detail-unknown-missing');
 
-    // 導線: データ入力・取り込み設定・状況
+    // 導線: データ入力・取り込み
     await page.getByTestId('unknown-guide').getByRole('link', { name: 'データ入力へ' }).click();
     await expect(page).toHaveURL(/\/data-entry$/);
     await page.goBack();
-    await page
-      .getByTestId('unknown-guide')
-      .getByRole('link', { name: '取り込み設定・状況へ' })
-      .click();
+    await page.getByTestId('unknown-guide').getByRole('link', { name: '取り込みへ' }).click();
     await expect(page).toHaveURL(/\/settings\/ingestion$/);
   });
 
@@ -360,7 +407,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await expect(badge(page)).toContainText('不明');
     await expect(page.getByTestId('diagnostic-message')).toContainText('算出できない指標');
     await expect(
-      page.getByTestId('metric-marketableFruitRatePercent').locator('td').first(),
+      page.getByTestId('metric-period-marketableFruitRatePercent').locator('.metric-cell-value'),
     ).toHaveText('—');
   });
 
@@ -374,8 +421,7 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await loginViaUi(page);
 
     await expect(page.getByTestId('diagnosis')).toContainText('まだ評価されていません');
-    await expect(heading(page)).toContainText('不明');
-    await expect(page.getByTestId('horizon-long')).toContainText('まだ評価されていません');
+    await expect(page.getByTestId('diagnosis-period')).toContainText('まだ評価されていません');
     await shot(page, testInfo, 'detail-not-evaluated');
   });
 
@@ -387,17 +433,47 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await seed(request, environmentData());
 
     await openDetail(page, 'harvestAccuracy');
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
     );
-    await expect(page.getByTestId('not-applicable')).toContainText('設備を選び直してください');
+    // エラーの見た目（role=alert）ではなく、案内（role=status）。ハウスの評価である旨と、ハウスへの切り替えを示す（#156）
+    await expect(page.getByTestId('not-applicable')).toHaveAttribute('role', 'status');
+    await expect(page.getByTestId('not-applicable')).toContainText(
+      'この観点（収穫精度）は、ロボットとハウスで評価します（センサーでは評価しません）',
+    );
+    await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
     await shot(page, testInfo, 'detail-not-applicable');
 
-    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
     await expect(page.getByTestId('diagnosis')).toBeVisible();
-    await expect(page.locator('.page-meta')).toContainText('対象: 収穫ロボット1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('収穫ロボット1');
+  });
+
+  test('評価しない設備の案内の「ハウスを表示」で、親のハウスに切り替えて、観点の詳細を表示できる（#156）', async ({
+    page,
+    request,
+  }) => {
+    await prepare(request);
+    await seed(request, environmentData());
+
+    await openDetail(page, 'harvestAccuracy');
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
+    await expect(page.getByTestId('not-applicable')).toBeVisible();
+
+    await page
+      .getByTestId('not-applicable')
+      .getByRole('button', { name: /^ハウス「.+」を表示$/ })
+      .click();
+
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
+    await expect(page.getByTestId('diagnosis')).toBeVisible();
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).not.toContainText('環境センサー1');
   });
 
   test('センサーを選んだ環境適応性は、そのセンサーの観測値だけで診断する', async ({
@@ -408,9 +484,11 @@ test.describe('代替フロー: 必要なデータが欠けている場合は、
     await seed(request, environmentData({ temperature: 27 }));
 
     await openDetail(page, 'environmentalAdaptability');
-    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1' });
+    await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
-    await expect(page.locator('.page-meta')).toContainText('対象: 環境センサー1');
+    await expect(
+      page.getByRole('main').getByLabel('対象の設備').locator('option:checked'),
+    ).toContainText('環境センサー1');
     await expect(badge(page)).toContainText('注意');
     await expectMetric(page, 'temperatureCelsius', { value: '27.0℃', judgement: '注意' });
   });
@@ -723,14 +801,16 @@ test.describe('ステータスコードで判定する観点: カテゴリ名で
 
       await openDetail(page, 'harvestSpeed');
 
-      const row = page.getByTestId('metric-status');
-      await expect(row.locator('td').first()).toHaveText(item.name);
-      await expect(row.locator('td').nth(1)).toContainText(item.status);
+      const cell = page.getByTestId('metric-period-status');
+      await expect(cell.locator('.metric-cell-value')).toHaveText(item.name);
+      await expect(cell.locator('.metric-cell-judgement')).toContainText(item.status);
       await expect(badge(page)).toContainText(item.status);
       await expect(page.getByTestId('diagnostic-message')).toContainText(
         `ステータス ${item.name}（${item.status}）`,
       );
-      await expect(page.getByTestId('criteria-status-note')).toContainText('ステータスコード管理');
+      await expect(page.getByTestId('criteria-status-note')).toContainText(
+        'メニューの「ステータスコード」',
+      );
       if (item.code === 'HARVEST_ERROR') {
         await shot(page, testInfo, 'detail-status-code');
       }
@@ -748,9 +828,13 @@ test.describe('ステータスコードで判定する観点: カテゴリ名で
     );
 
     await openDetail(page, 'maintainability');
-    await expect(page.getByTestId('metric-status').locator('td').first()).toHaveText('待機中');
+    await expect(page.getByTestId('metric-period-status').locator('.metric-cell-value')).toHaveText(
+      '待機中',
+    );
     await openDetail(page, 'durability');
-    await expect(page.getByTestId('metric-status').locator('td').first()).toHaveText('待機中');
+    await expect(page.getByTestId('metric-period-status').locator('.metric-cell-value')).toHaveText(
+      '待機中',
+    );
   });
 
   test('ステータスコードが未取得のとき、名称は「—」・判定なし', async ({ page, request }) => {
@@ -768,8 +852,12 @@ test.describe('ステータスコードで判定する観点: カテゴリ名で
 
     await expect(badge(page)).toContainText('不明');
     await expect(page.getByTestId('diagnostic-message')).toContainText('未取得の項目: ステータス');
-    await expect(page.getByTestId('metric-status').locator('td').first()).toHaveText('—');
-    await expect(page.getByTestId('metric-status').locator('td').nth(1)).toContainText('判定なし');
+    await expect(page.getByTestId('metric-period-status').locator('.metric-cell-value')).toHaveText(
+      '—',
+    );
+    await expect(
+      page.getByTestId('metric-period-status').locator('.metric-cell-judgement'),
+    ).toContainText('判定なし');
   });
 });
 
@@ -790,19 +878,18 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
       await openDetail(page, 'environmentalAdaptability');
 
       // 診断結果の枠（色）、見出し・診断のバッジ（色・アイコン・文字）
-      await expect(page.locator('.diagnosis')).toHaveClass(
+      await expect(page.getByTestId('diagnosis-period')).toHaveClass(
         new RegExp(`diagnosis-${item.klass}(\\s|$)`),
       );
-      for (const target of [badge(page), heading(page).locator('.status-badge')]) {
+      for (const target of [badge(page), currentBadge(page)]) {
         await expect(target).toHaveClass(new RegExp(`status-${item.klass}(\\s|$)`));
         await expect(target.locator(`[data-icon="${item.iconName}"]`)).toBeVisible();
         await expect(target).toContainText(item.status);
       }
       // 指標ごとの判定（温度）も、同じ3つで示す
       const judgement = page
-        .getByTestId('metric-temperatureCelsius')
-        .locator('td')
-        .nth(1)
+        .getByTestId('metric-period-temperatureCelsius')
+        .locator('.metric-cell-judgement')
         .locator('.status-badge');
       await expect(judgement).toHaveClass(new RegExp(`status-${item.klass}(\\s|$)`));
       await expect(judgement.locator(`[data-icon="${item.iconName}"]`)).toBeVisible();
@@ -821,17 +908,15 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
     await openDetail(page, 'environmentalAdaptability');
 
     const unknown = page
-      .getByTestId('metric-humidityPercent')
-      .locator('td')
-      .nth(1)
+      .getByTestId('metric-period-humidityPercent')
+      .locator('.metric-cell-judgement')
       .locator('.status-badge');
     await expect(unknown).toHaveClass(/status-unknown(\s|$)/);
     await expect(unknown.locator('[data-icon="status-unknown"]')).toBeVisible();
     await expect(unknown).toContainText('不明');
     const caution = page
-      .getByTestId('metric-temperatureCelsius')
-      .locator('td')
-      .nth(1)
+      .getByTestId('metric-period-temperatureCelsius')
+      .locator('.metric-cell-judgement')
       .locator('.status-badge');
     await expect(caution).toHaveClass(/status-caution(\s|$)/);
     await expect(caution).not.toHaveClass(/status-unknown/);
@@ -849,7 +934,7 @@ test.describe('メトリクスの良否の直感的な表示（NFR-7.2。色・�
     await expect(badge(page)).toHaveClass(/status-unknown(\s|$)/);
     await expect(badge(page).locator('[data-icon="status-unknown"]')).toBeVisible();
     await expect(badge(page)).toContainText('不明');
-    await expect(page.locator('.diagnosis')).toHaveClass(/diagnosis-unknown(\s|$)/);
+    await expect(page.getByTestId('diagnosis-period')).toHaveClass(/diagnosis-unknown(\s|$)/);
   });
 });
 
@@ -913,8 +998,8 @@ test.describe('根拠のメトリクス・判断基準', () => {
   });
 });
 
-test.describe('視点（短期・長期）と期間の選択', () => {
-  test('短期は最新の観測値、長期は期間の平均で診断する。選択は URL に反映される', async ({
+test.describe('期間の選択と、「現在」「期間の評価」（視点の切り替えは、ない）', () => {
+  test('「現在」は最新の観測値、「期間の評価」は期間の平均で診断する。指標の表に、2 つの列を並べる。視点の切り替えは、ない', async ({
     page,
     request,
   }) => {
@@ -924,22 +1009,28 @@ test.describe('視点（短期・長期）と期間の選択', () => {
       merge(environmentData({ temperature: 20 }, 48), environmentData({ temperature: 30 }, 1)),
     );
     await openDetail(page, 'environmentalAdaptability');
+
+    // 期間の評価（7 日の平均 25℃）と、現在（最新の 30℃）
     await expectMetric(page, 'temperatureCelsius', { value: '25.0℃', judgement: '注意' });
-
-    await page.getByRole('radio', { name: '短期' }).check();
-
-    // 期間を選んでいないため、期間は URL に付けない（観点の既定の期間。D-18）
-    await expect(page).toHaveURL(/\?horizon=SHORT$/);
-    await expectMetric(page, 'temperatureCelsius', { value: '30.0℃', judgement: '注意' });
-    await expect(page.locator('.diagnosis-horizon')).toContainText('短期（直近24時間）');
+    await expectMetric(
+      page,
+      'temperatureCelsius',
+      { value: '30.0℃', judgement: '注意' },
+      'current',
+    );
+    await expect(page.getByRole('radio', { name: '短期' })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: '長期' })).toHaveCount(0);
+    await expect(page.getByTestId('diagnosis-current')).toContainText('現在（直近24時間）');
     await expect(
       page
-        .locator('.diagnosis')
+        .getByTestId('diagnosis-current')
         .getByText('判定の対象期間: 2026/10/08 12:00:00 〜 2026/10/09 12:00:00'),
     ).toBeVisible();
+    // 期間を選んでいないため、URL に期間は付かない
+    await expect(page).not.toHaveURL(/periodDays|horizon/);
   });
 
-  test('長期の期間を選ぶと、その期間の平均で診断する（当日・7・30日で、正常 → 注意に変わる）', async ({
+  test('期間を選ぶと、その期間の平均で診断する（当日・7・30日で、正常 → 注意に変わる）。「現在」は、期間によらず、直近 24 時間', async ({
     page,
     request,
   }) => {
@@ -953,21 +1044,29 @@ test.describe('視点（短期・長期）と期間の選択', () => {
         environmentData({ temperature: 30 }, 20 * 24),
       ),
     );
-    await openDetail(page, 'environmentalAdaptability', '?horizon=LONG&periodDays=1');
+    await openDetail(page, 'environmentalAdaptability', '?periodDays=1');
     await expectMetric(page, 'temperatureCelsius', { value: '20.0℃', judgement: '正常' });
-    await expect(page.locator('.diagnosis-horizon')).toContainText('長期（当日）');
+    await expect(page.getByTestId('diagnosis-period')).toContainText('期間の評価（当日）');
 
-    await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+    await page.getByLabel('期間').selectOption({ label: '直近7日' });
     await expectMetric(page, 'temperatureCelsius', { value: '20.0℃', judgement: '正常' });
 
-    await page.getByLabel('長期の期間').selectOption({ label: '直近30日' });
+    await page.getByLabel('期間').selectOption({ label: '直近30日' });
     await expect(page).toHaveURL(/periodDays=30$/);
     await expectMetric(page, 'temperatureCelsius', { value: '27.5℃', judgement: '注意' });
-    await expect(page.locator('.diagnosis-horizon')).toContainText('長期（直近30日）');
+    await expect(page.getByTestId('diagnosis-period')).toContainText('期間の評価（直近30日）');
     await expect(badge(page)).toContainText('注意');
+    // 「現在」は、直近 24 時間の最新の値（20℃）のまま
+    await expectMetric(
+      page,
+      'temperatureCelsius',
+      { value: '20.0℃', judgement: '正常' },
+      'current',
+    );
+    await expect(currentBadge(page)).toContainText('正常');
   });
 
-  test('短期評価を持たない観点（耐久性）は、短期を選んでも長期の結果を表示し、その旨を示す', async ({
+  test('短期評価を持たない観点（耐久性）は、「現在」の欄が「現在の評価はありません」。「期間の評価」だけを表示する。古い URL の視点（?horizon=SHORT）は、使わない', async ({
     page,
     request,
   }, testInfo) => {
@@ -976,14 +1075,12 @@ test.describe('視点（短期・長期）と期間の選択', () => {
 
     await openDetail(page, 'durability', '?horizon=SHORT&periodDays=7');
 
-    await expect(
-      page
-        .getByTestId('diagnosis')
-        .getByText('この観点は短期評価を持たないため、長期の結果を表示しています'),
-    ).toBeVisible();
-    await expect(page.getByTestId('horizon-short')).toContainText('短期評価はありません');
-    await expect(page.locator('.diagnosis-horizon')).toContainText('長期（直近7日）');
+    await expect(page.getByTestId('diagnosis-current')).toContainText('現在の評価はありません');
+    await expect(page.getByTestId('diagnosis-period')).toContainText('期間の評価（直近7日）');
+    await expect(page.getByText(/短期評価を持たないため/)).toHaveCount(0);
     await expectMetric(page, 'mtbfHours', { value: '600.3時間', judgement: '正常' });
+    // 指標の表は、「期間の評価」の列だけ
+    await expect(page.getByTestId('metric-current-mtbfHours')).toHaveCount(0);
     await shot(page, testInfo, 'detail-no-short-horizon');
   });
 });
@@ -1017,6 +1114,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await seed(request, sensorRows());
 
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
 
     const source = page.getByTestId('source-data');
     const rows = source.locator('tbody tr');
@@ -1065,6 +1163,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
       }),
     );
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
     const source = page.getByTestId('source-data');
     const rows = source.locator('tbody tr');
 
@@ -1104,6 +1203,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await prepare(request);
     await seed(request, sensorRows());
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
     const source = page.getByTestId('source-data');
     const rows = source.locator('tbody tr');
     await source.getByRole('button', { name: '次へ' }).click();
@@ -1164,6 +1264,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     });
 
     await openDetail(page, 'harvestAccuracy');
+    await expandPanel(page, 'source-data');
 
     const rows = page.getByTestId('source-data').locator('tbody tr');
     await expect(rows).toHaveCount(4);
@@ -1185,7 +1286,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     ).toContainText('収穫中');
   });
 
-  test('元データがなければ、その旨を示す。取り込み済みデータの一覧（SC-09）への導線がある', async ({
+  test('元データがなければ、その旨を示す。計測データの一覧（SC-09）への導線がある', async ({
     page,
     request,
   }) => {
@@ -1193,12 +1294,13 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     await seed(request, {});
 
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
 
     const source = page.getByTestId('source-data');
     await expect(source.getByTestId('source-data-empty')).toContainText(
       '該当するデータがありません',
     );
-    await source.getByRole('link', { name: '取り込み済みデータ一覧へ' }).click();
+    await source.getByRole('link', { name: '計測データ一覧へ' }).click();
     await expect(page).toHaveURL(/\/observations$/);
   });
 
@@ -1221,6 +1323,7 @@ test.describe('元データ: 分析に使った取り込みデータ・手動入
     );
 
     await openDetail(page, 'environmentalAdaptability');
+    await expandPanel(page, 'source-data');
 
     // 直近7日の環境の4件のみ（10日前の4件と、収穫数は含めない）
     await expect(page.getByTestId('source-data').locator('tbody tr')).toHaveCount(4);
@@ -1238,6 +1341,9 @@ test.describe('画面の表示（レイアウト）', () => {
     await page.setViewportSize({ width: 768, height: 1024 });
 
     await openDetail(page, 'harvestSpeed');
+    // 推移・元データは、折りたたみ（既定は閉）。開いた状態の配置も確認する
+    await expandPanel(page, 'trend');
+    await expandPanel(page, 'source-data');
 
     // 診断・根拠のメトリクス・判断基準・推移・元データの各欄が表示される
     for (const section of ['diagnosis', 'basis', 'criteria', 'trend', 'source-data']) {
@@ -1255,6 +1361,7 @@ test.describe('画面の表示（レイアウト）', () => {
     await page.setViewportSize({ width: 768, height: 1024 });
 
     await openDetail(page, 'harvestSpeed');
+    await expandPanel(page, 'source-data');
     await expect(page.getByTestId('source-data').locator('tbody tr').first()).toBeVisible();
 
     // 計測日時（1列目）・取得元（5列目）・状態（6列目）は、1行で表示する

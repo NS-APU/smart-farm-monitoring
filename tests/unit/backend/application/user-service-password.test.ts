@@ -78,6 +78,7 @@ async function build(revokedNewSessions: number) {
     },
     audit: createAuditService({
       auditLogs: repositories.auditLogs,
+      users: repositories.users,
       clock,
       ids: createSequentialIdGenerator('audit'),
     }),

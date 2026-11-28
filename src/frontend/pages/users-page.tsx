@@ -1,5 +1,5 @@
 /**
- * SC-14 ユーザー管理（UC-14。FR-9.4）。ユーザーの一覧（最終ログイン日時を含む）・登録・編集・削除（確認を求める）。
+ * SC-14 ユーザー（UC-14。FR-9.4）。ユーザーの一覧（最終ログイン日時を含む）・登録・編集・削除（確認を求める）。
  * ユーザーIDは一意（重複はエラー）。パスワードは、8文字以上で英大文字・英小文字・数字を含む（変更する場合のみ入力）。
  * ユーザーを管理する権限（user:manage）が必要。ログイン中のユーザー自身は削除できない。
  */
@@ -14,6 +14,7 @@ import {
 import { createUser, deleteUser, listUsers, updateUser } from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { ConfirmDialog, Field, FormError, PermissionNotice } from '../components/form-controls.tsx';
+import { PasswordInput } from '../components/password-input.tsx';
 import { formatDateTimeJst } from '../components/format.ts';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { fieldErrorsOfZod } from '../components/zod-errors.ts';
@@ -21,7 +22,8 @@ import { usePermission } from '../hooks/use-permission.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { useSubmit } from '../hooks/use-submit.ts';
 import { MESSAGES } from '../i18n/messages.ts';
-import { Icon } from '../components/icon.tsx';
+import { Modal } from '../components/modal.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.users;
 
@@ -30,7 +32,8 @@ interface UserFormProps {
   /** 編集するユーザー。なければ、新規の登録。 */
   readonly user?: PublicUser;
   readonly onDone: (message: string) => void;
-  readonly onCancel?: () => void;
+  /** ダイアログを閉じる（登録・修正とも、ダイアログの中にあるため、必ずある）。 */
+  readonly onCancel: () => void;
 }
 
 function UserForm(props: UserFormProps): ReactNode {
@@ -89,7 +92,6 @@ function UserForm(props: UserFormProps): ReactNode {
         void handleSubmit(event);
       }}
     >
-      <h3>{title}</h3>
       <div className="form-grid">
         {user === undefined ? (
           <Field label={TEXT.userId} name="userId" error={errors.userId} required>
@@ -124,9 +126,8 @@ function UserForm(props: UserFormProps): ReactNode {
           required={user === undefined}
         >
           {(control) => (
-            <input
+            <PasswordInput
               {...control}
-              type="password"
               autoComplete="new-password"
               value={password}
               onChange={(event) => {
@@ -159,11 +160,9 @@ function UserForm(props: UserFormProps): ReactNode {
         <button type="submit" disabled={submit.busy}>
           {user === undefined ? TEXT.addSubmit : MESSAGES.form.save}
         </button>
-        {props.onCancel === undefined ? null : (
-          <button type="button" className="button-secondary" onClick={props.onCancel}>
-            {MESSAGES.form.cancel}
-          </button>
-        )}
+        <button type="button" className="button-secondary" onClick={props.onCancel}>
+          {MESSAGES.form.cancel}
+        </button>
       </div>
     </form>
   );
@@ -179,11 +178,14 @@ export function UsersPage(): ReactNode {
   );
   const { data, error, reload } = usePolling(fetchList);
   const [editing, setEditing] = useState<PublicUser | undefined>(undefined);
+  // 登録のダイアログ（Issue #366）
+  const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState<PublicUser | undefined>(undefined);
   const [notice, setNotice] = useState<string | undefined>(undefined);
 
   function done(message: string): void {
     setEditing(undefined);
+    setAdding(false);
     setNotice(message);
     reload();
   }
@@ -273,18 +275,32 @@ export function UsersPage(): ReactNode {
         <h1>{TEXT.title}</h1>
       </div>
       <p className="muted">{TEXT.lead}</p>
-      {notice === undefined ? null : (
-        <p role="status" className="form-success" data-testid="users-notice">
-          <Icon name="status-normal" size={16} />
-          {notice}
-        </p>
-      )}
+      <ResultNotice message={notice} testId="users-notice" />
       <FormError message={submit.formMessage} />
       <section className="panel" aria-label={TEXT.title}>
+        {canManage && data !== undefined ? (
+          <div className="table-toolbar">
+            <button
+              type="button"
+              onClick={() => {
+                setNotice(undefined);
+                setAdding(true);
+              }}
+            >
+              {TEXT.openAdd}
+            </button>
+          </div>
+        ) : null}
         {body}
       </section>
       {canManage && data !== undefined && editing !== undefined ? (
-        <section className="panel">
+        <Modal
+          title={`${editing.userName}を${MESSAGES.form.edit}`}
+          testId="user-edit-dialog"
+          onClose={() => {
+            setEditing(undefined);
+          }}
+        >
           <UserForm
             key={editing.userId}
             user={editing}
@@ -294,17 +310,33 @@ export function UsersPage(): ReactNode {
               setEditing(undefined);
             }}
           />
-        </section>
+        </Modal>
       ) : null}
-      {canManage && data !== undefined ? (
-        <section className="panel">
-          <UserForm roles={data.roles} onDone={done} />
-        </section>
+      {canManage && data !== undefined && adding ? (
+        <Modal
+          title={TEXT.add}
+          testId="user-add-dialog"
+          onClose={() => {
+            setAdding(false);
+          }}
+        >
+          <UserForm
+            roles={data.roles}
+            onDone={done}
+            onCancel={() => {
+              setAdding(false);
+            }}
+          />
+        </Modal>
       ) : null}
       {deleting === undefined ? null : (
         <ConfirmDialog
           title={TEXT.deleteTitle}
           message={TEXT.deleteMessage}
+          details={[
+            { label: TEXT.userName, value: deleting.userName },
+            { label: TEXT.userId, value: deleting.userId },
+          ]}
           confirmLabel={MESSAGES.form.delete}
           busy={submit.busy}
           onConfirm={() => {

@@ -4,6 +4,7 @@
  * - エラー応答（共通形式）を ApiError に変換する
  * - 応答に ETag があれば、次の同じ GET に If-None-Match を付ける。304（変化なし）なら、前回の本文を使う
  *   （約10秒間隔の読み直しを、小さな応答にする。functional-specification.md 3.1）
+ * - 版つき更新（判断基準。SC-13-1）: 読み込んだときの ETag を、更新の If-Match に付ける（requestWithEtag・ifMatch）
  */
 
 import type { z } from 'zod';
@@ -57,8 +58,21 @@ export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   readonly query?: Readonly<Record<string, string | number | undefined>>;
   readonly body?: unknown;
+  /**
+   * 文字列を、そのまま本文にして送る（`Content-Type: application/json`。JSON.stringify しない）。ファイルの内容そのものを送る API
+   * （取り込み用のファイルを置く操作。Issue #565）に使う。`body` と同時には指定しない。
+   */
+  readonly textBody?: string;
   /** 認証トークンを付けない（ログイン・更新）。 */
   readonly anonymous?: boolean;
+  /** 更新の条件（読み込んだ時点の版〔ETag〕）。現在の版と一致しなければ、サーバーは 409 を返す。 */
+  readonly ifMatch?: string;
+}
+
+/** 応答の本文と、その版（ETag。応答になければ undefined）。 */
+export interface VersionedResponse<Data> {
+  readonly data: Data;
+  readonly etag: string | undefined;
 }
 
 export interface ApiClient {
@@ -67,6 +81,11 @@ export interface ApiClient {
     path: string,
     options: RequestOptions & { readonly schema: Schema },
   ): Promise<z.infer<Schema>>;
+  /** request と同じ。応答の ETag も返す（更新の If-Match に使う版）。 */
+  requestWithEtag<Schema extends z.ZodType>(
+    path: string,
+    options: RequestOptions & { readonly schema: Schema },
+  ): Promise<VersionedResponse<z.infer<Schema>>>;
   /** 応答の本文がない（204）操作。 */
   command(path: string, options?: RequestOptions): Promise<void>;
 }
@@ -120,8 +139,11 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     if (etag !== undefined) {
       headers.set('if-none-match', etag);
     }
-    if (requestOptions.body !== undefined) {
+    if (requestOptions.body !== undefined || requestOptions.textBody !== undefined) {
       headers.set('content-type', 'application/json');
+    }
+    if (requestOptions.ifMatch !== undefined) {
+      headers.set('if-match', requestOptions.ifMatch);
     }
     // 応答のないサーバーで、画面が読み込み中のまま止まらないよう、待ち時間に上限を設ける（V-060）
     const controller = new AbortController();
@@ -133,7 +155,11 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         method: requestOptions.method ?? 'GET',
         headers,
         signal: controller.signal,
-        ...(requestOptions.body === undefined ? {} : { body: JSON.stringify(requestOptions.body) }),
+        ...(requestOptions.textBody !== undefined
+          ? { body: requestOptions.textBody }
+          : requestOptions.body === undefined
+            ? {}
+            : { body: JSON.stringify(requestOptions.body) }),
       });
     } catch {
       throw new ApiError(0, 'NETWORK_ERROR', MESSAGES.common.networkError);
@@ -205,36 +231,47 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     return response;
   }
 
-  return {
-    async request(path, requestOptions) {
-      const isGet = (requestOptions.method ?? 'GET') === 'GET';
-      const url = buildUrl(path, requestOptions.query);
-      const cached = isGet ? etagCache.lookup(url) : undefined;
-      // 更新したトークンで再試行するときも、そのトークンで、前回の ETag を使えるかを判断する
-      const response = await execute(path, requestOptions, (accessToken) =>
-        cached?.etagFor(accessToken),
-      );
-      let body: unknown;
-      if (response.status === 304) {
-        // 変化なし。If-None-Match を付けたときだけ返るので、前回の本文がある
-        body = cached?.body;
-      } else {
-        body = await readJsonOrUndefined(response);
-        if (body === undefined) {
-          // JSON でない本文（配信経路の障害など）は、構文エラーではなく、不正な応答として扱う
-          throw new ApiError(response.status, 'INVALID_RESPONSE', MESSAGES.common.unexpectedError);
-        }
-        const etag = response.headers.get('etag');
-        if (isGet && etag !== null) {
-          etagCache.store(url, options.session.get()?.accessToken, etag, body);
-        }
-      }
-      const parsed = requestOptions.schema.safeParse(body);
-      if (!parsed.success) {
+  async function requestVersioned<Schema extends z.ZodType>(
+    path: string,
+    requestOptions: RequestOptions & { readonly schema: Schema },
+  ): Promise<VersionedResponse<z.infer<Schema>>> {
+    const isGet = (requestOptions.method ?? 'GET') === 'GET';
+    const url = buildUrl(path, requestOptions.query);
+    const cached = isGet ? etagCache.lookup(url) : undefined;
+    // 更新したトークンで再試行するときも、そのトークンで、前回の ETag を使えるかを判断する
+    const response = await execute(path, requestOptions, (accessToken) =>
+      cached?.etagFor(accessToken),
+    );
+    let body: unknown;
+    if (response.status === 304) {
+      // 変化なし。If-None-Match を付けたときだけ返るので、前回の本文がある
+      body = cached?.body;
+    } else {
+      body = await readJsonOrUndefined(response);
+      if (body === undefined) {
+        // JSON でない本文（配信経路の障害など）は、構文エラーではなく、不正な応答として扱う
         throw new ApiError(response.status, 'INVALID_RESPONSE', MESSAGES.common.unexpectedError);
       }
-      return parsed.data;
+      const etag = response.headers.get('etag');
+      if (isGet && etag !== null) {
+        etagCache.store(url, options.session.get()?.accessToken, etag, body);
+      }
+    }
+    const parsed = requestOptions.schema.safeParse(body);
+    if (!parsed.success) {
+      throw new ApiError(response.status, 'INVALID_RESPONSE', MESSAGES.common.unexpectedError);
+    }
+    // 304 の応答に ETag がなければ、条件つきで送った前回の ETag が、現在の版
+    const etag =
+      response.headers.get('etag') ?? cached?.etagFor(options.session.get()?.accessToken);
+    return { data: parsed.data, etag };
+  }
+
+  return {
+    async request(path, requestOptions) {
+      return (await requestVersioned(path, requestOptions)).data;
     },
+    requestWithEtag: requestVersioned,
     async command(path, requestOptions = {}) {
       await execute(path, requestOptions);
     },

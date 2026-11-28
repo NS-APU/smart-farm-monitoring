@@ -1,12 +1,19 @@
 /**
  * SC-15 通知の設定（UC-23。FR-7.2）。Web Push 通知の有効化（ブラウザの許可を求め、購読を登録）と解除。
  * 有効／無効を示す。ブラウザが未対応・許可されていない場合は、その旨と、画面内の通知のみとなることを示す。
+ * iPhone・iPad の Safari のタブで開いているときは、ホーム画面に追加して開き直すよう案内する（#159 SC-15-8）。
+ * 購読がサーバーで無効にされたときは、その旨を示す（SC-15-6）。有効なときは、この端末へのテスト通知を送れる（SC-15-2）。
  * 設定は、ログイン中の利用者の、この端末が対象（暫定。dev_spec.md 4章）。
  */
 
 import { useCallback, useState, type ReactNode } from 'react';
 import { ApiError } from '../api/client.ts';
-import { getPushStatus, subscribePush, unsubscribePush } from '../api/management-endpoints.ts';
+import {
+  getPushStatus,
+  sendTestPush,
+  subscribePush,
+  unsubscribePush,
+} from '../api/management-endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { FormError } from '../components/form-controls.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
@@ -16,6 +23,7 @@ import { MESSAGES } from '../i18n/messages.ts';
 import { usePushBrowser } from '../push/push-context.tsx';
 import type { PushPermission } from '../push/browser-push.ts';
 import { Icon } from '../components/icon.tsx';
+import { ResultNotice } from '../components/result-notice.tsx';
 
 const TEXT = MESSAGES.push;
 
@@ -26,7 +34,7 @@ export function PushSettingsPage(): ReactNode {
   const fetchStatus = useCallback(async () => {
     const endpoint = await push.currentEndpoint().catch(() => undefined);
     const status = await getPushStatus(api, endpoint);
-    return { ...status, isSubscribed: endpoint !== undefined && status.isSubscribed };
+    return { ...status, endpoint, isSubscribed: endpoint !== undefined && status.isSubscribed };
   }, [api, push]);
   const { data, error, reload } = usePolling(fetchStatus);
   const submit = useSubmit();
@@ -65,6 +73,19 @@ export function PushSettingsPage(): ReactNode {
     }
   }
 
+  async function sendTest(endpoint: string): Promise<void> {
+    setDone(undefined);
+    const result = await submit.run(async () => {
+      await sendTestPush(api, endpoint);
+    });
+    if (result.ok) {
+      setDone(TEXT.testSent);
+    } else {
+      // 購読が無効だった（409）ときなどは、状態を取り直して、「無効になりました」を示す
+      reload();
+    }
+  }
+
   let body: ReactNode;
   if (error !== undefined) {
     body = <ErrorView error={error} onRetry={reload} />;
@@ -72,13 +93,16 @@ export function PushSettingsPage(): ReactNode {
     body = <LoadingView />;
   } else {
     const limitation = !push.isSupported()
-      ? TEXT.unsupported
+      ? push.needsHomeScreen()
+        ? TEXT.unsupportedHomeScreen
+        : TEXT.unsupported
       : !data.isAvailable
         ? TEXT.unavailable
         : permission === 'denied'
           ? TEXT.denied
           : undefined;
     const publicKey = data.publicKey;
+    const { endpoint } = data;
     body = (
       <>
         <p className="push-state" data-testid="push-state">
@@ -87,6 +111,12 @@ export function PushSettingsPage(): ReactNode {
             {data.isSubscribed ? TEXT.enabled : TEXT.disabled}
           </strong>
         </p>
+        {data.isInvalidated && !data.isSubscribed ? (
+          <p className="notice notice-warning" role="status" data-testid="push-invalidated">
+            <Icon name="status-caution" size={18} />
+            {TEXT.invalidated}
+          </p>
+        ) : null}
         {limitation === undefined ? (
           data.isSubscribed ? null : (
             <p className="muted">{TEXT.permissionRequest}</p>
@@ -99,16 +129,29 @@ export function PushSettingsPage(): ReactNode {
         )}
         <div className="form-actions">
           {data.isSubscribed ? (
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={submit.busy}
-              onClick={() => {
-                void disable();
-              }}
-            >
-              {TEXT.disable}
-            </button>
+            <>
+              {endpoint === undefined ? null : (
+                <button
+                  type="button"
+                  disabled={submit.busy}
+                  onClick={() => {
+                    void sendTest(endpoint);
+                  }}
+                >
+                  {submit.busy ? TEXT.sendingTest : TEXT.sendTest}
+                </button>
+              )}
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={submit.busy}
+                onClick={() => {
+                  void disable();
+                }}
+              >
+                {TEXT.disable}
+              </button>
+            </>
           ) : (
             <button
               type="button"
@@ -124,12 +167,7 @@ export function PushSettingsPage(): ReactNode {
           )}
         </div>
         <FormError message={submit.formMessage} />
-        {done === undefined ? null : (
-          <p role="status" className="form-success" data-testid="push-done">
-            <Icon name="status-normal" size={16} />
-            {done}
-          </p>
-        )}
+        <ResultNotice message={done} testId="push-done" />
       </>
     );
   }

@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '@smart-farm/shared/constants/items';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '@smart-farm/shared/constants/viewpoints';
 import { NotificationIdSchema, toEquipmentId, toUserId } from '@smart-farm/shared/schemas/common';
-import { getDefaultCriteria } from '../../src/backend/domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '../../src/shared/constants/default-criteria.ts';
 import { CUSTOM_CRITERIA_NOTE } from '../../src/backend/domain/evaluation/messages.ts';
 import { createEvaluationService } from '../../src/backend/application/evaluation/evaluation-service.ts';
 import {
@@ -31,7 +31,13 @@ import {
   ROBOT_ID,
   SENSOR_ID,
 } from '../support/builders.ts';
-import { createTestContext, TEST_NOW, TEST_USER } from '../support/test-context.ts';
+import { withHttpFiles } from '../support/http-test-files.ts';
+import {
+  createTestContext,
+  TEST_NOW,
+  TEST_USER,
+  withSourceFilePaths,
+} from '../support/test-context.ts';
 
 const USER = toUserId(TEST_USER.userId);
 const JOB_OK: JobResult = {
@@ -103,7 +109,7 @@ describe('評価（JB-02）', () => {
     expect(result?.recommendedAction).toContain('データの取得・入力を確認');
   });
 
-  it('ハウスの評価は、配下のロボット・センサーの観測値をまとめて使う', async () => {
+  it('ハウスの環境適応性は、配下のセンサーの結果から求める（基本構成では、センサーと同じ結果）', async () => {
     const context = await setup();
     await context.container.repositories.observations.saveMany(
       generateAutoObservations({
@@ -167,6 +173,86 @@ describe('評価（JB-02）', () => {
     );
     expect(result?.metrics.temperatureCelsius).toBe(40);
     expect(result?.status).toBe('ERROR');
+  });
+
+  it('合計（累積）の項目は、自動があれば自動だけを評価に使い、手動入力は評価に使わない（D-26。両方とも保持する）', async () => {
+    const context = await setup();
+    const harvest = (value: number, hoursBefore: number, source: 'AUTO_IMPORT' | 'MANUAL') =>
+      observation({
+        itemKey: 'harvestCount',
+        value,
+        source,
+        observedAt: new Date(TEST_NOW.getTime() - hoursBefore * HOUR_MS).toISOString(),
+      });
+    const manualCount = (itemKey: string, value: number) =>
+      observation({
+        itemKey,
+        value,
+        source: 'MANUAL',
+        observedAt: new Date(TEST_NOW.getTime() - HOUR_MS).toISOString(),
+      });
+    // 自動の 1,800 → 手動の 1,700 → 自動の 2,400。果実損傷数（手動専用の件数）は 240
+    await context.container.repositories.observations.saveMany([
+      harvest(1800, 4, 'AUTO_IMPORT'),
+      harvest(1700, 3, 'MANUAL'),
+      harvest(2400, 2, 'AUTO_IMPORT'),
+      manualCount('damagedFruitCount', 240),
+      manualCount('wrongHarvestCount', 0),
+      manualCount('missedFruitCount', 0),
+    ]);
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const result = await context.container.repositories.evaluations.getLatest(
+      ROBOT_ID,
+      'harvestAccuracy',
+      'SHORT',
+      null,
+    );
+    // 収穫数 = 自動だけの 2,400（手動を混ぜると 4,200）。損傷率 = 240 ÷ 2,400
+    expect(result?.metrics.damagedFruitRatePercent).toBe(10);
+    // 両方とも保持している（削除しない）
+    const kept = await context.container.repositories.observations.findForEvaluation(
+      [ROBOT_ID],
+      new Date(TEST_NOW.getTime() - 10 * HOUR_MS),
+      TEST_NOW,
+    );
+    expect(
+      kept.filter((item) => item.itemKey === 'harvestCount').map((item) => item.source),
+    ).toEqual(expect.arrayContaining(['AUTO_IMPORT', 'MANUAL']));
+  });
+
+  it('合計（累積）の項目で、自動がなければ、手動入力だけを評価に使う（手動のみの運用）', async () => {
+    const context = await setup();
+    const at = (hoursBefore: number) =>
+      new Date(TEST_NOW.getTime() - hoursBefore * HOUR_MS).toISOString();
+    await context.container.repositories.observations.saveMany(
+      [
+        ['harvestCount', 100, 3],
+        ['harvestCount', 250, 2],
+        ['damagedFruitCount', 25, 1],
+        ['wrongHarvestCount', 0, 1],
+        ['missedFruitCount', 0, 1],
+      ].map(([itemKey, value, hoursBefore]) =>
+        observation({
+          itemKey: String(itemKey),
+          value: Number(value),
+          source: 'MANUAL',
+          observedAt: at(Number(hoursBefore)),
+        }),
+      ),
+    );
+
+    await context.container.evaluationService.evaluateAll('DEV');
+
+    const result = await context.container.repositories.evaluations.getLatest(
+      ROBOT_ID,
+      'harvestAccuracy',
+      'SHORT',
+      null,
+    );
+    // 収穫数 = 手動の増分の合計 250（100 + 150）。損傷率 = 25 ÷ 250
+    expect(result?.metrics.damagedFruitRatePercent).toBe(10);
   });
 
   it('変更した判断基準があれば、それで判定し、判断基準の版と変更済みの識別を結果に残す', async () => {
@@ -279,9 +365,9 @@ describe('異常検知と通知（UC-10）', () => {
 
     const summary = await context.container.evaluationService.evaluateAll('DEV');
 
-    // 環境適応性は、ハウスとセンサーの両方で評価される。ロボットのデータがなく取得の割合が低いため、
+    // 環境適応性は、センサーの通知だけ（ハウスの集約の結果は通知しない）。ロボットのデータがなく取得の割合が低いため、
     // データ活用度合い（ハウス）も「異常」になる
-    expect(summary.notificationsCreated).toBe(3);
+    expect(summary.notificationsCreated).toBe(2);
     const notifications = await notificationsOf(context);
     const forSensor = notifications.find((item) => item.equipmentId === SENSOR_ID);
     expect(forSensor).toMatchObject({
@@ -310,7 +396,7 @@ describe('異常検知と通知（UC-10）', () => {
 
     expect(again).toMatchObject({ statusChanges: 0, notificationsCreated: 0 });
     expect(later.notificationsCreated).toBe(0);
-    expect(await notificationsOf(context)).toHaveLength(3);
+    expect(await notificationsOf(context)).toHaveLength(2);
   });
 
   it('「注意」から「異常」に悪化したら、新しい通知を作る', async () => {
@@ -325,12 +411,12 @@ describe('異常検知と通知（UC-10）', () => {
     ]);
     const summary = await context.container.evaluationService.evaluateAll('DEV');
 
-    expect(summary.notificationsCreated).toBe(2);
+    expect(summary.notificationsCreated).toBe(1);
     expect(
       (await notificationsOf(context)).filter(
         (item) => item.status === 'ERROR' && item.viewpointId === 'environmentalAdaptability',
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   describe('通知の条件（Issue #236。D-37・D-38・D-42）', () => {
@@ -346,7 +432,7 @@ describe('異常検知と通知（UC-10）', () => {
       return context.container.evaluationService.evaluateAll('DEV');
     }
 
-    /** 環境適応性（ハウス・センサーの 2 設備）の通知。 */
+    /** 環境適応性（センサーの設備ごと。ハウスの集約の結果は通知しない）の通知。 */
     const environmentNotifications = async (context: Context) =>
       (await notificationsOf(context)).filter(
         (item) => item.viewpointId === 'environmentalAdaptability',
@@ -359,9 +445,9 @@ describe('異常検知と通知（UC-10）', () => {
       await evaluateAfter(context, 5, 15);
       const recurred = await evaluateAfter(context, 20, 45);
 
-      // 正常は、5 分後から 20 分続いた。2 設備で、「異常」を再び通知する（直前の通知から 25 分）
-      expect(recurred.notificationsCreated).toBe(2);
-      expect(await environmentNotifications(context)).toHaveLength(4);
+      // 正常は、5 分後から 20 分続いた。センサーで、「異常」を再び通知する（直前の通知から 25 分）
+      expect(recurred.notificationsCreated).toBe(1);
+      expect(await environmentNotifications(context)).toHaveLength(2);
     });
 
     it('短い行き来: 異常 → 正常が 15 分未満 → 異常 は、同じ出来事として通知しない', async () => {
@@ -372,7 +458,7 @@ describe('異常検知と通知（UC-10）', () => {
       const again = await evaluateAfter(context, 10, 45);
 
       expect(again.notificationsCreated).toBe(0);
-      expect(await environmentNotifications(context)).toHaveLength(2);
+      expect(await environmentNotifications(context)).toHaveLength(1);
     });
 
     it('改善（異常 → 注意）は、通知しない', async () => {
@@ -384,7 +470,7 @@ describe('異常検知と通知（UC-10）', () => {
       expect(improved.statusChanges).toBeGreaterThan(0);
       expect(improved.notificationsCreated).toBe(0);
       const notifications = await environmentNotifications(context);
-      expect(notifications).toHaveLength(2);
+      expect(notifications).toHaveLength(1);
       expect(notifications.every((item) => item.status === 'ERROR')).toBe(true);
     });
 
@@ -396,11 +482,11 @@ describe('異常検知と通知（UC-10）', () => {
       const improved = await evaluateAfter(context, 5, 30);
       const errorAgain = await evaluateAfter(context, 5, 45);
 
-      expect(caution.notificationsCreated).toBe(3);
-      expect(error.notificationsCreated).toBe(2);
+      expect(caution.notificationsCreated).toBe(2);
+      expect(error.notificationsCreated).toBe(1);
       expect(improved.notificationsCreated).toBe(0);
       expect(errorAgain.notificationsCreated).toBe(0);
-      expect(await environmentNotifications(context)).toHaveLength(4);
+      expect(await environmentNotifications(context)).toHaveLength(2);
     });
 
     it('不明を挟んだ再通知はしない: 注意 → 不明（データなし）→ 注意 は、継続とみなす', async () => {
@@ -422,7 +508,7 @@ describe('異常検知と通知（UC-10）', () => {
       );
       expect(last?.status).toBe('CAUTION');
       expect(cautionAgain.notificationsCreated).toBe(0);
-      expect(await environmentNotifications(context)).toHaveLength(2);
+      expect(await environmentNotifications(context)).toHaveLength(1);
     });
 
     it('不明の記録は、状態の変化の履歴に残る（ステータスの推移・経過のため）', async () => {
@@ -478,12 +564,14 @@ describe('異常検知と通知（UC-10）', () => {
 
 describe('通知の一覧・既読（UC-05, UC-22）', () => {
   async function withNotifications() {
-    const context = await setup();
+    const context = await withHttpFiles();
     await context.container.repositories.observations.saveMany([
       temperature(30, new Date(TEST_NOW.getTime() - HOUR_MS).toISOString()),
     ]);
     await context.container.evaluationService.evaluateAll('DEV');
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    // HTTP は、設備のファイルのパスがある設備だけが、取得の対象。ファイルを置いたうえで、接続を切る
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    context.files.faults.set({ mode: 'DOWN' });
     await context.container.ingestionService.runSource('robot');
     return context;
   }
@@ -499,22 +587,22 @@ describe('通知の一覧・既読（UC-05, UC-22）', () => {
     const failures = await service.list(USER, { kind: 'INGESTION_FAILURE', limit: 20 });
     const other = await service.list(toUserId('someone-else'), { readState: 'UNREAD', limit: 20 });
 
-    expect(items).toHaveLength(4);
-    expect(unread.items).toHaveLength(3);
+    expect(items).toHaveLength(3);
+    expect(unread.items).toHaveLength(2);
     expect(read.items).toHaveLength(1);
     expect(failures.items.map((item) => item.sourceId)).toEqual(['robot']);
     expect(failures.items[0]?.equipmentId).toBeUndefined();
-    expect(other.items).toHaveLength(4);
+    expect(other.items).toHaveLength(3);
   });
 
   it('未読の件数を数え、一括で既読にする（絞り込みの範囲または全件）', async () => {
     const context = await withNotifications();
     const service = context.container.notificationService;
 
-    expect(await service.unreadCount(USER)).toBe(4);
-    expect(await service.markAllRead(USER, { kind: 'INGESTION_FAILURE' })).toBe(1);
     expect(await service.unreadCount(USER)).toBe(3);
-    expect(await service.markAllRead(USER, {})).toBe(3);
+    expect(await service.markAllRead(USER, { kind: 'INGESTION_FAILURE' })).toBe(1);
+    expect(await service.unreadCount(USER)).toBe(2);
+    expect(await service.markAllRead(USER, {})).toBe(2);
     expect(await service.unreadCount(USER)).toBe(0);
   });
 
@@ -527,7 +615,7 @@ describe('通知の一覧・既読（UC-05, UC-22）', () => {
 
     expect(first.items).toHaveLength(2);
     expect(first.nextCursor).not.toBeNull();
-    expect(second.items).toHaveLength(2);
+    expect(second.items).toHaveLength(1);
     expect(second.nextCursor).toBeNull();
   });
 });
@@ -577,8 +665,8 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const summary = await deliver(context);
 
-    expect(summary).toEqual({ notificationsProcessed: 3, delivered: 3, failed: 0 });
-    expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(3);
+    expect(summary).toEqual({ notificationsProcessed: 2, delivered: 2, failed: 0 });
+    expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(2);
     const notification = await firstNotification(context);
     expect(webPushOf(notification)).toMatchObject({ result: 'SUCCESS', attempts: 1 });
     expect(notification.webPushDeliveries).toMatchObject([
@@ -596,7 +684,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const summary = await deliver(context);
 
-    expect(summary).toEqual({ notificationsProcessed: 3, delivered: 0, failed: 0 });
+    expect(summary).toEqual({ notificationsProcessed: 2, delivered: 0, failed: 0 });
     expect(context.container.dev?.mocks.webPush.delivered()).toEqual([]);
     expect(webPushOf(await firstNotification(context))).toMatchObject({
       result: 'SUCCESS',
@@ -636,7 +724,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     context.clock.advance(MINUTE_MS);
     const retry = await deliver(context);
 
-    expect(first).toMatchObject({ failed: 3, delivered: 0 });
+    expect(first).toMatchObject({ failed: 2, delivered: 0 });
     expect(afterFailure.webPushDeliveries).toEqual([
       {
         subscriptionId: 's-1',
@@ -650,11 +738,11 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     expect(webPushOf(afterFailure)).toMatchObject({ result: 'PENDING', attempts: 1 });
     // 次の試行の日時の前は、再送しない
     expect(tooSoon).toMatchObject({ delivered: 0, failed: 0 });
-    expect(retry).toMatchObject({ failed: 3 });
+    expect(retry).toMatchObject({ failed: 2 });
     expect((await firstNotification(context)).webPushDeliveries?.[0]).toMatchObject({
       attempts: 2,
     });
-    expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
+    expect(await context.container.notificationService.unreadCount(USER)).toBe(2);
   });
 
   it('再送の間隔は、1 分から倍々（1・2・4・8・16・32 分）。通知を作ってから 1 時間（60 分）で、断念する。断念した通知は、画面内の通知として残る', async () => {
@@ -683,7 +771,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     });
     expect(webPushOf(notification)).toMatchObject({ result: 'FAILURE', attempts: 6 });
     expect(await deliver(context)).toMatchObject({ notificationsProcessed: 0 });
-    expect(await context.container.notificationService.unreadCount(USER)).toBe(3);
+    expect(await context.container.notificationService.unreadCount(USER)).toBe(2);
   });
 
   it('失敗した購読にだけ、再送する。届いた購読には、再配信しない（二重配信がない）', async () => {
@@ -706,9 +794,9 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
     recovered = true;
     await deliver(context);
 
-    // 通知 3 件 × 購読 2 件 = 6 回、そのあと、失敗した購読への再送が 3 回。届いた購読へは、1 通知につき 1 回だけ
-    expect(calls.filter((id) => id === 's-ok')).toHaveLength(3);
-    expect(calls.filter((id) => id === 's-ng')).toHaveLength(6);
+    // 通知 2 件 × 購読 2 件 = 4 回、そのあと、失敗した購読への再送が 2 回。届いた購読へは、1 通知につき 1 回だけ
+    expect(calls.filter((id) => id === 's-ok')).toHaveLength(2);
+    expect(calls.filter((id) => id === 's-ng')).toHaveLength(4);
     const notification = await firstNotification(context);
     expect(notification.webPushDeliveries).toMatchObject([
       { subscriptionId: 's-ok', result: 'SUCCESS', attempts: 1 },
@@ -726,7 +814,7 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const retry = await deliver(context);
 
-    expect(retry).toMatchObject({ delivered: 3, failed: 0 });
+    expect(retry).toMatchObject({ delivered: 2, failed: 0 });
     expect(webPushOf(await firstNotification(context))).toMatchObject({
       result: 'SUCCESS',
       attempts: 2,
@@ -747,8 +835,8 @@ describe('Web Push の配信と再送（FR-7.2, FR-7.7。JB-04。Issue #237。AD
 
     const ttls = spy.mock.calls.map((call) => call[2].ttlSeconds);
 
-    expect(ttls.slice(0, 3)).toEqual([3600, 3600, 3600]);
-    expect(ttls.slice(3)).toEqual([3000, 3000, 3000]);
+    expect(ttls.slice(0, 2)).toEqual([3600, 3600]);
+    expect(ttls.slice(2)).toEqual([3000, 3000]);
   });
 
   it('購読が無効（解除・期限切れ）なら、購読を無効にして、その購読への配信は断念する', async () => {
@@ -964,6 +1052,7 @@ describe('ダッシュボード（UC-01）', () => {
 
   it('評価がまだなら、全観点を不明にして、評価されていない旨を示す。データは未取得', async () => {
     const context = await setup();
+    await withSourceFilePaths(context);
 
     const dashboard = await get(context);
 
@@ -993,6 +1082,7 @@ describe('ダッシュボード（UC-01）', () => {
   it('観点を表示順に、ステータス・主要メトリクス・診断メッセージ・推奨アクションつきで返し、件数を集計する', async () => {
     const context = await setup();
     await useFifteenMinuteIntervals(context);
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       ...generateAutoObservations({
         robotId: ROBOT_ID,
@@ -1042,6 +1132,7 @@ describe('ダッシュボード（UC-01）', () => {
   it('最終のデータ取得から取得間隔の3倍が過ぎたら、データが古いとする', async () => {
     const context = await setup();
     await useFifteenMinuteIntervals(context);
+    await withSourceFilePaths(context);
     await context.container.repositories.observations.saveMany([
       temperature(20, new Date(TEST_NOW.getTime() - 60_000).toISOString()),
     ]);
@@ -1126,6 +1217,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('一部の種別だけ有効なら、有効な設備だけで、従来どおり判定する（無効な種別の設備は、判定しない）。無効な種別の設備を選べば、手動のみ', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await disable(context, 'ROBOT');
       await context.container.repositories.observations.saveMany([
         autoData(ROBOT_ID, 'harvestCount', 600),
@@ -1181,6 +1273,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('自動取り込みが有効な間は、従来どおり（手動入力は、判定に含めない。最終の手動入力は、なし）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([
         autoData(SENSOR_ID, 'temperatureCelsius', 30),
         manualData(SENSOR_ID, 1),
@@ -1281,6 +1374,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('設備ごとに、その設備の取得間隔 × 3（既定: ロボット 1 分 → 3 分、センサー 5 分 → 15 分）で判定する。ハウスは、配下のいずれかが古ければ、古い', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([robotData(10), sensorData(10)]);
 
       const house = await get(context);
@@ -1303,6 +1397,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('設備の取得間隔を変えると、その設備の基準が変わる（ロボットを 1 時間にすると 180 分）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       const robotEquipment = must(await context.container.repositories.equipment.get(ROBOT_ID));
       await context.container.repositories.equipment.save({
         ...robotEquipment,
@@ -1323,6 +1418,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('最低 3 分（1 分間隔のロボットで、3 分は新しい・3 分を超えると古い）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([robotData(3)]);
       const boundary = await get(context, { equipmentId: ROBOT_ID });
       context.clock.advance(60_000);
@@ -1335,6 +1431,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('まだデータのない設備は、判定の対象にしない（ほかの設備にデータがあれば、その設備だけで判定する）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([sensorData(1)]);
 
       const house = await get(context);
@@ -1345,6 +1442,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('どの設備にもデータがなければ、未取得（NONE）。古い設備は、ない', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
 
       const house = await get(context);
 
@@ -1354,6 +1452,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('手動入力は、判定に含めない（自動データの停止が隠れない）', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([
         robotData(10),
         observation({
@@ -1373,6 +1472,7 @@ describe('ダッシュボード（UC-01）', () => {
 
     it('最終のデータ取得（lastReceivedAt）は、判定の対象の設備の、最も新しい受信日時', async () => {
       const context = await setup();
+      await withSourceFilePaths(context);
       await context.container.repositories.observations.saveMany([robotData(10), sensorData(2)]);
 
       const house = await get(context);
@@ -1382,15 +1482,20 @@ describe('ダッシュボード（UC-01）', () => {
   });
 });
 
-describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
+describe('ジョブ（JB-01〜JB-05）とスケジューラ', () => {
   it('ジョブの識別子を判定できる', () => {
     expect(JOB_IDS.every((jobId) => isJobId(jobId))).toBe(true);
     expect(isJobId('JB-99')).toBe(false);
   });
 
   it('ジョブを、識別子から起動できる（取り込み・評価・連携・通知の配信）', async () => {
-    const context = await setup();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
+    // HTTP は、ファイルのパスがある設備だけが、取得の対象。環境センサーも、取り込み元として実行されるよう、ファイルを置く
+    await context.files.placeFixture(
+      'environment-sensor',
+      'environment-sensor/sensor-sample-001.json',
+    );
 
     const results = await Promise.all(
       JOB_IDS.map((jobId) => context.container.jobRunner.run(jobId)),
@@ -1399,7 +1504,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
     expect(results.map((result) => result.jobId)).toEqual([...JOB_IDS]);
     expect(results[0]).toMatchObject({
       summaries: [
-        expect.objectContaining({ sourceId: 'robot', recordCount: 14 }),
+        expect.objectContaining({ sourceId: 'robot', recordCount: 7 }),
         expect.objectContaining({ sourceId: 'environment-sensor' }),
       ],
     });
@@ -1417,10 +1522,10 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
     context.clock.advance(4 * 60_000);
     const afterFiveMinutes = await scheduler.tick();
 
-    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
+    expect(first).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
     expect(immediately).toEqual([]);
-    expect(afterOneMinute).toEqual(['JB-01', 'JB-04']);
-    expect(afterFiveMinutes).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
+    expect(afterOneMinute).toEqual(['JB-01', 'JB-04', 'JB-05']);
+    expect(afterFiveMinutes).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
   });
 
   it('1つのジョブが失敗しても、他のジョブは実行する', async () => {
@@ -1437,8 +1542,8 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
 
     const executed = await scheduler.tick();
 
-    expect(executed).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04']);
-    expect(run).toHaveBeenCalledTimes(4);
+    expect(executed).toEqual(['JB-01', 'JB-02', 'JB-03', 'JB-04', 'JB-05']);
+    expect(run).toHaveBeenCalledTimes(5);
   });
 
   it('実行中の tick に重ねて呼び出しても、二重に実行しない', async () => {
@@ -1488,13 +1593,14 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
     expect(run.mock.calls.length).toBe(calls);
   });
 
-  it('ジョブランナーは、4つのサービスを組み合わせて作る', () => {
+  it('ジョブランナーは、5つのサービスを組み合わせて作る', () => {
     const runner = createJobRunner({
       ingestion: {
         runSource: vi.fn(),
         runDueSources: vi.fn().mockResolvedValue([]),
-        testConnection: vi.fn(),
+        testEquipmentConnection: vi.fn(),
         isRunning: vi.fn(),
+        inspectFile: vi.fn(),
       },
       evaluation: {
         evaluateAll: vi.fn().mockResolvedValue({
@@ -1504,6 +1610,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
           notificationsCreated: 0,
         }),
         evaluateAffected: vi.fn(),
+        evaluateCurrent: vi.fn(),
       },
       federation: {
         enqueue: vi.fn(),
@@ -1513,6 +1620,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
       notifications: {
         notifyStatusChange: vi.fn(),
         notifyIngestionFailure: vi.fn(),
+        clearRecoveredIngestionFailures: vi.fn().mockResolvedValue(undefined),
         notifyFederationExpired: vi.fn(),
         list: vi.fn(),
         unreadCount: vi.fn(),
@@ -1524,6 +1632,7 @@ describe('ジョブ（JB-01〜JB-04）とスケジューラ', () => {
           .fn()
           .mockResolvedValue({ notificationsProcessed: 0, delivered: 0, failed: 0 }),
       },
+      equipmentDeletion: { run: vi.fn() },
     });
 
     return expect(runner.run('JB-02')).resolves.toMatchObject({ jobId: 'JB-02' });

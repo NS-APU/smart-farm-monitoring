@@ -1,6 +1,8 @@
 /**
  * 共通のレイアウト（functional-specification.md 2.3。ui-design-guidelines.md 8 章）。
- * 左のサイドメニュー（アイコン + 文字）と、上部のバー（設備の選択・未読の通知の件数・最終のデータ取得日時・ログイン中のユーザー）。
+ * 左のサイドメニュー（アイコン + 文字）と、上部のバー（☰・タイトル・通知のアイコンと未読の件数のバッジ・ユーザーメニュー）。
+ * 対象の設備の選択・最終のデータ取得日時は、ヘッダーに置かず、各画面の中に置く（設備の選択は、ダッシュボード・観点の詳細・満足度の詳細。
+ * 最終のデータ取得日時は、ダッシュボード。Issue #355）。
  * 狭い幅（900px 以下）では、メニューを、☰ で開閉する引き出しにする。メニューの項目・名前・遷移先は、変えない。
  */
 
@@ -13,11 +15,10 @@ import { usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link, useLocation } from '../router/router.tsx';
-import { AppStateProvider, useAppState } from './app-state.tsx';
-import { equipmentOptionLabel } from './equipment-options.ts';
-import { formatDateTimeJst } from './format.ts';
+import { AppStateProvider } from './app-state.tsx';
 import { Icon, type IconName } from './icon.tsx';
 import { subscribeUnreadChanged } from './unread-events.ts';
+import { UserMenu } from './user-menu.tsx';
 
 interface NavItem {
   readonly to: string;
@@ -30,7 +31,6 @@ interface NavItem {
 const NAV_ITEMS: readonly NavItem[] = [
   { to: PATHS.dashboard, label: MESSAGES.nav.dashboard, icon: 'nav-dashboard' },
   { to: PATHS.dataEntry, label: MESSAGES.nav.dataEntry, icon: 'nav-entry' },
-  { to: PATHS.notifications, label: MESSAGES.nav.notifications, icon: 'nav-notifications' },
   { to: PATHS.observations, label: MESSAGES.nav.observations, icon: 'nav-observations' },
 ];
 
@@ -46,47 +46,20 @@ const SETTINGS_ITEMS: readonly NavItem[] = [
     icon: 'nav-users',
     permission: 'user:manage',
   },
-  { to: PATHS.settingsPush, label: MESSAGES.nav.pushSettings, icon: 'nav-push' },
 ];
 
-function EquipmentSelect(): ReactNode {
-  const { equipmentList, selectedEquipmentId, selectEquipment } = useAppState();
-  return (
-    <label className="header-field">
-      <span>{MESSAGES.layout.equipment}</span>
-      <select
-        value={selectedEquipmentId ?? ''}
-        onChange={(event) => {
-          // 選択肢にある設備だけを選ぶ（選択肢の値は、設備の識別子）
-          const selected = equipmentList.find((item) => item.equipmentId === event.target.value);
-          if (selected !== undefined) {
-            selectEquipment(selected.equipmentId);
-          }
-        }}
-        disabled={equipmentList.length === 0}
-      >
-        {equipmentList.map((item) => (
-          <option key={item.equipmentId} value={item.equipmentId}>
-            {equipmentOptionLabel(item)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+/** バッジに表示する件数の上限。これを超える件数は「99+」と表示する（バッジの幅を、一定にする）。 */
+const UNREAD_BADGE_MAX = 99;
 
-function UnreadBadge(props: { readonly onCount: (count: number) => void }): ReactNode {
+/** 通知のアイコン（ヘッダー）。未読の件数のバッジを重ね、押すと通知の一覧を開く。通知の画面にいる間は、現在の画面を示す。 */
+function NotificationLink(): ReactNode {
   const { api } = useAuth();
-  const { onCount } = props;
+  const { pathname } = useLocation();
   const fetchUnread = useCallback(() => getUnreadCount(api), [api]);
   const { data, reload } = usePolling(fetchUnread);
   // 通知を既読にした直後は、約10秒の更新を待たずに、件数を読み直す
   useEffect(() => subscribeUnreadChanged(reload), [reload]);
   const count = data?.unreadCount ?? 0;
-  // メニューの「通知」の件数の印にも、同じ件数を使う（取得は、1 回だけ）
-  useEffect(() => {
-    onCount(count);
-  }, [count, onCount]);
   // 未読が増えたことを、画面を見ていない利用者（スクリーンリーダー）にも知らせる（V-182）。減った・変わらないときは、知らせない
   const previousCount = useRef(count);
   const [announcement, setAnnouncement] = useState('');
@@ -100,9 +73,18 @@ function UnreadBadge(props: { readonly onCount: (count: number) => void }): Reac
         to={PATHS.notifications}
         className="header-unread"
         aria-label={`${MESSAGES.layout.unreadNotifications}: ${String(count)}件`}
+        aria-current={pathname === PATHS.notifications ? 'page' : undefined}
       >
-        <Icon name="nav-notifications" size={18} />
-        <span data-testid="unread-count">{count}</span>
+        <Icon name="nav-notifications" size={22} />
+        {/* バッジは、0 件のときは隠す（要素は残す）。読み上げは、リンクの名前が担う（実際の件数） */}
+        <span
+          className="unread-badge"
+          data-testid="unread-count"
+          hidden={count === 0}
+          aria-hidden="true"
+        >
+          {count > UNREAD_BADGE_MAX ? `${String(UNREAD_BADGE_MAX)}+` : count}
+        </span>
       </Link>
       <span className="visually-hidden" aria-live="polite" aria-atomic="true">
         {announcement}
@@ -111,52 +93,30 @@ function UnreadBadge(props: { readonly onCount: (count: number) => void }): Reac
   );
 }
 
-function DataStatusText(): ReactNode {
-  const { dataStatus } = useAppState();
-  if (dataStatus === undefined) {
-    return null;
+/**
+ * メニューの項目が、現在の画面か。パスの前方一致（区切りの `/` の単位。入力データ一覧・変更履歴でも「データ入力」を強調する。Issue #155）。
+ * ダッシュボード（`/`）は、すべてのパスの前方になるため、完全一致のみ。
+ */
+function isCurrentPath(itemPath: string, pathname: string): boolean {
+  if (itemPath === PATHS.dashboard) {
+    return pathname === itemPath;
   }
-  // 手動のみの運用（自動取り込みが有効でない）は、「最終のデータ取得」の代わりに、「最終の手動入力」を示す（Issue #202）
-  const isManual = dataStatus.freshness === 'MANUAL';
-  const text = isManual
-    ? dataStatus.lastManualInputAt === null
-      ? MESSAGES.layout.noManualInput
-      : formatDateTimeJst(dataStatus.lastManualInputAt)
-    : dataStatus.freshness === 'NONE'
-      ? MESSAGES.layout.notReceived
-      : formatDateTimeJst(dataStatus.lastReceivedAt);
-  return (
-    <p className={`header-data-status data-${dataStatus.freshness.toLowerCase()}`}>
-      <span>{isManual ? MESSAGES.layout.lastManualInput : MESSAGES.layout.lastReceived}: </span>
-      <span>{text}</span>
-      {dataStatus.freshness === 'STALE' ? <strong>（{MESSAGES.layout.stale}）</strong> : null}
-    </p>
-  );
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
 }
 
-function NavLinkItem(props: {
-  readonly item: NavItem;
-  readonly pathname: string;
-  readonly unreadCount?: number | undefined;
-}): ReactNode {
+function NavLinkItem(props: { readonly item: NavItem; readonly pathname: string }): ReactNode {
   const { item } = props;
   return (
     <li className="nav-item">
-      <Link to={item.to} aria-current={props.pathname === item.to ? 'page' : undefined}>
+      <Link to={item.to} aria-current={isCurrentPath(item.to, props.pathname) ? 'page' : undefined}>
         <Icon name={item.icon} size={19} />
         {item.label}
       </Link>
-      {/* 件数の印は、リンクの外に置く（リンクの名前を、メニューの名前のままにする）。読み上げは、上部の「未読の通知」のリンクが担う */}
-      {props.unreadCount === undefined || props.unreadCount === 0 ? null : (
-        <span className="nav-badge" aria-hidden="true">
-          {props.unreadCount}
-        </span>
-      )}
     </li>
   );
 }
 
-function NavMenu(props: { readonly unreadCount: number }): ReactNode {
+function NavMenu(): ReactNode {
   const { user } = useAuth();
   const { pathname } = useLocation();
   const allowed = (item: NavItem): boolean =>
@@ -165,12 +125,7 @@ function NavMenu(props: { readonly unreadCount: number }): ReactNode {
     <nav aria-label={MESSAGES.layout.menu} className="app-nav">
       <ul>
         {NAV_ITEMS.filter(allowed).map((item) => (
-          <NavLinkItem
-            key={item.to}
-            item={item}
-            pathname={pathname}
-            unreadCount={item.to === PATHS.notifications ? props.unreadCount : undefined}
-          />
+          <NavLinkItem key={item.to} item={item} pathname={pathname} />
         ))}
         <li className="nav-group">
           {/* 「設定」は、開閉できるまとまり。既定では、開いておく */}
@@ -227,12 +182,13 @@ function usePageTitle(): void {
 const FOCUSABLE = 'a[href], button:not([disabled]), summary, select:not([disabled])';
 
 function AppShell(props: { readonly children: ReactNode }): ReactNode {
-  const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const narrow = useNarrowViewport();
   // 引き出しを開いた状況（画面・幅）を覚える。画面を移動したとき・幅が変わったときは、状況が合わなくなり、閉じた扱いになる
   const [opened, setOpened] = useState<{ pathname: string; narrow: boolean } | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
+  // 広い幅で、サイドメニューを閉じているか（既定は、開いている。保存しない。Issue #354）
+  const [collapsed, setCollapsed] = useState(false);
+  const sidebarCollapsed = !narrow && collapsed;
   const sidebarRef = useRef<HTMLElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   usePageTitle();
@@ -284,13 +240,11 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
       <a className="skip-link" href="#main">
         {MESSAGES.layout.skipToContent}
       </a>
-      <div className={`app-shell${drawerOpen ? ' menu-is-open' : ''}`}>
-        <aside id="app-sidebar" ref={sidebarRef} className="app-sidebar">
+      <div
+        className={`app-shell${drawerOpen ? ' menu-is-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}
+      >
+        <aside id="app-sidebar" ref={sidebarRef} className="app-sidebar" hidden={sidebarCollapsed}>
           <div className="sidebar-head">
-            <Link to={PATHS.dashboard} className="app-title">
-              <Icon name="brand" size={24} />
-              {MESSAGES.appName}
-            </Link>
             <button
               type="button"
               className="menu-close"
@@ -300,7 +254,7 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
               <Icon name="close" size={20} />
             </button>
           </div>
-          <NavMenu unreadCount={unreadCount} />
+          <NavMenu />
         </aside>
         {/* 引き出しの外（本文）を押すと閉じる。キーボードでは、Esc と、閉じるボタンで閉じる */}
         <button
@@ -317,35 +271,28 @@ function AppShell(props: { readonly children: ReactNode }): ReactNode {
                 type="button"
                 ref={toggleRef}
                 className="menu-toggle"
-                aria-label={MESSAGES.layout.openMenu}
-                aria-expanded={drawerOpen}
+                aria-label={MESSAGES.layout.toggleMenu}
+                aria-expanded={narrow ? drawerOpen : !collapsed}
                 aria-controls="app-sidebar"
                 onClick={() => {
-                  setOpened({ pathname, narrow });
+                  if (!narrow) {
+                    setCollapsed((value) => !value);
+                  } else if (drawerOpen) {
+                    closeMenu();
+                  } else {
+                    setOpened({ pathname, narrow });
+                  }
                 }}
               >
                 <Icon name="menu" size={22} />
               </button>
-              <span className="app-title-compact" aria-hidden="true">
-                {MESSAGES.appName}
-              </span>
-              <EquipmentSelect />
-              <UnreadBadge onCount={setUnreadCount} />
-              <DataStatusText />
-              <div className="header-user">
-                <Icon name="user" size={18} />
-                <span aria-label={MESSAGES.layout.user}>{user?.userName}</span>
-                <Link to={PATHS.profile}>{MESSAGES.profile.link}</Link>
-                <Link to={PATHS.changePassword}>{MESSAGES.changePassword.link}</Link>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void logout();
-                  }}
-                >
-                  {MESSAGES.layout.logout}
-                </button>
-              </div>
+              {/* タイトル（ダッシュボードへのリンク）。☰ とタイトルを、画面の幅に関わらず、ヘッダーの左に置く */}
+              <Link to={PATHS.dashboard} className="app-title">
+                <Icon name="brand" size={22} />
+                <span>{MESSAGES.appName}</span>
+              </Link>
+              <NotificationLink />
+              <UserMenu />
             </div>
           </header>
           <main id="main" className="app-main">

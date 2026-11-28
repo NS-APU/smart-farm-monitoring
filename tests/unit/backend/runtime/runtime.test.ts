@@ -18,7 +18,6 @@ const ENV = {
   DEV_API_ENABLED: 'true',
   LOG_LEVEL: 'error',
   PORT: '0',
-  FILE_SERVER_DIR: join(tmpdir(), 'smart-farm-runtime-test'),
   INITIAL_USER_ID: TEST_USER.userId,
   INITIAL_USER_NAME: TEST_USER.userName,
   INITIAL_USER_PASSWORD: TEST_USER.password,

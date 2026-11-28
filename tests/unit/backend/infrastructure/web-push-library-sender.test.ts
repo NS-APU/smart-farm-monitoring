@@ -31,7 +31,7 @@ const webPush = createRequire(new URL('../../../../src/backend/package.json', im
 const REQUEST: WebPushRequest = {
   endpoint: 'https://push.example.test/send/dummy-endpoint-token',
   keys: { p256dh: 'dummy-p256dh-key', auth: 'dummy-auth-secret' },
-  payload: '{"title":"異常検知"}',
+  payload: '{"title":"状態の悪化"}',
   ttlSeconds: 600,
   urgency: 'high',
   vapid: {
@@ -119,6 +119,6 @@ describe('ライブラリ（実物）に渡す値の形式', () => {
     expect(details.headers['Content-Encoding']).toBe('aes128gcm');
     expect(String(details.headers.Authorization)).toMatch(/^vapid t=.+, k=.+$/);
     // 本文は、暗号化される（平文を含まない）
-    expect(Buffer.from(details.body ?? []).includes(Buffer.from('異常検知'))).toBe(false);
+    expect(Buffer.from(details.body ?? []).includes(Buffer.from('状態の悪化'))).toBe(false);
   });
 });

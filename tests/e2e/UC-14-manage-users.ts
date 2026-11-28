@@ -27,9 +27,11 @@ import {
   alignBrowserClock,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
   prepareApp,
+  goToUserMenu,
 } from './support/app.ts';
 import { changePasswordViaUi, loginViaUi } from './support/helpers.ts';
 import { E2E_USER } from './support/e2e-user.ts';
@@ -39,6 +41,15 @@ import { locatorOf, rowBy } from './support/pages.ts';
 const rows = locatorOf('user-row');
 const rowOf = rowBy('user-row', 'data-user-id');
 const addForm = (page: Page) => page.getByTestId('user-add');
+/** ユーザーの登録は、ダイアログで行う（Issue #366）。表の上のボタンで開く。 */
+async function openAddUser(page: Page): Promise<void> {
+  if (await addForm(page).isVisible()) {
+    return;
+  }
+  await page.getByRole('button', { name: 'ユーザーの登録' }).click();
+  await expect(addForm(page)).toBeVisible();
+}
+
 const editForm = (page: Page) => page.getByTestId('user-edit');
 const notice = locatorOf('users-notice');
 
@@ -53,6 +64,7 @@ async function register(
   page: Page,
   values: { userId: string; userName: string; password: string; role?: string },
 ): Promise<void> {
+  await openAddUser(page);
   const form = addForm(page);
   await form.getByLabel('ユーザーID').fill(values.userId);
   await form.getByLabel('ユーザー名').fill(values.userName);
@@ -99,6 +111,33 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await shot(page, testInfo, 'uc14-list');
   });
 
+  test('登録のダイアログのパスワード欄は、既定で非表示で、表示切替で、表示・非表示を切り替えられる（Issue #157。SC-01-4）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openUsers(page);
+    await openAddUser(page);
+    const password = addForm(page).getByLabel('パスワード');
+    const toggle = addForm(page).getByRole('button', { name: '入力した文字を表示' });
+    await expect(password).toHaveAttribute('type', 'password');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+    await password.fill('Abcdef12');
+    await toggle.click();
+
+    await expect(password).toHaveAttribute('type', 'text');
+    await expect(password).toHaveValue('Abcdef12');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    // 切替は、登録しない（ダイアログのまま。必須の項目のエラーも出ない）
+    await expect(addForm(page)).toBeVisible();
+    await expect(addForm(page).locator('.field-error')).toHaveCount(0);
+
+    await toggle.click();
+
+    await expect(password).toHaveAttribute('type', 'password');
+  });
+
   test('登録: ユーザーID・ユーザー名・パスワード・ロールを入力して登録すると、一覧に追加され、登録したユーザーが、そのパスワードでログインできる', async ({
     page,
     request,
@@ -119,6 +158,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await expect(rowOf(page, 'worker-new')).toContainText('一般');
     await expect(rowOf(page, 'worker-new')).toContainText('未ログイン');
     // 入力欄はクリアされる（パスワードを画面に残さない）
+    await openAddUser(page);
     await expect(addForm(page).getByLabel('パスワード')).toHaveValue('');
     // 登録したユーザーが、別のブラウザで、そのパスワードでログインできる（UC-13）。管理者が決めたパスワードは、一時のもの
     // （最初のログインでは、パスワードの変更の画面だけが表示される。変更すると、使える。Issue #245。D-45）
@@ -136,7 +176,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await other.context.close();
   });
 
-  test('ロール「閲覧者」で登録したユーザーは、権限のない操作ができない（メニューのユーザー管理を表示しない）', async ({
+  test('ロール「閲覧者」で登録したユーザーは、権限のない操作ができない（メニューの「ユーザー」を表示しない）', async ({
     page,
     request,
     browser,
@@ -235,6 +275,13 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
 
     await rowOf(page, USER_B.userId).getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('ユーザーを削除しますか');
+    // 対象（ユーザー名・ユーザーID）と、購読・セッションも削除される旨を示す（#153）
+    await expect(page.getByTestId('confirm-dialog')).toContainText(USER_B.userName);
+    await expect(page.getByTestId('confirm-dialog')).toContainText(USER_B.userId);
+    await expect(page.getByTestId('confirm-dialog')).toContainText('Web Push 通知の購読');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      'ログイン中の状態（セッション）',
+    );
     await shot(page, testInfo, 'uc14-confirm');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'キャンセル' }).click();
     await expect(rowOf(page, USER_B.userId)).toHaveCount(1);
@@ -267,7 +314,7 @@ test.describe('基本フロー: ユーザーの一覧を開き、登録・編集
     await expect(notice(page)).toHaveText('削除しました');
 
     // 削除されたユーザーの画面は、次の更新（約10秒）または操作で、ログイン画面へ戻る
-    await goToMenu(other.page, '通知');
+    await goToNotifications(other.page);
     await expect(other.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible({
       timeout: 20_000,
     });
@@ -287,6 +334,7 @@ test.describe('代替フロー: 同じユーザーIDを重複して登録しよ�
       role: 'general',
     });
 
+    await openAddUser(page);
     await expect(addForm(page).locator('[data-field="userId"] .field-error')).toHaveText(
       '同じユーザーIDがすでに登録されています',
     );
@@ -321,6 +369,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
 
       await register(page, { userId: item.value, userName: '名前', password: 'Abcdef12' });
 
+      await openAddUser(page);
       await expect(addForm(page).locator('[data-field="userId"] .field-error')).toHaveText(
         item.message,
       );
@@ -345,6 +394,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
 
       await register(page, { userId: 'user-x', userName: item.value, password: 'Abcdef12' });
 
+      await openAddUser(page);
       await expect(addForm(page).locator('[data-field="userName"] .field-error')).toHaveText(
         item.message,
       );
@@ -394,6 +444,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
       if (item.ok) {
         await expect(notice(page)).toHaveText('登録しました');
       } else {
+        await openAddUser(page);
         await expect(addForm(page).locator('[data-field="password"] .field-error')).toHaveText(
           item.message ?? '',
         );
@@ -408,6 +459,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
   }) => {
     await prepareApp(request);
     await openUsers(page);
+    await openAddUser(page);
     await expect(addForm(page).getByLabel('ロール').locator('option')).toHaveText([
       'ロールを選択してください',
       '管理者',
@@ -449,6 +501,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
     await prepareApp(request);
     await openUsers(page);
     await register(page, { userId: 'user-ok', userName: '名前', password: 'short' });
+    await openAddUser(page);
     await expect(addForm(page).locator('[data-field="password"] .field-error')).toBeVisible();
 
     await addForm(page).getByLabel('パスワード').fill('Abcdef12');
@@ -460,7 +513,7 @@ test.describe('入力の検証（ユーザーID・ユーザー名・パスワー
 });
 
 test.describe('権限: ユーザーを管理する権限のない利用者（閲覧者）は、管理できない', () => {
-  test('閲覧者には、メニューにユーザー管理を表示せず、直接開いても、権限がない旨を表示する。サーバー側でも拒否する', async ({
+  test('閲覧者には、メニューに「ユーザー」を表示せず、直接開いても、権限がない旨を表示する。サーバー側でも拒否する', async ({
     page,
     request,
   }, testInfo) => {
@@ -478,6 +531,8 @@ test.describe('権限: ユーザーを管理する権限のない利用者（閲
       'ユーザーを管理する権限がありません',
     );
     await expect(rows(page)).toHaveCount(0);
+    // 登録のボタンも、フォームも、ない（Issue #366）
+    await expect(page.getByRole('button', { name: 'ユーザーの登録' })).toHaveCount(0);
     await expect(addForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc14-forbidden');
     const login = await request.post('/api/v1/auth/login', {
@@ -504,7 +559,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     const menu = page.getByRole('navigation', { name: 'メニュー' });
     await expect(menu.getByRole('link', { name: 'ユーザー', exact: true })).toHaveCount(0);
     await expect(menu.getByRole('link', { name: '取り込み', exact: true })).toBeVisible();
-    await expect(menu.getByRole('link', { name: '設備', exact: true })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'ハウス・設備', exact: true })).toBeVisible();
 
     await page.goto('/settings/ingestion');
     await expect(
@@ -529,7 +584,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await expect(page.getByTestId('permission-notice')).toHaveCount(0);
   });
 
-  test('一般も、ヘッダーの「ユーザー名の変更」から、自分のユーザー名を変えられる。ロール・ユーザー ID は、変わらず、ユーザー管理の一覧にも反映される', async ({
+  test('一般も、ヘッダーの「ユーザー名の変更」から、自分のユーザー名を変えられる。ロール・ユーザー ID は、変わらず、ユーザーの一覧にも反映される', async ({
     page,
     request,
   }, testInfo) => {
@@ -538,7 +593,7 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await alignBrowserClock(page);
     await openAs(page, '/', GENERAL);
 
-    await page.getByRole('link', { name: 'ユーザー名の変更' }).click();
+    await goToUserMenu(page, 'ユーザー名の変更');
     await expect(page.getByRole('heading', { name: 'ユーザー名の変更', level: 1 })).toBeVisible();
     await expect(page.getByTestId('profile-user-id')).toHaveText(GENERAL.userId);
     await expect(page.getByLabel('ユーザー名', { exact: true })).toHaveValue(GENERAL.userName);
@@ -547,12 +602,12 @@ test.describe('権限: 一般ユーザー（手動入力のみ）。ロール・
     await page.getByRole('button', { name: 'ユーザー名を変更する' }).click();
 
     await expect(page.getByTestId('profile-saved')).toHaveText('ユーザー名を変更しました');
-    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText('E2E一般ユーザー（改）');
+    await expect(page.getByTestId('user-name')).toHaveText('E2E一般ユーザー（改）');
     await shot(page, testInfo, 'uc14-profile-saved');
     // 画面を読み直しても、変更が残る（サーバーに保存されている）
     await page.reload();
-    await expect(page.getByLabel('ログイン中のユーザー')).toHaveText('E2E一般ユーザー（改）');
-    // 管理者のユーザー管理の一覧にも反映され、ロールは、一般のまま（管理者の API で確認する）
+    await expect(page.getByTestId('user-name')).toHaveText('E2E一般ユーザー（改）');
+    // 管理者のユーザーの一覧にも反映され、ロールは、一般のまま（管理者の API で確認する）
     const list = await apiOk<{ items: { userId: string; userName: string; role: string }[] }>(
       request,
       'GET',
@@ -614,6 +669,7 @@ test.describe('事後条件: ユーザーの情報が保存されている（画
 
     // 登録（入力の誤りを直して登録する。エラー表示の画面を撮影する）
     await register(page, { userId: 'saved-user', userName: '保存の確認', password: 'short' });
+    await openAddUser(page);
     await expect(addForm(page).locator('[data-field="password"] .field-error')).toBeVisible();
     await shot(page, testInfo, 'uc14-validation-error');
     await addForm(page).getByLabel('パスワード').fill('Abcdef12');
@@ -694,7 +750,7 @@ test.describe('事後条件: ユーザーの情報が保存されている（画
   });
 });
 
-test.describe('スマートフォン幅（375px）でも、ユーザー管理は、横にはみ出さず、操作できる', () => {
+test.describe('スマートフォン幅（375px）でも、ユーザーの画面は、横にはみ出さず、操作できる', () => {
   test('一覧・登録の画面が、画面の幅に収まり、登録できる', async ({ page, request }, testInfo) => {
     await prepareApp(request);
     await addUser(request, USER_B);
@@ -761,7 +817,7 @@ test.describe('境界値: 長いユーザー名・ユーザーID（上限ちょ�
   });
 });
 
-test.describe('タブレット幅（768px。NFR-7.3）でも、ユーザー管理の表は、全列・操作のボタンが、横にスクロールせずに見える', () => {
+test.describe('タブレット幅（768px。NFR-7.3）でも、ユーザーの表は、全列・操作のボタンが、横にスクロールせずに見える', () => {
   test('一覧が、表の枠の中に収まる', async ({ page, request }, testInfo) => {
     await prepareApp(request);
     await addUser(request, USER_B);

@@ -9,14 +9,27 @@ export const API_PATHS = {
   viewpoint: (viewpointId: string) => `/viewpoints/${segment(viewpointId)}`,
   viewpointSeries: (viewpointId: string) => `/viewpoints/${segment(viewpointId)}/series`,
   viewpointCriteria: (viewpointId: string) => `/viewpoints/${segment(viewpointId)}/criteria`,
+  viewpointCriteriaPreview: (viewpointId: string) =>
+    `/viewpoints/${segment(viewpointId)}/criteria/preview`,
   viewpointCriteriaReset: (viewpointId: string) =>
     `/viewpoints/${segment(viewpointId)}/criteria/reset`,
   notificationRead: (notificationId: string) => `/notifications/${segment(notificationId)}/read`,
+  notificationMemos: (notificationId: string) => `/notifications/${segment(notificationId)}/memos`,
   manualEntry: (entryId: string) => `/manual-entries/${segment(entryId)}`,
   equipment: (equipmentId: string) => `/equipment/${segment(equipmentId)}`,
   statusCode: (code: string) => `/status-codes/${segment(code)}`,
   user: (userId: string) => `/users/${segment(userId)}`,
-  ingestionTest: (sourceId: string) => `/ingestion/${segment(sourceId)}/test`,
-  ingestionCredentials: (sourceId: string) => `/ingestion/${segment(sourceId)}/credentials`,
   ingestionRun: (sourceId: string) => `/ingestion/${segment(sourceId)}/run`,
+  /** 設備ごとの接続（Issue #367。ADR-0026）。 */
+  ingestionEquipmentConnection: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/connection`,
+  ingestionEquipmentCredentials: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/credentials`,
+  ingestionEquipmentTest: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/test`,
+  /** 取り込み用のファイルを置く（Issue #565。ADR-0027）。検査だけ（保存しない）と、置く。 */
+  ingestionSourceFileCheck: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/source-file/check`,
+  ingestionSourceFile: (equipmentId: string) =>
+    `/ingestion/equipment/${segment(equipmentId)}/source-file`,
 } as const;

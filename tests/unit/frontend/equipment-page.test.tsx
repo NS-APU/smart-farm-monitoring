@@ -1,12 +1,11 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { equipmentTree, jsonResponse } from '../../support/frontend.ts';
+import { equipmentTree, jsonResponse, twoFacilityTree } from '../../support/frontend.ts';
 import {
   READ_ONLY_LOGIN,
   at,
   callsOf,
   errorBody,
-  noContent,
   renderApp,
 } from '../../support/management-frontend.ts';
 
@@ -23,12 +22,20 @@ beforeEach(() => {
   window.history.pushState(null, '', '/');
 });
 
+/** 登録のフォーム。登録は、ダイアログで行う（#364）。開いていなければ、表の上のボタンで開く。 */
+function registrationForm(formName: string, buttonName: string): HTMLElement {
+  if (screen.queryByRole('form', { name: formName }) === null) {
+    fireEvent.click(screen.getByRole('button', { name: buttonName }));
+  }
+  return screen.getByRole('form', { name: formName });
+}
+
 function facilityForm(): HTMLElement {
-  return screen.getByRole('form', { name: 'ハウスを登録' });
+  return registrationForm('ハウスを登録', 'ハウスの登録');
 }
 
 function childForm(): HTMLElement {
-  return screen.getByRole('form', { name: 'ロボット・環境センサーを登録' });
+  return registrationForm('ロボット・環境センサーを登録', 'ロボット・環境センサーの登録');
 }
 
 describe('設備管理（UC-12。SC-10）', () => {
@@ -375,6 +382,14 @@ describe('設備管理（UC-12。SC-10）', () => {
     await screen.findByTestId('equipment-notice');
     expect(callsOf(calls, 'POST', '/equipment')[0]?.body).not.toHaveProperty('intervalMinutes');
 
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、取得間隔は、既定に戻っている
+    expect(screen.queryByRole('form', { name: 'ロボット・環境センサーを登録' })).toBeNull();
+    expect(
+      within(childForm()).getByLabelText<HTMLSelectElement>('取得間隔', { exact: false }).value,
+    ).toBe('');
+    fireEvent.change(within(childForm()).getByLabelText('親のハウス', { exact: false }), {
+      target: { value: 'HOUSE-01' },
+    });
     fireEvent.change(within(childForm()).getByLabelText('設備ID', { exact: false }), {
       target: { value: 'ROBOT-03' },
     });
@@ -519,27 +534,83 @@ describe('設備管理（UC-12。SC-10）', () => {
     expect(screen.queryByTestId('equipment-edit')).toBeNull();
   });
 
-  it('削除: ロボットは確認のダイアログ。ハウスは、配下も対象外になる旨を示す。確定すると、削除して階層を読み直す', async () => {
+  it('削除: ロボットは、データも削除される旨の警告つきの確認のダイアログ（名前の入力はない）。ハウスは、配下とデータの削除を警告し、ハウスの名前を入力して確認する。確定すると、削除を始めて階層を読み直す（D-28）', async () => {
     const { calls } = renderApp('/settings/equipment', {
-      'DELETE /equipment/ROBOT-01': () => noContent(),
-      'DELETE /equipment/HOUSE-01': () => noContent(),
+      'DELETE /equipment/ROBOT-01': () => jsonResponse({ evaluation: 'DONE' }),
+      'DELETE /equipment/HOUSE-01': () => jsonResponse({ evaluation: 'DONE' }),
     });
     const rows = await screen.findAllByTestId('equipment-row');
 
     fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '削除' }));
     let dialog = await screen.findByTestId('confirm-dialog');
-    expect(dialog.textContent).toContain('過去のデータは残ります');
+    expect(dialog.textContent).toContain('観測値・手動入力・評価結果');
+    expect(dialog.textContent).toContain('元に戻せません');
+    expect(dialog.textContent).toContain('農業情報基盤に送信済みのデータは、削除されません');
     expect(dialog.textContent).not.toContain('配下の');
+    expect(within(dialog).queryByTestId('confirm-typed-input')).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
     expect(callsOf(calls, 'DELETE', '/equipment/ROBOT-01')).toHaveLength(0);
 
     fireEvent.click(within(at(rows, 0)).getByRole('button', { name: '削除' }));
     dialog = await screen.findByTestId('confirm-dialog');
-    expect(dialog.textContent).toContain('配下のロボット・環境センサーも含めて');
-    fireEvent.click(within(dialog).getByRole('button', { name: '削除' }));
+    expect(dialog.textContent).toContain('配下のロボット・環境センサー');
+    expect(dialog.textContent).toContain('元に戻せません');
+    expect(dialog.textContent).toContain('農業情報基盤に送信済みのデータは、削除されません');
+    // ハウスの名前を入力するまで、削除できない
+    const confirm = within(dialog).getByRole('button', { name: '削除' });
+    expect(confirm).toHaveProperty('disabled', true);
+    fireEvent.change(within(dialog).getByTestId('confirm-typed-input'), {
+      target: { value: 'ハウス1' },
+    });
+    expect(confirm).toHaveProperty('disabled', false);
+    fireEvent.click(confirm);
 
-    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('削除しました');
+    expect((await screen.findByTestId('equipment-notice')).textContent).toContain(
+      '削除を始めました',
+    );
     expect(callsOf(calls, 'DELETE', '/equipment/HOUSE-01')).toHaveLength(1);
+  });
+
+  it('削除中の設備を、表の上に示す（名前・ハウスなら配下の名前・状態）。失敗しても、自動で再試行する旨を示す。なければ、出ない', async () => {
+    renderApp('/settings/equipment', {
+      'GET /equipment/deletions': () =>
+        jsonResponse({
+          items: [
+            {
+              equipmentId: 'HOUSE-09',
+              name: '古いハウス',
+              equipmentType: 'FACILITY',
+              childNames: ['古いロボット', '古いセンサー'],
+              requestedAt: '2026-10-09T02:00:00.000Z',
+              status: 'DELETING',
+            },
+            {
+              equipmentId: 'ROBOT-09',
+              name: '古いロボット2',
+              equipmentType: 'ROBOT',
+              childNames: [],
+              requestedAt: '2026-10-09T03:00:00.000Z',
+              status: 'FAILED',
+            },
+          ],
+        }),
+    });
+
+    const section = await screen.findByTestId('equipment-deletions');
+    const rows = within(section).getAllByTestId('equipment-deletion-row');
+
+    expect(rows[0]?.textContent).toContain('古いハウス');
+    expect(rows[0]?.textContent).toContain('古いロボット、古いセンサー');
+    expect(rows[0]?.textContent).toContain('削除しています');
+    expect(rows[1]?.textContent).toContain('古いロボット2');
+    expect(rows[1]?.textContent).toContain('自動で再試行します');
+  });
+
+  it('削除中の設備がなければ、削除中の表示は出ない', async () => {
+    renderApp('/settings/equipment');
+    await screen.findAllByTestId('equipment-row');
+
+    expect(screen.queryByTestId('equipment-deletions')).toBeNull();
   });
 
   it('削除に失敗した場合は、エラーを表示する', async () => {
@@ -557,5 +628,236 @@ describe('設備管理（UC-12。SC-10）', () => {
       ).toBe(true);
     });
     expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+  });
+});
+
+describe('設備管理: 登録・修正は、ダイアログで行う（Issue #364）', () => {
+  it('題名は「ハウス・設備」。表の上に、2 つの登録のボタンがあり、ボタンを押すまで、登録のフォームは出ない', async () => {
+    renderApp('/settings/equipment');
+    await screen.findAllByTestId('equipment-row');
+
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('ハウス・設備');
+    expect(screen.getByRole('button', { name: 'ハウスの登録' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'ロボット・環境センサーの登録' })).toBeDefined();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('form', { name: 'ハウスを登録' })).toBeNull();
+    // 登録のボタンは、表の上（表より前）にある
+    const button = screen.getByRole('button', { name: 'ハウスの登録' });
+    const table = document.querySelector('table') as HTMLElement;
+    expect(button.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('登録のボタンで、ダイアログが開く（名前は、フォームの名前と同じ）。キャンセル・Esc で閉じる', async () => {
+    renderApp('/settings/equipment');
+    await screen.findAllByTestId('equipment-row');
+
+    fireEvent.click(screen.getByRole('button', { name: 'ハウスの登録' }));
+    expect(screen.getByRole('dialog', { name: 'ハウスを登録' })).toBeDefined();
+    fireEvent.click(within(facilityForm()).getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'ロボット・環境センサーの登録' }));
+    expect(screen.getByRole('dialog', { name: 'ロボット・環境センサーを登録' })).toBeDefined();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('修正のボタンで、ダイアログが開く（名前は、種別と設備 ID を含む）。キャンセルで閉じる。保存すると、閉じて、「修正しました」を示す', async () => {
+    renderApp('/settings/equipment', {
+      'PUT /equipment/ROBOT-01': () => jsonResponse(SAVED_EQUIPMENT),
+    });
+    const rows = await screen.findAllByTestId('equipment-row');
+
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    expect(screen.getByRole('dialog', { name: /ロボット（ROBOT-01）を修正/ })).toBeDefined();
+    fireEvent.click(
+      within(screen.getByTestId('equipment-edit')).getByRole('button', { name: 'キャンセル' }),
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    fireEvent.click(
+      within(screen.getByTestId('equipment-edit')).getByRole('button', { name: '保存' }),
+    );
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('参照のみの利用者には、登録のボタンを表示しない', async () => {
+    renderApp('/settings/equipment', {}, { login: READ_ONLY_LOGIN });
+    await screen.findAllByTestId('equipment-row');
+
+    expect(screen.queryByRole('button', { name: 'ハウスの登録' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ロボット・環境センサーの登録' })).toBeNull();
+  });
+});
+
+describe('設備管理: 親のハウスの付け替えは、確認を挟んで、影響を示す（Issue #163。SC-10-7）', () => {
+  /** ハウスが 2 つ（ハウス1・ハウス2）の階層で、ROBOT-01（ハウス1 の配下）の修正のダイアログを開く。 */
+  async function openRobotEdit(calls: ReturnType<typeof renderApp>['calls']): Promise<HTMLElement> {
+    const rows = await screen.findAllByTestId('equipment-row');
+    fireEvent.click(within(at(rows, 1)).getByRole('button', { name: '修正' }));
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+    return await screen.findByTestId('equipment-edit');
+  }
+
+  function render() {
+    return renderApp('/settings/equipment', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'PUT /equipment/ROBOT-01': () => jsonResponse(SAVED_EQUIPMENT),
+    });
+  }
+
+  function chooseFacility(form: HTMLElement, facilityId: string): void {
+    fireEvent.change(within(form).getByLabelText('親のハウス', { exact: false }), {
+      target: { value: facilityId },
+    });
+  }
+
+  it('親のハウスを変えて保存すると、保存の前に、確認を示す。対象の設備と、変更前・変更後のハウスの名称（ID でなく）と、影響を示す', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(within(dialog).getByRole('heading').textContent).toBe('親のハウスを変更しますか');
+    const details = Array.from(dialog.querySelectorAll('.dialog-details > div')).map(
+      (item) => item.textContent,
+    );
+    expect(details).toEqual([
+      '設備収穫ロボット1',
+      '変更前のハウスハウス1',
+      '変更後のハウスハウス2',
+    ]);
+    expect(dialog.textContent).toContain(
+      '親のハウスをハウス1からハウス2に変えます。閲覧できる利用者（割り当て）と、ハウスの評価が変わります',
+    );
+    const notes = Array.from(dialog.querySelectorAll('.dialog-notes li')).map(
+      (item) => item.textContent,
+    );
+    expect(notes).toEqual([
+      'この設備のデータは、新しいハウスの配下のものとして評価されます',
+      '通知と過去の評価は、元のハウスのまま残ります',
+    ]);
+    expect(dialog.textContent).not.toContain('HOUSE-0');
+    // 確認の前は、保存しない
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+    // 修正のダイアログは、背面に残る
+    expect(screen.getByTestId('equipment-edit')).toBeDefined();
+  });
+
+  it('確認でキャンセルすると、保存せず、修正のダイアログに戻る（入力は、そのまま）', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: '付け替えるロボット' },
+    });
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+    const back = screen.getByTestId('equipment-edit');
+    expect(within(back).getByLabelText<HTMLSelectElement>('親のハウス').value).toBe('HOUSE-02');
+    expect(within(back).getByLabelText<HTMLInputElement>('名称', { exact: false }).value).toBe(
+      '付け替えるロボット',
+    );
+    expect(screen.queryByTestId('equipment-notice')).toBeNull();
+  });
+
+  it('確認で Esc を押すと、確認だけを閉じる（保存せず、修正のダイアログは閉じない）', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.getByTestId('equipment-edit')).toBeDefined();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+  });
+
+  it('確認で確定すると、新しい親のハウスで保存して、ダイアログを閉じ、「修正しました」を示す', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '親のハウスを変更して保存' }));
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(1);
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')[0]?.body).toEqual({
+      name: '収穫ロボット1',
+      facilityId: 'HOUSE-02',
+    });
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.queryByTestId('equipment-edit')).toBeNull();
+  });
+
+  it('親のハウスを変えない修正（名称だけ）は、確認を出さず、そのまま保存する', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: '改名したロボット' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(1);
+  });
+
+  it('親のハウスを変えてから元に戻した修正は、確認を出さない', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    chooseFacility(form, 'HOUSE-01');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    expect((await screen.findByTestId('equipment-notice')).textContent).toBe('修正しました');
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+  });
+
+  it('入力に誤りがあるとき（名称が空）は、確認より先に、エラーを示す', async () => {
+    const { calls } = render();
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.change(within(form).getByLabelText('名称', { exact: false }), {
+      target: { value: '' },
+    });
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+
+    expect(within(form).getByText('名称は必須です')).toBeDefined();
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(callsOf(calls, 'PUT', '/equipment/ROBOT-01')).toHaveLength(0);
+  });
+
+  it('確定した保存が失敗したときは、確認を閉じ、修正のダイアログにエラーを示す', async () => {
+    const { calls } = renderApp('/settings/equipment', {
+      'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      'PUT /equipment/ROBOT-01': () => errorBody(500, 'INTERNAL_ERROR', '修正できませんでした'),
+    });
+    const form = await openRobotEdit(calls);
+    chooseFacility(form, 'HOUSE-02');
+    fireEvent.click(within(form).getByRole('button', { name: '保存' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', {
+        name: '親のハウスを変更して保存',
+      }),
+    );
+
+    expect((await within(form).findByRole('alert')).textContent).toBe('修正できませんでした');
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.getByTestId('equipment-edit')).toBeDefined();
   });
 });

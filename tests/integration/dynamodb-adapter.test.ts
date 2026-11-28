@@ -13,6 +13,7 @@ import type {
   ObservationFilter,
   Repositories,
 } from '../../src/backend/application/ports/repositories.ts';
+import type { createDocumentClient } from '../../src/backend/infrastructure/dynamodb/client.ts';
 import { createDynamoRepositories } from '../../src/backend/infrastructure/dynamodb/dynamodb-repositories.ts';
 import {
   createTables,
@@ -304,6 +305,35 @@ describe('観測値（DynamoDB）', () => {
     expect((await observations.query({}, { limit: 1 })).items).toHaveLength(1);
   });
 
+  it('「問題あり」の絞り込みも、読んだ件数（絞る前）が上限を超えたら、問題ありが少なくても、期間を絞り込むよう案内して、入力不正にする（SC-09-3）', async () => {
+    const { observations } = await setup({ observationReadLimit: 3 });
+    await observations.saveMany(
+      [1, 2, 3, 4, 5].map((hour) =>
+        observation({
+          itemKey: 'harvestCount',
+          value: hour,
+          quality: hour === 2 ? 'MISSING' : 'VALID',
+          observedAt: `2026-10-09T0${hour}:00:00.000Z`,
+        }),
+      ),
+    );
+
+    await expect(observations.query({ problemOnly: true }, { limit: 100 })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      message: expect.stringContaining('期間を絞り込んでください') as string,
+    });
+    // 期間を狭めれば（読む件数が上限以内なら）、問題ありだけを返す
+    const narrowed = await observations.query(
+      {
+        problemOnly: true,
+        from: new Date('2026-10-09T01:00:00.000Z'),
+        to: new Date('2026-10-09T03:00:00.000Z'),
+      },
+      { limit: 100 },
+    );
+    expect(narrowed.items.map((item) => item.quality)).toEqual(['MISSING']);
+  });
+
   it('最終の受信日時: 自動取り込み（論理削除・手動入力を除く）と全体を、別に持ち、古い値で戻さない', async () => {
     const { observations } = await setup();
     const at = (hour: string) => `2026-10-09T${hour}:00:00.000Z`;
@@ -377,6 +407,87 @@ describe('観測値（DynamoDB）', () => {
   });
 });
 
+/**
+ * 実際の DynamoDB と同じように、進行中のトランザクションと同じ項目に触れる別のトランザクションを、
+ * `TransactionConflict`（`TransactionCanceledException`）で取り消すクライアント（DynamoDB Local は、これを再現しない。#590）。
+ * `failNext(count)` を呼ぶと、そのあとのトランザクションを、count 回、競合で取り消す（一時的な競合の再現）。
+ */
+type DocumentClient = ReturnType<typeof createDocumentClient>;
+
+interface TransactCommand {
+  readonly input: {
+    readonly TransactItems?: readonly {
+      readonly Update?: { readonly Key?: Record<string, unknown> };
+      readonly Put?: { readonly Item?: Record<string, unknown> };
+      readonly Delete?: { readonly Key?: Record<string, unknown> };
+    }[];
+  };
+}
+
+const isTransactCommand = (command: unknown): command is TransactCommand =>
+  (command as { constructor?: { name?: string } }).constructor?.name === 'TransactWriteCommand';
+
+function withTransactionConflicts(client: DocumentClient): {
+  readonly client: DocumentClient;
+  readonly transactions: () => number;
+  readonly failNext: (count: number) => void;
+} {
+  const inFlight = new Map<string, number>();
+  let remainingFailures = 0;
+  let transactions = 0;
+  const keysOf = (command: TransactCommand): string[] =>
+    (command.input.TransactItems ?? []).map((item) => {
+      const key = item.Update?.Key ?? item.Put?.Item ?? item.Delete?.Key ?? {};
+      return `${String(key.pk)}#${String(key.sk)}`;
+    });
+  const conflict = (): Error =>
+    Object.assign(new Error('Transaction cancelled, please refer cancellation reasons'), {
+      name: 'TransactionCanceledException',
+      CancellationReasons: [{ Code: 'TransactionConflict' }, { Code: 'None' }],
+    });
+  const wrapped = new Proxy(client, {
+    get(target, property, receiver) {
+      if (property !== 'send') {
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      }
+      return async (command: unknown) => {
+        if (!isTransactCommand(command)) {
+          return (target.send as (input: unknown) => Promise<unknown>)(command);
+        }
+        const keys = keysOf(command);
+        transactions += 1;
+        if (remainingFailures > 0) {
+          remainingFailures -= 1;
+          throw conflict();
+        }
+        if (keys.some((key) => (inFlight.get(key) ?? 0) > 0)) {
+          throw conflict();
+        }
+        for (const key of keys) {
+          inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
+        }
+        try {
+          // 実際の通信の時間（重なり合う時間）を作る
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          return await (target.send as (input: unknown) => Promise<unknown>)(command);
+        } finally {
+          for (const key of keys) {
+            inFlight.set(key, (inFlight.get(key) ?? 1) - 1);
+          }
+        }
+      };
+    },
+  });
+  return {
+    client: wrapped,
+    transactions: () => transactions,
+    failNext: (count) => {
+      remainingFailures = count;
+    },
+  };
+}
+
 describe('通知（DynamoDB）', () => {
   it('同じ識別子の通知を追加すると、上書きする（件数は増えない）。なければ、更新は追加になる', async () => {
     const { notifications } = await setup();
@@ -444,6 +555,104 @@ describe('通知（DynamoDB）', () => {
     expect(await notifications.markAllRead(USER, { readState: 'READ' }, new Date())).toBe(0);
     expect(await notifications.markAllRead(OTHER_USER, {}, new Date())).toBe(2);
     expect(await notifications.unreadCount(OTHER_USER)).toBe(0);
+  });
+
+  describe('既読の同時のトランザクションの競合（TransactionConflict。#590）', () => {
+    async function conflictingSetup() {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const conflicting = withTransactionConflicts(database.client);
+      const { notifications } = createDynamoRepositories({
+        client: conflicting.client,
+        tables: database.tables,
+      });
+      return {
+        notifications,
+        transactions: conflicting.transactions,
+        failNext: conflicting.failNext,
+      };
+    }
+
+    it('一括既読は、同じカウンターへの同時のトランザクションの競合でも、エラーにならず、すべて既読にする。件数・カウンターが合う', async () => {
+      const { notifications } = await conflictingSetup();
+      const houses = ['HOUSE-1', 'HOUSE-2'].map((id) => toEquipmentId(id));
+      for (let index = 1; index <= 60; index += 1) {
+        await notifications.add(
+          notification(`n-${String(index)}`, {
+            facilityId: houses[index % 2],
+            createdAt: new Date(Date.UTC(2026, 9, 9, 1, index)).toISOString(),
+          }),
+        );
+      }
+
+      const marked = await notifications.markAllRead(USER, {}, new Date());
+
+      expect(marked).toBe(60);
+      expect(await notifications.unreadCount(USER)).toBe(0);
+      expect(await notifications.unreadCount(USER, houses)).toBe(0);
+      expect(await notifications.unreadCount(OTHER_USER)).toBe(60);
+      expect(await notifications.countUnread(USER, {})).toBe(0);
+    });
+
+    it('一括既読は、通知ごとではなく、まとめて書く（トランザクションの数が、通知の件数より、ずっと少ない）', async () => {
+      const { notifications, transactions } = await conflictingSetup();
+      for (let index = 1; index <= 60; index += 1) {
+        await notifications.add(
+          notification(`n-${String(index)}`, {
+            createdAt: new Date(Date.UTC(2026, 9, 9, 1, index)).toISOString(),
+          }),
+        );
+      }
+      const before = transactions();
+
+      await notifications.markAllRead(USER, {}, new Date());
+
+      expect(transactions() - before).toBeLessThanOrEqual(6);
+    });
+
+    it('一時的な競合は、再試行して、既読にする（1 件の既読・一括既読）。競合が続くときは、エラーにする', async () => {
+      const single = await conflictingSetup();
+      await single.notifications.add(notification('n-1'));
+      single.failNext(2);
+      const id = NotificationIdSchema.parse('n-1');
+
+      expect(await single.notifications.markRead(id, USER, new Date())).toBe(true);
+      expect(await single.notifications.unreadCount(USER)).toBe(0);
+
+      const bulk = await conflictingSetup();
+      await bulk.notifications.add(notification('n-1'));
+      await bulk.notifications.add(notification('n-2'));
+      bulk.failNext(2);
+      expect(await bulk.notifications.markAllRead(USER, {}, new Date())).toBe(2);
+      expect(await bulk.notifications.unreadCount(USER)).toBe(0);
+
+      const stuck = await conflictingSetup();
+      await stuck.notifications.add(notification('n-1'));
+      stuck.failNext(1000);
+      await expect(stuck.notifications.markAllRead(USER, {}, new Date())).rejects.toMatchObject({
+        name: 'TransactionCanceledException',
+      });
+    });
+
+    it('一括既読の途中で、同じ利用者が別に既読にした通知があっても、二重に数えない', async () => {
+      const { notifications } = await conflictingSetup();
+      for (let index = 1; index <= 30; index += 1) {
+        await notifications.add(
+          notification(`n-${String(index)}`, {
+            createdAt: new Date(Date.UTC(2026, 9, 9, 1, index)).toISOString(),
+          }),
+        );
+      }
+      const unread = await notifications.countUnread(USER, {});
+      // 一括の対象を決めたあとで、別の操作が、1 件を既読にする（二重のタブなど）を、同じ流れで再現する
+      const first = notifications.markAllRead(USER, {}, new Date());
+      const second = notifications.markAllRead(USER, {}, new Date());
+      const results = await Promise.all([first, second]);
+
+      expect(unread).toBe(30);
+      expect(results[0] + results[1]).toBe(30);
+      expect(await notifications.unreadCount(USER)).toBe(0);
+    });
   });
 
   it('配信の状態が変わると、未完了の一覧に、載る・載らなくなる', async () => {
@@ -590,6 +799,93 @@ describe('連携（DynamoDB）', () => {
     expect(first.items.map((entry) => entry.logId)).toEqual(['l-3', 'l-2']);
     expect(second.items.map((entry) => entry.logId)).toEqual(['l-1']);
     expect(second.nextCursor).toBeNull();
+  });
+
+  describe('保存期間（TTL。90 日。ADR-0018 の D-30。#230）', () => {
+    const NINETY_DAYS_SECONDS = 90 * 24 * 60 * 60;
+    const seconds = (iso: string): number => Date.parse(iso) / 1000;
+
+    it('連携ログ・ハウス別の連携の記録に、ログの日時の 90 日後の TTL を付ける', async () => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const db = { client: database.client, tables: database.tables };
+      const { federation } = createDynamoRepositories(db);
+      const occurredAt = '2026-10-09T01:00:00.000Z';
+
+      await federation.addLog({
+        logId: 'l-1',
+        occurredAt,
+        result: 'SENT',
+        itemCount: 3,
+        facilities: [{ facilityId: 'HOUSE-T1', itemCount: 3 }],
+      });
+
+      const expected = seconds(occurredAt) + NINETY_DAYS_SECONDS;
+      const logs = await queryAll(db, db.tables.main, 'FLOG');
+      const facilityLogs = await queryAll(db, db.tables.main, 'FLOGF#HOUSE-T1');
+      expect(logs.map((entry) => entry.ttl)).toEqual([expected]);
+      expect(facilityLogs.map((entry) => entry.ttl)).toEqual([expected]);
+    });
+
+    it('送信済みの連携項目だけに、送信済みになった時点（更新日時）の 90 日後の TTL を付ける。送信していない項目には付けない', async () => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const db = { client: database.client, tables: database.tables };
+      const { federation } = createDynamoRepositories(db);
+      const sentAt = '2026-10-10T00:00:00.000Z';
+
+      await federation.enqueue(item('f-1', 'PENDING', 1));
+      await federation.update({ ...item('f-1', 'SENT', 1), updatedAt: sentAt });
+      await federation.enqueue(item('f-2', 'FAILED', 2));
+      await federation.enqueue(item('f-3', 'HELD', 3));
+
+      const stored = new Map(
+        (await queryAll(db, db.tables.main, 'FED')).map((entry) => [String(entry.sk), entry.ttl]),
+      );
+      expect(stored.get('f-1')).toBe(seconds(sentAt) + NINETY_DAYS_SECONDS);
+      expect(stored.get('f-2')).toBeUndefined();
+      expect(stored.get('f-3')).toBeUndefined();
+    });
+
+    it('取り込みログ（設備ごと・設備なし）・ハウス別の取り込みの記録に、ログの開始日時の 90 日後の TTL を付ける。取り込み元・設備の一覧には付けない', async () => {
+      const database = createDynamoTestDatabase();
+      await database.ready;
+      const db = { client: database.client, tables: database.tables };
+      const { ingestion } = createDynamoRepositories(db);
+      const startedAt = '2026-10-09T01:00:00.000Z';
+      const base = {
+        sourceId: 'robot',
+        startedAt,
+        finishedAt: startedAt,
+        result: 'SUCCESS' as const,
+        filesProcessed: 1,
+        recordCount: 1,
+        rejectedCount: 0,
+        attempts: 1,
+      };
+
+      await ingestion.addLog({
+        ...base,
+        logId: 'l-1',
+        equipmentId: toEquipmentId('ROBOT-T1'),
+        facilities: [{ facilityId: 'HOUSE-T1', result: 'SUCCESS', recordCount: 1 }],
+      });
+      await ingestion.addLog({ ...base, logId: 'l-2' });
+
+      const expected = seconds(startedAt) + NINETY_DAYS_SECONDS;
+      expect(
+        (await queryAll(db, db.tables.main, 'ILOGE#ROBOT-T1')).map((entry) => entry.ttl),
+      ).toEqual([expected]);
+      expect(
+        (await queryAll(db, db.tables.main, 'ILOGF#HOUSE-T1')).map((entry) => entry.ttl),
+      ).toEqual([expected]);
+      expect((await queryAll(db, db.tables.main, 'ILOG#robot')).map((entry) => entry.ttl)).toEqual([
+        expected,
+      ]);
+      expect((await queryAll(db, db.tables.main, 'ILOGSRC')).map((entry) => entry.ttl)).toEqual([
+        undefined,
+      ]);
+    });
   });
 });
 
@@ -759,6 +1055,25 @@ describe('変更履歴・手動入力（DynamoDB）', () => {
 
     expect(await ids('desc')).toEqual(['a-5', 'a-3', 'a-1']);
     expect(await ids('asc')).toEqual(['a-1', 'a-3', 'a-5']);
+    // 対象の ID（#155）: 読んだ後に絞る。対象の履歴が少なくても、ページを送れる
+    await auditLogs.add({
+      auditId: 'a-6',
+      operation: 'DELETE',
+      actor: USER,
+      occurredAt: '2026-10-09T06:00:00.000Z',
+      targetType: 'manual-entry',
+      targetId: 'e-2',
+    });
+    const byTarget = await auditLogs.list({ targetId: 'e-2' }, { limit: 1 });
+    expect(byTarget.items.map((entry) => entry.auditId)).toEqual(['a-6']);
+    expect(byTarget.nextCursor).toBeNull();
+    const firstByTarget = await auditLogs.list(
+      { targetType: 'manual-entry', targetId: 'e-1' },
+      { limit: 2 },
+    );
+    expect(firstByTarget.items.map((entry) => entry.auditId)).toEqual(['a-5', 'a-4']);
+    expect(firstByTarget.nextCursor).not.toBeNull();
+    expect((await auditLogs.list({ targetId: 'none' }, { limit: 5 })).items).toEqual([]);
     expect(
       (
         await auditLogs.list(

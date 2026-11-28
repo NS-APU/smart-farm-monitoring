@@ -1,6 +1,6 @@
 /**
  * 観点の定義と、評価の入出力の型（ドメイン層）。
- * 観点の追加は、定義の追加（viewpoints/）と判断基準の既定値（default-criteria.ts）の追加で行う
+ * 観点の追加は、定義の追加（viewpoints/）と判断基準の既定値（shared/constants/default-criteria.ts）の追加で行う
  * （NFR-2.7, NFR-8.2、architecture.md 7章）。
  */
 

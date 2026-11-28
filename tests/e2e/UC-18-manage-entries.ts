@@ -19,36 +19,43 @@
  * 関連するユースケース: UC-06・UC-07（入力）、UC-20（一覧からの除外）、UC-10（再評価の通知）、UC-01（評価）、UC-19（判断基準の履歴）。
  */
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   HOUSE_ID,
   ROBOT_ID,
   SENSOR_ID,
   USER_B,
   VIEWER,
+  accessToken,
   addEntry,
   addUser,
   advanceMinutes,
   alignBrowserClock,
   api,
+  apiOk,
   confirmDialog,
   newUserSession,
   openAs,
   prepareApp,
+  setEquipmentInterval,
 } from './support/app.ts';
 import {
   allSatisfactionStars,
   fieldError,
+  expectRelatedStatus,
   fillEntryForm,
   satisfactionApiItems,
   saveEntry,
 } from './support/entry.ts';
-import { hoursAgo, shot } from './support/viewpoint-scenarios.ts';
-import { locatorOf, userIdText } from './support/pages.ts';
+import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { locatorOf, userLabelText } from './support/pages.ts';
 
 const rows = locatorOf('entry-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
 const notice = locatorOf('entries-notice');
+/** 修正・削除の結果の見出し（「修正しました」「削除しました」。評価の更新の表示は、その下。D-27）。 */
+const noticeTitle = (page: Page) => notice(page).getByRole('heading');
 const editor = (page: Page) => page.getByTestId('entry-edit');
 
 async function openList(
@@ -115,6 +122,10 @@ test.describe('基本フロー: 入力済みデータの一覧を開く', () => 
 
     await openList(page);
 
+    // メニューの現在地: 入力データ一覧（/data-entry/list）でも、「データ入力」を強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['データ入力']);
     await expect(rows(page)).toHaveCount(3);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '計測日時',
@@ -132,7 +143,9 @@ test.describe('基本フロー: 入力済みデータの一覧を開く', () => 
     await expect(rows(page).nth(2)).toContainText('故障情報');
     await expect(rows(page).nth(2)).toContainText('故障回数: 2回');
     await expect(rows(page).nth(2)).toContainText('復旧に要した時間: 90分');
-    await expect(rows(page).nth(2)).toContainText(userIdText('e2e-user'));
+    // 入力者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(rows(page).nth(2)).toContainText(userLabelText(E2E_USER));
+    expect((await column(rows(page), 4))[2]).toBe('E2Eテスト用ユーザー（e2e-user）');
     await expect(rows(page).nth(2)).toContainText('ケーブルの接触不良を交換した');
     await expect(rows(page).nth(1)).toContainText('温度: 22.5℃');
     await expect(rows(page).nth(0)).toContainText('満足度（安全性）: 4スター');
@@ -317,7 +330,11 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     await page.getByLabel('並べ替えの向き').selectOption('asc');
     await expect
       .poll(() => column(rows(page), 4))
-      .toEqual(['e2e-user', 'e2e-user-b', 'e2e-user-b']);
+      .toEqual([
+        'E2Eテスト用ユーザー（e2e-user）',
+        'E2E利用者B（e2e-user-b）',
+        'E2E利用者B（e2e-user-b）',
+      ]);
     expect((await column(rows(page), 3)).slice(1)).toEqual([
       '緊急停止回数: 1回',
       '緊急停止回数: 3回',
@@ -325,7 +342,80 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     await page.getByLabel('並べ替えの向き').selectOption('desc');
     await expect
       .poll(() => column(rows(page), 4))
-      .toEqual(['e2e-user-b', 'e2e-user-b', 'e2e-user']);
+      .toEqual([
+        'E2E利用者B（e2e-user-b）',
+        'E2E利用者B（e2e-user-b）',
+        'E2Eテスト用ユーザー（e2e-user）',
+      ]);
+  });
+
+  test('設備の絞り込みは、ハウスの下にロボット・センサーを字下げし、種別を付ける。ハウスを選ぶと、配下のロボット・センサーの入力も含める（SC-07-8）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await prepareThree(request);
+    await openList(page);
+
+    await expect(page.getByLabel('設備', { exact: true }).locator('option')).toHaveText([
+      'すべて',
+      'ハウス1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
+    ]);
+    await page.getByLabel('設備', { exact: true }).selectOption(ROBOT_ID);
+    await expect.poll(() => column(rows(page), 1)).toEqual(['収穫ロボット1']);
+    // ハウスを選ぶと、ハウス自身と、配下のロボット・センサーの入力を、まとめて表示する（計測データ〔SC-09〕と同じ）
+    await page.getByLabel('設備', { exact: true }).selectOption(HOUSE_ID);
+    await expect(rows(page)).toHaveCount(3);
+    await expect
+      .poll(() => column(rows(page), 1))
+      .toEqual(['ハウス1', '環境センサー1', '収穫ロボット1']);
+  });
+
+  test('キーワードが一致する項目（設備名・カテゴリ・入力者・備考・入力項目の名称と値）を、説明文に示す（SC-07-8）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openList(page);
+
+    await expect(page.getByTestId('entries-keyword-note')).toHaveText(
+      'キーワードは、設備名・カテゴリ・入力者・備考・入力項目の名称と値から探します',
+    );
+  });
+
+  test('適用中の条件の数を示し、条件のクリアで、絞り込み・並べ替えをすべて初期値に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await prepareThree(request);
+    await openList(page);
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '条件のクリア' })).toBeDisabled();
+
+    await page.getByLabel('キーワード').fill('ケーブル');
+    await page.getByLabel('カテゴリ').selectOption('FAILURE');
+    await page.getByLabel('並べ替えの向き').selectOption('asc');
+
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 3 件');
+    await expect(rows(page)).toHaveCount(1);
+    await expect(page).toHaveURL(/q=/);
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(rows(page)).toHaveCount(3);
+    await expect(page.getByLabel('キーワード')).toHaveValue('');
+    await expect(page.getByLabel('カテゴリ')).toHaveValue('');
+    await expect(page.getByLabel('並べ替えの向き')).toHaveValue('desc');
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '条件のクリア' })).toBeDisabled();
+    await expect(page).not.toHaveURL(/q=|category=|direction=/);
+    // 計測日時の新しい順（初期値）に戻っている
+    await expect
+      .poll(() => column(rows(page), 1))
+      .toEqual(['ハウス1', '環境センサー1', '収穫ロボット1']);
   });
 
   test('絞り込み・並べ替えの条件は URL に反映され、再読み込みしても保持される', async ({
@@ -366,9 +456,12 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
     await expect(rows(page)).toHaveCount(20);
     await expect(page.getByRole('button', { name: '前へ' })).toBeDisabled();
 
+    await expect(page.getByTestId('pager-range')).toHaveText('1〜20 件目');
+
     await page.getByRole('button', { name: '次へ' }).click();
     await expect(rows(page)).toHaveCount(1);
     await expect(page.getByTestId('pager-page')).toHaveText('2');
+    await expect(page.getByTestId('pager-range')).toHaveText('21〜21 件目');
     await expect(rows(page).first()).toContainText('緊急停止回数: 0回');
     await page.getByLabel('並べ替えの向き').selectOption('asc');
 
@@ -378,6 +471,109 @@ test.describe('基本フロー 2: 検索（キーワード）・絞り込み（�
 });
 
 test.describe('基本フロー 3〜4: データを修正または削除し、検証して保存する', () => {
+  test('修正は、ダイアログで行う（SC-07-2）。最初の入力欄にフォーカスがあり、Esc・✕・キャンセルで閉じて、「修正」のボタンへフォーカスが戻る。表の上のパネルは出ない', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addEntry(request, {
+      category: 'SAFETY',
+      observedAt: hoursAgo(1),
+      items: { emergencyStopCount: 1 },
+    });
+    await openList(page);
+    const opener = rows(page).first().getByRole('button', { name: '修正' });
+
+    await opener.click();
+
+    const dialog = page.getByRole('dialog', { name: '入力内容の修正' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAttribute('data-testid', 'entry-edit');
+    await expect(dialog).toBeInViewport();
+    await expect(dialog.getByLabel('対象の設備')).toBeFocused();
+    await expect(page.locator('body')).toHaveClass(/modal-open/);
+    // 表の上のインラインのパネルではない（ダイアログの外の、画面の中には、修正のフォームがない）
+    await expect(page.locator('section.panel form.entry-form')).toHaveCount(0);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await expect(page.locator('body')).not.toHaveClass(/modal-open/);
+
+    await opener.click();
+    await dialog.getByRole('button', { name: '閉じる' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+
+    await opener.click();
+    await dialog.getByRole('button', { name: 'キャンセル' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+    await expect(notice(page)).toHaveCount(0);
+  });
+
+  test('修正の後も、評価の更新（ローカル: 関連する観点のステータス）を示す（D-27）。修正前の MTTR 10 時間（異常）→ 修正後 1.5 時間（正常）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    // メンテナンス性の評価に使う、取り込み済みのステータス（UC-06 と同じ）
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'statusCode', value: 'STANDBY', observedAt: hoursAgo(2) },
+      ],
+    });
+    await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(1),
+      items: { failureCount: 1, recoveryMinutes: 600 },
+    });
+    await openList(page);
+    await rows(page).first().getByRole('button', { name: '修正' }).click();
+    await fillEntryForm(page, { items: { 復旧に要した時間: '90' } }, editor(page));
+
+    await editor(page).getByRole('button', { name: '保存', exact: true }).click();
+
+    await expect(noticeTitle(page)).toHaveText('修正しました');
+    await expect(notice(page)).toContainText('入力内容を修正し、評価を更新しました');
+    await expectRelatedStatus(page, 'maintainability', '正常');
+    // 一覧の画面なので、一覧へのリンクは出さない。ダッシュボードで確認できる
+    await expect(notice(page).getByRole('link', { name: '入力済みデータの一覧へ' })).toHaveCount(0);
+    await expect(notice(page).getByRole('link', { name: 'ダッシュボードで確認' })).toBeVisible();
+    await shot(page, testInfo, 'uc18-edited-result');
+  });
+
+  test('修正の後も、自動取り込みの値がある期間の合計の項目（収穫数）は、評価に使われない旨を、データ入力と同じ部品で示す（D-26。Issue #162 の SC-06-5）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, {
+      observations: [
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 1800, observedAt: hoursAgo(4) },
+        { equipmentId: ROBOT_ID, itemKey: 'harvestCount', value: 2400, observedAt: hoursAgo(2) },
+      ],
+    });
+    await addEntry(request, {
+      category: 'HARVEST',
+      observedAt: hoursAgo(1),
+      items: { harvestCount: 1700 },
+    });
+    await openList(page);
+    await rows(page).first().getByRole('button', { name: '修正' }).click();
+    await editor(page)
+      .locator('[data-field="items.harvestCount"]')
+      .getByRole('textbox')
+      .fill('1750');
+
+    await editor(page).getByRole('button', { name: '保存', exact: true }).click();
+
+    await expect(noticeTitle(page)).toHaveText('修正しました');
+    await expect(notice(page).getByTestId('usage-harvestCount')).toHaveText(
+      '収穫数: この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+    );
+  });
+
   test('修正: 入力済みの内容（設備・カテゴリ・計測日時・項目の値・備考）を編集欄に表示し、変更して保存すると、一覧と評価に反映される（入力者は変わらない）', async ({
     page,
     request,
@@ -397,7 +593,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await expect(editor(page).getByLabel('カテゴリ')).toHaveValue('FAILURE');
     await expect(editor(page).getByLabel('計測日時（日本時間）')).toHaveValue('2026-10-09T11:00');
     await expect(
-      editor(page).getByTestId('entry-items').getByLabel('復旧に要した時間'),
+      editor(page).getByTestId('entry-items').getByRole('textbox', { name: '復旧に要した時間' }),
     ).toHaveValue('600');
     await expect(editor(page).getByLabel('備考（所感・補足情報）')).toHaveValue('最初の記録');
     await shot(page, testInfo, 'uc18-edit');
@@ -408,14 +604,17 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     );
     await editor(page).getByRole('button', { name: '保存', exact: true }).click();
 
-    await expect(notice(page)).toHaveText('修正しました');
+    await expect(noticeTitle(page)).toHaveText('修正しました');
     await expect(editor(page)).toHaveCount(0);
+    await shot(page, testInfo, 'uc18-edited');
     await expect(rows(page).first()).toContainText('復旧に要した時間: 90分');
     await expect(rows(page).first()).toContainText('訂正: 復旧は 90 分だった');
-    await expect(rows(page).first()).toContainText(userIdText('e2e-user'));
+    await expect(rows(page).first()).toContainText(userLabelText(E2E_USER));
     // 評価に反映される（MTTR 1.5 時間 = 正常。以前は 10 時間 = 異常）
     await page.goto('/viewpoints/maintainability?equipmentId=ROBOT-01');
-    await expect(page.getByTestId('metric-mttrHours').locator('td').first()).toHaveText('1.50時間');
+    await expect(
+      page.getByTestId('metric-period-mttrHours').locator('.metric-cell-value'),
+    ).toHaveText('1.50時間');
   });
 
   test('修正: 設備・カテゴリ・計測日時を変更できる（項目の値は、変更後のカテゴリの項目を入力する）', async ({
@@ -443,7 +642,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     );
     await editor(page).getByRole('button', { name: '保存', exact: true }).click();
 
-    await expect(notice(page)).toHaveText('修正しました');
+    await expect(noticeTitle(page)).toHaveText('修正しました');
     await expect(rows(page).first()).toContainText('ハウス1');
     await expect(rows(page).first()).toContainText('満足度情報');
     await expect(rows(page).first()).toContainText('満足度（収穫精度）: 5スター');
@@ -512,7 +711,7 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await expect(notice(page)).toHaveCount(0);
   });
 
-  test('削除: 確認を求め（取り消せる）、削除すると、論理削除として、一覧・取り込み済みデータから除外される。変更履歴には、削除前の内容が残る', async ({
+  test('削除: 確認を求め（取り消せる）、削除すると、論理削除として、一覧・計測データから除外される。変更履歴には、削除前の内容が残る', async ({
     page,
     request,
   }, testInfo) => {
@@ -527,13 +726,23 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await rows(page).first().getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('入力データを削除しますか');
     await expect(page.getByTestId('confirm-dialog')).toContainText('一覧と集計の対象から外れます');
+    // 対象（計測日時・設備名・項目と値）を示し、元に戻す操作がないことを明記する（#153）
+    await expect(page.getByTestId('confirm-dialog')).toContainText('収穫ロボット1');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('緊急停止回数: 1回');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '元に戻す操作はありません（変更履歴には残ります）',
+    );
     await shot(page, testInfo, 'uc18-confirm');
     await page.getByTestId('confirm-dialog').getByRole('button', { name: 'キャンセル' }).click();
     await expect(rows(page)).toHaveCount(1);
     await rows(page).first().getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
 
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(noticeTitle(page)).toHaveText('削除しました');
+    // 削除の後も、評価の更新（ローカル: 関連する観点のステータス）を示す（D-27）
+    await expect(notice(page)).toContainText('入力内容を削除し、評価を更新しました');
+    await expect(notice(page).getByTestId('related-safety')).toBeVisible();
+    await shot(page, testInfo, 'uc18-deleted');
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByTestId('entries-empty')).toBeVisible();
     await page.goto('/observations');
@@ -558,10 +767,12 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
 
     await rows(page).first().getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(noticeTitle(page)).toHaveText('削除しました');
 
     await page.goto('/viewpoints/maintainability?equipmentId=ROBOT-01');
-    await expect(page.getByTestId('metric-failureCount').locator('td').first()).toHaveText('—');
+    await expect(
+      page.getByTestId('metric-period-failureCount').locator('.metric-cell-value'),
+    ).toHaveText('—');
   });
 });
 
@@ -615,6 +826,10 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
 
     await openHistory(page, '?targetType=manual-entry');
 
+    // メニューの現在地: 変更履歴（/data-entry/history）でも、「データ入力」を強調する（Issue #155 の SC-COM-4）
+    await expect(
+      page.getByRole('navigation', { name: 'メニュー' }).locator('[aria-current="page"]'),
+    ).toHaveText(['データ入力']);
     await expect(auditRows(page)).toHaveCount(4);
     await expect(page.getByRole('columnheader').allTextContents()).resolves.toEqual([
       '日時',
@@ -625,7 +840,9 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
       '変更後',
     ]);
     await expect(auditRows(page).nth(0)).toContainText('削除');
-    await expect(auditRows(page).nth(0)).toContainText('e2e-user-b');
+    // 変更者は、「ユーザー名（ID）」（SC-07-7）
+    await expect(auditRows(page).nth(0)).toContainText(userLabelText(USER_B));
+    expect((await column(auditRows(page), 3))[0]).toBe('E2E利用者B（e2e-user-b）');
     await expect(auditRows(page).nth(0)).toContainText('ヒヤリハット件数: 1件');
     await expect(auditRows(page).nth(1)).toContainText('登録');
     await expect(auditRows(page).nth(2)).toContainText('編集');
@@ -708,6 +925,28 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
     await expect(auditRows(page)).toHaveCount(1);
   });
 
+  test('適用中の条件の数を示し、条件のクリアで、絞り込み・並べ替えをすべて初期値に戻す（SC-07-3）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await prepareHistory(request);
+    await openHistory(page, '?targetType=manual-entry&operation=DELETE&direction=asc');
+
+    await expect(page.getByTestId('filter-active-count')).toHaveText('適用中の条件 3 件');
+    await expect(auditRows(page)).toHaveCount(1);
+
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+
+    await expect(page.getByLabel('操作種別')).toHaveValue('');
+    await expect(page.getByLabel('対象', { exact: true })).toHaveValue('');
+    await expect(page.getByLabel('並べ替え', { exact: true })).toHaveValue('desc');
+    await expect(page.getByTestId('filter-active-count')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/targetType=|operation=|direction=/);
+    // 手動入力以外の履歴（ユーザーの登録など）も、一覧に戻る
+    await expect(auditRows(page)).not.toHaveCount(1);
+  });
+
   test('21件の履歴は、1ページ目に20件、2ページ目に1件を表示する', async ({ page, request }) => {
     await prepareApp(request);
     for (let index = 0; index < 21; index += 1) {
@@ -719,11 +958,13 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
     }
     await openHistory(page);
     await expect(auditRows(page)).toHaveCount(20);
+    await expect(page.getByTestId('pager-range')).toHaveText('1〜20 件目');
 
     await page.getByRole('button', { name: '次へ' }).click();
 
     await expect(auditRows(page)).toHaveCount(1);
     await expect(page.getByTestId('pager-page')).toHaveText('2');
+    await expect(page.getByTestId('pager-range')).toHaveText('21〜21 件目');
   });
 
   test('手動入力以外の変更（設備・ステータスコード）の履歴は、内容を開いて確認できる（対象の種類で絞り込める）', async ({
@@ -742,7 +983,15 @@ test.describe('基本フロー 5: 変更の履歴を参照する（操作種別�
     await expect(auditRows(page).first()).toContainText('ステータスコード');
     await expect(auditRows(page).first()).toContainText('STANDBY');
     await auditRows(page).first().locator('summary').nth(1).click();
-    await expect(auditRows(page).first().locator('pre').nth(1)).toContainText('待機（変更）');
+    // 変更後の列（変更後の内容。項目ごとの区切りに分かれる。Issue #190）
+    await expect(
+      auditRows(page)
+        .first()
+        .locator('td')
+        .nth(5)
+        .locator('pre')
+        .filter({ hasText: '待機（変更）' }),
+    ).toBeVisible();
     await page.getByLabel('対象', { exact: true }).selectOption('equipment');
     await expect(auditRows(page).first()).toContainText('設備');
   });
@@ -774,29 +1023,109 @@ test.describe('シナリオ: 利用者Aが入力し、利用者Bが修正し、�
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/data-entry/list', USER_B);
     await expect(rows(b.page)).toHaveCount(1);
-    await expect(rows(b.page).first()).toContainText(userIdText('e2e-user'));
+    await expect(rows(b.page).first()).toContainText(userLabelText(E2E_USER));
     await rows(b.page).first().getByRole('button', { name: '修正' }).click();
     await fillEntryForm(b.page, { items: { 緊急停止回数: '1' }, note: 'Bが訂正' }, editor(b.page));
     await editor(b.page).getByRole('button', { name: '保存', exact: true }).click();
-    await expect(notice(b.page)).toHaveText('修正しました');
+    await expect(noticeTitle(b.page)).toHaveText('修正しました');
     await shot(b.page, testInfo, 'uc18-user-b-edited');
 
     // 利用者A: 修正後の内容を確認する（入力者は、Aのまま）
     await page.goto('/data-entry/list');
     await expect(rows(page).first()).toContainText('緊急停止回数: 1回');
     await expect(rows(page).first()).toContainText('Bが訂正');
-    await expect(rows(page).first()).toContainText(userIdText('e2e-user'));
+    await expect(rows(page).first()).toContainText(userLabelText(E2E_USER));
     await expect(rows(page).first()).not.toContainText('e2e-user-b');
+    await expect(rows(page).first()).not.toContainText(USER_B.userName);
     // 履歴: 登録（A）→ 編集（B）
     await page.goto('/data-entry/history?targetType=manual-entry');
     await expect(auditRows(page)).toHaveCount(2);
     await expect(auditRows(page).nth(0)).toContainText('編集');
-    await expect(auditRows(page).nth(0)).toContainText('e2e-user-b');
+    await expect(auditRows(page).nth(0)).toContainText(userLabelText(USER_B));
     await expect(auditRows(page).nth(0)).toContainText('緊急停止回数: 3回');
     await expect(auditRows(page).nth(0)).toContainText('緊急停止回数: 1回');
     await expect(auditRows(page).nth(1)).toContainText('登録');
-    await expect(auditRows(page).nth(1)).toContainText(userIdText('e2e-user'));
+    await expect(auditRows(page).nth(1)).toContainText(userLabelText(E2E_USER));
     await b.context.close();
+  });
+});
+
+test.describe('変更履歴への導線（#155。SC-07-10・SC-08-4）', () => {
+  test('一覧の各行の「履歴」から、その入力だけの変更履歴を開く。チップ「対象: …」で示し、解除すると、同じ種類の全体に戻る。対象を絞った表示は、「更新」で取り直す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    const target = await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(3),
+      items: { failureCount: 2, recoveryMinutes: 90 },
+    });
+    await addEntry(request, {
+      equipmentId: SENSOR_ID,
+      category: 'ENVIRONMENT',
+      observedAt: hoursAgo(2),
+      items: { temperatureCelsius: 22.5, humidityPercent: 55 },
+    });
+    const edit = async (failureCount: number): Promise<void> => {
+      await advanceMinutes(request, 1);
+      await apiOk(request, 'PUT', `/manual-entries/${target.entry.entryId}`, {
+        equipmentId: ROBOT_ID,
+        category: 'FAILURE',
+        observedAt: hoursAgo(3),
+        items: { failureCount, recoveryMinutes: 90 },
+      });
+    };
+    await edit(3);
+
+    await openList(page);
+    await rows(page).filter({ hasText: '故障回数' }).getByRole('link', { name: '履歴' }).click();
+
+    // その入力（登録・編集の 2 件）だけが出る。センサーの入力の履歴は出ない
+    await expect
+      .poll(() => page.url())
+      .toContain(`/data-entry/history?targetType=manual-entry&targetId=${target.entry.entryId}`);
+    await expect(auditRows(page)).toHaveCount(2);
+    const chip = page.getByTestId('audit-target-chip');
+    await expect(chip).toContainText('対象: 手動入力');
+    await expect(chip).toContainText('収穫ロボット1');
+    await expect(chip).toContainText('故障回数');
+    await expect(page.getByLabel('対象の ID')).toHaveCount(0);
+    await shot(page, testInfo, 'uc18-history-target-chip');
+
+    // 対象を絞った表示は、自動では更新せず、「更新」で取り直す
+    await edit(4);
+    await expect(auditRows(page)).toHaveCount(2);
+    await page.getByRole('button', { name: '更新' }).click();
+    await expect(auditRows(page)).toHaveCount(3);
+
+    // 解除すると、対象の種類（手動入力）の全体（この入力の 3 件と、センサーの入力の 1 件）に戻る
+    await chip.getByRole('button', { name: /解除/ }).click();
+    await expect(chip).toHaveCount(0);
+    await expect(page).toHaveURL(/targetType=manual-entry/);
+    await expect(page).not.toHaveURL(/targetId=/);
+    await expect(auditRows(page)).toHaveCount(4);
+    await expect(page.getByRole('button', { name: '更新' })).toHaveCount(0);
+  });
+
+  test('対象の ID が、別の入力の ID のとき（該当なし）は、履歴がない旨を示す。条件のクリアで、対象も外れる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addEntry(request, {
+      category: 'FAILURE',
+      observedAt: hoursAgo(3),
+      items: { failureCount: 2, recoveryMinutes: 90 },
+    });
+
+    await openHistory(page, '?targetType=manual-entry&targetId=no-such-entry');
+
+    await expect(page.getByTestId('audit-empty')).toHaveText('該当する履歴はありません');
+    await expect(page.getByTestId('audit-target-chip')).toContainText('対象: 手動入力');
+    await page.getByRole('button', { name: '条件のクリア' }).click();
+    await expect(page.getByTestId('audit-target-chip')).toHaveCount(0);
+    await expect(auditRows(page).first()).toBeVisible();
   });
 });
 
@@ -819,6 +1148,8 @@ test.describe('権限: 変更する権限・履歴を参照する権限のない
     await expect(page.getByRole('columnheader', { name: '操作' })).toHaveCount(0);
     await expect(rows(page).first().getByRole('button')).toHaveCount(0);
     await expect(page.getByRole('link', { name: '変更履歴を見る' })).toHaveCount(0);
+    // 行の「履歴」も示さない（変更履歴の権限がない）
+    await expect(page.getByRole('link', { name: '履歴', exact: true })).toHaveCount(0);
     await page.goto('/data-entry/history');
     await expect(page.getByTestId('permission-notice')).toHaveText(
       '変更履歴を参照する権限がありません',
@@ -850,6 +1181,63 @@ test.describe('権限: 変更する権限・履歴を参照する権限のない
       headers: { authorization: `Bearer ${accessToken}` },
     });
     expect(deleteDenied.status()).toBe(403);
+  });
+});
+
+test.describe('入力者・変更者の表示名（Issue #154 の SC-07-7）', () => {
+  test('入力者・変更者は、現在のユーザー名で「ユーザー名（ID）」と表示する。ユーザー名を変えると、過去の入力・履歴も新しい名前になる。削除した利用者は、ID だけ', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await addUser(request, USER_B);
+    await addEntryAs(request, USER_B, {
+      equipmentId: ROBOT_ID,
+      category: 'SAFETY',
+      observedAt: hoursAgo(2),
+      items: { emergencyStopCount: 1 },
+    });
+    await addEntry(request, {
+      category: 'SAFETY',
+      observedAt: hoursAgo(1),
+      items: { emergencyStopCount: 2 },
+    });
+
+    // 入力者・変更者は、「ユーザー名（ID）」（新しい順: A → B）
+    await openList(page);
+    await expect
+      .poll(() => column(rows(page), 4))
+      .toEqual(['E2Eテスト用ユーザー（e2e-user）', 'E2E利用者B（e2e-user-b）']);
+    await openHistory(page, '?targetType=manual-entry');
+    await expect(auditRows(page).filter({ hasText: 'e2e-user-b' })).toContainText(
+      'E2E利用者B（e2e-user-b）',
+    );
+
+    // Bが、ユーザー名を変える: 過去の入力・履歴も、現在のユーザー名で表示する（変更時点の名前は、保存しない）
+    const rename = await request.put('/api/v1/auth/profile', {
+      headers: { authorization: `Bearer ${await accessToken(request, USER_B)}` },
+      data: { userName: 'E2E利用者B（改名後）' },
+    });
+    expect(rename.ok()).toBe(true);
+    await openList(page);
+    await expect
+      .poll(() => column(rows(page), 4))
+      .toEqual(['E2Eテスト用ユーザー（e2e-user）', 'E2E利用者B（改名後）（e2e-user-b）']);
+    await openHistory(page, '?targetType=manual-entry');
+    await expect(auditRows(page).filter({ hasText: 'e2e-user-b' })).toContainText(
+      'E2E利用者B（改名後）（e2e-user-b）',
+    );
+
+    // Bを削除する: 名前を引けないため、ID だけを表示する
+    await apiOk(request, 'DELETE', `/users/${USER_B.userId}`);
+    await openList(page);
+    await expect
+      .poll(() => column(rows(page), 4))
+      .toEqual(['E2Eテスト用ユーザー（e2e-user）', 'e2e-user-b']);
+    await openHistory(page, '?targetType=manual-entry');
+    expect(
+      (await column(auditRows(page), 3)).filter((text) => text.includes('e2e-user-b')),
+    ).toEqual(['e2e-user-b']);
   });
 });
 
@@ -952,6 +1340,8 @@ for (const viewport of VIEWPORTS) {
         await openList(page);
 
         await expect(rows(page)).toHaveCount(2);
+        // 入力者は、「ユーザー名（ID）」。長いユーザーID でも、全文が、表の中に折り返して出る（SC-07-7）
+        await expect(rows(page).nth(1)).toContainText(userLabelText(LONG_USER));
         await expectTableNotCrushed(page, '.entry-table');
         if (viewport.fits) {
           await expectTableFits(page);
@@ -981,6 +1371,7 @@ for (const viewport of VIEWPORTS) {
       await openHistory(page, '?targetType=manual-entry');
 
       await expect(auditRows(page)).toHaveCount(1);
+      await expect(auditRows(page).first()).toContainText(userLabelText(LONG_USER));
       await expectTableNotCrushed(page, '.audit-table');
       if (viewport.fits) {
         await expectTableFits(page);
@@ -1011,6 +1402,7 @@ for (const viewport of VIEWPORTS.filter((item) => !item.fits)) {
     await expect(edit).toBeInViewport({ ratio: 1 });
     await edit.click();
     await expect(editor(page)).toBeVisible();
+    await expect(editor(page)).toBeInViewport({ ratio: 1 });
     await expect(editor(page).getByLabel('備考（所感・補足情報）')).toHaveValue(LONG_NOTE_JAPANESE);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
@@ -1024,7 +1416,7 @@ for (const viewport of VIEWPORTS.filter((item) => !item.fits)) {
     await expect(page.getByTestId('confirm-dialog')).toBeVisible();
     await shot(page, testInfo, `uc18-confirm-${String(viewport.width)}`);
     await confirmDialog(page, '削除');
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(noticeTitle(page)).toHaveText('削除しました');
   });
 }
 
@@ -1063,3 +1455,186 @@ test.describe('事後条件: 変更履歴の変更前後の値に、項目の値
     await shot(page, testInfo, 'uc18-history-meta');
   });
 });
+
+/** 変更履歴の、変更点の印（Issue #190。SC-08-5）の確認。広い幅・タブレット幅・スマートフォン幅（900px 以下は、1 件ごとのカード）。 */
+for (const viewport of VIEWPORTS) {
+  test.describe(`${viewport.name}: 変更履歴の変更点の印（SC-08-5）`, () => {
+    /** 印のタグが、文字・太字・枠線を持つ（色だけに頼っていない）。 */
+    async function expectMarkNotColorOnly(mark: Locator): Promise<void> {
+      await expect(mark).toBeVisible();
+      expect((await mark.innerText()).trim()).not.toBe('');
+      const style = await mark.evaluate((node) => {
+        const computed = getComputedStyle(node);
+        return { weight: Number(computed.fontWeight), border: computed.borderTopWidth };
+      });
+      expect(style.weight).toBeGreaterThanOrEqual(700);
+      expect(style.border).toBe('1px');
+    }
+
+    /** 印のタグが、画面の幅の中に見える（カードで、枠から出ない）。 */
+    async function expectInsideViewport(mark: Locator): Promise<void> {
+      await mark.scrollIntoViewIfNeeded();
+      const box = await mark.boundingBox();
+      expect(box).not.toBeNull();
+      if (box !== null && viewport.width <= 900) {
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+      }
+    }
+
+    test('手動入力: 変わった項目に「変更」「追加」「なし」。変わらない項目・登録・削除には付けない', async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      const created = await addEntry(request, {
+        category: 'SAFETY',
+        observedAt: hoursAgo(3),
+        items: { emergencyStopCount: 1, nearMissCount: 2 },
+        note: '修正前の備考',
+      });
+      const url = `/manual-entries/${created.entry.entryId}`;
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      // 1 回目の修正: 緊急停止回数を変更・ヒヤリハット件数と備考をなくす
+      await api(request, 'PUT', url, {
+        equipmentId: ROBOT_ID,
+        category: 'SAFETY',
+        observedAt: hoursAgo(3),
+        items: { emergencyStopCount: 2 },
+      });
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      // 2 回目の修正: ヒヤリハット件数を加える（緊急停止回数は、そのまま）
+      await api(request, 'PUT', url, {
+        equipmentId: ROBOT_ID,
+        category: 'SAFETY',
+        observedAt: hoursAgo(3),
+        items: { emergencyStopCount: 2, nearMissCount: 4 },
+      });
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      await api(request, 'DELETE', url);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+
+      await openHistory(page, '?targetType=manual-entry');
+
+      await expect(auditRows(page)).toHaveCount(4);
+      const deleted = auditRows(page).nth(0);
+      const second = auditRows(page).nth(1);
+      const first = auditRows(page).nth(2);
+      const registered = auditRows(page).nth(3);
+      // 登録・削除: 印を付けない（操作種別だけで示す）
+      await expect(deleted).toContainText('削除');
+      await expect(registered).toContainText('登録');
+      await expect(deleted.locator('.diff-mark')).toHaveCount(0);
+      await expect(registered.locator('.diff-mark')).toHaveCount(0);
+      // 1 回目: 緊急停止回数は「変更」（変更前・変更後）、ヒヤリハット件数・備考は、変更後に「なし」
+      const firstBefore = first.locator('td[data-label="変更前"]');
+      const firstAfter = first.locator('td[data-label="変更後"]');
+      await expect(firstBefore.locator('.diff-mark')).toHaveText(['変更']);
+      await expect(firstAfter.locator('.diff-mark')).toHaveText(['変更', 'なし', 'なし']);
+      const stopAfter = firstAfter.locator('li').filter({ hasText: '緊急停止回数' });
+      const missAfter = firstAfter.locator('li').filter({ hasText: 'ヒヤリハット件数' });
+      const missBefore = firstBefore.locator('li').filter({ hasText: 'ヒヤリハット件数' });
+      await expect(stopAfter).toContainText('2回変更');
+      await expect(missAfter).toContainText('なし');
+      await expect(missAfter).not.toContainText('2件');
+      await expect(missBefore).toContainText('2件');
+      await expect(missBefore.locator('.diff-mark')).toHaveCount(0);
+      // 2 回目: ヒヤリハット件数が、変更後に「追加」。緊急停止回数（変わらない）には付けない
+      const secondAfter = second.locator('td[data-label="変更後"]');
+      await expect(second.locator('td[data-label="変更前"] .diff-mark')).toHaveCount(0);
+      await expect(secondAfter.locator('.diff-mark')).toHaveText(['追加']);
+      await expect(
+        secondAfter.locator('li').filter({ hasText: '緊急停止回数' }).locator('.diff-mark'),
+      ).toHaveCount(0);
+      for (const mark of await firstAfter.locator('.diff-mark').all()) {
+        await expectMarkNotColorOnly(mark);
+        await expectInsideViewport(mark);
+      }
+      await expectInsideViewport(secondAfter.locator('.diff-mark'));
+      await shot(page, testInfo, `uc18-history-diff-manual-${String(viewport.width)}`);
+    });
+
+    test('設備・ステータスコード・判断基準: 閉じた状態で、変わった項目名を 1 行で示す。内容を開くと、変わった項目に印が付く', async ({
+      page,
+      request,
+    }, testInfo) => {
+      await prepareApp(request);
+      await setEquipmentInterval(request, ROBOT_ID, 5);
+      await api(request, 'POST', '/dev/clock/advance', { minutes: 1 });
+      await setEquipmentInterval(request, ROBOT_ID, 10);
+      await api(request, 'PUT', '/status-codes/STANDBY', {
+        name: '待機（変更）',
+        category: 'NORMAL',
+      });
+      // 判断基準の更新は、読み込んだ時点の版（ETag）を If-Match に付ける（SC-13-1）
+      const read = await api(request, 'GET', '/viewpoints/harvestAccuracy/criteria');
+      const etag = read.headers().etag ?? '';
+      const view = (await read.json()) as {
+        criteria: { indicator: string; kind: string; thresholds: { cautionBelow: number } }[];
+      };
+      const target = view.criteria.find((criterion) => criterion.kind === 'LOWER');
+      expect(target).toBeDefined();
+      const saved = await api(
+        request,
+        'PUT',
+        '/viewpoints/harvestAccuracy/criteria',
+        {
+          criteria: view.criteria.map((criterion) =>
+            criterion === target
+              ? {
+                  ...criterion,
+                  thresholds: {
+                    ...criterion.thresholds,
+                    cautionBelow: criterion.thresholds.cautionBelow + 1,
+                  },
+                }
+              : criterion,
+          ),
+        },
+        { 'if-match': etag },
+      );
+      expect(saved.status(), '判断基準の保存').toBe(200);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+
+      // 設備: 1 回目は、取得間隔を「追加」、2 回目は「変更」
+      await openHistory(page, `?targetType=equipment&targetId=${ROBOT_ID}`);
+      const equipmentRows = auditRows(page).filter({ hasText: '編集' });
+      await expect(equipmentRows).toHaveCount(2);
+      const newer = equipmentRows.nth(0).locator('td[data-label="変更後"]');
+      const older = equipmentRows.nth(1).locator('td[data-label="変更後"]');
+      await expect(newer.locator('.audit-changes')).toHaveText('変更: 取得間隔');
+      await expect(older.locator('.audit-changes')).toHaveText('追加: 取得間隔');
+      // 閉じた状態でも、見える（内容を開かなくても、1 行で分かる）
+      await expect(newer.locator('.audit-changes')).toBeVisible();
+      await expect(newer.locator('details')).not.toHaveAttribute('open', '');
+      await expect(newer.locator('.diff-mark')).toBeHidden();
+      await newer.locator('summary').click();
+      const mark = newer
+        .locator('.audit-field', { hasText: '"intervalMinutes": 10' })
+        .locator('.diff-mark');
+      await expect(mark).toHaveText('変更');
+      await expectMarkNotColorOnly(mark);
+      await expectInsideViewport(mark);
+      // 変わらない項目（設備 ID）には、印を付けない。全項目は残る
+      const unchanged = newer.locator('.audit-field', { hasText: '"equipmentId"' });
+      await expect(unchanged).toBeVisible();
+      await expect(unchanged.locator('.diff-mark')).toHaveCount(0);
+      await shot(page, testInfo, `uc18-history-diff-equipment-${String(viewport.width)}`);
+
+      // ステータスコード
+      await openHistory(page, '?targetType=status-code');
+      await expect(
+        auditRows(page).first().locator('td[data-label="変更後"] .audit-changes'),
+      ).toContainText('変更: 名称');
+
+      // 判断基準: 閾値が変わった指標だけ（版・更新日時・更新者は、印の対象にしない）
+      await openHistory(page, '?targetType=criteria');
+      await expect(auditRows(page)).toHaveCount(1);
+      const criteriaAfter = auditRows(page).first().locator('td[data-label="変更後"]');
+      await expect(criteriaAfter.locator('.audit-changes')).toHaveText('変更: 可販果率');
+      await criteriaAfter.locator('summary').click();
+      await expect(criteriaAfter.locator('.diff-mark')).toHaveText(['変更']);
+      await shot(page, testInfo, `uc18-history-diff-criteria-${String(viewport.width)}`);
+    });
+  });
+}

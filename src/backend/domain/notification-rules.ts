@@ -4,10 +4,16 @@
  * - 「不明」は通知せず、状態の変化とみなさない（直前の「不明でない」状態と比べる。D-37）
  * - 「正常が一定時間（既定 15 分）続いたあとの悪化」を、新しい出来事として通知する。短い行き来は、同じ出来事（D-38）。
  *   同じ出来事の中では、それまでに通知した重大度より重いときだけ通知する
- * - 取り込みの失敗・停止の通知は、同じ取り込み元・状況について、60 分に 1 件（D-38）
+ * - 取り込みの失敗・停止の通知は、同じ失敗の項目（種類・設備・理由）が続く間は、再通知しない。新しい項目があるとき、回復のあとの再失敗のときに通知する（D-38。#589）。
+ *   連携の期限切れの通知だけが、同じキーで 60 分に 1 件
  */
 
-import { STATUS_LABELS, type EvaluationStatus } from '@smart-farm/shared/constants/status';
+import {
+  STATUS_LABELS,
+  type EquipmentType,
+  type EvaluationStatus,
+} from '@smart-farm/shared/constants/status';
+import { findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 
 /** 同じ重複抑制のキーの通知を繰り返さない期間（分）。取り込みの失敗・停止、連携の期限切れの通知に使う（D-38）。 */
@@ -89,6 +95,20 @@ export function isNotifiableStatusChange(input: StatusChangeDecisionInput): bool
   return SEVERITY[next] > reached;
 }
 
+/**
+ * 観点の状態の変化の通知の単位か（D-19 の論点 3。ADR-0019）。通知の単位は、データを持つ設備（ロボット・センサー）。
+ * ハウスの結果のうち、ロボットの観点・環境適応性は、配下の設備の最も悪い結果（集約）のため、通知しない
+ * （設備の通知と、同じ事象で二重になるため）。運用面の観点（データ活用度合い・満足度）は、ハウス単位の評価で、
+ * ハウスの結果そのものを通知する（手動入力の漏れは、データ活用度合いの観点が知らせる。D-37）。
+ * 通知しない変化も、状態の変化の履歴・連携キューには残す。
+ */
+export function isStatusChangeNotificationUnit(
+  equipmentType: EquipmentType,
+  viewpointId: string,
+): boolean {
+  return equipmentType !== 'FACILITY' || findViewpointMeta(viewpointId)?.target === 'OPERATION';
+}
+
 export function buildStatusChangeDedupKey(
   viewpointId: string,
   equipmentId: string,
@@ -108,6 +128,50 @@ export function buildIngestionFailureDedupKey(
   return situation === 'FAILURE'
     ? `INGESTION_FAILURE#${sourceId}`
     : `INGESTION_STOPPED#${sourceId}`;
+}
+
+/**
+ * 取り込みの失敗・停止の通知の「失敗の項目」のキー（重複の抑制の単位。D-38。Issue #589）。
+ * 表示の文言（設備の名前・件数）ではなく、種類・設備・理由の区分から作る。同じ項目が続く間は、再通知しない。
+ */
+export const ingestionFailureKey = {
+  /** ファイルの一覧を取得できなかった（取り込み元全体）。`reason` は、利用者に見せる固定の理由。 */
+  listing: (reason: string): string => `LISTING:${reason}`,
+  /** 想定外のエラー。 */
+  unexpected: (): string => 'UNEXPECTED',
+  /** ファイル単位の失敗（読み取り・形式・大きさ）。 */
+  file: (kind: string): string => `FILE:${kind}`,
+  /** 設備ごとの接続・認証などの失敗。 */
+  equipment: (equipmentId: string, reason: string): string => `EQUIPMENT:${equipmentId}:${reason}`,
+  /** データ取得の停止（新しいデータが届かない設備）。 */
+  stoppedEquipment: (equipmentId: string): string => `EQUIPMENT:${equipmentId}`,
+};
+
+/** 設備ごとの失敗の項目（`equipment`・`stoppedEquipment`）のキーから、設備の ID を取り出す。設備の項目でなければ undefined。 */
+export function equipmentIdOfIngestionFailureKey(key: string): string | undefined {
+  const prefix = 'EQUIPMENT:';
+  return key.startsWith(prefix) ? key.slice(prefix.length).split(':')[0] : undefined;
+}
+
+/** いま失敗している項目のうち、記録（すでに通知した項目）にない、新しい項目（重複なし）。あれば、通知する。 */
+export function newIngestionFailureKeys(
+  known: readonly string[],
+  current: readonly string[],
+): string[] {
+  const knownKeys = new Set(known);
+  return [...new Set(current)].filter((key) => !knownKeys.has(key));
+}
+
+/**
+ * 回復を反映した、記録に残す項目。いま失敗している項目（`active`）と、調べていない範囲の項目（`covers` が false）は残し、
+ * 調べた範囲で失敗していない項目は消す（回復）。
+ */
+export function remainingIngestionFailureKeys(
+  known: readonly string[],
+  active: ReadonlySet<string>,
+  covers: (key: string) => boolean,
+): string[] {
+  return known.filter((key) => active.has(key) || !covers(key));
 }
 
 /** 抑制の期間内か（直近の同じキーの通知の日時から、抑制の期間が過ぎていなければ true）。 */

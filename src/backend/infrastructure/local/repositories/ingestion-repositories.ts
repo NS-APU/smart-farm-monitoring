@@ -14,11 +14,15 @@ import {
   IngestedFileRecordSchema,
   SourceIngestionStateSchema,
 } from '../../../application/ports/records.ts';
+import { z } from 'zod';
+import type { ClockPort } from '../../../application/ports/clock-port.ts';
 import type {
   FederationRepository,
   IngestionLogFilter,
   IngestionRepository,
 } from '../../../application/ports/repositories.ts';
+import { equipmentIdsOfPayload } from '../../../domain/federation-payload.ts';
+import { isLogExpired } from '../../common/log-retention.ts';
 import type { LocalStore } from '../local-store.ts';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import { paginated, saverOf } from './collection-helpers.ts';
@@ -60,7 +64,14 @@ export interface LocalIngestionRepository {
   readonly repository: IngestionRepository;
 }
 
-export function createIngestionRepository(store: LocalStore): LocalIngestionRepository {
+/**
+ * 取り込みログの期限切れ（90 日。Issue #230）は、時計を渡したときだけ、読み書きのときに消す
+ * （DynamoDB 実装は、TTL で消える。時計がないと、固定の日付のデータを使うテストが、時間の経過で壊れるため、消さない）。
+ */
+export function createIngestionRepository(
+  store: LocalStore,
+  clock?: ClockPort,
+): LocalIngestionRepository {
   const ingestedFiles = store.collection(
     'ingestedFiles',
     IngestedFileRecordSchema,
@@ -78,6 +89,18 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
     (item) => item.sourceId,
   );
 
+  function purgeExpiredLogs(): void {
+    if (clock === undefined) {
+      return;
+    }
+    const now = clock.now();
+    for (const log of ingestionLogs.values()) {
+      if (isLogExpired(log.startedAt, now)) {
+        ingestionLogs.delete(log.logId);
+      }
+    }
+  }
+
   const repository: IngestionRepository = {
     findIngestedFile(sourceId, fileId, contentHash) {
       // 同じ識別子の、最新の版が、同じハッシュなら、取り込み済み（結果を問わない。Issue #201）
@@ -85,8 +108,13 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
       return Promise.resolve(latest?.contentHash === contentHash ? latest : undefined);
     },
     recordFile: saverOf(ingestedFiles),
-    addLog: saverOf(ingestionLogs),
+    addLog(log) {
+      purgeExpiredLogs();
+      ingestionLogs.put(log);
+      return Promise.resolve();
+    },
     listLogs(filter, page) {
+      purgeExpiredLogs();
       const matched = ingestionLogs
         .values()
         .filter((log) => filter.sourceId === undefined || log.sourceId === filter.sourceId)
@@ -104,6 +132,7 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
       return paginated(matched, page);
     },
     listFacilityLogs(facilityIds, page) {
+      purgeExpiredLogs();
       const entries: FacilityIngestionLog[] = ingestionLogs.values().flatMap((log) =>
         (log.facilities ?? [])
           .filter((entry) => facilityIds.includes(entry.facilityId))
@@ -146,6 +175,13 @@ export function createIngestionRepository(store: LocalStore): LocalIngestionRepo
         ),
       );
     },
+    deleteEquipmentRecords(equipmentId, file) {
+      equipmentStates.delete(equipmentId);
+      if (file !== undefined) {
+        ingestedFiles.delete(`${file.sourceId}#${file.fileId}`);
+      }
+      return Promise.resolve();
+    },
     recordEquipmentRuns(runs) {
       for (const run of runs) {
         const current = equipmentStates.get(run.equipmentId);
@@ -185,7 +221,18 @@ function byNextAttempt(left: FederationItem, right: FederationItem): number {
   );
 }
 
-export function createFederationRepository(store: LocalStore): FederationRepository {
+/** 期限で消えた、送信済みの連携項目の件数（DynamoDB 実装の、状態ごとのカウンターは、TTL で消えても減らない。累計）。 */
+const SENT_PURGED_KEY = 'SENT';
+const SentPurgedSchema = z.object({
+  key: z.literal(SENT_PURGED_KEY),
+  count: z.number().int().nonnegative(),
+});
+
+/** 連携ログ・送信済みの連携項目の期限切れ（90 日。Issue #230）は、取り込みログと同じく、時計を渡したときだけ消す。 */
+export function createFederationRepository(
+  store: LocalStore,
+  clock?: ClockPort,
+): FederationRepository {
   const federationItems = store.collection(
     'federationItems',
     FederationItemSchema,
@@ -196,9 +243,39 @@ export function createFederationRepository(store: LocalStore): FederationReposit
     FederationLogSchema,
     (item) => item.logId,
   );
+  const sentPurged = store.collection('federationSentPurged', SentPurgedSchema, (item) => item.key);
+
+  function purgeExpired(): void {
+    if (clock === undefined) {
+      return;
+    }
+    const now = clock.now();
+    for (const log of federationLogs.values()) {
+      if (isLogExpired(log.occurredAt, now)) {
+        federationLogs.delete(log.logId);
+      }
+    }
+    // 送信済みになった時点（更新日時）から 90 日。消えた分は、件数に残す
+    const expired = federationItems
+      .values()
+      .filter((item) => item.status === 'SENT' && isLogExpired(item.updatedAt, now));
+    if (expired.length > 0) {
+      for (const item of expired) {
+        federationItems.delete(item.federationItemId);
+      }
+      sentPurged.put({
+        key: SENT_PURGED_KEY,
+        count: (sentPurged.get(SENT_PURGED_KEY)?.count ?? 0) + expired.length,
+      });
+    }
+  }
 
   return {
-    enqueue: saverOf(federationItems),
+    enqueue(item) {
+      purgeExpired();
+      federationItems.put(item);
+      return Promise.resolve();
+    },
     listDue(now, limit) {
       const nowIso = now.toISOString();
       return Promise.resolve(
@@ -222,9 +299,18 @@ export function createFederationRepository(store: LocalStore): FederationReposit
           .slice(0, limit),
       );
     },
-    update: saverOf(federationItems),
-    addLog: saverOf(federationLogs),
+    update(item) {
+      purgeExpired();
+      federationItems.put(item);
+      return Promise.resolve();
+    },
+    addLog(entry) {
+      purgeExpired();
+      federationLogs.put(entry);
+      return Promise.resolve();
+    },
     listLogs(page) {
+      purgeExpired();
       const sorted = federationLogs
         .values()
         .sort(
@@ -235,6 +321,7 @@ export function createFederationRepository(store: LocalStore): FederationReposit
       return paginated(sorted, page);
     },
     listFacilityLogs(facilityIds, page) {
+      purgeExpired();
       const entries: FacilityFederationLog[] = federationLogs.values().flatMap((log) =>
         (log.facilities ?? [])
           .filter((entry) => facilityIds.includes(entry.facilityId))
@@ -248,8 +335,26 @@ export function createFederationRepository(store: LocalStore): FederationReposit
       );
       return paginated(entries.sort(byNewest), page);
     },
+    discardUnsentByEquipment(equipmentId) {
+      const discarded = federationItems
+        .values()
+        .filter(
+          (item) => isUnsent(item) && equipmentIdsOfPayload(item.payload).includes(equipmentId),
+        );
+      for (const item of discarded) {
+        federationItems.delete(item.federationItemId);
+      }
+      return Promise.resolve(discarded.length);
+    },
     countByStatus() {
-      const counts = { PENDING: 0, SENT: 0, FAILED: 0, HELD: 0, EXPIRED: 0 };
+      purgeExpired();
+      const counts = {
+        PENDING: 0,
+        SENT: sentPurged.get(SENT_PURGED_KEY)?.count ?? 0,
+        FAILED: 0,
+        HELD: 0,
+        EXPIRED: 0,
+      };
       for (const item of federationItems.values()) {
         counts[item.status] += 1;
       }

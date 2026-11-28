@@ -2,41 +2,67 @@
  * ステータスコード管理のユースケース（UC-17。FR-3）。ロボットのステータスコードの定義（コード値・名称・説明・カテゴリ）。
  * 登録・編集・削除（論理削除）は、変更履歴に記録し、評価に反映する（収穫速度・メンテナンス性・耐久性の判定に使うため）。
  * 削除済みのコード値を、もう一度登録した場合は、削除を取り消して、定義を更新する（暫定）。
+ * 未登録のコード値の一覧（SC-12-5。#158）: 取り込みが記録した、定義にないコード値から、登録済みのものを除いて返す。
  */
 
 import { AppError, conflictError } from '@smart-farm/shared/errors';
-import type { UserId } from '@smart-farm/shared/schemas/common';
+import { omitUndefined } from '@smart-farm/shared/omit-undefined';
+import type {
+  EvaluationWriteResponse,
+  EvaluationWriteState,
+  UserId,
+} from '@smart-farm/shared/schemas/common';
 import type {
   StatusCodeCreateRequest,
   StatusCodeDefinition,
   StatusCodeListResponse,
+  StatusCodeSaveResponse,
   StatusCodeUpdateRequest,
+  UnregisteredStatusCodeListResponse,
 } from '@smart-farm/shared/schemas/status-code';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
+import { compareIsoInstants } from '@smart-farm/shared/time';
 import type { AuditService } from '../audit/audit-service.ts';
 import type { EvaluationService } from '../evaluation/evaluation-service.ts';
-import { reevaluateSafely } from '../evaluation/reevaluate-safely.ts';
+import type { EvaluationOnWrite } from '../evaluation/evaluation-on-write.ts';
+import { reevaluateAllOnWrite } from '../evaluation/reevaluate-safely.ts';
+import {
+  isRegistrableStatusCode,
+  suggestStatusCode,
+} from '../../domain/unregistered-status-code.ts';
 import type { Logger } from '../ports/logger-port.ts';
-import type { StatusCodeRepository } from '../ports/repositories.ts';
+import type {
+  StatusCodeRepository,
+  UnregisteredStatusCodeRepository,
+} from '../ports/repositories.ts';
 
 const STATUS_CODE_TARGET_TYPE = 'status-code' satisfies AuditTargetType;
 
 export interface StatusCodeService {
   list(): Promise<StatusCodeListResponse>;
-  create(input: StatusCodeCreateRequest, actor: UserId): Promise<StatusCodeDefinition>;
+  /**
+   * 未登録のコード値の一覧。登録済み（論理削除でない）のコード値は、読むときに除く（記録は消さない。あとで、そのコードを
+   * 削除すると、一覧に戻る）。件数の多い順（同じなら、最終の日時の新しい順、コード値の順）。
+   */
+  listUnregistered(): Promise<UnregisteredStatusCodeListResponse>;
+  /** 登録する。応答に、評価の状態を含める（`deferred` では `DEFERRED`。ADR-0014）。 */
+  create(input: StatusCodeCreateRequest, actor: UserId): Promise<StatusCodeSaveResponse>;
   update(
     code: string,
     input: StatusCodeUpdateRequest,
     actor: UserId,
-  ): Promise<StatusCodeDefinition>;
-  /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。 */
-  delete(code: string, actor: UserId): Promise<void>;
+  ): Promise<StatusCodeSaveResponse>;
+  /** 論理削除する。存在しない（削除済みを含む）場合は NOT_FOUND。評価の状態を返す。 */
+  delete(code: string, actor: UserId): Promise<EvaluationWriteResponse>;
 }
 
 export interface StatusCodeServiceDeps {
   readonly statusCodes: StatusCodeRepository;
+  readonly unregisteredStatusCodes: UnregisteredStatusCodeRepository;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
+  /** 変更の後の評価を、応答の前に行うか（`deferred` は、定期の評価〔JB-02〕に任せる。ADR-0014）。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   readonly logger: Logger;
 }
 
@@ -57,7 +83,8 @@ function withoutDescriptionWhenEmpty(input: { description?: string | undefined }
 }
 
 export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCodeService {
-  const { statusCodes, audit, evaluation, logger } = deps;
+  const { statusCodes, unregisteredStatusCodes, audit, evaluation, evaluationOnWrite, logger } =
+    deps;
 
   async function findActive(code: string): Promise<StatusCodeDefinition> {
     const found = await statusCodes.get(code);
@@ -67,9 +94,10 @@ export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCode
     return found;
   }
 
-  /** 評価の更新。失敗しても、定義の保存の結果には影響させない。 */
-  const reevaluate = (): Promise<void> =>
-    reevaluateSafely(
+  /** 評価の更新（`deferred` では、しない）。失敗しても、定義の保存の結果には影響させない。 */
+  const reevaluate = (): Promise<EvaluationWriteState> =>
+    reevaluateAllOnWrite(
+      evaluationOnWrite,
       evaluation,
       logger,
       'STATUS_CODE_CHANGE',
@@ -80,6 +108,27 @@ export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCode
     async list() {
       const items = await statusCodes.list();
       return { items: items.sort((left, right) => compareCodes(left.code, right.code)) };
+    },
+
+    async listUnregistered() {
+      const registered = new Set((await statusCodes.list()).map((definition) => definition.code));
+      const items = (await unregisteredStatusCodes.list())
+        .filter((record) => !registered.has(record.code))
+        .sort(
+          (left, right) =>
+            right.count - left.count ||
+            compareIsoInstants(right.lastSeenAt, left.lastSeenAt) ||
+            compareCodes(left.code, right.code),
+        )
+        .map((record) => {
+          const suggestedCode = suggestStatusCode(record.code);
+          return {
+            ...record,
+            isRegistrable: isRegistrableStatusCode(record.code),
+            ...omitUndefined({ suggestedCode }),
+          };
+        });
+      return { items };
     },
 
     async create(input, actor) {
@@ -102,8 +151,7 @@ export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCode
         actor,
         after: created,
       });
-      await reevaluate();
-      return created;
+      return { ...created, evaluation: await reevaluate() };
     },
 
     async update(code, input, actor) {
@@ -124,8 +172,7 @@ export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCode
         before,
         after: updated,
       });
-      await reevaluate();
-      return updated;
+      return { ...updated, evaluation: await reevaluate() };
     },
 
     async delete(code, actor) {
@@ -138,7 +185,7 @@ export function createStatusCodeService(deps: StatusCodeServiceDeps): StatusCode
         actor,
         before,
       });
-      await reevaluate();
+      return { evaluation: await reevaluate() };
     },
   };
 }

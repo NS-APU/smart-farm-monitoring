@@ -87,22 +87,25 @@ function Redirect(props: { readonly to: string }): ReactNode {
 }
 
 function AppRoutes(): ReactNode {
-  const { user } = useAuth();
+  const { user, sessionExpired } = useAuth();
   const { pathname, search } = useLocation();
 
   if (user === null) {
     if (pathname === PATHS.login) {
       return <LoginPage />;
     }
-    // 未認証のアクセスは、ログイン画面へ誘導する（戻り先を保持）
-    return <Redirect to={loginRedirectPath(pathname, search)} />;
+    // 未認証のアクセスは、ログイン画面へ誘導する（戻り先を保持）。ログイン中に、セッションが切れたときは、その理由も伝える
+    return (
+      <Redirect to={loginRedirectPath(pathname, search, sessionExpired ? 'expired' : undefined)} />
+    );
   }
   // 管理者が決めたパスワードの変更が済むまでは、変更の画面だけを表示する（ほかの画面・メニューへ移れない。D-45）
   if (user.mustChangePassword) {
     return <ChangePasswordPage forced />;
   }
   if (pathname === PATHS.login) {
-    return <Redirect to={PATHS.dashboard} />;
+    // ログイン済みでログイン画面を開いた（ログインの直後・ブックマークなど）。戻り先への遷移は、LoginPage の 1 か所だけで行う
+    return <LoginPage />;
   }
   return (
     <AppLayout>

@@ -16,7 +16,7 @@ export const IngestionIntervalSchema = z.union(
   INGESTION_INTERVAL_MINUTES_OPTIONS.map((minutes) => z.literal(minutes)),
 );
 
-export const FILE_SERVER_CONNECTION_TYPES = ['MOCK', 'HTTP'] as const;
+export const FILE_SERVER_CONNECTION_TYPES = ['HTTP'] as const;
 export const FILE_SERVER_PROTOCOLS = ['HTTPS', 'HTTP'] as const;
 export const FILE_SERVER_AUTH_METHODS = ['NONE', 'BASIC', 'BEARER', 'API_KEY'] as const;
 export type FileServerProtocol = (typeof FILE_SERVER_PROTOCOLS)[number];
@@ -100,30 +100,30 @@ const ApiKeyHeaderNameSchema = z
  * ファイルサーバーの接続設定（Issue #172。ADR-0022）。認証情報の値（パスワード・トークン・API キー）は持たない。
  * 値は、秘密情報の保管先（SecretPort。Issue #206）に置く（NFR-5.4）。
  */
-export const FileServerConnectionSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('MOCK') }),
-  z.object({
-    type: z.literal('HTTP'),
-    protocol: z.enum(FILE_SERVER_PROTOCOLS).default('HTTPS'),
-    host: HostSchema,
-    /** 省略は、プロトコルの既定（HTTPS が 443、HTTP が 80）。 */
-    port: z
-      .number({ error: PORT_MESSAGE })
-      .int(PORT_MESSAGE)
-      .min(1, PORT_MESSAGE)
-      .max(65535, PORT_MESSAGE)
-      .optional(),
-    authMethod: z.enum(FILE_SERVER_AUTH_METHODS).default('NONE'),
-    /** 認証方式が API_KEY のときに、API キーを送るヘッダー名。 */
-    apiKeyHeaderName: ApiKeyHeaderNameSchema.default(DEFAULT_API_KEY_HEADER_NAME),
-  }),
-]);
+export const FileServerConnectionSchema = z.object({
+  type: z.literal('HTTP'),
+  protocol: z.enum(FILE_SERVER_PROTOCOLS).default('HTTPS'),
+  host: HostSchema,
+  /** 省略は、プロトコルの既定（HTTPS が 443、HTTP が 80）。 */
+  port: z
+    .number({ error: PORT_MESSAGE })
+    .int(PORT_MESSAGE)
+    .min(1, PORT_MESSAGE)
+    .max(65535, PORT_MESSAGE)
+    .optional(),
+  authMethod: z.enum(FILE_SERVER_AUTH_METHODS).default('NONE'),
+  /** 認証方式が API_KEY のときに、API キーを送るヘッダー名。 */
+  apiKeyHeaderName: ApiKeyHeaderNameSchema.default(DEFAULT_API_KEY_HEADER_NAME),
+});
 export type FileServerConnection = z.infer<typeof FileServerConnectionSchema>;
-export type HttpFileServerConnection = Extract<FileServerConnection, { type: 'HTTP' }>;
+/** 以前の名前（接続方式が MOCK と HTTP の 2 つだったとき。ADR-0025 の PR 3b で、MOCK を廃止し、HTTP だけになった）。 */
+export type HttpFileServerConnection = FileServerConnection;
 
-/** 接続先の表示用の URL（クエリ・認証情報を含まない）。接続を持たない（MOCK）は undefined。 */
-export function describeConnectionTarget(connection: FileServerConnection): string | undefined {
-  if (connection.type !== 'HTTP') {
+/** 接続先の表示用の URL（クエリ・認証情報を含まない）。接続が未設定なら undefined。 */
+export function describeConnectionTarget(
+  connection: FileServerConnection | undefined,
+): string | undefined {
+  if (connection === undefined) {
     return undefined;
   }
   const scheme = connection.protocol.toLowerCase();
@@ -135,16 +135,14 @@ export function describeConnectionTarget(connection: FileServerConnection): stri
 }
 
 /**
- * 取り込み元の設定。認証情報の値は持たず、接続設定の参照名（connectionRef）のみ持つ（NFR-5.4）。
+ * 取り込み元の設定（取り込み元ごとの有効／無効）。接続・認証情報は、設備ごと（Issue #367。ADR-0026）。
+ * 以前に保存された取り込み元の接続（`connection`）・接続設定の参照名（`connectionRef`）は、読み込むときに無視する（共通の接続の廃止）。
  */
 export const IngestionSourceSchema = z.object({
   sourceId: z.string().min(1).max(100),
   kind: z.enum(INGESTION_SOURCE_KINDS),
   /** 解釈に使う FormatProfile の識別子。 */
   profileId: z.string().min(1),
-  connectionRef: z.string().min(1),
-  /** ファイルサーバーの接続設定。保存がない既存の設定は、MOCK（移行不要）。 */
-  connection: FileServerConnectionSchema.default({ type: 'MOCK' }),
   /**
    * 取得間隔は、設備ごとの設定（Equipment.intervalMinutes。Issue #197）。以前に保存された取り込み元ごとの取得間隔は、
    * 読み込むときに無視する（移行しない）。
@@ -233,17 +231,9 @@ export const FederationItemSchema = z.object({
 });
 export type FederationItem = z.infer<typeof FederationItemSchema>;
 
-/** 取り込み元の設定の変更（接続先の参照名・有効／無効。FR-1.4）。取得間隔は、設備ごと（Issue #197）。 */
+/** 取り込み元の設定の変更（有効／無効。FR-1.4）。接続は設備ごと（Issue #367）、取得間隔も設備ごと（Issue #197）。 */
 export const IngestionSourceUpdateSchema = z.object({
   sourceId: z.string().min(1).max(100),
-  connectionRef: z
-    .string()
-    .trim()
-    .min(1, '接続先の参照名を入力してください')
-    .max(100, '接続先の参照名は100文字以内で指定してください')
-    .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, '接続先の参照名は英数字・記号（_ . -）のみ使えます'),
-  /** 省略は、現在の接続設定を保つ。 */
-  connection: FileServerConnectionSchema.optional(),
   isEnabled: z.boolean(),
 });
 export type IngestionSourceUpdate = z.infer<typeof IngestionSourceUpdateSchema>;
@@ -279,7 +269,7 @@ function secretTokenSchema(requiredMessage: string) {
 
 /**
  * ファイルサーバーの認証情報の登録（Issue #207。D-47）。書き込み専用で、保存後は、値を再表示しない。
- * 認証方式は、保存済みの接続設定と同じでなければならない。値は、SecretPort（file-server/<取り込み元>）に保存する。
+ * 認証方式は、保存済みの接続設定と同じでなければならない。値は、SecretPort（file-server/equipment/<設備 ID のハッシュ>）に保存する。
  */
 export const IngestionCredentialsInputSchema = z.discriminatedUnion('authMethod', [
   z.object({
@@ -320,6 +310,17 @@ export type IngestionCredentialStatus = z.infer<typeof IngestionCredentialStatus
 export const EquipmentIngestionStatusSchema = z.object({
   equipmentId: EquipmentIdSchema,
   name: z.string(),
+  /** 設備のファイルのパス（Equipment.sourceFilePath）。取り込みの対象は、ファイルのパスを持つ設備だけ。 */
+  sourceFilePath: z.string().optional(),
+  /** 設備の接続（Issue #367。ADR-0026）。未設定なら、省略（取り込みは「接続先が設定されていません」で失敗する）。 */
+  connection: FileServerConnectionSchema.optional(),
+  /**
+   * 「データが古い（取り込みが停止中）」の基準（分）。その設備の取得間隔 × 倍数（サーバーの設定 `STALE_AFTER_INTERVALS`）、最低 3 分
+   * （ダッシュボードと同じ基準。ADR-0016 の D-12）。画面は、最後にデータが取れた日時から、この分数を超えていれば「停止中」にする。
+   */
+  staleThresholdMinutes: z.number().positive().optional(),
+  /** 設備の認証情報の状態（接続が未設定、または、認証方式が「なし」なら、不要）。値は含めない。 */
+  credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
   lastStartedAt: IsoDateTimeSchema.nullable(),
   lastResult: z.enum(INGESTION_RESULTS).nullable(),
   /** 最後に成功（SUCCESS）した実行の終了日時。 */
@@ -340,8 +341,6 @@ export const IngestionSourceStatusSchema = IngestionSourceSchema.extend({
   /** その取り込み元の種別の設備ごとの、最終の実行（設備の一覧の順。Issue #201）。 */
   equipment: z.array(EquipmentIngestionStatusSchema).default([]),
   isRunning: z.boolean(),
-  /** 認証情報の状態（設定済み／未設定と更新日時。値は含めない）。 */
-  credentials: IngestionCredentialStatusSchema.default({ state: 'NOT_REQUIRED' }),
 });
 export type IngestionSourceStatus = z.infer<typeof IngestionSourceStatusSchema>;
 
@@ -350,8 +349,53 @@ export const IngestionSettingsResponseSchema = z.object({
 });
 export type IngestionSettingsResponse = z.infer<typeof IngestionSettingsResponseSchema>;
 
+/** PUT /ingestion/equipment/{equipmentId}/connection の入力（設備ごとの接続の保存。Issue #367）。 */
+export const EquipmentConnectionUpdateSchema = z.object({
+  connection: FileServerConnectionSchema,
+});
+export type EquipmentConnectionUpdate = z.infer<typeof EquipmentConnectionUpdateSchema>;
+
+/** 設備ごとの接続の、保存・削除の応答。削除のあとは、接続は省略（未設定）。 */
+export const EquipmentConnectionResponseSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  connection: FileServerConnectionSchema.optional(),
+  credentials: IngestionCredentialStatusSchema,
+});
+export type EquipmentConnectionResponse = z.infer<typeof EquipmentConnectionResponseSchema>;
+
 export const ConnectionTestResponseSchema = z.object({ ok: z.boolean(), message: z.string() });
 export type ConnectionTestResponse = z.infer<typeof ConnectionTestResponseSchema>;
+
+/**
+ * 画面から置く、取り込み用のファイルの大きさの上限（バイト。1 MiB）。API の本文の上限と同じ（本文は、ファイルそのもの。JSON の包みは付けない）。
+ * 自前のファイルサーバーの `PUT` の上限（`HOSTED_FILE_MAX_BYTES`）とも同じ（ADR-0027）。
+ */
+export const SOURCE_FILE_MAX_BYTES = 1024 * 1024;
+
+/**
+ * 置く前の検査の結果（`POST /ingestion/equipment/{id}/source-file/check`。Issue #565）。取り込みと同じ解釈（FormatProfile・項目の検証）を、保存せずに行う。
+ * `problems`（置けない理由）が空でなければ、`ok` は false。`warnings`（置けるが、取り込みで「不正」などになる点）は、項目名だけで、値を含めない。
+ */
+export const SourceFileInspectionSchema = z.object({
+  ok: z.boolean(),
+  /** 解釈に使う仕様の版の表記（例: `robot-json@1.0.0(CONFIRMED)`）。 */
+  formatLabel: z.string(),
+  /** ファイルの大きさ（バイト）。 */
+  size: z.number().int().nonnegative(),
+  /** 読み取れた計測日時。読み取れなければ省略。 */
+  observedAt: IsoDateTimeSchema.optional(),
+  /** 読み取れた項目の数（取り込みの対象の項目）。 */
+  itemCount: z.number().int().nonnegative(),
+  problems: z.array(z.string()),
+  warnings: z.array(z.string()),
+});
+export type SourceFileInspection = z.infer<typeof SourceFileInspectionSchema>;
+
+/** ファイルを置いた結果（`PUT /ingestion/equipment/{id}/source-file`）。検査の結果と、置いた日時。 */
+export const SourceFilePlacedSchema = SourceFileInspectionSchema.extend({
+  placedAt: IsoDateTimeSchema,
+});
+export type SourceFilePlaced = z.infer<typeof SourceFilePlacedSchema>;
 
 export const IngestionRunResponseSchema = z.object({
   sourceId: z.string(),

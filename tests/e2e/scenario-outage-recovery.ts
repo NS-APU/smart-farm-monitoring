@@ -20,17 +20,19 @@ import {
   apiOk,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
+  ROBOT_ID,
   robotJson,
   runJob,
   sensorJson,
   setMock,
   unreadBadge,
 } from './support/app.ts';
-import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
+import { placeFile, setFileServerMode } from './support/http-files.ts';
+import { federationRows, logRows, runNow, testEquipmentConnection } from './support/ingestion.ts';
 import { listNotifications } from './support/notifications.ts';
 import { deliveredPushes, stubPush } from './support/push.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -57,10 +59,11 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await expect(page.getByTestId('push-state')).toContainText('有効');
 
     // UC-09・UC-10: Aが、異常な温度のセンサーデータを取り込む（異常を検知し、通知を作る）
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await goToMenu(page, '取り込み');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');
@@ -73,11 +76,11 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await expect(queueCount(page, 'HELD')).not.toHaveText('0');
 
     // UC-24: ファイルサーバーも停止し、ロボットの取り込みが失敗する（失敗の通知を作る）
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await expect(await runNow(page, 'robot')).toContainText('取得しました（失敗）');
     await shot(page, testInfo, 'scenario-outage-a-failed');
 
-    // UC-23: 通知（異常検知・取り込み失敗）は、有効にしたAの端末（購読の識別子が1つだけ）にだけ配信される（Bは有効にしていない）
+    // UC-23: 通知（状態の悪化・取り込み失敗）は、有効にしたAの端末（購読の識別子が1つだけ）にだけ配信される（Bは有効にしていない）
     await runJob(request, 'JB-04');
     const created = await listNotifications(request);
     expect(created.length).toBeGreaterThanOrEqual(2);
@@ -91,7 +94,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
     await expect(unreadBadge(b.page)).toHaveText(String(created.length));
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     const failure = b.page
       .getByTestId('notification-row')
       .filter({ hasText: 'データ取得失敗' })
@@ -113,14 +116,19 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     // UC-01: 停止中も、ダッシュボードは動く（農業情報基盤・ファイルサーバーの状態に依存しない）
     await goToMenu(b.page, 'ダッシュボード');
     await expect(
-      b.page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      b.page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
 
     // 復旧（システム外）→ UC-15・UC-08: Bが、接続テストで復旧を確認し、即時取得で、ロボットのデータを取り込む
-    await setMock(request, 'file-server', 'UP');
-    placeFile('robot', 'robot.json', robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]));
+    await setFileServerMode(request, 'UP');
+    await placeFile(
+      request,
+      'robot',
+      'robot.json',
+      robotJson({ hoursAgo: 0.25, fields: { harvestCount: 8 } }),
+    );
     await goToMenu(b.page, '取り込み');
-    await expect(await testConnection(b.page, 'robot')).toHaveText('接続できました');
+    await expect(await testEquipmentConnection(b.page, ROBOT_ID)).toHaveText('接続できました');
     await expect(await runNow(b.page, 'robot')).toContainText('取得しました（成功）');
     await expect(logRows(b.page)).toHaveCount(3);
     await expect(logRows(b.page).first()).toContainText('成功');
@@ -130,7 +138,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-03');
     await b.page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(queueCount(b.page, 'HELD')).toHaveText('0');
     await expect(queueCount(b.page, 'PENDING')).toHaveText('0');
     const received = await apiOk<{ items: { targetType: string }[] }>(

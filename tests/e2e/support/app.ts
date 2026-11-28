@@ -1,11 +1,9 @@
 /**
- * E2E の補助（UC-04 以降の共通部分）: API の呼び出し、ファイルサーバーのモックへのファイルの配置、
+ * E2E の補助（UC-04 以降の共通部分）: API の呼び出し、取り込みの合成データ（JSON）の組み立て、
  * ユーザーの追加と切り替え（別のブラウザのコンテキスト）、ブラウザの時計の固定、画面の操作の補助。
  * 値は、docs の判断基準・仕様から手計算で選ぶ。評価のコードを呼び出して、期待値を作らない。
  */
 
-import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import {
   expect,
   type APIRequestContext,
@@ -17,13 +15,10 @@ import {
   type TestInfo,
 } from '@playwright/test';
 import { LoginResponseSchema } from '../../../src/shared/schemas/auth.ts';
+import { E2E_VIDEO } from './e2e-options.ts';
 import { E2E_USER } from './e2e-user.ts';
 import { loginViaUi } from './helpers.ts';
 import { NOW, prepare, type PrepareOptions } from './viewpoint-scenarios.ts';
-
-/** バックエンドのファイルサーバーのモックのルート（playwright.config.ts の FILE_SERVER_DIR と同じ）。 */
-export const FILE_SERVER_ROOT = resolve('test-result/e2e-file-server');
-const FIXTURES_ROOT = resolve('tests/fixtures/file-server');
 
 /** 設備のデモ（ハウス1・収穫ロボット1・環境センサー1）の識別子。 */
 export const HOUSE_ID = 'HOUSE-01';
@@ -89,11 +84,12 @@ export async function api(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
+  headers: Readonly<Record<string, string>> = {},
 ): Promise<APIResponse> {
   const send = async () =>
     request.fetch(`/api/v1${path}`, {
       method,
-      headers: { authorization: `Bearer ${await accessToken(request)}` },
+      headers: { authorization: `Bearer ${await accessToken(request)}`, ...headers },
       ...(body === undefined ? {} : { data: body }),
     });
   const response = await send();
@@ -147,18 +143,28 @@ export async function setEquipmentInterval(
   });
 }
 
-/** ジョブ（JB-01〜JB-04）を起動する（開発用 API）。 */
+/** ジョブ（JB-01〜JB-05）を起動する（開発用 API）。 */
 export async function runJob(
   request: APIRequestContext,
-  jobId: 'JB-01' | 'JB-02' | 'JB-03' | 'JB-04',
+  jobId: 'JB-01' | 'JB-02' | 'JB-03' | 'JB-04' | 'JB-05',
 ): Promise<void> {
   await apiOk(request, 'POST', `/dev/jobs/${jobId}/run`, {});
 }
 
-/** モック（ファイルサーバー・農業情報基盤・Web Push）の状態を切り替える（開発用 API）。 */
+/**
+ * 削除した設備のデータの削除（ジョブ JB-05。D-28）を、完了させる。1 回目で、データを削除し、実行中の書き込みを掃除するための待ち
+ * （ジョブのロックの期限。6 分）のあとの 2 回目で、設備の記録を消す。時計を 7 分進める。
+ */
+export async function finishEquipmentDeletions(request: APIRequestContext): Promise<void> {
+  await runJob(request, 'JB-05');
+  await advanceMinutes(request, 7);
+  await runJob(request, 'JB-05');
+}
+
+/** モック（農業情報基盤・Web Push）の状態を切り替える（開発用 API）。ファイルサーバーは、HTTP のテスト用サーバー（support/http-files.ts）。 */
 export async function setMock(
   request: APIRequestContext,
-  target: 'file-server' | 'federation' | 'web-push',
+  target: 'federation' | 'web-push',
   mode: 'UP' | 'DOWN' | 'SLOW' | 'REJECT',
 ): Promise<void> {
   await apiOk(request, 'PUT', `/dev/mocks/${target}`, { mode });
@@ -219,6 +225,17 @@ export async function addUserWithTemporaryPassword(
   });
 }
 
+/**
+ * 対象の設備を指定しないときの、手動入力の設備: 環境情報はセンサー、満足度情報はハウス、そのほかはロボット
+ * （手動入力のカテゴリは、対象の設備の種別に合うものだけ受ける。Issue #360）。
+ */
+export function defaultEntryEquipmentId(category: string): string {
+  if (category === 'ENVIRONMENT') {
+    return SENSOR_ID;
+  }
+  return category === 'SATISFACTION' ? HOUSE_ID : ROBOT_ID;
+}
+
 /** 手動入力を API で登録する（前提のデータの用意）。 */
 export async function addEntry(
   request: APIRequestContext,
@@ -230,7 +247,10 @@ export async function addEntry(
     note?: string;
   },
 ): Promise<{ entry: { entryId: string } }> {
-  return apiOk(request, 'POST', '/manual-entries', { equipmentId: ROBOT_ID, ...input });
+  return apiOk(request, 'POST', '/manual-entries', {
+    equipmentId: defaultEntryEquipmentId(input.category),
+    ...input,
+  });
 }
 
 /** 手動入力を、指定した利用者として API で登録する（入力者が複数の前提のデータの用意）。 */
@@ -246,7 +266,7 @@ export async function addEntryAs(
 ): Promise<void> {
   const response = await request.fetch('/api/v1/manual-entries', {
     method: 'POST',
-    data: { equipmentId: ROBOT_ID, ...input },
+    data: { equipmentId: defaultEntryEquipmentId(input.category), ...input },
     headers: { authorization: `Bearer ${await accessToken(request, user)}` },
   });
   expect(
@@ -255,81 +275,33 @@ export async function addEntryAs(
   ).toBe(true);
 }
 
-// ファイルサーバーのモック
+// 取り込みの合成データ
 
 /**
- * ファイルサーバーのモックの内容（ファイル）を空にする。
- * ディレクトリ（ルート・取り込み元）は、サーバーが参照しているため、Windows で削除が拒否される（EPERM）ことがある。
- * そのため、ディレクトリは残して、中のファイルだけを消す。ディレクトリがない状態は、`removeSourceDirectory` で作る
+ * 観測値の日時を、現在（固定した時計）から相対で指定した、ロボットの JSON（合成データ。その時点のスナップショット 1 つ。
+ * 設備の識別子・記録の配列は持たない。設備は、設備のファイルのパスで決まる）。
  */
-export function clearFileServer(): void {
-  mkdirSync(FILE_SERVER_ROOT, { recursive: true });
-  removeFilesIn(FILE_SERVER_ROOT);
-}
-
-function removeFilesIn(directory: string): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      removeFilesIn(path);
-    } else {
-      rmSync(path, { force: true, maxRetries: 10, retryDelay: 100 });
-    }
-  }
-}
-
-/** 取り込み元のディレクトリそのものを消す（取り込み元の場所がない状態を作る）。 */
-export function removeSourceDirectory(sourceId: string): void {
-  rmSync(join(FILE_SERVER_ROOT, sourceId), {
-    recursive: true,
-    force: true,
-    maxRetries: 15,
-    retryDelay: 200,
-  });
-}
-
-/** ファイルサーバーのモックに、任意の内容のファイルを置く。 */
-export function placeFile(sourceId: string, name: string, content: string): void {
-  const directory = join(FILE_SERVER_ROOT, sourceId);
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, name), content, 'utf8');
-}
-
-/** ファイルサーバーのモックに、合成データのフィクスチャを置く（tests/fixtures/file-server/ からの相対パス）。 */
-export function placeFixture(sourceId: string, fixture: string, asName?: string): void {
-  const directory = join(FILE_SERVER_ROOT, sourceId);
-  mkdirSync(directory, { recursive: true });
-  cpSync(
-    join(FIXTURES_ROOT, fixture),
-    join(directory, asName ?? fixture.split('/').at(-1) ?? fixture),
-  );
-}
-
-/** 観測値の日時を、現在（固定した時計）から相対で指定した、ロボットの JSON（合成データ）。 */
-export function robotJson(
-  records: readonly { hoursAgo: number; fields: Record<string, number | string | null> }[],
-  robotId: string = ROBOT_EXTERNAL_ID,
-): string {
+export function robotJson(record: {
+  hoursAgo: number;
+  fields: Record<string, number | string | null>;
+}): string {
   return JSON.stringify({
-    robotId,
-    records: records.map((record) => ({
-      timestamp: new Date(NOW.getTime() - record.hoursAgo * 3_600_000).toISOString(),
-      ...record.fields,
-    })),
+    timestamp: new Date(NOW.getTime() - record.hoursAgo * 3_600_000).toISOString(),
+    ...record.fields,
   });
 }
 
-/** 環境センサーの JSON（合成データ。設備の識別子 sensorId + 記録の配列）。空の文字列は欠損（null）、数値の文字列は数値にする（数値でない文字列は、そのまま）。 */
-export function sensorJson(
-  rows: readonly {
-    hoursAgo: number;
-    temperature: number | string;
-    humidity: number | string;
-    illuminance: number | string;
-    co2: number | string;
-  }[],
-  sensorId: string = SENSOR_EXTERNAL_ID,
-): string {
+/**
+ * 環境センサーの JSON（合成データ。その時点のスナップショット 1 つ。ファイルの項目名は temperature・humidity・illuminance・co2）。
+ * 空の文字列は欠損（null）、数値の文字列は数値にする（数値でない文字列は、そのまま）。
+ */
+export function sensorJson(row: {
+  hoursAgo: number;
+  temperature: number | string;
+  humidity: number | string;
+  illuminance: number | string;
+  co2: number | string;
+}): string {
   const value = (raw: number | string) => {
     if (raw === '') {
       return null;
@@ -337,25 +309,21 @@ export function sensorJson(
     return typeof raw === 'string' && Number.isFinite(Number(raw)) ? Number(raw) : raw;
   };
   return JSON.stringify({
-    sensorId,
-    records: rows.map((row) => ({
-      timestamp: new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString(),
-      temperatureCelsius: value(row.temperature),
-      humidityPercent: value(row.humidity),
-      illuminanceLux: value(row.illuminance),
-      co2Ppm: value(row.co2),
-    })),
+    timestamp: new Date(NOW.getTime() - row.hoursAgo * 3_600_000).toISOString(),
+    temperature: value(row.temperature),
+    humidity: value(row.humidity),
+    illuminance: value(row.illuminance),
+    co2: value(row.co2),
   });
 }
 
 // 準備・ブラウザ
 
-/** データを初期化（デモの設備のみ）し、時計を固定し、ファイルサーバーのモックを空にする。 */
+/** データを初期化（デモの設備のみ）し、時計を固定する。HTTP のファイルサーバーは、`placeFile` などが、必要になったときに、空にして接続する（support/http-files.ts）。 */
 export async function prepareApp(
   request: APIRequestContext,
   options: PrepareOptions = {},
 ): Promise<void> {
-  clearFileServer();
   await prepare(request, options);
 }
 
@@ -364,14 +332,21 @@ export async function alignBrowserClock(page: Page, at: Date = NOW): Promise<voi
   await page.clock.setFixedTime(at);
 }
 
-/** 指定した利用者として、新しいブラウザのコンテキスト（動画つき）を開く（複数ユーザーのシナリオ用）。 */
+/** 指定した利用者として、新しいブラウザのコンテキストを開く（複数ユーザーのシナリオ用。動画は、E2E_VIDEO=1 のときだけ）。 */
 export async function newUserSession(
   browser: Browser,
   testInfo: TestInfo,
   label: string,
 ): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({
-    recordVideo: { dir: testInfo.outputPath(`video-${label}`), size: { width: 1280, height: 720 } },
+    ...(E2E_VIDEO
+      ? {
+          recordVideo: {
+            dir: testInfo.outputPath(`video-${label}`),
+            size: { width: 1280, height: 720 },
+          },
+        }
+      : {}),
     viewport: { width: 1280, height: 720 },
     locale: 'ja-JP',
     timezoneId: 'Asia/Tokyo',
@@ -398,17 +373,52 @@ export async function openAs(
 
 /**
  * 画面内のリンクのメニューを選ぶ（ナビゲーション）。
- * 狭い幅（900px 以下）では、メニューは「☰ で開く引き出し」のため、☰ が見えているときだけ、先に開く。
+ * 狭い幅（900px 以下）では、メニューは「☰ で開く引き出し」のため、メニューが見えていないときだけ、☰ で先に開く（広い幅は、既定で開いている）。
  */
 export async function goToMenu(page: Page, name: string): Promise<void> {
-  const toggle = page.getByRole('button', { name: 'メニューを開く' });
-  if (await toggle.isVisible()) {
+  // サイドメニューが閉じていれば（狭い幅の引き出し・広い幅で閉じているとき）、☰ で開く（Issue #354）。
+  // 見えているかではなく、☰ の状態（aria-expanded）で判断する（ログイン直後は、画面の描画前で、『見えない』と誤って判断し、開いているメニューを閉じてしまうため。☰ が現れるまで待つ）
+  const toggle = page.getByRole('button', { name: 'メニューの開閉' });
+  if ((await toggle.getAttribute('aria-expanded')) === 'false') {
     await toggle.click();
   }
   await page
     .getByRole('navigation', { name: 'メニュー' })
     .getByRole('link', { name, exact: true })
     .click();
+}
+
+/**
+ * ヘッダーのユーザーメニュー（ユーザーアイコン・ユーザー名・ロールのボタン）を開き、メニューを返す（Issue #353）。
+ * ユーザー名の変更・パスワードの変更・通知の設定・テーマ・ログアウトは、このメニューの中にある。
+ */
+export async function openUserMenu(page: Page): Promise<Locator> {
+  await page
+    .getByRole('banner')
+    .getByRole('button', { name: /^ログイン中のユーザー/ })
+    .click();
+  const menu = page.getByRole('menu', { name: 'ユーザー' });
+  await expect(menu).toBeVisible();
+  return menu;
+}
+
+/** ユーザーメニューの項目（ユーザー名の変更・パスワードの変更・通知の設定・ログアウト）を選ぶ。 */
+export async function goToUserMenu(page: Page, name: string): Promise<void> {
+  const menu = await openUserMenu(page);
+  await menu.getByRole('menuitem', { name, exact: true }).click();
+}
+
+/** ログアウトする（ユーザーメニューの「ログアウト」）。 */
+export async function logout(page: Page): Promise<void> {
+  await goToUserMenu(page, 'ログアウト');
+}
+
+/**
+ * 通知の一覧を開く。通知は、メニューでなく、ヘッダーの通知のアイコン（リンクの名前は「未読の通知: N件」）から開く（Issue #351）。
+ * ヘッダーは、狭い幅でも見えているため、メニューの引き出しを開く必要はない。
+ */
+export async function goToNotifications(page: Page): Promise<void> {
+  await page.getByRole('link', { name: /^未読の通知/ }).click();
 }
 
 /** ヘッダーの未読の件数。 */

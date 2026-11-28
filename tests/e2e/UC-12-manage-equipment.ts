@@ -28,37 +28,68 @@ import {
   api,
   apiOk,
   confirmDialog,
+  finishEquipmentDeletions,
   goToMenu,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
   sensorJson,
   settlePassword,
   unreadBadge,
+  logout,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { E2E_USER } from './support/e2e-user.ts';
 import { expectRelatedStatus, fillEntryForm, saveEntry } from './support/entry.ts';
-import { federationRows, logRows, runNow, testConnection } from './support/ingestion.ts';
+import { federationRows, logRows, runNow, testEquipmentConnection } from './support/ingestion.ts';
 import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { locatorOf, rowBy } from './support/pages.ts';
+import { locatorOf, rowBy, itemListQuery } from './support/pages.ts';
 
 const rows = locatorOf('equipment-row');
 const rowOf = rowBy('equipment-row', 'data-equipment-id');
 const facilityForm = (page: Page) => page.getByRole('form', { name: 'ハウスを登録' });
+/** 開いているダイアログがあれば、Esc で閉じる（ダイアログが開いている間は、背面の操作ができない）。 */
+async function closeDialog(page: Page): Promise<void> {
+  if (await page.getByRole('dialog').isVisible()) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+}
+
+/** ハウスの登録は、ダイアログで行う（Issue #364）。表の上のボタンで開く。 */
+async function openFacilityForm(page: Page): Promise<void> {
+  if (await facilityForm(page).isVisible()) {
+    return;
+  }
+  await closeDialog(page);
+  await page.getByRole('button', { name: 'ハウスの登録' }).click();
+  await expect(facilityForm(page)).toBeVisible();
+}
+
 const childForm = (page: Page) => page.getByRole('form', { name: 'ロボット・環境センサーを登録' });
+/** ロボット・環境センサーの登録は、ダイアログで行う（Issue #364）。表の上のボタンで開く。 */
+async function openChildForm(page: Page): Promise<void> {
+  if (await childForm(page).isVisible()) {
+    return;
+  }
+  await closeDialog(page);
+  await page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
+  await expect(childForm(page)).toBeVisible();
+}
+
 const notice = locatorOf('equipment-notice');
 
 async function openEquipment(page: Page, user?: Parameters<typeof openAs>[2]): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, '/', user);
-  await goToMenu(page, '設備');
+  await goToMenu(page, 'ハウス・設備');
   await expect(page.getByRole('heading', { name: '設備', level: 1 })).toBeVisible();
 }
 
 async function addFacility(page: Page, equipmentId: string, name: string): Promise<void> {
+  await openFacilityForm(page);
   await facilityForm(page).getByLabel('設備ID').fill(equipmentId);
   await facilityForm(page).getByLabel('名称').fill(name);
   await facilityForm(page).getByRole('button', { name: '登録する' }).click();
@@ -76,6 +107,7 @@ async function addChild(
     intervalMinutes?: number;
   },
 ): Promise<void> {
+  await openChildForm(page);
   const form = childForm(page);
   await form.getByLabel('種別').selectOption(values.type);
   await form.getByLabel('親のハウス').selectOption(values.facility);
@@ -151,22 +183,29 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       name: 'A収穫ロボット',
     });
 
-    const header = page.getByRole('banner').getByLabel('対象の設備');
-    await expect(header.locator('option')).toHaveText(['Aハウス', '　A収穫ロボット']);
+    // ダッシュボードは、ハウス単位（対象のハウスは、ハウスだけ）。ロボットは、観点の詳細の「対象の設備」で選ぶ
     await goToMenu(page, 'ダッシュボード');
-    await expect(page.locator('.page-meta')).toContainText('対象: Aハウス');
+    await expect(page.getByLabel('対象のハウス').locator('option')).toHaveText(['Aハウス']);
+    await expect(page.getByLabel('対象のハウス')).toHaveValue('HOUSE-A');
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
-    await header.selectOption('ROBOT-A');
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
+    await page.goto('/viewpoints/harvestSpeed');
+    const equipmentSelect = page.getByRole('main').getByLabel('対象の設備');
+    await expect(equipmentSelect.locator('option')).toHaveText([
+      'Aハウス',
+      '　A収穫ロボット（ロボット）',
+    ]);
+    await equipmentSelect.selectOption('ROBOT-A');
+    await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
     await goToMenu(page, 'データ入力');
     await expect(page.getByRole('main').getByLabel('対象の設備').locator('option')).toHaveText([
       '選択してください',
       'Aハウス',
-      '　A収穫ロボット',
+      '　A収穫ロボット（ロボット）',
     ]);
   });
 
-  test('以降のデータ取り込み・評価は、登録した構成（データ上の識別子）にもとづく（UC-08・UC-09 への連携）', async ({
+  test('以降のデータ取り込み・評価は、登録した構成（設備ごとのファイルのパス）にもとづく（UC-08・UC-09 への連携）', async ({
     page,
     request,
   }) => {
@@ -188,24 +227,23 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
       name: 'A環境センサー',
       externalId: 'SENSOR-A-FILE',
     });
-    // 構成に登録したデータ上の識別子のファイルが、その設備として取り込まれる
-    placeFile(
+    // 構成に登録した設備のファイルのパスの設備として、ファイルが取り込まれる（設備ごとに 1 ファイル）
+    await placeFile(
+      request,
       'robot',
       'a.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }], 'ROBOT-A-FILE'),
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 7 } }),
     );
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'a.json',
-      sensorJson(
-        [{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }],
-        'SENSOR-A-FILE',
-      ),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
 
     await runJob(request, 'JB-01');
 
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(
       page.getByTestId('observation-row').filter({ hasText: 'A収穫ロボット' }),
     ).toHaveCount(1);
@@ -214,7 +252,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     ).toHaveCount(4);
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
   });
 
@@ -269,6 +307,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await openEquipment(page);
 
     await addFacility(page, 'HOUSE-01', '重複ハウス');
+    await openFacilityForm(page);
     await expect(facilityForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
       '同じ設備IDがすでに登録されています',
     );
@@ -279,6 +318,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       name: '重複ロボット',
     });
 
+    await openChildForm(page);
     await expect(childForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
       '同じ設備IDがすでに登録されています',
     );
@@ -304,7 +344,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await expect(rows(page)).toHaveCount(3);
   });
 
-  test('削除済みの設備と同じ設備IDも、重複としてエラーにする（過去のデータの取り違えを防ぐ）', async ({
+  test('削除中の設備と同じ設備IDは、エラーにする。削除が終わると、同じ設備IDを再登録できる（D-28）', async ({
     page,
     request,
   }) => {
@@ -313,12 +353,22 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await rowOf(page, 'SENSOR-01').getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
     await expect(rowOf(page, 'SENSOR-01')).toHaveCount(0);
+    // 削除中の設備は、表の上に示す
+    await expect(page.getByTestId('equipment-deletions')).toContainText('環境センサー1');
 
     await addChild(page, { type: 'SENSOR', facility: 'HOUSE-01', id: 'SENSOR-01', name: '再登録' });
 
+    await openChildForm(page);
     await expect(childForm(page).locator('[data-field="equipmentId"] .field-error')).toHaveText(
-      '同じ設備IDがすでに登録されています',
+      '同じ設備IDの設備を削除しています。削除が終わってから登録してください',
     );
+
+    // 削除（ジョブ）が終わると、同じ設備IDで、登録し直せる
+    await finishEquipmentDeletions(request);
+    await openEquipment(page);
+    await expect(page.getByTestId('equipment-deletions')).toHaveCount(0);
+    await addChild(page, { type: 'SENSOR', facility: 'HOUSE-01', id: 'SENSOR-01', name: '再登録' });
+    await expect(rowOf(page, 'SENSOR-01')).toContainText('再登録');
   });
 
   test('データ上の識別子は、同じ種別の設備の中で、重複を登録できない（ロボットとセンサーは、別の種別）', async ({
@@ -335,6 +385,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       name: '2台目',
       externalId: 'ROBOT-SAMPLE-01',
     });
+    await openChildForm(page);
     await expect(childForm(page).locator('[data-field="externalId"] .field-error')).toHaveText(
       '同じデータ上の識別子がすでに登録されています',
     );
@@ -349,7 +400,7 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
     await expect(notice(page)).toHaveText('登録しました');
   });
 
-  test('ファイルパスは、同じ種別の設備の中で、重複を登録できない。形式が不正なら、登録できない', async ({
+  test('ファイルパスは、すべての設備の中で（ロボット・センサーの種別を問わず。1 設備 = 1 ファイル）、重複を登録できない。形式が不正なら、登録できない', async ({
     page,
     request,
   }) => {
@@ -386,6 +437,18 @@ test.describe('代替フロー: 同一の識別子を重複して登録しよう
       '同じファイルパスがすでに登録されています',
     );
     await expect(rowOf(page, 'ROBOT-03')).toHaveCount(0);
+    // 種別が違う（センサー）でも、ほかの設備（ロボット）と同じパスは、登録できない
+    await addChild(page, {
+      type: 'SENSOR',
+      facility: 'HOUSE-01',
+      id: 'SENSOR-02',
+      name: '2個目',
+      sourceFilePath: '/data/shared.json',
+    });
+    await expect(childForm(page).locator('[data-field="sourceFilePath"] .field-error')).toHaveText(
+      '同じファイルパスがすでに登録されています',
+    );
+    await expect(rowOf(page, 'SENSOR-02')).toHaveCount(0);
   });
 });
 
@@ -414,7 +477,10 @@ test.describe('設備ごとの取得間隔（Issue #197。ADR-0016 の D-11）',
     });
     await expect(notice(page)).toHaveText('登録しました');
     await expect(intervalOf(page, 'SENSOR-02')).toHaveText('15 分');
+    // 登録に成功すると、ダイアログは閉じる。開き直すと、取得間隔は、既定に戻っている
+    await openChildForm(page);
     await expect(childForm(page).getByLabel('取得間隔')).toHaveValue('');
+    await closeDialog(page);
 
     // 修正で、変更し、既定に戻す
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
@@ -523,6 +589,7 @@ test.describe('入力の検証（設備ID・名称・親のハウス）', () => 
 
       await addFacility(page, 'HOUSE-A', item.value);
 
+      await openFacilityForm(page);
       await expect(facilityForm(page).locator('[data-field="name"] .field-error')).toBeVisible();
       await expect(rows(page)).toHaveCount(0);
     });
@@ -543,6 +610,7 @@ test.describe('入力の検証（設備ID・名称・親のハウス）', () => 
   }) => {
     await prepareApp(request);
     await openEquipment(page);
+    await openChildForm(page);
     const form = childForm(page);
     await form.getByLabel('設備ID').fill('ROBOT-02');
     await form.getByLabel('名称').fill('2台目');
@@ -579,7 +647,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
 
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
     const edit = page.getByTestId('equipment-edit');
-    await expect(edit).toContainText('ロボット（ROBOT-01）を修正');
+    await expect(page.getByRole('dialog')).toHaveAccessibleName(/ロボット（ROBOT-01）を修正/);
     await expect(edit.getByLabel('設備ID')).toHaveCount(0);
     await expect(edit.getByLabel('種別')).toHaveCount(0);
     await shot(page, testInfo, 'uc12-edit');
@@ -593,13 +661,45 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(rowOf(page, 'ROBOT-01')).toContainText('ROBOT-FILE-9');
     await expect(rowOf(page, 'ROBOT-01')).toContainText('/data/robot-01.json');
     await expect(page.getByTestId('equipment-edit')).toHaveCount(0);
-    // ヘッダーの設備の選択にも反映される
-    await expect(page.getByRole('banner').getByLabel('対象の設備')).toContainText(
-      '改名したロボット',
-    );
+    // 観点の詳細の「対象の設備」にも反映される
+    await page.goto('/viewpoints/harvestSpeed');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).toContainText('改名したロボット');
   });
 
-  test('ロボットを別のハウスへ移せる（親のハウスの変更）', async ({ page, request }) => {
+  test('ロボットを別のハウスへ移せる（親のハウスの変更。確認のダイアログで確定する。Issue #163）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEquipment(page);
+    await addFacility(page, 'HOUSE-B', 'Bハウス');
+    await expect(notice(page)).toHaveText('登録しました');
+
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    const edit = page.getByTestId('equipment-edit');
+    await edit.getByLabel('親のハウス').selectOption('HOUSE-B');
+    await edit.getByRole('button', { name: '保存' }).click();
+    // 保存の前に、影響を示す確認を挟む（修正のダイアログの前面に出る）
+    const confirm = page.getByTestId('confirm-dialog');
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText('親のハウスをハウス1からBハウスに変えます');
+    await shot(page, testInfo, 'uc12-parent-change-confirm');
+    await confirmDialog(page, '親のハウスを変更して保存');
+
+    await expect(notice(page)).toHaveText('修正しました');
+    // 階層: ハウス1 の直下にセンサー、Bハウス の直下にロボット（ハウスの並びは、登録の順）
+    const order = await rows(page).evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-equipment-id')),
+    );
+    expect(order).toHaveLength(4);
+    expect(order.indexOf('SENSOR-01')).toBe(order.indexOf('HOUSE-01') + 1);
+    expect(order.indexOf('ROBOT-01')).toBe(order.indexOf('HOUSE-B') + 1);
+  });
+
+  test('親のハウスを変えるときの確認（SC-10-7）: 変更前・変更後のハウスの名称と、影響（割り当て・評価・通知・過去の評価）を示す。キャンセルすると、保存せず、修正のダイアログに戻る', async ({
+    page,
+    request,
+  }) => {
     await prepareApp(request);
     await openEquipment(page);
     await addFacility(page, 'HOUSE-B', 'Bハウス');
@@ -610,14 +710,47 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await edit.getByLabel('親のハウス').selectOption('HOUSE-B');
     await edit.getByRole('button', { name: '保存' }).click();
 
-    await expect(notice(page)).toHaveText('修正しました');
-    // 階層: ハウス1 の直下にセンサー、Bハウス の直下にロボット（ハウスの並びは、登録の順）
+    const confirm = page.getByTestId('confirm-dialog');
+    await expect(confirm.getByRole('heading')).toHaveText('親のハウスを変更しますか');
+    await expect(confirm.locator('.dialog-details')).toContainText('収穫ロボット1');
+    await expect(confirm.locator('.dialog-details')).toContainText('ハウス1');
+    await expect(confirm.locator('.dialog-details')).toContainText('Bハウス');
+    await expect(confirm).toContainText('閲覧できる利用者（割り当て）と、ハウスの評価が変わります');
+    await expect(confirm.locator('.dialog-notes li')).toHaveText([
+      'この設備のデータは、新しいハウスの配下のものとして評価されます',
+      '通知と過去の評価は、元のハウスのまま残ります',
+    ]);
+    await expect(confirm).not.toContainText('HOUSE-B');
+    await confirm.getByRole('button', { name: 'キャンセル' }).click();
+
+    await expect(confirm).toHaveCount(0);
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    await expect(edit.getByLabel('親のハウス')).toHaveValue('HOUSE-B');
+    await expect(notice(page)).toHaveCount(0);
+    // 保存していない: 階層は、そのまま（ハウス1 の直下に、ロボットとセンサー）
+    await edit.getByRole('button', { name: 'キャンセル' }).click();
     const order = await rows(page).evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute('data-equipment-id')),
     );
-    expect(order).toHaveLength(4);
-    expect(order.indexOf('SENSOR-01')).toBe(order.indexOf('HOUSE-01') + 1);
-    expect(order.indexOf('ROBOT-01')).toBe(order.indexOf('HOUSE-B') + 1);
+    expect(order.indexOf('ROBOT-01')).toBe(order.indexOf('HOUSE-01') + 1);
+    expect(order.indexOf('SENSOR-01')).toBe(order.indexOf('HOUSE-01') + 2);
+  });
+
+  test('親のハウスを変えない修正（名称だけ）は、確認を出さずに保存する（SC-10-7）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEquipment(page);
+
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    const edit = page.getByTestId('equipment-edit');
+    await edit.getByLabel('名称').fill('名称だけ変えたロボット');
+    await edit.getByRole('button', { name: '保存' }).click();
+
+    await expect(notice(page)).toHaveText('修正しました');
+    await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+    await expect(rowOf(page, 'ROBOT-01')).toContainText('名称だけ変えたロボット');
   });
 
   test('修正の入力が不正なら（名称が空）、エラーを表示する。キャンセルで、修正をやめられる', async ({
@@ -638,7 +771,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(rowOf(page, 'HOUSE-01')).toContainText('ハウス1');
   });
 
-  test('ロボットを削除すると（確認を求める。論理削除）、一覧・ヘッダーから外れ、評価の対象から外れる。過去のデータは残る', async ({
+  test('ロボットを削除すると（確認を求める）、一覧・ヘッダーから外れ、評価の対象から外れる。設備のデータも、削除される（D-28）', async ({
     page,
     request,
   }, testInfo) => {
@@ -652,19 +785,30 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
 
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '削除' }).click();
     await expect(page.getByTestId('confirm-dialog')).toContainText('設備を削除しますか');
-    await expect(page.getByTestId('confirm-dialog')).toContainText('過去のデータは残ります');
+    await expect(page.getByTestId('confirm-dialog')).toContainText('観測値・手動入力・評価結果');
+    await expect(page.getByTestId('confirm-dialog')).toContainText(
+      '農業情報基盤に送信済みのデータは、削除されません',
+    );
     await shot(page, testInfo, 'uc12-confirm');
     await confirmDialog(page, '削除');
 
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(notice(page)).toHaveText(
+      '削除を始めました。データの削除には、数分かかることがあります',
+    );
     await expect(rowOf(page, 'ROBOT-01')).toHaveCount(0);
-    await expect(page.getByRole('banner').getByLabel('対象の設備')).not.toContainText(
+    await page.goto('/viewpoints/harvestSpeed');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).not.toContainText(
       '収穫ロボット1',
     );
-    // 過去のデータは、残る（取り込み済みデータの一覧に、設備IDで表示される）
-    await page.goto('/observations');
+    // 設備のデータは、削除中から、計測データの一覧に出ない。削除（ジョブ）が終わっても、出ない
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
-      1,
+      0,
+    );
+    await finishEquipmentDeletions(request);
+    await page.reload();
+    await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
+      0,
     );
     // 削除した設備のダッシュボードは、開けない
     const response = await apiOk<{ facilities: { children: unknown[] }[] }>(
@@ -711,7 +855,7 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(rowOf(page, 'SENSOR-01')).toHaveCount(1);
   });
 
-  test('ハウスを削除すると、配下のロボット・センサーも削除する（確認の文言で、その旨を示す）', async ({
+  test('ハウスを削除すると、配下のロボット・センサーも削除する。確認の文言で、その旨を示し、ハウスの名前を入力して確認する（D-28）', async ({
     page,
     request,
   }) => {
@@ -719,12 +863,20 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await openEquipment(page);
 
     await rowOf(page, 'HOUSE-01').getByRole('button', { name: '削除' }).click();
-    await expect(page.getByTestId('confirm-dialog')).toContainText(
-      '配下のロボット・環境センサーも含めて',
-    );
+    const dialog = page.getByTestId('confirm-dialog');
+    await expect(dialog).toContainText('配下のロボット・環境センサー');
+    await expect(dialog).toContainText('元に戻せません');
+    await expect(dialog).toContainText('農業情報基盤に送信済みのデータは、削除されません');
+    // ハウスの名前を入力するまで、削除できない
+    const confirm = dialog.getByRole('button', { name: '削除', exact: true });
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId('confirm-typed-input').fill('ハウス1');
+    await expect(confirm).toBeEnabled();
     await confirmDialog(page, '削除');
 
-    await expect(notice(page)).toHaveText('削除しました');
+    await expect(notice(page)).toHaveText(
+      '削除を始めました。データの削除には、数分かかることがあります',
+    );
     await expect(rows(page)).toHaveCount(0);
     await expect(page.getByTestId('equipment-empty')).toBeVisible();
     // ダッシュボード・データ入力は、設備がない旨を示す
@@ -732,81 +884,103 @@ test.describe('代替フロー: 構成の変更（修正・削除）', () => {
     await expect(page.getByTestId('no-equipment')).toBeVisible();
   });
 
-  test('削除したロボットのデータ上の識別子のファイルは、取り込みの対象から外れる（「削除済みの設備」として別に数え、棄却数に含めない。観測値は増えず、ログも増やさない。Issue #231）', async ({
+  test('削除したロボットのファイルは、取り込みの対象から外れる（ファイルのパスで設備を決めるため、取得しない）。ほかのロボットのファイルは、取り込む', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 2 つ目のロボット（HTTP は、1 設備 = 1 ファイル。複数のファイルは、複数のロボットに言い換える）
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: 'HOUSE-01',
+      externalId: 'ROBOT-SAMPLE-02',
+    });
+    // どちらのロボットにも、ファイルを置いてから、ROBOT-01 を削除する
+    await placeFile(
+      request,
+      'robot',
+      'deleted-robot.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 7 } }),
+    );
+    await placeFile(
+      request,
+      'robot',
+      'second-robot.json',
+      robotJson({ hoursAgo: 0.4, fields: { harvestCount: 3 } }),
+      { equipmentId: 'ROBOT-02' },
+    );
     await openEquipment(page);
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '削除' }).click();
     await confirmDialog(page, '削除');
     await expect(rowOf(page, 'ROBOT-01')).toHaveCount(0);
 
-    placeFile(
-      'robot',
-      'after-delete.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }]),
-    );
-
     await goToMenu(page, '取り込み');
-    // 削除済みの設備のレコード 1 件は、読み取れなかった記録（棄却）に数えず、別に数える
+    // 削除したロボットのファイルは、取得しない（ファイル 1 件だけ）
     await expect(await runNow(page, 'robot')).toContainText(
-      'ファイル 1 件、取り込み 0 件、読み取れなかった記録 0 件、削除済みの設備の記録 1 件',
+      'ファイル 1 件、取り込み 1 件、読み取れなかった記録 0 件',
     );
-    // 削除済みの設備のレコードだけの実行は、ログに残さない
-    await expect(logRows(page)).toHaveCount(0);
-    await page.goto('/observations');
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(page.getByTestId('observation-row').filter({ hasText: 'ROBOT-01' })).toHaveCount(
       0,
     );
+    await expect(
+      page.getByTestId('observation-row').filter({ hasText: '収穫ロボット2' }),
+    ).toContainText('3個');
   });
 
-  test('データ上の識別子を修正すると、新しい識別子のファイルが、その設備として取り込まれ、古い識別子のファイルは対象から外れる', async ({
+  test('データ上の識別子を修正しても、取り込みには影響しない（ファイルは、ファイルのパスの設備として取り込まれる。識別子で照合しない）', async ({
     page,
     request,
   }) => {
     await prepareApp(request);
+    // 2 つ目のロボット（HTTP は、1 設備 = 1 ファイル。複数のファイルは、複数のロボットに言い換える）
+    await apiOk(request, 'POST', '/equipment', {
+      equipmentId: 'ROBOT-02',
+      equipmentType: 'ROBOT',
+      name: '収穫ロボット2',
+      facilityId: 'HOUSE-01',
+      externalId: 'ROBOT-SAMPLE-02',
+    });
     await openEquipment(page);
     await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
     await page.getByTestId('equipment-edit').getByLabel('データ上の識別子').fill('ROBOT-FILE-9');
     await page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click();
     await expect(notice(page)).toHaveText('修正しました');
 
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      'new-id.json',
-      robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 7 } }], 'ROBOT-FILE-9'),
+      'first.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 7 } }),
     );
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      'old-id.json',
-      robotJson([{ hoursAgo: 0.4, fields: { harvestCount: 3 } }], ROBOT_EXTERNAL_ID),
+      'second.json',
+      robotJson({ hoursAgo: 0.4, fields: { harvestCount: 3 } }),
+      { equipmentId: 'ROBOT-02' },
     );
     await runJob(request, 'JB-01');
 
     await goToMenu(page, '取り込み');
-    // 新しい識別子のファイル: 設備のログ（ファイル 1・取得 1・読み取れなかった 0）。古い識別子のファイル: どの設備にも結びつかず、
-    // 取り込み元単位のログ（ファイル 1・取得 0・読み取れなかった 1。Issue #201）
+    // どちらのファイルも、そのファイルのパスの設備のログ（ファイル 1・取得 1・読み取れなかった 0）
     const robotLogs = logRows(page).filter({ hasText: 'ロボット' });
     await expect(robotLogs).toHaveCount(2);
-    const linked = robotLogs.filter({ has: page.locator('.log-result', { hasText: /^成功$/ }) });
-    const unlinked = robotLogs.filter({
-      has: page.locator('.log-result', { hasText: /^一部成功$/ }),
-    });
-    await expect(linked.locator('td').nth(4)).toHaveText('1');
-    await expect(linked.locator('td').nth(5)).toHaveText('1');
-    await expect(linked.locator('td').nth(6)).toHaveText('0');
-    await expect(unlinked.locator('td').nth(4)).toHaveText('1');
-    await expect(unlinked.locator('td').nth(5)).toHaveText('0');
-    await expect(unlinked.locator('td').nth(6)).toHaveText('1');
-    await page.goto('/observations');
-    await expect(
-      page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
-    ).toHaveCount(1);
-    // 取り込まれたのは、新しい識別子のファイル（収穫数 7）
+    for (const log of await robotLogs.all()) {
+      await expect(log.locator('.log-result')).toHaveText('成功');
+      await expect(log.locator('td').nth(4)).toHaveText('1');
+      await expect(log.locator('td').nth(5)).toHaveText('1');
+      await expect(log.locator('td').nth(6)).toHaveText('0');
+    }
+    await page.goto(`/observations${itemListQuery()}`);
     await expect(
       page.getByTestId('observation-row').filter({ hasText: '収穫ロボット1' }),
     ).toContainText('7個');
+    await expect(
+      page.getByTestId('observation-row').filter({ hasText: '収穫ロボット2' }),
+    ).toContainText('3個');
   });
 });
 
@@ -843,7 +1017,16 @@ test.describe('閲覧の割り当て（ハウスごと）。Issue #330。ADR-001
 
     // ハウス2 の「閲覧の割り当て」で、一般ユーザーを選んで、保存する
     await rowOf(page, 'HOUSE-02').getByRole('button', { name: '閲覧の割り当て' }).click();
-    await expect(panel(page).getByRole('heading')).toContainText('ハウス2');
+    // ダイアログ（名前は、ハウス名を含む）に、ユーザーの一覧の表（閲覧・ユーザーID・ユーザー名）がある（Issue #365）
+    await expect(page.getByRole('dialog', { name: /ハウス2/ })).toBeVisible();
+    await expect(panel(page).getByRole('columnheader')).toHaveText([
+      '閲覧',
+      'ユーザーID',
+      'ユーザー名',
+    ]);
+    await expect(
+      panel(page).getByTestId('facility-access-row').filter({ hasText: GENERAL.userId }),
+    ).toContainText(GENERAL.userName);
     const save = panel(page).getByRole('button', { name: '割り当てを保存' });
     await expect(save).toBeDisabled();
     await panel(page)
@@ -860,7 +1043,11 @@ test.describe('閲覧の割り当て（ハウスごと）。Issue #330。ADR-001
     // 一般ユーザー（別のブラウザ）: 設備の選択は、ハウス2（と配下）だけ。ハウス1 は、存在しないものとして扱う（404）
     const general = await newUserSession(browser, testInfo, 'general');
     await openAs(general.page, '/', GENERAL);
-    const select = general.page.getByLabel('対象の設備');
+    const houses = general.page.getByLabel('対象のハウス');
+    await expect(houses).toContainText('ハウス2');
+    await expect(houses).not.toContainText('ハウス1');
+    await general.page.goto('/viewpoints/harvestSpeed');
+    const select = general.page.getByRole('main').getByLabel('対象の設備');
     await expect(select).toContainText('ハウス2');
     await expect(select).toContainText('収穫ロボット2');
     await expect(select).not.toContainText('ハウス1');
@@ -905,6 +1092,9 @@ test.describe('権限: 設備を変更する権限のない利用者（閲覧者
     // 閲覧の割り当て（ユーザーを管理する権限が要る）の列・操作も、表示しない
     await expect(page.getByRole('button', { name: '閲覧の割り当て' })).toHaveCount(0);
     await expect(page.getByRole('columnheader', { name: '閲覧できるユーザー' })).toHaveCount(0);
+    // 登録のボタンも、フォームも、ない（Issue #364）
+    await expect(page.getByRole('button', { name: 'ハウスの登録' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'ロボット・環境センサーの登録' })).toHaveCount(0);
     await expect(facilityForm(page)).toHaveCount(0);
     await shot(page, testInfo, 'uc12-readonly');
     const login = await request.post('/api/v1/auth/login', {
@@ -935,6 +1125,8 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
 
     // UC-14: 別の利用者（農作業者B）を登録する
     await goToMenu(page, 'ユーザー');
+    // ユーザーの登録は、ダイアログで行う（Issue #366）
+    await page.getByRole('button', { name: 'ユーザーの登録' }).click();
     const userForm = page.getByTestId('user-add');
     await userForm.getByLabel('ユーザーID').fill(USER_B.userId);
     await userForm.getByLabel('ユーザー名').fill(USER_B.userName);
@@ -947,7 +1139,7 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await settlePassword(request, USER_B);
 
     // UC-12: ハウス・ロボット・環境センサーを登録する（データ上の識別子で、ファイルの内容と対応づける）
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await addFacility(page, 'HOUSE-01', 'ハウス1');
     await expect(notice(page)).toHaveText('登録しました');
     await addChild(page, {
@@ -968,26 +1160,26 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await expect(rows(page)).toHaveCount(3);
     await shot(page, testInfo, 'uc12-scenario-equipment');
 
-    // UC-15: 取り込みの設定を確認し、接続テストを行う
+    // UC-15: 取り込みの設定を確認し、設備の接続テストを行う（ファイルのパス・接続を設定していない設備は、接続できない旨を示す）
     await goToMenu(page, '取り込み');
     await expect(page.getByTestId('source-robot')).toBeVisible();
-    await expect(await testConnection(page, 'robot')).toContainText('接続');
+    await expect(await testEquipmentConnection(page, 'ROBOT-01')).toContainText('接続');
 
     // UC-08・UC-09: ファイルサーバーのファイルを、即時取得で取り込む（環境センサーは、異常な温度）
-    placeFile(
+    await placeFile(
+      request,
       'robot',
       'robot.json',
-      robotJson([
-        {
-          hoursAgo: 1,
-          fields: { harvestCount: 10, operatingHours: 0.25, statusCode: 'HARVESTING' },
-        },
-      ]),
+      robotJson({
+        hoursAgo: 1,
+        fields: { harvestCount: 10, operatingHours: 0.25, statusCode: 'HARVESTING' },
+      }),
     );
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await expect(await runNow(page, 'robot')).toContainText('取得しました（成功）');
     await expect(await runNow(page, 'environment-sensor')).toContainText('取得しました（成功）');
@@ -1008,11 +1200,14 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
       .filter({ hasText: '環境センサー1' });
     await expect(alert).toContainText('異常');
 
-    // UC-02・UC-04: 通知から観点の詳細を開き、診断と推奨アクションを確認する（開くと、その通知は既読になる）
+    // UC-02・UC-04: 通知から観点の詳細（ダッシュボード上のドロワー）を開き、診断と推奨アクションを確認する（開くと、その通知は既読になる）
     await alert.getByRole('link', { name: '詳細を確認' }).click();
-    await expect(page.getByRole('heading', { name: '環境適応性', level: 1 })).toBeVisible();
+    const drawer = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(drawer.getByRole('heading', { name: '環境適応性', level: 2 })).toBeVisible();
     await expect(page.getByTestId('recommended-action')).toBeVisible();
     await expect(unreadBadge(page)).toHaveText(String(unread - 1));
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
 
     // UC-06: 復旧の対応を記録する（ロボットの故障情報）。保存すると、関連する観点のステータスを示す
     await goToMenu(page, 'データ入力');
@@ -1038,16 +1233,18 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
       .getByLabel('備考（所感・補足情報）')
       .fill('通信ケーブルとコネクタを交換した');
     await page.getByTestId('entry-edit').getByRole('button', { name: '保存' }).click();
-    await expect(page.getByTestId('entries-notice')).toHaveText('修正しました');
+    await expect(page.getByTestId('entries-notice').getByRole('heading')).toHaveText(
+      '修正しました',
+    );
     await page.getByRole('link', { name: '変更履歴を見る' }).click();
     await expect(page.getByTestId('audit-row').filter({ hasText: '手動入力' })).toHaveCount(2);
 
-    // UC-11・UC-16: 連携を実行し、連携の状況（成功・キューの件数）を確認する
+    // UC-11・UC-16: 連携を実行し、連携の状況（送信済み・キューの件数）を確認する
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-03');
     await goToMenu(page, '取り込み');
     await page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(federationRows(page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(page).first().locator('.log-result')).toHaveText('送信済み');
     await expect(page.getByTestId('queue-HELD')).toContainText('0');
     await shot(page, testInfo, 'uc12-scenario-federation');
 
@@ -1066,7 +1263,94 @@ test.describe('シナリオ: 構成の登録から、取り込み・確認・復
     await b.context.close();
 
     // UC-13: ログアウトする
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
+  });
+});
+
+test.describe('設備の登録の案内（SC-10-5・SC-10-9。Issue #367）', () => {
+  test('SC-10-5: 設備IDに使える文字の説明を、ハウス・ロボット・環境センサーの登録のダイアログに示す。ファイルのパスの案内も示す。修正のダイアログには、設備IDの入力も説明もない', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEquipment(page);
+
+    await openFacilityForm(page);
+    const rule = page.getByTestId('equipment-id-rule');
+    await expect(rule).toContainText(
+      '設備IDに使える文字は、英数字・ハイフン（-）・アンダースコア（_）',
+    );
+    await expect(rule).toContainText('先頭は英数字、100 文字以内');
+    await expect(rule).toContainText('登録後は、変更できません');
+    await closeDialog(page);
+
+    await openChildForm(page);
+    await expect(rule).toContainText('英数字・ハイフン（-）・アンダースコア（_）');
+    await expect(page.getByTestId('equipment-file-path-guide')).toContainText(
+      'ファイルのパスを設定すると、取り込みの対象になります',
+    );
+    await shot(page, testInfo, 'uc12-register-guide');
+    await closeDialog(page);
+
+    // 修正: 設備IDは変更できない（入力も、説明もない）。ロボットには、ファイルのパスの案内を示し、ハウスには示さない
+    await rowOf(page, 'ROBOT-01').getByRole('button', { name: '修正' }).click();
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    await expect(page.getByTestId('equipment-id-rule')).toHaveCount(0);
+    await expect(page.getByTestId('equipment-file-path-guide')).toBeVisible();
+    await closeDialog(page);
+    await rowOf(page, 'HOUSE-01').getByRole('button', { name: '修正' }).click();
+    await expect(page.getByTestId('equipment-edit')).toBeVisible();
+    await expect(page.getByTestId('equipment-id-rule')).toHaveCount(0);
+    await expect(page.getByTestId('equipment-file-path-guide')).toHaveCount(0);
+    await expect(page.getByTestId('equipment-connection')).toHaveCount(0);
+  });
+
+  test('SC-10-9: ハウスを登録すると、続けてロボット・環境センサーを登録する案内を示し、ボタンで登録のダイアログを開ける。ロボット・環境センサーを登録すると、データ入力へ進む案内を示す', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request, { equipment: false });
+    await openEquipment(page);
+    await expect(page.getByTestId('equipment-next-step')).toHaveCount(0);
+
+    await addFacility(page, 'HOUSE-A', 'Aハウス');
+
+    await expect(notice(page)).toHaveText('登録しました');
+    const next = page.getByTestId('equipment-next-step');
+    await expect(next).toContainText(
+      'ハウスを登録しました。続けて、ロボット・環境センサーを登録できます',
+    );
+    await shot(page, testInfo, 'uc12-next-after-facility');
+    await page.getByTestId('equipment-next-register-child').click();
+    await expect(childForm(page)).toBeVisible();
+    await expect(next).toHaveCount(0);
+
+    await addChild(page, {
+      type: 'ROBOT',
+      facility: 'HOUSE-A',
+      id: 'ROBOT-A',
+      name: 'A収穫ロボット',
+    });
+
+    await expect(notice(page)).toHaveText('登録しました');
+    await expect(next).toContainText('ロボット・環境センサーを登録しました');
+    await expect(next).toContainText(
+      '自動取り込み（ファイルのパスと接続を設定した場合）か、手動入力で追加できます',
+    );
+    await expect(page.getByTestId('equipment-next-register-child')).toHaveCount(0);
+    await shot(page, testInfo, 'uc12-next-after-child');
+    await page.getByTestId('equipment-next-data-entry').click();
+    await expect(page).toHaveURL(/\/data-entry$/);
+  });
+
+  test('次の案内は、登録のダイアログを開くと消える', async ({ page, request }) => {
+    await prepareApp(request, { equipment: false });
+    await openEquipment(page);
+    await addFacility(page, 'HOUSE-A', 'Aハウス');
+    await expect(page.getByTestId('equipment-next-step')).toBeVisible();
+
+    await openChildForm(page);
+    await expect(page.getByTestId('equipment-next-step')).toHaveCount(0);
   });
 });

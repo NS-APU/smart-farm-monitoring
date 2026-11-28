@@ -30,10 +30,11 @@ beforeEach(() => {
 });
 
 describe('自身のユーザー名の編集（FR-9.7）', () => {
-  it('ヘッダーの「ユーザー名の変更」から開く（一般を含む）。現在のユーザー名が入っている', async () => {
+  it('ヘッダーのユーザーメニューの「ユーザー名の変更」から開く（一般を含む）。現在のユーザー名が入っている', async () => {
     renderApp('/', routes(), { login: GENERAL_LOGIN });
 
-    fireEvent.click(await screen.findByRole('link', { name: 'ユーザー名の変更' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^ログイン中のユーザー/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'ユーザー名の変更' }));
 
     expect((await screen.findByLabelText<HTMLInputElement>('ユーザー名')).value).toBe('農作業者A');
     expect(screen.getByRole('heading', { name: 'ユーザー名の変更' })).toBeDefined();
@@ -56,7 +57,7 @@ describe('自身のユーザー名の編集（FR-9.7）', () => {
 
     expect((await screen.findByTestId('profile-saved')).textContent).toContain('変更しました');
     expect(callsOf(calls, 'PUT', '/auth/profile')[0]?.body).toEqual({ userName: '新しい表示名' });
-    expect(screen.getByLabelText('ログイン中のユーザー').textContent).toBe('新しい表示名');
+    expect(screen.getByTestId('user-name').textContent).toBe('新しい表示名');
   });
 
   it('前後の空白は、取り除いて送る', async () => {
@@ -116,7 +117,7 @@ describe('自身のユーザー名の編集（FR-9.7）', () => {
 
     expect((await screen.findByText('このユーザー名は使えません')).textContent).toBeDefined();
     expect(screen.queryByTestId('profile-saved')).toBeNull();
-    expect(screen.getByLabelText('ログイン中のユーザー').textContent).toBe('農作業者A');
+    expect(screen.getByTestId('user-name').textContent).toBe('農作業者A');
   });
 
   it('保存に失敗したら、失敗した旨を示す（変更した旨は示さない）', async () => {

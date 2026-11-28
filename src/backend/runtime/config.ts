@@ -84,13 +84,6 @@ const EnvSchema = z.object({
   COGNITO_CLIENT_ID: z.string().min(1).optional(),
   /** AWS のリージョン（Lambda では、実行環境が設定する）。 */
   AWS_REGION: z.string().min(1).optional(),
-  /** ファイルサーバーのモックのルート。`<ルート>/<取り込み元>/` に合成データのファイルを置く。 */
-  FILE_SERVER_DIR: z.string().min(1).default('.local-data/file-server'),
-  /**
-   * ファイルサーバーのモックの S3 のバケット名（Issue #77。ADR-0012）。指定すると、ローカルのディレクトリ（FILE_SERVER_DIR）ではなく、
-   * S3 の `<バケット>/<取り込み元>/` を使う。Lambda には、ローカルのディレクトリがないため、評価環境は、これを指定する。
-   */
-  FILE_SERVER_S3_BUCKET: z.string().min(1).optional(),
   /**
    * 秘密情報（接続先の認証情報・Web Push の秘密鍵）の保管先（Issue #206。D-55）。memory = メモリ（ローカル・テスト）、
    * ssm = パラメータストア（SecureString。本番・開発サイト）。名前に SECRET・KEY を含めない（環境変数に、秘密情報を持たない検査のため）
@@ -151,6 +144,16 @@ const EnvSchema = z.object({
    * vapid: プッシュサービスへ実際に送る（VAPID。秘密鍵は、秘密情報の web-push/vapid-private-key）。公開鍵・連絡先が必要。
    */
   WEB_PUSH_DELIVERY: z.enum(['dummy', 'vapid']).default('dummy'),
+  /**
+   * 画面から、取り込み用のファイルを置く保管先の、S3 のバケット名（Issue #565。ADR-0027。自前のファイルサーバーのバケット）。
+   * 指定すると、S3 に置く。指定しなければ、本番（production）は、この機能を無効にする（置こうとすると、503）。それ以外のモードは、メモリに置く。
+   */
+  HOSTED_FILE_SERVER_BUCKET: z
+    .string()
+    .min(3)
+    .max(63)
+    .regex(/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/)
+    .optional(),
   /** Web Push の VAPID の連絡先（アプリの https の URL。個人のメールアドレスは、設定に持たない）。 */
   WEB_PUSH_SUBJECT: z
     .url({ protocol: /^https$/ })
@@ -248,9 +251,6 @@ export interface AppConfig {
   readonly dynamodb: DynamoDbConfig | undefined;
   /** AUTH_PROVIDER=cognito のときだけ。 */
   readonly cognito: CognitoConfig | undefined;
-  readonly fileServerDirectory: string;
-  /** ファイルサーバーのモックの S3 のバケット名（指定すると、S3 を使う）。未指定なら、ローカルのディレクトリ。 */
-  readonly fileServerBucket: string | undefined;
   /** 秘密情報の保管先。ssm のときは、パスの接頭辞が要る。 */
   readonly secrets: {
     readonly provider: 'memory' | 'ssm';
@@ -279,6 +279,8 @@ export interface AppConfig {
   readonly webPushDelivery: 'dummy' | 'vapid';
   /** VAPID の連絡先（https の URL）。vapid のときは必ずある。 */
   readonly webPushSubject: string | undefined;
+  /** 画面から置くファイルの保管先の、S3 のバケット名（#565。ADR-0027）。未設定は、本番では機能なし・それ以外はメモリ。 */
+  readonly hostedFileServerBucket: string | undefined;
   /** 開発用の API（時計・モック・リセット）を有効にするか。環境変数で明示したときだけ有効で、本番では常に無効。 */
   readonly devApiEnabled: boolean;
   /** ファイルサーバー（HTTP）の接続先に、内部のアドレスを許可するか（本番は、常に false）。 */
@@ -479,8 +481,6 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     dataFile: parsed.DATA_FILE,
     dynamodb,
     cognito,
-    fileServerDirectory: parsed.FILE_SERVER_DIR,
-    fileServerBucket: parsed.FILE_SERVER_S3_BUCKET,
     secrets: parseSecrets(parsed),
     seedMode: parsed.SEED_MODE,
     evaluationOnWrite: parsed.EVALUATION_ON_WRITE,
@@ -501,6 +501,7 @@ export function parseConfig(env: Readonly<Record<string, string | undefined>>): 
     webPushPublicKey: parsed.WEB_PUSH_PUBLIC_KEY,
     webPushDelivery: parsed.WEB_PUSH_DELIVERY,
     webPushSubject: parsed.WEB_PUSH_SUBJECT,
+    hostedFileServerBucket: parsed.HOSTED_FILE_SERVER_BUCKET,
     devApiEnabled: parsed.DEV_API_ENABLED && parsed.APP_MODE !== 'production',
     httpFileSourceAllowPrivate:
       parsed.HTTP_FILE_SOURCE_ALLOW_PRIVATE && parsed.APP_MODE !== 'production',

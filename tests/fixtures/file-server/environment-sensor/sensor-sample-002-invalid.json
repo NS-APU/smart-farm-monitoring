@@ -1,20 +1,7 @@
 {
-  "sensorId": "SENSOR-SAMPLE-01",
-  "records": [
-    {
-      "timestamp": "2026-10-09T01:45:00Z",
-      "temperatureCelsius": "abc",
-      "humidityPercent": 120,
-      "illuminanceLux": 30000,
-      "co2Ppm": 880
-    },
-    {
-      "timestamp": "2026-10-09T02:00:00Z",
-      "temperatureCelsius": 22.0
-    },
-    {
-      "temperatureCelsius": 22.0,
-      "humidityPercent": 50
-    }
-  ]
+  "timestamp": "2026-10-09T01:45:00Z",
+  "temperature": "abc",
+  "humidity": 120,
+  "illuminance": 30000,
+  "co2": 880
 }

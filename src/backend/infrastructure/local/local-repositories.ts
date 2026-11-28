@@ -5,8 +5,10 @@
  */
 
 import { ObservationSchema, observationKey } from '@smart-farm/shared/schemas/observation';
+import type { ClockPort } from '../../application/ports/clock-port.ts';
 import type { Repositories } from '../../application/ports/repositories.ts';
 import { createLocalStore, type LocalStore, type LocalStoreOptions } from './local-store.ts';
+import { createEquipmentDeletionRepository } from './repositories/equipment-deletion-repository.ts';
 import { createEvaluationRepository } from './repositories/evaluation-repository.ts';
 import {
   createFederationRepository,
@@ -17,6 +19,7 @@ import {
   createEquipmentRepository,
   createSettingsRepository,
   createStatusCodeRepository,
+  createUnregisteredStatusCodeRepository,
 } from './repositories/master-data-repositories.ts';
 import { createNotificationRepository } from './repositories/notification-repository.ts';
 import { createObservationRepository } from './repositories/observation-repository.ts';
@@ -35,33 +38,41 @@ export interface LocalRepositories {
   readonly store: LocalStore;
 }
 
-export function createLocalRepositories(options: LocalStoreOptions = {}): LocalRepositories {
+export interface LocalRepositoriesOptions extends LocalStoreOptions {
+  /** 時計。渡したときだけ、ログ類の期限切れ（90 日。Issue #230）を、読み書きのときに消す。 */
+  readonly clock?: ClockPort | undefined;
+}
+
+export function createLocalRepositories(options: LocalRepositoriesOptions = {}): LocalRepositories {
   const store = createLocalStore(options);
 
   // コレクションの登録の順序は、ファイルへ書き出す順序になる（そのため、組み立ての順序を保つ）
   const equipment = createEquipmentRepository(store);
   const statusCodes = createStatusCodeRepository(store);
+  const unregisteredStatusCodes = createUnregisteredStatusCodeRepository(store);
   const criteria = createCriteriaRepository(store);
   // 観測値は、設備ごとの索引を持つ。読み込み・全消去で、索引を作り直す
   const observations = createObservationRepository(
     store.collection('observations', ObservationSchema, observationKey),
   );
 
-  const ingestion = createIngestionRepository(store);
+  const ingestion = createIngestionRepository(store, options.clock);
 
   const repositories: Repositories = {
     equipment,
     statusCodes,
+    unregisteredStatusCodes,
     criteria,
     observations: observations.repository,
     evaluations: createEvaluationRepository(store),
     notifications: createNotificationRepository(store),
     ingestion: ingestion.repository,
-    federation: createFederationRepository(store),
+    federation: createFederationRepository(store, options.clock),
     auditLogs: createAuditLogRepository(store),
     manualEntries: createManualEntryRepository(store),
     users: createUserRepository(store),
     facilityAccess: createFacilityAccessRepository(store),
+    equipmentDeletions: createEquipmentDeletionRepository(store),
     pushSubscriptions: createPushSubscriptionRepository(store),
     settings: createSettingsRepository(store),
   };

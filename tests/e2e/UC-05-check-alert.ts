@@ -13,7 +13,7 @@
  *               ・通知が取り込み失敗（UC-24）の場合は、取り込みの状況を確認し（UC-16）、設定や接続先を見直す
  *   事後条件    農作業者が、異常に対応している、または対応を判断している
  *
- * 値の同値分割: 通知の種類（異常検知・取り込み失敗）、ステータス（注意・異常）、対象（ハウス・センサー）、確認の経路（ヘッダー・通知の一覧・ダッシュボード）、
+ * 値の同値分割: 通知の種類（状態の悪化・取り込み失敗）、ステータス（注意・異常）、対象（センサー・ロボット。運用面の観点はハウス）、確認の経路（ヘッダー・通知の一覧・ダッシュボード）、
  * 既読の状態（未読・既読）、利用者（通知を受け取る人・確認する人。別のブラウザ）。
  * 関連するユースケース: UC-10（通知の発生）、UC-02・UC-04（根拠・推奨アクション）、UC-06・UC-07（記録）、UC-22（一覧・既読）、UC-24・UC-16・UC-15。
  */
@@ -29,14 +29,14 @@ import {
   alignBrowserClock,
   confirmDialog,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
-  setMock,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile, setFileServerMode } from './support/http-files.ts';
 import { fillEntryForm, saveEntry } from './support/entry.ts';
 import { seedAbnormalEnvironment } from './support/notifications.ts';
 import {
@@ -47,6 +47,7 @@ import {
   shot,
 } from './support/viewpoint-scenarios.ts';
 import { locatorOf } from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const rows = locatorOf('notification-row');
 
@@ -79,26 +80,33 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     const unreadBefore = Number(await unreadBadge(page).textContent());
     await notification.getByRole('link', { name: '詳細を確認' }).click();
 
-    // 3. 異常の対象・内容・根拠のメトリクス（UC-02）
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('環境適応性');
-    await expect(page.locator('.page-meta')).toContainText('対象: 環境センサー1');
+    // 3. 異常の対象・内容・根拠のメトリクス（UC-02）。観点の詳細は、ダッシュボード上のドロワーで開く（SC-05-6。全画面のページ /viewpoints/… ではない）
+    const drawer = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(drawer).toBeVisible();
+    await expect(page).toHaveURL(/\/\?viewpoint=environmentalAdaptability$/);
+    await expect(drawer.getByRole('heading', { name: /環境適応性/, level: 2 })).toBeVisible();
+    await expect(drawer.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      '環境センサー1',
+    );
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('異常');
     await expect(page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
-    await expect(page.getByTestId('metric-temperatureCelsius').locator('td').first()).toHaveText(
-      '40.0℃',
-    );
-    await expect(page.getByTestId('metric-temperatureCelsius').locator('td').nth(1)).toContainText(
-      '異常',
-    );
+    await expect(
+      page.getByTestId('metric-period-temperatureCelsius').locator('.metric-cell-value'),
+    ).toHaveText('40.0℃');
+    await expect(
+      page.getByTestId('metric-period-temperatureCelsius').locator('.metric-cell-judgement'),
+    ).toContainText('異常');
     // 4. 推奨アクション（UC-04）
     await expect(page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await shot(page, testInfo, 'uc05-detail');
 
     // 6. 確認した通知は、既読になる（ヘッダーの件数が、減る）
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore - 1));
-    await goToMenu(page, '通知');
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await goToNotifications(page);
     await expect(
       rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
     ).toHaveAttribute('data-read-state', 'READ');
@@ -133,11 +141,12 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     await openAs(page, '/notifications');
     const notification = rows(page)
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: 'ハウス1' });
+      .filter({ hasText: '環境センサー1' });
     await expect(notification.locator('.status-badge')).toContainText('注意');
 
     await notification.getByRole('link', { name: '詳細を確認' }).click();
 
+    await expect(page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
     await expect(page.getByTestId('recommended-action')).toContainText('確認が望ましい状態です');
   });
 
@@ -161,20 +170,26 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
     await shot(page, testInfo, 'uc05-notifications-robot');
     await notification.getByRole('link', { name: '詳細を確認' }).click();
 
-    // 異常の対象（ロボット）・内容・根拠のメトリクス・推奨アクション
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('収穫精度');
-    await expect(page.locator('.page-meta')).toContainText('対象: 収穫ロボット1');
+    // 異常の対象（ロボット）・内容・根拠のメトリクス・推奨アクション（ダッシュボード上のドロワー）
+    const drawer = page.getByRole('dialog', { name: '収穫精度の詳細' });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('heading', { name: /収穫精度/, level: 2 })).toBeVisible();
+    await expect(drawer.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      '収穫ロボット1',
+    );
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('異常');
     await expect(
-      page.getByTestId('metric-marketableFruitRatePercent').locator('td').first(),
+      page.getByTestId('metric-period-marketableFruitRatePercent').locator('.metric-cell-value'),
     ).toHaveText('78.3%');
     await expect(page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await shot(page, testInfo, 'uc05-detail-robot');
 
     await expect(unreadBadge(page)).toHaveText(String(unreadBefore - 1));
-    await goToMenu(page, '通知');
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await goToNotifications(page);
     await expect(
       rows(page).filter({ hasText: '収穫精度' }).filter({ hasText: '収穫ロボット1' }),
     ).toHaveAttribute('data-read-state', 'READ');
@@ -192,12 +207,14 @@ test.describe('代替フロー: 通知に気づかなかった場合も、ダッ
 
     await openAs(page, '/');
 
-    const card = page.getByTestId('card-environmentalAdaptability');
+    const card = page.getByTestId('period-environmentalAdaptability');
     await expect(card.locator('.status-badge')).toContainText('異常');
     await expect(card.locator('.diagnostic')).toContainText('温度 40.0℃（異常）');
     await expect(card.locator('.action')).toContainText('対応が必要な状態です');
     await expect(unreadBadge(page)).not.toHaveText('0');
-    await expect(page.getByTestId('summary-ERROR').locator('.summary-count')).not.toHaveText('0');
+    await expect(page.getByTestId('summary-period-ERROR').locator('.summary-count')).not.toHaveText(
+      '0',
+    );
   });
 });
 
@@ -207,14 +224,14 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
     request,
   }, testInfo) => {
     await prepareApp(request);
-    await setMock(request, 'file-server', 'DOWN');
+    await setFileServerMode(request, 'DOWN');
     await alignBrowserClock(page);
     await openAs(page, '/settings/ingestion');
     await page.getByTestId('source-robot').getByRole('button', { name: '即時取得' }).click();
     await expect(page.getByTestId('result-robot')).toContainText('取得しました（失敗）');
     await expect(unreadBadge(page)).toHaveText('1');
 
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await rows(page)
       .filter({ hasText: 'データ取得失敗' })
       .getByRole('link', { name: '取り込みの状況を確認' })
@@ -225,17 +242,28 @@ test.describe('代替フロー: 通知が取り込み失敗の場合は、取り
       'ファイルサーバーに接続できませんでした',
     );
     await expect(unreadBadge(page)).toHaveText('0');
-    // 設定を見直す（接続先の参照名の変更）→ 復旧 → 取り込む
-    await page
-      .getByTestId('source-robot')
-      .getByLabel('接続先（接続設定の参照名）')
-      .fill('FILE_SERVER_NEW');
-    await page.getByTestId('source-robot').getByRole('button', { name: '設定を保存' }).click();
-    await expect(page.getByTestId('result-robot')).toHaveText('設定を保存しました');
-    await setMock(request, 'file-server', 'UP');
-    placeFile('robot', 'a.json', robotJson([{ hoursAgo: 0.5, fields: { harvestCount: 10 } }]));
-    await page.getByTestId('source-robot').getByRole('button', { name: '接続テスト' }).click();
-    await expect(page.getByTestId('result-robot')).toHaveText('接続できました');
+    // 接続先を見直す（SC-11 の設備ごとの表から、設備のダイアログの「取り込み元の接続」を開き、接続テストで確かめる）→ 復旧 → 取り込む
+    await page.getByTestId(`equipment-configure-${ROBOT_ID}`).click();
+    const connection = page.getByTestId('equipment-connection');
+    await expect(connection.getByLabel('ホスト名')).toHaveValue('127.0.0.1');
+    await connection.getByTestId('equipment-connection-test').click();
+    await expect(connection.getByTestId('equipment-connection-result')).toContainText(
+      '接続できませんでした（ファイルサーバーに接続できません）',
+    );
+    await setFileServerMode(request, 'UP');
+    await placeFile(
+      request,
+      'robot',
+      'a.json',
+      robotJson({ hoursAgo: 0.5, fields: { harvestCount: 10 } }),
+    );
+    await connection.getByTestId('equipment-connection-test').click();
+    await expect(connection.getByTestId('equipment-connection-result')).toHaveText(
+      '接続できました',
+    );
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await goToMenu(page, '取り込み');
     // 復旧後は、即時取得で、取り込める
     await page.getByTestId('source-robot').getByRole('button', { name: '即時取得' }).click();
     await expect(page.getByTestId('result-robot')).toContainText('取得しました（成功）');
@@ -264,7 +292,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     });
     await saveEntry(page);
     await expect(
-      page.getByTestId('related-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('related-period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
 
     // 利用者B: ログインし、未読の通知を確認する（UC-05 の 1・2）
@@ -273,13 +301,16 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     const unreadForB = Number(await unreadBadge(b.page).textContent());
     expect(unreadForB).toBeGreaterThanOrEqual(2);
     await b.page.getByRole('link', { name: /未読の通知/ }).click();
-    const target = rows(b.page).filter({ hasText: '環境適応性' }).filter({ hasText: 'ハウス1' });
+    const target = rows(b.page)
+      .filter({ hasText: '環境適応性' })
+      .filter({ hasText: '環境センサー1' });
     await expect(target).toHaveAttribute('data-read-state', 'UNREAD');
 
     // 利用者B: 異常の対象・内容・根拠・推奨アクションを確認する（UC-05 の 3・4。UC-02・UC-04）
     await target.getByRole('link', { name: '詳細を確認' }).click();
     await expect(b.page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
+    await expandPanel(b.page, 'source-data');
     await expect(b.page.getByTestId('source-data')).toContainText('手動入力');
     await shot(b.page, testInfo, 'uc05-scenario-b-detail');
     // 6. 確認した通知が、既読になる（Bの未読が減る）
@@ -315,13 +346,13 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     // ダッシュボード（UC-01）: 状態が改善している（長期の平均が下がり、環境適応性は、注意または正常）
     await b.page.goto('/');
     await expect(
-      b.page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      b.page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
 
     // 利用者A: 自分の未読は、Bの既読に影響されない。通知を確認して、すべて既読にする（UC-22）
     await page.goto('/notifications');
     await expect(
-      rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: 'ハウス1' }),
+      rows(page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
     ).toHaveAttribute('data-read-state', 'UNREAD');
     await page.getByRole('button', { name: 'すべての通知を既読にする' }).click();
     await confirmDialog(page, '既読にする');
@@ -329,11 +360,13 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     // 利用者B: 自分の既読は、そのまま（Aが全件を既読にしても、Bの既読・未読には影響しない）
     await b.page.goto('/notifications');
     await expect(
-      rows(b.page).filter({ hasText: '環境適応性' }).filter({ hasText: 'ハウス1' }),
-    ).toHaveAttribute('data-read-state', 'READ');
-    await expect(
       rows(b.page).filter({ hasText: '環境適応性' }).filter({ hasText: '環境センサー1' }),
-    ).toHaveAttribute('data-read-state', 'UNREAD');
+    ).toHaveAttribute('data-read-state', 'READ');
+    // Bが開いていない通知（データ活用度合い）は、Aが既読にしても、Bには未読のまま
+    await expect(rows(b.page).filter({ hasText: 'データ活用度合い' })).toHaveAttribute(
+      'data-read-state',
+      'UNREAD',
+    );
     await b.context.close();
   });
 });

@@ -1,6 +1,8 @@
 /**
  * 定期的に取得し直すフック。画面の更新は約10秒間隔で、タブが表示されているときだけ行う
  * （FR-6.7、coding-standards.md「フロントエンド」）。タブが非表示から表示に戻ったときは、次の間隔を待たず、すぐに取得し直す。
+ * 間隔に null を指定すると、自動の再取得（定期・タブへ戻ったとき）をしない。最初の取得と、reload（手動の更新）だけで取得する
+ * （読み取りの量が大きい画面で、読み取りを増やさないため。変更履歴の、対象を絞った表示。#155）。
  * 取得関数（fetcher）が変わったら、読み込み中の状態に戻して、取得し直す。
  * 取得済みのデータがあるときの、更新の一時的な失敗（モバイル回線の切断など）では、データを保持し、
  * 失敗は refreshError で伝える（画面の表示を消さない）。連続して失敗が続いたら、データを破棄してエラーにする。
@@ -22,6 +24,8 @@ export interface PollingState<Data> {
   readonly isLoading: boolean;
   /** すぐに取得し直す。 */
   readonly reload: () => void;
+  /** 取得（成功・失敗）が完了した回数。手動の更新の完了を知るために使う（Issue #355）。 */
+  readonly version: number;
 }
 
 interface Result<Data> {
@@ -56,10 +60,11 @@ function afterFailure<Data>(
 
 export function usePolling<Data>(
   fetcher: () => Promise<Data>,
-  intervalMs: number = POLLING_INTERVAL_MS,
+  intervalMs: number | null = POLLING_INTERVAL_MS,
 ): PollingState<Data> {
   const [result, setResult] = useState<Result<Data> | undefined>(undefined);
   const [reloadCount, setReloadCount] = useState(0);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,16 +73,23 @@ export function usePolling<Data>(
         (data) => {
           if (!cancelled) {
             setResult({ fetcher, data, failures: 0 });
+            setVersion((count) => count + 1);
           }
         },
         (error: unknown) => {
           if (!cancelled) {
             setResult((previous) => afterFailure(previous, fetcher, toError(error)));
+            setVersion((count) => count + 1);
           }
         },
       );
     };
     load();
+    if (intervalMs === null) {
+      return () => {
+        cancelled = true;
+      };
+    }
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible') {
         load();
@@ -108,5 +120,6 @@ export function usePolling<Data>(
     refreshError: current?.refreshError,
     isLoading: current === undefined,
     reload,
+    version,
   };
 }

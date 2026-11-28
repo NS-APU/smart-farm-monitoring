@@ -8,7 +8,14 @@ import { bundledLambdaCode } from '../lib/bundle-lambda.ts';
 
 const BACKEND_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/lambda.ts');
 const JOB_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/job-lambda.ts');
-const FEED_HANDLER = join(import.meta.dirname, '../../src/backend/runtime/demo-feed-lambda.ts');
+const FEED_HANDLER = join(
+  import.meta.dirname,
+  '../../src/backend/runtime/demo-feed-http-lambda.ts',
+);
+const FILE_SERVER_HANDLER = join(
+  import.meta.dirname,
+  '../../src/backend/runtime/hosted-file-server-lambda.ts',
+);
 // それぞれの入口だけが持つ文言（まとめた結果から、どちらのコードかを見分ける）
 const JOB_ONLY_MESSAGE = 'ジョブの識別子（jobId）が不正です';
 const API_ONLY_MESSAGE = '/health';
@@ -168,7 +175,7 @@ describe('API とジョブの Lambda を、1 つの合成に入れたとき（Is
       .filter((dir) => existsSync(join(dir, 'index.js')))
       .map((dir) => decodeUnicodeEscapes(readFileSync(join(dir, 'index.js'), 'utf8')));
 
-    // 入口が違えば、まとめも別（共有すると、1 つしかできない）。API・ジョブ・合成データの生成の 3 つ
+    // 入口が違えば、まとめも別（共有すると、1 つしかできない）。API・ジョブ・デモ用の HTTP 配信の 3 つ
     expect(bundles).toHaveLength(3);
     // ジョブの入口だけが持つ文言（入力の検証のエラー）。ジョブのコードは 1 つだけで、API のコードには、ない
     const jobBundles = bundles.filter((bundle) => bundle.includes(JOB_ONLY_MESSAGE));
@@ -177,5 +184,36 @@ describe('API とジョブの Lambda を、1 つの合成に入れたとき（Is
     const apiBundles = bundles.filter((bundle) => bundle.includes(API_ONLY_MESSAGE));
     expect(apiBundles).toHaveLength(1);
     expect(jobBundles[0]).not.toContain(API_ONLY_MESSAGE);
+  });
+});
+
+describe('自前のファイルサーバーの Lambda のハンドラ（まとめた結果。Issue #298）', () => {
+  it('S3・パラメータストアの SDK を含む 1 ファイルになり、そのまま読み込める。DynamoDB・Cognito のコードは含まない', () => {
+    const bundlePath = bundleBackendHandler(FILE_SERVER_HANDLER);
+    const bundled = readFileSync(bundlePath, 'utf8');
+
+    expect(bundled).toContain('PutObject');
+    expect(bundled).toContain('GetParameter');
+    // 別の関数・別の権限にするため、データ・認証のコード（DynamoDB・Cognito）を持ち込まない
+    expect(bundled).not.toContain('BatchWriteItem');
+    expect(bundled).not.toContain('AdminInitiateAuth');
+    expect(statSync(bundlePath).size).toBeLessThan(8 * 1024 * 1024);
+
+    // まとめた結果を、別のプロセスで読み込み、ハンドラを呼ぶ（まとめた結果の、解決できない import などを検出する）。
+    // 環境変数がないので、AWS には接続せず、環境変数の誤りで失敗する（読み込み・組み立ての入口までが、動くことの確認）
+    const script = [
+      `const { handler } = require(${JSON.stringify(bundlePath)});`,
+      "handler({ rawPath: '/robot/a.json', requestContext: { http: { method: 'GET' } } }).then(",
+      "  () => process.stdout.write('resolved'),",
+      "  (error) => process.stdout.write('rejected:' + String(error.message)),",
+      ');',
+    ].join('\n');
+    const env: Record<string, string | undefined> = { ...process.env, LOG_LEVEL: 'error' };
+    delete env.HOSTED_FILE_SERVER_BUCKET;
+    delete env.CREDENTIAL_PATH_PREFIX;
+    const output = execFileSync(process.execPath, ['-e', script], { env, encoding: 'utf8' });
+
+    expect(output).toContain('rejected:');
+    expect(output).toContain('HOSTED_FILE_SERVER_BUCKET');
   });
 });

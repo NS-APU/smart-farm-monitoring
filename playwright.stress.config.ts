@@ -62,10 +62,11 @@ export default defineConfig({
         APP_MODE: 'test',
         // 開発用 API（時計・モック・ジョブの起動）は、既定で無効。UI のないユースケースの計測のため、明示的に有効にする
         DEV_API_ENABLED: 'true',
+        // 取り込みの HTTP のファイルサーバー（ADR-0025）は、手元（127.0.0.1）のテスト用サーバーに接続する。内部のアドレスの拒否は、既定で有効
+        HTTP_FILE_SOURCE_ALLOW_PRIVATE: 'true',
         TRUSTED_PROXY_HOPS: '1',
         PORT: String(BACKEND_PORT),
         PERSISTENCE: 'memory',
-        FILE_SERVER_DIR: 'test-result/stress/file-server',
         SEED_MODE: 'NONE',
         INITIAL_USER_ID: STRESS_USER.userId,
         INITIAL_USER_NAME: STRESS_USER.userName,

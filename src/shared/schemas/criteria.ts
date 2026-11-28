@@ -11,7 +11,15 @@
 import { z } from 'zod';
 import type { FieldError } from '../errors.ts';
 import { getMetricMeta } from '../constants/metrics.ts';
-import { IsoDateTimeSchema, UserIdSchema, ViewpointIdSchema } from './common.ts';
+import {
+  EquipmentIdSchema,
+  EquipmentTypeSchema,
+  EvaluationStatusSchema,
+  EvaluationWriteStateSchema,
+  IsoDateTimeSchema,
+  UserIdSchema,
+  ViewpointIdSchema,
+} from './common.ts';
 import { toFieldErrors } from './field-errors.ts';
 
 /** 判断基準の条件の上限（FR-5.7）。 */
@@ -145,8 +153,50 @@ export type ViewpointCriteria = z.infer<typeof ViewpointCriteriaSchema>;
 /** 判断基準の編集（SC-13）の応答: 判断基準と、ステータスコードでも判定する観点か（その指標は編集できない）。 */
 export const CriteriaViewSchema = ViewpointCriteriaSchema.extend({
   usesStatusIndicator: z.boolean(),
+  /**
+   * 最終変更者の表示名。読み取り時に、現在のユーザー名から付ける（保存しない。削除済みの利用者は、項目を出さない。
+   * 画面は、「ユーザー名（ID）」で表示する。Issue #154 の SC-07-7）。
+   */
+  updatedByName: z.string().optional(),
 });
 export type CriteriaView = z.infer<typeof CriteriaViewSchema>;
+
+/** PUT /viewpoints/{viewpointId}/criteria・POST .../reset の応答: 判断基準の編集の応答と、評価の状態（ADR-0014。項目がなければ、`DONE` とみなす）。 */
+export const CriteriaSaveResponseSchema = CriteriaViewSchema.extend({
+  evaluation: EvaluationWriteStateSchema.optional(),
+});
+export type CriteriaSaveResponse = z.infer<typeof CriteriaSaveResponseSchema>;
+
+/** 影響のプレビューの、設備 1 件（名称は、画面に示すため）。 */
+const PreviewEquipmentSchema = z.object({
+  equipmentId: EquipmentIdSchema,
+  equipmentName: z.string(),
+  equipmentType: EquipmentTypeSchema,
+});
+
+/**
+ * POST /viewpoints/{viewpointId}/criteria/preview の応答（SC-13-2。ADR-0017 の D-24）。入力途中の閾値を、保存済みの評価結果に当てて、
+ * 再判定した結果（保存しない）。観点の状態（短期・長期の既定の期間のうち「不明」を除いた悪い方）が変わる設備だけを、`changes` に含める。
+ */
+export const CriteriaPreviewResponseSchema = z.object({
+  viewpointId: ViewpointIdSchema,
+  /** 再判定に使った保存済みの結果のうち、最も古い評価日時。使った結果がなければ null。 */
+  evaluatedAt: IsoDateTimeSchema.nullable(),
+  /** 対象の設備の数（閲覧できる、この観点の対象の設備。削除済みを除く）。 */
+  targetCount: z.number().int().nonnegative(),
+  /** 状態が変わる設備。「現在」は、現在の判断基準を保存済みの結果に当てた判定、「変更後」は、入力途中の判断基準を当てた判定。 */
+  changes: z.array(
+    PreviewEquipmentSchema.extend({
+      current: EvaluationStatusSchema,
+      after: EvaluationStatusSchema,
+    }),
+  ),
+  /** 一度も評価されていない設備（保存済みの結果がない。再判定できない）。 */
+  unevaluated: z.array(PreviewEquipmentSchema),
+  /** 状態が「不明」の設備の数（判断基準によらない理由のため、変えても「不明」のまま。再判定の対象外）。 */
+  unknownCount: z.number().int().nonnegative(),
+});
+export type CriteriaPreviewResponse = z.infer<typeof CriteriaPreviewResponseSchema>;
 
 /** 判断基準の入力を検証し、項目ごとのエラーを返す（空配列なら有効）。 */
 export function validateCriteriaInput(input: unknown): FieldError[] {

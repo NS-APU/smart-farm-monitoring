@@ -5,6 +5,7 @@
 
 import {
   DEFAULT_PERIOD_DAYS,
+  type EvaluationStatus,
   type Horizon,
   type PeriodDays,
 } from '@smart-farm/shared/constants/status';
@@ -16,13 +17,16 @@ import {
 import type { EquipmentId } from '@smart-farm/shared/schemas/common';
 import { staleThresholdMinutesOf, type Equipment } from '@smart-farm/shared/schemas/equipment';
 import type {
+  CurrentResult,
   DashboardResponse,
   DataFreshness,
   EvaluationResult,
+  StatusCounts,
   ViewpointCard,
 } from '@smart-farm/shared/schemas/evaluation';
 import { MS_PER_MINUTE, toIsoOrNull } from '@smart-farm/shared/time';
 import { combineHorizonStatuses } from '../../domain/evaluation/grading.ts';
+import type { ViewpointDefinition } from '../../domain/evaluation/definition.ts';
 import { UNKNOWN_ACTION } from '../../domain/evaluation/messages.ts';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import { resolveEvaluationScope } from '../evaluation/scope.ts';
@@ -70,6 +74,40 @@ function buildUnevaluatedCard(meta: ViewpointMeta): ViewpointCard {
     evaluatedTo: null,
     isCustomCriteria: false,
     horizonUsed: 'LONG',
+    evaluatedAt: null,
+    current: null,
+  };
+}
+
+/** 「現在」（短期の結果）。短期を持たない観点（結果がない）は null。主要メトリクスは、「期間」と同じ（観点の定義）。 */
+function buildCurrent(
+  definition: Pick<ViewpointDefinition, 'dashboardMetrics'>,
+  shortResult: EvaluationResult | undefined,
+): CurrentResult | null {
+  if (shortResult === undefined) {
+    return null;
+  }
+  return {
+    status: shortResult.status,
+    metrics: Object.fromEntries(
+      definition.dashboardMetrics.map((metricId) => [
+        metricId,
+        shortResult.metrics[metricId] ?? null,
+      ]),
+    ),
+    metricStatuses: Object.fromEntries(
+      definition.dashboardMetrics.flatMap((metricId) => {
+        const status = shortResult.indicatorStatuses[metricId];
+        return status === undefined ? [] : [[metricId, status]];
+      }),
+    ),
+    statusDetail: shortResult.statusDetail,
+    diagnosticMessage: shortResult.diagnosticMessage,
+    recommendedAction: shortResult.recommendedAction,
+    evaluatedFrom: shortResult.evaluatedFrom,
+    evaluatedTo: shortResult.evaluatedTo,
+    evaluatedAt: shortResult.evaluatedAt,
+    isCustomCriteria: shortResult.isCustomCriteria,
   };
 }
 
@@ -107,16 +145,35 @@ function buildCard(
     evaluatedTo: display.evaluatedTo,
     isCustomCriteria: display.isCustomCriteria,
     horizonUsed,
+    evaluatedAt: longResult.evaluatedAt,
+    current: buildCurrent(definition, shortResult),
   };
 }
 
-/** 観点のカードを、最終ステータスごとに数える。 */
-function summarize(cards: readonly ViewpointCard[]): DashboardResponse['summary'] {
-  const summary = { NORMAL: 0, CAUTION: 0, ERROR: 0, UNKNOWN: 0 };
-  for (const card of cards) {
-    summary[card.status] += 1;
+/** ステータスを数える。 */
+function countStatuses(statuses: readonly EvaluationStatus[]): StatusCounts {
+  const counts = { NORMAL: 0, CAUTION: 0, ERROR: 0, UNKNOWN: 0 };
+  for (const status of statuses) {
+    counts[status] += 1;
   }
-  return summary;
+  return counts;
+}
+
+/** 観点のカードを、最終ステータス（悪い方）ごとに数える。 */
+function summarize(cards: readonly ViewpointCard[]): StatusCounts {
+  return countStatuses(cards.map((card) => card.status));
+}
+
+/** 「現在」（短期の評価）のステータスごとの観点の数。短期を持たない観点は、数えない。 */
+function summarizeCurrent(cards: readonly ViewpointCard[]): StatusCounts {
+  return countStatuses(
+    cards.flatMap((card) => (card.current === null ? [] : [card.current.status])),
+  );
+}
+
+/** 「期間」（選んだ期間の評価）のステータスごとの観点の数。 */
+function summarizePeriod(cards: readonly ViewpointCard[]): StatusCounts {
+  return countStatuses(cards.map((card) => card.statuses.long));
 }
 
 /**
@@ -215,6 +272,8 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
           lastManualInputAt: toIsoOrNull(latestOfDates([...manualAt.values()])),
           staleEquipment: [],
           summary: summarize(cards),
+          currentSummary: summarizeCurrent(cards),
+          periodSummary: summarizePeriod(cards),
           viewpoints: cards,
         };
       }
@@ -239,6 +298,8 @@ export function createDashboardQuery(deps: DashboardQueryDeps): DashboardQuery {
         lastManualInputAt: null,
         staleEquipment,
         summary: summarize(cards),
+        currentSummary: summarizeCurrent(cards),
+        periodSummary: summarizePeriod(cards),
         viewpoints: cards,
       };
     },

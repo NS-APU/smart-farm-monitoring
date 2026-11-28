@@ -10,8 +10,14 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { CATEGORY_LABELS } from '@smart-farm/shared/constants/items';
 import { VIEWPOINTS } from '@smart-farm/shared/constants/viewpoints';
+import { expandPanel } from '../e2e/support/helpers.ts';
 import { stubPush } from '../e2e/support/push.ts';
-import { clearSourceFiles, placeRobotFiles, placeSensorFiles } from './support/files.ts';
+import {
+  putSeededFiles,
+  seededUnits,
+  setFileServerMode,
+  useHttpFiles,
+} from './support/http-files.ts';
 import type { LimitKey } from './support/limits.ts';
 import { measure, measureRefresh, trackApi, type ActionSteps } from './support/recorder.ts';
 import { STRESS_USER } from './support/scale.ts';
@@ -32,8 +38,8 @@ import {
 const USER = STRESS_USER.userId;
 const HOUSE_1 = '負荷試験ハウス1';
 const ROBOT_NAME = '負荷試験ロボット1-1';
-/** 即時取得・定期取り込みで置くファイルの規模（1ファイル 144 記録）。 */
-const FILES = { count: 5, recordsPerFile: 144 };
+/** 即時取得・定期取り込みで置くファイルの規模（設備ごとに 1 ファイル。シードのロボット・センサーの台数。1 ファイルは、その時点のスナップショット 1 つ）。 */
+const FILES = { count: seededUnits().length };
 
 /** 一覧の各行（テスト ID）。 */
 const rowsOf = (page: Page, testId: string): Locator => page.getByTestId(testId);
@@ -75,15 +81,23 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const banner = page.getByRole('banner');
   const menu = (name: string) =>
     page.getByRole('navigation', { name: 'メニュー' }).getByRole('link', { name, exact: true });
-  const breadcrumbBack = () =>
-    page
-      .getByRole('navigation', { name: 'パンくず' })
-      .getByRole('link', { name: 'ダッシュボード' });
+  // 観点の詳細は、ダッシュボードの上の右からのドロワーに開く（Issue #357）。ダッシュボードへ戻るのは、ドロワーを閉じる操作
+  const drawerClose = () =>
+    page.getByRole('dialog').getByRole('button', { name: '観点の詳細を閉じる' });
   const backToDashboard = (): Promise<unknown> =>
-    m('UC-01', 'ダッシュボードへ戻る（パンくず）', 'ダッシュボード（SC-02）', 'dashboardInitial', {
-      act: () => breadcrumbBack().click(),
-      respond: () => expectDashboardShown(page),
-    });
+    m(
+      'UC-01',
+      'ダッシュボードへ戻る（観点の詳細のドロワーを閉じる）',
+      'ダッシュボード（SC-02）',
+      'dashboardInitial',
+      {
+        act: () => drawerClose().click(),
+        respond: async () => {
+          await expect(page.getByRole('dialog')).toHaveCount(0);
+          await expectDashboardShown(page);
+        },
+      },
+    );
 
   // ---------------------------------------------------------------------------------------------
   // UC-13 ログイン
@@ -118,41 +132,35 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await screenshot(page, '01-dashboard-house1');
-  const switchEquipment = async (id: string, name: string, what: string): Promise<void> => {
+  // 対象のハウス（ダッシュボードはハウス単位。ロボット・センサーは、観点の詳細の「対象の設備」で選ぶ。Issue #355）
+  const switchHouse = async (id: string, name: string, what: string): Promise<void> => {
     await m(
       'UC-01',
-      `対象の設備を${what}に切り替える`,
+      `対象のハウスを${what}に切り替える`,
       'ダッシュボード（SC-02）',
       'dashboardInitial',
       {
-        act: () => banner.getByLabel('対象の設備').selectOption(id),
+        act: () => page.getByLabel('対象のハウス').selectOption(id),
         respond: () => expectDashboardShown(page, name),
       },
     );
   };
-  await switchEquipment('HOUSE-02', '負荷試験ハウス2', 'ハウス2（ロボット2台・センサー2台）');
+  await switchHouse('HOUSE-02', '負荷試験ハウス2', 'ハウス2（ロボット2台・センサー2台）');
   await screenshot(page, '02-dashboard-house2');
-  await switchEquipment('HOUSE-03', '負荷試験ハウス3', 'ハウス3');
-  await switchEquipment('ROBOT-01', ROBOT_NAME, 'ロボット（7観点）');
-  await screenshot(page, '03-dashboard-robot');
-  await switchEquipment('SENSOR-01', '負荷試験センサー1-1', 'センサー（1観点）');
-  await switchEquipment('HOUSE-01', HOUSE_1, 'ハウス1');
-  await m('UC-01', '視点を「短期」に切り替える', 'ダッシュボード（SC-02）', 'dashboardInitial', {
-    act: () => page.getByRole('radio', { name: '短期' }).check(),
-    respond: () => expectDashboardShown(page),
-  });
-  await m('UC-01', '視点を「長期」に戻す', 'ダッシュボード（SC-02）', 'dashboardInitial', {
-    act: () => page.getByRole('radio', { name: '長期' }).check(),
+  await switchHouse('HOUSE-03', '負荷試験ハウス3', 'ハウス3');
+  await switchHouse('HOUSE-01', HOUSE_1, 'ハウス1');
+  await m('UC-01', '「更新」を押す（手動の更新）', 'ダッシュボード（SC-02）', 'dashboardInitial', {
+    act: () => page.getByRole('button', { name: '更新' }).click(),
     respond: () => expectDashboardShown(page),
   });
   for (const label of ['当日', '直近30日', '直近60日', '直近90日', '直近7日']) {
     await m(
       'UC-01',
-      `長期の期間を「${label}」に切り替える`,
+      `期間を「${label}」に切り替える`,
       'ダッシュボード（SC-02）',
       'dashboardInitial',
       {
-        act: () => page.getByLabel('長期の期間').selectOption({ label }),
+        act: () => page.getByLabel('期間').last().selectOption({ label }),
         respond: () => expectDashboardShown(page),
       },
     );
@@ -186,7 +194,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   }
   await m(
     'UC-04',
-    '注意・異常の観点の推奨アクションを確認する（カードの「詳細を見る」）',
+    '注意・異常の観点の推奨アクションを確認する（カードの題名のリンク）',
     '観点の詳細（SC-03）',
     'screen',
     {
@@ -194,7 +202,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         page
           .locator('.viewpoint-card.status-border-error, .viewpoint-card.status-border-caution')
           .first()
-          .locator('.card-link')
+          .getByRole('heading')
+          .getByRole('link')
           .click(),
       respond: async () => {
         await expectDetailShown(page);
@@ -230,7 +239,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['直近7日', '日ごと'],
   ] as const) {
     await m('UC-03', `推移の期間を「${label}」に切り替える`, '観点の詳細・推移（SC-03）', 'trend', {
-      act: () => page.getByLabel('長期の期間').selectOption({ label }),
+      act: () => page.getByLabel('期間').last().selectOption({ label }),
       respond: async () => {
         await expectDetailShown(page);
         await expect(page.getByTestId('trend')).toContainText(`（${bucket}）`);
@@ -240,24 +249,19 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       await screenshot(page, '05-trend-30days');
     }
   }
+  // 視点（短期・長期）の切り替えは、ない。「現在」（短期の評価）は、診断の欄に、常に並んで示される（#591）
   await m(
     'UC-03',
-    '視点を「短期」に切り替える（短期のフィードバック）',
+    '「現在」と「期間の評価」を並べて確認する',
     '観点の詳細・推移（SC-03）',
     'trend',
     {
-      act: () => page.getByRole('radio', { name: '短期' }).check(),
-      respond: async () => {
-        await expectDetailShown(page);
-        await expect(page.getByTestId('feedback-short')).toBeVisible();
-      },
+      act: () => expect(page.getByTestId('diagnosis-current')).toBeVisible(),
+      respond: () => expectDetailShown(page),
     },
   );
-  await m('UC-03', '視点を「長期」に戻す', '観点の詳細・推移（SC-03）', 'trend', {
-    act: () => page.getByRole('radio', { name: '長期' }).check(),
-    respond: () => expectDetailShown(page),
-  });
-  // 元データの表のページ送り
+  // 元データの表のページ送り（元データの欄は、折りたたみ。測定の前に開く）
+  await expandPanel(page, 'source-data');
   await m('UC-02', '元データの表で、次のページを開く', '観点の詳細・元データ（SC-03）', 'screen', {
     act: () => page.getByTestId('source-data').getByRole('button', { name: '次へ' }).click(),
     respond: async () => {
@@ -267,15 +271,23 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   });
   await backToDashboard();
 
-  // 他の設備の観点の詳細（ロボット・センサー）
-  await switchEquipment('ROBOT-01', ROBOT_NAME, 'ロボット（7観点）');
-  await m('UC-02', 'ロボットの観点「耐久性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
+  // 他の設備の観点の詳細（ロボット・センサー）: 観点の詳細を開いてから、「対象の設備」に選ぶ（Issue #355）
+  await m('UC-02', '観点「耐久性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
     act: () => page.getByTestId('card-durability').getByRole('heading').getByRole('link').click(),
     respond: () => expectDetailShown(page),
   });
+  await m(
+    'UC-02',
+    '対象の設備を「ロボット」に切り替える（観点「耐久性」の詳細）',
+    '観点の詳細（SC-03）',
+    'screen',
+    {
+      act: () => page.getByLabel('対象の設備').selectOption('ROBOT-01'),
+      respond: () => expectDetailShown(page),
+    },
+  );
   await backToDashboard();
-  await switchEquipment('SENSOR-01', '負荷試験センサー1-1', 'センサー（1観点）');
-  await m('UC-02', 'センサーの観点「環境適応性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
+  await m('UC-02', '観点「環境適応性」の詳細を開く', '観点の詳細（SC-03）', 'screen', {
     act: () =>
       page
         .getByTestId('card-environmentalAdaptability')
@@ -284,8 +296,19 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         .click(),
     respond: () => expectDetailShown(page),
   });
+  await m(
+    'UC-02',
+    '対象の設備を「センサー」に切り替える（観点「環境適応性」の詳細）',
+    '観点の詳細（SC-03）',
+    'screen',
+    {
+      act: () => page.getByLabel('対象の設備').selectOption('SENSOR-01'),
+      respond: () => expectDetailShown(page),
+    },
+  );
   await backToDashboard();
-  await switchEquipment('HOUSE-01', HOUSE_1, 'ハウス1');
+  // ダッシュボードは、選択を、センサーのハウスにそろえる（ハウス1）
+  await expectDashboardShown(page, HOUSE_1);
 
   // ---------------------------------------------------------------------------------------------
   // UC-21 満足度（レーダーチャート）
@@ -309,10 +332,13 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await screenshot(page, '06-satisfaction');
   for (const label of ['直近30日', '直近90日']) {
     await m('UC-21', `長期の期間を「${label}」に切り替える`, '満足度（SC-04）', 'screen', {
-      act: () => page.getByLabel('長期の期間').selectOption({ label }),
+      act: () => page.getByLabel('期間').last().selectOption({ label }),
       respond: satisfactionShown,
     });
   }
+  // 満足度の詳細のドロワーを閉じる（次は、メニューで移る。ドロワーを開いたままでは、メニューを押せない）
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await m(
     'UC-01',
     'メニューから「ダッシュボード」を開く',
@@ -325,105 +351,92 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
 
   // ---------------------------------------------------------------------------------------------
-  // UC-20 取り込み済みデータ（約60万件）の一覧
+  // UC-20 計測データ（約60万件）の一覧
   // ---------------------------------------------------------------------------------------------
-  const observationRows = rowsOf(page, 'observation-row');
-  await m(
-    'UC-20',
-    'メニューから「取り込み済みデータ」を開く',
-    '取り込み済みデータ（SC-09）',
-    'screen',
-    {
-      act: () => menu('取り込み済みデータ').click(),
-      respond: async () => {
-        await expect(
-          page.getByRole('heading', { name: '取り込み済みデータ', level: 1 }),
-        ).toBeVisible();
-        await expectListShown(page, 'observation-row');
-      },
+  // 日時順（既定）は、1 回の計測ごとの行（measurement-row）。値・カテゴリの順は、項目ごとの行（observation-row。#363）
+  const measurementRows = rowsOf(page, 'measurement-row');
+  await m('UC-20', 'メニューから「計測データ」を開く', '計測データ（SC-09）', 'screen', {
+    act: () => menu('計測データ').click(),
+    respond: async () => {
+      await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
+      await expectListShown(page, 'measurement-row');
     },
-  );
+  });
   await screenshot(page, '07-observations');
-  await m('UC-20', 'カテゴリ「環境情報」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'カテゴリ「環境情報」で絞り込む', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('カテゴリ').selectOption('ENVIRONMENT'),
-    respond: () => expectEveryRowContains(observationRows, CATEGORY_LABELS.ENVIRONMENT),
+    respond: () => expectEveryRowContains(measurementRows, CATEGORY_LABELS.ENVIRONMENT),
   });
-  await m('UC-20', '取得元「手動入力」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '取得元「手動入力」で絞り込む', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('取得元').selectOption('MANUAL'),
-    respond: () => expectEveryRowContains(observationRows, '手動入力'),
+    respond: () => expectEveryRowContains(measurementRows, '手動入力'),
   });
-  await m(
-    'UC-20',
-    '取得元・カテゴリの絞り込みを解除する',
-    '取り込み済みデータ（SC-09）',
-    'screen',
-    {
-      act: async () => {
-        await page.getByLabel('取得元').selectOption('');
-        await page.getByLabel('カテゴリ').selectOption('');
-      },
-      respond: () => expectListShown(page, 'observation-row'),
+  await m('UC-20', '取得元・カテゴリの絞り込みを解除する', '計測データ（SC-09）', 'screen', {
+    act: async () => {
+      await page.getByLabel('取得元').selectOption('');
+      await page.getByLabel('カテゴリ').selectOption('');
     },
-  );
-  await m('UC-20', '設備「ハウス2」で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+    respond: () => expectListShown(page, 'measurement-row'),
+  });
+  await m('UC-20', '設備「ハウス2」で絞り込む', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('設備', { exact: true }).selectOption('ROBOT-02-1'),
-    respond: () => expectEveryRowContains(observationRows, '負荷試験ロボット2-1'),
+    respond: () => expectEveryRowContains(measurementRows, '負荷試験ロボット2-1'),
   });
-  await m('UC-20', '設備の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '設備の絞り込みを解除する', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('設備', { exact: true }).selectOption(''),
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
-  await m('UC-20', '期間（直近30日）で絞り込む', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '期間（直近30日）で絞り込む', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('期間（開始日）').fill(dateInput(30));
       await page.getByLabel('期間（終了日）').fill(dateInput(0));
     },
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
-  await m('UC-20', 'キーワード「温度」で検索する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'キーワード「温度」で検索する', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill('温度'),
-    respond: () => expectEveryRowContains(observationRows, '温度'),
+    respond: () => expectEveryRowContains(measurementRows, '温度'),
   });
-  await m('UC-20', 'キーワードを消して、検索を解除する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'キーワードを消して、検索を解除する', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('キーワード').fill(''),
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
-  await m('UC-20', '値の昇順で並べ替える', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '値の昇順で並べ替える', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('並べ替え', { exact: true }).selectOption('value');
       await page.getByLabel('並べ替えの向き').selectOption('asc');
     },
     respond: () => expectListShown(page, 'observation-row'),
   });
-  await m('UC-20', 'カテゴリ順に並べ替える', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', 'カテゴリ順に並べ替える', '計測データ（SC-09）', 'screen', {
     act: () => page.getByLabel('並べ替え', { exact: true }).selectOption('category'),
     respond: () => expectListShown(page, 'observation-row'),
   });
-  await m('UC-20', '日時の新しい順に戻す', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '日時の新しい順に戻す', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('並べ替え', { exact: true }).selectOption('observedAt');
       await page.getByLabel('並べ替えの向き').selectOption('desc');
     },
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   // 値・カテゴリの順の並べ替えと、キーワード検索は、期間（31 日以内）が必須（#91）のため、ここまで、直近 30 日の期間を指定したまま計測した
-  await m('UC-20', '期間の絞り込みを解除する', '取り込み済みデータ（SC-09）', 'screen', {
+  await m('UC-20', '期間の絞り込みを解除する', '計測データ（SC-09）', 'screen', {
     act: async () => {
       await page.getByLabel('期間（開始日）').fill('');
       await page.getByLabel('期間（終了日）').fill('');
     },
-    respond: () => expectListShown(page, 'observation-row'),
+    respond: () => expectListShown(page, 'measurement-row'),
   });
   for (const [action, button, expected] of [
     ['次のページを開く（2ページ目）', '次へ', '2'],
     ['次のページを開く（3ページ目）', '次へ', '3'],
     ['前のページへ戻る', '前へ', '2'],
   ] as const) {
-    await m('UC-20', action, '取り込み済みデータ（SC-09）', 'screen', {
+    await m('UC-20', action, '計測データ（SC-09）', 'screen', {
       act: () => page.getByRole('button', { name: button }).click(),
       respond: async () => {
         await expect(page.getByTestId('pager-page')).toHaveText(expected);
-        await expectListShown(page, 'observation-row');
+        await expectListShown(page, 'measurement-row');
       },
     });
   }
@@ -443,8 +456,11 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await form.getByLabel('対象の設備').selectOption('ROBOT-01');
   await form.getByLabel('カテゴリ').selectOption('FAILURE');
   await form.getByLabel('計測日時（日本時間）').fill(nextObservedAt());
-  await form.getByTestId('entry-items').getByLabel('故障回数').fill('1');
-  await form.getByTestId('entry-items').getByLabel('復旧に要した時間').fill('90');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }).fill('1');
+  await form
+    .getByTestId('entry-items')
+    .getByRole('textbox', { name: '復旧に要した時間' })
+    .fill('90');
   await form.getByLabel('備考（所感・補足情報）').fill('負荷試験: 走行モーターの異常を復旧した');
   await m(
     'UC-06',
@@ -463,8 +479,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await form.getByLabel('対象の設備').selectOption('SENSOR-01');
   await form.getByLabel('カテゴリ').selectOption('ENVIRONMENT');
   await form.getByLabel('計測日時（日本時間）').fill(nextObservedAt());
-  await form.getByTestId('entry-items').getByLabel('温度').fill('23');
-  await form.getByTestId('entry-items').getByLabel('湿度').fill('60');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '温度' }).fill('23');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '湿度' }).fill('60');
   await m(
     'UC-07',
     '自動取得できない環境の値（温度・湿度）を入力して「保存する」を押す',
@@ -490,8 +506,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await form.getByLabel('カテゴリ').selectOption('ENVIRONMENT');
   // 異常な値は、最も新しい計測日時（現在の分）で入力する（短期の評価は、最新の値を使う）
   await form.getByLabel('計測日時（日本時間）').fill(jstInput(new Date()));
-  await form.getByTestId('entry-items').getByLabel('温度').fill('40');
-  await form.getByTestId('entry-items').getByLabel('湿度').fill('60');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '温度' }).fill('40');
+  await form.getByTestId('entry-items').getByRole('textbox', { name: '湿度' }).fill('60');
   await m(
     'UC-10',
     '異常な値（温度 40℃）を入力して保存し、評価の更新・通知を起こす',
@@ -541,7 +557,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     {
       act: async () => `JB-04 の実行 ${String(await runJob(request, USER, 'JB-04'))} ms`,
       respond: async () => {
-        await menu('通知').click();
+        await page.getByRole('link', { name: /^未読の通知/ }).click();
         await expectListShown(page, 'notification-row');
       },
     },
@@ -551,7 +567,8 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // UC-18 入力済みデータ（約5,000件）の一覧・修正・削除・変更履歴
   // ---------------------------------------------------------------------------------------------
   const entryRows = rowsOf(page, 'entry-row');
-  const entryNotice = page.getByTestId('entries-notice');
+  // 修正・削除の結果（評価の更新の表示つき）の、見出し（D-27）
+  const entryNotice = page.getByTestId('entries-notice').getByRole('heading');
   await m(
     'UC-18',
     'データ入力の画面から「入力済みデータの一覧へ」を開く',
@@ -648,7 +665,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: () => expect(editor).toBeVisible(),
     },
   );
-  await editor.getByTestId('entry-items').getByLabel('温度').fill('24');
+  await editor.getByTestId('entry-items').getByRole('textbox', { name: '温度' }).fill('24');
   await m(
     'UC-18',
     '温度を修正して「保存」を押す（評価の更新を含む）',
@@ -772,18 +789,24 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const result = (id: 'robot' | 'environment-sensor') => page.getByTestId(`result-${id}`);
   const logRows = rowsOf(page, 'ingestion-log-row');
   const ingestionShown = async (): Promise<void> => {
-    await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
     await expect(sourceCard('robot')).toBeVisible();
     await expect(sourceCard('environment-sensor')).toBeVisible();
     await expectListShown(page, 'ingestion-log-row');
     await expect(rowsOf(page, 'federation-log-row').first()).toBeVisible();
   };
-  clearSourceFiles('robot');
-  clearSourceFiles('environment-sensor');
+  // ファイルサーバー（HTTP。設備ごとに 1 ファイル）。ファイルのパスを持つ設備だけが取得の対象のため、接続テストの前に、ファイルを置く
+  const fileServer = await useHttpFiles();
+  await putSeededFiles(request, USER, 'robot', {
+    startIndex: 0,
+  });
+  await putSeededFiles(request, USER, 'environment-sensor', {
+    startIndex: 0,
+  });
   await m(
     'UC-16',
     'メニューから「取り込み」を開く（取り込みのログ・連携の状況を表示）',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'screen',
     {
       act: () => menu('取り込み').click(),
@@ -795,40 +818,41 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['robot', 'ロボットデータ'],
     ['environment-sensor', '環境センサーデータ'],
   ] as const) {
-    // 取得間隔は、設備ごとの設定（Issue #197）。この画面では、接続先の参照名を変えずに、保存を押す
-    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み設定・状況（SC-11）', 'operation', {
+    // 取得間隔・接続は、設備ごとの設定（Issue #197・#367）。この画面では、自動取り込みの有効／無効（変えずに）の保存を押す
+    await m('UC-15', `${name}の「設定を保存」を押す`, '取り込み（SC-11）', 'operation', {
       act: () => sourceCard(id).getByRole('button', { name: '設定を保存' }).click(),
       respond: () => expect(result(id)).toHaveText('設定を保存しました'),
     });
   }
+  // 接続テストは、設備ごとの表の「接続テスト」（Issue #367）。シードの最初のロボットで行う
+  const firstRobotId = seededUnits()[0]?.robot.equipmentId ?? '';
   await m(
     'UC-15',
-    'ロボットデータの「接続テスト」を押す',
-    '取り込み設定・状況（SC-11）',
+    'ロボット 1 台の「接続テスト」を押す（設備ごとの表）',
+    '取り込み（SC-11）',
     'operation',
     {
-      act: () => sourceCard('robot').getByRole('button', { name: '接続テスト' }).click(),
-      respond: () => expect(result('robot')).toBeVisible(),
+      act: () => page.getByTestId(`equipment-test-${firstRobotId}`).click(),
+      respond: () =>
+        expect(page.getByTestId(`equipment-test-result-${firstRobotId}`)).toBeVisible(),
     },
   );
 
   // UC-08・UC-09 即時取得（ファイルサーバーにファイルを置き、画面の「即時取得」を押す）
-  placeRobotFiles({ startIndex: 0, ...FILES });
   await m(
     'UC-08',
-    `ロボットのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 記録）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    `ロボットのデータ（${String(FILES.count)} ファイル）を「即時取得」する`,
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
       respond: () => expect(result('robot')).toContainText(`ファイル ${String(FILES.count)} 件`),
     },
   );
-  placeSensorFiles({ startIndex: 0, ...FILES });
   await m(
     'UC-09',
-    `環境センサーのデータ（${String(FILES.count)} ファイル・各 ${String(FILES.recordsPerFile)} 行）を「即時取得」する`,
-    '取り込み設定・状況（SC-11）',
+    `環境センサーのデータ（${String(FILES.count)} ファイル）を「即時取得」する`,
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('environment-sensor').getByRole('button', { name: '即時取得' }).click(),
@@ -836,16 +860,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         expect(result('environment-sensor')).toContainText(`ファイル ${String(FILES.count)} 件`),
     },
   );
-  await m(
-    'UC-08',
-    '取り込んだデータを「取り込み済みデータ」で確認する',
-    '取り込み済みデータ（SC-09）',
-    'screen',
-    {
-      act: () => menu('取り込み済みデータ').click(),
-      respond: () => expectListShown(page, 'observation-row'),
-    },
-  );
+  await m('UC-08', '取り込んだデータを「計測データ」で確認する', '計測データ（SC-09）', 'screen', {
+    act: () => menu('計測データ').click(),
+    respond: () => expectListShown(page, 'measurement-row'),
+  });
   await m(
     'UC-08',
     '取り込みの結果が、ダッシュボードの評価に反映されている',
@@ -860,15 +878,19 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // UC-08・UC-09 定期取り込み（JB-01）: 設備ごとの取得間隔（既定: ロボット 1 分・センサー 5 分）が過ぎたことにして、ジョブを起動する
   await menu('取り込み').click();
   await ingestionShown();
-  placeRobotFiles({ startIndex: 100, ...FILES });
-  placeSensorFiles({ startIndex: 100, ...FILES });
+  await putSeededFiles(request, USER, 'robot', {
+    startIndex: 100,
+  });
+  await putSeededFiles(request, USER, 'environment-sensor', {
+    startIndex: 100,
+  });
   const advanced = await api(request, USER, 'POST', '/dev/clock/advance', { minutes: 6 });
   expect(advanced.ok()).toBe(true);
   const firstLog = (await logRows.first().textContent()) ?? '';
   await m(
     'UC-08',
     '定期取り込み（JB-01）を起動し、取り込みのログで結果を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-01 の実行 ${String(await runJob(request, USER, 'JB-01'))} ms`,
@@ -881,33 +903,27 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
 
   // UC-16 取り込みのログ・連携の状況の絞り込み・ページ送り
   const logs = page.getByTestId('ingestion-logs');
-  await m(
-    'UC-16',
-    '取り込みのログを、設備（ロボット）で絞り込む',
-    '取り込み設定・状況（SC-11）',
-    'screen',
-    {
-      // 取り込み元の選択は、設備の選択に変わった（Issue #201）。設備の絞り込みは、その設備の取り込み元の失敗も含む
-      act: () => logs.getByLabel('設備', { exact: true }).selectOption('ROBOT-01'),
-      respond: async () => {
-        await expect(loadingView(page)).toHaveCount(0);
-        await expectEveryRowContains(logRows, 'ロボット');
-      },
+  await m('UC-16', '取り込みのログを、設備（ロボット）で絞り込む', '取り込み（SC-11）', 'screen', {
+    // 取り込み元の選択は、設備の選択に変わった（Issue #201）。設備の絞り込みは、その設備の取り込み元の失敗も含む
+    act: () => logs.getByLabel('設備', { exact: true }).selectOption('ROBOT-01'),
+    respond: async () => {
+      await expect(loadingView(page)).toHaveCount(0);
+      await expectEveryRowContains(logRows, 'ロボット');
     },
-  );
-  await m('UC-16', '取り込みのログの、次のページを開く', '取り込み設定・状況（SC-11）', 'screen', {
+  });
+  await m('UC-16', '取り込みのログの、次のページを開く', '取り込み（SC-11）', 'screen', {
     act: () => logs.getByRole('button', { name: '次へ' }).click(),
     respond: async () => {
       await expect(logs.getByTestId('pager-page')).toHaveText('2');
       await expect(loadingView(page)).toHaveCount(0);
     },
   });
-  await m('UC-16', '取り込みのログの絞り込みを解除する', '取り込み設定・状況（SC-11）', 'screen', {
+  await m('UC-16', '取り込みのログの絞り込みを解除する', '取り込み（SC-11）', 'screen', {
     act: () => logs.getByLabel('設備', { exact: true }).selectOption(''),
     respond: () => expectListShown(page, 'ingestion-log-row'),
   });
   const federation = page.getByTestId('federation-section');
-  await m('UC-16', '連携の結果の、次のページを開く', '取り込み設定・状況（SC-11）', 'screen', {
+  await m('UC-16', '連携の結果の、次のページを開く', '取り込み（SC-11）', 'screen', {
     act: () => federation.getByRole('button', { name: '次へ' }).click(),
     respond: async () => {
       await expect(federation.getByTestId('pager-page')).toHaveText('2');
@@ -919,7 +935,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-11',
     '連携（JB-03）を起動し、連携の状況で結果を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -934,7 +950,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-11',
     '農業情報基盤の停止中に連携（JB-03）を起動し、保留を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -949,7 +965,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-11',
     '農業情報基盤の復旧後に連携（JB-03）を起動し、保留分の送信を確認する',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: async () => `JB-03 の実行 ${String(await runJob(request, USER, 'JB-03'))} ms`,
@@ -962,20 +978,20 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   );
 
   // UC-24 取り込み失敗の通知（ファイルサーバーの停止 → 即時取得 → 通知）
-  await setMock(request, USER, 'file-server', 'DOWN');
+  await setFileServerMode('DOWN');
   await m(
     'UC-24',
     'ファイルサーバーの停止中に「即時取得」を押す（再試行のあと失敗）',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'job',
     {
       act: () => sourceCard('robot').getByRole('button', { name: '即時取得' }).click(),
       respond: () => expect(result('robot')).toContainText('失敗'),
     },
   );
-  await setMock(request, USER, 'file-server', 'UP');
+  await setFileServerMode('UP');
   await m('UC-24', '取り込み失敗の通知を、通知の一覧で確認する', '通知（SC-05）', 'screen', {
-    act: () => menu('通知').click(),
+    act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: async () => {
       await expect(rowsOf(page, 'notification-row').first()).toContainText('データ取得失敗');
       await expectListShown(page, 'notification-row');
@@ -987,9 +1003,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   const notificationRows = rowsOf(page, 'notification-row');
   await screenshot(page, '13-notifications');
-  await m('UC-22', '種別「異常検知」で絞り込む', '通知（SC-05）', 'screen', {
+  await m('UC-22', '種別「状態の悪化」で絞り込む', '通知（SC-05）', 'screen', {
     act: () => page.getByLabel('種別').selectOption('STATUS_CHANGE'),
-    respond: () => expectEveryRowContains(notificationRows, '異常検知'),
+    respond: () => expectEveryRowContains(notificationRows, '状態の悪化'),
   });
   await m(
     'UC-05',
@@ -1001,8 +1017,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: () => expectDetailShown(page),
     },
   );
+  // 通知の「詳細を確認」は、ダッシュボード上のドロワーで開く（#159 の SC-05-6）。メニューへ移る前に、閉じる
+  await page.keyboard.press('Escape');
   await m('UC-22', '通知の一覧に戻る（メニュー）', '通知（SC-05）', 'screen', {
-    act: () => menu('通知').click(),
+    act: () => page.getByRole('link', { name: /^未読の通知/ }).click(),
     respond: () => expectListShown(page, 'notification-row'),
   });
   await m('UC-22', '種別「データ取得失敗」で絞り込む', '通知（SC-05）', 'screen', {
@@ -1015,7 +1033,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await m(
     'UC-05',
     '通知の「取り込みの状況を確認」を押し、取り込みの状況を開く',
-    '取り込み設定・状況（SC-11）',
+    '取り込み（SC-11）',
     'screen',
     {
       act: () =>
@@ -1023,7 +1041,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       respond: ingestionShown,
     },
   );
-  await menu('通知').click();
+  await page.getByRole('link', { name: /^未読の通知/ }).click();
   await expectListShown(page, 'notification-row');
   await m('UC-22', '既読状態「未読」で絞り込む', '通知（SC-05）', 'screen', {
     act: () => page.getByLabel('既読状態').selectOption('UNREAD'),
@@ -1041,10 +1059,12 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       },
     });
   }
-  const unreadBefore = (await page.getByTestId('unread-count').textContent()) ?? '';
+  // 未読が 100 件以上のとき、バッジは「99+」のまま変わらないため、実際の件数を持つ、リンクの名前（「未読の通知: N件」）で確かめる（Issue #351）
+  const unreadLink = page.getByRole('link', { name: /^未読の通知/ });
+  const unreadBefore = (await unreadLink.getAttribute('aria-label')) ?? '';
   await m('UC-22', '先頭の通知の「既読にする」を押す', '通知（SC-05）', 'operation', {
     act: () => notificationRows.first().getByRole('button', { name: '既読にする' }).click(),
-    respond: () => expect(page.getByTestId('unread-count')).not.toHaveText(unreadBefore),
+    respond: () => expect(unreadLink).not.toHaveAttribute('aria-label', unreadBefore),
   });
   await m('UC-22', '絞り込みの範囲（未読）を、まとめて既読にする', '通知（SC-05）', 'operation', {
     act: async () => {
@@ -1082,13 +1102,15 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   const facilityForm = page.getByRole('form', { name: 'ハウスを登録' });
   const childForm = page.getByRole('form', { name: 'ロボット・環境センサーを登録' });
   await m('UC-12', 'メニューから「設備」を開く', '設備（SC-10）', 'screen', {
-    act: () => menu('設備').click(),
+    act: () => menu('ハウス・設備').click(),
     respond: async () => {
       await expect(page.getByRole('heading', { name: '設備', level: 1 })).toBeVisible();
       await expectListShown(page, 'equipment-row');
     },
   });
   await screenshot(page, '14-equipment');
+  // 登録は、表の上のボタンで開くダイアログで行う（#364。成功すると閉じる）。ボタンを押す操作は、計測しない
+  await page.getByRole('button', { name: 'ハウスの登録' }).click();
   await facilityForm.getByLabel('設備ID').fill('HOUSE-ADDED');
   await facilityForm.getByLabel('名称').fill('負荷試験の追加ハウス');
   await m(
@@ -1105,6 +1127,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['ROBOT', 'ROBOT-ADDED', '負荷試験の追加ロボット', 'ROBOT-ADDED-FILE'],
     ['SENSOR', 'SENSOR-ADDED', '負荷試験の追加センサー', 'SENSOR-ADDED-FILE'],
   ] as const) {
+    await page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
     await childForm.getByLabel('種別').selectOption(type);
     await childForm.getByLabel('親のハウス').selectOption('HOUSE-ADDED');
     await childForm.getByLabel('設備ID').fill(id);
@@ -1129,13 +1152,39 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
         .filter({ hasText: 'ROBOT-ADDED' })
         .getByRole('button', { name: '修正' })
         .click(),
-    respond: () => expect(page.getByTestId('equipment-edit')).toBeVisible(),
+    // 設備のダイアログは、「取り込み元の接続」の欄の読み込み（取り込みの取得）まで含めて、表示できたとする（Issue #367）
+    respond: async () => {
+      await expect(page.getByTestId('equipment-edit')).toBeVisible();
+      await expect(page.getByTestId('equipment-connection')).toBeVisible();
+      await expect(page.getByTestId('equipment-connection-loading')).toHaveCount(0);
+    },
   });
   await page.getByTestId('equipment-edit').getByLabel('名称').fill('負荷試験の追加ロボット（改）');
   await m('UC-12', 'ロボットの名称を変更して「保存」を押す', '設備（SC-10）', 'operation', {
     act: () => page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click(),
     respond: () => expect(equipmentNotice).toHaveText('修正しました'),
   });
+  // 設備ごとの接続（Issue #367）: 修正のダイアログで、取り込み元の接続（ホスト名・ポート）を入力して保存する（設備を保存してから、接続を保存する）
+  await equipmentRows
+    .filter({ hasText: 'ROBOT-ADDED' })
+    .getByRole('button', { name: '修正' })
+    .click();
+  const connectionBox = page.getByTestId('equipment-connection');
+  await expect(connectionBox).toBeVisible();
+  await expect(page.getByTestId('equipment-connection-loading')).toHaveCount(0);
+  await connectionBox.getByLabel('プロトコル').selectOption('HTTP');
+  await connectionBox.getByLabel('ホスト名').fill('127.0.0.1');
+  await connectionBox.getByLabel('ポート番号').fill(String(fileServer.port));
+  await m(
+    'UC-12',
+    'ロボットの取り込み元の接続（ホスト名・ポート）を入力して「保存」を押す（設備と接続の保存）',
+    '設備（SC-10）',
+    'operation',
+    {
+      act: () => page.getByTestId('equipment-edit').getByRole('button', { name: '保存' }).click(),
+      respond: () => expect(equipmentNotice).toHaveText('修正しました'),
+    },
+  );
   await m(
     'UC-12',
     '追加したハウス（配下のロボット・センサーを含む）の「削除」を押し、確認で削除する',
@@ -1148,13 +1197,17 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
           .first()
           .getByRole('button', { name: '削除' })
           .click();
+        // ハウスは、名前を入力して確認する（D-28）
+        await page.getByTestId('confirm-typed-input').fill('負荷試験の追加ハウス');
         await page
           .getByTestId('confirm-dialog')
           .getByRole('button', { name: '削除', exact: true })
           .click();
       },
       respond: async () => {
-        await expect(equipmentNotice).toHaveText('削除しました');
+        await expect(equipmentNotice).toHaveText(
+          '削除を始めました。データの削除には、数分かかることがあります',
+        );
         await expect(equipmentRows.filter({ hasText: 'ROBOT-ADDED' })).toHaveCount(0);
       },
     },
@@ -1182,6 +1235,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await screenshot(page, '15-status-codes');
+  await page.getByRole('button', { name: 'ステータスコードの登録' }).click();
   await codeAdd.getByLabel('コード値').fill('STRESS_NEW_CODE');
   await codeAdd.getByLabel('名称').fill('負荷試験の追加コード');
   await codeAdd.getByLabel('カテゴリ').selectOption('CAUTION');
@@ -1259,6 +1313,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     },
   );
   await screenshot(page, '16-users');
+  await page.getByRole('button', { name: 'ユーザーの登録' }).click();
   await userAdd.getByLabel('ユーザーID').fill('stress-added-user');
   await userAdd.getByLabel('ユーザー名').fill('負荷試験の追加ユーザー');
   await userAdd.getByLabel('パスワード').fill('Dummy-Passw0rd-added1');
@@ -1305,8 +1360,10 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   // UC-23 Web Push 通知の設定
   // ---------------------------------------------------------------------------------------------
-  await m('UC-23', 'メニューから「通知の設定」を開く', '通知の設定（SC-15）', 'screen', {
-    act: () => menu('通知の設定').click(),
+  // ユーザーメニューを開く操作は、計測しない（計測するのは、項目を選んでから、画面が応答するまで）
+  await banner.getByRole('button', { name: /^ログイン中のユーザー/ }).click();
+  await m('UC-23', 'ユーザーメニューから「通知の設定」を開く', '通知の設定（SC-15）', 'screen', {
+    act: () => page.getByRole('menuitem', { name: '通知の設定', exact: true }).click(),
     respond: async () => {
       await expect(page.getByRole('heading', { name: '通知の設定', level: 1 })).toBeVisible();
       await expect(page.getByTestId('push-state')).toBeVisible();
@@ -1336,8 +1393,9 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   // ---------------------------------------------------------------------------------------------
   // UC-13 ログアウト
   // ---------------------------------------------------------------------------------------------
-  await m('UC-13', 'ヘッダーの「ログアウト」を押す', 'ログイン（SC-01）', 'screen', {
-    act: () => banner.getByRole('button', { name: 'ログアウト' }).click(),
+  await banner.getByRole('button', { name: /^ログイン中のユーザー/ }).click();
+  await m('UC-13', 'ユーザーメニューの「ログアウト」を選ぶ', 'ログイン（SC-01）', 'screen', {
+    act: () => page.getByRole('menuitem', { name: 'ログアウト', exact: true }).click(),
     respond: () => expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible(),
   });
 });

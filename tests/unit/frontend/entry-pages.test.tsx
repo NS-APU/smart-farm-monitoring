@@ -1,28 +1,44 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { satisfactionItemKey } from '../../../src/shared/constants/items.ts';
 import { PERMISSIONS } from '../../../src/shared/constants/permissions.ts';
 import { SATISFACTION_TARGET_VIEWPOINT_IDS } from '../../../src/shared/constants/viewpoints.ts';
 import { toEquipmentId } from '../../../src/shared/schemas/common.ts';
-import { jsonResponse } from '../../support/frontend.ts';
+import { jsonResponse, twoFacilityTree } from '../../support/frontend.ts';
 import {
   FULL_LOGIN,
   READ_ONLY_LOGIN,
+  at,
   callsOf,
+  confirmDetailsOf,
+  confirmNotesOf,
   errorBody,
   loginWith,
   manualEntry,
-  noContent,
   renderApp,
   type Routes,
 } from '../../support/management-frontend.ts';
 import { expectCardLabels } from '../../support/card-table.ts';
+import { restoreScrollIntoView, stubScrollIntoView } from '../../support/scroll-into-view.ts';
 
 const SAVED = {
   entry: manualEntry(),
   viewpointStatuses: [
-    { viewpointId: 'durability', name: '耐久性', status: 'CAUTION' },
-    { viewpointId: 'maintainability', name: 'メンテナンス性', status: 'NORMAL' },
+    // 耐久性は、短期の評価を持たない（「現在」なし。「期間の評価」だけ）。メンテナンス性は、短期を持つ
+    {
+      viewpointId: 'durability',
+      name: '耐久性',
+      status: 'CAUTION',
+      current: null,
+      period: 'CAUTION',
+    },
+    {
+      viewpointId: 'maintainability',
+      name: 'メンテナンス性',
+      status: 'CAUTION',
+      current: 'CAUTION',
+      period: 'NORMAL',
+    },
   ],
 };
 
@@ -65,10 +81,22 @@ const SATISFACTION_LABELS = [
   '満足度（耐久性）',
 ];
 
+afterEach(() => {
+  restoreScrollIntoView();
+});
+
 beforeEach(() => {
   window.localStorage.clear();
   window.history.pushState(null, '', '/');
 });
+
+/** 削除の応答（200。保存と同じ形。entry は、削除済みの入力。Issue #150）。 */
+const DELETED = { ...SAVED, entry: manualEntry({ isDeleted: true }) };
+
+/** SC-07 の修正・削除の結果の、見出し（「修正しました」「削除しました」）。 */
+function resultTitle(): string {
+  return within(screen.getByTestId('entries-notice')).getByRole('heading').textContent;
+}
 
 describe('データ入力（UC-06。SC-06）', () => {
   it('権限（manual-entry:write）がなければ、入力できない旨を示し、フォームを表示しない', async () => {
@@ -108,6 +136,8 @@ describe('データ入力（UC-06。SC-06）', () => {
     await screen.findByRole('button', { name: '保存する' });
     expect(screen.queryByTestId('entry-items')).toBeNull();
 
+    // カテゴリは、対象の設備の種別に合うものだけ選べる（Issue #360）。ロボットを選んでから、カテゴリを選ぶ
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
     fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
 
     const items = screen.getByTestId('entry-items');
@@ -127,6 +157,7 @@ describe('データ入力（UC-06。SC-06）', () => {
   it('自動取り込みの項目も、手動入力のカテゴリ（稼働情報・収穫情報）で選べる。1 果実あたりの収穫時間は、手動入力の範囲（0〜300）を示す（#192）', async () => {
     renderApp('/data-entry');
     await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
     expect(
       within(field('カテゴリ'))
         .getAllByRole('option')
@@ -317,6 +348,150 @@ describe('データ入力（UC-06。SC-06）', () => {
     });
   });
 
+  it('SC-06-3: 保存結果のパネルは、role="status" で、保存後に画面内へスクロールする（保存のたびに）。フォーカスは、結果へ移さない', async () => {
+    const scroll = stubScrollIntoView();
+    renderApp('/data-entry', {
+      'POST /manual-entries': () => jsonResponse(SAVED, 201),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    expect(screen.queryByTestId('entry-result')).toBeNull();
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '2' } });
+    const save = screen.getByRole('button', { name: '保存する' });
+    save.focus();
+    fireEvent.click(save);
+
+    const result = await screen.findByTestId('entry-result');
+
+    expect(result.getAttribute('role')).toBe('status');
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(result);
+    expect(scroll.mock.calls[0]?.[0]).toMatchObject({ block: 'nearest' });
+    // フォーカスを、結果へ移さない（保存中は、保存ボタンが無効になり、実際のブラウザでは、フォーカスがボタンから外れる）
+    expect(result.contains(document.activeElement)).toBe(false);
+
+    // 2 回目の保存でも、もう一度スクロールする（新しい結果が現れたとき）
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T12:00' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await waitFor(() => {
+      expect(scroll).toHaveBeenCalledTimes(2);
+    });
+    expect(scroll.mock.contexts[1]).toBe(screen.getByTestId('entry-result'));
+  });
+
+  describe('保存の結果: 評価に使われない項目を示す（D-26。Issue #162 の SC-06-5）', () => {
+    const ALL_AUTO = [
+      { horizon: 'SHORT', periodDays: null },
+      { horizon: 'LONG', periodDays: 1 },
+      { horizon: 'LONG', periodDays: 7 },
+    ];
+    const NOT_USED_SENTENCE = 'この期間は自動取り込みの値を使うため、この入力は評価に使われません';
+
+    async function saveWith(response: Record<string, unknown>): Promise<HTMLElement> {
+      renderApp('/data-entry', {
+        'POST /manual-entries': () => jsonResponse({ ...SAVED, ...response }, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'HARVEST' } });
+      fireEvent.change(screen.getByLabelText('収穫数（個）'), { target: { value: '1700' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+      return await screen.findByTestId('entry-result');
+    }
+
+    it('評価に使われない項目を、項目名とともに一覧し、「この期間は自動取り込みの値を使うため、この入力は評価に使われません」と示す。保存は、できている', async () => {
+      const result = await saveWith({
+        evaluation: 'DONE',
+        usage: [
+          { itemKey: 'harvestCount', used: false, autoPriorityPeriods: ALL_AUTO },
+          { itemKey: 'harvestSecondsPerFruit', used: true, autoPriorityPeriods: [] },
+        ],
+      });
+
+      const notice = within(result).getByTestId('usage-notice');
+      expect(notice.textContent).toContain('評価に使われない項目があります');
+      expect(notice.textContent).toContain('入力は保存されています');
+      expect(within(notice).getByTestId('usage-harvestCount').textContent).toBe(
+        `収穫数: ${NOT_USED_SENTENCE}`,
+      );
+      // 使われる項目は、一覧に出さない
+      expect(within(notice).queryByTestId('usage-harvestSecondsPerFruit')).toBeNull();
+      // 保存の結果（見出し・関連観点のステータス）は、そのまま
+      expect(within(result).getByRole('heading').textContent).toBe('保存しました');
+      expect(within(result).getByTestId('related-durability')).toBeDefined();
+    });
+
+    it('すべての項目が使われる（自動取り込みの値がない）ときは、何も示さない。応答に usage がなくても、従来どおり', async () => {
+      const used = await saveWith({
+        usage: [{ itemKey: 'harvestCount', used: true, autoPriorityPeriods: [] }],
+      });
+      expect(within(used).queryByTestId('usage-notice')).toBeNull();
+    });
+
+    it('応答に usage がなければ（従来の応答）、何も示さない', async () => {
+      const result = await saveWith({});
+
+      expect(within(result).queryByTestId('usage-notice')).toBeNull();
+    });
+
+    it('一部の評価の期間でだけ、自動取り込みの値を使うときは、その期間を示す（ほかの期間では、使われる）', async () => {
+      const result = await saveWith({
+        usage: [
+          {
+            itemKey: 'harvestCount',
+            used: true,
+            autoPriorityPeriods: [
+              { horizon: 'LONG', periodDays: 7 },
+              { horizon: 'LONG', periodDays: 30 },
+            ],
+          },
+        ],
+      });
+
+      const text = within(result).getByTestId('usage-harvestCount').textContent;
+      expect(text).toBe(
+        '収穫数: 長期視点（直近7日）・長期視点（直近30日）の評価では、自動取り込みの値を使うため、この入力は使われません',
+      );
+    });
+
+    it('評価の更新が定期の評価（DEFERRED。AWS）でも、同じ表示（観測値から判定するため）', async () => {
+      const result = await saveWith({
+        evaluation: 'DEFERRED',
+        usage: [{ itemKey: 'harvestCount', used: false, autoPriorityPeriods: ALL_AUTO }],
+      });
+
+      expect(within(result).getByTestId('usage-harvestCount').textContent).toContain(
+        NOT_USED_SENTENCE,
+      );
+    });
+
+    it('次の保存で、使われる入力になれば、前の表示は消える', async () => {
+      const responses = [
+        { usage: [{ itemKey: 'harvestCount', used: false, autoPriorityPeriods: ALL_AUTO }] },
+        { usage: [{ itemKey: 'harvestCount', used: true, autoPriorityPeriods: [] }] },
+      ];
+      renderApp('/data-entry', {
+        'POST /manual-entries': () => jsonResponse({ ...SAVED, ...responses.shift() }, 201),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+      fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+      fireEvent.change(field('カテゴリ'), { target: { value: 'HARVEST' } });
+      fireEvent.change(screen.getByLabelText('収穫数（個）'), { target: { value: '1700' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+      await screen.findByTestId('usage-notice');
+
+      fireEvent.change(screen.getByLabelText('収穫数（個）'), { target: { value: '1800' } });
+      fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('usage-notice')).toBeNull();
+      });
+    });
+  });
+
   describe('ステータスコード（文字列の項目）は、登録済みのコードから選ぶ（#192 の PR 2）', () => {
     it('ステータスのカテゴリで、登録済みのコードを、名称（コード）の選択肢で示す（削除済みは、出ない）。選んだコードを、文字列で送る', async () => {
       const { calls } = renderApp('/data-entry', {
@@ -389,6 +564,7 @@ describe('データ入力（UC-06。SC-06）', () => {
 
   it.each([
     ['DEFERRED', '数分かかります', '前回の評価のステータスです'],
+    ['CURRENT', '「現在」の評価を更新しました', '「期間の評価」の更新は、定期の評価で行われ'],
     ['DONE', '評価を更新しました', '現在のステータスです'],
     [undefined, '評価を更新しました', '現在のステータスです'],
   ])(
@@ -410,6 +586,56 @@ describe('データ入力（UC-06。SC-06）', () => {
       expect(lead).toContain(expectedStatusNote);
     },
   );
+
+  it('関連する観点のステータスは、「現在」と「期間の評価」を別々に示す（短期と長期の悪い方に合成しない）。短期を持たない観点は、「期間の評価」だけ。まだ評価がなければ、その旨（#591）', async () => {
+    renderApp('/data-entry', {
+      'POST /manual-entries': () =>
+        jsonResponse(
+          {
+            ...SAVED,
+            evaluation: 'CURRENT',
+            viewpointStatuses: [
+              ...SAVED.viewpointStatuses,
+              {
+                viewpointId: 'safety',
+                name: '安全性',
+                status: 'ERROR',
+                current: 'ERROR',
+                period: null,
+              },
+            ],
+          },
+          201,
+        ),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '1' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+
+    const result = await screen.findByTestId('entry-result');
+    // 短期を持つ観点: 「現在」と「期間の評価」の 2 つ（状態が違ってよい）
+    const maintainability = within(result).getByTestId('related-maintainability');
+    expect(within(maintainability).getByTestId('related-current-maintainability').textContent).toBe(
+      '現在注意',
+    );
+    expect(within(maintainability).getByTestId('related-period-maintainability').textContent).toBe(
+      '期間の評価正常',
+    );
+    // 短期を持たない観点: 「期間の評価」だけ
+    const durability = within(result).getByTestId('related-durability');
+    expect(within(durability).queryByTestId('related-current-durability')).toBeNull();
+    expect(within(durability).getByTestId('related-period-durability').textContent).toBe(
+      '期間の評価注意',
+    );
+    // 「期間の評価」がまだない観点（定期の評価が、まだ）
+    expect(within(result).getByTestId('related-current-safety').textContent).toBe('現在異常');
+    expect(within(result).getByTestId('related-period-safety').textContent).toBe(
+      '期間の評価まだ評価されていません',
+    );
+  });
 
   it('備考が空なら、備考を送らない。関連する観点がなければ、その旨を示す', async () => {
     const { calls } = renderApp('/data-entry', {
@@ -438,6 +664,68 @@ describe('データ入力（UC-06。SC-06）', () => {
     await screen.findByRole('button', { name: '保存する' });
     expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
     expect((field('カテゴリ') as HTMLSelectElement).value).toBe('ENVIRONMENT');
+  });
+
+  describe('対象の設備の初期値: リンクで明示された設備（?equipmentId=。「対応の結果を記録する」から。SC-02-10）', () => {
+    it('直前に入力した設備の記憶があっても、リンクの設備を選ぶ（記憶したカテゴリは、その設備の種別に合わないので、空にする）', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'SENSOR-01', category: 'ENVIRONMENT' }),
+      );
+      renderApp('/data-entry?equipmentId=ROBOT-01');
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('ROBOT-01');
+      expect((field('カテゴリ') as HTMLSelectElement).value).toBe('');
+    });
+
+    it('記憶したカテゴリが、リンクの設備の種別に合うときは、そのカテゴリを使う', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'ROBOT-01', category: 'FAILURE' }),
+      );
+      renderApp('/data-entry?equipmentId=ROBOT-02', {
+        'GET /equipment': () => jsonResponse(twoFacilityTree()),
+      });
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('ROBOT-02');
+      expect((field('カテゴリ') as HTMLSelectElement).value).toBe('FAILURE');
+    });
+
+    it('記憶がなければ、ダッシュボードの対象より、リンクの設備を優先する', async () => {
+      renderApp('/data-entry?equipmentId=SENSOR-01');
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
+    });
+
+    it('リンクの設備が、一覧にないときは、無視する（従来の優先順位: 記憶、ダッシュボードの対象）', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'SENSOR-01', category: 'ENVIRONMENT' }),
+      );
+      const remembered = renderApp('/data-entry?equipmentId=NO-SUCH');
+      await screen.findByRole('button', { name: '保存する' });
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
+      remembered.unmount();
+
+      window.localStorage.clear();
+      renderApp('/data-entry?equipmentId=NO-SUCH');
+      await screen.findByRole('button', { name: '保存する' });
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('HOUSE-01');
+    });
+
+    it('通常の入口（クエリなし）は、従来どおり、記憶した設備を使う', async () => {
+      window.localStorage.setItem(
+        'smart-farm:last-entry-target',
+        JSON.stringify({ equipmentId: 'SENSOR-01', category: 'ENVIRONMENT' }),
+      );
+      renderApp('/data-entry');
+      await screen.findByRole('button', { name: '保存する' });
+
+      expect((field('対象の設備') as HTMLSelectElement).value).toBe('SENSOR-01');
+    });
   });
 
   it.each([
@@ -553,6 +841,34 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     expect(rows[1]?.querySelectorAll('td')[5]?.textContent).toBe('—');
   });
 
+  it('入力者は、「ユーザー名（ID）」で表示する。ユーザー名がなければ（削除済みの利用者）、ID だけを表示する（SC-07-7）', async () => {
+    renderApp(
+      '/data-entry/list',
+      listRoutes([
+        manualEntry({ enteredBy: 'worker-1' as never, enteredByName: '作業者1' }),
+        manualEntry({ entryId: 'e-2', enteredBy: 'gone-user' as never }),
+      ]),
+    );
+
+    const rows = await screen.findAllByTestId('entry-row');
+
+    expect(rows[0]?.querySelectorAll('td')[4]?.textContent).toBe('作業者1（worker-1）');
+    expect(rows[1]?.querySelectorAll('td')[4]?.textContent).toBe('gone-user');
+  });
+
+  it('説明文は、「論理削除」という用語を使わず、削除したデータの扱い（一覧・集計から外れる。変更履歴には残る）を示す', async () => {
+    renderApp('/data-entry/list', listRoutes([manualEntry()]));
+
+    await screen.findAllByTestId('entry-row');
+
+    expect(
+      screen.getByText(
+        '手動で入力したデータの一覧です。誤りは、修正・削除できます。削除したデータは、一覧と集計の対象から外れます。変更履歴には残ります',
+      ),
+    ).toBeDefined();
+    expect(document.body.textContent).not.toContain('論理削除');
+  });
+
   it('データがなければ、データ入力への案内を表示する。絞り込み中は、案内なしで「該当するデータがありません」', async () => {
     renderApp('/data-entry/list', listRoutes([]));
     expect((await screen.findByTestId('entries-empty')).textContent).toContain(
@@ -666,7 +982,8 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
 
     fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
 
-    expect((await screen.findByTestId('entries-notice')).textContent).toBe('修正しました');
+    await screen.findByTestId('entries-notice');
+    expect(resultTitle()).toBe('修正しました');
     expect(callsOf(calls, 'PUT', '/manual-entries/e-1')[0]?.body).toMatchObject({
       items: { failureCount: 5, recoveryMinutes: 90 },
     });
@@ -708,20 +1025,202 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
     });
   });
 
-  it('修正をキャンセルすると、フォームを閉じる', async () => {
-    renderApp('/data-entry/list', listRoutes());
-    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
-    const edit = await screen.findByTestId('entry-edit');
+  describe('修正は、ダイアログで行う（Issue #150。SC-07-2）', () => {
+    it('「修正」で、ダイアログ（名前は「入力内容の修正」）が開き、表の上のパネルは出ない。入力内容を表示する', async () => {
+      renderApp('/data-entry/list', listRoutes());
+      const button = await screen.findByRole('button', { name: '修正' });
 
-    fireEvent.click(within(edit).getByRole('button', { name: 'キャンセル' }));
+      fireEvent.click(button);
 
-    expect(screen.queryByTestId('entry-edit')).toBeNull();
+      const dialog = screen.getByRole('dialog', { name: '入力内容の修正' });
+      expect(dialog).toBe(screen.getByTestId('entry-edit'));
+      expect(dialog.getAttribute('aria-modal')).toBe('true');
+      expect(dialog.closest('section.panel')).toBeNull();
+      expect(within(dialog).getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('2');
+    });
+
+    it('キャンセルで閉じ、「修正」のボタンへフォーカスが戻る', async () => {
+      renderApp('/data-entry/list', listRoutes());
+      const button = await screen.findByRole('button', { name: '修正' });
+      button.focus();
+      fireEvent.click(button);
+      const edit = await screen.findByTestId('entry-edit');
+
+      fireEvent.click(within(edit).getByRole('button', { name: 'キャンセル' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement).toBe(button);
+    });
+
+    it('Esc と ✕ のボタンでも閉じる（そのたびに、API は呼ばない）', async () => {
+      const { calls } = renderApp('/data-entry/list', listRoutes());
+      const button = await screen.findByRole('button', { name: '修正' });
+      fireEvent.click(button);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      fireEvent.click(button);
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '閉じる' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(callsOf(calls, 'PUT', '/manual-entries/e-1')).toHaveLength(0);
+    });
+
+    it('保存に成功すると閉じる。失敗（サーバーのエラー）では、閉じず、エラーを示す', async () => {
+      let failing = true;
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () =>
+          failing ? errorBody(500, 'INTERNAL', '保存に失敗しました') : jsonResponse(SAVED),
+      });
+      fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+      const edit = await screen.findByTestId('entry-edit');
+
+      fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+      expect((await within(edit).findByRole('alert')).textContent).toBe(
+        'エラーが発生しました。しばらくしてからやり直してください',
+      );
+      expect(screen.getByRole('dialog')).toBe(edit);
+      expect(screen.queryByTestId('entries-notice')).toBeNull();
+
+      failing = false;
+      fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+      await screen.findByTestId('entries-notice');
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  describe('修正・削除の後は、評価の更新を示す（D-27。Issue #150）', () => {
+    async function updateEntry(): Promise<HTMLElement> {
+      fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+      fireEvent.click(
+        within(await screen.findByTestId('entry-edit')).getByRole('button', { name: '保存' }),
+      );
+      return await screen.findByTestId('entries-notice');
+    }
+
+    async function deleteEntry(): Promise<HTMLElement> {
+      fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+      fireEvent.click(
+        within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
+      );
+      return await screen.findByTestId('entries-notice');
+    }
+
+    it('ローカル（DONE）: 修正の後に、「修正しました」と、評価を更新した旨・関連する観点のステータスを示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () => jsonResponse({ ...SAVED, evaluation: 'DONE' }),
+      });
+
+      const result = await updateEntry();
+
+      expect(resultTitle()).toBe('修正しました');
+      expect(result.getAttribute('role')).toBe('status');
+      expect(within(result).getByTestId('entry-lead').textContent).toBe(
+        '入力内容を修正し、評価を更新しました。関連する観点の現在のステータスです',
+      );
+      expect(within(result).getByTestId('related-durability').textContent).toContain('耐久性');
+      expect(
+        within(result).getByRole('link', { name: 'メンテナンス性' }).getAttribute('href'),
+      ).toBe('/viewpoints/maintainability');
+      // 一覧の画面なので、一覧へのリンクは出さない
+      expect(within(result).queryByRole('link', { name: '入力済みデータの一覧へ' })).toBeNull();
+    });
+
+    it('修正の後も、評価に使われない項目を、データ入力（SC-06）と同じ部品で示す（Issue #162 の SC-06-5）', async () => {
+      const unused = [{ horizon: 'SHORT', periodDays: null }];
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () =>
+          jsonResponse({
+            ...SAVED,
+            evaluation: 'DONE',
+            usage: [{ itemKey: 'harvestCount', used: false, autoPriorityPeriods: unused }],
+          }),
+      });
+
+      const result = await updateEntry();
+
+      expect(within(result).getByTestId('usage-harvestCount').textContent).toBe(
+        '収穫数: この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+      );
+    });
+
+    it('削除の後は、評価に使われるかを示さない', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'DELETE /manual-entries/e-1': () => jsonResponse({ ...DELETED, evaluation: 'DONE' }),
+      });
+
+      const result = await deleteEntry();
+
+      expect(within(result).queryByTestId('usage-notice')).toBeNull();
+    });
+
+    it('AWS（DEFERRED）: 修正の後に、「ステータスへの反映には、数分かかります」と示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () => jsonResponse({ ...SAVED, evaluation: 'DEFERRED' }),
+      });
+
+      const result = await updateEntry();
+
+      const lead = within(result).getByTestId('entry-lead').textContent;
+      expect(lead).toContain('入力内容を修正しました');
+      expect(lead).toContain('ステータスへの反映には、数分かかります');
+      expect(within(result).getByTestId('related-durability')).toBeDefined();
+    });
+
+    it('ローカル（DONE）: 削除の後に、「削除しました」と、評価を更新した旨・関連する観点のステータスを示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'DELETE /manual-entries/e-1': () => jsonResponse({ ...DELETED, evaluation: 'DONE' }),
+      });
+
+      const result = await deleteEntry();
+
+      expect(resultTitle()).toBe('削除しました');
+      expect(within(result).getByTestId('entry-lead').textContent).toBe(
+        '入力内容を削除し、評価を更新しました。関連する観点の現在のステータスです',
+      );
+      expect(within(result).getByTestId('related-durability').textContent).toContain('耐久性');
+    });
+
+    it('AWS（DEFERRED）: 削除の後に、「ステータスへの反映には、数分かかります」と示す', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'DELETE /manual-entries/e-1': () => jsonResponse({ ...DELETED, evaluation: 'DEFERRED' }),
+      });
+
+      const result = await deleteEntry();
+
+      const lead = within(result).getByTestId('entry-lead').textContent;
+      expect(lead).toContain('入力内容を削除しました');
+      expect(lead).toContain('ステータスへの反映には、数分かかります');
+    });
+
+    it('関連する観点がなければ、その旨を示す。次の「削除」を押すと、結果は消える', async () => {
+      renderApp('/data-entry/list', {
+        ...listRoutes(),
+        'PUT /manual-entries/e-1': () => jsonResponse({ ...SAVED, viewpointStatuses: [] }),
+      });
+
+      const result = await updateEntry();
+
+      expect(within(result).getByText('関連する観点の評価は、まだありません')).toBeDefined();
+
+      fireEvent.click(screen.getByRole('button', { name: '削除' }));
+      expect(screen.queryByTestId('entries-notice')).toBeNull();
+    });
   });
 
   it('削除: 確認のダイアログを表示し、確定すると、削除の API を呼んで、一覧を読み直す。キャンセルなら、何もしない', async () => {
     const { calls } = renderApp('/data-entry/list', {
       ...listRoutes(),
-      'DELETE /manual-entries/e-1': () => noContent(),
+      'DELETE /manual-entries/e-1': () => jsonResponse(DELETED),
     });
     fireEvent.click(await screen.findByRole('button', { name: '削除' }));
     const dialog = await screen.findByTestId('confirm-dialog');
@@ -734,8 +1233,79 @@ describe('入力済みデータ一覧（UC-18。SC-07）', () => {
       within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
     );
 
-    expect((await screen.findByTestId('entries-notice')).textContent).toBe('削除しました');
+    await screen.findByTestId('entries-notice');
+    expect(resultTitle()).toBe('削除しました');
     expect(callsOf(calls, 'DELETE', '/manual-entries/e-1')).toHaveLength(1);
+  });
+
+  it('SC-07 の修正・削除の結果（entries-notice）は、role="status"・表示されたときに画面内へスクロールする（Issue #150）', async () => {
+    const scroll = stubScrollIntoView();
+    renderApp('/data-entry/list', {
+      'GET /manual-entries': () => jsonResponse({ items: [manualEntry()], nextCursor: null }),
+      'PUT /manual-entries/e-1': () => jsonResponse(SAVED),
+      'DELETE /manual-entries/e-1': () => jsonResponse(DELETED),
+    });
+    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('entry-edit');
+    fireEvent.click(within(edit).getByRole('button', { name: '保存' }));
+
+    const updated = await screen.findByTestId('entries-notice');
+
+    expect(updated.getAttribute('role')).toBe('status');
+    expect(resultTitle()).toBe('修正しました');
+    expect(scroll.mock.contexts).toContain(updated);
+    const afterUpdate = scroll.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+    fireEvent.click(
+      within(await screen.findByTestId('confirm-dialog')).getByRole('button', { name: '削除' }),
+    );
+
+    await waitFor(() => {
+      expect(resultTitle()).toBe('削除しました');
+    });
+    expect(scroll.mock.calls.length).toBeGreaterThan(afterUpdate);
+    expect(scroll.mock.contexts.at(-1)).toBe(screen.getByTestId('entries-notice'));
+  });
+
+  it('削除の確認は、対象（計測日時・設備名・項目と値）を示し、元に戻す操作がないこと（変更履歴には残ること）を明記する（#153。SC-07-5）', async () => {
+    renderApp('/data-entry/list', listRoutes([manualEntry()]));
+
+    fireEvent.click(await screen.findByRole('button', { name: '削除' }));
+
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(confirmDetailsOf(dialog)).toEqual({
+      計測日時: '2026/10/09 11:00:00',
+      設備: '収穫ロボット1',
+      項目: '故障回数: 2回、復旧に要した時間: 90分',
+    });
+    expect(dialog.textContent).toContain('一覧と集計の対象から外れます');
+    expect(dialog.textContent).toContain('元に戻す操作はありません（変更履歴には残ります）');
+    expect(dialog.textContent).not.toContain('論理削除');
+    expect(confirmNotesOf(dialog)).toEqual([]);
+  });
+
+  it('削除の確認の設備は、設備の階層にないときは、設備IDで示す。複数の行から開いても、押した行の対象を示す', async () => {
+    renderApp(
+      '/data-entry/list',
+      listRoutes([
+        manualEntry(),
+        manualEntry({
+          entryId: 'e-2',
+          equipmentId: 'ROBOT-99' as never,
+          observedAt: '2026-10-10T03:30:00.000Z',
+          items: { unknownItem: 5 },
+        }),
+      ]),
+    );
+
+    fireEvent.click(at(await screen.findAllByRole('button', { name: '削除' }), 1));
+
+    expect(confirmDetailsOf(await screen.findByTestId('confirm-dialog'))).toEqual({
+      計測日時: '2026/10/10 12:30:00',
+      設備: 'ROBOT-99',
+      項目: 'unknownItem: 5',
+    });
   });
 
   it('削除に失敗した場合は、エラーを表示し、ダイアログを閉じる', async () => {
@@ -836,6 +1406,24 @@ describe('変更履歴（UC-18。SC-08）', () => {
     expect(rows[2]?.textContent).toContain('something-new');
   });
 
+  it('変更者は、「ユーザー名（ID）」で表示する。ユーザー名がなければ（削除済みの利用者）、ID だけを表示する（SC-07-7）', async () => {
+    renderApp('/data-entry/history', {
+      'GET /audit-logs': () =>
+        jsonResponse({
+          items: [
+            { ...AUDIT_ENTRY, actorName: '作業者1' },
+            { ...AUDIT_ENTRY, auditId: 'a-2', actor: 'gone-user' },
+          ],
+          nextCursor: null,
+        }),
+    });
+
+    const rows = await screen.findAllByTestId('audit-row');
+
+    expect(rows[0]?.querySelectorAll('td')[3]?.textContent).toBe('作業者1（worker-1）');
+    expect(rows[1]?.querySelectorAll('td')[3]?.textContent).toBe('gone-user');
+  });
+
   it('手動入力の履歴は、項目の値のほかに、計測日時・設備・カテゴリ・備考を示す（備考が空・カテゴリが未知でも表示できる）', async () => {
     renderApp('/data-entry/history', {
       'GET /audit-logs': () =>
@@ -874,7 +1462,9 @@ describe('変更履歴（UC-18。SC-08）', () => {
     expect(after?.textContent).toContain('2026/10/09 12:00:00');
     expect(after?.textContent).toContain('ROBOT-02');
     expect(after?.textContent).toContain('new-category');
-    expect(after?.textContent).not.toContain('備考');
+    // 備考が空になった（なくなった項目）: 変更後は、備考を「なし」の印で示し、空の値は示さない（Issue #190。SC-08-5）
+    expect(after?.textContent).toContain('備考なし');
+    expect(after?.textContent).not.toContain('修正前の備考');
   });
 
   it('条件（操作種別・対象・変更者・期間・並べ替え）は、API のクエリに反映する。不正なクエリの値は、無視する', async () => {
@@ -968,5 +1558,226 @@ describe('入力済みデータ・変更履歴の表の、狭い幅のカード�
     await screen.findAllByTestId('audit-row');
 
     expectCardLabels();
+  });
+});
+
+describe('データ入力: カテゴリは、対象の設備の種別に合うものだけ選べる（Issue #360）', () => {
+  function categoryOptions(container: HTMLElement = entryForm()): string[] {
+    return within(within(container).getByLabelText('カテゴリ', { exact: false }))
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+      .filter((text) => text !== '選択してください');
+  }
+
+  it('対象の設備を選ぶまでは、カテゴリを選べない（選択欄は無効）。先に設備を選ぶ旨を案内する', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: '' } });
+
+    expect((field('カテゴリ') as HTMLSelectElement).disabled).toBe(true);
+    expect(categoryOptions()).toEqual([]);
+    expect(
+      within(entryForm()).getByText(
+        '先に、対象の設備を選んでください（設備に合うカテゴリだけ選べます）',
+      ),
+    ).toBeDefined();
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    expect((field('カテゴリ') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it.each([
+    ['ハウス', 'HOUSE-01', ['満足度情報']],
+    [
+      'ロボット',
+      'ROBOT-01',
+      ['操作情報', '収穫情報', '稼働情報', 'ステータス', '安全情報', 'コスト情報', '故障情報'],
+    ],
+    ['環境センサー', 'SENSOR-01', ['環境情報']],
+  ])('%s を選ぶと、選べるカテゴリは、その種別のものだけ', async (_name, equipmentId, expected) => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+
+    fireEvent.change(field('対象の設備'), { target: { value: equipmentId } });
+
+    expect(categoryOptions()).toEqual(expected);
+  });
+
+  it('対象の設備を変えて、選んでいたカテゴリが選べなくなるときは、カテゴリと入力した値を空にして、その旨を案内する', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'SENSOR-01' } });
+
+    expect((field('カテゴリ') as HTMLSelectElement).value).toBe('');
+    expect(screen.queryByTestId('entry-items')).toBeNull();
+    expect(within(entryForm()).getByText(/カテゴリと入力値を空にしました/)).toBeDefined();
+    // 案内は、カテゴリを選ぶと消え、入力した値は、戻らない
+    fireEvent.change(field('カテゴリ'), { target: { value: 'ENVIRONMENT' } });
+    expect(within(entryForm()).queryByText(/カテゴリと入力値を空にしました/)).toBeNull();
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('');
+  });
+
+  it('設備を選び直さずに、同じ種別のままなら、カテゴリと入力した値を、そのまま残す', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(screen.getByLabelText('故障回数（回）'), { target: { value: '3' } });
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+
+    expect((field('カテゴリ') as HTMLSelectElement).value).toBe('FAILURE');
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('3');
+    expect(within(entryForm()).queryByText(/カテゴリと入力値を空にしました/)).toBeNull();
+  });
+
+  it('直前に入力したカテゴリが、記憶した設備に合わないとき（以前の入力）は、カテゴリを空にする', async () => {
+    window.localStorage.setItem(
+      'smart-farm:last-entry-target',
+      JSON.stringify({ equipmentId: 'HOUSE-01', category: 'FAILURE' }),
+    );
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+
+    expect((field('対象の設備') as HTMLSelectElement).value).toBe('HOUSE-01');
+    expect((field('カテゴリ') as HTMLSelectElement).value).toBe('');
+    expect(categoryOptions()).toEqual(['満足度情報']);
+  });
+
+  it('修正: 以前の入力（ハウスの故障情報）は、そのカテゴリのまま修正できる。対象を、合わない種別へ変えると、カテゴリを空にする', async () => {
+    renderApp(
+      '/data-entry/list',
+      listRoutes([manualEntry({ equipmentId: toEquipmentId('HOUSE-01') })]),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: '修正' }));
+    const edit = await screen.findByTestId('entry-edit');
+    const category = within(edit).getByLabelText<HTMLSelectElement>('カテゴリ', { exact: false });
+    const equipment = within(edit).getByLabelText<HTMLSelectElement>('対象の設備', {
+      exact: false,
+    });
+
+    expect(category.value).toBe('FAILURE');
+    expect(categoryOptions(edit)).toEqual(['満足度情報', '故障情報']);
+
+    fireEvent.change(equipment, { target: { value: 'SENSOR-01' } });
+
+    expect(category.value).toBe('');
+    expect(categoryOptions(edit)).toEqual(['環境情報']);
+  });
+});
+
+describe('データ入力: 数値の項目の、スライダー（Issue #361）', () => {
+  async function openFailure(): Promise<void> {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+  }
+
+  function slider(name: string): HTMLInputElement {
+    return within(screen.getByTestId('entry-items')).getByRole<HTMLInputElement>('slider', {
+      name,
+    });
+  }
+
+  it('数値の項目ごとに、スライダーと数値の欄を並べ、範囲の目安（単位つき）を示す。入力できる値の説明（ヒント）は、そのまま', async () => {
+    await openFailure();
+
+    const count = slider('故障回数のスライダー');
+    expect([count.min, count.max, count.step]).toEqual(['0', '20', '1']);
+    const minutes = slider('復旧に要した時間のスライダー');
+    expect([minutes.min, minutes.max, minutes.step]).toEqual(['0', '480', '5']);
+    const metas = within(screen.getByTestId('entry-items')).getAllByTestId('entry-slider-meta');
+    expect(metas.map((meta) => meta.textContent)).toEqual([
+      '目安の範囲: 0〜20回',
+      '目安の範囲: 0〜480分',
+    ]);
+    expect(screen.getByText('0以上の整数')).toBeDefined();
+    // 数値の欄は、これまでどおり、ラベル（単位つき）で 1 つだけ見つかる
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('');
+  });
+
+  it('スライダーを動かすと、数値の欄が連動し、保存では、その値を数値で送る', async () => {
+    const { calls } = renderApp('/data-entry', {
+      'POST /manual-entries': () => jsonResponse(SAVED, 201),
+    });
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    fireEvent.change(field('計測日時'), { target: { value: '2026-10-09T11:00' } });
+
+    fireEvent.change(slider('故障回数のスライダー'), { target: { value: '7' } });
+    fireEvent.change(slider('復旧に要した時間のスライダー'), { target: { value: '90' } });
+
+    expect(screen.getByLabelText<HTMLInputElement>('故障回数（回）').value).toBe('7');
+    expect(screen.getByLabelText<HTMLInputElement>('復旧に要した時間（分）').value).toBe('90');
+    fireEvent.click(screen.getByRole('button', { name: '保存する' }));
+    await screen.findByTestId('entry-result');
+    expect(
+      (callsOf(calls, 'POST', '/manual-entries')[0]?.body as { items: unknown }).items,
+    ).toEqual({ failureCount: 7, recoveryMinutes: 90 });
+  });
+
+  it('数値の欄に入力すると、スライダーが連動する（全角の数字も読む）。読めない間は、最小の位置で、「未入力」と読み上げる', async () => {
+    await openFailure();
+    const input = screen.getByLabelText<HTMLInputElement>('故障回数（回）');
+
+    fireEvent.change(input, { target: { value: '12' } });
+    expect(slider('故障回数のスライダー').value).toBe('12');
+    expect(slider('故障回数のスライダー').getAttribute('aria-valuetext')).toBe('12回');
+
+    fireEvent.change(input, { target: { value: '１５' } });
+    expect(slider('故障回数のスライダー').value).toBe('15');
+
+    fireEvent.change(input, { target: { value: 'abc' } });
+    expect(slider('故障回数のスライダー').value).toBe('0');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(slider('故障回数のスライダー').getAttribute('aria-valuetext')).toBe('未入力');
+  });
+
+  it('目安の範囲を超える値は、欄に入力でき、スライダーの範囲が広がる。ただし、保存できる上限（湿度 100）は、超えない', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'SENSOR-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'ENVIRONMENT' } });
+
+    fireEvent.change(screen.getByLabelText('温度（℃）'), { target: { value: '70' } });
+    fireEvent.change(screen.getByLabelText('湿度（%）'), { target: { value: '150' } });
+
+    expect(slider('温度のスライダー').max).toBe('70');
+    expect(slider('湿度のスライダー').max).toBe('100');
+    expect(slider('湿度のスライダー').value).toBe('100');
+  });
+
+  it('ステータスコード（選択）と、満足度（スター）には、スライダーを出さない', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'STATUS' } });
+    expect(within(screen.getByTestId('entry-items')).queryAllByRole('slider')).toHaveLength(0);
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'HOUSE-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'SATISFACTION' } });
+    expect(within(screen.getByTestId('entry-items')).queryAllByRole('slider')).toHaveLength(0);
+  });
+
+  it('満足度の 9 観点は、広い幅で 3 つずつ並べるための枠（satisfaction-grid-frame）に入れる。数値の項目には、この枠を使わない', async () => {
+    renderApp('/data-entry');
+    await screen.findByRole('button', { name: '保存する' });
+    fireEvent.change(field('対象の設備'), { target: { value: 'HOUSE-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'SATISFACTION' } });
+
+    const frame = document.querySelector('.satisfaction-grid-frame');
+    expect(frame?.querySelectorAll('[role="radiogroup"]')).toHaveLength(9);
+
+    fireEvent.change(field('対象の設備'), { target: { value: 'ROBOT-01' } });
+    fireEvent.change(field('カテゴリ'), { target: { value: 'FAILURE' } });
+    expect(document.querySelector('.satisfaction-grid-frame')).toBeNull();
   });
 });

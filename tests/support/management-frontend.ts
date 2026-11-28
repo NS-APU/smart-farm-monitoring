@@ -7,7 +7,7 @@ import { render } from '@testing-library/react';
 import { createElement } from 'react';
 import type { LoginResponse } from '../../src/shared/schemas/auth.ts';
 import { toEquipmentId, toUserId } from '../../src/shared/schemas/common.ts';
-import type { ManualEntry } from '../../src/shared/schemas/manual-entry.ts';
+import type { ManualEntryListItem } from '../../src/shared/schemas/manual-entry.ts';
 import type { NotificationItem } from '../../src/shared/schemas/notification.ts';
 import { PERMISSIONS } from '../../src/shared/constants/permissions.ts';
 import { App } from '../../src/frontend/app.tsx';
@@ -48,8 +48,12 @@ export function loginWith(permissions: LoginResponse['user']['permissions']): Lo
 export function withBaseRoutes(routes: Routes = {}): FakeHandler {
   const base: Routes = {
     'GET /equipment': () => jsonResponse(equipmentTree()),
+    // 削除中の設備（SC-10。D-28）。テストごとに上書きしなければ、0 件
+    'GET /equipment/deletions': () => jsonResponse({ items: [] }),
     'GET /notifications/unread-count': () => jsonResponse({ unreadCount: 0 }),
     'GET /status-codes': () => jsonResponse(STATUS_CODES_RESPONSE),
+    // 未登録のコード値（SC-12-5）。テストごとに上書きしなければ、0 件
+    'GET /status-codes/unregistered': () => jsonResponse({ items: [] }),
     // 連携先の設定（SC-11）。テストごとに上書きしなければ、モックの環境・未設定
     'GET /federation/settings': () =>
       jsonResponse({
@@ -116,7 +120,7 @@ export function notification(overrides: Partial<NotificationItem> = {}): Notific
   };
 }
 
-export function manualEntry(overrides: Partial<ManualEntry> = {}): ManualEntry {
+export function manualEntry(overrides: Partial<ManualEntryListItem> = {}): ManualEntryListItem {
   return {
     entryId: 'e-1',
     equipmentId: toEquipmentId('ROBOT-01'),
@@ -145,10 +149,33 @@ export function errorBody(
 }
 
 /** 配列の指定の位置の要素を返す。なければ、テストの前提が崩れているため、エラーにする。 */
+/** DOM の要素を取り出す。なければ、前提が崩れているため、テストを失敗させる。 */
+export function requireElement<Target extends Element>(element: Target | null): Target {
+  if (element === null) {
+    throw new Error('テストの前提: 要素がある');
+  }
+  return element;
+}
+
 export function at<Item>(items: readonly Item[], index: number): Item {
   const item = items[index];
   if (item === undefined) {
     throw new Error(`テストの前提: ${String(index)} 番目の要素がある`);
   }
   return item;
+}
+
+/** 確認のダイアログの「対象の項目」（ラベル → 値）を読む。対象の項目がなければ、空。 */
+export function confirmDetailsOf(dialog: HTMLElement): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Array.from(dialog.querySelectorAll('.dialog-details > div')).map((row) => [
+      row.querySelector('dt')?.textContent ?? '',
+      row.querySelector('dd')?.textContent ?? '',
+    ]),
+  );
+}
+
+/** 確認のダイアログの「影響の説明」（注記）を、並びのまま読む。なければ、空。 */
+export function confirmNotesOf(dialog: HTMLElement): readonly string[] {
+  return Array.from(dialog.querySelectorAll('.dialog-notes > li')).map((item) => item.textContent);
 }

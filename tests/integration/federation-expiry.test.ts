@@ -33,11 +33,15 @@ function setup(overrides: { expiryDays?: number; batchSize?: number } = {}) {
     notifications: repositories.notifications,
     evaluations: repositories.evaluations,
     pushSubscriptions: repositories.pushSubscriptions,
+    users: repositories.users,
     recipients: createNotificationRecipients({
       repositories,
       policy: createAccessPolicy(DEFAULT_ROLE_CONFIG),
     }),
-    webPush: { deliver: () => Promise.resolve('DELIVERED') },
+    webPush: {
+      deliver: () => Promise.resolve('DELIVERED'),
+      deliverTest: () => Promise.resolve('DELIVERED'),
+    },
     clock,
     ids,
     settings: DEFAULT_APP_SETTINGS.notification,

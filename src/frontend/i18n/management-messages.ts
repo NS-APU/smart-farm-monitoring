@@ -3,6 +3,9 @@
  * コードに直書きせず、ここにまとめる（coding-standards.md「フロントエンド」）。
  */
 
+/** ステータスコードを使う観点（機能仕様書 3.11）。ステータスコードの変更・削除の影響の説明に使う。 */
+const STATUS_CODE_VIEWPOINTS_NOTE = '影響する観点: 収穫速度・メンテナンス性・耐久性';
+
 export const MANAGEMENT_MESSAGES = {
   form: {
     errorSummary: (count: number) => `入力内容に誤りがあります（${String(count)}件）`,
@@ -16,9 +19,16 @@ export const MANAGEMENT_MESSAGES = {
     deleting: '削除中…',
     close: '閉じる',
     required: '必須',
+    // 評価の更新が、応答の前に行われなかったとき（DEFERRED。AWS）の、結果の通知の補足（ADR-0014。設備・ステータスコード・判断基準の保存後）
+    evaluationDeferred: '評価の更新は、定期の評価で行われ、反映には、数分かかります',
     all: 'すべて',
     search: '検索',
     filter: '絞り込み',
+    filterOpen: '絞り込みを開く',
+    filterClose: '絞り込みを閉じる',
+    clearConditions: '条件のクリア',
+    activeConditions: (count: number) => `適用中の条件 ${String(count)} 件`,
+    pagerRange: (first: number, last: number) => `${String(first)}〜${String(last)} 件目`,
     keyword: 'キーワード',
     sort: '並べ替え',
     direction: '並べ替えの向き',
@@ -38,7 +48,7 @@ export const MANAGEMENT_MESSAGES = {
     kind: '種別',
     readState: '既読状態',
     kindLabels: {
-      STATUS_CHANGE: '異常検知',
+      STATUS_CHANGE: '状態の悪化',
       INGESTION_FAILURE: 'データ取得失敗',
       FEDERATION_EXPIRED: '連携の期限切れ',
     },
@@ -46,6 +56,7 @@ export const MANAGEMENT_MESSAGES = {
     createdAt: '日時',
     viewpoint: '観点',
     target: '対象',
+    equipment: '設備',
     status: 'ステータス',
     message: 'メッセージ',
     state: '状態',
@@ -58,7 +69,25 @@ export const MANAGEMENT_MESSAGES = {
     confirmMarkMessage: (count: number) =>
       `未読の通知 ${String(count)} 件を既読にします。この画面に読み込んだ時点より後に届いた通知は、既読にしません。`,
     nothingToMark: '既読にする未読の通知はありません',
+    // 再取得（約 10 秒）で届いた新しい通知は、自動では加えない（#159 の SC-05-10）
+    newArrivals: (count: number) => `新着あり（${String(count)} 件）。押すと更新します`,
     markedNotice: (count: number) => `${String(count)} 件の通知を既読にしました`,
+    // 経過・回復日時・メモ（#159 の SC-05-1。D-42）
+    notRecovered: '未回復',
+    recovered: (time: string, elapsed: string) => `${time} に回復（${elapsed}）`,
+    progress: '経過',
+    detailsSummary: (hasProgress: boolean, memoCount: number) =>
+      `${hasProgress ? '経過・メモ' : 'メモ'}（${String(memoCount)} 件）`,
+    memoLabel: 'メモ',
+    memoHelp:
+      'この通知への対応や気づきを記録します。全員が読めます。追記だけで、編集・削除はできません（入力した人と日時が残ります）',
+    memoExample: 'ファイルサーバーを再起動して復旧した',
+    memoAdd: 'メモを追加',
+    memoAdding: '追加中…',
+    memoAdded: 'メモを追加しました',
+    memoEmpty: 'メモはありません',
+    memoLoadFailed: 'メモを読み込めませんでした',
+    memoNoPermission: 'メモを入力する権限がありません',
     empty: '通知はありません',
     emptyFiltered: '条件に合う通知はありません',
   },
@@ -72,12 +101,19 @@ export const MANAGEMENT_MESSAGES = {
     disable: '解除する',
     enabling: '設定中…',
     unsupported: 'このブラウザは、Web Push 通知に対応していません。画面内の通知のみ利用できます',
+    // iPhone・iPad の Safari のタブ（Web Push は、ホーム画面に追加したアプリとして開いたときだけ使える。#159 SC-15-8）
+    unsupportedHomeScreen:
+      'Safari のタブでは、Web Push 通知を利用できません。ホーム画面に追加して、アイコンから開き直してください。それまでは、画面内の通知のみ利用できます',
+    invalidated: '無効になりました。もう一度有効にしてください',
     unavailable: 'このサーバーでは、Web Push 通知を利用できません。画面内の通知のみ利用できます',
     denied:
       'ブラウザで、通知が許可されていません。ブラウザの設定で許可すると、有効にできます。それまでは、画面内の通知のみです',
     permissionRequest: '有効にすると、ブラウザが通知の許可を求めます',
     enabledDone: 'Web Push 通知を有効にしました',
     disabledDone: 'Web Push 通知を解除しました',
+    sendTest: 'テスト通知を送る',
+    sendingTest: '送信中…',
+    testSent: 'テスト通知を送りました。この端末に届いたか、確認してください',
     failed: 'Web Push 通知を設定できませんでした。ブラウザの設定を確認してください',
     scopeNote: '設定は、ログイン中の利用者の、この端末が対象です',
   },
@@ -88,19 +124,41 @@ export const MANAGEMENT_MESSAGES = {
     category: 'カテゴリ',
     observedAt: '計測日時（日本時間）',
     items: '入力項目',
+    sliderEmpty: '未入力',
+    categoryHintNoEquipment: '先に、対象の設備を選んでください（設備に合うカテゴリだけ選べます）',
+    categoryCleared:
+      '対象の設備を変えたため、カテゴリと入力値を空にしました（この設備には、そのカテゴリを入力できません）',
     itemsHint: '入力する項目だけ、値を入力してください（1つ以上）',
     itemsHintSatisfaction: '9観点すべてを選んでください（1〜5 スター）',
     starOption: (stars: number) => `${String(stars)}スター`,
     note: '備考（所感・補足情報）',
     selectPlaceholder: '選択してください',
     statusCodeHint: '登録済みのコードから選択',
+    // 入力欄のヘルプヒント（意味。data-dictionary.md の定義。Issue #154）
+    categoryHelp: '入力する情報の種類です。選べるのは、対象の設備に合うカテゴリだけです',
+    observedAtHelp: '値を計測した（出来事が起きた）日時です。日本時間で入力します',
+    noteHelp: '作業者の所感・補足情報です（任意）',
     statusCodeDeletedOption: '（登録なし・削除済み）',
     save: '保存する',
     savedTitle: '保存しました',
     savedLead: '入力内容を保存し、評価を更新しました。関連する観点の現在のステータスです',
     savedLeadDeferred:
       '入力内容を保存しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
+    // 「現在」（短期の評価）だけ、保存の直後に更新した（AWS。#591）。「期間の評価」は、定期の評価で更新する
+    savedLeadCurrent:
+      '入力内容を保存し、「現在」の評価を更新しました。「期間の評価」の更新は、定期の評価で行われ、反映には、数分かかります（表示は、前回の評価）',
+    /** 関連する観点のステータスの、2 つの欄の名前（「現在」「期間の評価」）と、「期間の評価」がまだないときの表示。 */
+    relatedCurrent: '現在',
+    relatedPeriod: '期間の評価',
+    relatedNotEvaluated: 'まだ評価されていません',
     noRelated: '関連する観点の評価は、まだありません',
+    // 評価に使われない項目（D-26。保存・修正の結果。Issue #162 の SC-06-5）。自動取り込みの値がある期間は、合計の項目の手動入力は使われない
+    usageTitle: '評価に使われない項目があります（入力は保存されています）',
+    usageNotUsed: 'この期間は自動取り込みの値を使うため、この入力は評価に使われません',
+    usagePartial: (periods: string) =>
+      `${periods}の評価では、自動取り込みの値を使うため、この入力は使われません`,
+    usageShort: '短期視点',
+    usageLong: (periodLabel: string) => `長期視点（${periodLabel}）`,
     goList: '入力済みデータの一覧へ',
     goDashboard: 'ダッシュボードで確認',
     noEquipment: '設備が登録されていません。設備を登録してください',
@@ -111,7 +169,7 @@ export const MANAGEMENT_MESSAGES = {
   },
   entries: {
     title: '入力済みデータ',
-    lead: '手動で入力したデータの一覧です。誤りは、修正・削除できます（削除は論理削除で、集計の対象から外れます）',
+    lead: '手動で入力したデータの一覧です。誤りは、修正・削除できます。削除したデータは、一覧と集計の対象から外れます。変更履歴には残ります',
     category: 'カテゴリ',
     equipment: '設備',
     observedAt: '計測日時',
@@ -122,14 +180,30 @@ export const MANAGEMENT_MESSAGES = {
     sortObservedAt: '計測日時',
     sortCategory: 'カテゴリ',
     sortEnteredBy: '入力者',
+    keywordNote: 'キーワードは、設備名・カテゴリ・入力者・備考・入力項目の名称と値から探します',
     empty: '入力済みのデータはありません',
     emptyAction: 'データ入力へ',
     goHistory: '変更履歴を見る',
+    /** 各行の、その入力の変更履歴への導線（SC-07-10）。 */
+    rowHistory: '履歴',
     goEntry: 'データ入力へ',
     deleteTitle: '入力データを削除しますか',
-    deleteMessage: '削除したデータは、一覧と集計の対象から外れます（変更履歴には残ります）',
+    deleteMessage:
+      '削除したデータは、一覧と集計の対象から外れます。元に戻す操作はありません（変更履歴には残ります）',
+    deleteItems: '項目',
     deleted: '削除しました',
     updated: '修正しました',
+    // 修正・削除の後の結果（評価の更新。D-27。Issue #150）。保存時（entry.savedLead・savedLeadDeferred）に合わせる
+    updatedLead: '入力内容を修正し、評価を更新しました。関連する観点の現在のステータスです',
+    updatedLeadDeferred:
+      '入力内容を修正しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
+    updatedLeadCurrent:
+      '入力内容を修正し、「現在」の評価を更新しました。「期間の評価」の更新は、定期の評価で行われ、反映には、数分かかります（表示は、前回の評価）',
+    deletedLead: '入力内容を削除し、評価を更新しました。関連する観点の現在のステータスです',
+    deletedLeadDeferred:
+      '入力内容を削除しました。評価の更新は、定期の評価で行われ、ステータスへの反映には、数分かかります。関連する観点の、前回の評価のステータスです',
+    deletedLeadCurrent:
+      '入力内容を削除し、「現在」の評価を更新しました。「期間の評価」の更新は、定期の評価で行われ、反映には、数分かかります（表示は、前回の評価）',
   },
   history: {
     title: '変更履歴',
@@ -153,16 +227,62 @@ export const MANAGEMENT_MESSAGES = {
     },
     empty: '該当する履歴はありません',
     showDetail: '内容を表示',
+    // 変更点の印（編集の変更前後。#190。SC-08-5）。文字のタグ（色だけに頼らない）
+    diffMarks: { changed: '変更', added: '追加', removed: 'なし' },
+    summaryChanged: (labels: readonly string[]) => `変更: ${labels.join('・')}`,
+    summaryAdded: (labels: readonly string[]) => `追加: ${labels.join('・')}`,
+    summaryRemoved: (labels: readonly string[]) => `なし: ${labels.join('・')}`,
+    summarySeparator: '　',
+    noChanges: '変更された項目はありません',
+    // 内容を開いて確認する種類の、項目の呼び方（画面の呼び方。ないキーは、そのキー名を示す）
+    fieldLabels: {
+      equipmentId: '設備ID',
+      equipmentType: '種別',
+      name: '名称',
+      facilityId: '親のハウス',
+      externalId: 'データ上の識別子',
+      sourceFilePath: 'ファイルパス',
+      intervalMinutes: '取得間隔',
+      isDeleted: '削除済み',
+      createdAt: '登録日時',
+      code: 'コード値',
+      description: '説明',
+      category: 'カテゴリ',
+      userId: 'ユーザーID',
+      userName: 'ユーザー名',
+      role: 'ロール',
+      lastLoginAt: '最終ログイン',
+      passwordChanged: 'パスワードの変更',
+      userIds: '閲覧できるユーザー',
+      isEnabled: '自動取り込み（有効・無効）',
+      protocol: 'プロトコル',
+      host: 'ホスト名',
+      port: 'ポート番号',
+      authMethod: '認証方式',
+      apiKeyHeaderName: 'API キーのヘッダー名',
+      credentialsUpdated: '認証情報の更新',
+      endpointUpdated: '接続先の更新',
+      tenant: 'テナント名',
+      contextUrl: 'context の URL',
+      enabled: '連携の有効・無効',
+    },
     metaObservedAt: '計測日時',
     metaEquipment: '設備',
     metaCategory: 'カテゴリ',
     metaNote: '備考',
     backToEntries: '入力済みデータへ戻る',
     noPermission: '変更履歴を参照する権限がありません',
+    // 対象の絞り込み（チップ。他の画面の「履歴」「変更履歴を見る」から開く。#155）
+    clearTarget: '解除',
+    clearTargetLabel: '対象の絞り込みを解除',
+    refresh: '更新',
+    refreshing: '更新中…',
+    manualRefreshNote:
+      '対象を絞った表示は、自動では更新しません。最新の履歴を見るときは、「更新」を押してください',
   },
   observations: {
-    title: '取り込み済みデータ',
-    lead: '評価の根拠となる、取り込み済みのデータ（自動取り込み・手動入力）の一覧です',
+    title: '計測データ',
+    lead: '評価の根拠となる、計測データ（自動取り込み・手動入力）の一覧です',
     category: 'カテゴリ',
     equipment: '設備',
     source: '取得元',
@@ -174,19 +294,46 @@ export const MANAGEMENT_MESSAGES = {
       'データがまだ取り込まれていません。取り込みの状況、またはデータ入力を確認してください',
     goIngestion: '取り込みの状況へ',
     goEntry: 'データ入力へ',
+    // 1 回の計測ごとにまとめる一覧（日時順。Issue #363）
+    measurementNote:
+      '1 回の計測（設備・計測日時・取得元）を、1 行にまとめて表示します。項目ごとの一覧は、並べ替えを「カテゴリ」「値」にすると表示します',
+    itemsNote:
+      '項目ごとに 1 行で表示しています。1 回の計測ごとの一覧は、並べ替えを「日時」にすると表示します',
+    itemsAndValues: '項目と値',
+    itemCount: (count: number) => `${String(count)} 項目`,
+    qualityAllValid: 'すべて有効',
+    // 「問題あり」の絞り込み（SC-09-3）。期間が必須で、選んでいる間は、自動で更新しない（読み取りが多いため。ADR-0007）
+    problemOnly: '問題あり（欠損・遅延・不正を含む）',
+    problemOnlyNote: '期間は 31 日以内。多いときは、期間を狭めてください',
+    refresh: '更新',
+    refreshing: '更新中…',
+    manualRefreshNote:
+      '「問題あり」の絞り込みは、自動では更新しません。最新のデータを見るときは、「更新」を押してください',
+    // 評価に使われない手動入力の印（D-26。SC-09-4。Issue #162）。理由の文は、保存の結果（entry.usageNotUsed・usagePartial）と同じ
+    usageTag: '評価に使われていません',
+    usageTagPartial: '一部の評価に使われていません',
+    usageHintName: '評価での扱い',
+    // 手動入力の行からの導線（SC-09-5）
+    openEntry: '入力データを開く',
+    rowHistory: '履歴',
   },
   equipment: {
-    title: '設備',
-    lead: 'ハウスと、配下のロボット・環境センサーを管理します。変更は、取り込み・評価・表示に反映されます',
+    title: 'ハウス・設備',
+    lead: 'ハウスと、配下の設備（ロボット・環境センサー）を管理します。登録・修正は、ダイアログで行います。変更は、取り込み・評価・表示に反映されます',
     type: '種別',
     typeLabels: { FACILITY: 'ハウス', ROBOT: 'ロボット', SENSOR: '環境センサー' },
     id: '設備ID',
     name: '名称',
     externalId: 'データ上の識別子',
-    externalIdHint: 'ファイルの中の機体ID・センサーIDと対応づけます（任意）',
+    externalIdHint:
+      '取り込みの照合には使いません。ファイルは、ファイルパスで、設備に対応づけます（任意）',
     sourceFilePath: 'ファイルパス',
     sourceFilePathHint:
-      'ファイルサーバー（HTTP）の、この設備のファイルの場所です。例: /data/robot-01.json（任意）',
+      'ファイルサーバー（HTTP）の、この設備のファイルの場所です。設備ごとに 1 ファイルで、ほかの設備と同じパスは使えません。例: /data/robot-01.json（任意）',
+    sourceFilePathGuide:
+      'ファイルのパスを設定すると、取り込みの対象になります。下の「取り込み元の接続」も設定してください',
+    idRule:
+      '設備IDに使える文字は、英数字・ハイフン（-）・アンダースコア（_）で、先頭は英数字、100 文字以内です。登録後は、変更できません',
     interval: '取得間隔',
     intervalHint:
       'ファイルサーバーから、この設備のデータを取りに行く間隔です。画面は、10 秒ごとに更新されますが、新しいデータが増えるのは、この間隔ごとです（任意）',
@@ -196,22 +343,126 @@ export const MANAGEMENT_MESSAGES = {
     facility: '親のハウス',
     addFacility: 'ハウスを登録',
     addChild: 'ロボット・環境センサーを登録',
+    openAddFacility: 'ハウスの登録',
+    openAddChild: 'ロボット・環境センサーの登録',
     addSubmit: '登録する',
     edit: '修正',
     actions: '操作',
     empty: '設備が登録されていません。ハウスを登録してください',
     deleteTitle: '設備を削除しますか',
-    deleteMessage: '削除した設備は、取り込み・評価・表示の対象から外れます。過去のデータは残ります',
+    // 設備を削除すると、設備のデータも削除する（D-28。Issue #229）。ハウスは、名前の入力で確認する
+    deleteMessage:
+      '削除すると、この設備の観測値・手動入力・評価結果・状態変化の履歴・取り込みの設定が、すべて削除されます。設備の変更履歴・通知・取り込みログは、残ります',
     deleteFacilityMessage:
-      '削除したハウスは、配下のロボット・環境センサーも含めて、取り込み・評価・表示の対象から外れます。過去のデータは残ります',
-    deleteTargets: (names: readonly string[]) =>
+      '削除すると、このハウスと、配下のロボット・環境センサーの観測値・手動入力・評価結果・状態変化の履歴・取り込みの設定が、すべて削除されます。ハウスの変更履歴・通知・取り込みログは、残ります',
+    deleteNotes: [
+      '元に戻せません',
+      '農業情報基盤に送信済みのデータは、削除されません',
+      'データの削除には、時間がかかります。削除が終わるまで、同じ設備 ID は登録できません',
+    ],
+    deleteTargetsNote: (names: readonly string[]) =>
       names.length === 0
-        ? '（配下の設備はありません）'
-        : `（対象: ${names.join('、')}の${String(names.length)}件）`,
+        ? '配下のロボット・環境センサーはありません'
+        : `配下のロボット・環境センサー ${String(names.length)} 件（${names.join('、')}）と、そのデータが、すべて削除されます`,
+    deleteTypedLabel: '確認のため、削除するハウスの名前を入力してください',
+    deleting: {
+      heading: '削除中の設備',
+      lead: '削除した設備のデータを、順に削除しています。削除が終わると、この表示は消えます',
+      status: {
+        DELETING: '削除しています',
+        FAILED: '削除に失敗しました。自動で再試行します',
+      },
+      children: (names: readonly string[]) => `配下: ${names.join('、')}`,
+    },
+    /** 親のハウスの付け替えの確認（Issue #163。SC-10-7）。閲覧の割り当てはハウス単位（FR-9.8）、通知は作成時のハウスに固定（ADR-0019 D-41）、過去の評価は保持（ADR-0017 D-24）。 */
+    parentChange: {
+      title: '親のハウスを変更しますか',
+      message: (from: string, to: string) =>
+        `親のハウスを${from}から${to}に変えます。閲覧できる利用者（割り当て）と、ハウスの評価が変わります`,
+      notes: [
+        'この設備のデータは、新しいハウスの配下のものとして評価されます',
+        '通知と過去の評価は、元のハウスのまま残ります',
+      ],
+      targetLabel: '設備',
+      fromLabel: '変更前のハウス',
+      toLabel: '変更後のハウス',
+      confirm: '親のハウスを変更して保存',
+    },
     created: '登録しました',
+    createdConnectionFailed:
+      '設備は登録しました。取り込み元の接続は、保存できませんでした。内容を確認して、もう一度「登録する」を押してください',
+    updatedConnectionFailed:
+      '設備は保存しました。取り込み元の接続は、保存できませんでした。内容を確認して、もう一度「保存」を押してください',
+    nextAfterFacility: 'ハウスを登録しました。続けて、ロボット・環境センサーを登録できます',
+    nextRegisterChild: 'ロボット・環境センサーを登録',
+    nextAfterChild:
+      'ロボット・環境センサーを登録しました。データは、自動取り込み（ファイルのパスと接続を設定した場合）か、手動入力で追加できます',
+    nextGoDataEntry: 'データ入力へ',
     updated: '修正しました',
-    deleted: '削除しました',
+    deleted: '削除を始めました。データの削除には、数分かかることがあります',
     readOnly: '設備を変更する権限がありません。参照のみできます',
+    connection: {
+      heading: '取り込み元の接続',
+      lead: 'ファイルサーバーからこの設備のファイルを取りに行くときの接続です。設備ごとに設定します（ハウスには、ありません）',
+      loading: '接続の情報を読み込んでいます…',
+      loadFailed: '接続の情報を取得できません。設備の保存はできますが、接続は変更されません',
+      unset: '接続先が設定されていません',
+      protocol: 'プロトコル',
+      protocolLabels: { HTTPS: 'HTTPS（推奨）', HTTP: 'HTTP（暗号化なし）' },
+      plaintextWarning:
+        'HTTP は、通信が暗号化されません。認証情報（パスワード・トークン・API キー）と取得するデータが、そのままネットワークを流れます。可能なら HTTPS を使ってください',
+      host: 'ホスト名（FQDN・IP アドレス）',
+      hostHint: 'スキーム（https://）・ポート・パスは含めません。内部のアドレスは、指定できません',
+      port: 'ポート番号',
+      portHint: '省略すると、HTTPS は 443、HTTP は 80 を使います',
+      portInvalid: 'ポート番号は、1〜65535 の数字で指定してください',
+      authMethod: '認証方式',
+      authMethodLabels: {
+        NONE: 'なし',
+        BASIC: 'Basic 認証（ユーザー名・パスワード）',
+        BEARER: 'Bearer トークン',
+        API_KEY: 'API キー',
+      },
+      apiKeyHeaderName: 'API キーのヘッダー名',
+      apiKeyHeaderNameHint: 'API キーを送るリクエストヘッダーの名前です（既定は X-API-Key）',
+      readOnly: '接続を設定する権限がありません。参照のみできます',
+      copyLabel: 'ほかの設備の接続をコピー',
+      copyHint:
+        '同じ種別（ロボット／環境センサー）で、設備ごとの接続を持つ設備の、接続の項目（プロトコル・ホスト名・ポート・認証方式）を写します。認証情報は、写しません',
+      copyPlaceholder: '選択してください',
+      copyNone: 'コピーできる設備（同じ種別で、設備ごとの接続を持つ設備）がありません',
+      copied: (name: string) =>
+        `「${name}」の接続の内容を、入力欄に写しました（まだ保存していません）。認証情報は、写していません。保存したあとに、入力し直してください`,
+      credentialsHeading: '認証情報',
+      credentialsLead:
+        '値は、書き込み専用です。保存すると、現在の値を上書きします。保存したあとは、表示しません',
+      credentialsStatusLabel: '状態',
+      credentialsStatus: {
+        NOT_REQUIRED: '不要',
+        NOT_CONFIGURED: '未設定',
+        UNAVAILABLE: '状態を確認できません',
+      },
+      credentialsConfigured: '設定済み',
+      credentialsUpdatedAt: (at: string) => `設定済み（更新: ${at}）`,
+      credentialsUsername: 'ユーザー名',
+      credentialsPassword: 'パスワード',
+      credentialsToken: 'トークン',
+      credentialsApiKey: 'API キー',
+      credentialsSave: '認証情報を保存',
+      credentialsSaved: '認証情報を保存しました',
+      credentialsUnsaved:
+        '認証方式を変更しました。先に設備を保存してから、認証情報を登録してください',
+      credentialsAfterSave: '認証情報は、接続を保存したあとに、登録できます',
+      test: '接続テスト',
+      testing: '接続テスト中…',
+      testUnsaved: '接続の入力を変更しています。保存してから、接続テストをしてください',
+      remove: '接続を未設定に戻す',
+      removing: '未設定に戻しています…',
+      removeConfirm:
+        'この設備の接続（ホスト・ポート・認証方式）と認証情報の紐づけを解除し、未設定に戻します。解除すると、この設備の取り込みは「接続先が設定されていません」で失敗します。認証情報の値は、保管先に残ります',
+      removeConfirmYes: '未設定に戻す',
+      removed: '接続を未設定に戻しました',
+    },
     facilityAccess: {
       column: '閲覧できるユーザー',
       none: 'なし',
@@ -219,6 +470,9 @@ export const MANAGEMENT_MESSAGES = {
       panelTitle: (facilityName: string) => `「${facilityName}」を閲覧できる一般ユーザー`,
       lead: '一般ユーザーが閲覧できるハウス（配下のロボット・環境センサーを含む）は、ハウスごとに、ここで決めます。割り当てのないユーザーには、このハウスは、存在しないものとして扱われます。管理者は、すべてのハウスを閲覧できます',
       userLabel: (userName: string) => `${userName}が閲覧できる`,
+      selectColumn: '閲覧',
+      userIdColumn: 'ユーザーID',
+      userNameColumn: 'ユーザー名',
       save: '割り当てを保存',
       saving: '保存中…',
       close: '閉じる',
@@ -239,29 +493,62 @@ export const MANAGEMENT_MESSAGES = {
     categoryLabels: { NORMAL: '正常', CAUTION: '注意', ERROR: '異常' },
     actions: '操作',
     add: 'ステータスコードを登録',
+    openAdd: 'ステータスコードの登録',
     addSubmit: '登録する',
     empty: 'ステータスコードは登録されていません',
     deleteTitle: 'ステータスコードを削除しますか',
     deleteMessage:
       '削除したコード値のデータは、評価で「不正な値」として扱われます。評価に影響するため、確認してください',
+    // 影響の説明（静的。最近の観測値の件数などは、示さない）。評価への反映は次の評価から、過去の評価は保持する（ADR-0017）
+    deleteNotes: [
+      '削除は、次の評価から反映されます。過去の評価は、そのまま保持します',
+      STATUS_CODE_VIEWPOINTS_NOTE,
+    ],
+    categoryChangeHint: `カテゴリを変えると、次の評価から反映されます。過去の評価は、そのまま保持します。${STATUS_CODE_VIEWPOINTS_NOTE}`,
     created: '登録しました',
     updated: '修正しました',
     deleted: '削除しました',
     impact: 'カテゴリの変更は、評価に反映されます（変更の履歴は変更履歴に残ります）',
     readOnly: 'ステータスコードを変更する権限がありません。参照のみできます',
+    // 未登録のコード値の一覧（管理者のみ。SC-12-5。Issue #158）
+    unregistered: {
+      title: '未登録のコード値',
+      lead: '取り込んだデータに現れた、ステータスコードの定義にないコード値です（件数の多い順）。削除したコード値も、ここに現れます',
+      effectNote:
+        '登録した後に取り込むデータから、定義のとおりに評価されます。すでに保存した値（「不正な値」のもの）は、評価し直しません',
+      refreshNote:
+        'この一覧は、自動では更新しません。取り込みのあとは、「更新」を押して、読み直してください',
+      refresh: '更新',
+      refreshing: '更新中…',
+      count: '件数',
+      countValue: (count: number) => `${String(count)} 件`,
+      lastSeenAt: '最後に取り込んだ日時',
+      register: '登録',
+      unregistrable: '登録できない形式',
+      unregistrableExample: (suggestedCode: string) =>
+        `「${suggestedCode}」のような形式なら、登録できます`,
+      unregistrableNote:
+        '登録できるのは、英大文字で始まり、英大文字・数字・アンダースコアだけのコード値です。取り込んだデータの値が、この形式ではありません',
+      empty: '未登録のコード値はありません',
+      registerNote: (observedCode: string) =>
+        `取り込んだデータに現れたコード値「${observedCode}」を登録します`,
+    },
   },
   criteria: {
     title: '判断基準の編集',
     lead: '閾値を、運用に合わせて調整します。変更はシステム全体（すべての利用者）に適用され、以降の評価に使われます',
     backToDetail: '観点の詳細へ戻る',
+    goHistory: '変更履歴を見る',
     state: '現在の状態',
     stateDefault: '既定値',
     stateChanged: '変更済み',
-    version: '版',
+    lastChanged: '最終変更',
     updatedBy: '変更者',
-    updatedAt: '変更日時',
     indicator: '指標',
     label: '条件名',
+    /** 条件名のヘルプヒント（機能仕様書 3.2・3.12、FR-5.7。診断メッセージは「条件名 値（状態）」の形で使う）。 */
+    labelHelp:
+      '診断メッセージと、観点の詳細の判断基準の表で、どの条件に当てはまったかを示す名前です（診断メッセージでは「条件名 値（状態）」の形で使います）。200 文字以内で入力します',
     kindLabels: {
       UPPER: '上限型（値が大きいほど悪い）',
       LOWER: '下限型（値が小さいほど悪い）',
@@ -277,17 +564,60 @@ export const MANAGEMENT_MESSAGES = {
       normalUpper: '正常上限（未満で正常）',
       errorUpper: '異常上限（以上で異常）',
     },
+    thresholdShortLabels: {
+      cautionFrom: '注意開始値',
+      errorFrom: '異常開始値',
+      errorBelow: '異常下限',
+      cautionBelow: '注意下限',
+      errorLower: '異常下限',
+      normalLower: '正常下限',
+      normalUpper: '正常上限',
+      errorUpper: '異常上限',
+    },
+    sliderSuffix: 'のスライダー',
+    notANumber: '数値ではありません',
+    rangeHint: '目安の範囲',
+    defaultValue: '既定',
+    defaultChanged: '変更済み',
+    currentValue: '現在値',
+    afterValue: '変更後',
+    unchanged: '変更なし',
+    zoneCurrent: '現在',
+    zoneAfter: '変更後',
+    zoneInvalid: '閾値の大小関係が整うまで、帯は表示しません',
     save: '保存する',
     reset: '既定値へ戻す',
     resetTitle: '既定値へ戻しますか',
     resetMessage: '変更した閾値は破棄され、既定値で評価します',
     saved: '保存しました。現在の評価を更新しました',
     resetDone: '既定値へ戻しました',
+    conflict: '他の管理者が変更しました。読み込み直してください',
+    conflictNote: '読み込み直すと、入力中の内容は破棄され、最新の判断基準を表示します',
+    reload: '読み込み直す',
     statusNote:
-      'この観点は、ステータスコードのカテゴリ（正常・注意・異常）でも判定します。ステータスコードの設定は、ステータスコード管理で行います',
-    goStatusCodes: 'ステータスコード管理へ',
+      'この観点は、ステータスコードのカテゴリ（正常・注意・異常）でも判定します。ステータスコードの設定は、メニューの「ステータスコード」で行います',
+    goStatusCodes: 'ステータスコードへ',
     readOnly: '判断基準を編集する権限がありません。参照のみできます',
     unknownViewpoint: '観点が見つかりません',
+    // 影響の確認（SC-13-2。ADR-0017 の D-24）。保存済みの評価結果に、入力途中の閾値を当てた再判定（保存しない）
+    preview: {
+      title: '影響の確認',
+      lead: '入力した閾値で、状態が変わる設備を確認します（保存はしません）',
+      help: '入力した閾値を、保存済みの評価結果の指標に当てて、状態を判定し直します。「現在」は、現在の判断基準を同じ結果に当てた状態、「変更後」は、入力した閾値を当てた状態です。状態は、観点の状態（短期・長期のうち「不明」を除いた悪い方。ダッシュボードの観点の状態と同じ）です。ハウスは、配下の設備の最も悪い状態です',
+      button: '影響を確認',
+      busy: '確認中…',
+      basis: (evaluatedAt: string | undefined) =>
+        `保存済みの評価結果に対する影響です（最大約 5 分前の状態${evaluatedAt === undefined ? '' : `。評価日時: ${evaluatedAt}`}）。保存後の実際の評価では、新しいデータにより、結果が変わることがあります。AWS では、保存後の評価は、定期の評価（5 分ごと）で行われ、反映には数分かかります`,
+      noChange: '変わる設備はありません',
+      noTarget: '確認できる設備がありません',
+      changed: (count: number) => `状態が変わる設備: ${String(count)} 件`,
+      equipment: '設備',
+      current: '現在',
+      after: '変更後',
+      unevaluated: '未評価の設備（まだ評価されていないため、影響を確認できません）',
+      unknown: (count: number) =>
+        `状態が「不明」の設備（${String(count)} 件）は、閾値を変えても「不明」のままです（再判定の対象外）`,
+    },
   },
   users: {
     title: 'ユーザー',
@@ -303,9 +633,11 @@ export const MANAGEMENT_MESSAGES = {
     never: '未ログイン',
     actions: '操作',
     add: 'ユーザーを登録',
+    openAdd: 'ユーザーの登録',
     addSubmit: '登録する',
     deleteTitle: 'ユーザーを削除しますか',
-    deleteMessage: '削除したユーザーは、ログインできなくなります',
+    deleteMessage:
+      '削除したユーザーは、ログインできなくなります。そのユーザーの Web Push 通知の購読と、ログイン中の状態（セッション）も削除します',
     created: '登録しました',
     updated: '修正しました',
     deleted: '削除しました',
@@ -314,63 +646,21 @@ export const MANAGEMENT_MESSAGES = {
     forbidden: 'ユーザーを管理する権限がありません',
   },
   ingestion: {
-    title: '取り込み設定・状況',
+    title: '取り込み',
     lead: 'ファイルサーバーからの取り込みと、農業情報基盤への連携の設定・状況です。認証情報は、画面に表示しません',
     sources: '取り込み元',
     sourceNames: { robot: 'ロボットデータ', 'environment-sensor': '環境センサーデータ' },
-    connectionRef: '接続先（接続設定の参照名）',
-    connectionRefHint: '認証情報は、環境変数・シークレット管理の参照名で指定します',
-    connectionType: '接続方式',
-    connectionTypeLabels: {
-      MOCK: 'モック（開発・検証用）',
-      HTTP: 'HTTP・HTTPS（ファイルサーバー）',
-    },
-    protocol: 'プロトコル',
-    protocolLabels: { HTTPS: 'HTTPS（推奨）', HTTP: 'HTTP（暗号化なし）' },
-    plaintextWarning:
-      'HTTP は、通信が暗号化されません。認証情報（パスワード・トークン・API キー）と取得するデータが、そのままネットワークを流れます。可能なら HTTPS を使ってください',
-    host: 'ホスト名（FQDN・IP アドレス）',
-    hostHint: 'スキーム（https://）・ポート・パスは含めません。内部のアドレスは、指定できません',
-    port: 'ポート番号',
-    portHint: '省略すると、HTTPS は 443、HTTP は 80 を使います',
-    portInvalid: 'ポート番号は、1〜65535 の数字で指定してください',
-    filePathNotice:
-      '取得するファイルは、設備ごとに、設備の画面（ロボット・環境センサー）で、ファイルパスを指定します',
-    authMethod: '認証方式',
-    authMethodLabels: {
-      NONE: 'なし',
-      BASIC: 'Basic 認証（ユーザー名・パスワード）',
-      BEARER: 'Bearer トークン',
-      API_KEY: 'API キー',
-    },
-    apiKeyHeaderName: 'API キーのヘッダー名',
-    apiKeyHeaderNameHint: 'API キーを送るリクエストヘッダーの名前です（既定は X-API-Key）',
-    credentialsHeading: '認証情報',
-    credentialsLead:
-      '値は、書き込み専用です。保存すると、現在の値を上書きします。保存したあとは、表示しません',
-    credentialsStatusLabel: '状態',
-    credentialsStatus: {
-      NOT_CONFIGURED: '未設定',
-      UNAVAILABLE: '状態を確認できません',
-    },
-    credentialsConfigured: '設定済み',
-    credentialsUpdatedAt: (at: string) => `設定済み（更新: ${at}）`,
-    credentialsUsername: 'ユーザー名',
-    credentialsPassword: 'パスワード',
-    credentialsToken: 'トークン',
-    credentialsApiKey: 'API キー',
-    credentialsSave: '認証情報を保存',
-    credentialsSaving: '保存中…',
-    credentialsSaved: '認証情報を保存しました',
-    credentialsUnsaved:
-      '認証方式・接続方式を変更しました。先に設定を保存してから、認証情報を登録してください',
-    credentialsAfterSave: '認証情報は、設定を保存したあとに、登録できます',
     intervalMoved: '取得間隔は、設備ごとに、設備管理で設定します',
     enabled: '自動取り込みを有効にする',
+    /** 自動取り込みを外した影響（ADR-0016 の D-12）。 */
+    enabledImpact:
+      '外すと、手動の運用になります。自動取り込みは行われず、ダッシュボードの「データが古い」の警告も出なくなります。必要なときは「即時取得」で取り込めます',
+    connectionHeading: '接続は設備ごとに設定します',
+    connectionLead:
+      '接続先（ホスト名・ポート・認証方式・認証情報）は、設備のダイアログ（ハウス・設備の画面の「修正」）で、設備ごとに設定します。この画面では、設備ごとの接続の状況を確認し、接続テストができます',
     profile: '解釈に使っている仕様',
     profileStatus: { PROVISIONAL: '仮決め', CONFIRMED: '確定' },
     lastStarted: '最終の実行',
-    lastSuccess: '最終の成功',
     neverRun: 'まだ実行していません',
     save: '設定を保存',
     saved: '設定を保存しました',
@@ -390,19 +680,98 @@ export const MANAGEMENT_MESSAGES = {
     logs: '取り込みのログ',
     logSource: '取り込み元',
     logEquipment: '設備',
+    /** 削除された設備のログ（設備の一覧にない設備。識別子は示さない。Issue #164）。 */
+    logEquipmentDeleted: '（削除済みの設備）',
+    /** 失敗の行の、設備のファイルのパス（ログには記録がないため、設備の現在の設定。管理者のみ。Issue #164）。 */
+    logFilePath: (path: string) => `ファイルのパス（現在の設定）: ${path}`,
+    logFilePathNone: 'ファイルのパスは未設定です',
     logResultFilterLabels: { SUCCESS: '成功', FAILURE: '失敗' },
-    equipmentRuns: '設備ごとの最終の実行',
+    equipmentRuns: '設備ごとの接続と状況',
     equipmentRunData: '最後にデータが取れた日時',
+    equipmentFilePath: 'ファイルのパス',
+    equipmentFilePathNone: 'ファイルのパスを設定すると、取り込みの対象になります',
+    equipmentConnectionTarget: '接続先',
+    equipmentLastRun: '最終の実行（結果）',
+    equipmentConnectionUnset: '未設定',
+    equipmentCredentials: '認証情報',
+    equipmentCredentialsLabels: {
+      NOT_REQUIRED: '不要',
+      NOT_CONFIGURED: '未設定',
+      CONFIGURED: '設定済み',
+      UNAVAILABLE: '確認できません',
+    },
+    equipmentStopped: '停止中',
+    equipmentStoppedTitle: (minutes: number) =>
+      `最後にデータが取れてから、基準（${String(minutes)} 分）を超えています（ダッシュボードの「データが古い」と同じ基準）`,
+    equipmentActions: '操作',
+    equipmentTest: '接続テスト',
+    equipmentTesting: '接続テスト中…',
+    equipmentTestLabel: (name: string) => `${name}の接続テスト`,
+    /** ブラウザから、取り込み用のファイルを置く（Issue #565。ADR-0027）。 */
+    sourceFile: {
+      button: 'ファイルを置く',
+      buttonLabel: (name: string) => `${name}のファイルを置く`,
+      title: 'ファイルを置く',
+      target: '対象の設備',
+      targetValue: (name: string, path: string) => `${name}（ファイルのパス: ${path}）`,
+      lead: '選んだファイルを、この設備のファイルのパスに置きます。置いたファイルは、取り込みが読み取ります。先に「内容を確認」で、置けるかを確かめます',
+      fileLabel: '取り込み用のファイル（JSON）',
+      fileHint: '.json のファイルを選びます。大きさは 1 MiB までです',
+      selected: (name: string, size: string) => `選んだファイル: ${name}（${size}）`,
+      tooLarge: (bytes: number) =>
+        `ファイルが大きすぎます（${bytes.toLocaleString('ja-JP')} バイト）。1 MiB を超えるファイルは、置けません（送信していません）`,
+      readFailed: 'ファイルを読み取れませんでした。選び直してください',
+      check: '内容を確認',
+      checking: '確認中…',
+      place: '置く',
+      placing: '置いています…',
+      resultHeading: '確認の結果',
+      okText: '置けます',
+      ngText: '置けません',
+      format: '解釈に使う仕様',
+      observedAt: '読み取れた計測日時',
+      observedAtNone: '読み取れませんでした',
+      itemCount: '読み取れた項目数',
+      itemCountValue: (count: number) => `${String(count)} 件`,
+      fileSize: 'ファイルの大きさ',
+      problemsHeading: '置けない理由',
+      warningsHeading:
+        '注意: 置けますが、取り込みで「不正」になる点があります（項目名だけを示します）',
+      confirm: {
+        title: 'ファイルを置きますか',
+        message: '同じパスのファイルは、置き換わります',
+        notes: [
+          '置いただけでは、取り込まれません。取り込みは、自動の取り込みか、即時取得で行います',
+        ],
+        equipment: '設備',
+        fileName: 'ファイルの名前',
+        size: '大きさ',
+        observedAt: '計測日時',
+      },
+      done: (name: string, observedAt: string | undefined, warningCount: number) =>
+        `ファイルを置きました: ${name}（${
+          observedAt === undefined ? '計測日時を読み取れませんでした' : `計測日時 ${observedAt}`
+        }${warningCount > 0 ? `、注意 ${String(warningCount)} 件` : ''}）`,
+      afterPlaced:
+        '取り込みは、まだ行っていません。自動の取り込みが有効なら、次の取り込みで読み取ります。すぐに取り込むときは、「今すぐ取り込む」を押してください',
+      afterPlacedRunNote: '（即時取得と同じ処理です。この取り込み元の設備すべてが対象です）',
+      runNow: '今すぐ取り込む',
+    },
+    equipmentConfigure: '接続を設定・修正',
+    equipmentConfigureLabel: (name: string) => `${name}の接続を設定・修正`,
+    equipmentEmpty: '取り込みの対象の設備（ロボット・環境センサー）が登録されていません',
     logStarted: '日時',
     logResult: '結果',
     logFiles: 'ファイル数',
     logRecords: '取得件数',
     logRejected: '読み取れなかった数',
     logError: 'エラー内容',
+    logData: '取得したデータ',
+    logDataLink: '一覧で見る',
     logEmpty: '取り込みのログはありません',
     federation: '農業情報基盤への連携',
     federationLead:
-      '連携の結果（成功・失敗・保留・期限切れ）です。農業情報基盤が停止しているときは、保留になります。復旧後は、送信に成功したら、溜まった項目を、すぐ送ります。期限（既定 30 日）を過ぎても送れなかった項目は、破棄して、期限切れとして記録します',
+      '連携の結果（送信済み・失敗・保留・期限切れ）です。農業情報基盤が停止中、または接続先が未設定・無効のときも、保留になります。復旧後（接続先を設定して有効にしたあとを含む）は、送信に成功したら、溜まった項目を、すぐ送ります。期限（既定 30 日）を過ぎても送れなかった項目は、破棄して、期限切れとして記録します',
     federationSettings: {
       heading: '連携先の設定',
       lead: '農業情報基盤の接続先・テナント・context を設定します。接続先は書き込み専用で、設定後は、画面に表示しません',
@@ -432,12 +801,13 @@ export const MANAGEMENT_MESSAGES = {
     queue: '連携キューの件数',
     queueLabels: {
       PENDING: '待機',
-      SENT: '送信済み',
+      // 90 日で消えた分も含む（D-30。#230）
+      SENT: '送信済み（累計）',
       FAILED: '失敗',
       HELD: '保留',
       EXPIRED: '期限切れ',
     },
-    federationResultLabels: { SENT: '成功', FAILED: '失敗', HELD: '保留', EXPIRED: '期限切れ' },
+    federationResultLabels: { SENT: '送信済み', FAILED: '失敗', HELD: '保留', EXPIRED: '期限切れ' },
     federationOccurred: '日時',
     federationResult: '結果',
     federationCount: '件数',
@@ -452,7 +822,7 @@ export const MANAGEMENT_MESSAGES = {
       ingestion: '取り込みの記録',
       federation: '農業情報基盤への連携の記録',
       federationLead:
-        '連携の結果（成功・失敗・保留・期限切れ）と、ハウスごとの項目数です。保留・失敗は、自動でやり直します',
+        '連携の結果（送信済み・失敗・保留・期限切れ）と、ハウスごとの項目数です。保留・失敗は、自動でやり直します',
       facility: 'ハウス',
       resultLabels: { SUCCESS: '成功', FAILURE: '失敗' },
       ingestionEmpty: '閲覧できるハウスの取り込みの記録はありません',

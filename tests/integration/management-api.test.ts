@@ -33,6 +33,7 @@ import {
   withEquipment,
   type TestContext,
 } from '../support/test-context.ts';
+import { withHttpFiles, type HttpTestContext } from '../support/http-test-files.ts';
 
 function send(context: TestContext, method: string, path: string, body?: unknown, token?: string) {
   return context.request(path, {
@@ -558,7 +559,13 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
 
   it.each([
     ['カテゴリ', '?category=FAILURE', ['FAILURE']],
-    ['設備', `?equipmentId=${FACILITY_ID}`, ['SATISFACTION']],
+    // ハウスを指定すると、配下のロボット・センサーの入力も含める（Issue #152 の PR1。計測データと同じ）
+    [
+      '設備（ハウス。配下も含める）',
+      `?equipmentId=${FACILITY_ID}`,
+      ['SATISFACTION', 'FAILURE', 'OPERABILITY'],
+    ],
+    ['設備（ロボット）', `?equipmentId=${ROBOT_ID}`, ['FAILURE', 'OPERABILITY']],
     ['期間（開始）', '?from=2026-10-09T02:00:00.000Z', ['SATISFACTION', 'FAILURE']],
     ['期間（終了）', '?to=2026-10-09T01:30:00.000Z', ['OPERABILITY']],
     [
@@ -811,7 +818,14 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
 
     const response = await send(context, 'DELETE', `/manual-entries/${entry.entryId}`);
 
-    expect(response.status).toBe(204);
+    // 保存・修正と同じ形（評価の状態・関連観点のステータス）を返す。entry は、削除済みの入力（Issue #150）
+    expect(response.status).toBe(200);
+    const body = ManualEntrySaveResponseSchema.parse(await response.json());
+    expect(body.entry).toMatchObject({ entryId: entry.entryId, isDeleted: true });
+    expect(body.evaluation).toBe('DONE');
+    expect(body.viewpointStatuses).toContainEqual(
+      expect.objectContaining({ viewpointId: 'operability', status: 'UNKNOWN' }),
+    );
     const observations = await context.container.repositories.observations.findForEvaluation(
       [ROBOT_ID],
       new Date('2026-10-01T00:00:00Z'),
@@ -886,11 +900,51 @@ describe('入力済みデータの管理（UC-18。GET・PUT・DELETE /manual-en
       ['期間（開始）', '?from=2026-10-09T03:02:00.000Z', 2],
       ['期間（終了）', '?to=2026-10-09T03:01:00.000Z', 2],
       ['ページ分割', '?limit=3', 3],
+      ['対象の ID（#155）', '?targetType=status-code&targetId=STANDBY', 1],
+      ['対象の ID（該当なし）', '?targetType=status-code&targetId=NO-SUCH', 0],
+      ['対象の ID（種類が違う）', '?targetType=criteria&targetId=STANDBY', 0],
     ])('絞り込み: %s', async (_name, query, count) => {
       const context = await withEquipment();
       await prepareLogs(context);
 
       expect((await logs(context, query)).items).toHaveLength(count);
+    });
+
+    it('対象の種類と ID で、その入力の履歴（登録・編集・削除）だけを返す。別の入力の履歴は含めない（#155。SC-07-10）', async () => {
+      const context = await withEquipment();
+      await prepareLogs(context);
+      context.clock.advance(60_000);
+      const { entry: other } = await createEntry(context);
+      const firstId = (await logs(context, '?targetType=manual-entry&direction=asc')).items[0]
+        ?.targetId;
+      expect(firstId).toBeDefined();
+      expect(firstId).not.toBe(other.entryId);
+
+      const own = await logs(context, `?targetType=manual-entry&targetId=${other.entryId}`);
+      const first = await logs(context, `?targetType=manual-entry&targetId=${firstId ?? ''}`);
+
+      expect(own.items.map((item) => [item.operation, item.targetId])).toEqual([
+        ['CREATE', other.entryId],
+      ]);
+      expect(first.items.map((item) => item.operation)).toEqual(['DELETE', 'UPDATE', 'CREATE']);
+    });
+
+    it('対象の ID は、種類を指定せずに単独でも絞り込める。ページ分割でも、対象の履歴だけを返す', async () => {
+      const context = await withEquipment();
+      await prepareLogs(context);
+      const targetId =
+        (await logs(context, '?targetType=manual-entry')).items[0]?.targetId ?? 'missing';
+
+      const firstPage = await logs(context, `?targetId=${targetId}&limit=2`);
+      const secondPage = await logs(
+        context,
+        `?targetId=${targetId}&limit=2&cursor=${encodeURIComponent(firstPage.nextCursor ?? '')}`,
+      );
+
+      expect(firstPage.items).toHaveLength(2);
+      expect(firstPage.nextCursor).not.toBeNull();
+      expect(secondPage.items).toHaveLength(1);
+      expect(secondPage.nextCursor).toBeNull();
     });
   });
 });
@@ -1075,7 +1129,7 @@ describe('設備管理（UC-12。POST・PUT・DELETE /equipment）', () => {
 
     const response = await send(context, 'DELETE', `/equipment/${ROBOT_ID}`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
     const stored = await context.container.repositories.equipment.get(ROBOT_ID);
     expect(stored?.isDeleted).toBe(true);
     const tree = (await (await send(context, 'GET', '/equipment')).json()) as {
@@ -1090,7 +1144,7 @@ describe('設備管理（UC-12。POST・PUT・DELETE /equipment）', () => {
 
     const response = await send(context, 'DELETE', `/equipment/${FACILITY_ID}`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
     expect(await (await send(context, 'GET', '/equipment')).json()).toEqual({ facilities: [] });
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?operation=DELETE')).json(),
@@ -1114,7 +1168,7 @@ describe('設備管理（UC-12。POST・PUT・DELETE /equipment）', () => {
   });
 });
 
-describe('ステータスコード管理（UC-17。POST・PUT・DELETE /status-codes）', () => {
+describe('ステータスコード（UC-17。POST・PUT・DELETE /status-codes）', () => {
   const NEW_CODE = {
     code: 'CHARGING',
     name: '充電中',
@@ -1157,7 +1211,7 @@ describe('ステータスコード管理（UC-17。POST・PUT・DELETE /status-c
       'STOPPED',
     ]);
     expect(listed.items[0]?.name).toBe('充電待ち');
-    expect(deleted.status).toBe(204);
+    expect(deleted.status).toBe(200);
     expect(after.items.some((item) => item.code === 'CHARGING')).toBe(false);
   });
 
@@ -1297,6 +1351,26 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
   ];
   const URL = '/viewpoints/environmentalAdaptability/criteria';
 
+  /** 現在の版（GET の ETag）。更新・既定値へ戻す操作の If-Match に使う（SC-13-1）。 */
+  async function currentEtag(context: TestContext, url = URL): Promise<string> {
+    return (await send(context, 'GET', url)).headers.get('etag') ?? '';
+  }
+  /** 現在の版を If-Match に付けて、更新する。 */
+  async function put(context: TestContext, body: unknown, url = URL) {
+    return context.request(url, {
+      method: 'PUT',
+      body,
+      headers: { 'if-match': await currentEtag(context, url) },
+    });
+  }
+  /** 現在の版を If-Match に付けて、既定値へ戻す。 */
+  async function reset(context: TestContext) {
+    return context.request(`${URL}/reset`, {
+      method: 'POST',
+      headers: { 'if-match': await currentEtag(context) },
+    });
+  }
+
   it('既定値を返し、変更すると変更済み（版・変更者つき）になり、すべての利用者の評価に使われる', async () => {
     const context = await withEquipment();
     await context.container.repositories.observations.saveMany([
@@ -1306,7 +1380,7 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
     const initial = ViewpointCriteriaSchema.parse(await (await send(context, 'GET', URL)).json());
     expect(initial).toMatchObject({ isDefault: true, version: 'DEFAULT' });
 
-    const response = await send(context, 'PUT', URL, {
+    const response = await put(context, {
       criteria: environment({ normalUpper: 28 }),
     });
 
@@ -1324,16 +1398,16 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
     expect(detail.selected.isCustomCriteria).toBe(true);
     expect(detail.status).toBe('NORMAL');
     const again = ViewpointCriteriaSchema.parse(
-      await (await send(context, 'PUT', URL, { criteria: environment() })).json(),
+      await (await put(context, { criteria: environment() })).json(),
     );
     expect(again.version).toBe('CUSTOM-2');
   });
 
   it('既定値へ戻すと、既定値の判定に戻り、変更履歴に残る', async () => {
     const context = await withEquipment();
-    await send(context, 'PUT', URL, { criteria: environment({ normalUpper: 28 }) });
+    await put(context, { criteria: environment({ normalUpper: 28 }) });
 
-    const response = await send(context, 'POST', `${URL}/reset`);
+    const response = await reset(context);
 
     expect(response.status).toBe(200);
     expect(ViewpointCriteriaSchema.parse(await response.json())).toMatchObject({
@@ -1386,7 +1460,7 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
   ])('不正な入力（%s）は保存できない', async (_name, criteria, field) => {
     const context = await withEquipment();
 
-    const response = await send(context, 'PUT', URL, { criteria });
+    const response = await put(context, { criteria });
 
     expect(response.status).toBe(400);
     expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(field);
@@ -1408,10 +1482,13 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
       upper(60, 120, 'averageSecondsPerFruit'),
     ];
 
-    const reversed = await send(context, 'PUT', '/viewpoints/harvestSpeed/criteria', {
-      criteria: [upper(10, 10, 'travelStoppedRatePercent'), valid[1]],
-    });
-    const ok = await send(context, 'PUT', '/viewpoints/harvestSpeed/criteria', { criteria: valid });
+    const harvestSpeed = '/viewpoints/harvestSpeed/criteria';
+    const reversed = await put(
+      context,
+      { criteria: [upper(10, 10, 'travelStoppedRatePercent'), valid[1]] },
+      harvestSpeed,
+    );
+    const ok = await put(context, { criteria: valid }, harvestSpeed);
 
     expect(reversed.status).toBe(400);
     expect(ok.status).toBe(200);
@@ -1429,7 +1506,149 @@ describe('判断基準の編集（UC-19。GET・PUT・POST reset /viewpoints/{id
     const context = await withEquipment();
     context.container.evaluationService.evaluateAll = () => Promise.reject(new Error('評価の失敗'));
 
-    expect((await send(context, 'PUT', URL, { criteria: environment() })).status).toBe(200);
+    expect((await put(context, { criteria: environment() })).status).toBe(200);
+  });
+
+  describe('版つき更新（SC-13-1。ETag と If-Match）', () => {
+    const stored = async (context: TestContext) =>
+      ViewpointCriteriaSchema.parse(await (await send(context, 'GET', URL)).json());
+
+    it('GET は、判断基準の版を ETag に付ける。変わっていなければ、If-None-Match に 304 を返す', async () => {
+      const context = await withEquipment();
+
+      const first = await send(context, 'GET', URL);
+      const etag = first.headers.get('etag');
+      const again = await context.request(URL, { headers: { 'if-none-match': etag ?? '' } });
+
+      expect(etag).toMatch(/^"[0-9a-f]{32}"$/);
+      expect(again.status).toBe(304);
+    });
+
+    it('If-Match がない更新は 428（PRECONDITION_REQUIRED）。保存しない', async () => {
+      const context = await withEquipment();
+
+      const response = await send(context, 'PUT', URL, { criteria: environment() });
+
+      expect(response.status).toBe(428);
+      expect((await errorOf(response)).code).toBe('PRECONDITION_REQUIRED');
+      expect(await stored(context)).toMatchObject({ isDefault: true, version: 'DEFAULT' });
+    });
+
+    it('現在の版と一致しない If-Match の更新は 409（CONFLICT）。保存しない', async () => {
+      const context = await withEquipment();
+
+      const response = await context.request(URL, {
+        method: 'PUT',
+        body: { criteria: environment() },
+        headers: { 'if-match': '"00000000000000000000000000000000"' },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await errorOf(response)).code).toBe('CONFLICT');
+      expect(await stored(context)).toMatchObject({ isDefault: true, version: 'DEFAULT' });
+    });
+
+    it('現在の版と一致する If-Match の更新は成功する。弱い比較の接頭辞（W/）つきでも一致とみなす', async () => {
+      const context = await withEquipment();
+      const etag = await currentEtag(context);
+
+      const weak = await context.request(URL, {
+        method: 'PUT',
+        body: { criteria: environment() },
+        headers: { 'if-match': `W/${etag}` },
+      });
+
+      expect(weak.status).toBe(200);
+    });
+
+    it('ワイルドカード（*）は、条件として受け付けない（版を確かめない更新はできない）', async () => {
+      const context = await withEquipment();
+
+      const response = await context.request(URL, {
+        method: 'PUT',
+        body: { criteria: environment() },
+        headers: { 'if-match': '*' },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await stored(context)).isDefault).toBe(true);
+    });
+
+    it('更新すると、版（ETag）が変わる。同じ内容で更新し直しても、変わる', async () => {
+      const context = await withEquipment();
+      const initial = await currentEtag(context);
+
+      await put(context, { criteria: environment() });
+      const first = await currentEtag(context);
+      await put(context, { criteria: environment() });
+      const second = await currentEtag(context);
+
+      expect(new Set([initial, first, second]).size).toBe(3);
+    });
+
+    it('既定値へ戻しても、版（ETag）が変わる', async () => {
+      const context = await withEquipment();
+      await put(context, { criteria: environment() });
+      const changed = await currentEtag(context);
+
+      await reset(context);
+
+      expect(await currentEtag(context)).not.toBe(changed);
+    });
+
+    it('ほかの変更（保存済みの判断基準の書き換え）でも、版（ETag）が変わる', async () => {
+      const context = await withEquipment();
+      await put(context, { criteria: environment() });
+      const before = await currentEtag(context);
+      const base = await stored(context);
+
+      await context.container.repositories.criteria.save({
+        ...base,
+        version: 'CUSTOM-9',
+        updatedBy: toUserId('other-admin'),
+      });
+
+      expect(await currentEtag(context)).not.toBe(before);
+    });
+
+    it('2 人が同じ版を読み、先に保存すると、後の保存は 409。先の変更は、上書きされない', async () => {
+      const context = await withEquipment();
+      const shared = await currentEtag(context);
+      const saveWith = (etag: string, label: string) =>
+        context.request(URL, {
+          method: 'PUT',
+          body: { criteria: [{ ...environment()[0], label }, ...environment().slice(1)] },
+          headers: { 'if-match': etag },
+        });
+
+      const first = await saveWith(shared, '先に保存');
+      const second = await saveWith(shared, '後から保存');
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(409);
+      expect((await stored(context)).criteria[0]?.label).toBe('先に保存');
+      // 読み込み直した版なら、保存できる
+      expect((await saveWith(await currentEtag(context), '読み直して保存')).status).toBe(200);
+    });
+
+    it('既定値へ戻す操作も、同じ扱い: If-Match がなければ 428、一致しなければ 409、一致すれば成功', async () => {
+      const context = await withEquipment();
+      await put(context, { criteria: environment() });
+      const stale = await currentEtag(context);
+      await put(context, { criteria: environment({ normalUpper: 28 }) });
+
+      const missing = await send(context, 'POST', `${URL}/reset`);
+      const mismatch = await context.request(`${URL}/reset`, {
+        method: 'POST',
+        headers: { 'if-match': stale },
+      });
+
+      expect(missing.status).toBe(428);
+      expect(mismatch.status).toBe(409);
+      expect((await stored(context)).isDefault).toBe(false);
+      expect((await reset(context)).status).toBe(200);
+      expect((await stored(context)).isDefault).toBe(true);
+    });
   });
 });
 
@@ -1641,7 +1860,7 @@ describe('ユーザー管理（UC-14。GET・POST・PUT・DELETE /users）', () 
   });
 });
 
-describe('取り込み設定・状況（UC-15、UC-16）', () => {
+describe('取り込み（UC-15、UC-16）', () => {
   async function settings(context: TestContext) {
     return IngestionSettingsResponseSchema.parse(
       await (await send(context, 'GET', '/ingestion/settings')).json(),
@@ -1649,8 +1868,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   }
 
   it('取り込み元の設定と状況（解釈に使う仕様の版・状態、最終の取得）を返す。認証情報の値は含めない', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
 
     const body = await settings(context);
@@ -1658,26 +1877,39 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(body.sources.map((source) => source.sourceId)).toEqual(['robot', 'environment-sensor']);
     const robot = body.sources[0];
     expect(robot).toMatchObject({
-      connectionRef: 'FILE_SERVER_MOCK',
       isEnabled: true,
       isRunning: false,
-      formatProfile: { versionLabel: 'robot-json@0.2.0(PROVISIONAL)', status: 'PROVISIONAL' },
+      formatProfile: { versionLabel: 'robot-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' },
       lastStartedAt: TEST_NOW.toISOString(),
       lastSuccessAt: TEST_NOW.toISOString(),
     });
     expect(body.sources[1]).toMatchObject({ lastStartedAt: null, lastSuccessAt: null });
   });
 
+  it('ロボット（#299・#301）・環境センサー（#300・#302）の形式定義は、ともに「確定」（版 1.0.0）と返す', async () => {
+    const context = await withHttpFiles();
+
+    const body = await settings(context);
+
+    expect(body.sources.map((source) => [source.sourceId, source.formatProfile])).toEqual([
+      ['robot', { versionLabel: 'robot-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' }],
+      [
+        'environment-sensor',
+        { versionLabel: 'environment-sensor-json@1.0.0(CONFIRMED)', status: 'CONFIRMED' },
+      ],
+    ]);
+  });
+
   it('最終の実行・最終の成功は、設備ごとの最終の実行から求める。ログに残らない空振りでも更新し、失敗では、最終の成功を更新しない（Issue #201）', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
     // 新しいデータのない実行（ログには残らない）
     await send(context, 'POST', '/ingestion/robot/run');
     const empty = (await settings(context)).sources[0];
     context.clock.advance(60_000);
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
     await send(context, 'POST', '/ingestion/robot/run');
     const failed = (await settings(context)).sources[0];
 
@@ -1687,14 +1919,13 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(failed?.lastSuccessAt).toBe(new Date(TEST_NOW.getTime() + 60_000).toISOString());
   });
 
-  it('接続先の参照名・有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま', async () => {
+  it('有効／無効を保存し、変更履歴に残す。指定のない取り込み元はそのまま（接続設定の参照名は、持たない。ADR-0026）', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
       sources: [
         {
           sourceId: 'robot',
-          connectionRef: 'FILE_SERVER_2',
           isEnabled: false,
         },
       ],
@@ -1702,18 +1933,16 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
 
     expect(response.status).toBe(200);
     const body = await settings(context);
-    expect(body.sources[0]).toMatchObject({
-      connectionRef: 'FILE_SERVER_2',
-      isEnabled: false,
-    });
-    expect(body.sources[1]).toMatchObject({ connectionRef: 'FILE_SERVER_MOCK' });
+    expect(body.sources[0]).toMatchObject({ isEnabled: false });
+    expect(body.sources[1]).toMatchObject({ isEnabled: true });
+    expect(JSON.stringify(body)).not.toContain('connectionRef');
     const audit = AuditLogListResponseSchema.parse(
       await (await send(context, 'GET', '/audit-logs?targetType=ingestion-settings')).json(),
     );
     expect(audit.items).toHaveLength(1);
   });
 
-  it('取得間隔は、設備ごとの設定（Issue #197）。以前のクライアントが、取り込み元の取得間隔を送っても、無視して保存し、設定にも応答にも残らない', async () => {
+  it('取得間隔は、設備ごとの設定（Issue #197）。以前のクライアントが、取り込み元の取得間隔・接続設定の参照名を送っても、無視して保存し、設定にも応答にも残らない', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
@@ -1734,36 +1963,48 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(
       JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
     ).not.toContain('intervalMinutes');
+    expect(
+      JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
+    ).not.toContain('connectionRef');
   });
 
-  it.each([
-    ['参照名が空', { connectionRef: '' }, 'sources.0.connectionRef'],
-    ['参照名に使えない文字', { connectionRef: 'bad ref!' }, 'sources.0.connectionRef'],
-    ['参照名が長すぎる', { connectionRef: 'a'.repeat(101) }, 'sources.0.connectionRef'],
-    ['存在しない取り込み元', { sourceId: 'unknown' }, 'sources.0.sourceId'],
-  ])('不正な設定（%s）は保存しない', async (_name, override, field) => {
+  it('不正な設定（存在しない取り込み元）は保存しない', async () => {
     const context = await withEquipment();
 
     const response = await send(context, 'PUT', '/ingestion/settings', {
-      sources: [
-        {
-          sourceId: 'robot',
-          connectionRef: 'FILE_SERVER_MOCK',
-          isEnabled: true,
-          ...override,
-        },
-      ],
+      sources: [{ sourceId: 'unknown', isEnabled: true }],
     });
 
     expect(response.status).toBe(400);
-    expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(field);
+    expect((await errorOf(response)).fields?.map((item) => item.name)).toContain(
+      'sources.0.sourceId',
+    );
   });
+
+  it.each([
+    ['空', ''],
+    ['使えない文字', 'bad ref!'],
+    ['長すぎる値', 'a'.repeat(101)],
+  ])(
+    '以前の接続設定の参照名（%s）を送っても、検証せず、無視して保存する（共通の接続の廃止。ADR-0026）',
+    async (_name, connectionRef) => {
+      const context = await withEquipment();
+
+      const response = await send(context, 'PUT', '/ingestion/settings', {
+        sources: [{ sourceId: 'robot', connectionRef, isEnabled: false }],
+      });
+
+      expect(response.status).toBe(200);
+      expect(
+        JSON.stringify(await context.container.repositories.settings.get('ingestion.sources')),
+      ).not.toContain('connectionRef');
+    },
+  );
 
   it('同じ取り込み元を重複して指定した設定は保存しない', async () => {
     const context = await withEquipment();
     const source = {
       sourceId: 'robot',
-      connectionRef: 'FILE_SERVER_MOCK',
       isEnabled: true,
     };
 
@@ -1774,47 +2015,43 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
     expect(response.status).toBe(400);
   });
 
-  it('接続テスト: 接続できれば成功、ファイルサーバーが停止していれば、内部情報を含まない失敗を返す', async () => {
-    const context = await withEquipment();
-    context.placeFile('robot', 'placeholder.txt', 'x');
+  it('接続テスト（設備ごと）: 接続できれば成功、ファイルサーバーが停止していれば、内部情報を含まない失敗を返す', async () => {
+    const context = await withHttpFiles();
+    await context.files.placeFile('robot', 'placeholder.txt', 'x');
 
-    const ok = await send(context, 'POST', '/ingestion/robot/test');
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
-    const failed = await send(context, 'POST', '/ingestion/robot/test');
-    const unknown = await send(context, 'POST', '/ingestion/unknown/test');
+    const ok = await send(context, 'POST', `/ingestion/equipment/${ROBOT_ID}/test`);
+    context.files.faults.set({ mode: 'DOWN' });
+    const failed = await send(context, 'POST', `/ingestion/equipment/${ROBOT_ID}/test`);
+    const unknown = await send(context, 'POST', '/ingestion/equipment/ROBOT-NONE/test');
 
     expect(await ok.json()).toEqual({ ok: true, message: '接続できました' });
     const failure = (await failed.json()) as { ok: boolean; message: string };
     expect(failure.ok).toBe(false);
-    expect(failure.message).not.toContain(context.fileServerDirectory);
+    expect(failure.message).not.toContain('127.0.0.1');
+    expect(failure.message).not.toContain(String(context.files.server.port));
+    expect(failure.message).not.toContain('/robot/placeholder.txt');
     expect(unknown.status).toBe(404);
   });
 
-  /** 新しいデータになるファイルを置く（取り込みログは、新しいデータがあった実行だけ残す。Issue #201）。値を変えると、変わった観測値になる。 */
-  function placeNewRobotData(context: TestContext, name: string, harvestCount: number): void {
-    context.placeFile(
+  /** 新しいデータになるファイルを置く（取り込みログは、新しいデータがあった実行だけ残す。Issue #201）。同じパスの上書きで、値を変えると、変わった観測値になる（HTTP は 1 設備 = 1 ファイル）。 */
+  async function placeNewRobotData(context: HttpTestContext, harvestCount: number): Promise<void> {
+    await context.files.placeFile(
       'robot',
-      name,
-      JSON.stringify({
-        robotId: 'ROBOT-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', harvestCount }],
-      }),
+      'robot.json',
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', harvestCount }),
     );
   }
-  function placeNewSensorData(context: TestContext, name: string, temperature: number): void {
-    context.placeFile(
+  async function placeNewSensorData(context: HttpTestContext, temperature: number): Promise<void> {
+    await context.files.placeFile(
       'environment-sensor',
-      name,
-      JSON.stringify({
-        sensorId: 'SENSOR-SAMPLE-01',
-        records: [{ timestamp: '2026-10-09T01:00:00Z', temperatureCelsius: temperature }],
-      }),
+      'sensor.json',
+      JSON.stringify({ timestamp: '2026-10-09T01:00:00Z', temperature }),
     );
   }
 
   it('即時取得: 取り込んだ件数を返し、ログに記録する。同じファイルは、2回目は取り込まない（新しいデータがなければ、ログに残さない）', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
 
     const first = await send(context, 'POST', '/ingestion/robot/run');
     const second = await send(context, 'POST', '/ingestion/robot/run');
@@ -1839,14 +2076,14 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('取り込みログは、取り込み元で絞り込め、新しい順に、ページ分割して返す', async () => {
-    const context = await withEquipment();
-    placeNewRobotData(context, 'robot-1.json', 1);
+    const context = await withHttpFiles();
+    await placeNewRobotData(context, 1);
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
-    placeNewSensorData(context, 'sensor-1.json', 20);
+    await placeNewSensorData(context, 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
     context.clock.advance(60_000);
-    placeNewRobotData(context, 'robot-2.json', 2);
+    await placeNewRobotData(context, 2);
     await send(context, 'POST', '/ingestion/robot/run');
 
     const all = IngestionLogListResponseSchema.parse(
@@ -1866,8 +2103,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('連携の状況: 結果の記録（新しい順）と、連携キューの状態ごとの件数を返す', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.container.dev?.faults.federation.set({ mode: 'DOWN' });
     await context.container.jobRunner.run('JB-03');
@@ -1886,8 +2123,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('連携の状況: 農業情報基盤が受け付けない場合は「失敗」、停止中は「保留」を、キューの件数とともに返す', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.container.dev?.faults.federation.set({ mode: 'REJECT' });
     await context.container.jobRunner.run('JB-03');
@@ -1903,8 +2140,8 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('連携の状況: 結果の記録は、limit ごとにページ分割して、新しい順に返す', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.container.dev?.faults.federation.set({ mode: 'DOWN' });
     for (let count = 0; count < 3; count += 1) {
@@ -1931,13 +2168,13 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('取り込みログ: 該当する取り込み元がなければ、空の一覧を返す。ページ分割は、取り込み元の絞り込みと併用できる', async () => {
-    const context = await withEquipment();
+    const context = await withHttpFiles();
     for (let count = 0; count < 3; count += 1) {
-      placeNewRobotData(context, `robot-${String(count)}.json`, count + 1);
+      await placeNewRobotData(context, count + 1);
       await send(context, 'POST', '/ingestion/robot/run');
       context.clock.advance(60_000);
     }
-    placeNewSensorData(context, 'sensor-1.json', 20);
+    await placeNewSensorData(context, 20);
     await send(context, 'POST', '/ingestion/environment-sensor/run');
 
     const none = IngestionLogListResponseSchema.parse(
@@ -1973,16 +2210,16 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
 
     /** ロボット（成功 → 接続の失敗〔設備に結びつかない〕）と、環境センサー（成功）のログを作る。 */
     async function seedLogs() {
-      const context = await withEquipment();
-      placeNewRobotData(context, 'robot-1.json', 1);
+      const context = await withHttpFiles();
+      await placeNewRobotData(context, 1);
       await send(context, 'POST', '/ingestion/robot/run');
       context.clock.advance(60_000);
-      placeNewSensorData(context, 'sensor-1.json', 20);
+      await placeNewSensorData(context, 20);
       await send(context, 'POST', '/ingestion/environment-sensor/run');
       context.clock.advance(60_000);
-      context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+      context.files.faults.set({ mode: 'DOWN' });
       await send(context, 'POST', '/ingestion/robot/run');
-      context.container.dev?.faults.fileServer.set({ mode: 'UP' });
+      context.files.faults.set({ mode: 'UP' });
       return context;
     }
 
@@ -2031,7 +2268,7 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
       }
     });
 
-    it('取り込み設定・状況に、設備ごとの最終の実行（開始・結果・最後の成功・最後にデータが取れた日時）を含める。一度も実行していない設備は、なし', async () => {
+    it('取り込みに、設備ごとの最終の実行（開始・結果・最後の成功・最後にデータが取れた日時）を含める。一度も実行していない設備は、なし', async () => {
       const context = await seedLogs();
 
       const [robot, sensor] = (await settings(context)).sources;
@@ -2050,11 +2287,11 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
   });
 
   it('取り込みログ: 失敗した取り込みは、失敗の内容（内部情報なし）を記録して返す。成功は、失敗の内容を持たない', async () => {
-    const context = await withEquipment();
-    context.placeFixture('robot', 'robot/robot-sample-001.json');
+    const context = await withHttpFiles();
+    await context.files.placeFixture('robot', 'robot/robot-sample-001.json');
     await send(context, 'POST', '/ingestion/robot/run');
     context.clock.advance(60_000);
-    context.container.dev?.faults.fileServer.set({ mode: 'DOWN' });
+    context.files.faults.set({ mode: 'DOWN' });
     await send(context, 'POST', '/ingestion/robot/run');
 
     const logs = IngestionLogListResponseSchema.parse(
@@ -2063,9 +2300,11 @@ describe('取り込み設定・状況（UC-15、UC-16）', () => {
 
     expect(logs.items.map((item) => item.result)).toEqual(['FAILURE', 'SUCCESS']);
     expect(logs.items[0]?.errorMessage).toBe('ファイルサーバーに接続できませんでした');
-    expect(logs.items[0]?.errorMessage).not.toContain(context.fileServerDirectory);
+    expect(logs.items[0]?.errorMessage).not.toContain('127.0.0.1');
+    expect(logs.items[0]?.errorMessage).not.toContain(String(context.files.server.port));
+    expect(logs.items[0]?.errorMessage).not.toContain('/robot/robot-sample-001.json');
     expect(logs.items[1]?.errorMessage).toBeUndefined();
-    expect(logs.items[1]?.recordCount).toBe(14);
+    expect(logs.items[1]?.recordCount).toBe(7);
   });
 
   it.each([
@@ -2097,11 +2336,13 @@ describe('Web Push の購読（UC-23。GET・PUT・DELETE /push-subscription）'
         isAvailable: boolean;
         publicKey: string | null;
         isSubscribed: boolean;
+        isInvalidated: boolean;
       };
     expect(await status()).toEqual({
       isAvailable: true,
       publicKey: 'dummy-web-push-public-key',
       isSubscribed: false,
+      isInvalidated: false,
     });
 
     const subscribed = await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
@@ -2168,7 +2409,12 @@ describe('Web Push の購読（UC-23。GET・PUT・DELETE /push-subscription）'
     const status = await (await send(context, 'GET', '/push-subscription')).json();
     const response = await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
 
-    expect(status).toEqual({ isAvailable: false, publicKey: null, isSubscribed: false });
+    expect(status).toEqual({
+      isAvailable: false,
+      publicKey: null,
+      isSubscribed: false,
+      isInvalidated: false,
+    });
     expect(response.status).toBe(503);
   });
 
@@ -2179,5 +2425,109 @@ describe('Web Push の購読（UC-23。GET・PUT・DELETE /push-subscription）'
     const context = await withEquipment({ env: PUBLIC_KEY_ENV });
 
     expect((await send(context, 'PUT', '/push-subscription', body)).status).toBe(400);
+  });
+
+  it('購読が配信の結果で無効にされると、状態の応答の isInvalidated が true になる。もう一度購読すると false に戻る（#159 SC-15-6）', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    const statusOf = async () =>
+      (await (
+        await send(context, 'GET', `/push-subscription?endpoint=${encodeURIComponent(ENDPOINT)}`)
+      ).json()) as { isSubscribed: boolean; isInvalidated: boolean };
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    expect(await statusOf()).toMatchObject({ isSubscribed: true, isInvalidated: false });
+
+    context.container.dev?.faults.webPush.set({ mode: 'REJECT' });
+    await createEntry(
+      context,
+      entryBody({
+        items: { operationStepCount: 12, operationMinutes: 35, operationErrorCount: 2 },
+      }),
+    );
+    await context.container.jobRunner.run('JB-04');
+
+    expect(await statusOf()).toMatchObject({ isSubscribed: false, isInvalidated: true });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    expect(await statusOf()).toMatchObject({ isSubscribed: true, isInvalidated: false });
+  });
+});
+
+describe('Web Push のテスト通知（UC-23。POST /push-subscription/test。#159 SC-15-2）', () => {
+  const ENDPOINT = 'https://push.example.invalid/endpoint-1';
+  const PUBLIC_KEY_ENV = { WEB_PUSH_PUBLIC_KEY: 'dummy-web-push-public-key' };
+  const sendTest = (context: TestContext, endpoint = ENDPOINT) =>
+    send(context, 'POST', '/push-subscription/test', { endpoint });
+
+  it('この端末（購読）へだけ送り、204 を返す。通知の記録は作らず、通知の配信の記録にも含めない', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    await send(context, 'PUT', '/push-subscription', { endpoint: `${ENDPOINT}-2` });
+
+    const response = await sendTest(context);
+
+    expect(response.status).toBe(204);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(1);
+    expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(0);
+    const notifications = NotificationListResponseSchema.parse(
+      await (await send(context, 'GET', '/notifications')).json(),
+    );
+    expect(notifications.items).toHaveLength(0);
+  });
+
+  it('1 分に 1 回まで: 1 分以内の再送は 429（RATE_LIMITED。あと何秒かを示す）。1 分たてば、また送れる', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    expect((await sendTest(context)).status).toBe(204);
+
+    context.clock.advance(30_000);
+    const limited = await sendTest(context);
+    context.clock.advance(30_000);
+    const again = await sendTest(context);
+
+    expect(limited.status).toBe(429);
+    const error = await errorOf(limited);
+    expect(error.code).toBe('RATE_LIMITED');
+    expect(error.message).toContain('あと 30 秒');
+    expect(again.status).toBe(204);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(2);
+  });
+
+  it('この端末が有効でなければ 404。送らない', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+
+    const response = await sendTest(context);
+
+    expect(response.status).toBe(404);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(0);
+  });
+
+  it('配信サービスの停止は 503。購読が無効と返されたら 409（購読は無効になり、状態の isInvalidated が true）', async () => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+    await send(context, 'PUT', '/push-subscription', { endpoint: ENDPOINT });
+    await send(context, 'PUT', '/push-subscription', { endpoint: `${ENDPOINT}-2` });
+    context.container.dev?.faults.webPush.set({ mode: 'DOWN' });
+
+    const down = await sendTest(context, `${ENDPOINT}-2`);
+    context.container.dev?.faults.webPush.set({ mode: 'REJECT' });
+    const gone = await sendTest(context);
+
+    expect(down.status).toBe(503);
+    expect(gone.status).toBe(409);
+    expect((await errorOf(gone)).message).toContain('もう一度有効にしてください');
+    const status = (await (
+      await send(context, 'GET', `/push-subscription?endpoint=${encodeURIComponent(ENDPOINT)}`)
+    ).json()) as { isSubscribed: boolean; isInvalidated: boolean };
+    expect(status).toMatchObject({ isSubscribed: false, isInvalidated: true });
+  });
+
+  it.each([
+    ['endpoint が URL でない', { endpoint: 'not a url' }],
+    ['endpoint がない', {}],
+    ['内部のアドレス', { endpoint: 'https://169.254.169.254/' }],
+  ])('不正な入力（%s）は 400', async (_name, body) => {
+    const context = await withEquipment({ env: PUBLIC_KEY_ENV });
+
+    const response = await send(context, 'POST', '/push-subscription/test', body);
+
+    expect(response.status).toBe(400);
   });
 });

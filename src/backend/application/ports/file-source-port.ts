@@ -35,6 +35,7 @@ export const FILE_SOURCE_FAILURE_REASONS = {
   ADDRESS_BLOCKED: '内部のアドレスには接続できません',
   TOO_LARGE: 'ファイルが大きすぎます',
   NO_FILE_PATH: 'ファイルパスが設定された設備がありません',
+  NOT_CONFIGURED: '接続先が設定されていません',
 } as const;
 export type FileSourceFailureReason = keyof typeof FILE_SOURCE_FAILURE_REASONS;
 
@@ -51,16 +52,29 @@ export class FileSourceFailure extends FileSourceUnavailableError {
 /** ファイルの一覧の取得の指定（Issue #197）。 */
 export interface ListFilesOptions {
   /**
-   * 取得するファイルのパス（設備ごとのファイル。接続方式 HTTP）。指定すると、そのパスのファイルだけを問い合わせる
+   * 取得するファイルのパス（設備ごとのファイル）。指定すると、そのパスのファイルだけを問い合わせる
    * （設備ごとの取得間隔で、間隔が来た設備のファイルだけを取り込むため）。空は、何も問い合わせない。
-   * 未指定は、すべて。モック・S3（1 つのファイルに複数の設備が入る）は、使わない。
+   * 未指定は、すべて。
    */
   readonly paths?: readonly string[] | undefined;
+  /**
+   * 設備ごとの失敗の受け取り（Issue #367。ADR-0026）。指定すると、ファイルごとの失敗（接続・認証・未設定など。ファイルが見つからない
+   * 場合を除く）を、投げずに、ここへ渡し、そのファイルを除いて一覧を返す（1 つの設備の接続の失敗が、他の設備の取り込みを止めない）。
+   * 指定がなければ、最初の失敗を投げる（これまでの動作）。
+   */
+  readonly onFailure?: ((failure: FileListFailure) => void) | undefined;
+}
+
+/** 一覧の取得で、ファイルごとに失敗したもの。 */
+export interface FileListFailure {
+  /** 失敗したファイルのパス（設備の `sourceFilePath`）。 */
+  readonly path: string;
+  readonly error: FileSourceUnavailableError;
 }
 
 export interface FileSourcePort {
-  /** 接続テスト。失敗した場合は FileSourceUnavailableError を投げる。 */
-  testConnection(sourceId: string): Promise<void>;
+  /** 設備 1 つの接続テスト（その設備の接続・認証情報・ファイルのパス。Issue #367）。失敗した場合は FileSourceUnavailableError を投げる。 */
+  testEquipment(equipmentId: string): Promise<void>;
   /** 取り込み元のファイルの一覧（更新日時の古い順）。 */
   listFiles(sourceId: string, options?: ListFilesOptions): Promise<FileMeta[]>;
   /** ファイルの内容（UTF-8 のテキスト）。 */

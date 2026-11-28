@@ -18,6 +18,7 @@ import {
   newUserSession,
   openAs,
   prepareApp,
+  logout,
 } from './support/app.ts';
 import { changePasswordViaUi, loginViaUi } from './support/helpers.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
@@ -45,6 +46,8 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
 
     // UC-14: Aが、利用者B（管理者）を登録する。まだログインしていないので「未ログイン」
     await goToMenu(page, 'ユーザー');
+    // ユーザーの登録は、ダイアログで行う（Issue #366）
+    await page.getByRole('button', { name: 'ユーザーの登録' }).click();
     const addForm = page.getByTestId('user-add');
     await addForm.getByLabel('ユーザーID').fill(USER_B.userId);
     await addForm.getByLabel('ユーザー名').fill(USER_B.userName);
@@ -70,11 +73,14 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     ).toBeVisible();
 
     // UC-12: Bが、ハウスとロボットを登録する
-    await goToMenu(b.page, '設備');
+    await goToMenu(b.page, 'ハウス・設備');
+    // ハウス・ロボットの登録は、ダイアログで行う（Issue #364）
+    await b.page.getByRole('button', { name: 'ハウスの登録' }).click();
     await facilityForm(b.page).getByLabel('設備ID').fill('HOUSE-N');
     await facilityForm(b.page).getByLabel('名称').fill('B新設ハウス');
     await facilityForm(b.page).getByRole('button', { name: '登録する' }).click();
     await expect(b.page.getByTestId('equipment-notice')).toHaveText('登録しました');
+    await b.page.getByRole('button', { name: 'ロボット・環境センサーの登録' }).click();
     await childForm(b.page).getByLabel('種別').selectOption('ROBOT');
     await childForm(b.page).getByLabel('親のハウス').selectOption('HOUSE-N');
     await childForm(b.page).getByLabel('設備ID').fill('ROBOT-N');
@@ -84,13 +90,17 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await expect(equipmentRows(b.page)).toHaveCount(2);
     await shot(b.page, testInfo, 'scenario-onboarding-b-equipment');
 
-    // UC-01: Aが、Bの登録した構成を、ダッシュボードで確認する（ハウスは10観点、ロボットは7観点）
+    // UC-01: Aが、Bの登録した構成を、ダッシュボード（ハウスは10観点）と、観点の詳細（ロボットを、対象の設備に選ぶ）で確認する
     await page.goto('/');
-    await expect(page.locator('.page-meta')).toContainText('対象: B新設ハウス');
+    await expect(page.getByLabel('対象のハウス')).toContainText('B新設ハウス');
     await expect(page.locator('.viewpoint-card')).toHaveCount(10);
-    await page.getByRole('banner').getByLabel('対象の設備').selectOption('ROBOT-N');
-    await expect(page.locator('.viewpoint-card')).toHaveCount(7);
-    await expect(page.locator('.page-meta')).toContainText('対象: B新設ロボット');
+    await page.goto('/viewpoints/harvestSpeed');
+    await page.getByLabel('対象の設備').selectOption('ROBOT-N');
+    await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
+    await expect(page.getByLabel('対象の設備').locator('option:checked')).toContainText(
+      'B新設ロボット',
+    );
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
 
     // UC-14: Aが、Bの最終ログイン日時を確認する
     await goToMenu(page, 'ユーザー');
@@ -105,10 +115,10 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await expect(userRow(page, USER_B.userId)).toContainText('閲覧者');
 
     // UC-13: Bが、ログアウトして、ログインし直す → UC-12: 構成は参照のみ（権限は、ログインのたびに反映される）
-    await b.page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(b.page);
     await expect(b.page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
     await loginViaUi(b.page, B_OWN_PASSWORD, USER_B.userId);
-    await goToMenu(b.page, '設備');
+    await goToMenu(b.page, 'ハウス・設備');
     await expect(b.page.getByTestId('permission-notice')).toHaveText(
       '設備を変更する権限がありません。参照のみできます',
     );
@@ -141,9 +151,9 @@ test.describe('シナリオ: 新しい利用者の受け入れから、権限の
     await b.context.close();
 
     // UC-13: Aは、構成を登録した利用者がいなくなっても、構成を使い続けられ、ログアウトする
-    await goToMenu(page, '設備');
+    await goToMenu(page, 'ハウス・設備');
     await expect(equipmentRows(page)).toHaveCount(2);
-    await page.getByRole('button', { name: 'ログアウト' }).click();
+    await logout(page);
     await expect(page.getByRole('heading', { name: 'ログイン', level: 2 })).toBeVisible();
   });
 });

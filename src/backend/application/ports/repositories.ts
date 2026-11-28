@@ -35,10 +35,12 @@ import type { Notification, NotificationMemo } from '@smart-farm/shared/schemas/
 import type { Observation } from '@smart-farm/shared/schemas/observation';
 import type { StatusCodeDefinition } from '@smart-farm/shared/schemas/status-code';
 import type {
+  EquipmentDeletion,
   IngestedFileRecord,
   FacilityAccessRecord,
   PushSubscriptionRecord,
   StatusChangeEntry,
+  UnregisteredStatusCodeRecord,
   UserRecord,
 } from './records.ts';
 
@@ -57,12 +59,37 @@ export interface EquipmentRepository {
   list(options?: { readonly includeDeleted?: boolean }): Promise<Equipment[]>;
   get(equipmentId: EquipmentId): Promise<Equipment | undefined>;
   save(equipment: Equipment): Promise<void>;
+  /** 設備の記録を、物理削除する（設備の削除ジョブの最後。D-28。ない設備でも成功する）。 */
+  delete(equipmentId: EquipmentId): Promise<void>;
+}
+
+/** 設備のデータの削除（D-28）の、1 回の実行で止める条件（時間の上限など）。 */
+export interface PurgeBudget {
+  /** true を返したら、区切りのよいところ（読み書きの 1 回の区切り）で、中断する。 */
+  readonly shouldStop: () => boolean;
+}
+
+/** 設備のデータの削除の結果。`completed: false` は、中断した（もう一度呼べば、続きから削除する）。 */
+export interface PurgeResult {
+  readonly deleted: number;
+  readonly completed: boolean;
 }
 
 export interface StatusCodeRepository {
   list(options?: { readonly includeDeleted?: boolean }): Promise<StatusCodeDefinition[]>;
   get(code: string): Promise<StatusCodeDefinition | undefined>;
   save(definition: StatusCodeDefinition): Promise<void>;
+}
+
+/**
+ * 未登録のコード値の記録（SC-12-5。Issue #158）。コード値ごとに 1 件（件数・最終の日時）。記録は、削除しない
+ * （登録済みかどうかは、読むときに、ステータスコードの定義と照らす）。記録の上限は、呼び出し側（取り込み）が守る。
+ */
+export interface UnregisteredStatusCodeRepository {
+  /** 記録のあるコード値のすべて（上限があるため、少量）。順序は決めない。 */
+  list(): Promise<UnregisteredStatusCodeRecord[]>;
+  /** コード値の件数を加え、最終の日時を `seenAt` にする（記録がなければ作る）。同時の加算でも、件数を取りこぼさない。 */
+  record(code: string, count: number, seenAt: Date): Promise<void>;
 }
 
 /** 判断基準の変更後の値（既定値はコードで持つため、変更がない観点は持たない）。 */
@@ -82,6 +109,8 @@ export interface ObservationFilter {
   readonly from?: Date;
   readonly to?: Date;
   readonly includeDeleted?: boolean;
+  /** true なら、有効でない観測値（欠損・遅延・不正。quality が VALID でない）だけ（SC-09-3）。読んだ後に絞る（読み取りは、減らない）。 */
+  readonly problemOnly?: boolean;
   /**
    * アプリ側の追加の絞り込み（キーワード検索など、表示名を使う条件）。
    * DynamoDB の実装は、キーの条件で取得した結果に適用する。
@@ -98,11 +127,25 @@ export interface ObservationRepository {
     from: Date,
     to: Date,
   ): Promise<Observation[]>;
+  /**
+   * 累積の項目の基準（期間の直前の値。D-26）: 指定した設備・項目ごとに、`before` より前で、計測日時が最も新しい、論理削除でない観測値
+   * （取得元は問わない）を返す。なければ含めない。評価の期間の前の値を読むために使う（件数は、設備 × 項目の数だけ）。
+   */
+  findLatestBefore(
+    equipmentIds: readonly EquipmentId[],
+    itemKeys: readonly string[],
+    before: Date,
+  ): Promise<Observation[]>;
   query(
     filter: ObservationFilter,
     page: PageRequest,
     sort?: { readonly key: ObservationSortKey; readonly direction: SortDirection },
   ): Promise<Page<Observation>>;
+  /**
+   * 設備の観測値（自動・手動。論理削除済みも）を、すべて物理削除する（設備の削除。D-28）。項目の一覧・最終の受信日時も消す。
+   * 冪等で、中断しても、もう一度呼べば、続きから削除する。
+   */
+  deleteByEquipment(equipmentId: EquipmentId, budget?: PurgeBudget): Promise<PurgeResult>;
   /** 一意キー（設備・項目・計測日時の文字列・取得元）の観測値を、直接引く（論理削除済みも含む）。なければ undefined。 */
   findByKey(
     equipmentId: EquipmentId,
@@ -127,7 +170,10 @@ export interface ObservationRepository {
 }
 
 export interface EvaluationRepository {
-  /** 観点・設備・視点・期間ごとの最新の評価結果を、上書き保存する。 */
+  /**
+   * 観点・設備・視点・期間ごとの最新の評価結果を、上書き保存する。保存済みの結果の評価の日時（`evaluatedAt`）が、これより新しいときは、
+   * 保存しない（遅れて終わった古い評価が、新しい結果を上書きしないため。同じ日時は、上書きする。#591）。
+   */
   saveLatest(result: EvaluationResult): Promise<void>;
   getLatest(
     equipmentId: EquipmentId,
@@ -147,6 +193,8 @@ export interface EvaluationRepository {
     equipmentId: EquipmentId,
     viewpointId: ViewpointId,
   ): Promise<StatusChangeEntry[]>;
+  /** 設備の最新の評価結果と、ステータスの変化（最終・履歴）を、すべて削除する（設備の削除。D-28）。 */
+  deleteByEquipment(equipmentId: EquipmentId): Promise<void>;
 }
 
 export interface NotificationListFilter {
@@ -199,6 +247,13 @@ export interface NotificationRepository {
   }): Promise<FacilityIndexRebuildResult>;
   get(notificationId: NotificationId): Promise<Notification | undefined>;
   findLatestByDedupKey(dedupKey: string): Promise<Notification | undefined>;
+  /**
+   * 取り込みの失敗・停止の通知で、すでに通知した「失敗の項目」（`dedupKey` ごと。ADR-0019 の D-38。#589）。なければ空。
+   * 同じ項目が続く間は、再通知しない。回復したら、項目を消す。
+   */
+  getIngestionFailureKeys(dedupKey: string): Promise<readonly string[]>;
+  /** 失敗の項目を置き換える（空なら、記録を削除する）。 */
+  setIngestionFailureKeys(dedupKey: string, keys: readonly string[]): Promise<void>;
   /** 新しい順。既読状態は利用者ごと（暫定）。 */
   list(
     userId: UserId,
@@ -271,6 +326,14 @@ export interface IngestionRepository {
    * 更新する（古い実行で戻さない）。最後の成功・最後にデータが取れた日時は、その実行が、成功・データありのときだけ進める。空の指定は、何もしない。
    */
   recordEquipmentRuns(runs: readonly EquipmentRunRecord[]): Promise<void>;
+  /**
+   * 設備の削除（D-28）: 設備ごとの最終の実行と、設備のファイルの取り込み済みの記録（同じ設備 ID・同じパスで再登録したときに、
+   * ファイルが取り込まれないことを防ぐ）を削除する。設備ごとの取り込みログは、残す（ログの一覧から、設備が見えなくならない）。
+   */
+  deleteEquipmentRecords(
+    equipmentId: string,
+    file?: { readonly sourceId: string; readonly fileId: string },
+  ): Promise<void>;
 }
 
 /** 取り込みログの絞り込み。 */
@@ -319,6 +382,11 @@ export interface FederationRepository {
     page: PageRequest,
   ): Promise<Page<FacilityFederationLog>>;
   countByStatus(): Promise<Record<FederationItem['status'], number>>;
+  /**
+   * 設備の、送信していない項目（待機・失敗・保留）を、破棄（削除）する（設備の削除。D-28）。送信済み・期限切れの項目は、触らない。
+   * 破棄した件数を返す。
+   */
+  discardUnsentByEquipment(equipmentId: string): Promise<number>;
 }
 
 export interface AuditLogRepository {
@@ -329,12 +397,19 @@ export interface AuditLogRepository {
       readonly operation?: AuditLogEntry['operation'];
       readonly actor?: UserId;
       readonly targetType?: string;
+      /** 対象の ID。索引はなく、期間内の項目を読んだ後に絞る（ADR-0007 の「変更履歴の対象の ID」）。 */
+      readonly targetId?: string;
       readonly from?: Date;
       readonly to?: Date;
       readonly direction?: SortDirection;
     },
     page: PageRequest,
   ): Promise<Page<AuditLogEntry>>;
+  /**
+   * 対象の種類・ID の変更履歴を、削除する（設備の削除で、手動入力の個別の変更履歴を消す。D-28）。削除した件数を返す。
+   * 索引はなく、全件を読んで絞る。
+   */
+  deleteByTargets(targetType: string, targetIds: readonly string[]): Promise<number>;
 }
 
 export interface ManualEntryFilter {
@@ -355,6 +430,8 @@ export interface ManualEntryRepository {
     page: PageRequest,
     sort?: { readonly key: ManualEntrySortKey; readonly direction: SortDirection },
   ): Promise<Page<ManualEntry>>;
+  /** 設備の手動入力（論理削除済みも）を、すべて物理削除し、削除した入力の ID を返す（設備の削除。D-28）。 */
+  deleteByEquipment(equipmentId: EquipmentId): Promise<string[]>;
 }
 
 export interface UserRepository {
@@ -383,6 +460,16 @@ export interface PushSubscriptionRepository {
   deleteByUser(userId: UserId): Promise<void>;
 }
 
+/** 設備の削除の要求（D-28。Issue #229）。キーは、削除を指示した設備の ID。 */
+export interface EquipmentDeletionRepository {
+  get(equipmentId: EquipmentId): Promise<EquipmentDeletion | undefined>;
+  /** 要求の一覧（設備の ID の順）。 */
+  list(): Promise<EquipmentDeletion[]>;
+  /** 同じ設備は上書きする。 */
+  save(deletion: EquipmentDeletion): Promise<void>;
+  delete(equipmentId: EquipmentId): Promise<void>;
+}
+
 /** 設定（取り込み設定など）。値は呼び出し側がスキーマで検証する。 */
 export interface SettingsRepository {
   get(key: string): Promise<unknown>;
@@ -393,6 +480,7 @@ export interface SettingsRepository {
 export interface Repositories {
   readonly equipment: EquipmentRepository;
   readonly statusCodes: StatusCodeRepository;
+  readonly unregisteredStatusCodes: UnregisteredStatusCodeRepository;
   readonly criteria: CriteriaRepository;
   readonly observations: ObservationRepository;
   readonly evaluations: EvaluationRepository;
@@ -403,6 +491,7 @@ export interface Repositories {
   readonly manualEntries: ManualEntryRepository;
   readonly users: UserRepository;
   readonly facilityAccess: FacilityAccessRepository;
+  readonly equipmentDeletions: EquipmentDeletionRepository;
   readonly pushSubscriptions: PushSubscriptionRepository;
   readonly settings: SettingsRepository;
 }

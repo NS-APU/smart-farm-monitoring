@@ -1,18 +1,15 @@
 /**
  * FileSourcePort の契約テストを、HTTP のファイルサーバー（手元の HTTP サーバー。設備ごとのファイルパス）に適用する（Issue #119。ADR-0023）。
- * モック・S3 と同じ契約に合格すること。HTTP では、ファイルの識別子は、ファイルパス（`/` + 名前）。
- * 設備（ロボット）ごとに 1 ファイル。ファイルを置くたびに、その名前のファイルパスを持つロボットを登録する。
+ * 取り込み元がない（未知の識別子）場合は、利用できない旨の失敗（FileSourceUnavailableError）になること。HTTP では、ファイルの識別子は、ファイルパス（`/` + 名前）。
+ * 設備（ロボット）ごとに 1 ファイル。ファイルを置くたびに、その名前のファイルパスを持つロボットを登録し、その設備の接続（手元の HTTP サーバー）を持たせる（ADR-0026）。
  */
 
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { toEquipmentId } from '@smart-farm/shared/schemas/common';
 import type { Equipment } from '@smart-farm/shared/schemas/equipment';
+import type { HttpFileServerConnection } from '@smart-farm/shared/schemas/ingestion';
 import { createRoutingFileSource } from '../../src/backend/application/ingestion/routing-file-source.ts';
-import {
-  FileSourceUnavailableError,
-  type FileSourcePort,
-} from '../../src/backend/application/ports/file-source-port.ts';
 import {
   readHttpFile,
   statHttpFile,
@@ -24,6 +21,7 @@ import { describeFileSourceContract } from '../support/file-source-contract.ts';
 describeFileSourceContract('HTTP のファイルサーバー（手元の HTTP サーバー）', () => {
   const files = new Map<string, { content: string; modifiedAt: Date }>();
   const equipment: Equipment[] = [];
+  const connections = new Map<string, HttpFileServerConnection>();
   const server = createServer((request, response) => {
     const file = files.get(request.url ?? '');
     if (file === undefined) {
@@ -61,34 +59,30 @@ describeFileSourceContract('HTTP のファイルサーバー（手元の HTTP �
     return listeningPort;
   }
 
-  // 取り込み元がない（未知の識別子）場合は、これまでのファイルソース（base）へ渡る。契約: 失敗する
-  const unknownSource: FileSourcePort = {
-    testConnection: () => Promise.reject(new FileSourceUnavailableError('取り込み元がありません')),
-    listFiles: () => Promise.reject(new FileSourceUnavailableError('取り込み元がありません')),
-    readFile: () => Promise.reject(new FileSourceUnavailableError('取り込み元がありません')),
-  };
   const allowPrivateAddresses = true;
   const source = createRoutingFileSource({
-    base: unknownSource,
     ingestionSettings: {
-      listSources: async () => [
-        {
-          sourceId: 'robot',
-          kind: 'ROBOT' as const,
-          profileId: 'robot-json',
-          connectionRef: 'FILE_SERVER_MOCK',
-          connection: {
-            type: 'HTTP' as const,
-            protocol: 'HTTP' as const,
-            host: '127.0.0.1',
-            port: await portAfterApplyingDown(),
-            authMethod: 'NONE' as const,
-            apiKeyHeaderName: 'X-API-Key',
+      listSources: () =>
+        Promise.resolve([
+          {
+            sourceId: 'robot',
+            kind: 'ROBOT' as const,
+            profileId: 'robot-json',
+            isEnabled: true,
           },
-          intervalMinutes: 15 as const,
-          isEnabled: true,
-        },
-      ],
+        ]),
+    },
+    equipmentConnections: {
+      list: async () => {
+        // 停止の指示を反映してから、設備ごとの接続（手元の HTTP サーバー）を返す
+        const listeningPort = await portAfterApplyingDown();
+        return new Map(
+          [...connections].map(([equipmentId, connection]) => [
+            equipmentId,
+            { ...connection, port: listeningPort },
+          ]),
+        );
+      },
     },
     equipment: { list: () => Promise.resolve(equipment) },
     secrets: createMemorySecretPort(),
@@ -105,8 +99,16 @@ describeFileSourceContract('HTTP のファイルサーバー（手元の HTTP �
     fileIdOf: (name) => `/${name}`,
     putFile(_sourceId, name, content, modifiedAt) {
       files.set(`/${name}`, { content, modifiedAt });
+      const equipmentId = toEquipmentId(`ROBOT-${String(equipment.length + 1)}`);
+      connections.set(equipmentId, {
+        type: 'HTTP',
+        protocol: 'HTTP',
+        host: '127.0.0.1',
+        authMethod: 'NONE',
+        apiKeyHeaderName: 'X-API-Key',
+      });
       equipment.push({
-        equipmentId: toEquipmentId(`ROBOT-${String(equipment.length + 1)}`),
+        equipmentId,
         equipmentType: 'ROBOT',
         name,
         facilityId: toEquipmentId('HOUSE-01'),
@@ -114,6 +116,13 @@ describeFileSourceContract('HTTP のファイルサーバー（手元の HTTP �
         isDeleted: false,
         createdAt: '2026-10-01T00:00:00.000Z',
       });
+    },
+    equipmentIdOf: (name) => {
+      const found = equipment.find((item) => item.name === name);
+      if (found === undefined) {
+        throw new Error(`テストの前提: ファイルを置いた設備がある: ${name}`);
+      }
+      return found.equipmentId;
     },
     setDown() {
       isDown = true;

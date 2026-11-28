@@ -236,7 +236,7 @@
 }
 
 /* 長い値（設備名 200 文字・ステータスコードの名称 100 文字・桁の多い値）や狭い幅でも、列が 1 文字ずつ折り返すほど押しつぶされない
-   （取り込み済みデータ一覧の表 .observation-table と同じ。V-158）。長くなりうる列（設備・項目・値）だけを、枠の中で折り返す */
+   （計測データ一覧の表 .observation-table と同じ。V-158）。長くなりうる列（設備・項目・値）だけを、枠の中で折り返す */
 .source-table {
   min-width: 680px;
 }
@@ -254,7 +254,7 @@
   overflow-wrap: anywhere;
 }
 
-/* 取り込み済みデータ一覧（SC-09）の表: 長い値（設備名 200 文字・ステータスコードの名称 100 文字・桁の多い値）や狭い幅でも、
+/* 計測データ一覧（SC-09）の表: 長い値（設備名 200 文字・ステータスコードの名称 100 文字・桁の多い値）や狭い幅でも、
    列が 1 文字ずつ折り返すほど押しつぶされない。列は折り返さず（最小の幅を保つ）、長くなりうる列（設備・項目・値）だけを、
    枠の中で折り返す。表が枠より広い場合は、表の枠の中で横にスクロールする */
 .observation-table {
@@ -291,6 +291,47 @@
   .observation-table td:nth-child(2) {
     min-width: 14em;
   }
+}
+
+/* 計測データ一覧（SC-09）の、1 回の計測ごとの表（#363）: 項目と値の列は、項目ごとに 1 行で並べ、枠の中で折り返す。
+   日時・取得元・状態は折り返さない。表が枠より広い場合は、表の枠の中で横にスクロールする */
+.measurement-table {
+  min-width: 860px;
+}
+
+.measurement-table td:nth-child(2),
+.measurement-table td:nth-child(3),
+.measurement-table td:nth-child(4) {
+  min-width: 9em;
+  overflow-wrap: anywhere;
+}
+
+.measurement-table td:nth-child(4) {
+  min-width: 16em;
+}
+
+.measurement-items {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.measurement-items li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+}
+
+.measurement-item-label {
+  color: var(--color-muted);
+}
+
+.measurement-item-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 /* 判断基準の表: 条件名（最大 200 文字。区切りのない英数字でも）で、他の列が 1 文字幅へ潰れず、ページが横にはみ出さない。
@@ -368,12 +409,6 @@
   align-items: center;
 }
 
-.card-link {
-  margin-top: auto;
-  padding-top: 12px;
-  font-weight: 700;
-}
-
 /* 観点の詳細 */
 .diagnosis {
   padding: 12px 16px;
@@ -434,27 +469,89 @@
   border-radius: 6px;
 }
 
-.horizon-cards,
-.feedback-cards {
+.horizon-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space);
 }
 
-.horizon-card,
-.feedback-card {
+.horizon-card {
   padding: 12px 16px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
 }
 
-.feedback-card:only-child {
-  grid-column: 1 / -1;
-}
-
-.feedback-card p {
+.horizon-card p {
   margin: 8px 0 0;
   overflow-wrap: anywhere;
+}
+
+/* 折りたたみの欄（推移・元データ。SC-03-4）。見出しを、開閉の操作にする */
+.collapsible-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.collapsible-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-panel > summary::before {
+  content: '';
+  flex: none;
+  width: 0.5em;
+  height: 0.5em;
+  border-right: 2px solid var(--color-muted);
+  border-bottom: 2px solid var(--color-muted);
+  transform: rotate(-45deg);
+}
+
+.collapsible-panel[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.collapsible-panel > summary h2 {
+  margin: 0;
+}
+
+.collapsible-panel > summary:focus-visible {
+  outline: 2px solid var(--color-primary-ink);
+  outline-offset: 2px;
+}
+
+.collapsible-body {
+  margin-top: 12px;
+}
+
+/* 値の表（折りたたみ。SC-03-2） */
+.trend-values {
+  margin-bottom: 12px;
+}
+
+.trend-values summary {
+  cursor: pointer;
+  color: var(--color-muted);
+}
+
+.trend-values table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+}
+
+.trend-values th,
+.trend-values td {
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.trend-values caption {
+  text-align: left;
+  color: var(--color-muted);
 }
 
 /* 推移 */
@@ -470,7 +567,7 @@
   border-radius: 8px;
 }
 
-.trend-metric summary {
+.trend-metric > summary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -532,6 +629,56 @@
   stroke-width: 2.5;
 }
 
+/* 点は、タップ・フォーカスで選べる（見えない大きな当たりを重ねる）。選んだ点は、大きく縁取る */
+.chart-point {
+  cursor: pointer;
+}
+
+.chart-hit {
+  fill: transparent;
+}
+
+.chart-point:focus {
+  outline: none;
+}
+
+.chart-point:focus-visible .chart-dot,
+.chart-point[aria-pressed='true'] .chart-dot {
+  stroke: var(--color-primary-ink);
+  stroke-width: 3;
+}
+
+.chart-readout {
+  margin: -4px 0 12px;
+  text-align: center;
+}
+
+.chart-readout p {
+  margin: 0;
+}
+
+.chart-readout dl {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 20px;
+  margin: 0;
+}
+
+.chart-readout dl div {
+  display: flex;
+  gap: 6px;
+}
+
+.chart-readout dt {
+  color: var(--color-muted);
+}
+
+.chart-readout dd {
+  margin: 0;
+  font-weight: 700;
+}
+
 .chart-dot {
   fill: var(--color-chart-line);
   stroke: var(--color-surface);
@@ -581,6 +728,17 @@
   .status-segment-label {
     display: none;
   }
+}
+
+/* 帯の両端の日時（開始・終了） */
+.status-timeline-range {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 0.85rem;
 }
 
 .status-changes {
@@ -637,12 +795,37 @@
   color: var(--status-unknown-text);
 }
 
+/* 評価に使われない手動入力の印（計測データ。D-26。Issue #162）。状態の色は使わず（状態の表示にだけ使う）、破線の枠と文字で示す */
+.usage-tag-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0 4px;
+  margin-left: 8px;
+  font-weight: 400;
+  white-space: normal;
+}
+
+.usage-tag {
+  padding: 0 8px;
+  border: 1px dashed var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .pager {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 12px;
+}
+
+/* 表示範囲（「21〜40 件目」）は、行の左端に置く */
+.pager-range {
+  margin-right: auto;
 }
 
 /* 満足度 */
@@ -658,6 +841,14 @@
   font-size: 3rem;
   font-weight: 700;
   line-height: 1;
+}
+
+.criteria-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 12px 0 0;
 }
 
 .criteria-inline {
@@ -743,8 +934,7 @@
 }
 
 @media (max-width: 720px) {
-  .horizon-cards,
-  .feedback-cards {
+  .horizon-cards {
     grid-template-columns: 1fr;
   }
 
@@ -752,5 +942,166 @@
   .recommended-action {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+}
+
+/* ヘルプヒント（「?」。components/help-hint.tsx）と、折りたたみ式の凡例（components/legend.tsx。Issue #154） */
+.help-hint {
+  position: relative;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
+  font-weight: 400;
+}
+
+/* ボタンは、見えない（透明な）押す範囲。見える丸（.help-hint-mark）は 22px。狭い幅（900px 以下）は、押す範囲を 44px 四方にして、負の余白で、周りの並びを変えない（疑似要素で広げると、はみ出しの検査〔scrollWidth〕に掛かる） */
+.help-hint-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  min-height: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+@media (max-width: 900px) {
+  .help-hint-button {
+    width: 44px;
+    height: 44px;
+    margin: -11px;
+  }
+}
+
+.help-hint-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.help-hint-button[aria-expanded='true'] .help-hint-mark {
+  background: var(--color-primary-ink);
+  color: var(--color-surface);
+}
+
+.help-hint-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.help-hint-example {
+  color: var(--color-muted);
+}
+
+.legend {
+  margin: 0 0 var(--space);
+}
+
+.legend-body {
+  margin-top: 8px;
+  padding: 12px var(--space);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.legend-body p {
+  margin: 8px 0 0;
+}
+
+.legend-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.legend-list > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.legend-list dt {
+  flex: 0 0 6rem;
+}
+
+.legend-list dd {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+/* 観点の詳細の診断結果: 「現在」と「期間の評価」を、2 つの欄で並べる（広い幅は 2 列、狭い幅は縦に積む。#591） */
+.diagnosis-blocks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space);
+}
+
+.diagnosis-block {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: var(--space);
+  overflow-wrap: anywhere;
+}
+
+.diagnosis-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+/* 根拠の指標の表: 値と判定を、1 つのセルに、縦に並べる */
+.metrics-detail-table td {
+  min-width: 7rem;
+}
+
+.metric-cell-value {
+  display: block;
+  font-weight: 700;
+}
+
+.metric-cell-judgement {
+  display: block;
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .diagnosis-blocks {
+    grid-template-columns: 1fr;
   }
 }

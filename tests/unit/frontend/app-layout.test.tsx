@@ -59,32 +59,86 @@ afterEach(() => {
 });
 
 describe('共通のレイアウト', () => {
-  it('メニューは、本文より前にあり、ブランドのリンクと件数の印は、メニュー（nav）の外に置く', async () => {
+  it('メニューは、本文より前にあり、「通知」の項目と件数の印は、メニュー（nav）にない（通知は、ヘッダーから開く。Issue #351）', async () => {
     renderApp(3);
     const menu = await screen.findByRole('navigation', { name: 'メニュー' });
     await screen.findByRole('heading', { name: '安全性' });
 
-    // メニューの中のリンクは、9 つの項目だけ（名前は、文字のみ）
-    expect(within(menu).getAllByRole('link')).toHaveLength(9);
+    // メニューの中のリンクは、7 つの項目だけ（Issue #353 で「通知の設定」をユーザーメニューへ移した）（名前は、文字のみ）。「通知」はない
+    expect(within(menu).getAllByRole('link')).toHaveLength(7);
+    expect(within(menu).queryByRole('link', { name: '通知' })).toBeNull();
+    expect(menu.querySelector('.nav-badge')).toBeNull();
     const main = must(document.getElementById('main'));
     expect(menu.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // 未読の件数の印は、「通知」の項目の隣（リンクの外）。読み上げは、上部のリンクが担う
-    await waitFor(() => {
-      expect(menu.querySelector('.nav-badge')?.textContent).toBe('3');
-    });
-    expect(menu.querySelector('.nav-badge')?.getAttribute('aria-hidden')).toBe('true');
-    expect(within(menu).getByRole('link', { name: '通知' }).textContent).toBe('通知');
   });
 
-  it('未読が 0 件のときは、件数の印を表示しない', async () => {
-    renderApp(0);
-    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+  it('ヘッダーの通知のアイコンに、未読の件数のバッジ（読み上げの対象外）を重ね、リンクの名前は、実際の件数を示す', async () => {
+    renderApp(3);
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(menu.querySelector('.nav-badge')).toBeNull();
+    const link = await screen.findByRole('link', { name: '未読の通知: 3件' });
+    expect(link.getAttribute('href')).toBe('/notifications');
+    const badge = within(link).getByTestId('unread-count');
+    await waitFor(() => {
+      expect(badge.textContent).toBe('3');
+    });
+    expect(badge.hasAttribute('hidden')).toBe(false);
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
   });
 
-  it('「設定」は、開閉できるまとまりで、既定では開いている。中は、設定の 5 項目', async () => {
+  it('未読が 0 件のときは、バッジを表示せず（ベルだけ）、リンクの名前は 0 件を示す', async () => {
+    renderApp(0);
+    await screen.findByRole('heading', { name: '安全性' });
+
+    const link = await screen.findByRole('link', { name: '未読の通知: 0件' });
+    const badge = within(link).getByTestId('unread-count');
+    expect(badge.hasAttribute('hidden')).toBe(true);
+    expect(badge.textContent).toBe('0');
+  });
+
+  it.each([
+    [99, '99'],
+    [100, '99+'],
+    [105, '99+'],
+  ])(
+    '未読が %i 件のとき、バッジの表示は「%s」（リンクの名前は、実際の件数）',
+    async (unread, shown) => {
+      renderApp(unread);
+      await screen.findByRole('heading', { name: '安全性' });
+
+      const link = await screen.findByRole('link', { name: `未読の通知: ${String(unread)}件` });
+      await waitFor(() => {
+        expect(within(link).getByTestId('unread-count').textContent).toBe(shown);
+      });
+    },
+  );
+
+  it('通知の画面にいる間は、ヘッダーの通知のリンクが、現在の画面を示す（メニューに「通知」がないため）', async () => {
+    renderApp(2);
+    const link = await screen.findByRole('link', { name: '未読の通知: 2件' });
+    expect(link.getAttribute('aria-current')).toBeNull();
+
+    fireEvent.click(link);
+
+    await screen.findByRole('heading', { name: '通知' });
+    expect(link.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('ヘッダーの右端は、ユーザーメニュー（テーマの切り替えも、その中）。テーマだけのボタンは、置かない（Issue #353）', async () => {
+    renderApp(1);
+    const header = await screen.findByRole('banner');
+
+    const user = await within(header).findByRole('button', { name: /^ログイン中のユーザー/ });
+    const notifications = within(header).getByRole('link', { name: /^未読の通知/ });
+
+    expect(within(header).queryByRole('button', { name: /^テーマ/ })).toBeNull();
+    // 通知のアイコンの後ろ（右端）にある
+    expect(
+      notifications.compareDocumentPosition(user) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('「設定」は、開閉できるまとまりで、既定では開いている。中は、設定の 4 項目（「通知の設定」は、ヘッダーのユーザーメニューへ移した。Issue #353）', async () => {
     renderApp();
     const menu = await screen.findByRole('navigation', { name: 'メニュー' });
 
@@ -92,11 +146,10 @@ describe('共通のレイアウト', () => {
     expect(group?.open).toBe(true);
     expect(group?.querySelector('summary')?.textContent).toBe('設定');
     expect(Array.from(group?.querySelectorAll('a') ?? []).map((link) => link.textContent)).toEqual([
-      '設備',
+      'ハウス・設備',
       '取り込み',
       'ステータスコード',
       'ユーザー',
-      '通知の設定',
     ]);
   });
 
@@ -109,10 +162,9 @@ describe('共通のレイアウト', () => {
 
     const group = menu.querySelector('details');
     expect(Array.from(group?.querySelectorAll('a') ?? []).map((link) => link.textContent)).toEqual([
-      '設備',
+      'ハウス・設備',
       '取り込み',
       'ステータスコード',
-      '通知の設定',
     ]);
   });
 
@@ -122,6 +174,45 @@ describe('共通のレイアウト', () => {
 
     expect(menu.querySelector('[aria-current="page"]')?.textContent).toBe('ダッシュボード');
   });
+
+  // 現在地の強調は、パスの前方一致（Issue #155 の SC-COM-4）。強調される項目は、常に 1 つだけ（ダッシュボード `/` は、完全一致のみ）
+  it.each([
+    ['/data-entry', 'データ入力'],
+    ['/data-entry/list', 'データ入力'],
+    ['/data-entry/history', 'データ入力'],
+    ['/observations', '計測データ'],
+    ['/settings/equipment', 'ハウス・設備'],
+    ['/settings/ingestion', '取り込み'],
+    ['/settings/status-codes', 'ステータスコード'],
+    ['/settings/users', 'ユーザー'],
+    ['/', 'ダッシュボード'],
+  ])('%s では、メニューの「%s」だけを、現在の画面として強調する', async (path, label) => {
+    window.history.pushState(null, '', path);
+    renderApp();
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    const current = Array.from(menu.querySelectorAll('[aria-current="page"]'));
+    expect(current.map((item) => item.textContent)).toEqual([label]);
+  });
+
+  it.each(['/viewpoints/safety', '/satisfaction', '/settings/push', '/notifications'])(
+    'メニューにない画面（%s）では、ダッシュボードを含め、どの項目も強調しない（ダッシュボードは、完全一致のみ）',
+    async (path) => {
+      window.history.pushState(null, '', path);
+      renderApp();
+      const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+      expect(menu.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+    },
+  );
+
+  it('パスの前方一致は、区切り（/）の単位で行う（/data-entry-x は、データ入力にしない）', async () => {
+    window.history.pushState(null, '', '/data-entry-x');
+    renderApp();
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    expect(menu.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
+  });
 });
 
 describe('狭い幅の、メニューの引き出し', () => {
@@ -129,7 +220,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(toggle.getAttribute('aria-controls')).toBe('app-sidebar');
 
@@ -148,7 +239,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
@@ -167,7 +258,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
 
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'メニューを閉じる' }));
@@ -190,7 +281,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
@@ -198,7 +289,7 @@ describe('狭い幅の、メニューの引き出し', () => {
 
     fireEvent.click(
       within(screen.getByRole('navigation', { name: 'メニュー' })).getByRole('link', {
-        name: '通知',
+        name: '計測データ',
       }),
     );
 
@@ -211,7 +302,7 @@ describe('狭い幅の、メニューの引き出し', () => {
     stubViewport(true);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    fireEvent.click(screen.getByRole('button', { name: 'メニューを開く' }));
+    fireEvent.click(screen.getByRole('button', { name: 'メニューの開閉' }));
     const sidebar = must(document.getElementById('app-sidebar'));
     await waitFor(() => {
       expect(sidebar.contains(document.activeElement)).toBe(true);
@@ -229,18 +320,128 @@ describe('狭い幅の、メニューの引き出し', () => {
     expect(document.activeElement).toBe(last);
   });
 
-  it('広い幅では、引き出しの操作（フォーカスの移動・Esc の処理）を行わない', async () => {
+  it('広い幅では、引き出しの操作（フォーカスの移動・Esc の処理・本文を覆う面）を行わない', async () => {
     stubViewport(false);
     renderApp();
     await screen.findByRole('heading', { name: '安全性' });
-    const toggle = screen.getByRole('button', { name: 'メニューを開く' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
 
     fireEvent.click(toggle);
     fireEvent.keyDown(document, { key: 'Escape' });
 
-    // 広い幅は、メニューが常に見える。引き出しの状態は、出さない
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // 広い幅は、引き出しの状態（menu-is-open・本文のスクロールの固定）を出さない。Esc では、閉じも開きもしない
     expect(document.querySelector('.app-shell')?.classList.contains('menu-is-open')).toBe(false);
     expect(document.body.classList.contains('menu-open')).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('広い幅の、サイドメニューの開閉（Issue #354）', () => {
+  it('既定では開いている。☰ を押すと閉じ（本文が全幅になる）、もう一度押すと開く', async () => {
+    stubViewport(false);
+    renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+    const toggle = screen.getByRole('button', { name: 'メニューの開閉' });
+    const sidebar = must(document.getElementById('app-sidebar'));
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-controls')).toBe('app-sidebar');
+    expect(sidebar.hidden).toBe(false);
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // 閉じている間は、見えず、キーボードの移動・読み上げの対象にもならない（hidden）
+    expect(sidebar.hidden).toBe(true);
+    expect(document.querySelector('.app-shell')?.classList.contains('sidebar-collapsed')).toBe(
+      true,
+    );
+
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(sidebar.hidden).toBe(false);
+    expect(document.querySelector('.app-shell')?.classList.contains('sidebar-collapsed')).toBe(
+      false,
+    );
+  });
+
+  it('閉じた状態は、保存しない（画面を作り直す〔再読み込みを模す〕と、開いた状態に戻る）', async () => {
+    stubViewport(false);
+    const first = renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+    fireEvent.click(screen.getByRole('button', { name: 'メニューの開閉' }));
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(true);
+    first.unmount();
+
+    renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(false);
+    expect(
+      screen.getByRole('button', { name: 'メニューの開閉' }).getAttribute('aria-expanded'),
+    ).toBe('true');
+  });
+
+  it('閉じていても、画面を移動すると開いたまま・閉じたままを保つ（移動で、勝手に開閉しない）', async () => {
+    stubViewport(false);
+    renderApp();
+    await screen.findByRole('heading', { name: '安全性' });
+    fireEvent.click(screen.getByRole('button', { name: 'メニューの開閉' }));
+
+    fireEvent.click(await screen.findByRole('link', { name: /^未読の通知/ }));
+    await screen.findByRole('heading', { name: '通知' });
+
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(true);
+  });
+});
+
+describe('ヘッダーの ☰ とタイトル（Issue #354）', () => {
+  it.each([
+    ['広い幅', false],
+    ['狭い幅', true],
+  ])(
+    '%s: 画面の幅に関わらず、ヘッダーの左に、☰（メニューの開閉）と、タイトル（ダッシュボードへのリンク）を、この順に置く。サイドメニューの中に、タイトルはない',
+    async (_name, narrow) => {
+      stubViewport(narrow);
+      renderApp();
+      const header = await screen.findByRole('banner');
+      await screen.findByRole('heading', { name: '安全性' });
+
+      const toggle = within(header).getByRole('button', { name: 'メニューの開閉' });
+      const title = within(header).getByRole('link', { name: 'Greenhouse Monitor' });
+
+      expect(title.getAttribute('href')).toBe('/');
+      expect(toggle.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const sidebar = must(document.getElementById('app-sidebar'));
+      expect(within(sidebar).queryByRole('link', { name: 'Greenhouse Monitor' })).toBeNull();
+      expect(sidebar.textContent).not.toContain('Greenhouse Monitor');
+    },
+  );
+
+  it('タイトルを押すと、ダッシュボードへ移る（サイドメニューは、開閉しない）', async () => {
+    stubViewport(false);
+    window.history.pushState(null, '', '/observations');
+    renderApp();
+    const title = await screen.findByRole('link', { name: 'Greenhouse Monitor' });
+
+    fireEvent.click(title);
+
+    expect(await screen.findByRole('heading', { name: '安全性' })).toBeDefined();
+    expect(window.location.pathname).toBe('/');
+    expect(must(document.getElementById('app-sidebar')).hidden).toBe(false);
+  });
+});
+
+describe('サイドメニューの「設定」のアイコン（Issue #354）', () => {
+  it('歯車にする（以前の、太陽に似た絵柄ではない。テーマの「ライト」の太陽と区別できる）', async () => {
+    renderApp();
+    const menu = await screen.findByRole('navigation', { name: 'メニュー' });
+
+    const icon = must(menu.querySelector('summary svg'));
+
+    expect(icon.innerHTML).not.toContain('M12 3v3M12 18v3');
+    // 歯車の外形（歯のある多角形）と、中心の円
+    expect(icon.querySelectorAll('circle')).toHaveLength(1);
+    expect(icon.querySelector('path')?.getAttribute('d')?.split('L').length).toBeGreaterThan(24);
   });
 });

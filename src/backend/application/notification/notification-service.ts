@@ -17,6 +17,7 @@ import type {
   NotificationListResponse,
   NotificationMemo,
   NotificationMemoInput,
+  NotificationMemoView,
   NotificationProgress,
   WebPushDelivery,
 } from '@smart-farm/shared/schemas/notification';
@@ -32,6 +33,8 @@ import {
   buildStatusChangeDedupKey,
   buildStatusChangeMessage,
   isWithinSuppression,
+  newIngestionFailureKeys,
+  remainingIngestionFailureKeys,
 } from '../../domain/notification-rules.ts';
 import {
   isWebPushExpired,
@@ -47,6 +50,7 @@ import {
   type EquipmentScope,
 } from '../access/facility-scope.ts';
 import type { NotificationRecipients } from '../access/notification-recipients.ts';
+import { loadUserNames } from '../auth/user-display-names.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { IdGeneratorPort } from '../ports/id-generator-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
@@ -56,6 +60,7 @@ import type {
   NotificationListFilter,
   NotificationRepository,
   PushSubscriptionRepository,
+  UserRepository,
 } from '../ports/repositories.ts';
 import type { PushSubscriptionRecord, StatusChangeEntry } from '../ports/records.ts';
 import type { AppSettings } from '../settings.ts';
@@ -82,14 +87,28 @@ export interface NotificationService {
   notifyStatusChange(input: StatusChangeNotificationInput): Promise<Notification>;
   /**
    * 取り込みの失敗（再試行後）、または、データ取得の停止（situation: 'STOPPED'。新しいデータが届かない）の通知を作る。
-   * 抑制の期間内の重複は作らず、null を返す（失敗と停止は、別々に数える）。
+   * `failureKeys` は、いま失敗している項目（種類・設備・理由。`ingestionFailureKey`）。すでに通知した項目だけなら、作らず、null を返す
+   * （同じ失敗が続く間は、再通知しない。ADR-0019 の D-38。#589）。新しい項目があれば、通知を作り、その項目を記録する。
+   * 失敗と停止は、別々に数える。
    */
   notifyIngestionFailure(input: {
     sourceId: string;
     sourceName: string;
     reason: string;
     situation?: IngestionNotificationSituation;
+    failureKeys: readonly string[];
   }): Promise<Notification | null>;
+  /**
+   * 回復した失敗の項目を、記録から消す（回復のあとの失敗を、新しい出来事として通知するため。D-38。#589）。
+   * `activeKeys` は、いま失敗している項目（消さない）。`covers` は、今回調べた範囲の項目か（省略は、すべて）。
+   * 調べた範囲で失敗していない項目を、回復とみなす。記録が変わらなければ、書き込まない。
+   */
+  clearRecoveredIngestionFailures(input: {
+    sourceId: string;
+    situation?: IngestionNotificationSituation;
+    activeKeys: ReadonlySet<string>;
+    covers?: (key: string) => boolean;
+  }): Promise<void>;
   /**
    * 連携の期限切れ（破棄の期限を過ぎて、項目を破棄した）の通知を作る。抑制の期間内の重複は作らず、null を返す
    * （抑制の間に破棄した分は、連携のログに残る）。
@@ -98,18 +117,19 @@ export interface NotificationService {
   /**
    * 通知にメモ（自由記述）を追記する（ADR-0019 の D-42。共有・追記のみ）。入力者と日時を記録する。通知がなければ undefined。
    * 農業情報基盤には送らない。変更履歴（監査ログ）にも載せない（メモ自体が、入力者と日時の記録）。
+   * 応答には、入力者の表示名（現在のユーザー名。保存しない）を付ける（Issue #154 の SC-07-7）。
    */
   addMemo(
     notificationId: NotificationId,
     enteredBy: UserId,
     input: NotificationMemoInput,
     scope?: EquipmentScope,
-  ): Promise<NotificationMemo | undefined>;
-  /** 通知のメモ（入力の古い順。全件）。通知がなければ undefined。 */
+  ): Promise<NotificationMemoView | undefined>;
+  /** 通知のメモ（入力の古い順。全件。入力者の表示名つき）。通知がなければ undefined。 */
   listMemos(
     notificationId: NotificationId,
     scope?: EquipmentScope,
-  ): Promise<NotificationMemo[] | undefined>;
+  ): Promise<NotificationMemoView[] | undefined>;
   /**
    * 閲覧範囲（`scope`。省略は、すべての通知）: 一覧・未読の件数・既読・一括既読・メモは、閲覧できるハウスの通知だけ。
    * 範囲外・ハウスに属さない通知（全設備を閲覧できない利用者）は、存在しないものとして扱う（Issue #331）。
@@ -154,6 +174,8 @@ export interface NotificationServiceDeps {
   /** 状態の変化の履歴（通知の経過・回復日時の導出に使う。ADR-0019 の D-42）。 */
   readonly evaluations: Pick<EvaluationRepository, 'listStatusChanges'>;
   readonly pushSubscriptions: PushSubscriptionRepository;
+  /** メモの入力者の表示名（現在のユーザー名）の解決に使う（Issue #154 の SC-07-7）。 */
+  readonly users: Pick<UserRepository, 'list'>;
   /** Web Push の宛先（通知のハウスを閲覧できる利用者。Issue #331）。 */
   readonly recipients: NotificationRecipients;
   readonly webPush: NotifierPort;
@@ -190,6 +212,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     notifications,
     evaluations,
     pushSubscriptions,
+    users,
     recipients,
     webPush,
     clock,
@@ -228,7 +251,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     return notification;
   }
 
-  /** 通知を作る。同じ鍵の通知が、抑制の期間内にあれば、作らず null を返す（取り込みの失敗・停止、連携の期限切れ。D-38）。 */
+  /** 通知を作る。同じ鍵の通知が、抑制の期間内にあれば、作らず null を返す（連携の期限切れ。D-38。取り込みの失敗・停止は、失敗の項目で判定する）。 */
   async function createIfNotSuppressed(
     fields: Omit<Notification, 'notificationId' | 'createdAt' | 'deliveries'>,
   ): Promise<Notification | null> {
@@ -402,13 +425,38 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       });
     },
 
-    notifyIngestionFailure(input) {
-      return createIfNotSuppressed({
+    async notifyIngestionFailure(input) {
+      const dedupKey = buildIngestionFailureDedupKey(input.sourceId, input.situation);
+      const known = await notifications.getIngestionFailureKeys(dedupKey);
+      const added = newIngestionFailureKeys(known, input.failureKeys);
+      if (added.length === 0) {
+        return null;
+      }
+      const created = await create({
         kind: 'INGESTION_FAILURE',
         sourceId: input.sourceId,
         message: buildIngestionFailureMessage(input.sourceName, input.reason, input.situation),
-        dedupKey: buildIngestionFailureDedupKey(input.sourceId, input.situation),
+        dedupKey,
       });
+      // 通知を作ってから、項目を記録する（通知の作成に失敗したら、記録せず、次の実行で、同じ失敗として再試行する）
+      await notifications.setIngestionFailureKeys(dedupKey, [...known, ...added]);
+      return created;
+    },
+
+    async clearRecoveredIngestionFailures(input) {
+      const dedupKey = buildIngestionFailureDedupKey(input.sourceId, input.situation);
+      const known = await notifications.getIngestionFailureKeys(dedupKey);
+      if (known.length === 0) {
+        return;
+      }
+      const remaining = remainingIngestionFailureKeys(
+        known,
+        input.activeKeys,
+        input.covers ?? (() => true),
+      );
+      if (remaining.length !== known.length) {
+        await notifications.setIngestionFailureKeys(dedupKey, remaining);
+      }
     },
 
     notifyFederationExpired(input) {
@@ -454,6 +502,8 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       if ((await findVisible(notificationId, scope)) === undefined) {
         return undefined;
       }
+      // 表示名は、保存の前に引く（引けずに失敗しても、保存済みのメモに対して、エラーを返さないため）
+      const enteredByName = (await loadUserNames(users))(enteredBy);
       const memo: NotificationMemo = {
         memoId: ids.next(),
         notificationId,
@@ -463,14 +513,20 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       };
       await notifications.addMemo(memo);
       logger.info('通知のメモを追記しました', { notificationId });
-      return memo;
+      return { ...memo, ...omitUndefined({ enteredByName }) };
     },
 
     async listMemos(notificationId, scope = ALL_EQUIPMENT) {
       if ((await findVisible(notificationId, scope)) === undefined) {
         return undefined;
       }
-      return notifications.listMemos(notificationId);
+      const memos = await notifications.listMemos(notificationId);
+      // 入力者の表示名（現在のユーザー名）。メモがないときは、利用者の一覧を読まない
+      const nameOf = memos.length === 0 ? undefined : await loadUserNames(users);
+      return memos.map((memo) => ({
+        ...memo,
+        ...omitUndefined({ enteredByName: nameOf?.(memo.enteredBy) }),
+      }));
     },
 
     unreadCount(userId, range, scope = ALL_EQUIPMENT) {

@@ -24,6 +24,8 @@
 | [10_design/data](../10_design/data/) | [data-flow.md](../10_design/data/data-flow.md) | データの流れ |
 | | [data-model.md](../10_design/data/data-model.md) | データモデル（論理モデルと DynamoDB の物理設計の案） |
 | | [data-dictionary.md](../10_design/data/data-dictionary.md) | データ項目定義（データ辞書） |
+| | [robot-data-definition.md](../10_design/data/robot-data-definition.md) | 収穫ロボットのデータ定義（確定。項目・ファイルの構造・累積の値の扱い・ステータスコード・運用の仮定・サンプル・確認したい点） |
+| | [environment-sensor-data-definition.md](../10_design/data/environment-sensor-data-definition.md) | 環境センサーのデータ定義（確定。項目・ファイルの構造・運用の仮定・サンプル・確認したい点） |
 | | [ngsi-ld-context.jsonld](../10_design/data/ngsi-ld-context.jsonld) | 農業情報基盤の連携の context（JSON-LD。独自の型・属性の定義。ADR-0024） |
 | [10_design/functions](../10_design/functions/) | [functional-specification.md](../10_design/functions/functional-specification.md) | 機能仕様書（画面・API・非同期処理の振る舞い） |
 | | [ui-design-guidelines.md](../10_design/functions/ui-design-guidelines.md) | UI デザイン方針（方向性・デザイントークン・状態の表し方と色覚への配慮・アイコン・共通のレイアウト・守ること） |
@@ -43,10 +45,10 @@
 | | [0008-cognito-authentication.md](../10_design/adr/0008-cognito-authentication.md) | ADR-0008 認証に Amazon Cognito を使い、資格情報は Cognito、ロールは DynamoDB に持つ（承認） |
 | | [0009-lambda-production-assembly.md](../10_design/adr/0009-lambda-production-assembly.md) | ADR-0009 API の Lambda で、本番モード（DynamoDB・Cognito）の組み立てを動かす（承認。6 章は ADR-0010 で置換） |
 | | [0010-client-ip-from-cloudfront-function.md](../10_design/adr/0010-client-ip-from-cloudfront-function.md) | ADR-0010 利用者の IP は、CloudFront の Function でヘッダーに入れて、Lambda が読む（承認） |
-| | [0011-jobs-eventbridge-lambda.md](../10_design/adr/0011-jobs-eventbridge-lambda.md) | ADR-0011 ジョブ（JB-01〜JB-04）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ（承認） |
+| | [0011-jobs-eventbridge-lambda.md](../10_design/adr/0011-jobs-eventbridge-lambda.md) | ADR-0011 ジョブ（JB-01〜JB-05）を、EventBridge から Lambda で実行し、DynamoDB のロックで重複を防ぐ（承認） |
 | | [0012-demo-data-and-s3-file-server-mock.md](../10_design/adr/0012-demo-data-and-s3-file-server-mock.md) | ADR-0012 評価環境のデモデータは、ファイルサーバーのモック（S3）と、手元のコマンドで用意する（承認） |
 | | [0013-environments-and-access-control.md](../10_design/adr/0013-environments-and-access-control.md) | ADR-0013 評価環境は、開発サイトと本番サイトに分け、ログイン必須・管理者／一般の 2 ロールで制御する（承認） |
-| | [0014-defer-evaluation-on-manual-entry-write.md](../10_design/adr/0014-defer-evaluation-on-manual-entry-write.md) | ADR-0014 手動入力の保存・削除の評価の再計算を、AWS では、応答から外し、定期の評価（JB-02）に任せる（承認） |
+| | [0014-defer-evaluation-on-manual-entry-write.md](../10_design/adr/0014-defer-evaluation-on-manual-entry-write.md) | ADR-0014 手動入力の保存・削除の評価の再計算を、AWS では、応答から外し、定期の評価（JB-02）に任せる。手動入力は、「現在」だけ、応答の前に評価する（承認） |
 | | [0015-provisional-policy-external-specs.md](../10_design/adr/0015-provisional-policy-external-specs.md) | ADR-0015 ファイルサーバー・ファイル仕様・農業情報基盤は、回答を待たず、暫定の方針で進める（承認） |
 | | [0016-ingestion-federation-rules.md](../10_design/adr/0016-ingestion-federation-rules.md) | ADR-0016 取り込み・連携の規則を、恒久の仕様にする（#143 の決定。承認） |
 | | [0017-evaluation-rules.md](../10_design/adr/0017-evaluation-rules.md) | ADR-0017 評価・観点・メトリクスの規則を、恒久の仕様にする（#144 の決定。承認） |
@@ -57,6 +59,9 @@
 | | [0022-file-server-http-connection-provisional.md](../10_design/adr/0022-file-server-http-connection-provisional.md) | ADR-0022 ファイルサーバーの接続（HTTP）の暫定設計（#172。設定の項目・接続テスト・内部のアドレスの拒否・Lambda からのアクセス手段の比較。承認） |
 | | [0023-http-file-source-per-equipment-file.md](../10_design/adr/0023-http-file-source-per-equipment-file.md) | ADR-0023 HTTP のファイルサーバーの取得を、設備ごとのファイルパスで行う（#119。設備のファイルパス・HTTP の一覧・取得・接続テストの動作。承認） |
 | | [0024-agri-platform-federation-ngsi-ld.md](../10_design/adr/0024-agri-platform-federation-ngsi-ld.md) | ADR-0024 農業情報基盤との連携を、NGSI-LD（Orion-LD）の upsert で行う（#176。データモデル・設定・認証なし・停止中の運用） |
+| | [0025-demo-http-file-feed.md](../10_design/adr/0025-demo-http-file-feed.md) | ADR-0025 デモの取り込みを、HTTP のファイル配信（Lambda の Function URL）に置き換える（#344。認証なし・合成データだけ・3 つの PR に分ける） |
+| | [0026-per-equipment-file-server-connection.md](../10_design/adr/0026-per-equipment-file-server-connection.md) | ADR-0026 ファイルサーバーの接続を、設備ごとに持つ（#367。保存先・認証情報の参照名・権限・API・失敗の分離・移行・2 つの PR に分ける） |
+| | [0027-self-hosted-file-server.md](../10_design/adr/0027-self-hosted-file-server.md) | ADR-0027 ファイルサーバーを、こちらで用意する（S3 + Lambda の Function URL。ロボットが PUT で置き、取り込みが GET・HEAD で読む。トークン 2 種類・独立したスタック。#298） |
 | | （今後追加） | 設計判断の記録（ADR） |
 | [20_development](../20_development/) | [coding-standards.md](../20_development/coding-standards.md) | コーディング規約（草案） |
 | | [security.md](../20_development/security.md) | セキュリティ・機密情報 |
@@ -69,6 +74,8 @@
 | | [operations.md](../40_operations/operations.md) | 運用手順（環境ごとの設定・起動停止・ログの見方・異常の通知への対応・定期作業・配信の前提。評価環境（AWS）のデプロイ・ロールバック・初期ユーザー・データの初期化・障害時の確認） |
 | | [federation-platform-setup.md](../40_operations/federation-platform-setup.md) | 農業情報基盤との連携の準備・確認の手順（基盤側の確認 4 点。ADR-0024。ユーザーが実行） |
 | | [ai-agent-workflow.md](../40_operations/ai-agent-workflow.md) | AI エージェントの作業手順（このプロジェクト固有。Projects の操作・動作確認のポート・PR の定型・公開リポジトリで書かないもの） |
+| | [field-visit-checklist.md](../40_operations/field-visit-checklist.md) | 現地訪問（実証実験）の確認・設定項目のチェックリスト（訪問の前・現地・訪問のあと。ロボットの PUT・取り込み・実データの扱い。#298） |
+| | [simulation.md](../40_operations/simulation.md) | シミュレーション（一日を通して変化するデータの投入）の手順（`pnpm simulate`・`pnpm dev:file-server`。標準シナリオ・時間の進め方・安全のための制限・ローカルと開発サイトでの手順・自分のシナリオ。#375） |
 | | [backup-restore.md](../40_operations/backup-restore.md) | バックアップ・復元の手順（ローカル実行・評価環境の DynamoDB（PITR・オンデマンド・復元）） |
 | [50_references](../50_references/) | （今後追加） | 外部資料・参考情報 |
 | [.license-check](../../.license-check/)（リポジトリ直下） | [license-report.md](../../.license-check/license-report.md) | 依存パッケージのライセンス確認（コピーレフトの検出と対応、全依存のライセンス別の件数と一覧、配布物に含まれるものの区別）。`docs/` の外に置く |

@@ -22,26 +22,68 @@ export function dashboardCard(page: Page, viewpointId: string): Locator {
   return page.getByTestId(`card-${viewpointId}`);
 }
 
-/** ダッシュボードを開く（ログインしていなければ、ログインする）。 */
-export async function openDashboard(page: Page, query = ''): Promise<void> {
+/** ダッシュボードのカードの「期間の評価」の区画（長期の評価。状態・指標・診断・推奨アクション・評価の時刻）。 */
+export function dashboardPeriod(page: Page, viewpointId: string): Locator {
+  return page.getByTestId(`period-${viewpointId}`);
+}
+
+/** ダッシュボードのカードの「現在」の区画（短期の評価。短期を持たない観点には、ない）。 */
+export function dashboardCurrent(page: Page, viewpointId: string): Locator {
+  return page.getByTestId(`current-${viewpointId}`);
+}
+
+/**
+ * ダッシュボードを開く（ログインしていなければ、ログインする）。ブラウザの時計は、サーバーの固定した時計に揃える
+ * （評価が更新されていない警告〔最終の評価から 15 分以上。#158〕は、ブラウザの時計と比べるため）。揃える時刻を指定すれば、その時刻にする。
+ */
+export async function openDashboard(page: Page, query = '', at?: Date): Promise<void> {
+  await alignBrowserClock(page, at);
   await gotoAuthenticated(page, `/${query}`);
   await expect(page.getByRole('heading', { name: 'ダッシュボード', level: 1 })).toBeVisible();
 }
 
-/** 取り込み設定・状況の画面を開く（ブラウザの時計を揃える。ユーザーを指定すれば、そのユーザーで開く）。 */
+/** 取り込みの画面を開く（ブラウザの時計を揃える。ユーザーを指定すれば、そのユーザーで開く）。 */
 export async function openIngestion(
   page: Page,
   user?: Parameters<typeof openAs>[2],
 ): Promise<void> {
   await alignBrowserClock(page);
   await openAs(page, '/settings/ingestion', user);
-  await expect(page.getByRole('heading', { name: '取り込み設定・状況', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '取り込み', level: 1 })).toBeVisible();
 }
 
-/** 取り込み済みデータの画面を開く（クエリは、`?category=...` のように、先頭の `?` つきで指定する）。 */
+/**
+ * 計測データの一覧の条件に、「項目ごと」の一覧にする指定を足す（並べ替えを「カテゴリ」にする）。
+ * 一覧は、日時順（既定）だと、1 回の計測ごとにまとめる（Issue #363）。項目ごとの内容を確認するテストは、この指定で、項目ごとの一覧にする。
+ * 並べ替え・期間（31 日以内。日本時間の日付）の指定がなければ、足す（期間は、固定の現在時刻〔2026-10-09〕までの 30 日）。
+ */
+export function itemListQuery(query = ''): string {
+  const params = new URLSearchParams(query.replace(/^[?]/, ''));
+  if (!params.has('sort')) {
+    params.set('sort', 'category');
+  }
+  if (!params.has('from')) {
+    params.set('from', '2026-09-10');
+  }
+  if (!params.has('to')) {
+    params.set('to', '2026-10-09');
+  }
+  return `?${params.toString()}`;
+}
+
+/**
+ * 計測データの画面を、項目ごとの一覧（並べ替え「カテゴリ」）で開く（クエリは、`?category=...` のように、先頭の `?` つきで指定する）。
+ * 1 回の計測ごとの一覧（既定）は、`openMeasurementsPage` で開く。
+ */
 export async function openObservationsPage(page: Page, query = ''): Promise<void> {
+  await page.goto(`/observations${itemListQuery(query)}`);
+  await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
+}
+
+/** 計測データの画面を、1 回の計測ごとの一覧（日時順。既定）で開く。 */
+export async function openMeasurementsPage(page: Page, query = ''): Promise<void> {
   await page.goto(`/observations${query}`);
-  await expect(page.getByRole('heading', { name: '取り込み済みデータ', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '計測データ', level: 1 })).toBeVisible();
 }
 
 /** ページが横にはみ出していない（横スクロールが出ない）。 */
@@ -51,20 +93,38 @@ export async function expectNoHorizontalScroll(page: Page): Promise<void> {
   );
 }
 
-/** ヘッダーの「対象の設備」（長い設備名の選択肢を持つ）が、ラベルを潰さず、ページの幅の中に収まる。 */
+/** ヘッダー（☰・タイトル・通知・ユーザー）の各要素が、ページの幅の中に収まる。 */
 export async function expectHeaderIntact(page: Page): Promise<void> {
-  const label = await page.locator('.header-field > span').boundingBox();
-  expect(label?.height ?? 0, '「対象の設備」のラベルの高さ').toBeLessThan(30);
-  const select = await page.locator('.header-field select').boundingBox();
+  const width = page.viewportSize()?.width ?? 0;
+  const rects = await page
+    .locator('.app-header-row > *')
+    .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect()));
+  expect(rects.length).toBeGreaterThan(0);
+  for (const rect of rects) {
+    expect(rect.left).toBeGreaterThanOrEqual(0);
+    expect(rect.right).toBeLessThanOrEqual(width);
+  }
+}
+
+/**
+ * 画面の中の「対象のハウス」「対象の設備」の選択（長い設備名の選択肢を持つ）が、ラベルを潰さず、ページの幅の中に収まる
+ * （以前は、ヘッダーにあった。Issue #355）。
+ */
+export async function expectEquipmentFieldIntact(page: Page): Promise<void> {
+  const label = await page.locator('.equipment-field > span').first().boundingBox();
+  expect(label?.height ?? 0, '設備の選択のラベルの高さ').toBeLessThan(30);
+  const select = await page.locator('.equipment-field select').first().boundingBox();
   expect((select?.x ?? 0) + (select?.width ?? 0)).toBeLessThanOrEqual(
     page.viewportSize()?.width ?? 0,
   );
 }
 
 /**
- * 画面の文言の中から、指定した利用者ID だけに一致する正規表現（`e2e-user` が、`e2e-user-b` に一致しない）。
- * 表の行の文言は、セルの間に空白がないため、直後にハイフンが続かないことだけで判定する（別の列の文言が、直後に続くことがある）。
+ * 入力者・変更者の表示（「ユーザー名（ID）」。Issue #154 の SC-07-7）。括弧で閉じるため、`e2e-user` が `e2e-user-b` に一致しない。
  */
-export function userIdText(userId: string): RegExp {
-  return new RegExp(`${userId}(?!-)`);
+export function userLabelText(user: {
+  readonly userId: string;
+  readonly userName: string;
+}): string {
+  return `${user.userName}（${user.userId}）`;
 }

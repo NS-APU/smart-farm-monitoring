@@ -168,6 +168,72 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await repositories.statusCodes.list({ includeDeleted: true })).toHaveLength(2);
   });
 
+  describe('未登録のコード値（SC-12-5。Issue #158）', () => {
+    const sortedByCode = <Item extends { readonly code: string }>(items: readonly Item[]) =>
+      [...items].sort((left, right) => left.code.localeCompare(right.code));
+
+    it('記録がなければ、空', async () => {
+      const { repositories } = create();
+
+      expect(await repositories.unregisteredStatusCodes.list()).toEqual([]);
+    });
+
+    it('件数を加え、最終の日時を更新する（なければ作る）。コード値ごとに 1 件', async () => {
+      const { repositories } = create();
+      const t1 = new Date('2026-11-01T01:00:00.000Z');
+      const t2 = new Date('2026-11-02T02:00:00.000Z');
+
+      await repositories.unregisteredStatusCodes.record('ERR_X', 2, t1);
+      await repositories.unregisteredStatusCodes.record('ERR_Y', 1, t1);
+      await repositories.unregisteredStatusCodes.record('ERR_X', 3, t2);
+
+      expect(sortedByCode(await repositories.unregisteredStatusCodes.list())).toEqual([
+        { code: 'ERR_X', count: 5, lastSeenAt: t2.toISOString() },
+        { code: 'ERR_Y', count: 1, lastSeenAt: t1.toISOString() },
+      ]);
+    });
+
+    it('同時の加算でも、件数を取りこぼさない', async () => {
+      const { repositories } = create();
+      const at = new Date('2026-11-01T01:00:00.000Z');
+
+      await Promise.all(
+        Array.from({ length: 5 }, () =>
+          repositories.unregisteredStatusCodes.record('ERR_X', 2, at),
+        ),
+      );
+
+      expect(await repositories.unregisteredStatusCodes.list()).toEqual([
+        { code: 'ERR_X', count: 10, lastSeenAt: at.toISOString() },
+      ]);
+    });
+
+    it('登録できない形式・日本語・100 文字の値も、そのまま記録でき、大文字・小文字は別の値', async () => {
+      const { repositories } = create();
+      const at = new Date('2026-11-01T01:00:00.000Z');
+      const codes = ['err x', 'エラー', 'A'.repeat(100), 'abc', 'ABC'];
+
+      for (const code of codes) {
+        await repositories.unregisteredStatusCodes.record(code, 1, at);
+      }
+
+      const recorded = await repositories.unregisteredStatusCodes.list();
+      expect(new Set(recorded.map((item) => item.code))).toEqual(new Set(codes));
+      expect(recorded).toHaveLength(codes.length);
+    });
+
+    it('ステータスコードの定義（登録）とは別の記録（定義の一覧に、現れない）', async () => {
+      const { repositories } = create();
+      await repositories.unregisteredStatusCodes.record(
+        'ERR_X',
+        1,
+        new Date('2026-11-01T01:00:00.000Z'),
+      );
+
+      expect(await repositories.statusCodes.list({ includeDeleted: true })).toEqual([]);
+    });
+  });
+
   it('判断基準: 変更後の値を保存・取得・削除できる', async () => {
     const { repositories } = create();
     const criteria = {
@@ -273,6 +339,98 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       expect(found.every((item) => item.equipmentId === ROBOT_ID && !item.isDeleted)).toBe(true);
     });
 
+    it('期間の直前の値（累積の項目の基準。D-26）: 設備・項目ごとに、指定した日時より前の、論理削除でない最新の観測値を返す', async () => {
+      const { repositories } = create();
+      await repositories.observations.saveMany([
+        observation({ itemKey: 'harvestCount', value: 5, observedAt: '2026-09-01T00:00:00.000Z' }),
+        observation({ itemKey: 'harvestCount', value: 9, observedAt: '2026-09-02T00:00:00.000Z' }),
+        // 論理削除は、使わない（その前の値に戻る）
+        observation({
+          itemKey: 'harvestCount',
+          value: 99,
+          observedAt: '2026-09-03T00:00:00.000Z',
+          isDeleted: true,
+        }),
+        // 指定した日時ちょうど・それより後は、含めない
+        observation({
+          itemKey: 'harvestCount',
+          value: 200,
+          observedAt: '2026-10-01T00:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'harvestCount',
+          value: 300,
+          observedAt: '2026-10-02T00:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'operatingHours',
+          value: 1.5,
+          observedAt: '2026-09-02T00:00:00.000Z',
+        }),
+        // 対象でない項目・設備は、返さない
+        observation({ itemKey: 'standbyHours', value: 4, observedAt: '2026-09-02T00:00:00.000Z' }),
+        observation({
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 20,
+          observedAt: '2026-09-02T00:00:00.000Z',
+        }),
+      ]);
+
+      const found = await repositories.observations.findLatestBefore(
+        [ROBOT_ID, SENSOR_ID],
+        ['harvestCount', 'operatingHours', 'travelStoppedHours'],
+        new Date('2026-10-01T00:00:00.000Z'),
+      );
+
+      expect(
+        found
+          .map((item) => [item.equipmentId, item.itemKey, item.value, item.observedAt])
+          .sort((left, right) => String(left[1]).localeCompare(String(right[1]))),
+      ).toEqual([
+        [ROBOT_ID, 'harvestCount', 9, '2026-09-02T00:00:00.000Z'],
+        [ROBOT_ID, 'operatingHours', 1.5, '2026-09-02T00:00:00.000Z'],
+      ]);
+    });
+
+    it('期間の直前の値: 手動入力と自動取り込みが混在していても、計測日時が最も新しいものを返す', async () => {
+      const { repositories } = create();
+      await repositories.observations.saveMany([
+        observation({
+          itemKey: 'harvestCount',
+          value: 10,
+          source: 'AUTO_IMPORT',
+          observedAt: '2026-09-02T00:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'harvestCount',
+          value: 12,
+          source: 'MANUAL',
+          observedAt: '2026-09-02T06:00:00.000Z',
+        }),
+      ]);
+
+      const found = await repositories.observations.findLatestBefore(
+        [ROBOT_ID],
+        ['harvestCount'],
+        new Date('2026-10-01T00:00:00.000Z'),
+      );
+
+      expect(found.map((item) => item.value)).toEqual([12]);
+    });
+
+    it('期間の直前の値: 対象がなければ、空を返す', async () => {
+      const { repositories } = create();
+
+      expect(
+        await repositories.observations.findLatestBefore(
+          [ROBOT_ID],
+          ['harvestCount'],
+          new Date('2026-10-01T00:00:00.000Z'),
+        ),
+      ).toEqual([]);
+    });
+
     it.each([
       ['カテゴリ', { category: 'HARVEST' as const }, 2],
       ['項目', { itemKey: 'operatingHours' }, 1],
@@ -287,6 +445,25 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       const page = await repositories.observations.query(filter, { limit: 50 });
 
       expect(page.items).toHaveLength(expectedCount);
+    });
+
+    it('一覧: 期間の開始と終了が同じ日時なら、その日時の観測値だけを返す（両端を含む。計測単位の一覧が使う。Issue #363）', async () => {
+      const repositories = await seeded();
+      const instant = new Date('2026-10-09T02:00:00.000Z');
+
+      const page = await repositories.observations.query(
+        { from: instant, to: instant },
+        { limit: 50 },
+        { key: 'observedAt', direction: 'asc' },
+      );
+
+      // 2026-10-09T02:00 の観測値は、ロボットの 2 項目とセンサーの 1 項目。ほかの日時（01:00・02:30・02:40）は含まない
+      expect(page.items.map((item) => item.itemKey).sort()).toEqual([
+        'harvestCount',
+        'operatingHours',
+        'temperatureCelsius',
+      ]);
+      expect(page.items.every((item) => item.observedAt === '2026-10-09T02:00:00.000Z')).toBe(true);
     });
 
     it('一覧: 複数の項目（itemKeys）と、アプリ側の追加の条件（matches）で絞り込める', async () => {
@@ -310,6 +487,119 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       );
       expect(byPredicate.items.map((item) => item.itemKey)).toEqual(['temperatureCelsius']);
       expect(both.items).toEqual([]);
+    });
+
+    it('一覧: 設備・項目・取得元（自動取り込み）・期間（終了を含む）・使える値（matches）で絞り、新しい順に 1 件だけ読める（保存の応答の「評価に使われるか」。#162）', async () => {
+      const repositories = await seeded();
+      const equipmentId = toEquipmentId('ROBOT-CONTRACT');
+      const sample = (observedAt: string, overrides: Partial<Parameters<typeof observation>[0]>) =>
+        observation({ equipmentId, itemKey: 'harvestCount', value: 1, observedAt, ...overrides });
+      await repositories.observations.saveMany([
+        sample('2026-10-09T01:00:00.000Z', { value: 100 }),
+        sample('2026-10-09T02:00:00.000Z', { value: 200 }),
+        // 新しいが、使えない値（品質が有効でない・論理削除・手動入力・終了より後）
+        sample('2026-10-09T02:10:00.000Z', { quality: 'INVALID' }),
+        sample('2026-10-09T02:20:00.000Z', { isDeleted: true }),
+        sample('2026-10-09T02:30:00.000Z', { source: 'MANUAL' }),
+        sample('2026-10-09T03:30:00.000Z', {}),
+        // 別の項目・別の設備
+        sample('2026-10-09T02:40:00.000Z', { itemKey: 'operatingHours' }),
+        observation({
+          equipmentId: toEquipmentId('ROBOT-OTHER'),
+          itemKey: 'harvestCount',
+          value: 1,
+          observedAt: '2026-10-09T02:50:00.000Z',
+        }),
+      ]);
+
+      const page = await repositories.observations.query(
+        {
+          equipmentIds: [equipmentId],
+          itemKey: 'harvestCount',
+          source: 'AUTO_IMPORT',
+          from: new Date('2026-10-08T03:00:00.000Z'),
+          to: new Date('2026-10-09T03:00:00.000Z'),
+          matches: (item) => item.quality === 'VALID',
+        },
+        { limit: 1 },
+        { key: 'observedAt', direction: 'desc' },
+      );
+
+      expect(page.items.map((item) => [item.observedAt, item.value])).toEqual([
+        ['2026-10-09T02:00:00.000Z', 200],
+      ]);
+    });
+
+    it('一覧: 「問題あり」（有効でない: 欠損・遅延・不正）だけに絞り込める。計測日時の順・値の順のどちらでも。ほかの条件とも組み合わせられる（SC-09-3）', async () => {
+      const repositories = await seeded();
+      await repositories.observations.saveMany([
+        observation({
+          itemKey: 'harvestCount',
+          value: null,
+          quality: 'MISSING',
+          observedAt: '2026-10-09T04:00:00.000Z',
+        }),
+        observation({
+          itemKey: 'operatingHours',
+          value: 5,
+          quality: 'LATE',
+          observedAt: '2026-10-09T04:10:00.000Z',
+        }),
+        observation({
+          itemKey: 'failureCount',
+          value: -1,
+          quality: 'INVALID',
+          source: 'MANUAL',
+          observedAt: '2026-10-09T04:20:00.000Z',
+        }),
+        observation({
+          equipmentId: SENSOR_ID,
+          itemKey: 'temperatureCelsius',
+          value: 99,
+          quality: 'INVALID',
+          observedAt: '2026-10-09T04:30:00.000Z',
+        }),
+        // 論理削除した問題ありは、含めない
+        observation({
+          itemKey: 'standbyHours',
+          value: null,
+          quality: 'MISSING',
+          isDeleted: true,
+          observedAt: '2026-10-09T04:40:00.000Z',
+        }),
+      ]);
+      const qualities = (items: readonly { quality: string }[]) =>
+        [...new Set(items.map((item) => item.quality))].sort();
+
+      const byTime = await repositories.observations.query(
+        { problemOnly: true },
+        { limit: 50 },
+        { key: 'observedAt', direction: 'asc' },
+      );
+      const byValue = await repositories.observations.query(
+        { problemOnly: true },
+        { limit: 50 },
+        { key: 'value', direction: 'asc' },
+      );
+      const combined = await repositories.observations.query(
+        { problemOnly: true, equipmentIds: [ROBOT_ID], source: 'MANUAL' },
+        { limit: 50 },
+      );
+      const off = await repositories.observations.query({ problemOnly: false }, { limit: 50 });
+
+      expect(byTime.items.map((item) => item.itemKey)).toEqual([
+        'harvestCount',
+        'operatingHours',
+        'failureCount',
+        'temperatureCelsius',
+      ]);
+      expect(qualities(byTime.items)).toEqual(['INVALID', 'LATE', 'MISSING']);
+      expect(byValue.items.map((item) => item.itemKey).sort()).toEqual(
+        byTime.items.map((item) => item.itemKey).sort(),
+      );
+      expect(combined.items.map((item) => item.itemKey)).toEqual(['failureCount']);
+      // 指定しない（false）なら、絞らない（有効な 6 件 + 問題あり 4 件。論理削除を除く）
+      expect(off.items).toHaveLength(10);
     });
 
     it('一覧: 計測日時・カテゴリ・値で並べ替えられる（既定は計測日時の新しい順）', async () => {
@@ -436,6 +726,40 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     });
   });
 
+  it('評価結果: 評価の日時が古い結果は、新しい結果を上書きしない（同じ日時は上書きする。別の視点・期間は独立。#591）', async () => {
+    const { repositories } = create();
+    const newer = evaluationResult({ status: 'ERROR', evaluatedAt: '2026-10-09T03:05:00.000Z' });
+    const older = evaluationResult({ status: 'NORMAL', evaluatedAt: '2026-10-09T03:00:00.000Z' });
+    await repositories.evaluations.saveLatest(newer);
+
+    // 遅れて終わった古い評価（別の実行・Lambda）が、新しい結果を上書きしない
+    await repositories.evaluations.saveLatest(older);
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.status,
+    ).toBe('ERROR');
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.evaluatedAt,
+    ).toBe('2026-10-09T03:05:00.000Z');
+
+    // 同じ日時は、上書きする（再保存）。さらに新しい日時も、上書きする
+    await repositories.evaluations.saveLatest({ ...newer, status: 'CAUTION' });
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.status,
+    ).toBe('CAUTION');
+    await repositories.evaluations.saveLatest(
+      evaluationResult({ status: 'NORMAL', evaluatedAt: '2026-10-09T03:10:00.000Z' }),
+    );
+    expect(
+      (await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'SHORT', null))?.status,
+    ).toBe('NORMAL');
+
+    // 長期の結果は、別のキー（古い日時でも、まだなければ保存する）
+    await repositories.evaluations.saveLatest(
+      evaluationResult({ horizon: 'LONG', periodDays: 7, evaluatedAt: '2026-10-09T03:00:00.000Z' }),
+    );
+    expect(await repositories.evaluations.getLatest(ROBOT_ID, 'safety', 'LONG', 7)).toBeDefined();
+  });
+
   it('評価結果: 観点・視点・期間ごとの最新を上書き保存し、状態の変化を記録できる', async () => {
     const { repositories } = create();
     await repositories.evaluations.saveLatest(evaluationResult());
@@ -488,6 +812,37 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
       await repositories.notifications.add(notification('n-3', { dedupKey: 'same' }));
       return repositories;
     }
+
+    it('取り込みの失敗の項目（通知の重複の抑制）を、重複抑制のキーごとに保存・読み出し・削除できる（空にすると削除。#589）', async () => {
+      const { repositories } = create();
+      const key = 'INGESTION_FAILURE#robot';
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual([]);
+
+      await repositories.notifications.setIngestionFailureKeys(key, [
+        'EQUIPMENT:r1:理由A',
+        'UNEXPECTED',
+      ]);
+      await repositories.notifications.setIngestionFailureKeys('INGESTION_STOPPED#robot', [
+        'EQUIPMENT:r1',
+      ]);
+
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual([
+        'EQUIPMENT:r1:理由A',
+        'UNEXPECTED',
+      ]);
+      expect(
+        await repositories.notifications.getIngestionFailureKeys('INGESTION_STOPPED#robot'),
+      ).toEqual(['EQUIPMENT:r1']);
+
+      await repositories.notifications.setIngestionFailureKeys(key, ['UNEXPECTED']);
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual(['UNEXPECTED']);
+
+      await repositories.notifications.setIngestionFailureKeys(key, []);
+      expect(await repositories.notifications.getIngestionFailureKeys(key)).toEqual([]);
+      expect(
+        await repositories.notifications.getIngestionFailureKeys('INGESTION_STOPPED#robot'),
+      ).toEqual(['EQUIPMENT:r1']);
+    });
 
     it('新しい順に一覧でき、種別・既読／未読で絞り込める。既読は利用者ごと', async () => {
       const repositories = await seeded();
@@ -1491,6 +1846,12 @@ describe.each(FACTORIES)('Repository の契約（$name）', ({ create }) => {
     expect(await ids({ actor: USER })).toEqual(['a-3', 'a-1']);
     expect(await ids({ targetType: 'manual-entry' })).toEqual(['a-3', 'a-2', 'a-1']);
     expect(await ids({ targetType: 'criteria' })).toEqual([]);
+    expect(await ids({ targetType: 'manual-entry', targetId: 'e-1' })).toEqual([
+      'a-3',
+      'a-2',
+      'a-1',
+    ]);
+    expect(await ids({ targetId: 'e-2' })).toEqual([]);
     expect(await ids({ direction: 'asc' })).toEqual(['a-1', 'a-2', 'a-3']);
     expect(await ids({ direction: 'desc' })).toEqual(['a-3', 'a-2', 'a-1']);
     expect(

@@ -1,23 +1,22 @@
 /**
- * 観点の詳細: 推移（UC-03。FR-5.6、FR-6.5、FR-6.10）。メトリクスの時系列グラフ（指標ごとに開閉できる）と期間の平均値、
- * 観点のステータスの推移、視点（短期・長期）ごとのフィードバックを示す。
- * 短期評価を持たない観点では、短期のフィードバックは示さない。
+ * 観点の詳細: 推移（UC-03。FR-5.6、FR-6.5、FR-6.10）。メトリクスの時系列グラフ（指標ごとに開閉できる）と期間の平均値、値の表（折りたたみ）、
+ * 観点のステータスの推移を示す。欄全体も、折りたたみ（既定は閉。SC-03-4）。
+ * 視点（短期・長期）ごとの診断メッセージ・推奨アクションは、診断の欄（diagnosis-section.tsx）に、1 箇所だけ示す。
  */
 
 import type { ReactNode } from 'react';
 import { formatMetricValue, getMetricMeta } from '@smart-farm/shared/constants/metrics';
 import { STATUS_LABELS, type EvaluationStatus } from '@smart-farm/shared/constants/status';
-import { criterionBands } from '@smart-farm/shared/criteria-text';
+import { criterionBands, criterionStatusAt } from '@smart-farm/shared/criteria-text';
 import { MS_PER_MINUTE } from '@smart-farm/shared/time';
 import type {
-  HorizonDiagnosis,
   SeriesMetric,
   SeriesResponse,
   ViewpointDetailResponse,
 } from '@smart-farm/shared/schemas/evaluation';
 import { MESSAGES } from '../i18n/messages.ts';
 import { formatBucketLabel } from './bucket-label.ts';
-import { horizonLabel } from './diagnosis-section.tsx';
+import { CollapsiblePanel, type PanelOpenProps } from './collapsible-panel.tsx';
 import { formatDateTimeJst } from './format.ts';
 import { LineChart } from './line-chart.tsx';
 import { StatusBadge } from './status-badge.tsx';
@@ -31,6 +30,7 @@ function MetricTrend(props: {
   const meta = getMetricMeta(metric.metricId);
   const hasData = metric.points.some((point) => point.value !== null);
   const criterion = detail.criteria.criteria.find((item) => item.indicator === metric.metricId);
+  const bands = criterion === undefined ? [] : criterionBands(criterion);
   return (
     <details
       className="trend-metric"
@@ -50,37 +50,51 @@ function MetricTrend(props: {
             unit={meta.unit}
             points={metric.points}
             bucket={series.bucket}
-            bands={criterion === undefined ? [] : criterionBands(criterion)}
+            bands={bands}
             average={metric.average}
             formatValue={(value) => formatMetricValue(metric.metricId, value)}
           />
-          {/* 点の値は、マウスの操作でしか得られないため、同じ内容を、表として提供する（見えない文字。V-153） */}
-          {/* 表（table）は、overflow・clip で内容を切れないため、見えない枠（div）に入れる。表の行が、ページの下に、余計な空白を作らない */}
-          <div className="visually-hidden">
-            <table data-testid={`trend-table-${metric.metricId}`}>
-              <caption>{MESSAGES.viewpoint.trendTableCaption(meta.label)}</caption>
-              <thead>
-                <tr>
-                  <th scope="col">{MESSAGES.viewpoint.trendTableTime}</th>
-                  <th scope="col">
-                    {meta.unit === '' ? meta.label : `${meta.label}（${meta.unit}）`}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {metric.points.map((point) => (
-                  <tr key={point.at}>
-                    <td>{formatBucketLabel(point.at, series.bucket)}</td>
-                    <td>
-                      {point.value === null
-                        ? MESSAGES.common.missingValue
-                        : formatMetricValue(metric.metricId, point.value)}
-                    </td>
+          {/* 値の表: 点をタップしなくても、全区間の値を読める（見える折りたたみ。スクリーンリーダーでも読める。SC-03-2） */}
+          <details className="trend-values" data-testid={`trend-values-${metric.metricId}`}>
+            <summary>{MESSAGES.viewpoint.trendValues}</summary>
+            <div className="table-scroll">
+              <table data-testid={`trend-table-${metric.metricId}`}>
+                <caption>{MESSAGES.viewpoint.trendTableCaption(meta.label)}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{MESSAGES.viewpoint.trendTableTime}</th>
+                    <th scope="col">
+                      {meta.unit === '' ? meta.label : `${meta.label}（${meta.unit}）`}
+                    </th>
+                    <th scope="col">{MESSAGES.viewpoint.trendTableStatus}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {metric.points.map((point) => {
+                    const status =
+                      point.value === null ? null : criterionStatusAt(bands, point.value);
+                    return (
+                      <tr key={point.at}>
+                        <td>{formatBucketLabel(point.at, series.bucket)}</td>
+                        <td>
+                          {point.value === null
+                            ? MESSAGES.common.missingValue
+                            : formatMetricValue(metric.metricId, point.value)}
+                        </td>
+                        <td>
+                          {point.value === null
+                            ? MESSAGES.common.missingValue
+                            : status === null
+                              ? MESSAGES.viewpoint.noJudgement
+                              : STATUS_LABELS[status]}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </details>
         </>
       ) : (
         <p className="muted trend-empty">{MESSAGES.viewpoint.trendNoData}</p>
@@ -131,6 +145,9 @@ function StatusHistory(props: { readonly series: SeriesResponse }): ReactNode {
   return (
     <div className="status-history" data-testid="status-history">
       <h3>{MESSAGES.viewpoint.statusHistory}</h3>
+      <p className="muted" data-testid="status-history-note">
+        {MESSAGES.viewpoint.statusHistoryNote}
+      </p>
       {segments.length === 0 ? (
         <p className="muted">{MESSAGES.viewpoint.statusHistoryNone}</p>
       ) : (
@@ -146,6 +163,15 @@ function StatusHistory(props: { readonly series: SeriesResponse }): ReactNode {
                 <span className="status-segment-label">{STATUS_LABELS[segment.status]}</span>
               </span>
             ))}
+          </div>
+          {/* 帯の両端の日時（帯は、期間の開始から終了まで） */}
+          <div className="status-timeline-range">
+            <time dateTime={series.from} data-testid="status-timeline-from">
+              {formatDateTimeJst(series.from)}
+            </time>
+            <time dateTime={series.to} data-testid="status-timeline-to">
+              {formatDateTimeJst(series.to)}
+            </time>
           </div>
           <ol className="status-changes">
             {statusHistory.initial === null ? null : (
@@ -167,78 +193,37 @@ function StatusHistory(props: { readonly series: SeriesResponse }): ReactNode {
   );
 }
 
-function FeedbackCard(props: {
-  readonly testId: string;
-  readonly title: string;
-  readonly diagnosis: HorizonDiagnosis | null;
-  readonly emptyText: string;
-}): ReactNode {
-  const { diagnosis } = props;
-  return (
-    <div className="feedback-card" data-testid={props.testId}>
-      <h4>{props.title}</h4>
-      {diagnosis === null ? (
-        <p className="muted">{props.emptyText}</p>
-      ) : (
-        <>
-          <StatusBadge status={diagnosis.status} />
-          <p>{diagnosis.diagnosticMessage}</p>
-          <p>
-            <strong>{MESSAGES.viewpoint.recommendedAction}: </strong>
-            {diagnosis.recommendedAction}
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-export function TrendSection(props: {
-  readonly series: SeriesResponse;
-  readonly detail: ViewpointDetailResponse;
-}): ReactNode {
+export function TrendSection(
+  props: PanelOpenProps & {
+    readonly series: SeriesResponse;
+    readonly detail: ViewpointDetailResponse;
+  },
+): ReactNode {
   const { series, detail } = props;
   return (
-    <section className="panel" aria-labelledby="trend-heading" data-testid="trend">
-      <h2 id="trend-heading">{MESSAGES.viewpoint.trend}</h2>
+    <CollapsiblePanel
+      testId="trend"
+      headingId="trend-heading"
+      title={MESSAGES.viewpoint.trend}
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+    >
       <p className="muted">
         {MESSAGES.viewpoint.trendPeriod}: {formatDateTimeJst(series.from)} 〜{' '}
         {formatDateTimeJst(series.to)}（
         {series.bucket === 'HOUR' ? MESSAGES.viewpoint.trendHourly : MESSAGES.viewpoint.trendDaily}
         ）
       </p>
-      {series.horizon === series.horizonUsed ? null : (
-        <p className="muted">{MESSAGES.viewpoint.horizonUsedLong}</p>
-      )}
       <p className="muted">{MESSAGES.viewpoint.chartLegend}</p>
+      <p className="muted" data-testid="chart-band-note">
+        {MESSAGES.viewpoint.chartBandNote}
+      </p>
       <div className="trend-list">
         {series.metrics.map((metric) => (
           <MetricTrend key={metric.metricId} metric={metric} series={series} detail={detail} />
         ))}
       </div>
       <StatusHistory series={series} />
-      <h3>{MESSAGES.viewpoint.feedback}</h3>
-      {series.hasShortHorizon ? null : (
-        <p className="muted" data-testid="no-short-note">
-          {MESSAGES.viewpoint.noShort}
-        </p>
-      )}
-      <div className="feedback-cards">
-        {series.hasShortHorizon ? (
-          <FeedbackCard
-            testId="feedback-short"
-            title={horizonLabel('SHORT', null)}
-            diagnosis={series.feedback.short}
-            emptyText={MESSAGES.viewpoint.notEvaluated}
-          />
-        ) : null}
-        <FeedbackCard
-          testId="feedback-long"
-          title={horizonLabel('LONG', detail.periodDays)}
-          diagnosis={series.feedback.long}
-          emptyText={MESSAGES.viewpoint.notEvaluated}
-        />
-      </div>
-    </section>
+    </CollapsiblePanel>
   );
 }

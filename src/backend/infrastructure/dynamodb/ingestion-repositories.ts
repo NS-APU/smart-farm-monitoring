@@ -6,6 +6,9 @@
  * - 取り込み元の状態（設備が 1 つもない取り込み元の取得間隔の判定）: `SRC#{取り込み元}` / `STATE`。属性 `lastStarted`（ミリ秒）。新しい値のときだけ更新する
  * - 取り込みログ（設備に結びつかないもの。取り込み元単位）: `ILOG#{取り込み元}` / `{開始日時}#{ログID}`。取り込み元の一覧は、`ILOGSRC` に持つ
  * - 取り込みログ（設備ごと。Issue #201。新しいデータがあった実行・失敗だけ）: `ILOGE#{設備ID}` / `{開始日時}#{ログID}`。設備の一覧は、`EQINGEST` に持つ
+ * - 設備ごとの取り込みログのある設備の一覧（Issue #229。設備を削除しても、設備ごとのログを、一覧から見えるように）: `ILOGEQ` / `{設備ID}`。
+ *   ログの追加のときに作る。設備の削除では、削除しない（残す）。以前のログの設備は、設備ごとの最終の実行（`EQINGEST`）で見つけ、
+ *   設備の削除のときに、`ILOGEQ` に移す
  * - 設備ごとの取り込みの最終の実行（Issue #197・#201。取得間隔の判定・最終の実行の表示）: `EQINGEST` / `{設備ID}`。属性 `lastStarted`・`lastFinished`・
  *   `lastResult`・`lastSucceeded`・`lastData`（ミリ秒）。設備ごとに 1 件を、1 回の更新で上書きする（新しい開始日時のときだけ）。
  *   全設備を、1 回の Query で読む（取り込みのジョブは、毎分、判定する）
@@ -13,6 +16,11 @@
  * - 連携の項目: `FED` / `{ID}`。未送信の項目だけが、疎な GSI1（`FDUE`）に載る。状態ごとの件数は、カウンター（`FED#{状態}`）
  * - 連携ログ: `FLOG` / `{日時}#{ログID}`
  * - ハウス別の連携の記録（Issue #332。ログの facilities の内訳。一般ユーザー向け）: `FLOGF#{ハウス}` / `{日時}#{ログID}#{ハウス}`
+ *
+ * 保存期間（ADR-0018 の D-30。Issue #230）: 取り込みログ（`ILOG#`・`ILOGE#`・`ILOGF#`）・連携ログ（`FLOG`・`FLOGF#`）・
+ * 送信済みの連携項目（`FED`）は、`ttl`（エポック秒）を持ち、90 日で自動削除される。ログは、ログの日時から、送信済みの項目は、
+ * 送信済みになった時点（更新日時）から。取り込み元・設備の一覧（`ILOGSRC`・`EQINGEST`）・取り込み済みファイルの記録・カウンターは、期限なし。
+ * 送信済みの件数（カウンター）は、TTL で項目が消えても減らない（消えた分を含む累計）。
  */
 
 import {
@@ -33,9 +41,12 @@ import type {
   FederationRepository,
   IngestionRepository,
 } from '../../application/ports/repositories.ts';
+import { equipmentIdsOfPayload } from '../../domain/federation-payload.ts';
+import { logTtlSeconds } from '../common/log-retention.ts';
 import { instantKey, timedSortKey, upperBoundOf } from './keys.ts';
 import { counterAdd, mainAggregate, readCounters } from './main-table.ts';
 import {
+  deleteItem,
   getItem,
   putItem,
   queryAll,
@@ -53,6 +64,7 @@ const FEDERATION_LOG = 'FLOG';
 const FEDERATION_DUE = 'FDUE';
 const INGESTION_SOURCES = 'ILOGSRC';
 const EQUIPMENT_INGESTION = 'EQINGEST';
+const EQUIPMENT_LOG_REGISTRY = 'ILOGEQ';
 const INGESTION_RESULTS_STORED = ['SUCCESS', 'PARTIAL', 'FAILURE'] as const;
 
 const sourcePartition = (sourceId: string): string => `SRC#${sourceId}`;
@@ -75,6 +87,32 @@ function matchesResult(
   return wanted === 'SUCCESS' ? result === 'SUCCESS' : result !== 'SUCCESS';
 }
 
+/** 90 日で消える項目に付ける属性（DynamoDB の TTL。D-30。Issue #230）。 */
+function retention(occurredAt: string): { readonly ttl: number } {
+  return { ttl: logTtlSeconds(occurredAt) };
+}
+
+/**
+ * 連携の項目に付ける、キー以外の属性。送信していない項目は、次の試行の日時の順に並ぶ索引（GSI1）に載せる。
+ * 送信済みの項目は、送信済みになった時点（更新日時）から 90 日で消す（TTL）。期限切れ（破棄）の項目は、どちらもない。
+ */
+function itemAttributes(item: FederationItem): Record<string, unknown> {
+  switch (item.status) {
+    case 'SENT':
+      return retention(item.updatedAt);
+    case 'EXPIRED':
+      return {};
+    default:
+      return {
+        gsi1pk: FEDERATION_DUE,
+        gsi1sk: timedSortKey(
+          item.nextAttemptAt,
+          `${instantKey(item.enqueuedAt)}#${item.federationItemId}`,
+        ),
+      };
+  }
+}
+
 function toDate(value: unknown): Date | null {
   return typeof value === 'number' ? new Date(value) : null;
 }
@@ -87,16 +125,18 @@ export function createIngestionRepository(db: Database): IngestionRepository {
 
   /** 設備に結びつかないログ（取り込み元ごと）と、設備ごとのログの、すべてのパーティション。 */
   async function allLogPartitions(sourceId: string | undefined): Promise<string[]> {
-    const [sources, equipment] = await Promise.all([
+    const [sources, equipment, loggedEquipment] = await Promise.all([
       queryAll(db, table, INGESTION_SOURCES),
       queryAll(db, table, EQUIPMENT_INGESTION),
+      queryAll(db, table, EQUIPMENT_LOG_REGISTRY),
     ]);
+    const equipmentIds = new Set([...equipment, ...loggedEquipment].map((item) => String(item.sk)));
     return [
       ...sources
         .map((item) => String(item.sk))
         .filter((candidate) => sourceId === undefined || candidate === sourceId)
         .map(logPartition),
-      ...equipment.map((item) => equipmentLogPartition(String(item.sk))),
+      ...[...equipmentIds].map(equipmentLogPartition),
     ];
   }
 
@@ -117,6 +157,7 @@ export function createIngestionRepository(db: Database): IngestionRepository {
           : equipmentLogPartition(log.equipmentId),
         timedSortKey(log.startedAt, log.logId),
         log,
+        retention(log.startedAt),
       );
       // ハウスごとの内訳は、ハウス別の記録としても持つ（一般ユーザーが、全体のログを読まずに、自分のハウスの分だけを読めるように）
       for (const entry of log.facilities ?? []) {
@@ -131,10 +172,13 @@ export function createIngestionRepository(db: Database): IngestionRepository {
             result: entry.result,
             recordCount: entry.recordCount,
           },
+          retention(log.startedAt),
         );
       }
       if (log.equipmentId === undefined) {
         await putItem(db, table, { pk: INGESTION_SOURCES, sk: log.sourceId });
+      } else {
+        await putItem(db, table, { pk: EQUIPMENT_LOG_REGISTRY, sk: log.equipmentId });
       }
     },
     async listLogs(filter, page) {
@@ -198,6 +242,17 @@ export function createIngestionRepository(db: Database): IngestionRepository {
       }
       return states;
     },
+    async deleteEquipmentRecords(equipmentId, file) {
+      // 設備ごとのログを、一覧から見えなくしないよう、先に、ログのある設備の一覧へ移してから、最終の実行を削除する
+      await putItem(db, table, { pk: EQUIPMENT_LOG_REGISTRY, sk: equipmentId });
+      await deleteItem(db, table, { pk: EQUIPMENT_INGESTION, sk: equipmentId });
+      if (file !== undefined) {
+        await deleteItem(db, table, {
+          pk: sourcePartition(file.sourceId),
+          sk: fileSortKey(file.fileId),
+        });
+      }
+    },
     async recordEquipmentRuns(runs) {
       await Promise.all(
         runs.map((run) =>
@@ -248,22 +303,13 @@ export function createFederationRepository(db: Database): FederationRepository {
    */
   async function save(item: FederationItem): Promise<void> {
     const existing = await items.get(FEDERATION_ITEM, item.federationItemId);
-    const indexKeys =
-      item.status === 'SENT' || item.status === 'EXPIRED'
-        ? {}
-        : {
-            gsi1pk: FEDERATION_DUE,
-            gsi1sk: timedSortKey(
-              item.nextAttemptAt,
-              `${instantKey(item.enqueuedAt)}#${item.federationItemId}`,
-            ),
-          };
+    const extra = itemAttributes(item);
     if (existing?.status === item.status) {
-      await items.put(FEDERATION_ITEM, item.federationItemId, item, indexKeys);
+      await items.put(FEDERATION_ITEM, item.federationItemId, item, extra);
       return;
     }
     const operations: TransactItem[] = [
-      items.putOperation(FEDERATION_ITEM, item.federationItemId, item, indexKeys),
+      items.putOperation(FEDERATION_ITEM, item.federationItemId, item, extra),
       counterAdd(db, federationCounter(item.status), 1),
     ];
     if (existing !== undefined) {
@@ -326,7 +372,12 @@ export function createFederationRepository(db: Database): FederationRepository {
     },
     update: save,
     async addLog(entry) {
-      await logs.put(FEDERATION_LOG, timedSortKey(entry.occurredAt, entry.logId), entry);
+      await logs.put(
+        FEDERATION_LOG,
+        timedSortKey(entry.occurredAt, entry.logId),
+        entry,
+        retention(entry.occurredAt),
+      );
       for (const facility of entry.facilities ?? []) {
         await facilityLogs.put(
           facilityFederationPartition(facility.facilityId),
@@ -338,6 +389,7 @@ export function createFederationRepository(db: Database): FederationRepository {
             result: entry.result,
             itemCount: facility.itemCount,
           },
+          retention(entry.occurredAt),
         );
       }
     },
@@ -358,6 +410,31 @@ export function createFederationRepository(db: Database): FederationRepository {
         cursor: page.cursor,
       });
       return { items: result.items.map(logs.parse), nextCursor: result.nextCursor };
+    },
+    async discardUnsentByEquipment(equipmentId) {
+      // 送信していない項目は、疎な GSI1（FDUE）に載っている。設備の内容に合うものを、項目と状態ごとの件数を同時に更新して削除する
+      const targets: FederationItem[] = [];
+      for await (const stored of queryItems(db, {
+        table,
+        index: MAIN_INDEX_1,
+        hashName: 'gsi1pk',
+        hashValue: FEDERATION_DUE,
+        sortName: 'gsi1sk',
+        forward: true,
+        pageSize: 1000,
+      })) {
+        const item = items.parse(stored);
+        if (equipmentIdsOfPayload(item.payload).includes(equipmentId)) {
+          targets.push(item);
+        }
+      }
+      for (const item of targets) {
+        await transactWrite(db, [
+          { Delete: { TableName: table, Key: { pk: FEDERATION_ITEM, sk: item.federationItemId } } },
+          counterAdd(db, federationCounter(item.status), -1),
+        ]);
+      }
+      return targets.length;
     },
     async countByStatus() {
       const counts = await readCounters(db, FEDERATION_STATUSES.map(federationCounter));

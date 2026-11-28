@@ -1,33 +1,55 @@
 import { defineConfig, devices } from '@playwright/test';
 import { DEV_BACKEND_PORT, DEV_FRONTEND_PORT } from './dev-ports.ts';
+import {
+  E2E_DEV_SERVER,
+  E2E_FRONTEND_DIST,
+  E2E_INSTANCE_SUFFIX,
+  E2E_VIDEO,
+} from './tests/e2e/support/e2e-options.ts';
 import { E2E_ROLE_DEFINITIONS_JSON, E2E_USER } from './tests/e2e/support/e2e-user.ts';
 
 /**
  * Playwright の設定（E2E テスト）。方針は docs/10_design/functions/dev_spec.md 6章。
  * - テストは tests/e2e/UC-NN-<英語の概略名>.ts（ユースケースごと）と、tests/e2e/scenario-<英語の概略名>.ts（複数のユースケース・複数の利用者をまたぐシナリオ）
- * - video 撮影は、手元では常に有効にし、出力は ./test-result/ 配下。CI（環境変数 CI がある）では、撮らない（保存せず、捨てていたため。時間がかかる。Issue #185）
+ * - video 撮影は、既定では行わない（撮影のために、全体の所要時間が約 2 割延びる。Issue #185・#519）。必要なときは、環境変数 E2E_VIDEO=1。出力は ./test-result/ 配下
  * - バックエンド（ローカルの Node サーバー。メモリ上のデータ・モックの外部サービス・テスト用の時計）と、
- *   フロントエンド（Vite の開発サーバー）を起動して、AWS なしで動かす
+ *   フロントエンド（本番ビルドを vite preview で配信。環境変数 E2E_DEV_SERVER=1 なら、Vite の開発サーバー）を起動して、AWS なしで動かす
+ * - 複数のインスタンスを並列に実行するときは、環境変数 E2E_PORT_OFFSET でポートと出力先を分ける（pnpm test:e2e:parallel。Issue #519）
  */
 
 const BACKEND_PORT = DEV_BACKEND_PORT;
 const FRONTEND_PORT = DEV_FRONTEND_PORT;
-const IN_CI = (process.env.CI ?? '') !== '';
+
+/** 本番ビルドの出力先（src/frontend からの相対パス。vite の --outDir）。並列のインスタンスは、ビルド済みのものを共有する。 */
+const FRONTEND_DIST = E2E_FRONTEND_DIST ?? `../../test-result/e2e-dist${E2E_INSTANCE_SUFFIX}`;
+/** pnpm 経由ではなく、Vite を直接起動する（Windows のシェルで pnpm の解決に失敗することがあるため）。 */
+const VITE = 'node ../../node_modules/vite/bin/vite.js';
+const VITE_BUILD = `${VITE} build --outDir ${JSON.stringify(FRONTEND_DIST)} --emptyOutDir`;
+const VITE_PREVIEW = `${VITE} preview --outDir ${JSON.stringify(FRONTEND_DIST)} --host 127.0.0.1 --port ${String(FRONTEND_PORT)} --strictPort`;
+/** フロントエンドを起動するコマンド。ビルド済み（E2E_FRONTEND_DIST）なら、ビルドしない。 */
+const FRONTEND_COMMAND = E2E_DEV_SERVER
+  ? VITE
+  : E2E_FRONTEND_DIST === undefined
+    ? `${VITE_BUILD} && ${VITE_PREVIEW}`
+    : VITE_PREVIEW;
 
 export default defineConfig({
   testDir: './tests/e2e',
   // ユースケースごと（例: UC-01-view-dashboard.ts）と、複数のユースケース・複数の利用者をまたぐシナリオ（例: scenario-user-onboarding.ts）
   testMatch: /(?:UC-\d{2}|scenario)-[a-z0-9-]+\.ts$/,
-  outputDir: './test-result/e2e',
+  outputDir: `./test-result/e2e${E2E_INSTANCE_SUFFIX}`,
   fullyParallel: false,
   workers: 1,
   reporter: [
     ['list'],
-    ['html', { outputFolder: './test-result/playwright-report', open: 'never' }],
+    [
+      'html',
+      { outputFolder: `./test-result/playwright-report${E2E_INSTANCE_SUFFIX}`, open: 'never' },
+    ],
   ],
   use: {
     baseURL: `http://127.0.0.1:${String(FRONTEND_PORT)}`,
-    video: IN_CI ? 'off' : { mode: 'on', size: { width: 1280, height: 720 } },
+    video: E2E_VIDEO ? { mode: 'on', size: { width: 1280, height: 720 } } : 'off',
     screenshot: 'on',
     trace: 'retain-on-failure',
     locale: 'ja-JP',
@@ -55,7 +77,6 @@ export default defineConfig({
         TRUSTED_PROXY_HOPS: '1',
         PORT: String(BACKEND_PORT),
         PERSISTENCE: 'memory',
-        FILE_SERVER_DIR: 'test-result/e2e-file-server',
         SEED_MODE: 'NONE',
         INITIAL_USER_ID: E2E_USER.userId,
         INITIAL_USER_NAME: E2E_USER.userName,
@@ -71,12 +92,12 @@ export default defineConfig({
       },
     },
     {
-      // pnpm 経由ではなく、Vite を直接起動する（Windows のシェルで pnpm の解決に失敗することがあるため）
-      command: 'node ../../node_modules/vite/bin/vite.js',
+      command: FRONTEND_COMMAND,
       cwd: 'src/frontend',
       url: `http://127.0.0.1:${String(FRONTEND_PORT)}`,
       reuseExistingServer: false,
-      timeout: 60_000,
+      // 本番ビルドの時間を含む
+      timeout: 5 * 60_000,
     },
   ],
 });

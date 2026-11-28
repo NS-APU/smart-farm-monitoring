@@ -31,6 +31,7 @@
     "playwright.csp.config.ts",
     "playwright.smoke.config.ts",
     "playwright.smoke-auth.config.ts",
-    "dev-ports.ts"
+    "dev-ports.ts",
+    "scripts/*.ts"
   ]
 }

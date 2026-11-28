@@ -1,0 +1,9 @@
+{
+  "timestamp": "2026-10-09T11:10:00",
+  "harvestCount": 130,
+  "harvestSecondsPerFruit": null,
+  "operatingHours": 3.4,
+  "standbyHours": 0.5,
+  "harvestOperatingHours": 2.6,
+  "statusCode": "STANDBY"
+}

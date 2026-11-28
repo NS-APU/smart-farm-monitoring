@@ -64,6 +64,20 @@ describe('API クライアント', () => {
     expect(calls[0]).toMatchObject({ method: 'POST', body: { a: 1 } });
   });
 
+  it('textBody は、文字列を、そのまま本文にして送る（JSON の包みを付けない。JSON として解釈できない内容も変えない）', async () => {
+    const { api, calls } = setup(() => jsonResponse({ value: 1 }));
+    const text = '{ "a": 1,\n  "b": [ 1, 2 ] }\n{壊れた';
+
+    await api.request('/items', { method: 'PUT', textBody: text, schema: ItemSchema });
+
+    expect(calls[0]).toMatchObject({
+      method: 'PUT',
+      rawBody: text,
+      contentType: 'application/json',
+      authorization: 'Bearer access-token-1',
+    });
+  });
+
   it('認証が不要な呼び出し（anonymous）には、トークンを付けない', async () => {
     const { api, calls } = setup(() => jsonResponse({ value: 1 }));
 
@@ -150,6 +164,59 @@ describe('API クライアント', () => {
 
     await expect(api.request('/items', { schema: ItemSchema })).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
+    });
+  });
+
+  describe('版つき更新（SC-13-1。ETag と If-Match）', () => {
+    const withEtag = (body: unknown, etag: string) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json', etag },
+      });
+
+    it('requestWithEtag は、本文と、応答の ETag を返す。ETag がなければ undefined', async () => {
+      const { api } = setup((request) =>
+        request.path === '/items' ? withEtag({ value: 5 }, '"v1"') : jsonResponse({ value: 6 }),
+      );
+
+      expect(await api.requestWithEtag('/items', { schema: ItemSchema })).toEqual({
+        data: { value: 5 },
+        etag: '"v1"',
+      });
+      expect(await api.requestWithEtag('/plain', { schema: ItemSchema })).toEqual({
+        data: { value: 6 },
+        etag: undefined,
+      });
+    });
+
+    it('304 でも、現在の版（ETag）を返す（応答の ETag がなければ、条件つきで送った前回の ETag）', async () => {
+      const { api } = setup((request) =>
+        request.ifNoneMatch === '"v1"'
+          ? new Response(null, { status: 304 })
+          : withEtag({ value: 5 }, '"v1"'),
+      );
+
+      await api.requestWithEtag('/items', { schema: ItemSchema });
+      const second = await api.requestWithEtag('/items', { schema: ItemSchema });
+
+      expect(second).toEqual({ data: { value: 5 }, etag: '"v1"' });
+    });
+
+    it('ifMatch を指定すると、If-Match ヘッダーに付ける。指定しなければ付けない', async () => {
+      const { api, calls } = setup(() => jsonResponse({ value: 1 }));
+
+      await api.request('/items', { method: 'PUT', body: {}, ifMatch: '"v1"', schema: ItemSchema });
+      await api.request('/items', { method: 'PUT', body: {}, schema: ItemSchema });
+
+      expect(calls.map((call) => call.ifMatch)).toEqual(['"v1"', null]);
+    });
+
+    it('409 は、ApiError（CONFLICT）にする', async () => {
+      const { api } = setup(() => errorResponse(409, 'CONFLICT', '他の管理者が変更しました'));
+
+      await expect(
+        api.request('/items', { method: 'PUT', body: {}, ifMatch: '"v0"', schema: ItemSchema }),
+      ).rejects.toMatchObject({ status: 409, code: 'CONFLICT' });
     });
   });
 

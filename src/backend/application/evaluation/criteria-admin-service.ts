@@ -3,26 +3,31 @@
  * 変更はシステム全体に適用し、変更済みであることを識別できるようにする（版・変更者・日時）。
  * 変更後は、現在の評価を更新する。過去の評価は、再計算せず保持する（暫定。dev_spec.md 4章 No.10）。
  * 変更の履歴（変更者・前後）は、変更履歴に残す。
+ * 応答には、最終変更者の表示名（現在のユーザー名。保存しない）を付ける（Issue #154 の SC-07-7）。
  */
 
 import type { ViewpointId } from '@smart-farm/shared/constants/viewpoints';
+import { omitUndefined } from '@smart-farm/shared/omit-undefined';
 import { validationError, type FieldError } from '@smart-farm/shared/errors';
-import type { UserId } from '@smart-farm/shared/schemas/common';
+import type { EvaluationWriteState, UserId } from '@smart-farm/shared/schemas/common';
 import type {
+  CriteriaSaveResponse,
   CriteriaUpdateRequest,
   CriteriaView,
   ViewpointCriteria,
 } from '@smart-farm/shared/schemas/criteria';
 import type { AuditTargetType } from '@smart-farm/shared/schemas/audit';
-import { getDefaultCriteria } from '../../domain/evaluation/default-criteria.ts';
+import { getDefaultCriteria } from '@smart-farm/shared/constants/default-criteria';
 import { getViewpointDefinition } from '../../domain/evaluation/viewpoints/registry.ts';
 import type { AuditService } from '../audit/audit-service.ts';
+import { loadUserNames } from '../auth/user-display-names.ts';
 import type { ClockPort } from '../ports/clock-port.ts';
 import type { Logger } from '../ports/logger-port.ts';
-import type { CriteriaRepository } from '../ports/repositories.ts';
+import type { CriteriaRepository, UserRepository } from '../ports/repositories.ts';
 import type { CriteriaService } from './criteria-service.ts';
+import type { EvaluationOnWrite } from './evaluation-on-write.ts';
 import type { EvaluationService } from './evaluation-service.ts';
-import { reevaluateSafely } from './reevaluate-safely.ts';
+import { reevaluateAllOnWrite } from './reevaluate-safely.ts';
 
 const CRITERIA_TARGET_TYPE = 'criteria' satisfies AuditTargetType;
 const CUSTOM_VERSION_PATTERN = /^CUSTOM-(\d+)$/;
@@ -30,20 +35,25 @@ const CUSTOM_VERSION_PATTERN = /^CUSTOM-(\d+)$/;
 export interface CriteriaAdminService {
   /** 現在有効な判断基準（変更後があればそれ、なければ既定値）。 */
   get(viewpointId: ViewpointId): Promise<CriteriaView>;
+  /** 更新する。応答に、評価の状態を含める（`deferred` では `DEFERRED`。ADR-0014）。 */
   update(
     viewpointId: ViewpointId,
     input: CriteriaUpdateRequest,
     actor: UserId,
-  ): Promise<CriteriaView>;
-  /** 既定値へ戻す。 */
-  reset(viewpointId: ViewpointId, actor: UserId): Promise<CriteriaView>;
+  ): Promise<CriteriaSaveResponse>;
+  /** 既定値へ戻す。応答に、評価の状態を含める。 */
+  reset(viewpointId: ViewpointId, actor: UserId): Promise<CriteriaSaveResponse>;
 }
 
 export interface CriteriaAdminServiceDeps {
   readonly criteriaService: CriteriaService;
   readonly criteriaRepository: CriteriaRepository;
+  /** 最終変更者の表示名（現在のユーザー名）の解決に使う。 */
+  readonly users: Pick<UserRepository, 'list'>;
   readonly audit: AuditService;
   readonly evaluation: EvaluationService;
+  /** 変更の後の評価を、応答の前に行うか（`deferred` は、定期の評価〔JB-02〕に任せる。ADR-0014）。 */
+  readonly evaluationOnWrite: EvaluationOnWrite;
   readonly clock: ClockPort;
   readonly logger: Logger;
 }
@@ -56,8 +66,12 @@ function nextVersion(current: string): string {
 /**
  * 指標の構成は、観点の既定値と同じ（指標の追加・削除・重複はできない）。
  * ステータス（ステータスコードのカテゴリ）で判定する指標は、ここでは編集できない（FR-5.7）。
+ * 保存と、影響のプレビュー（`criteria-preview-service.ts`）で、同じ検証にする。
  */
-function indicatorViolations(viewpointId: ViewpointId, input: CriteriaUpdateRequest): FieldError[] {
+export function indicatorViolations(
+  viewpointId: ViewpointId,
+  input: CriteriaUpdateRequest,
+): FieldError[] {
   const expected = getDefaultCriteria(viewpointId).criteria.map((criterion) => criterion.indicator);
   const violations: FieldError[] = [];
   const seen = new Set<string>();
@@ -86,17 +100,38 @@ function indicatorViolations(viewpointId: ViewpointId, input: CriteriaUpdateRequ
 }
 
 export function createCriteriaAdminService(deps: CriteriaAdminServiceDeps): CriteriaAdminService {
-  const { criteriaService, criteriaRepository, audit, evaluation, clock, logger } = deps;
+  const {
+    criteriaService,
+    criteriaRepository,
+    users,
+    audit,
+    evaluation,
+    evaluationOnWrite,
+    clock,
+    logger,
+  } = deps;
 
-  /** 評価の更新。失敗しても、判断基準の保存の結果には影響させない。 */
-  const reevaluate = (): Promise<void> =>
-    reevaluateSafely(evaluation, logger, 'CRITERIA_CHANGE', '判断基準の変更後の評価に失敗しました');
+  /** 評価の更新（`deferred` では、しない）。失敗しても、判断基準の保存の結果には影響させない。 */
+  const reevaluate = (): Promise<EvaluationWriteState> =>
+    reevaluateAllOnWrite(
+      evaluationOnWrite,
+      evaluation,
+      logger,
+      'CRITERIA_CHANGE',
+      '判断基準の変更後の評価に失敗しました',
+    );
 
-  /** 応答には、ステータスコードでも判定する観点か（その指標は編集できない）を加える。 */
-  function toView(value: ViewpointCriteria): CriteriaView {
+  /**
+   * 応答には、ステータスコードでも判定する観点か（その指標は編集できない）と、最終変更者の表示名を加える。
+   * 最終変更者がいない（既定値）ときは、利用者の一覧を読まない。削除済みの利用者は、表示名を出さない。
+   */
+  async function toView(value: ViewpointCriteria): Promise<CriteriaView> {
+    const updatedByName =
+      value.updatedBy === undefined ? undefined : (await loadUserNames(users))(value.updatedBy);
     return {
       ...value,
       usesStatusIndicator: getViewpointDefinition(value.viewpointId).usesStatusIndicator,
+      ...omitUndefined({ updatedByName }),
     };
   }
 
@@ -128,8 +163,8 @@ export function createCriteriaAdminService(deps: CriteriaAdminServiceDeps): Crit
         before,
         after: updated,
       });
-      await reevaluate();
-      return toView(updated);
+      const evaluationState = await reevaluate();
+      return { ...(await toView(updated)), evaluation: evaluationState };
     },
 
     async reset(viewpointId, actor) {
@@ -144,8 +179,8 @@ export function createCriteriaAdminService(deps: CriteriaAdminServiceDeps): Crit
         before,
         after: restored,
       });
-      await reevaluate();
-      return toView(restored);
+      const evaluationState = await reevaluate();
+      return { ...(await toView(restored)), evaluation: evaluationState };
     },
   };
 }

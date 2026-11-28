@@ -40,6 +40,7 @@ import {
 import {
   batchGetItems,
   batchWriteItems,
+  deleteItem,
   getItem,
   mapConcurrent,
   queryAll,
@@ -62,6 +63,8 @@ export const READ_LIMIT = 50_000;
 /** 並列に読むパーティションの数。 */
 const PARTITION_CONCURRENCY = 12;
 const PAGE_SIZE_MAX = 1000;
+/** 期間の直前の値を 1 件探すときの、1 回の Query の件数（論理削除の観測値を飛ばすための、少しの余裕）。 */
+const LATEST_BEFORE_PAGE_SIZE = 3;
 
 /** 読むパーティション（設備 × 項目）、または、手動入力の GSI（設備ごと）。 */
 type Target =
@@ -375,6 +378,39 @@ export function createObservationRepository(
         [...writes.values()].map((put) => ({ put })),
       );
     },
+    async deleteByEquipment(equipmentId, budget) {
+      // 設備の項目の一覧（レジストリ）から、パーティションごとに、キーを読んで、まとめて削除する。読む側の入口（レジストリ・最終の
+      // 受信日時）は、観測値をすべて消してから、最後に消す（途中で止まっても、続きから、同じ項目を探せる）
+      const [entry] = await registryOf([equipmentId]);
+      let deleted = 0;
+      for (const itemKey of entry?.itemKeys ?? []) {
+        for await (const items of queryPages(db, {
+          table: observationsTable,
+          hashName: 'pk',
+          hashValue: observationPartitionKey(equipmentId, itemKey),
+          sortName: 'sk',
+          forward: true,
+          pageSize: PAGE_SIZE_MAX,
+          consistent: true,
+        })) {
+          await batchWriteItems(
+            db,
+            observationsTable,
+            items.map((item) => ({ delete: { pk: item.pk, sk: item.sk } })),
+          );
+          deleted += items.length;
+          if (budget?.shouldStop() === true) {
+            return { deleted, completed: false };
+          }
+        }
+      }
+      await Promise.all(
+        [REGISTRY, RECEIVED_STATS].map((partition) =>
+          deleteItem(db, mainTable, { pk: partition, sk: equipmentId }),
+        ),
+      );
+      return { deleted, completed: true };
+    },
     async findForEvaluation(equipmentIds, from, to) {
       const range = {
         lower: instantKey(from.toISOString()),
@@ -401,6 +437,33 @@ export function createObservationRepository(
         return observations;
       });
       return found.flat();
+    },
+    async findLatestBefore(equipmentIds, itemKeys, before) {
+      const wanted = new Set(itemKeys);
+      const partitions = (await registryOf(equipmentIds)).flatMap((entry) =>
+        entry.itemKeys
+          .filter((itemKey) => wanted.has(itemKey))
+          .map((itemKey) => observationPartitionKey(entry.equipmentId, itemKey)),
+      );
+      // 各パーティションの、指定した日時より前を、新しい順に読み、論理削除でない最初の 1 件を取る（通常は 1 回の Query・1 件の読み取り）
+      const found = await mapConcurrent(partitions, PARTITION_CONCURRENCY, async (key) => {
+        for await (const item of queryItems(
+          db,
+          queryOptionsOf(
+            { kind: 'partition', key },
+            { lower: undefined, upper: instantKey(before.toISOString()) },
+            false,
+            LATEST_BEFORE_PAGE_SIZE,
+          ),
+        )) {
+          const observation = fromObservationItem(item);
+          if (!observation.isDeleted) {
+            return observation;
+          }
+        }
+        return undefined;
+      });
+      return found.filter((observation) => observation !== undefined);
     },
     async query(filter, page, sort = { key: 'observedAt', direction: 'desc' }) {
       if (sort.key === 'observedAt') {

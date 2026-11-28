@@ -102,3 +102,11 @@ export function criterionBands(criterion: Criterion): CriterionBand[] {
     }
   }
 }
+
+/** 値が入る区分のステータス（グラフの点の状態）。区分がなければ（判断基準のない指標）null。範囲は、下限を含み、上限を含まない（以上・未満）。 */
+export function criterionStatusAt(
+  bands: readonly CriterionBand[],
+  value: number,
+): JudgedStatus | null {
+  return bands.find((band) => value >= band.from && value < band.to)?.status ?? null;
+}

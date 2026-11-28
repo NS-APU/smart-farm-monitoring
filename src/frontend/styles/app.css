@@ -1,6 +1,6 @@
 /*
  * 画面の基本スタイル。状態は色・形・塗り方・文字で示す（NFR-7.2）。PC・タブレット・スマートフォンの幅でも使える（NFR-7.3）。
- * 色の値は docs/10_design/functions/ui-design-guidelines.md 5 章に従う。ライト・ダークは、ブラウザの設定（prefers-color-scheme）に従う。
+ * 色の値は docs/10_design/functions/ui-design-guidelines.md 5 章に従う。ライト・ダークは、既定ではブラウザの設定（prefers-color-scheme）に従い、ヘッダーのテーマのメニューで選んだときは、html 要素の data-theme（light・dark）に従う（Issue #352）。
  * 状態の色（--status-*）は、状態の表示にだけ使う。観点の種類・装飾・リンクには使わない。
  */
 :root {
@@ -84,9 +84,12 @@
   background: var(--color-bg);
 }
 
-/* ダーク: 背景は、暗い緑にしない（状態の「正常」の緑・「不明」の灰と、背景が似て見えるため）。中立の暗いグレーにする */
+/* ダーク: 背景は、暗い緑にしない（状態の「正常」の緑・「不明」の灰と、背景が似て見えるため）。中立の暗いグレーにする。
+ * ダークの値は、次の 2 か所に、同じものを置く（CSS は、「または」の条件で、宣言を共有できないため）。
+ * tests/unit/frontend/design-tokens.test.ts が、2 か所が同じであることを確認する。
+ * 1. ブラウザの設定がダークで、「ライト」を選んでいない（システム）とき */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --color-bg: #12171c;
     --color-surface: #1b2229;
     --color-surface-muted: #26313a;
@@ -149,6 +152,77 @@
     --status-unknown-soft: #26313a;
     --status-unknown-soft-on: #c3ccd4;
   }
+}
+
+/* 2. 「ダーク」を選んだとき（color-scheme も、ダークにする。スクロールバー・入力部品の色） */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-bg: #12171c;
+  --color-surface: #1b2229;
+  --color-surface-muted: #26313a;
+  --color-surface-subtle: #202830;
+  --color-border: #2e3943;
+  --color-border-control: #71808c;
+  --color-text: #e8edf1;
+  --color-muted: #a3b0ba;
+  --color-nav-bg: #0e1318;
+  --color-nav-text: #b9c4cc;
+  --color-nav-current-bg: #1f3d33;
+  --color-nav-current-bar: #4fa985;
+  --color-primary: #2f6f55;
+  --color-primary-text: #ffffff;
+  --color-primary-ink: #e8edf1;
+  --color-link: #8ecbff;
+  --color-focus: #ffd24d;
+  --color-scrim: rgb(0 0 0 / 65%);
+  --shadow-dialog: 0 8px 24px rgb(0 0 0 / 50%);
+  --color-unread-bg: #1f2d36;
+  --color-chart-grid: #2e3943;
+  --color-chart-axis: #71808c;
+  --color-chart-average: #c3ccd4;
+  --color-chart-line: #8ecbff;
+  --color-chart-area: rgb(142 203 255 / 22%);
+  --color-rating: #ffb35c;
+  --color-viewpoint-icon: #c3ccd4;
+  --color-viewpoint-icon-bg: #26313a;
+  --status-normal-main: #6ee7b7;
+  --status-normal-text: #6ee7b7;
+  --status-normal-fill: #6ee7b7;
+  --status-normal-on: #052b1d;
+  --status-normal-tile: #1b2229;
+  --status-normal-tile-on: #6ee7b7;
+  --status-normal-soft: #2a4543;
+  --status-normal-soft-on: #6ee7b7;
+  --status-caution-main: #ffcc00;
+  --status-caution-text: #ffcc00;
+  --status-caution-fill: #ffcc00;
+  --status-caution-on: #2a2100;
+  --status-caution-tile: #1b2229;
+  --status-caution-tile-on: #ffcc00;
+  --status-caution-soft: #444122;
+  --status-caution-soft-on: #ffcc00;
+  --status-error-main: #ff5c5c;
+  --status-error-text: #ff5c5c;
+  --status-error-fill: #ff5c5c;
+  --status-error-on: #2b0606;
+  --status-error-tile: #ff5c5c;
+  --status-error-tile-on: #2b0606;
+  --status-error-soft: #442c32;
+  --status-error-soft-on: #ff8f8f;
+  --status-error-card: #2a1d20;
+  --status-unknown-main: #8a97a3;
+  --status-unknown-text: #c3ccd4;
+  --status-unknown-fill: transparent;
+  --status-unknown-on: #c3ccd4;
+  --status-unknown-tile: #1b2229;
+  --status-unknown-tile-on: #c3ccd4;
+  --status-unknown-soft: #26313a;
+  --status-unknown-soft-on: #c3ccd4;
+}
+
+/* 「ライト」を選んだとき（ブラウザの設定がダークでも、ライトにする） */
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
@@ -238,7 +312,8 @@ input:not([type='radio']) {
 
 /*
  * 共通のレイアウト: 左のサイドメニュー + 上部のバー + 本文（ui-design-guidelines.md 8 章）。
- * 狭い幅（900px 以下。use-narrow-viewport.ts と同じ値）では、メニューを、☰ で開閉する引き出しにする。
+ * ☰（ヘッダーの左。画面の幅に関わらず表示）で、サイドメニューを開閉する。狭い幅（900px 以下。use-narrow-viewport.ts と同じ値）では、メニューは引き出し、
+ * 広い幅では、閉じると本文が全幅になる（閉じている間は、hidden で、見えず、キーボードの移動の対象にもならない。Issue #354）。
  */
 .app-shell {
   display: flex;
@@ -259,23 +334,41 @@ input:not([type='radio']) {
   color: var(--color-nav-text);
 }
 
+.app-sidebar[hidden] {
+  display: none;
+}
+
+/* サイドメニューの先頭: 引き出しの閉じるボタンだけ（狭い幅だけ表示する。題名は、ヘッダーの左へ移した） */
 .sidebar-head {
-  display: flex;
+  display: none;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--color-nav-current-bg);
 }
 
+/* ヘッダーの左の題名（ダッシュボードへのリンク） */
 .app-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-weight: 700;
   font-size: 1.05rem;
   text-decoration: none;
-  color: var(--color-primary-text);
+  color: var(--color-text);
+}
+
+.app-title > .icon {
+  color: var(--color-primary-ink);
+}
+
+.app-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-nav {
@@ -312,22 +405,6 @@ input:not([type='radio']) {
   box-shadow: inset 4px 0 0 var(--color-nav-current-bar);
   color: var(--color-primary-text);
   font-weight: 700;
-}
-
-/* 未読の件数の印（リンクの外に置く）。状態の色の「異常」の塗りと同じ（強い色を、気づいてほしいものに絞る） */
-.nav-badge {
-  position: absolute;
-  top: 50%;
-  right: 16px;
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--status-error-fill);
-  color: var(--status-error-on);
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-align: center;
-  transform: translateY(-50%);
 }
 
 .nav-group summary {
@@ -372,7 +449,8 @@ input:not([type='radio']) {
   padding: 10px var(--space);
 }
 
-.header-field {
+/* 設備の選択（ダッシュボード・観点の詳細・満足度の詳細。以前は、ヘッダーにあった。Issue #355） */
+.equipment-field {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -381,53 +459,198 @@ input:not([type='radio']) {
 }
 
 /* 設備名は最大 200 文字。選択欄が名称の長さまで広がってヘッダーを押し広げたり、ラベルが 1 文字幅へ潰れたりしない */
-.header-field > span {
+.equipment-field > span {
   flex: none;
   white-space: nowrap;
 }
 
-.header-field select {
+.equipment-field select {
   min-width: 0;
   max-width: 28em;
   text-overflow: ellipsis;
 }
 
-.header-unread {
+/* ヘッダーのポップアップのメニュー（ユーザーメニュー。テーマの切り替えも、この中）。ボタンの下に、右端をそろえて開く（hooks/use-popup-menu.ts が、画面の幅からはみ出す分を、ずらす） */
+.popup-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.popup-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 13em;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-dialog);
+}
+
+.popup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.popup-item:hover {
+  background: var(--color-surface-muted);
+}
+
+.popup-item[aria-checked='true'],
+.popup-item[aria-current='page'] {
+  font-weight: 700;
+}
+
+.popup-item[aria-current='page'] {
+  background: var(--color-unread-bg);
+}
+
+.popup-item .popup-check {
+  display: inline-flex;
+  width: 16px;
+  margin-left: auto;
+  color: var(--color-primary-ink);
+}
+
+.popup-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border);
+}
+
+/* メニューの中の、項目のまとまり（テーマ）の見出し */
+.popup-heading {
+  padding: 4px 10px 2px;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* ユーザーのボタン（アイコン + ユーザー名 + ロール）。長い名前は、省略する（全文は、ボタンの名前・ツールチップ）。狭い幅は、アイコンだけ */
+.user-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  max-width: 20em;
+  min-height: 40px;
+  padding: 4px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.user-trigger > .icon {
+  color: var(--color-muted);
+}
+
+.user-trigger[aria-expanded='true'],
+.user-trigger[aria-current='page'] {
+  background: var(--color-unread-bg);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
+}
+
+.user-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.user-name {
+  min-width: 0;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-role {
+  flex: none;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+/* 通知のアイコン（丸い枠）。未読の件数のバッジを右上に重ねる。通知の画面にいる間は、現在の画面として強調する */
+.header-unread {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
   text-decoration: none;
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  padding: 2px 12px;
 }
 
-.header-data-status {
-  margin: 0 0 0 auto;
-  color: var(--color-muted);
-  font-size: 0.9rem;
+.header-unread[aria-current='page'] {
+  background: var(--color-unread-bg);
+  border-color: var(--color-primary-ink);
+  color: var(--color-primary-ink);
+}
+
+/* 件数のバッジ。状態の色の「異常」の塗りと同じ（強い色を、気づいてほしいものに絞る）。0 件のときは、隠す */
+.unread-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border: 2px solid var(--color-surface);
+  border-radius: 999px;
+  background: var(--status-error-fill);
+  color: var(--status-error-on);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.unread-badge[hidden] {
+  display: none;
 }
 
 .data-stale {
   color: var(--status-caution-text);
 }
 
-.header-user {
-  display: flex;
+/* サイドメニューの開閉（☰。画面の幅に関わらず表示する）。引き出しの閉じるボタンと、本文を覆う面は、狭い幅だけ表示する */
+.menu-toggle {
+  display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  border-color: var(--color-border-control);
 }
 
-.header-user > .icon {
-  color: var(--color-muted);
-}
-
-/* メニューの開閉の操作（狭い幅だけ表示する） */
-.menu-toggle,
 .menu-close,
-.menu-scrim,
-.app-title-compact {
+.menu-scrim {
   display: none;
 }
 
@@ -627,10 +850,111 @@ input:not([type='radio']) {
 }
 
 .evaluated-period,
+.evaluated-at,
 .custom-criteria {
   margin: 8px 0 0;
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+/* カードの区画（「現在」「期間」）。値・状態・診断・推奨アクションは、区画ごとに、1 回の評価の結果だけから示す（#591） */
+.card-section {
+  border-top: 1px solid var(--color-border);
+  margin-top: 12px;
+  padding-top: 8px;
+}
+
+.card-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: 1rem;
+}
+
+.card-section .metrics {
+  margin: 8px 0;
+}
+
+/* 状態ごとの観点の数の見出し（「現在」「期間」） */
+.summary-scope {
+  margin: 12px 0 4px;
+  font-size: 1rem;
+}
+
+/* 画面の操作の行（対象の設備・期間・更新）。下端をそろえる */
+.page-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space);
+  margin-bottom: var(--space);
+}
+
+.page-controls .horizon-controls {
+  margin-bottom: 0;
+}
+
+/* 手動の更新（ダッシュボード）。更新中は、押せない（aria-disabled。フォーカスを保つため、disabled にしない） */
+.refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  border-color: var(--color-border-control);
+}
+
+.refresh-button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* 観点別の状態の表（ダッシュボード。1 行に 1 観点: 観点名・状態）。Issue #356 */
+.status-table {
+  width: 100%;
+  max-width: 36rem;
+  margin-bottom: var(--space);
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.status-table th,
+.status-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+/* 「現在」「期間の評価」の列。短期を持たない観点の「―」だけの列でも、つぶれない幅にする（スマートフォン幅） */
+.status-table td {
+  min-width: 4.5rem;
+}
+
+.status-table thead th {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.status-table tbody tr:last-child th,
+.status-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.status-table tbody th {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.status-table tbody th a {
+  color: inherit;
 }
 
 .horizon-controls {
@@ -670,6 +994,22 @@ input:not([type='radio']) {
 .notice-info {
   background: var(--color-surface-muted);
   color: var(--color-text);
+}
+
+/* 古い設備の一覧（警告の中で開閉する。幅が狭いときは、表だけ横にスクロールする） */
+.stale-equipment-list {
+  margin-top: 8px;
+}
+
+.stale-equipment-list summary {
+  cursor: pointer;
+}
+
+.stale-equipment-list table {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  overflow-x: auto;
 }
 
 .state-view {
@@ -774,6 +1114,19 @@ input:not([type='radio']) {
   font-size: 1.5rem;
 }
 
+/* システムの目的の 1 行（Issue #157。SC-01-5）。狭い幅では、折り返して中央に置く */
+.login-purpose {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.login-form .notice {
+  margin: 0;
+}
+
 .login-brand-name {
   margin: 0;
   color: var(--color-text);
@@ -804,7 +1157,8 @@ input:not([type='radio']) {
   margin: 0;
 }
 
-.login-form label {
+.login-form label,
+.login-field {
   display: grid;
   gap: 4px;
 }
@@ -829,7 +1183,9 @@ input:not([type='radio']) {
     left: 0;
     z-index: 30;
     width: min(280px, 85vw);
-    height: auto;
+    /* 画面の高さまで届かせる（基本の align-self・height の影響を、受けない）。dvh は、スマートフォンのブラウザのアドレスバーの出入りに追従する */
+    height: 100vh;
+    height: 100dvh;
     visibility: hidden;
     transform: translateX(-100%);
     transition:
@@ -843,19 +1199,16 @@ input:not([type='radio']) {
     transition: transform 0.2s ease;
   }
 
-  .menu-toggle,
+  .sidebar-head {
+    display: flex;
+  }
+
   .menu-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
     padding: 4px 8px;
-  }
-
-  .menu-toggle {
-    background: var(--color-surface);
-    color: var(--color-primary-ink);
-    border-color: var(--color-border-control);
   }
 
   .menu-close {
@@ -877,40 +1230,38 @@ input:not([type='radio']) {
   }
 
   /* 題名は、残りの幅に合わせて縮める（末尾を省略する）。縮められないと、ユーザーの欄が、次の行へ折り返す */
-  .app-title-compact {
-    display: inline;
+  .app-title {
     flex: 1 1 0;
-    min-width: 0;
-    overflow: hidden;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  /* 上部のバー: 1 行目に ☰・題名・通知・ユーザー。設備の選択と、最終のデータ取得は、次の行へ */
+  /* 上部のバー: 1 行に ☰・題名・通知・ユーザー */
   .header-unread {
     order: 2;
   }
 
-  .header-user {
+  .user-menu {
     order: 3;
   }
 
-  .header-field {
-    order: 4;
+  /* ユーザーのボタンは、アイコンだけにする（名前・ロールは、ボタンの名前で読み上げる） */
+  .user-label {
+    display: none;
+  }
+
+  .user-trigger {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  /* 画面の操作の行は、狭い幅では、設備の選択を、1 行いっぱいに広げる */
+  .page-controls > .equipment-field {
     flex: 1 1 100%;
   }
 
-  .header-field select {
+  .page-controls > .equipment-field select {
     flex: 1;
     max-width: none;
-  }
-
-  .header-data-status {
-    order: 5;
-    flex-basis: 100%;
-    margin: 0;
-    font-size: 0.85rem;
   }
 
   body.menu-open {
@@ -918,15 +1269,123 @@ input:not([type='radio']) {
   }
 }
 
-@media (max-width: 600px) {
-  .header-user > span,
-  .header-user > .icon {
-    display: none;
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar {
+    transition: none;
+  }
+}
+
+/*
+ * 観点の詳細の、右からのドロワー（ダッシュボードの上に重ねる。Issue #357。components/viewpoint-drawer.tsx）。
+ * 幅は min(880px, 100vw)。900px 以下は、全画面。高さは、画面いっぱい（dvh は、スマートフォンのブラウザのアドレスバーの出入りに追従する）。
+ */
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--color-scrim);
+}
+
+.viewpoint-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100vw);
+  height: 100vh;
+  height: 100dvh;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-dialog);
+  animation: drawer-slide-in 0.2s ease;
+}
+
+.drawer-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space);
+  padding: 8px 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.drawer-page-link {
+  color: var(--color-link);
+}
+
+/* 前の観点・次の観点（SC-03-6）。左に寄せる。最初・最後の無効は、aria-disabled（フォーカスは保つ） */
+.drawer-nav {
+  display: flex;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.drawer-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+  border-color: var(--color-border-control);
+}
+
+.drawer-nav-button[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 「対応の結果を記録する」（異常・注意の観点のカード・詳細。SC-02-10） */
+.record-response {
+  margin: 8px 0 0;
+}
+
+.drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space);
+  overflow-y: auto;
+}
+
+body.drawer-open,
+body.modal-open {
+  overflow: hidden;
+}
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .viewpoint-drawer {
+    width: 100vw;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-sidebar {
-    transition: none;
+  .viewpoint-drawer {
+    animation: none;
   }
 }

@@ -10,7 +10,7 @@
  *
  * 値の同値分割: 復旧に要した時間（MTTR = 時間 ÷ 故障回数。4時間・8時間の境界）、故障回数（0・1・複数）、
  * 不正な入力（必須項目の欠け・形式・範囲・備考の長さ・未来の日時・同じ計測日時の重複）。
- * 関連するユースケース: UC-10（保存後の通知）・UC-01/UC-02（評価の反映）・UC-18（入力済みデータ）。
+ * 関連するユースケース: UC-10（保存後の通知）・UC-01/UC-02（評価の反映。異常・注意の観点から「対応の結果を記録する」で入る。SC-02-10）・UC-18（入力済みデータ）。
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -21,6 +21,7 @@ import {
   addEntry,
   alignBrowserClock,
   goToMenu,
+  goToNotifications,
   openAs,
   prepareApp,
   unreadBadge,
@@ -33,8 +34,16 @@ import {
   mainArea,
   saveEntry,
 } from './support/entry.ts';
-import { hoursAgo, seed, shot } from './support/viewpoint-scenarios.ts';
-import { userIdText } from './support/pages.ts';
+import {
+  environmentData,
+  hoursAgo,
+  merge,
+  safetyData,
+  seed,
+  shot,
+} from './support/viewpoint-scenarios.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import { dashboardCard, userLabelText } from './support/pages.ts';
 
 /** 復旧の記録が使うステータスコード（ロボットデータから取り込み済みの想定）。 */
 async function seedStatusCode(request: Parameters<typeof prepareApp>[0]): Promise<void> {
@@ -98,9 +107,39 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
 
     // 評価が更新され、ダッシュボードに反映される（MTTR = 90分 ÷ 1回 = 1.50時間）
     await result.getByRole('link', { name: 'ダッシュボードで確認' }).click();
-    const maintainability = page.getByTestId('card-maintainability');
+    const maintainability = page.getByTestId('period-maintainability');
     await expect(maintainability.locator('.status-badge')).toContainText('正常');
     await expect(maintainability).toContainText('1.50時間');
+  });
+
+  test('保存結果のパネルは、role="status" で、スマートフォン幅でも、保存した直後に画面内で見え、フォーカスを奪わない（SC-06-3）', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seedStatusCode(request);
+    await page.setViewportSize({ width: 375, height: 667 });
+    await openEntry(page);
+    await fillEntryForm(page, {
+      equipment: ROBOT_ID,
+      category: 'FAILURE',
+      observedAt: RECOVERY_AT,
+      items: { 故障回数: '1', 復旧に要した時間: '30' },
+    });
+    const save = mainArea(page).getByRole('button', { name: '保存する' });
+    await save.scrollIntoViewIfNeeded();
+
+    await save.click();
+
+    // 読み上げの対象（role="status"）で、フォームの上に出ても、画面内にスクロールされる
+    const result = mainArea(page).getByRole('status', { name: '保存しました' });
+    await expect(result).toHaveAttribute('data-testid', 'entry-result');
+    await expect(result).toContainText('保存しました');
+    await expect(result).toBeInViewport();
+    // 結果の通知は、フォーカスを受けない（保存中は、保存ボタンが無効になり、フォーカスはボタンから外れる。結果へは、移さない）
+    await expect(result).not.toBeFocused();
+    expect(await result.evaluate((node) => node.contains(document.activeElement))).toBe(false);
+    await shot(page, testInfo, 'uc06-saved-375');
   });
 
   test('保存した記録（対象・回数・復旧に要した時間・所感・入力者）は、入力済みデータの一覧に残る', async ({
@@ -129,7 +168,7 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(rows.first()).toContainText('故障回数: 2回');
     await expect(rows.first()).toContainText('復旧に要した時間: 150分');
     await expect(rows.first()).toContainText('搬送ベルトの張りを調整した。再発したら交換する');
-    await expect(rows.first()).toContainText(userIdText('e2e-user'));
+    await expect(rows.first()).toContainText(userLabelText(E2E_USER));
     await expect(rows.first().locator('time')).toContainText('2026/10/09 11:00');
     await shot(page, testInfo, 'uc06-saved-list');
   });
@@ -177,7 +216,9 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
     const form = mainArea(page);
-    await expect(form.getByTestId('entry-items').getByLabel('故障回数')).toHaveValue('');
+    await expect(
+      form.getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }),
+    ).toHaveValue('');
     await expect(form.getByLabel('備考（所感・補足情報）')).toHaveValue('');
     await expect(form.getByLabel('対象の設備')).toHaveValue(ROBOT_ID);
     await expect(form.getByLabel('カテゴリ')).toHaveValue('FAILURE');
@@ -199,7 +240,9 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
 
     await mainArea(page).getByRole('button', { name: '入力のクリア' }).click();
 
-    await expect(mainArea(page).getByTestId('entry-items').getByLabel('故障回数')).toHaveValue('');
+    await expect(
+      mainArea(page).getByTestId('entry-items').getByRole('textbox', { name: '故障回数' }),
+    ).toHaveValue('');
     await expect(mainArea(page).getByLabel('備考（所感・補足情報）')).toHaveValue('');
     await expect(mainArea(page).getByLabel('計測日時（日本時間）')).toHaveValue(RECOVERY_AT);
     await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(ROBOT_ID);
@@ -241,8 +284,8 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
     await expect(options).toHaveText([
       '選択してください',
       'ハウス1',
-      '　収穫ロボット1',
-      '　環境センサー1',
+      '　収穫ロボット1（ロボット）',
+      '　環境センサー1（センサー）',
     ]);
     await mainArea(page).getByLabel('対象の設備').selectOption(SENSOR_ID);
     await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(SENSOR_ID);
@@ -342,13 +385,12 @@ test.describe('保存後の通知（UC-10への連携）: 注意・異常があ�
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
     // 約10秒の更新を待たずに、通知の一覧で確認する（ヘッダーの件数は、通知の画面で更新される）
-    await goToMenu(page, '通知');
-    // 観点の評価は、ハウス・ロボットの単位で行うため、それぞれの通知が作られる
+    await goToNotifications(page);
+    // 通知の単位は、設備（ロボット）。ハウスの集約の結果の通知は作られない
     const rows = page.getByTestId('notification-row').filter({ hasText: 'メンテナンス性' });
-    await expect(rows).toHaveCount(2);
-    await expect(rows.filter({ hasText: 'ハウス1' })).toContainText('異常');
+    await expect(rows).toHaveCount(1);
     await expect(rows.filter({ hasText: '収穫ロボット1' })).toContainText('異常');
-    await expect(unreadBadge(page)).toHaveText(String(unreadBefore + 2));
+    await expect(unreadBadge(page)).toHaveText(String(unreadBefore + 1));
   });
 
   test('正常になる記録では、メンテナンス性の通知は作られない', async ({ page, request }) => {
@@ -359,7 +401,7 @@ test.describe('保存後の通知（UC-10への連携）: 注意・異常があ�
     await recordRecovery(page, { failures: '1', minutes: '30' });
     await expect(page.getByTestId('entry-result')).toBeVisible();
 
-    await goToMenu(page, '通知');
+    await goToNotifications(page);
     await expect(
       page.getByTestId('notification-row').filter({ hasText: 'メンテナンス性' }),
     ).toHaveCount(0);
@@ -519,7 +561,10 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await recordRecovery(page, { failures: '1.5', minutes: '30' });
     await expect(fieldError(page, 'items.failureCount')).toBeVisible();
 
-    await mainArea(page).getByTestId('entry-items').getByLabel('故障回数').fill('1');
+    await mainArea(page)
+      .getByTestId('entry-items')
+      .getByRole('textbox', { name: '故障回数' })
+      .fill('1');
     await saveEntry(page);
 
     await expect(fieldError(page, 'items.failureCount')).toHaveCount(0);
@@ -562,5 +607,139 @@ test.describe('代替フロー: 入力内容が不正な場合は、エラーを
     await expect(
       page.getByTestId('no-equipment').getByRole('link', { name: '設備の管理へ' }),
     ).toHaveAttribute('href', '/settings/equipment');
+  });
+});
+
+test.describe('入力欄のヘルプヒント（SC-06-9。Issue #154）', () => {
+  test('安全情報の項目・カテゴリ・計測日時・備考に「?」があり、押すと意味が出る。Esc で閉じる。入力欄のラベルを使う操作は、そのまま使える', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'SAFETY' });
+    const form = mainArea(page);
+
+    const category = form.getByRole('button', { name: 'カテゴリの説明' });
+    await category.click();
+    await expect(form.getByRole('note')).toContainText('緊急停止・ヒヤリハット');
+    await page.keyboard.press('Escape');
+    await expect(category).toHaveAttribute('aria-expanded', 'false');
+
+    const nearMiss = form.getByRole('button', { name: 'ヒヤリハット件数（件）の説明' });
+    await nearMiss.click();
+    await expect(nearMiss).toHaveAttribute('aria-expanded', 'true');
+    await expect(form.getByRole('note')).toContainText('緊急停止を伴う出来事');
+    await shot(page, testInfo, 'uc06-help-hint');
+    // 別のヒントを開くと、先のものは閉じる（同時に開くのは 1 つ）
+    await form.getByRole('button', { name: '計測日時（日本時間）の説明' }).click();
+    await expect(nearMiss).toHaveAttribute('aria-expanded', 'false');
+    await expect(form.getByRole('note')).toHaveCount(1);
+    await expect(form.getByRole('button', { name: '備考（所感・補足情報）の説明' })).toBeVisible();
+
+    // ヒントがあっても、ラベルで入力欄を取れる（1 つだけ）
+    await expect(form.getByLabel('計測日時（日本時間）')).toHaveCount(1);
+  });
+
+  test('1 果実あたりの収穫時間: 意味と入力例が出る。コスト・故障・操作の項目には、まだ「?」を付けない（別の Issue で説明を付ける）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await openEntry(page);
+    await fillEntryForm(page, { equipment: ROBOT_ID, category: 'HARVEST' });
+
+    await mainArea(page)
+      .getByRole('button', { name: '1果実あたりの収穫時間（秒/果実）の説明' })
+      .click();
+    await expect(mainArea(page).getByRole('note')).toContainText('例: 45');
+
+    for (const category of ['COST', 'FAILURE', 'OPERABILITY']) {
+      await fillEntryForm(page, { category });
+      await expect(
+        mainArea(page).getByTestId('entry-items').getByRole('button'),
+        category,
+      ).toHaveCount(0);
+    }
+  });
+});
+
+test.describe('異常・注意の観点から、対応の結果を記録する（SC-02-10。#155）', () => {
+  const RECORD = '対応の結果を記録する';
+  const REMEMBER_KEY = 'smart-farm:last-entry-target';
+
+  test('ダッシュボードのカードの「対応の結果を記録する」は、異常・注意の観点だけに出る。押すと、直前に入力した設備の記憶があっても、そのカードの設備でデータ入力が開く。通常の入口は、記憶した設備', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await prepareApp(request);
+    await seed(request, merge(environmentData({ temperature: 40 }), safetyData('NORMAL')));
+    await alignBrowserClock(page);
+    await openAs(page, '/');
+    // 直前に入力した設備を、別の設備（ロボット）にしておく（記憶があると、引き継ぎが効かない不具合を検出するため）
+    await page.evaluate(
+      ([key, value]) => {
+        window.localStorage.setItem(key, value);
+      },
+      [REMEMBER_KEY, JSON.stringify({ equipmentId: ROBOT_ID, category: 'FAILURE' })] as const,
+    );
+    await expect(dashboardCard(page, 'environmentalAdaptability')).toContainText('異常');
+    await expect(dashboardCard(page, 'safety')).toContainText('正常');
+    await expect(dashboardCard(page, 'safety').getByRole('link', { name: RECORD })).toHaveCount(0);
+    await expect(
+      dashboardCard(page, 'environmentalAdaptability').getByRole('link', { name: RECORD }),
+    ).toHaveCount(1);
+
+    await dashboardCard(page, 'environmentalAdaptability')
+      .getByRole('link', { name: RECORD })
+      .click();
+
+    await expect(page).toHaveURL(new RegExp(`/data-entry[?]equipmentId=${HOUSE_ID}$`));
+    await expect(page.getByRole('heading', { name: 'データ入力', level: 1 })).toBeVisible();
+    await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(HOUSE_ID);
+    // 記憶したカテゴリ（故障情報）は、ハウスに合わないので、空にする
+    await expect(mainArea(page).getByLabel('カテゴリ')).toHaveValue('');
+    await shot(page, testInfo, 'uc06-from-card');
+
+    // 通常の入口（メニュー・URL の直接指定）は、従来どおり、記憶した設備
+    await openAs(page, '/data-entry');
+    await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(ROBOT_ID);
+    await expect(mainArea(page).getByLabel('カテゴリ')).toHaveValue('FAILURE');
+  });
+
+  test('観点の詳細（ドロワー）の診断結果にも出る。押すと、評価した設備でデータ入力が開き、そのまま入力して保存できる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await seed(request, environmentData({ temperature: 40 }));
+    await alignBrowserClock(page);
+    await openAs(page, '/?viewpoint=environmentalAdaptability');
+    const dialog = page.getByRole('dialog', { name: '環境適応性の詳細' });
+    await expect(dialog.getByTestId('diagnosis')).toBeVisible();
+
+    await dialog.getByTestId('diagnosis').getByRole('link', { name: RECORD }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/data-entry[?]equipmentId=${HOUSE_ID}$`));
+    await expect(mainArea(page).getByLabel('対象の設備')).toHaveValue(HOUSE_ID);
+    await fillEntryForm(page, {
+      category: 'SATISFACTION',
+      observedAt: RECOVERY_AT,
+      stars: allSatisfactionStars(4),
+    });
+    await saveEntry(page);
+    await expect(page.getByTestId('entry-result')).toContainText('保存しました');
+  });
+
+  test('評価前・データ不足（不明）の観点には出さない（不明は、既存の「データ入力へ」の案内）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await alignBrowserClock(page);
+    await openAs(page, '/viewpoints/environmentalAdaptability');
+
+    await expect(page.getByTestId('unknown-guide')).toBeVisible();
+    await expect(page.getByRole('link', { name: RECORD })).toHaveCount(0);
   });
 });

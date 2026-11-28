@@ -31,14 +31,21 @@ import {
   seed,
   shot,
 } from './support/viewpoint-scenarios.ts';
-import { dashboardCard as card, locatorOf, userIdText } from './support/pages.ts';
+import { E2E_USER } from './support/e2e-user.ts';
+import {
+  dashboardCard as card,
+  locatorOf,
+  userLabelText,
+  dashboardPeriod,
+} from './support/pages.ts';
+import { expandPanel } from './support/helpers.ts';
 
 const criterion = (page: Page, indicator: string): Locator =>
   page.getByTestId(`criterion-edit-${indicator}`);
 const saveButton = (page: Page): Locator => page.getByRole('button', { name: '保存する' });
 const notice = locatorOf('criteria-notice');
 const cautionCount = async (page: Page): Promise<number> =>
-  Number(await page.getByTestId('summary-CAUTION').locator('.summary-count').textContent());
+  Number(await page.getByTestId('summary-period-CAUTION').locator('.summary-count').textContent());
 
 /** 観点の詳細から、判断基準の編集（SC-13）を開く。 */
 async function openCriteria(page: Page, viewpointId: string): Promise<void> {
@@ -66,13 +73,15 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     // UC-01・UC-04: 利用者Bが、変更前のダッシュボードを確認する（環境適応性・満足度とも注意）
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
-    await expect(card(b.page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '注意',
-    );
+    await expect(
+      dashboardPeriod(b.page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('注意');
     await expect(card(b.page, 'environmentalAdaptability')).toContainText(
       '推奨アクション: 確認が望ましい状態です',
     );
-    await expect(card(b.page, 'satisfaction').locator('.status-badge')).toContainText('注意');
+    await expect(dashboardPeriod(b.page, 'satisfaction').locator('.status-badge')).toContainText(
+      '注意',
+    );
     const cautionBefore = await cautionCount(b.page);
     const unreadBefore = Number(await unreadBadge(b.page).textContent());
     await shot(b.page, testInfo, 'scenario-criteria-b-before');
@@ -83,7 +92,12 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await criterion(page, 'temperatureCelsius').getByLabel('正常上限（未満で正常）').fill('30');
     await saveButton(page).click();
     await expect(notice(page)).toHaveText('保存しました。現在の評価を更新しました');
-    await expect(page.getByTestId('criteria-state')).toContainText('版: CUSTOM-1');
+    await expect(page.getByTestId('criteria-state')).toContainText('変更済み');
+    await expect(page.getByTestId('criteria-state')).not.toContainText('版');
+    // SC-13-3: 保存した正常上限（30℃）は、既定（25℃）と違うため、「変更済み」と強調する
+    await expect(
+      criterion(page, 'temperatureCelsius').getByTestId('threshold-default').nth(2),
+    ).toHaveText('既定: 25℃（変更済み）');
     await shot(page, testInfo, 'scenario-criteria-a-saved');
     await page.goto('/viewpoints/satisfaction/criteria');
     await criterion(page, 'overallSatisfaction').getByLabel('注意下限（未満で注意）').fill('3.5');
@@ -92,17 +106,19 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
 
     // UC-01・UC-04・UC-02: Bの画面が、正常・「現在の状態を維持」・変更済みの基準に変わる（注意の件数は、2件減る）
     await b.page.reload();
-    await expect(card(b.page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '正常',
-    );
+    await expect(
+      dashboardPeriod(b.page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('正常');
     await expect(card(b.page, 'environmentalAdaptability')).toContainText(
       '推奨アクション: 現在の状態を維持し',
     );
-    await expect(card(b.page, 'satisfaction').locator('.status-badge')).toContainText('正常');
+    await expect(dashboardPeriod(b.page, 'satisfaction').locator('.status-badge')).toContainText(
+      '正常',
+    );
     expect(await cautionCount(b.page)).toBe(cautionBefore - 2);
     await shot(b.page, testInfo, 'scenario-criteria-b-relaxed');
     await b.page.goto('/viewpoints/environmentalAdaptability');
-    await expect(b.page.getByTestId('criteria-state')).toContainText('変更済み（版: CUSTOM-1）');
+    await expect(b.page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(b.page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
     );
@@ -114,6 +130,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
 
     // UC-03: Bが、ステータスの推移で、変更前（注意）→ 変更後（正常）を確認する
     await b.page.goto('/viewpoints/environmentalAdaptability?equipmentId=SENSOR-01');
+    await expandPanel(b.page, 'trend');
     await expect(b.page.getByTestId('status-history').locator('.status-segment')).toHaveText([
       '注意',
       '正常',
@@ -126,7 +143,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await criterion(page, 'temperatureCelsius').getByLabel('異常上限（以上で異常）').fill('26');
     await saveButton(page).click();
     await expect(notice(page)).toBeVisible();
-    await expect(page.getByTestId('criteria-state')).toContainText('版: CUSTOM-2');
+    await expect(page.getByTestId('criteria-state')).toContainText('変更済み');
 
     // UC-10・UC-22・UC-05: 異常の通知がBに届く。Bが、通知から、詳細・推奨アクションを確認する
     await b.page.goto('/notifications');
@@ -136,15 +153,16 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     const alert = b.page
       .getByTestId('notification-row')
       .filter({ hasText: '環境適応性' })
-      .filter({ hasText: 'ハウス1' })
+      .filter({ hasText: '環境センサー1' })
       .filter({ hasText: '【異常】' });
     await expect(alert).toHaveAttribute('data-read-state', 'UNREAD');
     await expect(alert).toContainText('カスタムの判断基準による判定です');
     await shot(b.page, testInfo, 'scenario-criteria-b-notification');
     await alert.getByRole('link', { name: '詳細を確認' }).click();
+    await expect(b.page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
     await expect(b.page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await expect(
-      b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      b.page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('異常');
 
     // UC-19: Aが、環境適応性の基準を、既定値へ戻す（確認を求める）
@@ -154,16 +172,23 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
     await confirmDialog(page, '既定値へ戻す');
     await expect(notice(page)).toHaveText('既定値へ戻しました');
     await expect(page.getByTestId('criteria-state')).toContainText('既定値');
+    // SC-13-3: 既定値へ戻すと、強調は消える
+    await expect(
+      criterion(page, 'temperatureCelsius').getByTestId('threshold-default').nth(2),
+    ).toHaveText('既定: 25℃');
 
     // UC-01・UC-02・UC-03: Bの環境適応性は、既定値の評価（注意）に戻る。満足度は、変更済みの基準のまま（正常）
     await b.page.goto('/');
-    await expect(card(b.page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '注意',
-    );
+    await expect(
+      dashboardPeriod(b.page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('注意');
     await expect(card(b.page, 'environmentalAdaptability')).not.toContainText('カスタムの判断基準');
-    await expect(card(b.page, 'satisfaction').locator('.status-badge')).toContainText('正常');
+    await expect(dashboardPeriod(b.page, 'satisfaction').locator('.status-badge')).toContainText(
+      '正常',
+    );
     await expect(card(b.page, 'satisfaction')).toContainText('カスタムの判断基準');
     await b.page.goto('/viewpoints/environmentalAdaptability?equipmentId=SENSOR-01');
+    await expandPanel(b.page, 'trend');
     await expect(b.page.getByTestId('status-history').locator('.status-segment')).toHaveText([
       '注意',
       '正常',
@@ -179,7 +204,7 @@ test.describe('シナリオ: 判断基準の変更の、評価・通知・推移
       await expect(row.locator('td').nth(1)).toHaveText('編集');
     }
     await expect(page.getByTestId('audit-row').first()).toContainText('environmentalAdaptability');
-    await expect(page.getByTestId('audit-row').first()).toContainText(userIdText('e2e-user'));
+    await expect(page.getByTestId('audit-row').first()).toContainText(userLabelText(E2E_USER));
     await goToMenu(page, 'ダッシュボード');
     await b.context.close();
   });

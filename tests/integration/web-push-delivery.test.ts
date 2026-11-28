@@ -61,11 +61,15 @@ async function subscribe(context: TestContext, endpoint = ENDPOINT): Promise<str
   return pushSubscriptionId(USER, endpoint);
 }
 
+/** 通知ごとに、別の失敗の項目にする（同じ項目は、再通知しないため。#589）。 */
+let failureSeq = 0;
+
 function createNotification(context: TestContext) {
   return context.container.notificationService.notifyIngestionFailure({
     sourceId: 'robot',
     sourceName: 'ロボットデータ',
     reason: '接続できません',
+    failureKeys: [`TEST:${String((failureSeq += 1))}`],
   });
 }
 
@@ -287,5 +291,64 @@ describe('既定（WEB_PUSH_DELIVERY=dummy）', () => {
     expect(summary.delivered).toBe(1);
     expect(context.container.dev?.mocks.webPush.delivered()).toHaveLength(1);
     expect(sender.requests).toHaveLength(0);
+  });
+});
+
+describe('テスト通知（POST /push-subscription/test。#159 SC-15-2）', () => {
+  it('実配信（vapid）では、この端末の宛先・鍵へ、テスト通知の本文を、短い有効期限で送る。通知の記録は作らない。ダミーには、送らない', async () => {
+    const { context, requests } = await setup();
+    await subscribe(context);
+
+    const response = await context.request('/push-subscription/test', {
+      method: 'POST',
+      body: { endpoint: ENDPOINT },
+    });
+
+    expect(response.status).toBe(204);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      endpoint: ENDPOINT,
+      keys: KEYS,
+      ttlSeconds: 60,
+      vapid: { privateKey: DUMMY_PRIVATE_KEY },
+    });
+    expect(JSON.parse(requests[0]?.payload ?? 'null')).toMatchObject({ title: 'テスト通知' });
+    expect(await context.container.repositories.notifications.unreadCount(USER)).toBe(0);
+    expect(context.container.dev?.mocks.webPush.testDelivered()).toHaveLength(0);
+  });
+
+  it('プッシュサービスが 410 を返したら、409 で、購読を無効にする。503 を返したら、503（内部の情報・宛先を含まない）', async () => {
+    const gone = await setup({ statusCode: 410 });
+    await subscribe(gone.context);
+    const unavailable = await setup({ statusCode: 503 });
+    await subscribe(unavailable.context);
+
+    const goneResponse = await gone.context.request('/push-subscription/test', {
+      method: 'POST',
+      body: { endpoint: ENDPOINT },
+    });
+    const unavailableResponse = await unavailable.context.request('/push-subscription/test', {
+      method: 'POST',
+      body: { endpoint: ENDPOINT },
+    });
+
+    expect(goneResponse.status).toBe(409);
+    expect(await gone.context.container.repositories.pushSubscriptions.listActive()).toEqual([]);
+    expect(unavailableResponse.status).toBe(503);
+    const text = await unavailableResponse.text();
+    expect(text).not.toContain('HTTP 503');
+    expect(text).not.toContain(ENDPOINT);
+  });
+
+  it('1 分以内の再送は、プッシュサービスへ送らずに、429', async () => {
+    const { context, requests } = await setup();
+    await subscribe(context);
+    const post = () =>
+      context.request('/push-subscription/test', { method: 'POST', body: { endpoint: ENDPOINT } });
+
+    expect((await post()).status).toBe(204);
+    expect((await post()).status).toBe(429);
+
+    expect(requests).toHaveLength(1);
   });
 });

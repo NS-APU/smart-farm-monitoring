@@ -11,14 +11,14 @@ smart-farm-monitoring/
 ├── src/
 │   ├── backend/   # バックエンド（Hono）
 │   │   ├── domain/          # ドメイン層（評価エンジン・通知の規則など。純粋なロジック）
-│   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）
-│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・ssm/（パラメータストアの秘密情報。ADR-0016 の D-55。Issue #206）・http/（ファイルサーバー〔HTTP〕の接続先の検査と接続テスト。ADR-0022。Issue #172）・web-push/（Web Push の実配信。送信の関数とライブラリの型の宣言を含む。ADR-0019 の D-36。Issue #241）・format-profiles/・logging/）
+│   │   ├── application/     # アプリケーション層（ユースケース）とポート（ports/）。simulation/ は、シミュレーション（一日を通して変化するデータの生成。Issue #375）
+│   │   ├── infrastructure/  # インフラ層（ポートのアダプタ。common/（アダプタ共通の規則: 観測値・手動入力の絞り込みと並べ替え、ページ分割）・local/（repositories/ に集約ごとの Repository）・dynamodb/（DynamoDB の Repository。ADR-0007）・cognito/（Cognito の認証と資格情報。ADR-0008）・ssm/（パラメータストアの秘密情報。ADR-0016 の D-55。Issue #206）・http/（ファイルサーバー〔HTTP〕の接続先の検査と接続テスト。ADR-0022。Issue #172）・s3/（自前のファイルサーバーの保管先〔S3〕。ADR-0027。Issue #298）・web-push/（Web Push の実配信。送信の関数とライブラリの型の宣言を含む。ADR-0019 の D-36。Issue #241）・format-profiles/・logging/）
 │   │   ├── presentation/    # 提示層（Hono アプリ・ルート・領域ごとのハンドラ・認証認可・共通エラー）
-│   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口）
-│   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト）
+│   │   └── runtime/         # 実行形態（設定・組み立て・Node サーバー・Lambda ハンドラ・終了処理 shutdown.ts・バックアップのコマンドの入口。simulate-cli.ts・simulate-main.ts は `pnpm simulate`、dev-file-server*.ts は `pnpm dev:file-server`。Issue #375）
+│   ├── frontend/  # フロントエンド（React + Vite の SPA。pages/・components/・hooks/・api/・auth/・router/・push/・i18n/・styles/、public/＝サービスワーカー・マニフェスト・アプリのアイコン・テーマの初期適用スクリプト）
 │   └── shared/    # 共通コード（constants/・schemas/ の定数・Zod スキーマ・型、errors.ts・time.ts・omit-undefined.ts・criteria-text.ts・observation-list-period.ts などの補助）
 ├── infra/         # IaC（AWS CDK。顧客評価環境のサーバーレス構成。bin/ のエントリ・lib/ のスタック（評価環境・証明書・GitHub の OIDC・データ（DynamoDB））・test/ のテスト。API の Lambda は、バックエンド本体 `src/backend/runtime/lambda.ts` を、esbuild でまとめて配る。ADR-0006・ADR-0007・ADR-0009）
-├── scripts/       # 補助スクリプト
+├── scripts/       # 補助スクリプト（generate-app-icons.ts: アプリのアイコンの生成。Issue #326。e2e-parallel.ts: E2E の並列実行。Issue #519）
 ├── .license-check/  # 依存パッケージのライセンス確認のレポート（license-report.md。コピーレフトの検出と対応、全依存の一覧）
 ├── .speccheck/    # ユースケースごとの整合性チェックレポート（UC-NN-<英語の概略名>.md。要件・設計・実装・テストの対応と、不足・食い違いの記録）
 ├── .vscode/       # エディタ（VS Code）の設定（settings.json。cSpell の用語）
@@ -29,11 +29,11 @@ smart-farm-monitoring/
 │   ├── stress/        # 負荷テスト（Playwright。stress-NN-<英語の概略名>.ts。補助は support/: データ規模 scale.ts・データ投入 seed-data.ts・サーバー起動 stress-server.ts・許容時間 limits.ts・計測 recorder.ts・結果ログ report-log.ts・手動入力の計測日時 observed-at.ts など）
 │   ├── smoke/         # サーバーレス環境（評価環境）のスモークテスト・性能の実測（Playwright。smoke-NN-<英語の概略名>.ts。認証の確認は auth/auth-NN-<英語の概略名>.ts（`pnpm test:smoke:auth`）。補助は support/: 接続先・認証情報 smoke-env.ts・画面操作 smoke-ui.ts・結果ログ smoke-report.ts など。計測と許容時間は、tests/stress/support/ を共有）
 │   ├── csp/           # 画面の CSP の確認（Playwright。csp-NN-<英語の概略名>.ts。本番ビルドの画面に CSP を付けて、主な画面を一巡する。`pnpm test:csp`。Issue #127）
-│   ├── fixtures/      # テストデータ（合成データ。ファイルサーバーのモック用のファイル）
-│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
-├── test-result/   # テストの出力（Git 管理外。カバレッジ・動画・レポート）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
+│   ├── fixtures/      # テストデータ（合成データ。HTTP のテスト用ファイルサーバーに置くファイル）
+│   └── support/       # テストの補助（組み立て・データ生成・API のスタブ。画面の単体テスト用は frontend.ts・management-frontend.ts。HTTP のテスト用ファイルサーバーは http-file-server.ts・http-test-files.ts。DynamoDB のテスト用は、DynamoDB Local の用意 dynamodb-local-global-setup.ts・テーブルの作成 dynamodb-test-database.ts。Cognito のテスト用は、偽の Cognito fake-cognito.ts）
+├── test-result/   # テストの出力（Git 管理外。カバレッジ・レポート・E2E_VIDEO=1 のときの動画）。例外として、テスト仕様書 test.spec.md と負荷テストの結果（stresstest.result.log・stresstest.report.md）は Git 管理
 ├── dist/          # ビルドの出力（Git 管理外）
-└── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化・ファイルサーバーのモック）
+└── .local-data/   # ローカル実行のデータ（Git 管理外。ファイル永続化）
 ```
 
 各ディレクトリの詳細（層の責務・パッケージ・テスト）は [dev_spec.md](../10_design/functions/dev_spec.md) 1章・2章・6章を参照する。
@@ -51,7 +51,7 @@ smart-farm-monitoring/
 | `tsconfig.json` | TypeScript の共通設定（各パッケージが継承） |
 | `eslint.config.js`・`.oxlintrc.json`・`.prettierrc`・`.prettierignore`・`.editorconfig` | Lint（ESLint と、アクセシビリティ用の oxlint）・フォーマットの設定 |
 | `vitest.config.ts`・`playwright.config.ts`・`playwright.stress.config.ts`・`playwright.csp.config.ts`・`playwright.smoke.config.ts`・`playwright.smoke-auth.config.ts` | 単体・結合テスト（カバレッジ）、E2E テスト、負荷テスト（`pnpm test:stress`）、画面の CSP の確認（`pnpm test:csp`）、評価環境の性能の実測（`pnpm test:smoke`）・認証の確認（`pnpm test:smoke:auth`。`tests/smoke/auth/`）の設定 |
-| `dev-ports.ts` | 開発サーバーのポート（Vite 5173・バックエンド 8787）。`playwright.config.ts` と `src/frontend/vite.config.ts` が共有する |
+| `dev-ports.ts` | 開発サーバーのポート（Vite 5173・バックエンド 8787。環境変数 `E2E_PORT_OFFSET` で、両方をずらせる）。`playwright.config.ts` と `src/frontend/vite.config.ts` が共有する |
 
 ## docs/ の構成
 
@@ -61,7 +61,7 @@ docs/
 ├── 10_design/        # 設計
 │   ├── requirements/   # 要件（RFP・機能・非機能・ユースケース）
 │   ├── architecture/   # アーキテクチャ・システム構成・HITL
-│   ├── data/           # データの流れ・データモデル・データ項目定義
+│   ├── data/           # データの流れ・データモデル・データ項目定義・ロボットと環境センサーのデータ定義
 │   ├── functions/      # 機能（画面・API・処理の振る舞い）
 │   ├── viewpoint/      # ロボット・ハウスの健全性の評価観点・判断基準
 │   └── adr/            # 設計判断の記録（ADR）
@@ -76,7 +76,7 @@ docs/
 | [00_project](./) | プロジェクト全般・管理 | 概要、ゴール、用語集、よく使うコマンド、ディレクトリ構成、ドキュメント運用、ドキュメント一覧 |
 | [10_design/requirements](../10_design/requirements/) | 要件（何を作るか） | RFP、機能要件、非機能要件、ユースケース |
 | [10_design/architecture](../10_design/architecture/) | 基本設計・構成（どう作るか） | システム全体像、アーキテクチャ設計（設計時）、実装に基づくアーキテクチャ（as-built） |
-| [10_design/data](../10_design/data/) | データ設計 | データの流れ、データモデル、データ項目定義 |
+| [10_design/data](../10_design/data/) | データ設計 | データの流れ、データモデル、データ項目定義、ロボットと環境センサーのデータ定義 |
 | [10_design/functions](../10_design/functions/) | 機能ごとの仕様（各機能がどう動くか） | 機能仕様書 |
 | [10_design/viewpoint](../10_design/viewpoint/) | ロボット・ハウスの健全性の評価観点・判断基準 | 評価観点、判断基準（閾値・区分）、基準の根拠 |
 | [10_design/adr](../10_design/adr/) | 設計判断の記録（ADR） | `NNNN-タイトル.md` |

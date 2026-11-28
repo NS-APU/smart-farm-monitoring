@@ -5,7 +5,7 @@
  *   UC-12 Aが、設備ごとの取得間隔（ロボット15分・環境センサー5分）を設定 → UC-08・UC-09 定期の取り込み（JB-01）でロボット・センサーのデータが入る → UC-01 Bが、最新のデータで評価を確認
  *   → UC-01 取得間隔 × 3 を超えて新しいデータがないと、Bの画面に「データが古い」旨が出る → UC-09・UC-10 新しいセンサーのデータ（異常な温度）が、定期の取り込みで入る
  *   → UC-01・UC-22 古い旨が消え、異常の通知がBに届く（取得間隔が来ていないロボットは取り込まない） → UC-15 Aが、ロボットの取り込みを無効にする
- *   → UC-16 Bが、取り込みのログで、無効にしたロボットの取り込みがないことを確認 → UC-11 連携の結果（成功）を確認
+ *   → UC-16 Bが、取り込みのログで、無効にしたロボットの取り込みがないことを確認 → UC-11 連携の結果（送信済み）を確認
  *
  * 各ユースケースの値の同値分割は、UC-NN-*.ts が担う。ここでは、ユースケースの連なりと、利用者をまたぐ影響を確かめる。
  */
@@ -20,9 +20,9 @@ import {
   alignBrowserClock,
   apiOk,
   goToMenu,
+  goToNotifications,
   newUserSession,
   openAs,
-  placeFile,
   prepareApp,
   robotJson,
   runJob,
@@ -30,13 +30,14 @@ import {
   setEquipmentInterval,
   unreadBadge,
 } from './support/app.ts';
+import { placeFile } from './support/http-files.ts';
 import { federationRows, logRows, sourceCard } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
 const staleWarning = (page: Page) =>
   page.getByRole('alert').filter({ hasText: 'データが古くなっています' });
 const environmentBadge = (page: Page) =>
-  page.getByTestId('card-environmentalAdaptability').locator('.status-badge');
+  page.getByTestId('current-environmentalAdaptability').locator('.status-badge');
 
 /** 取り込みのログ（API）の件数。取り込み元ごと。 */
 async function logCount(
@@ -69,11 +70,17 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(sourceCard(page, 'robot').getByLabel('取得間隔')).toHaveCount(0);
 
     // UC-08・UC-09: ファイルサーバーにファイルが置かれ、定期の取り込み（JB-01）で、取り込まれる
-    placeFile('robot', 'robot-1.json', robotJson([{ hoursAgo: 1, fields: { harvestCount: 10 } }]));
-    placeFile(
+    await placeFile(
+      request,
+      'robot',
+      'robot-1.json',
+      robotJson({ hoursAgo: 1, fields: { harvestCount: 10 } }),
+    );
+    await placeFile(
+      request,
       'environment-sensor',
       'sensor-1.json',
-      sensorJson([{ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }]),
+      sensorJson({ hoursAgo: 1, temperature: 20, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await runJob(request, 'JB-01');
     expect(await logCount(request, 'robot')).toBe(1);
@@ -83,8 +90,8 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
     await expect(environmentBadge(b.page)).toContainText('正常');
-    await expect(b.page.locator('.header-data-status')).toContainText('最終のデータ取得');
-    await expect(b.page.locator('.header-data-status')).not.toContainText('古い');
+    await expect(b.page.getByTestId('data-status')).toContainText('最終のデータ取得');
+    await expect(b.page.getByTestId('data-status')).not.toContainText('古い');
     await expect(staleWarning(b.page)).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-scheduled-b-fresh');
 
@@ -92,7 +99,7 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await advanceMinutes(request, 46);
     await b.page.reload();
     await expect(staleWarning(b.page)).toBeVisible();
-    await expect(b.page.locator('.header-data-status')).toContainText('（古い）');
+    await expect(b.page.getByTestId('data-status')).toContainText('（古い）');
     await expect(b.page.getByTestId('stale-equipment')).toContainText('古い設備');
     await shot(b.page, testInfo, 'scenario-scheduled-b-stale');
 
@@ -104,10 +111,11 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     // UC-09・UC-10: 新しいセンサーのデータ（異常な温度）が置かれ、センサーの取得間隔（5分）が来ると、取り込まれる
     const unreadBefore = Number(await unreadBadge(b.page).textContent());
     const robotLogsBefore = await logCount(request, 'robot');
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
-      'sensor-2.json',
-      sensorJson([{ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-1.json',
+      sensorJson({ hoursAgo: 0.5, temperature: 40, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await advanceMinutes(request, 6);
     await runJob(request, 'JB-01');
@@ -122,10 +130,11 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     await expect(b.page.getByTestId('stale-equipment')).toContainText('古い設備');
 
     // UC-08: ロボットの新しいファイルが置かれ、ロボットの取得間隔（15分）が来ると、取り込まれて、「古い」旨が消える
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      'robot-1b.json',
-      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 8 } }]),
+      'robot-1.json',
+      robotJson({ hoursAgo: 0.25, fields: { harvestCount: 8 } }),
     );
     await advanceMinutes(request, 10);
     await runJob(request, 'JB-01');
@@ -135,10 +144,10 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
     // UC-01・UC-22: Bの画面から、「古い」旨が消え、センサーの異常の通知が届く
     await b.page.reload();
     await expect(staleWarning(b.page)).toHaveCount(0);
-    await expect(b.page.locator('.header-data-status')).not.toContainText('古い');
-    await b.page.goto('/?horizon=SHORT');
+    await expect(b.page.getByTestId('data-status')).not.toContainText('古い');
+    await b.page.goto('/');
     await expect(environmentBadge(b.page)).toContainText('異常');
-    await goToMenu(b.page, '通知');
+    await goToNotifications(b.page);
     await expect
       .poll(async () => Number(await unreadBadge(b.page).textContent()))
       .toBeGreaterThan(unreadBefore);
@@ -159,15 +168,17 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
 
     // ロボットの取得間隔を十分に過ぎても、無効なロボットは取り込まず、センサーは取り込まれる
     const sensorLogsBefore = await logCount(request, 'environment-sensor');
-    placeFile(
+    await placeFile(
+      request,
       'robot',
-      'robot-2.json',
-      robotJson([{ hoursAgo: 0.25, fields: { harvestCount: 5 } }]),
+      'robot-1.json',
+      robotJson({ hoursAgo: 0.25, fields: { harvestCount: 5 } }),
     );
-    placeFile(
+    await placeFile(
+      request,
       'environment-sensor',
-      'sensor-3.json',
-      sensorJson([{ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }]),
+      'sensor-1.json',
+      sensorJson({ hoursAgo: 0.25, temperature: 21, humidity: 60, illuminance: 30000, co2: 900 }),
     );
     await advanceMinutes(request, 20);
     await runJob(request, 'JB-01');
@@ -186,10 +197,10 @@ test.describe('シナリオ: 取り込みの設定にもとづく定期の取り
       sourceCard(b.page, 'robot').getByLabel('自動取り込みを有効にする'),
     ).not.toBeChecked();
 
-    // UC-11・UC-16: 連携のジョブで、取り込んだデータ・評価結果が送られ、連携の結果（成功）をBが確認する
+    // UC-11・UC-16: 連携のジョブで、取り込んだデータ・評価結果が送られ、連携の結果（送信済み）をBが確認する
     await runJob(request, 'JB-03');
     await b.page.getByRole('button', { name: '最新の状況を読み込む' }).click();
-    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('成功');
+    await expect(federationRows(b.page).first().locator('.log-result')).toHaveText('送信済み');
     await shot(b.page, testInfo, 'scenario-scheduled-b-status');
     await b.context.close();
   });

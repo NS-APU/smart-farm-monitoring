@@ -86,8 +86,12 @@ async function openSatisfaction(page: Page, query = ''): Promise<void> {
 }
 
 const overallScore = (page: Page) => page.getByTestId('overall-score');
+// 全画面のページは h1、ドロワー（Issue #357）は h2 の見出しに、ステータスがある
 const overallBadge = (page: Page) =>
-  page.getByRole('heading', { level: 1 }).locator('.status-badge');
+  page
+    .getByRole('heading', { level: 1 })
+    .or(page.getByRole('dialog').getByRole('heading', { level: 2 }))
+    .locator('.status-badge');
 
 test.describe('基本フロー: 満足度の詳細を開き、各観点の満足度を、レーダーチャートで確認する', () => {
   test('満足度を入力（UC-07）し、ダッシュボードの満足度のカードから詳細を開くと、総合満足度（小数第1位）・判断基準・レーダーチャート・観点別のスターを表示する', async ({
@@ -117,8 +121,9 @@ test.describe('基本フロー: 満足度の詳細を開き、各観点の満足
       .click();
     await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
 
-    // 2. 各観点の満足度を、レーダーチャートで表示する
-    await expect(page).toHaveURL(/\/satisfaction/);
+    // 2. 各観点の満足度を、レーダーチャートで表示する（満足度の詳細は、ダッシュボードの上の右からのドロワーに開く。Issue #357）
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
+    await expect(page.getByRole('dialog', { name: '満足度の詳細' })).toBeVisible();
     await expect(overallScore(page)).toHaveText('4.0');
     await expect(overallBadge(page)).toContainText('正常');
     await expect(page.getByLabel('判断基準')).toContainText('4.0以上');
@@ -210,7 +215,7 @@ test.describe('総合満足度の判定（4.0以上 正常／3.0以上4.0未満 
       await expect(overallBadge(page)).toContainText(item.status);
       await expect(page.getByTestId('satisfaction-missing')).toHaveCount(0);
       await page.goto('/');
-      await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+      await expect(page.getByTestId('period-satisfaction').locator('.status-badge')).toContainText(
         item.status,
       );
     });
@@ -231,8 +236,8 @@ test.describe('代替フロー: 満足度が入力されていない観点があ
     await expect(overallScore(page)).toHaveText('—');
     await expect(overallBadge(page)).toContainText('不明');
     const missing = page.getByTestId('satisfaction-missing');
-    await expect(missing).toContainText('未入力の観点があります');
-    await expect(missing).toContainText('データ活用度合い、耐久性');
+    await expect(missing).toContainText('未入力の観点があります: データ活用度合い、耐久性');
+    await expect(missing).toContainText('以前の、一部の観点だけの入力が残っている');
     await expect(missing.getByRole('link', { name: 'データ入力へ' })).toHaveAttribute(
       'href',
       '/data-entry',
@@ -269,7 +274,12 @@ test.describe('代替フロー: 満足度が入力されていない観点があ
     await openSatisfaction(page);
 
     await expect(overallBadge(page)).toContainText('不明');
-    await expect(page.getByTestId('satisfaction-missing')).toContainText('収穫精度、収穫速度');
+    // 期間内に、入力が 1 件もない: その旨と入力の目安を示し、9観点の一覧は示さない
+    const missing = page.getByTestId('satisfaction-missing');
+    await expect(missing).toContainText('期間内に、満足度の入力がありません');
+    await expect(missing).toContainText('月に 1 回を目安に、9観点すべてを入力してください');
+    await expect(missing).not.toContainText('未入力の観点があります');
+    await expect(missing).not.toContainText('収穫精度、収穫速度');
     const radar = page.getByTestId('radar').locator('svg.radar-chart');
     await expect(radar.locator('circle.radar-dot')).toHaveCount(0);
     await expect(radar.locator('text.radar-label-missing')).toHaveCount(9);
@@ -378,23 +388,23 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
     });
     await openSatisfaction(page);
     // 期間を選ばないときは、満足度の既定の期間（30 日）。20日前の入力も含めるため、平均（5 と 3）は 4.0（D-18）
-    await expect(page.getByLabel('長期の期間')).toHaveValue('30');
+    await expect(page.getByLabel('期間')).toHaveValue('30');
     await expect(page).not.toHaveURL(/periodDays/);
     await expect(overallScore(page)).toHaveText('4.0');
 
-    await page.getByLabel('長期の期間').selectOption({ label: '当日' });
+    await page.getByLabel('期間').selectOption({ label: '当日' });
     await expect(page).toHaveURL(/periodDays=1/);
     await expect(overallScore(page)).toHaveText('3.0');
-    await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+    await page.getByLabel('期間').selectOption({ label: '直近7日' });
     await expect(page).toHaveURL(/periodDays=7/);
     await expect(overallScore(page)).toHaveText('3.0');
-    await page.getByLabel('長期の期間').selectOption({ label: '直近30日' });
+    await page.getByLabel('期間').selectOption({ label: '直近30日' });
     await expect(page).toHaveURL(/periodDays=30/);
     await expect(overallScore(page)).toHaveText('4.0');
     // 60日・90日は、20日前の入力者A（5）も含めるため、平均（5 と 3）は 4.0
-    await page.getByLabel('長期の期間').selectOption({ label: '直近60日' });
+    await page.getByLabel('期間').selectOption({ label: '直近60日' });
     await expect(overallScore(page)).toHaveText('4.0');
-    await page.getByLabel('長期の期間').selectOption({ label: '直近90日' });
+    await page.getByLabel('期間').selectOption({ label: '直近90日' });
     await expect(overallScore(page)).toHaveText('4.0');
   });
 });
@@ -409,20 +419,23 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
     await alignBrowserClock(page);
     await openAs(page, '/');
 
-    const satisfaction = page.getByTestId('card-satisfaction');
+    const satisfaction = page.getByTestId('period-satisfaction');
     await expect(satisfaction.locator('.status-badge')).toContainText('正常');
+    // 判定の対象期間は、分まで。満足度の期間が、共通の期間（満足度を除く観点で同じ）と違うので、満足度のカードにだけ示す
     await expect(satisfaction.locator('.evaluated-period').first()).toContainText(
-      '2026/09/09 12:00:00 〜 2026/10/09 12:00:00',
+      '2026/09/09 12:00 〜 2026/10/09 12:00',
     );
-    await expect(
-      page.getByTestId('card-safety').locator('.evaluated-period').first(),
-    ).toContainText('2026/10/02 12:00:00 〜 2026/10/09 12:00:00');
+    await expect(page.getByTestId('period-safety').locator('.evaluated-period')).toHaveCount(0);
+    await expect(page.getByTestId('evaluated-period-common')).toContainText(
+      '2026/10/02 12:00 〜 2026/10/09 12:00',
+    );
 
-    await satisfaction.locator('h3').getByRole('link').click();
+    await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
 
-    await expect(page).toHaveURL(/\/satisfaction$/);
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
     await expect(overallScore(page)).toHaveText('5.0');
-    await expect(page.getByLabel('長期の期間')).toHaveValue('30');
+    // ドロワーの期間の欄（ダッシュボードの期間の欄とは別）
+    await expect(page.getByTestId('viewpoint-drawer').getByLabel('期間')).toHaveValue('30');
   });
 
   test('ダッシュボードで期間（直近7日）を選ぶと、満足度のカードも、その期間で評価する（20日前の入力は使わず、不明）', async ({
@@ -433,17 +446,18 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
     await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], daysAgo(20));
     await alignBrowserClock(page);
     await openAs(page, '/');
-    await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-satisfaction').locator('.status-badge')).toContainText(
       '正常',
     );
 
-    await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+    // ダッシュボードの期間の欄の名前は、「期間」（視点の切り替えがないため。満足度の詳細は、「長期の期間」）
+    await page.getByLabel('期間').selectOption({ label: '直近7日' });
 
-    await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-satisfaction').locator('.status-badge')).toContainText(
       '不明',
     );
     await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
-    await expect(page).toHaveURL(/\/satisfaction\?periodDays=7$/);
+    await expect(page).toHaveURL(/\/\?viewpoint=satisfaction&periodDays=7$/);
     await expect(overallBadge(page)).toContainText('不明');
   });
 
@@ -473,16 +487,39 @@ test.describe('対象の設備', () => {
     await enterSatisfaction(request, [4, 4, 4, 4, 4, 4, 4, 4, 4]);
     await openSatisfaction(page);
 
-    await page.getByRole('banner').getByLabel('対象の設備').selectOption('ROBOT-01');
+    await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
 
+    // エラーの見た目（role=alert）ではなく、案内（role=status）。ハウスの評価である旨を示す（#156）
+    await expect(page.getByTestId('not-applicable')).toHaveAttribute('role', 'status');
     await expect(page.getByTestId('not-applicable')).toContainText(
-      'ハウスまたは対象の設備を選び直してください',
+      'この観点（満足度）は、ハウスの評価です（ロボットでは評価しません）',
     );
     await expect(page.getByTestId('not-applicable')).toContainText(
       'この設備では評価しない観点です',
     );
-    await page.getByRole('banner').getByLabel('対象の設備').selectOption(HOUSE_ID);
+    await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
+    await page.getByRole('main').getByLabel('対象の設備').selectOption(HOUSE_ID);
     await expect(overallScore(page)).toHaveText('4.0');
+  });
+
+  test('評価しない設備の案内の「ハウスを表示」で、親のハウスに切り替えて、満足度を表示できる（#156）', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [4, 4, 4, 4, 4, 4, 4, 4, 4]);
+    await openSatisfaction(page);
+    await page.getByRole('main').getByLabel('対象の設備').selectOption('ROBOT-01');
+    await expect(page.getByTestId('not-applicable')).toBeVisible();
+
+    await page
+      .getByTestId('not-applicable')
+      .getByRole('button', { name: /^ハウス「.+」を表示$/ })
+      .click();
+
+    await expect(page.getByTestId('not-applicable')).toHaveCount(0);
+    await expect(overallScore(page)).toHaveText('4.0');
+    await expect(page.getByRole('main').getByLabel('対象の設備')).toHaveValue(HOUSE_ID);
   });
 });
 
@@ -641,13 +678,11 @@ async function expectRadarIntact(page: Page): Promise<void> {
 
 /** 長い設備名でも、ヘッダー・ページの幅の中に収まり、観点別の表が潰れない。 */
 async function expectPageFits(page: Page): Promise<void> {
-  const label = await page.locator('.header-field > span').boundingBox();
+  const label = await page.locator('.equipment-field > span').first().boundingBox();
   expect(label?.height ?? 0, '「対象の設備」のラベルの高さ').toBeLessThan(30);
-  const select = await page.locator('.header-field select').boundingBox();
+  const select = await page.locator('.equipment-field select').first().boundingBox();
   const width = page.viewportSize()?.width ?? 0;
   expect((select?.x ?? 0) + (select?.width ?? 0)).toBeLessThanOrEqual(width);
-  const meta = await page.locator('.page-meta').boundingBox();
-  expect((meta?.x ?? 0) + (meta?.width ?? 0), '対象の設備名の右端').toBeLessThanOrEqual(width);
   // 観点別の表（観点名・スター）が、1 文字幅へ潰れず、パネルの枠の中に収まる
   const rowHeights = await page
     .locator('.score-table tbody tr')
@@ -724,3 +759,29 @@ for (const viewport of SATISFACTION_VIEWPORTS) {
     }
   });
 }
+
+test.describe('表の観点名から、その観点の詳細へ（SC-04-4）', () => {
+  test('表の観点名は、その観点のドロワーを開くリンク（選んだ期間を引き継ぐ）。レーダーの軸は、リンクにしない。ドロワーでは、前後の観点へ移れる', async ({
+    page,
+    request,
+  }) => {
+    await prepareApp(request);
+    await enterSatisfaction(request, [5, 4, 3, 4, 5, 4, 3, 4, 5]);
+    await openSatisfaction(page, '?periodDays=60');
+
+    const radar = page.getByTestId('radar');
+    await expect(radar.getByRole('link')).toHaveCount(9);
+    await expect(radar.locator('svg.radar-chart a')).toHaveCount(0);
+    await expect(
+      page.getByTestId('score-harvestSpeed').getByRole('link', { name: '収穫速度' }),
+    ).toHaveAttribute('href', '/?viewpoint=harvestSpeed&periodDays=60');
+
+    await page.getByTestId('score-harvestSpeed').getByRole('link', { name: '収穫速度' }).click();
+
+    await expect(page).toHaveURL(/\/\?viewpoint=harvestSpeed&periodDays=60$/);
+    const dialog = page.getByRole('dialog', { name: '収穫速度の詳細' });
+    await expect(dialog.getByTestId('diagnosis')).toBeVisible();
+    await dialog.getByRole('button', { name: '次の観点' }).click();
+    await expect(page.getByRole('dialog', { name: '環境適応性の詳細' })).toBeVisible();
+  });
+});
