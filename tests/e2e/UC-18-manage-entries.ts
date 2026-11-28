@@ -612,7 +612,9 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await expect(rows(page).first()).toContainText(userLabelText(E2E_USER));
     // 評価に反映される（MTTR 1.5 時間 = 正常。以前は 10 時間 = 異常）
     await page.goto('/viewpoints/maintainability?equipmentId=ROBOT-01');
-    await expect(page.getByTestId('metric-mttrHours').locator('td').first()).toHaveText('1.50時間');
+    await expect(
+      page.getByTestId('metric-period-mttrHours').locator('.metric-cell-value'),
+    ).toHaveText('1.50時間');
   });
 
   test('修正: 設備・カテゴリ・計測日時を変更できる（項目の値は、変更後のカテゴリの項目を入力する）', async ({
@@ -768,7 +770,9 @@ test.describe('基本フロー 3〜4: データを修正または削除し、検
     await expect(noticeTitle(page)).toHaveText('削除しました');
 
     await page.goto('/viewpoints/maintainability?equipmentId=ROBOT-01');
-    await expect(page.getByTestId('metric-failureCount').locator('td').first()).toHaveText('—');
+    await expect(
+      page.getByTestId('metric-period-failureCount').locator('.metric-cell-value'),
+    ).toHaveText('—');
   });
 });
 

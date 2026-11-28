@@ -142,7 +142,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     await alignBrowserClock(page);
     await openAs(page, '/viewpoints/environmentalAdaptability');
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('注意');
     await page.getByRole('link', { name: '判断基準を編集' }).click();
 
@@ -166,7 +166,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     // 観点の詳細: 変更済みの判断基準・評価の更新・診断メッセージ
     await page.getByRole('link', { name: '観点の詳細へ戻る' }).click();
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('diagnostic-message')).toContainText(
       'カスタムの判断基準による判定です',
@@ -570,7 +570,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/viewpoints/environmentalAdaptability', USER_B);
     await expect(
-      b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      b.page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('注意');
     await expect(b.page.getByTestId('criteria-state')).toContainText('既定値');
 
@@ -583,7 +583,7 @@ test.describe('事後条件: 変更はシステム全体（すべての利用者
     // 利用者B: 再読み込みで、変更済みの基準・評価になる
     await b.page.reload();
     await expect(
-      b.page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      b.page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('正常');
     await expect(b.page.getByTestId('criteria-state')).toHaveText('変更済み');
     await expect(b.page.getByTestId('diagnostic-message')).toContainText(

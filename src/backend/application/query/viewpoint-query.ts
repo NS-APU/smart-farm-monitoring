@@ -126,12 +126,14 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
         longResult,
       );
 
-      const metrics: MetricRow[] = definition.detailMetrics.map((metricId) => ({
-        metricId,
-        value: display?.metrics[metricId] ?? null,
-        indicatorStatus: display?.indicatorStatuses[metricId] ?? null,
-        isPrimary: definition.dashboardMetrics.includes(metricId),
-      }));
+      const metricRowsOf = (result: EvaluationResult | undefined): MetricRow[] =>
+        definition.detailMetrics.map((metricId) => ({
+          metricId,
+          value: result?.metrics[metricId] ?? null,
+          indicatorStatus: result?.indicatorStatuses[metricId] ?? null,
+          isPrimary: definition.dashboardMetrics.includes(metricId),
+        }));
+      const metrics = metricRowsOf(display);
 
       return {
         equipmentId: params.equipmentId,
@@ -150,6 +152,7 @@ export function createViewpointQuery(deps: ViewpointQueryDeps): ViewpointQuery {
         long: longResult === undefined ? null : toDiagnosis(longResult),
         selected: display === undefined ? null : toDiagnosis(display),
         metrics,
+        currentMetrics: shortResult === undefined ? null : metricRowsOf(shortResult),
         criteria: await criteria.getEffective(meta.id),
         usesStatusIndicator: definition.usesStatusIndicator,
         radar: meta.id === 'satisfaction' ? radarOf(display) : null,

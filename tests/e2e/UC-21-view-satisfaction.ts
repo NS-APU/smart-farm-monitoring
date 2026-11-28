@@ -388,23 +388,23 @@ test.describe('スター（1〜5）の境界と、入力の回数・期間', () 
     });
     await openSatisfaction(page);
     // 期間を選ばないときは、満足度の既定の期間（30 日）。20日前の入力も含めるため、平均（5 と 3）は 4.0（D-18）
-    await expect(page.getByLabel('長期の期間')).toHaveValue('30');
+    await expect(page.getByLabel('期間')).toHaveValue('30');
     await expect(page).not.toHaveURL(/periodDays/);
     await expect(overallScore(page)).toHaveText('4.0');
 
-    await page.getByLabel('長期の期間').selectOption({ label: '当日' });
+    await page.getByLabel('期間').selectOption({ label: '当日' });
     await expect(page).toHaveURL(/periodDays=1/);
     await expect(overallScore(page)).toHaveText('3.0');
-    await page.getByLabel('長期の期間').selectOption({ label: '直近7日' });
+    await page.getByLabel('期間').selectOption({ label: '直近7日' });
     await expect(page).toHaveURL(/periodDays=7/);
     await expect(overallScore(page)).toHaveText('3.0');
-    await page.getByLabel('長期の期間').selectOption({ label: '直近30日' });
+    await page.getByLabel('期間').selectOption({ label: '直近30日' });
     await expect(page).toHaveURL(/periodDays=30/);
     await expect(overallScore(page)).toHaveText('4.0');
     // 60日・90日は、20日前の入力者A（5）も含めるため、平均（5 と 3）は 4.0
-    await page.getByLabel('長期の期間').selectOption({ label: '直近60日' });
+    await page.getByLabel('期間').selectOption({ label: '直近60日' });
     await expect(overallScore(page)).toHaveText('4.0');
-    await page.getByLabel('長期の期間').selectOption({ label: '直近90日' });
+    await page.getByLabel('期間').selectOption({ label: '直近90日' });
     await expect(overallScore(page)).toHaveText('4.0');
   });
 });
@@ -434,7 +434,8 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
 
     await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
     await expect(overallScore(page)).toHaveText('5.0');
-    await expect(page.getByLabel('長期の期間')).toHaveValue('30');
+    // ドロワーの期間の欄（ダッシュボードの期間の欄とは別）
+    await expect(page.getByTestId('viewpoint-drawer').getByLabel('期間')).toHaveValue('30');
   });
 
   test('ダッシュボードで期間（直近7日）を選ぶと、満足度のカードも、その期間で評価する（20日前の入力は使わず、不明）', async ({

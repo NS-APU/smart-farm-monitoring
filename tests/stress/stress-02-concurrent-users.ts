@@ -160,7 +160,7 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         '観点の詳細・推移（SC-03）',
         'trend',
         {
-          act: () => page.getByLabel('長期の期間').selectOption({ label: '直近30日' }),
+          act: () => page.getByLabel('期間').last().selectOption({ label: '直近30日' }),
           respond: () => expectDetailShown(page),
         },
       );
@@ -170,7 +170,7 @@ test(`同時接続: ${String(CONCURRENT_USERS)} 人が同時に、表示・入�
         '観点の詳細・推移（SC-03）',
         'trend',
         {
-          act: () => page.getByLabel('長期の期間').selectOption({ label: '直近90日' }),
+          act: () => page.getByLabel('期間').last().selectOption({ label: '直近90日' }),
           respond: () => expectDetailShown(page),
         },
       );

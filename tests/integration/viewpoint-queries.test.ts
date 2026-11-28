@@ -413,6 +413,59 @@ describe('観点の詳細（UC-02。GET /viewpoints/{id}）', () => {
   );
 });
 
+describe('観点の詳細の「現在」の指標（#591。FR-5.6）', () => {
+  /** 温度: 直近の値は 40℃（異常）、その前の 4 回は 20℃。期間（7 日）の平均は 24℃（正常）。 */
+  async function seedSpike(context: Context): Promise<void> {
+    await seed(context, [
+      ...[2, 3, 4, 5].flatMap((hours) => environment(20, hoursAgo(hours))),
+      ...environment(40, hoursAgo(1)),
+    ]);
+  }
+
+  it('「現在」（短期の評価）の指標・指標の判定を、「期間」の指標とは別に返す（水準の指標は、「現在」は直近値、「期間」は平均）', async () => {
+    const context = await setup();
+    await seedSpike(context);
+
+    const detail = await detailOf(context);
+
+    const temperature = (rows: typeof detail.metrics | null) =>
+      rows?.find((row) => row.metricId === 'temperatureCelsius');
+    expect(temperature(detail.metrics)).toMatchObject({ value: 24, indicatorStatus: 'NORMAL' });
+    expect(temperature(detail.currentMetrics)).toMatchObject({
+      value: 40,
+      indicatorStatus: 'ERROR',
+    });
+    // 「現在」の指標は、期間の指標と、同じ行（定義の順・主要か）
+    expect(detail.currentMetrics?.map((row) => row.metricId)).toEqual(
+      detail.metrics.map((row) => row.metricId),
+    );
+    expect(detail.short?.status).toBe('ERROR');
+    expect(detail.long?.status).toBe('NORMAL');
+  });
+
+  it('短期を持たない観点（コスト効率）と、評価前の観点は、「現在」の指標がない（null）', async () => {
+    const context = await setup();
+    const before = await detailOf(context);
+    await seedSpike(context);
+
+    const costEfficiency = await detailOf(context, '', 'costEfficiency');
+
+    expect(before.currentMetrics).toBeNull();
+    expect(costEfficiency.hasShortHorizon).toBe(false);
+    expect(costEfficiency.currentMetrics).toBeNull();
+  });
+
+  it('視点（horizon）を指定しても、「現在」の指標は、同じ（視点の切り替えは、画面にない。API は後方互換）', async () => {
+    const context = await setup();
+    await seedSpike(context);
+
+    const long = await detailOf(context);
+    const short = await detailOf(context, 'horizon=SHORT');
+
+    expect(short.currentMetrics).toEqual(long.currentMetrics);
+  });
+});
+
 describe('満足度の詳細（UC-21。GET /viewpoints/satisfaction）', () => {
   const WORKER_A = toUserId('worker-a');
   const WORKER_B = toUserId('worker-b');

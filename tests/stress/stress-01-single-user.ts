@@ -160,7 +160,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       'ダッシュボード（SC-02）',
       'dashboardInitial',
       {
-        act: () => page.getByLabel('期間').selectOption({ label }),
+        act: () => page.getByLabel('期間').last().selectOption({ label }),
         respond: () => expectDashboardShown(page),
       },
     );
@@ -239,7 +239,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
     ['直近7日', '日ごと'],
   ] as const) {
     await m('UC-03', `推移の期間を「${label}」に切り替える`, '観点の詳細・推移（SC-03）', 'trend', {
-      act: () => page.getByLabel('長期の期間').selectOption({ label }),
+      act: () => page.getByLabel('期間').last().selectOption({ label }),
       respond: async () => {
         await expectDetailShown(page);
         await expect(page.getByTestId('trend')).toContainText(`（${bucket}）`);
@@ -249,23 +249,17 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
       await screenshot(page, '05-trend-30days');
     }
   }
+  // 視点（短期・長期）の切り替えは、ない。「現在」（短期の評価）は、診断の欄に、常に並んで示される（#591）
   await m(
     'UC-03',
-    '視点を「短期」に切り替える（短期の判定）',
+    '「現在」と「期間の評価」を並べて確認する',
     '観点の詳細・推移（SC-03）',
     'trend',
     {
-      act: () => page.getByRole('radio', { name: '短期' }).check(),
-      respond: async () => {
-        await expectDetailShown(page);
-        await expect(page.getByTestId('horizon-short')).toBeVisible();
-      },
+      act: () => expect(page.getByTestId('diagnosis-current')).toBeVisible(),
+      respond: () => expectDetailShown(page),
     },
   );
-  await m('UC-03', '視点を「長期」に戻す', '観点の詳細・推移（SC-03）', 'trend', {
-    act: () => page.getByRole('radio', { name: '長期' }).check(),
-    respond: () => expectDetailShown(page),
-  });
   // 元データの表のページ送り（元データの欄は、折りたたみ。測定の前に開く）
   await expandPanel(page, 'source-data');
   await m('UC-02', '元データの表で、次のページを開く', '観点の詳細・元データ（SC-03）', 'screen', {
@@ -338,7 +332,7 @@ test('単独利用: 大量データの状態で、全ユースケースの操作
   await screenshot(page, '06-satisfaction');
   for (const label of ['直近30日', '直近90日']) {
     await m('UC-21', `長期の期間を「${label}」に切り替える`, '満足度（SC-04）', 'screen', {
-      act: () => page.getByLabel('長期の期間').selectOption({ label }),
+      act: () => page.getByLabel('期間').last().selectOption({ label }),
       respond: satisfactionShown,
     });
   }

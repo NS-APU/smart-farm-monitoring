@@ -42,8 +42,8 @@ import { EquipmentSelect } from '../components/equipment-select.tsx';
 import { formatDateTimeJst, formatDateTimeMinutesJst } from '../components/format.ts';
 import {
   HorizonControls,
-  horizonQueryString,
-  readHorizonQuery,
+  periodQueryString,
+  readPeriodQuery,
 } from '../components/horizon-controls.tsx';
 import { HelpHint } from '../components/help-hint.tsx';
 import { Icon, STATUS_ICON, ViewpointIcon } from '../components/icon.tsx';
@@ -75,12 +75,11 @@ interface EvaluatedPeriod {
  */
 export function viewpointPath(
   viewpointId: string,
-  horizon: Horizon,
   periodDays: PeriodDays,
   selectedPeriodDays: PeriodDays | undefined,
 ): string {
   if (viewpointId !== 'satisfaction') {
-    return `${PATHS.viewpoint(viewpointId)}?${horizonQueryString(horizon, periodDays)}`;
+    return `${PATHS.viewpoint(viewpointId)}?${periodQueryString(periodDays)}`;
   }
   return selectedPeriodDays === undefined
     ? PATHS.satisfaction
@@ -491,12 +490,11 @@ export function DashboardPage(): ReactNode {
           viewpointId={drawerViewpointId}
           pagePath={viewpointPath(
             drawerViewpointId,
-            readHorizonQuery(search).horizon,
-            readHorizonQuery(search).periodDays ?? defaultPeriodDays(drawerViewpointId),
-            readHorizonQuery(search).periodDays,
+            readPeriodQuery(search) ?? defaultPeriodDays(drawerViewpointId),
+            readPeriodQuery(search),
           )}
           viewpointIds={data?.viewpoints.map((card) => card.viewpointId) ?? []}
-          selectedPeriodDays={readHorizonQuery(search).periodDays}
+          selectedPeriodDays={readPeriodQuery(search)}
           onClose={closeDrawer}
         />
       )}

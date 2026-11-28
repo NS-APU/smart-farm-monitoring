@@ -242,7 +242,9 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
     await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toBeVisible();
 
     await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
-    await expect(page.getByRole('heading', { name: /収穫速度/, level: 1 })).toContainText('注意');
+    await expect(
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('注意');
     await shot(page, testInfo, 'detail-robot');
 
     await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
@@ -259,7 +261,9 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
 
     await page.getByLabel('対象の設備').selectOption({ label: '　環境センサー1（センサー）' });
 
-    await expect(page.getByRole('heading', { name: /環境適応性/, level: 1 })).toContainText('異常');
+    await expect(
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('異常');
     await shot(page, testInfo, 'detail-sensor');
   });
 
@@ -273,7 +277,9 @@ test.describe('基本フロー 3: 対象のハウスを選んで状態を確認�
 
     await page.getByLabel('対象の設備').selectOption({ label: '　収穫ロボット1（ロボット）' });
 
-    await expect(page.getByRole('heading', { name: /収穫精度/, level: 1 })).toContainText('不明');
+    await expect(
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
+    ).toContainText('不明');
   });
 
   test('詳細で、ロボット・センサーを選んだあと、ダッシュボードへ戻ると、その設備のハウスを対象にする（ダッシュボードはハウス単位）', async ({
@@ -391,8 +397,12 @@ test.describe('ステータスの同値分割（正常・注意・異常・不�
     await expect(card(page, 'environmentalAdaptability')).toHaveClass(/status-border-error/);
     // 観点の詳細で、短期（異常）と長期（注意）が、それぞれ別に示される
     await gotoAuthenticated(page, '/viewpoints/environmentalAdaptability');
-    await expect(page.getByTestId('horizon-short').locator('.status-badge')).toContainText('異常');
-    await expect(page.getByTestId('horizon-long').locator('.status-badge')).toContainText('注意');
+    await expect(page.getByTestId('diagnosis-current').locator('.status-badge')).toContainText(
+      '異常',
+    );
+    await expect(page.getByTestId('diagnosis-period').locator('.status-badge')).toContainText(
+      '注意',
+    );
   });
 });
 

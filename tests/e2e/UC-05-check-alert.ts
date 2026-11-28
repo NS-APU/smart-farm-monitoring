@@ -89,15 +89,15 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
       '環境センサー1',
     );
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('異常');
     await expect(page.getByTestId('diagnostic-message')).toContainText('温度 40.0℃（異常）');
-    await expect(page.getByTestId('metric-temperatureCelsius').locator('td').first()).toHaveText(
-      '40.0℃',
-    );
-    await expect(page.getByTestId('metric-temperatureCelsius').locator('td').nth(1)).toContainText(
-      '異常',
-    );
+    await expect(
+      page.getByTestId('metric-period-temperatureCelsius').locator('.metric-cell-value'),
+    ).toHaveText('40.0℃');
+    await expect(
+      page.getByTestId('metric-period-temperatureCelsius').locator('.metric-cell-judgement'),
+    ).toContainText('異常');
     // 4. 推奨アクション（UC-04）
     await expect(page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await shot(page, testInfo, 'uc05-detail');
@@ -178,10 +178,10 @@ test.describe('基本フロー: 異常の通知を受け取り、通知から対
       '収穫ロボット1',
     );
     await expect(
-      page.getByTestId('diagnosis').locator('.diagnosis-head .status-badge'),
+      page.getByTestId('diagnosis-period').locator('.diagnosis-block-head .status-badge'),
     ).toContainText('異常');
     await expect(
-      page.getByTestId('metric-marketableFruitRatePercent').locator('td').first(),
+      page.getByTestId('metric-period-marketableFruitRatePercent').locator('.metric-cell-value'),
     ).toHaveText('78.3%');
     await expect(page.getByTestId('recommended-action')).toContainText('対応が必要な状態です');
     await shot(page, testInfo, 'uc05-detail-robot');

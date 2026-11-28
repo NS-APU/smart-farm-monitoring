@@ -610,7 +610,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
 
     await page.goto('/viewpoints/maintainability');
 
-    await expect(page.getByTestId('metric-status').locator('td').first()).toHaveText(
+    await expect(page.getByTestId('metric-period-status').locator('.metric-cell-value')).toHaveText(
       '待機（充電待ち）',
     );
   });

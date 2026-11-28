@@ -208,6 +208,11 @@ export const ViewpointDetailResponseSchema = z.object({
   selected: HorizonDiagnosisSchema.nullable(),
   /** 表示に使った視点の、全メトリクス（定義の順）。 */
   metrics: z.array(MetricRowSchema),
+  /**
+   * 「現在」（短期の評価）の、全メトリクス（`metrics` と同じ行・順。値と指標の判定は、短期の結果）。
+   * 短期を持たない観点、短期の評価がまだない観点は null（FR-5.6。#591）。
+   */
+  currentMetrics: z.array(MetricRowSchema).nullable(),
   /** 判定に使う判断基準（既定値、または変更後）。 */
   criteria: ViewpointCriteriaSchema,
   /** ステータスコードのカテゴリでも判定するか（判断基準は編集できない。FR-5.7）。 */

@@ -171,7 +171,7 @@ describe('観点の詳細のドロワー: 開く', () => {
     const safety = await openDrawer();
 
     expect(within(safety).getByRole('link', { name: 'ページで開く' }).getAttribute('href')).toBe(
-      '/viewpoints/safety?horizon=LONG&periodDays=60',
+      '/viewpoints/safety?periodDays=60',
     );
     first.unmount();
 
@@ -188,7 +188,7 @@ describe('観点の詳細のドロワー: 開く', () => {
     const dialog = await screen.findByRole('dialog', { name: '安全性の詳細' });
 
     expect(within(dialog).getByRole('link', { name: 'ページで開く' }).getAttribute('href')).toBe(
-      '/viewpoints/safety?horizon=LONG&periodDays=7',
+      '/viewpoints/safety?periodDays=7',
     );
   });
 });
@@ -300,16 +300,16 @@ describe('観点の詳細のドロワー: フォーカスと、ドロワーの�
     expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
-  it('ドロワーの中で、期間・視点を切り替えても、ドロワーは開いたまま（URL の観点を保つ）。期間は、ダッシュボードの期間でもある', async () => {
+  it('ドロワーの中で、期間を切り替えても、ドロワーは開いたまま（URL の観点を保つ）。期間は、ダッシュボードの期間でもある', async () => {
     const { calls } = renderPath('/');
     await screen.findByRole('heading', { name: '安全性', level: 3 });
     const dialog = await openDrawer();
     await within(dialog).findByTestId('diagnosis');
 
-    fireEvent.change(within(dialog).getByLabelText('長期の期間'), { target: { value: '30' } });
+    fireEvent.change(within(dialog).getByLabelText('期間'), { target: { value: '30' } });
 
     await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=LONG&periodDays=30&viewpoint=safety');
+      expect(window.location.search).toBe('?periodDays=30&viewpoint=safety');
     });
     expect(screen.getByRole('dialog', { name: '安全性の詳細' })).toBeDefined();
     await waitFor(() => {
@@ -317,17 +317,12 @@ describe('観点の詳細のドロワー: フォーカスと、ドロワーの�
       expect(detailCalls(calls).at(-1)?.query.get('periodDays')).toBe('30');
     });
 
-    fireEvent.click(within(dialog).getByRole('radio', { name: '短期' }));
-
-    await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=SHORT&periodDays=30&viewpoint=safety');
-    });
-    await waitFor(() => {
-      expect(detailCalls(calls).at(-1)?.query.get('horizon')).toBe('SHORT');
-    });
+    // 視点（短期・長期）の切り替えは、ない。取得は、常に長期の視点
+    expect(within(dialog).queryByRole('radio', { name: '短期' })).toBeNull();
+    expect(detailCalls(calls).at(-1)?.query.get('horizon')).toBe('LONG');
     expect(screen.getByRole('dialog', { name: '安全性の詳細' })).toBeDefined();
 
-    // 閉じると、視点は外れ、期間だけが残る
+    // 閉じると、ドロワーのクエリは外れ、期間だけが残る
     fireEvent.click(within(dialog).getByRole('button', { name: '観点の詳細を閉じる' }));
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();

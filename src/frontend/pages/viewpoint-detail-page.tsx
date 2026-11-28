@@ -1,12 +1,14 @@
 /**
  * SC-03 観点の詳細（UC-02・UC-03・UC-04。FR-5、FR-6.4、6.5、6.10）。
  * 診断結果（ステータス・診断メッセージ・推奨アクション・判定の対象期間）、根拠のメトリクス、判断基準、推移、元データを示す。
- * 視点（短期・長期）と期間は URL のクエリで保持する。満足度は、専用の詳細（SC-04）へ移る。
+ * 期間は URL のクエリで保持する。視点（短期・長期）の切り替えはない（「現在」と「期間の評価」を、並べて示す。FR-5.6。#591）。
+ * 満足度は、専用の詳細（SC-04）へ移る。
  * 全画面のページ（`/viewpoints/:viewpointId`）と、ダッシュボードの右からのドロワー（Issue #357。`variant="drawer"`）の両方で使う。
  * ドロワーでは、パンくずを出さず（閉じる操作は、ドロワーが持つ）、見出しは h2（ページの h1 は、ダッシュボード）。
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import type { Horizon } from '@smart-farm/shared/constants/status';
 import { defaultPeriodDays, findViewpointMeta } from '@smart-farm/shared/constants/viewpoints';
 import { ApiError } from '../api/client.ts';
 import { getViewpointDetail, getViewpointSeries } from '../api/endpoints.ts';
@@ -21,13 +23,15 @@ import { MetricsTable } from '../components/metrics-table.tsx';
 import { NotApplicableNotice } from '../components/not-applicable-notice.tsx';
 import { SourceDataSection } from '../components/source-data-section.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
-import { StatusBadge } from '../components/status-badge.tsx';
 import { TrendSection } from '../components/trend-section.tsx';
-import { useHorizonSelection } from '../hooks/use-horizon-selection.ts';
+import { usePeriodSelection } from '../hooks/use-horizon-selection.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS } from '../router/paths.ts';
 import { Link, navigate } from '../router/router.tsx';
+
+/** 詳細・推移の取得に使う視点。視点の切り替えはなく、長期（選んだ期間）で取得する（「現在」は、同じ応答の短期の欄）。 */
+const DETAIL_HORIZON: Horizon = 'LONG';
 
 /** 満足度の詳細（SC-04）へ移る。 */
 function RedirectToSatisfaction(): ReactNode {
@@ -56,8 +60,9 @@ export function ViewpointDetailView(props: {
   // 推移・元データの欄の開閉（既定は閉。期間・設備を切り替えて、欄が作り直されても、開いたままにする。SC-03-4）
   const [trendOpen, setTrendOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const { horizon, periodDays, selectedPeriodDays, setHorizon, setPeriodDays } =
-    useHorizonSelection(defaultPeriodDays(viewpointId));
+  const { periodDays, selectedPeriodDays, setPeriodDays } = usePeriodSelection(
+    defaultPeriodDays(viewpointId),
+  );
 
   const fetchDetail = useCallback(async () => {
     if (selectedEquipmentId === undefined) {
@@ -66,10 +71,10 @@ export function ViewpointDetailView(props: {
     return getViewpointDetail(api, {
       viewpointId,
       equipmentId: selectedEquipmentId,
-      horizon,
+      horizon: DETAIL_HORIZON,
       periodDays,
     });
-  }, [api, viewpointId, selectedEquipmentId, horizon, periodDays]);
+  }, [api, viewpointId, selectedEquipmentId, periodDays]);
   const detail = usePolling(fetchDetail);
 
   const fetchSeries = useCallback(async () => {
@@ -79,10 +84,10 @@ export function ViewpointDetailView(props: {
     return getViewpointSeries(api, {
       viewpointId,
       equipmentId: selectedEquipmentId,
-      horizon,
+      horizon: DETAIL_HORIZON,
       periodDays,
     });
-  }, [api, viewpointId, selectedEquipmentId, horizon, periodDays]);
+  }, [api, viewpointId, selectedEquipmentId, periodDays]);
   const series = usePolling(fetchSeries);
 
   // ダッシュボードへ戻るときは、期間だけを引き継ぐ（視点は、ダッシュボードにない）。期間を選んでいなければ、選んだことにしない
@@ -165,16 +170,14 @@ export function ViewpointDetailView(props: {
             <ViewpointIcon viewpointId={viewpointMeta.id} size={22} />
           )}
           {heading}
-          {detail.data === undefined ? null : <StatusBadge status={detail.data.status} />}
         </Heading>
       </div>
       {/* 対象の設備（ハウス・ロボット・センサー）の選択。以前は、ヘッダーにあった（Issue #355） */}
       <div className="page-controls">
         <EquipmentSelect label={MESSAGES.layout.equipment} />
         <HorizonControls
-          horizon={horizon}
+          horizon={DETAIL_HORIZON}
           periodDays={periodDays}
-          onHorizonChange={setHorizon}
           onPeriodChange={setPeriodDays}
         />
       </div>
