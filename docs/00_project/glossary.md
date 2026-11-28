@@ -16,7 +16,7 @@
 | 第三者評価 | - | イチゴ収穫ロボットの運用の信頼性・実用性を、安全性・稼働率・復旧容易性・メンテナンス性・代替作業手段の確保といった観点から客観的に評価すること | [project-overview.md](./project-overview.md) |
 | ヒューマン・イン・ザ・ループ | HITL | システムの分析結果をもとに、人が状況を確認し、判断・対応（復旧・調整・承認など）を行う方式。本システムではダッシュボードでの提示が入口となる | [goals.md](./goals.md) |
 | ステータスコード | - | ロボットの状態を表すコード。正常／注意／異常のカテゴリを持ち、観点の判定の入力に使う | [functional-requirements.md](../10_design/requirements/functional-requirements.md) |
-| 短期視点・長期視点 | - | 観点の評価の2つの見方。短期は直近値、長期は選んだ期間（当日〜直近90日）の集計値にもとづく | [evaluation.md](../10_design/viewpoint/evaluation.md) |
+| 短期視点・長期視点 | 現在（直近24時間）・期間の評価（画面での呼び名） | 観点の評価の2つの見方。短期は直近値、長期は選んだ期間（当日〜直近90日）の集計値にもとづく。画面（ダッシュボード・観点の詳細）では、短期を「現在（直近24時間）」、長期を「期間の評価」と呼び、別々に示す（#591） | [evaluation.md](../10_design/viewpoint/evaluation.md) |
 | 平均故障間隔 | MTBF | 故障から次の故障までの平均時間。ロボット運用の信頼性を示す指標 | [project-overview.md](./project-overview.md) |
 | 平均修復時間 | MTTR | 故障から復旧までにかかる平均時間。復旧のしやすさを示す指標 | [project-overview.md](./project-overview.md) |
 | 経済生産性 | EconomicProductivity | 運用コストに対する収穫の成果の比（無次元）。（収穫成功率 × 収穫速度 × 可用率）÷ 運用コスト。コスト効率の観点の判定に使う | [robot-health.md](../10_design/viewpoint/robot-health.md) |
