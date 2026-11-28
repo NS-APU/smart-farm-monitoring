@@ -139,7 +139,7 @@ export const MESSAGES = {
     horizon: '視点',
     horizonShort: '短期',
     horizonLong: '長期',
-    period: '長期の期間',
+    period: '期間',
     periodDays: { 1: '当日', 7: '直近7日', 30: '直近30日', 60: '直近60日', 90: '直近90日' },
     lastReceivedAt: '最終のデータ取得',
     freshnessStale: 'データが古くなっています。取り込みの状況を確認してください',
@@ -214,14 +214,14 @@ export const MESSAGES = {
     diagnosis: '診断結果',
     diagnosticMessage: '診断メッセージ',
     recommendedAction: '推奨アクション',
-    horizons: '視点ごとの判定',
-    horizonShort: '短期',
-    horizonLong: '長期',
-    noShort: '短期評価はありません',
-    /** 「短期評価はありません」のヘルプヒント（ADR-0017 D-15。短期評価を持たない観点は、長い期間・一定期間の指標）。 */
-    noShortHint: {
-      name: '短期評価',
-      help: 'この観点は、長い期間・一定期間の指標のため、短期（直近24時間）の評価を持ちません。長期の結果を表示します',
+    /** 診断結果の 2 つの欄（FR-5.6。#591）。 */
+    currentTitle: '現在',
+    periodTitle: '期間の評価',
+    noCurrent: '現在の評価はありません',
+    /** 「現在の評価はありません」のヘルプヒント（ADR-0017 D-15。短期評価を持たない観点は、長い期間・一定期間の指標）。 */
+    noCurrentHint: {
+      name: '現在の評価',
+      help: 'この観点は、長い期間・一定期間の指標のため、「現在」（直近24時間）の評価を持ちません。「期間の評価」を表示します',
     },
     notEvaluated: 'この観点は、まだ評価されていません。データの取り込み・入力後に表示されます',
     unknownGuide:
@@ -246,7 +246,6 @@ export const MESSAGES = {
     /** 設備の種類の短い表示名（案内の文中用）。 */
     equipmentTypeShort: { FACILITY: 'ハウス', ROBOT: 'ロボット', SENSOR: 'センサー' },
     showFacility: (facilityName: string) => `ハウス「${facilityName}」を表示`,
-    horizonUsedLong: 'この観点は短期評価を持たないため、長期の結果を表示しています',
     basis: '根拠の指標',
     metric: '指標',
     value: '値',

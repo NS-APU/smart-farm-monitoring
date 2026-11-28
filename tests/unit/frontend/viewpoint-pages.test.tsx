@@ -696,32 +696,40 @@ describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
 });
 
 describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
-  it('診断結果（ステータス・診断メッセージ・推奨アクション・判定の対象期間）と、視点ごとの判定を表示する', async () => {
+  it('診断結果は、「現在」（短期の評価）と「期間の評価」（長期の評価）の 2 つの欄で、別々に示す。見出しに、悪い方への合成のステータスは付けない（#591）', async () => {
     renderPath('/viewpoints/environmentalAdaptability');
 
     const diagnosisPanel = await screen.findByTestId('diagnosis');
 
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('環境適応性');
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toContain('注意');
-    expect(within(diagnosisPanel).getByTestId('diagnostic-message').textContent).toContain(
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('環境適応性');
+    const period = within(diagnosisPanel).getByTestId('diagnosis-period');
+    expect(period.textContent).toContain('期間の評価（直近7日）');
+    expect(period.textContent).toContain('注意');
+    expect(within(period).getByTestId('diagnostic-message').textContent).toContain(
       '温度 27.0℃（注意）',
     );
-    expect(within(diagnosisPanel).getByTestId('recommended-action').textContent).toContain(
+    expect(within(period).getByTestId('recommended-action').textContent).toContain(
       'ハウスの環境を現場で確認し',
     );
-    expect(
-      within(diagnosisPanel).getAllByText(
-        /判定の対象期間: 2026\/10\/02 12:00:00 〜 2026\/10\/09 12:00:00/,
-      ).length,
-    ).toBeGreaterThan(0);
-    expect(
-      within(diagnosisPanel).getByText('長期（直近7日）', { selector: '.diagnosis-horizon' }),
-    ).toBeDefined();
-    const shortCard = within(diagnosisPanel).getByTestId('horizon-short');
-    expect(shortCard.textContent).toContain('短期（直近24時間）');
-    expect(shortCard.textContent).toContain('正常');
-    expect(within(diagnosisPanel).getByTestId('horizon-long').textContent).toContain('注意');
+    expect(period.textContent).toMatch(
+      /判定の対象期間: 2026\/10\/02 12:00:00 〜 2026\/10\/09 12:00:00/,
+    );
+    expect(period.textContent).toContain('評価: 2026/10/09 12:00:00');
+    const current = within(diagnosisPanel).getByTestId('diagnosis-current');
+    expect(current.textContent).toContain('現在（直近24時間）');
+    expect(current.textContent).toContain('正常');
+    expect(within(current).getByTestId('current-diagnostic-message').textContent).toContain(
+      '温度 20.0℃（正常）',
+    );
+    expect(within(current).getByTestId('current-recommended-action').textContent).toContain(
+      '現在の状態を維持し',
+    );
+    expect(current.textContent).toMatch(
+      /判定の対象期間: 2026\/10\/08 12:00:00 〜 2026\/10\/09 12:00:00/,
+    );
     expect(within(diagnosisPanel).queryByTestId('unknown-guide')).toBeNull();
+    // 視点（短期・長期）の切り替えは、ない
+    expect(screen.queryByRole('radio', { name: '短期' })).toBeNull();
     // 対象の設備は、ページの中の選択（以前は、ヘッダー）。選んでいる設備を示す
     expect(screen.getByLabelText<HTMLSelectElement>('対象の設備').value).toBe('HOUSE-01');
   });
@@ -760,21 +768,27 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     });
   });
 
-  it('根拠のメトリクス: 全メトリクスの値（欠損は「—」）と、指標ごとの判定（判定なしを含む）、主要の印を表示する', async () => {
+  it('根拠のメトリクス: 全メトリクスの値（欠損は「—」）と、指標ごとの判定（判定なしを含む）、主要の印を、「現在」と「期間の評価」の列で別々に表示する', async () => {
     renderPath('/viewpoints/environmentalAdaptability');
 
     const basis = await screen.findByTestId('basis');
 
     const temperature = within(basis).getByTestId('metric-temperatureCelsius');
     expect(temperature.textContent).toContain('温度');
-    expect(temperature.textContent).toContain('27.0℃');
-    expect(temperature.textContent).toContain('注意');
     expect(temperature.textContent).toContain('主要');
+    // 水準の指標は、「現在」は直近値、「期間の評価」は平均
+    expect(within(temperature).getByTestId('metric-current-temperatureCelsius').textContent).toBe(
+      '20.0℃正常',
+    );
+    expect(within(temperature).getByTestId('metric-period-temperatureCelsius').textContent).toBe(
+      '27.0℃注意',
+    );
     const illuminance = within(basis).getByTestId('metric-illuminanceLux');
     expect(illuminance.textContent).toContain('—');
     expect(illuminance.textContent).toContain('不明');
     const co2 = within(basis).getByTestId('metric-co2Ppm');
-    expect(co2.textContent).toContain('900ppm');
+    expect(within(co2).getByTestId('metric-current-co2Ppm').textContent).toContain('880ppm');
+    expect(within(co2).getByTestId('metric-period-co2Ppm').textContent).toContain('900ppm');
     expect(co2.textContent).toContain('判定なし');
     expect(co2.textContent).not.toContain('主要');
     expect(within(basis).queryByTestId('metric-status')).toBeNull();
@@ -783,10 +797,34 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(
       within(basis)
         .getAllByRole('columnheader')
-        .map((header) => header.textContent)
-        .slice(0, 2),
-    ).toEqual(['指標', '値']);
+        .map((header) => header.textContent),
+    ).toEqual(['指標', '現在（直近24時間）', '期間の評価（直近7日）']);
     expect(basis.textContent).not.toContain('メトリクス');
+  });
+
+  it('根拠のメトリクス: 短期を持たない観点は、「現在」の列がなく、「期間の評価」の列だけ', async () => {
+    renderPath('/viewpoints/durability', {
+      detail: () =>
+        jsonResponse(
+          detail({
+            viewpointId: 'durability',
+            name: '耐久性',
+            hasShortHorizon: false,
+            short: null,
+            currentMetrics: null,
+          }),
+        ),
+    });
+
+    const basis = await screen.findByTestId('basis');
+
+    expect(
+      within(basis)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['指標', '期間の評価（直近7日）']);
+    expect(within(basis).queryByTestId('metric-current-temperatureCelsius')).toBeNull();
+    expect(within(basis).getByTestId('metric-period-temperatureCelsius')).toBeDefined();
   });
 
   it('判断基準: 指標ごとの条件名と、正常・注意・異常の条件を表示し、既定値であることを示す。編集への導線がある', async () => {
@@ -828,7 +866,7 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
       detail: () =>
         jsonResponse(
           speedDetail({
-            selected: diagnosis({ status: 'UNKNOWN', statusDetail: null }),
+            long: diagnosis({ status: 'UNKNOWN', statusDetail: null }),
           }),
         ),
     });
@@ -845,7 +883,7 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
         jsonResponse(
           detail({
             status: 'UNKNOWN',
-            selected: diagnosis({
+            long: diagnosis({
               status: 'UNKNOWN',
               diagnosticMessage: '環境適応性: データ不足のため評価できません。未取得の項目: 温度',
               recommendedAction: 'データの取得・入力を確認してください（取り込みの状況、手動入力）',
@@ -888,10 +926,10 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     const panel = await screen.findByTestId('diagnosis');
 
     expect(within(panel).getAllByText(/まだ評価されていません/).length).toBeGreaterThan(0);
-    expect(within(panel).getByTestId('horizon-long').textContent).toContain(
+    expect(within(panel).getByTestId('diagnosis-period').textContent).toContain(
       'まだ評価されていません',
     );
-    expect(within(panel).getByTestId('horizon-short').textContent).toContain(
+    expect(within(panel).getByTestId('diagnosis-current').textContent).toContain(
       'まだ評価されていません',
     );
   });
@@ -923,7 +961,7 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     );
   });
 
-  it('「短期評価はありません」に、理由のヘルプヒントを添える（長い期間・一定期間の指標のため。SC-03-9）', async () => {
+  it('「現在の評価はありません」に、理由のヘルプヒントを添える（長い期間・一定期間の指標のため。SC-03-9）', async () => {
     renderPath('/viewpoints/durability', {
       detail: () =>
         jsonResponse(
@@ -936,8 +974,11 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
         ),
     });
 
-    const card = await screen.findByTestId('horizon-short');
-    fireEvent.click(within(card).getByRole('button', { name: '短期評価の説明' }));
+    const card = await screen.findByTestId('diagnosis-current');
+    expect(card.textContent).toContain('現在の評価はありません');
+    // 空の欄の説明は、読み込み中の表示（`role="status"` の `state-view`）ではない（負荷テストが、読み込み中と見なさないため）
+    expect(document.querySelector('main [role="status"].state-view')).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: '現在の評価の説明' }));
 
     const panel = within(card).getByTestId('help-hint-panel');
     expect(panel.textContent).toContain('長い期間');
@@ -945,7 +986,7 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     expect(panel.textContent).toContain('直近24時間');
   });
 
-  it('短期評価を持たない観点: 短期の判定は「短期評価はありません」。短期を指定すると、長期を表示している旨を示す', async () => {
+  it('短期評価を持たない観点: 「現在」の欄は「現在の評価はありません」。古い URL の視点（?horizon=SHORT）は使わず、「期間の評価」を示す。推移に、視点の注記は出ない', async () => {
     renderPath('/viewpoints/durability?horizon=SHORT', {
       detail: () =>
         jsonResponse(
@@ -953,17 +994,14 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
             viewpointId: 'durability',
             name: '耐久性',
             hasShortHorizon: false,
-            horizon: 'SHORT',
-            horizonUsed: 'LONG',
             short: null,
+            currentMetrics: null,
           }),
         ),
       series: () =>
         jsonResponse(
           series({
             viewpointId: 'durability',
-            horizon: 'SHORT',
-            horizonUsed: 'LONG',
             hasShortHorizon: false,
             feedback: { short: null, long: diagnosis() },
           }),
@@ -973,37 +1011,30 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
     const panel = await screen.findByTestId('diagnosis');
     const trend = await screen.findByTestId('trend');
 
-    expect(within(panel).getByTestId('horizon-short').textContent).toContain(
-      '短期評価はありません',
+    expect(within(panel).getByTestId('diagnosis-current').textContent).toContain(
+      '現在の評価はありません',
     );
-    expect(
-      within(panel).getByText('この観点は短期評価を持たないため、長期の結果を表示しています'),
-    ).toBeDefined();
+    expect(within(panel).getByTestId('diagnosis-period').textContent).toContain('注意');
     // 視点ごとの内容は、診断の欄の 1 箇所だけ（推移の欄に、同じ内容を繰り返さない。SC-03-4）
     expect(within(trend).queryByTestId('feedback-short')).toBeNull();
     expect(within(trend).queryByTestId('no-short-note')).toBeNull();
-    expect(within(trend).queryByText('短期評価はありません')).toBeNull();
-    expect(
-      within(trend).getByText('この観点は短期評価を持たないため、長期の結果を表示しています'),
-    ).toBeDefined();
+    expect(screen.queryByText(/短期評価を持たないため/)).toBeNull();
   });
 
-  it('視点（短期・長期）と期間を切り替えると、URL のクエリを更新し、詳細・推移を取得し直す', async () => {
-    const { calls } = renderPath('/viewpoints/environmentalAdaptability?horizon=LONG&periodDays=7');
+  it('期間を切り替えると、URL のクエリを更新し、詳細・推移を取得し直す（視点の切り替えは、ない。取得は、常に長期の視点）', async () => {
+    const { calls } = renderPath('/viewpoints/environmentalAdaptability?periodDays=7');
     await screen.findByTestId('diagnosis');
+    expect(screen.queryByRole('radio', { name: '短期' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: '長期' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('radio', { name: '短期' }));
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '30' } });
     await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=SHORT&periodDays=7');
-    });
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '30' } });
-    await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=SHORT&periodDays=30');
+      expect(window.location.search).toBe('?periodDays=30');
     });
 
     await waitFor(() => {
       const last = detailCalls(calls).at(-1);
-      expect(last?.query.get('horizon')).toBe('SHORT');
+      expect(last?.query.get('horizon')).toBe('LONG');
       expect(last?.query.get('periodDays')).toBe('30');
       expect(last?.query.get('equipmentId')).toBe('HOUSE-01');
     });
@@ -1013,6 +1044,19 @@ describe('観点の詳細（UC-02・UC-04。SC-03）', () => {
         .at(-1)
         ?.query.get('periodDays'),
     ).toBe('30');
+  });
+
+  it('古い URL の視点（horizon=SHORT）は、使わない（長期で取得する）。期間を選ぶと、URL から外れる', async () => {
+    const { calls } = renderPath(
+      '/viewpoints/environmentalAdaptability?horizon=SHORT&periodDays=7',
+    );
+    await screen.findByTestId('diagnosis');
+
+    expect(detailCalls(calls).at(-1)?.query.get('horizon')).toBe('LONG');
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '90' } });
+    await waitFor(() => {
+      expect(window.location.search).toBe('?periodDays=90');
+    });
   });
 
   it('ダッシュボードへ戻るリンクは、期間だけを引き継ぐ（視点は、ダッシュボードにない）。期間を選んでいなければ、付けない', async () => {
@@ -1209,19 +1253,18 @@ describe('観点の詳細: 推移（UC-03）', () => {
     },
   );
 
-  it('視点ごとの判定に、診断メッセージ・推奨アクションを、短期・長期で表示する（フィードバックの欄は、1 つにまとめた。SC-03-4）', async () => {
+  it('診断の欄に、「現在」と「期間の評価」の診断メッセージ・推奨アクションを、別々に表示する（フィードバックの欄は、1 つにまとめた。SC-03-4）', async () => {
     renderPath('/viewpoints/environmentalAdaptability');
-
     const diagnosisPanel = await screen.findByTestId('diagnosis');
     const trend = await screen.findByTestId('trend');
 
-    const shortCard = within(diagnosisPanel).getByTestId('horizon-short');
-    expect(shortCard.textContent).toContain('正常');
-    expect(shortCard.textContent).toContain('診断メッセージ');
-    expect(shortCard.textContent).toContain('推奨アクション');
-    expect(shortCard.textContent).toContain('判定の対象期間');
-    expect(within(diagnosisPanel).getByTestId('horizon-long').textContent).toContain('注意');
-    expect(within(diagnosisPanel).getByTestId('horizon-long').textContent).toContain(
+    const current = within(diagnosisPanel).getByTestId('diagnosis-current');
+    expect(current.textContent).toContain('正常');
+    expect(current.textContent).toContain('診断メッセージ');
+    expect(current.textContent).toContain('推奨アクション');
+    expect(current.textContent).toContain('判定の対象期間');
+    expect(within(diagnosisPanel).getByTestId('diagnosis-period').textContent).toContain('注意');
+    expect(within(diagnosisPanel).getByTestId('diagnosis-period').textContent).toContain(
       '温度 27.0℃（注意）',
     );
     expect(screen.queryByText('視点ごとのフィードバック')).toBeNull();
@@ -1229,17 +1272,17 @@ describe('観点の詳細: 推移（UC-03）', () => {
     expect(within(trend).queryByTestId('feedback-long')).toBeNull();
   });
 
-  it('未評価の視点は、その旨を示す', async () => {
+  it('未評価の欄は、その旨を示す', async () => {
     renderPath('/viewpoints/environmentalAdaptability', {
       detail: () => jsonResponse(detail({ short: null, long: null })),
     });
 
     const panel = await screen.findByTestId('diagnosis');
 
-    expect(within(panel).getByTestId('horizon-short').textContent).toContain(
+    expect(within(panel).getByTestId('diagnosis-current').textContent).toContain(
       'まだ評価されていません',
     );
-    expect(within(panel).getByTestId('horizon-long').textContent).toContain(
+    expect(within(panel).getByTestId('diagnosis-period').textContent).toContain(
       'まだ評価されていません',
     );
   });
@@ -1288,7 +1331,7 @@ describe('観点の詳細: 推移（UC-03）', () => {
       expect(screen.getByTestId<HTMLDetailsElement>('trend').open).toBe(true);
     });
 
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '30' } });
 
     await waitFor(() => {
       expect(window.location.search).toContain('periodDays=30');
@@ -1804,33 +1847,31 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     });
     await screen.findByTestId('overall');
 
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('30');
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('30');
     expect(
       calls.find((call) => call.path === '/viewpoints/satisfaction')?.query.get('periodDays'),
     ).toBe('30');
   });
 
-  it('期間を選ぶと（30 日以外も）、他の観点と同じ長期の期間（当日・7・30・60・90 日）から選べ、選んだ期間で取得する', async () => {
+  it('期間を選ぶと（30 日以外も）、他の観点と同じ期間（当日・7・30・60・90 日）から選べ、選んだ期間で取得する', async () => {
     const { calls } = renderPath('/satisfaction', {
       detail: () => jsonResponse(satisfactionDetail(FULL)),
     });
     await screen.findByTestId('overall');
 
     expect(
-      [...screen.getByLabelText<HTMLSelectElement>('長期の期間').options].map(
-        (option) => option.value,
-      ),
+      [...screen.getByLabelText<HTMLSelectElement>('期間').options].map((option) => option.value),
     ).toEqual(['1', '7', '30', '60', '90']);
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '7' } });
 
     await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=LONG&periodDays=7');
+      expect(window.location.search).toBe('?periodDays=7');
     });
     await waitFor(() => {
       const last = calls.filter((call) => call.path === '/viewpoints/satisfaction').at(-1);
       expect(last?.query.get('periodDays')).toBe('7');
     });
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('7');
   });
 
   it('URL に期間があれば（7 日など）、その期間で取得する', async () => {
@@ -1839,7 +1880,7 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     });
     await screen.findByTestId('overall');
 
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('7');
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('7');
     expect(
       calls.find((call) => call.path === '/viewpoints/satisfaction')?.query.get('periodDays'),
     ).toBe('7');
@@ -1851,12 +1892,12 @@ describe('満足度の詳細（UC-21。SC-04）', () => {
     });
     await screen.findByTestId('overall');
 
-    expect(screen.getByLabelText<HTMLSelectElement>('長期の期間').value).toBe('30');
+    expect(screen.getByLabelText<HTMLSelectElement>('期間').value).toBe('30');
     expect(screen.queryByRole('radio', { name: '短期' })).toBeNull();
-    fireEvent.change(screen.getByLabelText('長期の期間'), { target: { value: '90' } });
+    fireEvent.change(screen.getByLabelText('期間'), { target: { value: '90' } });
 
     await waitFor(() => {
-      expect(window.location.search).toBe('?horizon=LONG&periodDays=90');
+      expect(window.location.search).toBe('?periodDays=90');
     });
     await waitFor(() => {
       const last = calls.filter((call) => call.path === '/viewpoints/satisfaction').at(-1);

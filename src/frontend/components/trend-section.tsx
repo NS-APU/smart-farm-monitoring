@@ -214,9 +214,6 @@ export function TrendSection(
         {series.bucket === 'HOUR' ? MESSAGES.viewpoint.trendHourly : MESSAGES.viewpoint.trendDaily}
         ）
       </p>
-      {series.horizon === series.horizonUsed ? null : (
-        <p className="muted">{MESSAGES.viewpoint.horizonUsedLong}</p>
-      )}
       <p className="muted">{MESSAGES.viewpoint.chartLegend}</p>
       <p className="muted" data-testid="chart-band-note">
         {MESSAGES.viewpoint.chartBandNote}

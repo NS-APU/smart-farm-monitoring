@@ -26,7 +26,7 @@ import { RecordResponseLink } from '../components/record-response-link.tsx';
 import { RadarChart } from '../components/radar-chart.tsx';
 import { ErrorView, LoadingView } from '../components/state-views.tsx';
 import { StatusBadge } from '../components/status-badge.tsx';
-import { useHorizonSelection } from '../hooks/use-horizon-selection.ts';
+import { usePeriodSelection } from '../hooks/use-horizon-selection.ts';
 import { usePolling } from '../hooks/use-polling.ts';
 import { MESSAGES } from '../i18n/messages.ts';
 import { PATHS, viewpointDrawerPath } from '../router/paths.ts';
@@ -180,7 +180,7 @@ export function SatisfactionView(props: { readonly variant?: 'page' | 'drawer' }
   const { api } = useAuth();
   const { selectedEquipmentId, equipmentError } = useAppState();
   // 期間を選んでいなければ、満足度の既定の期間（30 日）。選べば、他の観点と同じ長期の期間
-  const { periodDays, selectedPeriodDays, setPeriodDays } = useHorizonSelection(
+  const { periodDays, selectedPeriodDays, setPeriodDays } = usePeriodSelection(
     SATISFACTION_DEFAULT_PERIOD_DAYS,
   );
 
