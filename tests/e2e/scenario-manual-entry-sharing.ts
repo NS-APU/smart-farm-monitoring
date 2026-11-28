@@ -61,7 +61,7 @@ test.describe('シナリオ: 手動入力のデータの共有・修正・削除
     });
     await saveEntry(page);
     await expect(
-      page.getByTestId('related-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('related-period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
 
     // UC-22: 利用者Bが、ログインして、未読の通知を確認する

@@ -292,7 +292,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     });
     await saveEntry(page);
     await expect(
-      page.getByTestId('related-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('related-period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
 
     // 利用者B: ログインし、未読の通知を確認する（UC-05 の 1・2）
