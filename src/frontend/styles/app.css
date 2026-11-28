@@ -931,6 +931,11 @@ input:not([type='radio']) {
   vertical-align: middle;
 }
 
+/* 「現在」「期間の評価」の列。短期を持たない観点の「―」だけの列でも、つぶれない幅にする（スマートフォン幅） */
+.status-table td {
+  min-width: 4.5rem;
+}
+
 .status-table thead th {
   color: var(--color-muted);
   font-size: 0.85rem;
