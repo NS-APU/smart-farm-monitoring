@@ -158,7 +158,7 @@ test.describe('基本フロー: 判断基準に照らして判定し、注意・
     expect(await listNotifications(request)).toHaveLength(0);
     await alignBrowserClock(page);
     await openAs(page, '/');
-    await expect(page.getByTestId('card-operability').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-operability').locator('.status-badge')).toContainText(
       '不明',
     );
     await expect(unreadBadge(page)).toHaveText('0');
@@ -354,7 +354,7 @@ test.describe('通知の単位は、設備（D-19 の論点 3。ハウスの集�
     await expect(environmentRows(page)).toContainText('環境センサー2');
     // ハウスの結果（最も悪い設備の結果）は、通知せず、ダッシュボードに示す。どの設備かが、診断メッセージの先頭に入る
     await openAs(page, '/');
-    const card = page.getByTestId('card-environmentalAdaptability');
+    const card = page.getByTestId('period-environmentalAdaptability');
     await expect(card.locator('.status-badge')).toContainText('異常');
     await expect(card.locator('.diagnostic')).toContainText('（環境センサー2）');
   });
@@ -682,7 +682,7 @@ test.describe('入口: 取り込んだデータ（UC-08・UC-09）の判定', ()
     expect(notifications[0]?.message).toContain('144');
     await alignBrowserClock(page);
     await openAs(page, '/');
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '異常',
     );
     await goToNotifications(page);

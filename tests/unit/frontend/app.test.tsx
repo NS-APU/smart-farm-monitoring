@@ -602,10 +602,10 @@ describe('ダッシュボード（UC-01。SC-02）', () => {
     renderApp();
 
     expect(await screen.findByRole('heading', { name: '安全性' })).toBeDefined();
-    expect(screen.getByTestId('summary-NORMAL').textContent).toContain('1');
-    expect(screen.getByTestId('summary-CAUTION').textContent).toContain('1');
-    expect(screen.getByTestId('summary-ERROR').textContent).toContain('0');
-    expect(screen.getByTestId('summary-UNKNOWN').textContent).toContain('1');
+    expect(screen.getByTestId('summary-period-NORMAL').textContent).toContain('1');
+    expect(screen.getByTestId('summary-period-CAUTION').textContent).toContain('1');
+    expect(screen.getByTestId('summary-period-ERROR').textContent).toContain('0');
+    expect(screen.getByTestId('summary-period-UNKNOWN').textContent).toContain('1');
     const speed = screen.getByRole('heading', { name: '収穫速度' }).closest('li');
     if (speed === null) {
       throw new Error('テストの前提: カードがある');

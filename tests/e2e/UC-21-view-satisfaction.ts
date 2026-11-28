@@ -215,7 +215,7 @@ test.describe('総合満足度の判定（4.0以上 正常／3.0以上4.0未満 
       await expect(overallBadge(page)).toContainText(item.status);
       await expect(page.getByTestId('satisfaction-missing')).toHaveCount(0);
       await page.goto('/');
-      await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+      await expect(page.getByTestId('period-satisfaction').locator('.status-badge')).toContainText(
         item.status,
       );
     });
@@ -419,18 +419,18 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
     await alignBrowserClock(page);
     await openAs(page, '/');
 
-    const satisfaction = page.getByTestId('card-satisfaction');
+    const satisfaction = page.getByTestId('period-satisfaction');
     await expect(satisfaction.locator('.status-badge')).toContainText('正常');
     // 判定の対象期間は、分まで。満足度の期間が、共通の期間（満足度を除く観点で同じ）と違うので、満足度のカードにだけ示す
     await expect(satisfaction.locator('.evaluated-period').first()).toContainText(
       '2026/09/09 12:00 〜 2026/10/09 12:00',
     );
-    await expect(page.getByTestId('card-safety').locator('.evaluated-period')).toHaveCount(0);
+    await expect(page.getByTestId('period-safety').locator('.evaluated-period')).toHaveCount(0);
     await expect(page.getByTestId('evaluated-period-common')).toContainText(
       '2026/10/02 12:00 〜 2026/10/09 12:00',
     );
 
-    await satisfaction.locator('h3').getByRole('link').click();
+    await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();
 
     await expect(page).toHaveURL(/\/\?viewpoint=satisfaction$/);
     await expect(overallScore(page)).toHaveText('5.0');
@@ -445,14 +445,14 @@ test.describe('満足度の既定の期間は 30 日（D-18）: ダッシュボ�
     await enterSatisfaction(request, [5, 5, 5, 5, 5, 5, 5, 5, 5], daysAgo(20));
     await alignBrowserClock(page);
     await openAs(page, '/');
-    await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-satisfaction').locator('.status-badge')).toContainText(
       '正常',
     );
 
     // ダッシュボードの期間の欄の名前は、「期間」（視点の切り替えがないため。満足度の詳細は、「長期の期間」）
     await page.getByLabel('期間').selectOption({ label: '直近7日' });
 
-    await expect(page.getByTestId('card-satisfaction').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-satisfaction').locator('.status-badge')).toContainText(
       '不明',
     );
     await page.getByTestId('card-satisfaction').locator('h3').getByRole('link').click();

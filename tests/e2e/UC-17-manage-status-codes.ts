@@ -503,7 +503,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
   }
 
   const dashboardBadge = (page: Page) =>
-    page.getByTestId('card-maintainability').locator('.status-badge');
+    page.getByTestId('period-maintainability').locator('.status-badge');
 
   test('カテゴリを「正常」→「異常」に変更すると、そのコードを使う観点（メンテナンス性）の評価が、異常に変わる（評価に反映される）', async ({
     page,
@@ -535,7 +535,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
     await seed(request, durabilityData('NORMAL', 'STANDBY'));
     await openStatusCodes(page);
     await page.goto('/');
-    const durability = page.getByTestId('card-durability').locator('.status-badge');
+    const durability = page.getByTestId('period-durability').locator('.status-badge');
     await expect(durability).toContainText('正常');
     await goToMenu(page, 'ステータスコード');
 
@@ -653,7 +653,7 @@ test.describe('事後条件: ステータスコードの定義は、観点の評
 
     await goToMenu(page, 'ダッシュボード');
 
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '注意',
     );
     await expect(page.getByTestId('card-harvestSpeed')).toContainText('充電待ち');

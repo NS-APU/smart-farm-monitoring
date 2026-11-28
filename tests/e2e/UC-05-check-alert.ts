@@ -207,12 +207,14 @@ test.describe('代替フロー: 通知に気づかなかった場合も、ダッ
 
     await openAs(page, '/');
 
-    const card = page.getByTestId('card-environmentalAdaptability');
+    const card = page.getByTestId('period-environmentalAdaptability');
     await expect(card.locator('.status-badge')).toContainText('異常');
     await expect(card.locator('.diagnostic')).toContainText('温度 40.0℃（異常）');
     await expect(card.locator('.action')).toContainText('対応が必要な状態です');
     await expect(unreadBadge(page)).not.toHaveText('0');
-    await expect(page.getByTestId('summary-ERROR').locator('.summary-count')).not.toHaveText('0');
+    await expect(page.getByTestId('summary-period-ERROR').locator('.summary-count')).not.toHaveText(
+      '0',
+    );
   });
 });
 
@@ -344,7 +346,7 @@ test.describe('シナリオ: 異常の検知 → 通知 → 確認 → 復旧 �
     // ダッシュボード（UC-01）: 状態が改善している（長期の平均が下がり、環境適応性は、注意または正常）
     await b.page.goto('/');
     await expect(
-      b.page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      b.page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
 
     // 利用者A: 自分の未読は、Bの既読に影響されない。通知を確認して、すべて既読にする（UC-22）

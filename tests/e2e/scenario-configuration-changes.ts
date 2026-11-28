@@ -26,7 +26,7 @@ import {
   unreadBadge,
 } from './support/app.ts';
 import { placeFile } from './support/http-files.ts';
-import { itemListQuery } from './support/pages.ts';
+import { itemListQuery, dashboardPeriod } from './support/pages.ts';
 import { runNow } from './support/ingestion.ts';
 import { shot } from './support/viewpoint-scenarios.ts';
 
@@ -78,7 +78,9 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     // UC-01・UC-04: 利用者Bが、ダッシュボードで、収穫速度が注意であること・コードの名称・推奨アクションを確認する
     const b = await newUserSession(browser, testInfo, 'user-b');
     await openAs(b.page, '/', USER_B);
-    await expect(speedCard(b.page).locator('.status-badge')).toContainText('注意');
+    await expect(dashboardPeriod(b.page, 'harvestSpeed').locator('.status-badge')).toContainText(
+      '注意',
+    );
     await expect(speedCard(b.page)).toContainText('充電待ち');
     await expect(speedCard(b.page)).toContainText('推奨アクション: 確認が望ましい状態です');
     await shot(b.page, testInfo, 'scenario-config-b-caution');
@@ -104,7 +106,9 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     // UC-01・UC-10・UC-22: Bの画面は、異常になり、異常の通知が届く
     const unreadBefore = Number(await unreadBadge(b.page).textContent());
     await b.page.goto('/');
-    await expect(speedCard(b.page).locator('.status-badge')).toContainText('異常');
+    await expect(dashboardPeriod(b.page, 'harvestSpeed').locator('.status-badge')).toContainText(
+      '異常',
+    );
     await expect(speedCard(b.page)).toContainText('推奨アクション: 対応が必要な状態です');
     await b.page.goto('/notifications');
     await expect
@@ -155,7 +159,9 @@ test.describe('シナリオ: ステータスコード・設備の構成の変更
     await b.page.goto('/viewpoints/harvestSpeed');
     await expect(equipmentSelect(b.page)).not.toContainText('改名ロボット');
     await b.page.goto('/');
-    await expect(speedCard(b.page).locator('.status-badge')).toContainText('不明');
+    await expect(dashboardPeriod(b.page, 'harvestSpeed').locator('.status-badge')).toContainText(
+      '不明',
+    );
     await b.page.goto(`/observations${itemListQuery()}`);
     await expect(observationRows(b.page).filter({ hasText: 'ROBOT-01' })).toHaveCount(0);
     await shot(b.page, testInfo, 'scenario-config-b-deleted');

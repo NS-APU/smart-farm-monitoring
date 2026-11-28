@@ -70,7 +70,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await alignBrowserClock(page);
     await openAs(page, '/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('不明');
     await placeFile(request, 'environment-sensor', 'sensor.json', sensorJson(row(22)));
 
@@ -100,7 +100,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
 
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText('22.0℃');
   });
@@ -128,7 +128,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
       await openAs(page, '/');
 
       await expect(
-        page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+        page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
       ).toContainText(item.status);
     });
   }
@@ -242,11 +242,11 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await page.goto('/');
     await page.getByLabel('対象のハウス').selectOption({ label: 'ハウス1' });
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await page.getByLabel('対象のハウス').selectOption({ label: 'ハウス2' });
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText('40.0℃');
   });
@@ -260,7 +260,7 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await placeFile(request, 'environment-sensor', 'sensor.json', sensorJson(row(22)));
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await openAs(page, '/');
-    const badge = page.getByTestId('card-environmentalAdaptability').locator('.status-badge');
+    const badge = page.getByTestId('period-environmentalAdaptability').locator('.status-badge');
     await expect(badge).toContainText('正常');
 
     // 同じパスを、新しいデータで置き直す（HTTP は、1 設備 = 1 ファイル）
@@ -273,8 +273,11 @@ test.describe('基本フロー: 新しいセンサーデータを検知し、検
     await apiOk(request, 'POST', '/ingestion/environment-sensor/run');
     await page.reload();
 
-    // カードのステータスは、短期（最新の 40℃）と長期（期間の平均）のうち、悪い方（evaluation.md 5章）
-    await expect(badge).toContainText('異常');
+    // 「現在」（短期）は、最新の 40℃ で異常。「期間の評価」（長期）は、期間の平均で、異常ではない（別々の結果。evaluation.md 5章）
+    await expect(
+      page.getByTestId('current-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('異常');
+    await expect(badge).not.toContainText('異常');
   });
 });
 
@@ -367,7 +370,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     await shot(page, testInfo, 'uc09-missing');
     // 温度が欠損でも、取得できた指標（湿度・照度・CO2濃度）だけで評価する（温度は「—」）
     await page.goto('/');
-    const card = page.getByTestId('card-environmentalAdaptability');
+    const card = page.getByTestId('period-environmentalAdaptability');
     await expect(card.locator('.status-badge')).toContainText('正常');
     await expect(
       card.locator('dt', { hasText: '温度' }).locator('xpath=following-sibling::dd[1]'),
@@ -537,7 +540,7 @@ test.describe('代替フロー: 形式・項目が仕様と異なる場合は、
     }
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText('22.0℃');
   });

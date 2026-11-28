@@ -116,7 +116,7 @@ test.describe('シナリオ: ファイルサーバー・農業情報基盤の停
     // UC-01: 停止中も、ダッシュボードは動く（農業情報基盤・ファイルサーバーの状態に依存しない）
     await goToMenu(b.page, 'ダッシュボード');
     await expect(
-      b.page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      b.page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
 
     // 復旧（システム外）→ UC-15・UC-08: Bが、接続テストで復旧を確認し、即時取得で、ロボットのデータを取り込む

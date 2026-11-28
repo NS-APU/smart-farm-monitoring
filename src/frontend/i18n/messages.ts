@@ -116,7 +116,18 @@ export const MESSAGES = {
     summary: '状態ごとの観点の数',
     statusTable: '観点別の状態',
     statusTableViewpoint: '観点',
-    statusTableStatus: '状態',
+    statusTableCurrent: '現在',
+    statusTablePeriod: '期間の評価',
+    /** 短期を持たない観点の「現在」（表）。 */
+    noCurrent: '現在の評価はありません',
+    /** 状態ごとの観点の数の見出し。「現在」と「期間」を、別々に示す（#591）。 */
+    summaryCurrent: '現在（直近24時間）',
+    summaryPeriod: '期間の評価',
+    /** カードの区画の見出し。 */
+    currentTitle: '現在（直近24時間）',
+    periodTitle: '期間の評価',
+    /** 区画の評価の時刻。 */
+    cardEvaluatedAt: '評価',
     viewpointList: '観点ごとの診断と推奨アクション',
     summaryCountLabel: (statusLabel: string) => `${statusLabel}の観点の数`,
     /** ダッシュボードの対象（ハウス単位）。ヘッダーの「対象の設備」から移した（Issue #355）。 */
@@ -125,9 +136,6 @@ export const MESSAGES = {
     periodShort: '期間',
     refresh: '更新',
     refreshing: '更新中…',
-    /** カードのステータスが、短期の評価で決まっている（この期間の評価より悪い）ときの注記。 */
-    shortWorseNote: (shortLabel: string, longLabel: string) =>
-      `直近 24 時間の評価は「${shortLabel}」です（この期間の評価は「${longLabel}」）。ステータスは、悪い方を示しています`,
     horizon: '視点',
     horizonShort: '短期',
     horizonLong: '長期',

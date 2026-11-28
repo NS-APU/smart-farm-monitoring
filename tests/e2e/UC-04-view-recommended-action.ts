@@ -14,7 +14,7 @@
 
 import { expect, test } from '@playwright/test';
 import { gotoAuthenticated } from './support/helpers.ts';
-import { dashboardCard as card, openDashboard } from './support/pages.ts';
+import { dashboardCard as card, openDashboard, dashboardPeriod } from './support/pages.ts';
 import {
   costEfficiencyData,
   dataUtilizationData,
@@ -49,7 +49,7 @@ test.describe('基本フロー: 診断結果を確認し、推奨アクション
     await seed(request, environmentData({ temperature: 40 }));
 
     await openDashboard(page);
-    const action = card(page, 'environmentalAdaptability').locator('.action');
+    const action = dashboardPeriod(page, 'environmentalAdaptability').locator('.action');
     await expect(action).toContainText(`推奨アクション: ${ERROR_PREFIX}${ENVIRONMENT_ACTION}`);
     const onDashboard = (await action.textContent()) ?? '';
     await shot(page, testInfo, 'uc04-dashboard-action');
@@ -95,9 +95,9 @@ test.describe('基本フロー: 診断結果を確認し、推奨アクション
     });
 
     await openDashboard(page);
-    await expect(card(page, 'environmentalAdaptability').locator('.action')).toContainText(
-      ERROR_PREFIX,
-    );
+    await expect(
+      dashboardPeriod(page, 'environmentalAdaptability').locator('.action'),
+    ).toContainText(ERROR_PREFIX);
     await card(page, 'environmentalAdaptability').locator('h3').getByRole('link').click();
     await expect(page.getByTestId('recommended-action')).toContainText(ERROR_PREFIX);
     // 推奨アクションを確認している間に、定期の読み直し（約10秒）が走っても、参照だけである
@@ -128,12 +128,12 @@ test.describe('ステータスの同値分割: 推奨アクションは診断結
       await seed(request, environmentData({ temperature: item.temperature }));
 
       await openDashboard(page);
-      await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-        item.status,
-      );
-      await expect(card(page, 'environmentalAdaptability').locator('.action')).toContainText(
-        item.expected,
-      );
+      await expect(
+        dashboardPeriod(page, 'environmentalAdaptability').locator('.status-badge'),
+      ).toContainText(item.status);
+      await expect(
+        dashboardPeriod(page, 'environmentalAdaptability').locator('.action'),
+      ).toContainText(item.expected);
       await page.goto('/viewpoints/environmentalAdaptability');
       await expect(page.getByTestId('recommended-action')).toContainText(item.expected);
     });
@@ -147,7 +147,9 @@ test.describe('ステータスの同値分割: 推奨アクションは診断結
     await seed(request, {});
 
     await openDashboard(page);
-    await expect(card(page, 'operability').locator('.action')).toContainText(UNKNOWN_ACTION);
+    await expect(dashboardPeriod(page, 'operability').locator('.action')).toContainText(
+      UNKNOWN_ACTION,
+    );
     await page.goto('/viewpoints/operability');
     await expect(page.getByTestId('recommended-action')).toContainText(UNKNOWN_ACTION);
     const guide = page.getByTestId('unknown-guide');
@@ -171,9 +173,13 @@ test.describe('ステータスの同値分割: 推奨アクションは診断結
 
     await openDashboard(page);
 
-    await expect(card(page, 'safety').locator('.action')).toContainText(CAUTION_PREFIX);
-    await expect(card(page, 'safety').locator('.action')).not.toContainText(ERROR_PREFIX);
-    await expect(card(page, 'operability').locator('.action')).toContainText(ERROR_PREFIX);
+    await expect(dashboardPeriod(page, 'safety').locator('.action')).toContainText(CAUTION_PREFIX);
+    await expect(dashboardPeriod(page, 'safety').locator('.action')).not.toContainText(
+      ERROR_PREFIX,
+    );
+    await expect(dashboardPeriod(page, 'operability').locator('.action')).toContainText(
+      ERROR_PREFIX,
+    );
   });
 });
 
@@ -190,15 +196,18 @@ test.describe('視点（短期・長期）に応じた推奨アクション', ()
     );
 
     await openDashboard(page);
-    // ダッシュボードに、視点の切り替えはない。長期の推奨アクションを示し、ステータスが短期で決まっている旨を添える
+    // ダッシュボードに、視点の切り替えはない。「現在」（短期）と「期間の評価」（長期）の推奨アクションを、別々の区画で示す
     await expect(page.getByRole('radio', { name: '短期' })).toHaveCount(0);
-    await expect(card(page, 'environmentalAdaptability').locator('.action')).toContainText(
-      `${CAUTION_PREFIX}${ENVIRONMENT_ACTION}`,
-    );
-    await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '異常',
-    );
-    await expect(page.getByTestId('short-worse-environmentalAdaptability')).toBeVisible();
+    await expect(
+      page.getByTestId('period-environmentalAdaptability').locator('.action'),
+    ).toContainText(`${CAUTION_PREFIX}${ENVIRONMENT_ACTION}`);
+    await expect(
+      page.getByTestId('current-environmentalAdaptability').locator('.action'),
+    ).toContainText(`${ERROR_PREFIX}${ENVIRONMENT_ACTION}`);
+    await expect(
+      page.getByTestId('current-environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('異常');
+    await expect(page.getByTestId('short-worse-environmentalAdaptability')).toHaveCount(0);
     await shot(page, testInfo, 'uc04-dashboard-long');
 
     // 観点の詳細（長期で開く）。短期に切り替えると、短期の診断結果の推奨アクションになる
@@ -225,8 +234,12 @@ test.describe('評価が行われていない（評価前）の観点', () => {
     await prepare(request);
 
     await openDashboard(page);
-    await expect(card(page, 'operability').locator('.status-badge')).toContainText('不明');
-    await expect(card(page, 'operability').locator('.action')).toContainText(UNKNOWN_ACTION);
+    await expect(dashboardPeriod(page, 'operability').locator('.status-badge')).toContainText(
+      '不明',
+    );
+    await expect(dashboardPeriod(page, 'operability').locator('.action')).toContainText(
+      UNKNOWN_ACTION,
+    );
 
     await card(page, 'operability').locator('h3').getByRole('link').click();
     await expect(page.getByTestId('diagnosis')).toContainText('まだ評価されていません');
@@ -312,8 +325,10 @@ test.describe('観点ごとの推奨アクション（異常のとき。観点�
 
       await openDashboard(page);
 
-      await expect(card(page, viewpoint.id).locator('.status-badge')).toContainText('異常');
-      await expect(card(page, viewpoint.id).locator('.action')).toContainText(
+      await expect(dashboardPeriod(page, viewpoint.id).locator('.status-badge')).toContainText(
+        '異常',
+      );
+      await expect(dashboardPeriod(page, viewpoint.id).locator('.action')).toContainText(
         `${ERROR_PREFIX}${viewpoint.action}`,
       );
 
@@ -336,12 +351,12 @@ test.describe('観点ごとの推奨アクション（異常のとき。観点�
 
     await openDashboard(page);
 
-    await expect(card(page, 'environmentalAdaptability').locator('.status-badge')).toContainText(
-      '異常',
-    );
-    await expect(card(page, 'environmentalAdaptability').locator('.action')).toContainText(
-      `${ERROR_PREFIX}${ENVIRONMENT_ACTION}`,
-    );
+    await expect(
+      dashboardPeriod(page, 'environmentalAdaptability').locator('.status-badge'),
+    ).toContainText('異常');
+    await expect(
+      dashboardPeriod(page, 'environmentalAdaptability').locator('.action'),
+    ).toContainText(`${ERROR_PREFIX}${ENVIRONMENT_ACTION}`);
 
     // カードから観点の詳細へ進み、同じ推奨アクションを確認する
     await card(page, 'environmentalAdaptability').locator('h3').getByRole('link').click();

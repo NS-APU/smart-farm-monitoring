@@ -31,7 +31,7 @@ export async function expectDashboardShown(page: Page, equipmentName?: string): 
     );
   }
   await expect(loadingView(page)).toHaveCount(0);
-  await expect(page.getByTestId('summary-NORMAL')).toBeVisible();
+  await expect(page.getByTestId('summary-period-NORMAL')).toBeVisible();
   await expect(page.locator('.viewpoint-card').first()).toBeVisible();
 }
 

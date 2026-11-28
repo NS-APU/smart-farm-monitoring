@@ -975,6 +975,101 @@ describe('ダッシュボードのメトリクスごとの判定（UC-01。FR-6.
   });
 });
 
+describe('ダッシュボードの「現在」と「期間」（#591。FR-5.6）', () => {
+  /** 温度: 直近の値は 40℃（異常）、その前の 4 回は 20℃。期間（7 日）の平均は 24℃（正常）。 */
+  async function seedSpike(context: Context): Promise<void> {
+    await seed(context, [
+      ...[2, 3, 4, 5].flatMap((hours) => environment(20, hoursAgo(hours))),
+      ...environment(40, hoursAgo(1)),
+    ]);
+  }
+
+  it('短期を持つ観点のカードは、「現在」（短期の評価。直近の値）と「期間」（選んだ期間の評価。平均）を、別々に返す', async () => {
+    const context = await setup();
+    await seedSpike(context);
+
+    const dashboard = DashboardResponseSchema.parse((await get(context, '/dashboard')).body);
+
+    const card = dashboard.viewpoints.find(
+      (item) => item.viewpointId === 'environmentalAdaptability',
+    );
+    expect(card?.current).toMatchObject({
+      status: 'ERROR',
+      metrics: { temperatureCelsius: 40 },
+      metricStatuses: { temperatureCelsius: 'ERROR' },
+    });
+    expect(card?.statuses.long).toBe('NORMAL');
+    expect(card?.metrics.temperatureCelsius).toBe(24);
+    expect(card?.current?.diagnosticMessage).toContain('温度');
+    expect(card?.current?.recommendedAction).not.toBe('');
+    // 「現在」の判定の範囲は、直近 24 時間
+    expect(
+      Date.parse(card?.current?.evaluatedTo ?? '') - Date.parse(card?.current?.evaluatedFrom ?? ''),
+    ).toBe(DAY_MS);
+    // 評価の時刻は、「現在」と「期間」で別に持つ
+    expect(card?.current?.evaluatedAt).toBe(TEST_NOW.toISOString());
+    expect(card?.evaluatedAt).toBe(TEST_NOW.toISOString());
+  });
+
+  it('短期を持たない観点（コスト効率）は、「現在」がない（null）。評価前のカードも、「現在」・評価日時がない', async () => {
+    const context = await setup();
+    const before = DashboardResponseSchema.parse((await get(context, '/dashboard')).body);
+    await seedSpike(context);
+
+    const after = DashboardResponseSchema.parse((await get(context, '/dashboard')).body);
+
+    expect(
+      before.viewpoints.every((card) => card.current === null && card.evaluatedAt === null),
+    ).toBe(true);
+    const costEfficiency = after.viewpoints.find((item) => item.viewpointId === 'costEfficiency');
+    expect(costEfficiency?.current).toBeNull();
+    expect(costEfficiency?.evaluatedAt).not.toBeNull();
+  });
+
+  it('観点の数は、「現在」と「期間」を、別々に数える（混ぜない）。短期を持たない観点は、「現在」の数に含めない', async () => {
+    const context = await setup();
+    await seedSpike(context);
+
+    const dashboard = DashboardResponseSchema.parse((await get(context, '/dashboard')).body);
+
+    const total = (counts: Record<string, number>) =>
+      Object.values(counts).reduce((sum, count) => sum + count, 0);
+    const countOf = (status: string, statuses: readonly string[]) =>
+      statuses.filter((item) => item === status).length;
+    const environmental = dashboard.viewpoints.find(
+      (card) => card.viewpointId === 'environmentalAdaptability',
+    );
+    // 環境適応性は、「現在」は異常（直近 40℃）、「期間」は正常（平均 24℃）。それぞれの数に、それぞれの結果が入る
+    expect([environmental?.current?.status, environmental?.statuses.long]).toEqual([
+      'ERROR',
+      'NORMAL',
+    ]);
+    expect(dashboard.currentSummary.ERROR).toBe(
+      countOf(
+        'ERROR',
+        dashboard.viewpoints.flatMap((card) =>
+          card.current === null ? [] : [card.current.status],
+        ),
+      ),
+    );
+    expect(dashboard.periodSummary.ERROR).toBe(
+      countOf(
+        'ERROR',
+        dashboard.viewpoints.map((card) => card.statuses.long),
+      ),
+    );
+    expect(dashboard.currentSummary.ERROR).toBeGreaterThanOrEqual(1);
+    expect(total(dashboard.currentSummary)).toBe(
+      dashboard.viewpoints.filter((card) => card.current !== null).length,
+    );
+    expect(total(dashboard.periodSummary)).toBe(dashboard.viewpoints.length);
+    // 従来の「悪い方」の合成の件数（通知・連携の基準）は、そのまま
+    expect(dashboard.summary.ERROR).toBe(
+      dashboard.viewpoints.filter((card) => card.status === 'ERROR').length,
+    );
+  });
+});
+
 describe('観測値の一覧（元データ。GET /observations）', () => {
   async function withData() {
     const context = await setup();

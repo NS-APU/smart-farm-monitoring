@@ -59,7 +59,7 @@ const observationRows = (page: Page) => page.getByTestId('observation-row');
 
 async function dashboardStatus(page: Page, viewpointId: string): Promise<string> {
   await page.goto('/');
-  const badge = page.getByTestId(`card-${viewpointId}`).locator('.status-badge');
+  const badge = page.getByTestId(`period-${viewpointId}`).locator('.status-badge');
   await expect(badge).toBeVisible();
   return (await badge.textContent())?.replace(/[^正常注意異常不明]/g, '') ?? '';
 }
@@ -104,7 +104,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
     // 取り込み前: 評価の元データがないため、収穫速度は「不明」
     await alignBrowserClock(page);
     await openAs(page, '/');
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '不明',
     );
     // 1. 新しいロボットデータが、ファイルサーバー上に配置される
@@ -240,7 +240,7 @@ test.describe('基本フロー: 新しいロボットデータを検知し、検
       await alignBrowserClock(page);
       await openAs(page, '/');
 
-      await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+      await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
         item.status,
       );
     }

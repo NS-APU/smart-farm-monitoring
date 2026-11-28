@@ -5,8 +5,10 @@
  * ステータスごとの観点の数、観点別の状態の一覧（表）、観点のカード（ステータス・主要メトリクスと判定・診断メッセージ・推奨アクション）。
  * 評価が更新されていない（最終の評価から 15 分以上）ときは、警告を出す。古い設備があるときは、警告を開くと、設備名・最終の受信日時・基準（分）の一覧を示す
  * （Issue #158）。最終の評価・最終のデータ取得の横に、ヘルプヒントを置く。
- * 約10秒間隔で最新の評価結果を読み直す（タブの表示中のみ）。視点（短期・長期）の切り替えはない（長期の評価を、選んだ期間で示す。
- * カードのステータスは、短期・長期のうち悪い方〔通知と同じ〕。短期の方が悪いときは、その旨を、カードに示す）。Issue #355・#356。
+ * 約10秒間隔で最新の評価結果を読み直す（タブの表示中のみ）。視点（短期・長期）の切り替えはない。
+ * カードは、「現在」（直近 24 時間の評価。短期を持つ観点だけ）と「期間」（選んだ期間の評価）の 2 区画で示す。
+ * 値・状態・診断・推奨アクションは、区画ごとに、1 回の評価の結果だけから示し、混ぜない。評価の時刻も、区画ごとに示す。
+ * 状態の数・一覧の状態も、「現在」と「期間」を、別々に示す（FR-5.6。#591）。Issue #355・#356。
  * 期間は、URL のクエリで保持する。カード・表の行を選ぶと、観点の詳細（SC-03。満足度は SC-04）を、右からのドロワーで開く
  * （URL は `/?viewpoint=観点`。ダッシュボードは、描画したまま保つ。Issue #357）。
  */
@@ -27,7 +29,12 @@ import {
   type Horizon,
   type PeriodDays,
 } from '@smart-farm/shared/constants/status';
-import type { DashboardResponse, ViewpointCard } from '@smart-farm/shared/schemas/evaluation';
+import type {
+  DashboardResponse,
+  MetricValues,
+  StatusDetail,
+  ViewpointCard,
+} from '@smart-farm/shared/schemas/evaluation';
 import { getDashboard } from '../api/endpoints.ts';
 import { useAuth } from '../auth/auth-context.tsx';
 import { useAppState } from '../components/app-state.tsx';
@@ -126,18 +133,102 @@ function MetricMark(props: { readonly status: EvaluationStatus | undefined }): R
   );
 }
 
+/** 主要メトリクスと、判定に使ったステータスコード。どちらもなければ、示さない。 */
+function MetricList(props: {
+  readonly metrics: MetricValues;
+  readonly metricStatuses: Readonly<Record<string, EvaluationStatus>>;
+  readonly statusDetail: StatusDetail | null;
+}): ReactNode {
+  const metrics = Object.entries(props.metrics);
+  if (metrics.length === 0 && props.statusDetail === null) {
+    return null;
+  }
+  return (
+    <dl className="metrics">
+      {metrics.map(([metricId, value]) => (
+        <div key={metricId}>
+          <dt>
+            <MetricLabel metricId={metricId} />
+          </dt>
+          <dd
+            className={`metric-value metric-${props.metricStatuses[metricId]?.toLowerCase() ?? 'none'}`}
+          >
+            <MetricMark status={props.metricStatuses[metricId]} />
+            {formatMetricValue(metricId, value)}
+          </dd>
+        </div>
+      ))}
+      {props.statusDetail === null ? null : (
+        <div>
+          <dt>
+            <MetricLabel metricId={STATUS_INDICATOR_ID} />
+          </dt>
+          <dd className={`metric-value metric-${props.statusDetail.category.toLowerCase()}`}>
+            <MetricMark status={props.statusDetail.category} />
+            {props.statusDetail.name}
+          </dd>
+        </div>
+      )}
+    </dl>
+  );
+}
+
+/**
+ * カードの 1 区画（「現在」または「期間」）。値・状態・診断・推奨アクションは、1 回の評価の結果だけから示し、評価の時刻を添える。
+ * 別の評価の結果とは、混ぜない（FR-5.6。#591）。
+ */
+function ResultSection(props: {
+  readonly testId: string;
+  readonly title: string;
+  readonly status: EvaluationStatus;
+  readonly metrics: MetricValues;
+  readonly metricStatuses: Readonly<Record<string, EvaluationStatus>>;
+  readonly statusDetail: StatusDetail | null;
+  readonly diagnosticMessage: string;
+  readonly recommendedAction: string;
+  readonly evaluatedAt: string | null;
+  readonly isCustomCriteria: boolean;
+  readonly children?: ReactNode;
+}): ReactNode {
+  return (
+    <section className="card-section" data-testid={props.testId}>
+      <h4 className="card-section-head">
+        <span>{props.title}</span>
+        <StatusBadge status={props.status} />
+      </h4>
+      <MetricList
+        metrics={props.metrics}
+        metricStatuses={props.metricStatuses}
+        statusDetail={props.statusDetail}
+      />
+      <p className="diagnostic">{props.diagnosticMessage}</p>
+      <p className="action">
+        <strong>{MESSAGES.dashboard.recommendedAction}: </strong>
+        {props.recommendedAction}
+      </p>
+      {props.children}
+      {props.evaluatedAt === null ? null : (
+        <p className="evaluated-at" data-testid={`${props.testId}-evaluated-at`}>
+          {MESSAGES.dashboard.cardEvaluatedAt}: {formatDateTimeMinutesJst(props.evaluatedAt)}
+        </p>
+      )}
+      {props.isCustomCriteria ? (
+        <p className="custom-criteria">{MESSAGES.dashboard.customCriteria}</p>
+      ) : null}
+    </section>
+  );
+}
+
 function ViewpointCardView(props: {
   readonly card: ViewpointCard;
   readonly path: string;
   /** 対象のハウス（「対応の結果を記録する」の対象の設備）。 */
   readonly equipmentId: string;
-  /** カードに、判定の対象期間を示すか（共通の期間と同じなら、ダッシュボードの上部に示すため、示さない）。 */
+  /** 「期間」に、判定の対象期間を示すか（共通の期間と同じなら、ダッシュボードの上部に示すため、示さない）。 */
   readonly showPeriod: boolean;
 }): ReactNode {
   const { card, path, equipmentId } = props;
-  const metrics = Object.entries(card.metrics);
-  // ステータスは、短期・長期のうち悪い方。短期の方が悪い（表示する長期の評価と違う）ときは、その旨を示す
-  const shortWorse = card.statuses.short !== null && card.status !== card.statuses.long;
+  // 枠の色は、「現在」「期間」のうち悪い方（目を引くため。通知と同じ基準）。状態の表示は、区画ごと
   return (
     <li
       className={`viewpoint-card status-border-${card.status.toLowerCase()}`}
@@ -149,59 +240,41 @@ function ViewpointCardView(props: {
         <h3>
           <Link to={path}>{card.name}</Link>
         </h3>
-        <StatusBadge status={card.status} />
       </div>
-      {metrics.length === 0 && card.statusDetail === null ? null : (
-        <dl className="metrics">
-          {metrics.map(([metricId, value]) => (
-            <div key={metricId}>
-              <dt>
-                <MetricLabel metricId={metricId} />
-              </dt>
-              <dd
-                className={`metric-value metric-${card.metricStatuses[metricId]?.toLowerCase() ?? 'none'}`}
-              >
-                <MetricMark status={card.metricStatuses[metricId]} />
-                {formatMetricValue(metricId, value)}
-              </dd>
-            </div>
-          ))}
-          {card.statusDetail === null ? null : (
-            <div>
-              <dt>
-                <MetricLabel metricId={STATUS_INDICATOR_ID} />
-              </dt>
-              <dd className={`metric-value metric-${card.statusDetail.category.toLowerCase()}`}>
-                <MetricMark status={card.statusDetail.category} />
-                {card.statusDetail.name}
-              </dd>
-            </div>
-          )}
-        </dl>
+      {card.current === null ? null : (
+        <ResultSection
+          testId={`current-${card.viewpointId}`}
+          title={MESSAGES.dashboard.currentTitle}
+          status={card.current.status}
+          metrics={card.current.metrics}
+          metricStatuses={card.current.metricStatuses}
+          statusDetail={card.current.statusDetail}
+          diagnosticMessage={card.current.diagnosticMessage}
+          recommendedAction={card.current.recommendedAction}
+          evaluatedAt={card.current.evaluatedAt}
+          isCustomCriteria={card.current.isCustomCriteria}
+        />
       )}
-      <p className="diagnostic">{card.diagnosticMessage}</p>
-      <p className="action">
-        <strong>{MESSAGES.dashboard.recommendedAction}: </strong>
-        {card.recommendedAction}
-      </p>
+      <ResultSection
+        testId={`period-${card.viewpointId}`}
+        title={MESSAGES.dashboard.periodTitle}
+        status={card.statuses.long}
+        metrics={card.metrics}
+        metricStatuses={card.metricStatuses}
+        statusDetail={card.statusDetail}
+        diagnosticMessage={card.diagnosticMessage}
+        recommendedAction={card.recommendedAction}
+        evaluatedAt={card.evaluatedAt}
+        isCustomCriteria={card.isCustomCriteria}
+      >
+        {props.showPeriod && card.evaluatedFrom !== null ? (
+          <p className="evaluated-period">
+            {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeMinutesJst(card.evaluatedFrom)} 〜{' '}
+            {formatDateTimeMinutesJst(card.evaluatedTo)}
+          </p>
+        ) : null}
+      </ResultSection>
       <RecordResponseLink status={card.status} equipmentId={equipmentId} />
-      {shortWorse && card.statuses.short !== null ? (
-        <p className="evaluated-period" data-testid={`short-worse-${card.viewpointId}`}>
-          {MESSAGES.dashboard.shortWorseNote(
-            STATUS_LABELS[card.statuses.short],
-            STATUS_LABELS[card.statuses.long],
-          )}
-        </p>
-      ) : null}
-      {props.showPeriod && card.evaluatedFrom !== null ? (
-        <p className="evaluated-period">
-          {MESSAGES.dashboard.evaluatedPeriod}: {formatDateTimeMinutesJst(card.evaluatedFrom)} 〜{' '}
-          {formatDateTimeMinutesJst(card.evaluatedTo)}
-        </p>
-      ) : null}
-      {card.isCustomCriteria ? (
-        <p className="custom-criteria">{MESSAGES.dashboard.customCriteria}</p>
-      ) : null}
     </li>
   );
 }
@@ -463,6 +536,37 @@ function StaleEquipmentList(props: {
   );
 }
 
+/** ステータスごとの観点の数（タイル）。「現在」と「期間」を、別々に示す（`scope`）。 */
+function SummaryTiles(props: {
+  readonly scope: 'current' | 'period';
+  readonly label: string;
+  readonly counts: DashboardResponse['summary'];
+}): ReactNode {
+  return (
+    <>
+      <h3 className="summary-scope">{props.label}</h3>
+      <ul className="summary" data-testid={`summary-${props.scope}`}>
+        {EVALUATION_STATUSES.map((status) => (
+          <li
+            key={status}
+            className={`summary-tile summary-${status.toLowerCase()}`}
+            data-testid={`summary-${props.scope}-${status}`}
+          >
+            <Icon name={STATUS_ICON[status]} size={30} />
+            <span className="summary-count">{props.counts[status]}</span>
+            <span className="summary-label" aria-hidden="true">
+              {STATUS_LABELS[status]}
+            </span>
+            <span className="visually-hidden">
+              {MESSAGES.dashboard.summaryCountLabel(STATUS_LABELS[status])}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 function DashboardContent(props: {
   readonly data: DashboardResponse;
   readonly selectedPeriodDays: PeriodDays | undefined;
@@ -528,31 +632,24 @@ function DashboardContent(props: {
       <StatusLegend />
 
       <h2>{MESSAGES.dashboard.summary}</h2>
-      <ul className="summary" aria-label={MESSAGES.dashboard.summary}>
-        {EVALUATION_STATUSES.map((status) => (
-          <li
-            key={status}
-            className={`summary-tile summary-${status.toLowerCase()}`}
-            data-testid={`summary-${status}`}
-          >
-            <Icon name={STATUS_ICON[status]} size={30} />
-            <span className="summary-count">{data.summary[status]}</span>
-            <span className="summary-label" aria-hidden="true">
-              {STATUS_LABELS[status]}
-            </span>
-            <span className="visually-hidden">
-              {MESSAGES.dashboard.summaryCountLabel(STATUS_LABELS[status])}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <SummaryTiles
+        scope="current"
+        label={MESSAGES.dashboard.summaryCurrent}
+        counts={data.currentSummary}
+      />
+      <SummaryTiles
+        scope="period"
+        label={MESSAGES.dashboard.summaryPeriod}
+        counts={data.periodSummary}
+      />
 
       <h2>{MESSAGES.dashboard.statusTable}</h2>
       <table className="status-table" data-testid="viewpoint-status-table">
         <thead>
           <tr>
             <th scope="col">{MESSAGES.dashboard.statusTableViewpoint}</th>
-            <th scope="col">{MESSAGES.dashboard.statusTableStatus}</th>
+            <th scope="col">{MESSAGES.dashboard.statusTableCurrent}</th>
+            <th scope="col">{MESSAGES.dashboard.statusTablePeriod}</th>
           </tr>
         </thead>
         <tbody>
@@ -562,8 +659,18 @@ function DashboardContent(props: {
                 <ViewpointIcon viewpointId={card.viewpointId} size={18} />
                 <Link to={path}>{card.name}</Link>
               </th>
-              <td>
-                <StatusBadge status={card.status} />
+              <td data-testid={`status-current-${card.viewpointId}`}>
+                {card.current === null ? (
+                  <>
+                    <span aria-hidden="true">―</span>
+                    <span className="visually-hidden">{MESSAGES.dashboard.noCurrent}</span>
+                  </>
+                ) : (
+                  <StatusBadge status={card.current.status} />
+                )}
+              </td>
+              <td data-testid={`status-period-${card.viewpointId}`}>
+                <StatusBadge status={card.statuses.long} />
               </td>
             </tr>
           ))}

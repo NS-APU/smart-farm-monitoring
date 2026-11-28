@@ -11,6 +11,7 @@ import { App } from '../../../src/frontend/app.tsx';
 import {
   WORKER_LOGIN,
   card,
+  currentResult,
   createFakeFetch,
   createMemorySession,
   dashboard,
@@ -571,18 +572,26 @@ describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
       within(table)
         .getAllByRole('columnheader')
         .map((header) => header.textContent),
-    ).toEqual(['観点', '状態']);
+    ).toEqual(['観点', '現在', '期間の評価']);
     const rows = within(table).getAllByRole('row').slice(1);
     expect(rows.map((row) => row.textContent)).toEqual([
       expect.stringContaining('安全性'),
       expect.stringContaining('収穫速度'),
       expect.stringContaining('満足度'),
     ]);
-    expect(rows.map((row) => within(row).getByText(/^(正常|注意|異常|不明)$/).textContent)).toEqual(
-      ['正常', '注意', '不明'],
-    );
+    // 「期間の評価」の状態（「現在」は、短期の評価がない観点では、「―」）
+    expect(
+      ['safety', 'harvestSpeed', 'satisfaction'].map(
+        (id) => screen.getByTestId(`status-period-${id}`).textContent,
+      ),
+    ).toEqual(['正常', '注意', '不明']);
+    expect(
+      ['safety', 'harvestSpeed', 'satisfaction'].map(
+        (id) => screen.getByTestId(`status-current-${id}`).textContent,
+      ),
+    ).toEqual(['―現在の評価はありません', '―現在の評価はありません', '―現在の評価はありません']);
     // 件数のタイルの後ろ、カードの前に並ぶ
-    const tiles = screen.getByTestId('summary-NORMAL');
+    const tiles = screen.getByTestId('summary-period-NORMAL');
     const firstCard = screen.getByTestId('card-safety');
     expect(tiles.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
@@ -590,7 +599,7 @@ describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
     ).toBeTruthy();
   });
 
-  it('カードのステータスが、短期（直近 24 時間）の評価で決まっている（この期間の評価より悪い）ときは、その旨を示す', async () => {
+  it('カードは、「現在」（短期の評価）と「期間の評価」を、別々の区画で示す。値・状態・診断・推奨アクション・評価の時刻は、区画ごとの 1 回の評価の結果。悪い方の合成の注記は、ない（#591）', async () => {
     renderPath('/', {
       dashboard: () =>
         jsonResponse(
@@ -599,12 +608,16 @@ describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
               card({
                 status: 'ERROR',
                 statuses: { short: 'ERROR', long: 'NORMAL' },
-              }),
-              card({
-                viewpointId: 'harvestSpeed',
-                name: '収穫速度',
-                status: 'CAUTION',
-                statuses: { short: 'NORMAL', long: 'CAUTION' },
+                diagnosticMessage: '安全性: 正常（期間）',
+                recommendedAction: '期間の推奨アクション',
+                current: currentResult({
+                  status: 'ERROR',
+                  metrics: { emergencyStopPerHour: 3, nearMissPerHour: null },
+                  metricStatuses: { emergencyStopPerHour: 'ERROR' },
+                  diagnosticMessage: '安全性: 異常（現在）',
+                  recommendedAction: '現在の推奨アクション',
+                  evaluatedAt: '2026-10-09T03:04:00.000Z',
+                }),
               }),
               card({
                 viewpointId: 'durability',
@@ -619,21 +632,50 @@ describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(screen.getByTestId('short-worse-safety').textContent).toBe(
-      '直近 24 時間の評価は「異常」です（この期間の評価は「正常」）。ステータスは、悪い方を示しています',
+    const current = screen.getByTestId('current-safety');
+    const period = screen.getByTestId('period-safety');
+    expect(within(current).getByRole('heading', { level: 4 }).textContent).toContain(
+      '現在（直近24時間）',
     );
-    // 長期の評価と同じ（長期が悪い・短期の評価がない）カードには、示さない
-    expect(screen.queryByTestId('short-worse-harvestSpeed')).toBeNull();
-    expect(screen.queryByTestId('short-worse-durability')).toBeNull();
+    expect(within(current).getByRole('heading', { level: 4 }).textContent).toContain('異常');
+    expect(current.textContent).toContain('安全性: 異常（現在）');
+    expect(current.textContent).toContain('現在の推奨アクション');
+    expect(current.textContent).toContain('3.000回/時間');
+    expect(screen.getByTestId('current-safety-evaluated-at').textContent).toBe(
+      '評価: 2026/10/09 12:04',
+    );
+    expect(within(period).getByRole('heading', { level: 4 }).textContent).toContain('期間の評価');
+    expect(within(period).getByRole('heading', { level: 4 }).textContent).toContain('正常');
+    expect(period.textContent).toContain('安全性: 正常（期間）');
+    expect(period.textContent).toContain('期間の推奨アクション');
+    expect(period.textContent).not.toContain('現在の推奨アクション');
+    expect(screen.getByTestId('period-safety-evaluated-at').textContent).toBe(
+      '評価: 2026/10/09 12:00',
+    );
+    // 短期の評価を持たない観点は、「現在」の区画がない（「期間の評価」だけ）
+    expect(screen.queryByTestId('current-durability')).toBeNull();
+    expect(screen.getByTestId('period-durability')).toBeDefined();
+    // 以前の「悪い方」の合成の注記は、ない
+    expect(screen.queryByTestId('short-worse-safety')).toBeNull();
   });
 
-  it('この期間の評価が不明で、短期の評価だけがあるときも、その旨を示す', async () => {
+  it('状態ごとの観点の数は、「現在」と「期間の評価」を、別々に示す（短期を持たない観点は、「現在」の数に含めない）', async () => {
     renderPath('/', {
       dashboard: () =>
         jsonResponse(
           dashboard({
             viewpoints: [
-              card({ status: 'CAUTION', statuses: { short: 'CAUTION', long: 'UNKNOWN' } }),
+              card({
+                status: 'ERROR',
+                statuses: { short: 'ERROR', long: 'NORMAL' },
+                current: currentResult({ status: 'ERROR' }),
+              }),
+              card({
+                viewpointId: 'durability',
+                name: '耐久性',
+                status: 'NORMAL',
+                statuses: { short: null, long: 'NORMAL' },
+              }),
             ],
           }),
         ),
@@ -641,9 +683,15 @@ describe('ダッシュボード: 状態の見せ方（Issue #356）', () => {
 
     await screen.findByRole('heading', { name: '安全性' });
 
-    expect(screen.getByTestId('short-worse-safety').textContent).toContain(
-      '直近 24 時間の評価は「注意」です（この期間の評価は「不明」）',
-    );
+    expect(
+      within(screen.getByTestId('summary-current')).getByTestId('summary-current-ERROR')
+        .textContent,
+    ).toContain('1');
+    expect(screen.getByTestId('summary-current-NORMAL').textContent).toContain('0');
+    expect(screen.getByTestId('summary-period-ERROR').textContent).toContain('0');
+    expect(screen.getByTestId('summary-period-NORMAL').textContent).toContain('2');
+    expect(screen.getByRole('heading', { level: 3, name: '現在（直近24時間）' })).toBeDefined();
+    expect(screen.getByRole('heading', { level: 3, name: '期間の評価' })).toBeDefined();
   });
 });
 

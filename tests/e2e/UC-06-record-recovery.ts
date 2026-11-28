@@ -107,7 +107,7 @@ test.describe('基本フロー: 復旧対応の結果を入力し、保存して
 
     // 評価が更新され、ダッシュボードに反映される（MTTR = 90分 ÷ 1回 = 1.50時間）
     await result.getByRole('link', { name: 'ダッシュボードで確認' }).click();
-    const maintainability = page.getByTestId('card-maintainability');
+    const maintainability = page.getByTestId('period-maintainability');
     await expect(maintainability.locator('.status-badge')).toContainText('正常');
     await expect(maintainability).toContainText('1.50時間');
   });
