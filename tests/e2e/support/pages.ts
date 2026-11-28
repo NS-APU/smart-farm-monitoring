@@ -22,6 +22,16 @@ export function dashboardCard(page: Page, viewpointId: string): Locator {
   return page.getByTestId(`card-${viewpointId}`);
 }
 
+/** ダッシュボードのカードの「期間の評価」の区画（長期の評価。状態・指標・診断・推奨アクション・評価の時刻）。 */
+export function dashboardPeriod(page: Page, viewpointId: string): Locator {
+  return page.getByTestId(`period-${viewpointId}`);
+}
+
+/** ダッシュボードのカードの「現在」の区画（短期の評価。短期を持たない観点には、ない）。 */
+export function dashboardCurrent(page: Page, viewpointId: string): Locator {
+  return page.getByTestId(`current-${viewpointId}`);
+}
+
 /**
  * ダッシュボードを開く（ログインしていなければ、ログインする）。ブラウザの時計は、サーバーの固定した時計に揃える
  * （評価が更新されていない警告〔最終の評価から 15 分以上。#158〕は、ブラウザの時計と比べるため）。揃える時刻を指定すれば、その時刻にする。

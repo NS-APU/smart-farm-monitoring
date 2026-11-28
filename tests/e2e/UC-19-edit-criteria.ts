@@ -179,7 +179,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     // ダッシュボードにも反映される（カスタムの判断基準の表示）
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
     await expect(page.getByTestId('card-environmentalAdaptability')).toContainText(
       'カスタムの判断基準',
@@ -213,7 +213,7 @@ test.describe('基本フロー: 現在の閾値（上限型・下限型・範囲
     );
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('注意');
     await expect(page.getByTestId('card-environmentalAdaptability')).not.toContainText(
       'カスタムの判断基準',
@@ -261,7 +261,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
     await save(page).click();
     await expect(notice(page)).toBeVisible();
     await page.goto('/');
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '正常',
     );
 
@@ -270,7 +270,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
     await save(page).click();
     await expect(notice(page)).toBeVisible();
     await page.goto('/');
-    await expect(page.getByTestId('card-harvestSpeed').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestSpeed').locator('.status-badge')).toContainText(
       '注意',
     );
   });
@@ -289,7 +289,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
     await expect(notice(page)).toBeVisible();
 
     await page.goto('/');
-    await expect(page.getByTestId('card-harvestAccuracy').locator('.status-badge')).toContainText(
+    await expect(page.getByTestId('period-harvestAccuracy').locator('.status-badge')).toContainText(
       '注意',
     );
   });
@@ -308,7 +308,7 @@ test.describe('閾値の型ごとの、変更後の判定（境界は「以上�
 
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('注意');
   });
 
@@ -1069,7 +1069,7 @@ test.describe('閾値のスライダー・帯・現在値と変更後の値（Is
     await expect(meta(page, 'temperatureCelsius', 1)).toContainText('既定: 10℃（変更済み）');
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('注意');
   });
 
@@ -1412,7 +1412,7 @@ test.describe('影響の確認（SC-13-2。Issue #165。ADR-0017 の D-24）', (
     // 保存後のダッシュボードの状態は、確認した「変更後」（正常）と同じ
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('正常');
   });
 

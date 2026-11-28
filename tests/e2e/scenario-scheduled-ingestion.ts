@@ -37,7 +37,7 @@ import { shot } from './support/viewpoint-scenarios.ts';
 const staleWarning = (page: Page) =>
   page.getByRole('alert').filter({ hasText: 'データが古くなっています' });
 const environmentBadge = (page: Page) =>
-  page.getByTestId('card-environmentalAdaptability').locator('.status-badge');
+  page.getByTestId('current-environmentalAdaptability').locator('.status-badge');
 
 /** 取り込みのログ（API）の件数。取り込み元ごと。 */
 async function logCount(

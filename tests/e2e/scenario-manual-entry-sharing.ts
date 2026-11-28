@@ -38,7 +38,7 @@ const measurementRows = (page: Page) => page.getByTestId('measurement-row');
 const entryRows = (page: Page) => page.getByTestId('entry-row');
 const auditRows = (page: Page) => page.getByTestId('audit-row');
 const environmentBadge = (page: Page) =>
-  page.getByTestId('card-environmentalAdaptability').locator('.status-badge');
+  page.getByTestId('period-environmentalAdaptability').locator('.status-badge');
 
 test.describe('シナリオ: 手動入力のデータの共有・修正・削除（UC-07 → UC-10 → UC-22 → UC-20 → UC-02・04 → UC-18 → UC-01 → UC-20 → UC-18）', () => {
   test('Aが入力した異常な値を、Bが通知・一覧・診断で確認して修正し、Aが改善と履歴を確認する。Aが削除すると、Bの画面からも消え、観点は不明になる', async ({

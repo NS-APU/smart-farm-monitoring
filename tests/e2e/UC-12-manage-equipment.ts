@@ -252,7 +252,7 @@ test.describe('基本フロー: ハウスを登録し、ロボット・環境セ
     ).toHaveCount(4);
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
   });
 

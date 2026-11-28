@@ -452,7 +452,7 @@ test.describe('通知から観点のドロワーへ移る（#159 の SC-05-6）'
     // ダッシュボード（背面）の対象のハウスは、ハウス2。ハウス2 の評価（40℃ の異常）を示す
     await expect(page.getByLabel('対象のハウス')).toHaveValue('HOUSE-02');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
     // 閉じても、対象のハウスは、ハウス2 のまま
     await page.keyboard.press('Escape');

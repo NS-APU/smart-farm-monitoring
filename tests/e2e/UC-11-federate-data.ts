@@ -321,7 +321,7 @@ test.describe('代替フロー: 農業情報基盤が停止している場合は
     // 他のユースケースは継続する（UC-01〜UC-10）
     await page.goto('/');
     await expect(
-      page.getByTestId('card-environmentalAdaptability').locator('.status-badge'),
+      page.getByTestId('period-environmentalAdaptability').locator('.status-badge'),
     ).toContainText('異常');
     await page.goto('/notifications');
     await expect(page.getByTestId('notification-row').first()).toBeVisible();
